@@ -404,6 +404,16 @@ def normalise_stream_event(
                         "lastMessageAt": out.event_ts or out.now,
                     }
                 )
+                # A note replaces, so only a message that carried one moves it.
+                # A subagent writes none, for the reason it mints no document:
+                # `read_tags` did not run for it.
+                if tagged and tagged.note:
+                    out.agent(
+                        {
+                            "lastNote": tagged.note,
+                            "lastNoteAt": out.event_ts or out.now,
+                        }
+                    )
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(

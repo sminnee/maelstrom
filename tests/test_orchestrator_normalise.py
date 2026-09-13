@@ -54,6 +54,8 @@ def make_agent(**over) -> dict:
         "waitingOn": "",
         "lastMessage": "",
         "lastMessageAt": "",
+        "lastNote": "",
+        "lastNoteAt": "",
         "costUsd": 0,
         "totalTokens": 0,
         "contextTokens": 0,
@@ -1522,6 +1524,82 @@ def test_a_subagent_writes_no_document():
     )
     replayed.take(out.events)
     assert documents_of(replayed) == []
+
+
+# -- the note an agent writes to say what it is doing --
+
+
+def note_of(replayed: Replayed) -> str:
+    return agent_of(replayed).get("lastNote", "")
+
+
+def replay_note(text: str, **agent_over) -> Replayed:
+    """One tagged message into a seed agent, for what the note becomes."""
+    state = seed([make_agent(id="ag1", state="idle", **agent_over)])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state, context_for_agent("ag1"), tag_message(text), NOW, read_file=fake_reader()
+    )
+    replayed.take(out.events)
+    return replayed
+
+
+def test_a_note_tag_becomes_the_agents_note():
+    """The answer to "what is this agent up to", in the agent's own words."""
+    replayed = replay_note("<note>Rebasing onto main</note>")
+    assert note_of(replayed) == "Rebasing onto main"
+
+
+def test_the_note_tag_is_cut_from_the_message_the_transcript_shows():
+    """A note is a field, not prose the reader sees twice."""
+    replayed = replay_note("Working on it.\n\n<note>Rebasing onto main</note>")
+    [message] = items_of(replayed, "message")
+    assert "<note>" not in message["markdown"]
+    assert "Rebasing onto main" not in message["markdown"]
+    assert message["markdown"] == "Working on it."
+
+
+def test_the_last_note_in_a_message_wins():
+    """Latest only: the note replaces, as the last message does."""
+    replayed = replay_note("<note>Reading the test</note>\n<note>Fixing it</note>")
+    assert note_of(replayed) == "Fixing it"
+
+
+def test_a_note_inside_a_doc_content_body_stays_that_bodys_text():
+    """The rule `<doc-file>` and `<image>` already follow."""
+    replayed = replay_note(
+        '<doc-content kind="other" title="Guide">\n'
+        "Write <note>like this</note> to report progress.\n"
+        "</doc-content>"
+    )
+    assert note_of(replayed) == ""
+    [doc] = documents_of(replayed)
+    assert "<note>like this</note>" in doc["markdown"]
+
+
+def test_a_message_with_no_note_leaves_the_note_alone():
+    """An agent that never notes reads exactly as it does today."""
+    replayed = replay_note("Just talking.")
+    assert note_of(replayed) == ""
+
+
+def test_a_subagent_writes_no_note():
+    """Same reason a subagent mints no document: its tags stay as text."""
+    replayed = replay_note("<note>Reading the reducer</note>", parent="ag0")
+    assert note_of(replayed) == ""
+    [message] = items_of(replayed, "message")
+    assert "<note>Reading the reducer</note>" in message["markdown"]
+
+
+def test_the_note_is_dated_by_the_event_that_carried_it():
+    replayed = replay_note("<note>Rebasing onto main</note>")
+    assert agent_of(replayed)["lastNoteAt"] == NOW
+
+
+def test_a_note_does_not_become_what_the_agent_last_said():
+    """The note is cut, so it cannot also stand as the last message."""
+    replayed = replay_note("Working on it.\n\n<note>Rebasing onto main</note>")
+    assert agent_of(replayed)["lastMessage"] == "Working on it."
 
 
 def test_the_real_reader_serves_a_file_in_the_worktree_and_refuses_one_outside(
