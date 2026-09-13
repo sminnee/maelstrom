@@ -29,8 +29,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..tags import NOTE_TAG
-
 #: Turns one image tag into the markdown that replaces it, or ``None`` when the
 #: file may not be shown. The registry is what decides, so the decision is
 #: injected rather than made here.
@@ -52,6 +50,11 @@ _CONTENT_TAG = re.compile(
 )
 _FILE_TAG = re.compile(rf"<doc-file\b{_ATTRIBUTES}>")
 _IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
+#: What the agent is doing now. No attributes are read; the body is the note.
+#: ``agent_model`` holds its own copy of this pattern, because the daemon reads
+#: the same tag without depending on the orchestrator. The two are kept in step
+#: by ``test_both_readers_agree_on_the_note_tag``.
+_NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -159,7 +162,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         spans.append(match.span())
 
     note = ""
-    for match in NOTE_TAG.finditer(text):
+    for match in _NOTE_TAG.finditer(text):
         # A `<note>` inside a `<doc-content>` body is that body's text.
         if any(start <= match.start() < end for start, end in spans):
             continue

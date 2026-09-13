@@ -11,6 +11,7 @@ protocol; read it before changing a shape.
 """
 
 import base64
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -18,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 
 from .agent_transport import ROOT_ENV
 from .claude_integration import get_shared_dir
-from .tags import read_note
 from .util import sanitise_child_env
 
 if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
@@ -675,6 +675,33 @@ MESSAGE_SUMMARY_CHARS = 60
 #: How much of a note a row carries. Longer than a message summary because a
 #: note is authored to be read whole, where a message is cut to a table cell.
 NOTE_CHARS = 240
+
+#: What sits between a tag's name and its closing ``>``: quoted values, and
+#: anything that is neither a quote nor a ``>``.
+_ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
+#: What the agent is doing now. No attributes are read; the body is the note.
+#: The orchestrator's ``document_tags`` holds its own copy of this pattern: both
+#: readers cut the tag, and the daemon does not depend on the orchestrator to do
+#: it. ``test_both_readers_agree_on_the_note_tag`` keeps the two in step.
+_NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
+
+
+def read_note(text: str) -> tuple[str, str]:
+    """``text`` with its note tags cut, and the note they carried.
+
+    The last note wins: a note replaces rather than accumulates, so a message
+    holding two is reporting the later one. The note is empty when the message
+    carried none, and the text comes back unchanged.
+
+    The span is cut because a note is a field, not prose the reader sees twice.
+    """
+    note = ""
+    for match in _NOTE_TAG.finditer(text):
+        note = match.group(2)
+    if not note:
+        return text, ""
+    return re.sub(r"\n{3,}", "\n\n", _NOTE_TAG.sub("", text)).strip(), note
+
 
 #: Event type the daemon writes once the replayed backlog has all been sent.
 #: ``mael agent tail`` without ``-f`` stops there. A marker rather than an idle
