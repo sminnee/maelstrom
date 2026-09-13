@@ -1528,6 +1528,72 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     assert stored.branch == "feat/orders"
 
 
+def test_a_rewire_stores_bare_ids_and_serves_qualified_ones(harness):
+    """The wire is qualified both ways; the notebook holds the bare id."""
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8")
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.patch(
+                "/api/tasks/northwind/NORT-8", {"follows": ["northwind/NORT-7"]}
+            )
+            return reply, await api.get_json("/api/tasks/northwind/NORT-8")
+
+    reply, task = run(scenario())
+    assert reply.status == 200
+    assert task["follows"] == ["northwind/NORT-7"]
+    stored = run(model.load(harness.store, PROJECT, "NORT-8"))
+    assert stored.follows == ["NORT-7"]
+
+
+def test_a_rewire_that_would_make_a_cycle_is_refused(harness):
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8", follows=["NORT-7"])
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.patch(
+                "/api/tasks/northwind/NORT-7", {"follows": ["northwind/NORT-8"]}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    # Nothing was written: the refusal comes before the notebook is touched.
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).follows == []
+
+
+def test_create_refuses_a_follows_rather_than_writing_a_wire_it_cannot_unqualify(
+    harness,
+):
+    """``follows`` shares ``EDITABLE`` with ``update`` but not its unqualify pass.
+
+    Left open, a qualified id would land in the notebook beside bare ones,
+    ``world_build`` would re-qualify it to ``northwind/northwind/NORT-7``, and
+    the task would never be actionable again.
+    """
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Wired at birth",
+                    "follows": ["northwind/NORT-7"],
+                },
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert [t.id for t in run(model.list_tasks(harness.store, project=PROJECT))] == [
+        "NORT-7"
+    ]
+
+
 def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
     """The world knew the task; the notebook no longer holds it."""
     harness.add_task("NORT-7")

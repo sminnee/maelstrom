@@ -1195,6 +1195,7 @@ async def update(
     schedule: str | None = None,
     last_run: str | None = None,
     priority: str | None = None,
+    follows: list[str] | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -1229,6 +1230,8 @@ async def update(
     if priority is not None:
         validate_priority(priority)
         task.priority = priority
+    if follows is not None:
+        task.follows = follows
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
