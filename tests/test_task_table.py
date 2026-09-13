@@ -12,7 +12,12 @@ import pytest
 
 from maelstrom.state_db.migrate import open_state_db
 from maelstrom.task import Task
-from maelstrom.task_table import InMemoryTaskTable, SqliteTaskTable, TaskTable
+from maelstrom.task_table import (
+    InMemoryTaskTable,
+    SqliteTaskTable,
+    TaskTable,
+    row_id,
+)
 
 
 def a_task(id: str = "2026-06-11.1", **fields) -> Task:
@@ -188,6 +193,91 @@ class TestTaskTableContract:
                 await table.save(a_task(id="rolled-back"))
                 raise RuntimeError("the write failed halfway")
         assert [t.id for t in await table.list("maelstrom")] == ["kept"]
+
+    async def test_nothing_changed_since_the_current_revision(self, table):
+        """An idle poll reads nothing: the whole point of asking by revision."""
+        await table.save(a_task(id="1"))
+        changed = await table.changed_since(await table.revision())
+        assert (changed.tasks, changed.removed) == ([], [])
+
+    async def test_only_the_saved_row_has_changed(self, table):
+        """One row moves, one row comes back — not the whole table."""
+        await table.save(a_task(id="1"))
+        await table.save(a_task(id="2"))
+        cursor = await table.revision()
+
+        await table.save(a_task(id="2", title="Moved"))
+        changed = await table.changed_since(cursor)
+
+        assert [t.id for t in changed.tasks] == ["2"]
+        assert changed.tasks[0].title == "Moved"
+
+    async def test_a_changed_row_comes_back_whole(self, table):
+        """The row carries the prose, so a partial read is not a partial task."""
+        await table.save(a_task(id="1"))
+        cursor = await table.revision()
+
+        await table.save(a_task(id="1", title="Moved", content="The plan."))
+        changed = await table.changed_since(cursor)
+
+        assert (changed.tasks[0].title, changed.tasks[0].content) == (
+            "Moved",
+            "The plan.",
+        )
+
+    async def test_a_deleted_row_is_named_as_removed(self, table):
+        """Absence cannot mean deletion, so a removal is reported in its own right."""
+        await table.save(a_task(id="1"))
+        await table.save(a_task(id="2"))
+        cursor = await table.revision()
+
+        await table.delete("maelstrom", "1")
+        changed = await table.changed_since(cursor)
+
+        assert changed.removed == [row_id("maelstrom", "1")]
+        assert [t.id for t in changed.tasks] == []
+
+    async def test_the_reading_carries_the_revision_to_ask_from_next(self, table):
+        """A poller stores this and hands it back, so no change is read twice."""
+        await table.save(a_task(id="1"))
+        cursor = await table.revision()
+        await table.save(a_task(id="2"))
+
+        changed = await table.changed_since(cursor)
+        assert changed.revision == await table.revision()
+        assert changed.revision > cursor
+
+        again = await table.changed_since(changed.revision)
+        assert (again.tasks, again.removed) == ([], [])
+
+    async def test_a_rolled_back_write_is_invisible_to_a_later_read(self, table):
+        """A rollback leaves no row *and* no change to read.
+
+        The in-memory twin is the one that can drift here: SQLite rolls its
+        counter back with the transaction, so only a hand-written backend can
+        leave the revision advanced over a write that never landed.
+        """
+        await table.save(a_task(id="kept"))
+        cursor = await table.revision()
+
+        with pytest.raises(RuntimeError):
+            async with table.transact():
+                await table.save(a_task(id="rolled-back"))
+                raise RuntimeError("the write failed halfway")
+
+        changed = await table.changed_since(cursor)
+        assert (changed.tasks, changed.removed) == ([], [])
+        assert changed.revision == cursor
+
+    async def test_every_project_is_read_not_just_one(self, table):
+        """The poller asks the database once, then scopes what it got itself."""
+        await table.save(a_task(id="1", project="maelstrom"))
+        cursor = await table.revision()
+
+        await table.save(a_task(id="1", project="askastro"))
+        changed = await table.changed_since(cursor)
+
+        assert [t.project for t in changed.tasks] == ["askastro"]
 
 
 @pytest.fixture

@@ -107,10 +107,16 @@ class TableSpec:
     ``cached`` is the one property that separates a cached table from a
     canonical one — not a separate database, a separate read path, or a
     separate design.
+
+    ``notifies`` says whether a write to this table is news for a client. Almost
+    every table's is: a client draws the rows, so a change must reach it. A
+    table the server keeps for itself sets it ``False``, so a write to it does
+    not wake every browser to refetch something none of them show.
     """
 
     name: str
     cached: bool = False
+    notifies: bool = True
 
 
 @dataclass(frozen=True)

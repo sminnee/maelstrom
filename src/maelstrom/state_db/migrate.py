@@ -10,16 +10,28 @@ from pathlib import Path
 from .db import StateDb
 from .migrations.desk import DESK
 from .migrations.spine import SPINE
+from .migrations.task_export import TASK_EXPORT
 from .migrations.tasks import TASKS
 from .types import Rung, TableSpec
 
 #: Every subsystem's ladder, by name. A subsystem's schema moves without
 #: dragging the others.
-LADDERS: dict[str, tuple[Rung, ...]] = {"desk": DESK, "tasks": TASKS}
+LADDERS: dict[str, tuple[Rung, ...]] = {
+    "desk": DESK,
+    "tasks": TASKS,
+    "task_export": TASK_EXPORT,
+}
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
 #: are the machinery, not rows a caller writes.
-TABLES: dict[str, TableSpec] = {"desk": TableSpec("desk"), "tasks": TableSpec("tasks")}
+TABLES: dict[str, TableSpec] = {
+    "desk": TableSpec("desk"),
+    "tasks": TableSpec("tasks"),
+    # The export queue is the server's own bookkeeping: nothing draws it, and
+    # nothing reads the tree it feeds on any code path. So a write to it is not
+    # news for a client, even though it shares the task write's transaction.
+    "task_export": TableSpec("task_export", notifies=False),
+}
 
 
 def open_state_db(path: Path | str | None = None) -> StateDb:

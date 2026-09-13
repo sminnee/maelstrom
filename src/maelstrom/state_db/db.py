@@ -754,6 +754,10 @@ class StateDb:
     ) -> tuple[dict[str, set[str]], int]:
         out: dict[str, set[str]] = {}
         for spec in self.tables.values():
+            if not spec.notifies:
+                # Server bookkeeping, not something a client draws. Reporting it
+                # would wake every browser to refetch a table none of them show.
+                continue
             name = spec.name
             ids = {
                 row["id"]

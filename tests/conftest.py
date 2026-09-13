@@ -132,6 +132,22 @@ def _reset_task_db():
 
 
 @pytest.fixture()
+async def state_db():
+    """A migrated in-memory state database, closed when the test ends.
+
+    Four suites open one the same way. What each builds on top differs — a task
+    table, a desk store, an export queue — so only the database is shared; the
+    store fixtures stay with the contracts they exercise.
+    """
+    from maelstrom.state_db.migrate import open_state_db
+
+    db = open_state_db(":memory:")
+    await db.migrate()
+    yield db
+    db.close()
+
+
+@pytest.fixture()
 def store():
     """Shared task-table fixture for the model / CLI / actions test suites.
 
