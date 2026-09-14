@@ -777,6 +777,7 @@ mael env status myproject._main
 | `mael gh show-code [TARGET]` | Show commits and uncommitted changes for a worktree. |
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
 | `mael gh download-artifact RUN_ID ARTIFACT_NAME` | Download an artifact from a workflow run. |
+| `mael gh has-pr [TARGET]` | Report whether this branch has a PR, as an exit code. |
 | `mael gh wait-for-pr [TARGET]` | Wait for CI checks to finish on the current PR. |
 
 ```bash
@@ -826,6 +827,25 @@ A failed body write warns and still returns the PR URL — the branch is pushed 
 |---|---|
 | `--failed-only` | Show only failed step logs. |
 
+**`mael gh has-pr`**
+
+Reports whether this branch has a pull request. The answer is the exit code, for a skill to
+branch on:
+
+| Exit code | Meaning |
+|---|---|
+| 0 | The branch has a PR. |
+| 1 | The branch has none. |
+| 2 | The check could not run. |
+
+| Option | Description |
+|---|---|
+| `--open` | Count only a PR still waiting to merge; treat merged or closed as none. |
+
+The 2 is what keeps the answer honest. An unauthenticated or missing `gh` cannot tell whether a
+PR exists, and reading that as "no PR" would open a duplicate. `/code-review` calls this to pick
+a fresh pass over an additive one.
+
 **`mael gh wait-for-pr`**
 
 | Option | Description |
@@ -843,11 +863,14 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 |---|---|
 | `mael git status [TARGET]` | Show a compact git status summary. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
+| `mael git squash-branch [TARGET]` | Collapse the branch's commits into one, keeping a working history. |
 | `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its base tip, keeping a working history. |
 
 ```bash
 mael git status              # compact summary; the only other --json consumer
 mael git merge --close       # merge, then close the worktree
+mael git squash-branch       # collapse the commits into one, still committed
+mael git squash-branch --local   # collapse only the commits never pushed
 mael git uncommit-branch     # collapse the commits back into the working tree
 ```
 
@@ -861,25 +884,59 @@ To autosquash `fixup!` commits without pushing — during Land, where fixups are
 | `--close` | After merging, close the worktree and delete the feature branch. |
 | `--no-squash` | Skip autosquashing `fixup!` commits during the rebase. |
 
-**`mael git uncommit-branch`**
+**`mael git squash-branch`**
 
-Returns the branch to unstaged changes at its base tip, keeping a working history. See
+Collapses the branch's commits into one commit, and leaves that commit on the branch. See
 [the pull requests guide](../guide/pull-requests.md) for the workflow.
 
-`/code-review` runs it first, to put the branch's final state in the working tree for the
-reviewers; `/present` runs it again afterwards, to re-cut the reviewed tree into story commits.
-Because it rebases, it also does the work of `mael sync --no-push`.
+`/code-review` runs it to put the branch's final state in one commit the reviewers read whole.
+The work stays committed, so a stray `git reset --hard` cannot destroy it and a parallel agent
+reading the tree sees an ordinary branch. Because it rebases, it also does the work of
+`mael sync --no-push`.
 
-It takes no flags. The rebase is not optional: a base tip computed against a stale base would
-uncommit someone else's work into the tree.
+The squashed commit's subject is always `wip: squashed for review`. `/present` re-cuts it away.
 
-It prints the base, the working-history ref, the commit count and the diff stat. It exits 1, and
-changes nothing, when:
+It prints the base, the working-history ref, the commit count and the diff stat.
+
+**`mael git uncommit-branch`**
+
+Returns the branch to unstaged changes at its base tip, keeping a working history.
+
+This is `squash-branch` followed by `git reset --mixed HEAD^`. `/present` runs it to re-cut the
+reviewed tree into story commits. Run it yourself only to re-cut a branch's commits by hand.
+
+It prints the base, the working-history ref, the commit count and the diff stat.
+
+**Scope, on both commands**
+
+| Option | Description |
+|---|---|
+| `--remote` | Collapse every commit ahead of the base fork point. The default. |
+| `--local` | Collapse only the commits that were never pushed. |
+
+`--local` collapses `origin/<branch>..HEAD`, so already-pushed commits keep their own subjects.
+Use it to re-review a branch whose PR is already open: the reviewers read the new work alone,
+rather than re-reading what already merged. A branch that was never pushed has nothing pushed to
+keep, so `--local` takes the whole branch.
+
+`--local` rewrites the pushed commits during the rebase, so their SHAs change and the next push
+must force. `mael gh create-pr` already pushes with `--force-with-lease`.
+
+**Refusals, on both commands**
+
+Each exits 1 and changes nothing when:
 
 - the working tree has uncommitted changes (`.env` excluded);
 - a rebase or merge is in progress;
 - the branch has no commits ahead of its base;
-- the rebase conflicts. The rebase aborts and the tree is restored. Run `mael sync` first.
+- the rebase conflicts. The rebase aborts and the tree is restored. Run `mael sync` first;
+- `--local` only: every commit is already pushed, so there is nothing new to collapse;
+- `--local` only: the unpushed commits hold a `fixup!` aimed at an already-pushed commit, which
+  the collapse would silently discard. Run `mael sync --squash --no-push` first, or use
+  `--remote`.
+
+The rebase is not optional: a base tip computed against a stale base would collapse someone
+else's work into the tree.
 
 `mael tidy-branches`, `mael sync --close` and `mael git merge --close` delete a branch's working
 history with the branch.

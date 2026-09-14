@@ -12,6 +12,22 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Review collapses a branch into a commit rather than an unstaged tree, and can read only the
+  new work.** `mael git squash-branch` collapses the branch into one commit and leaves it
+  committed, so a stray `git reset --hard` cannot destroy the work and a parallel agent reading
+  the tree sees an ordinary branch. `/code-review` runs it in place of `mael git uncommit-branch`,
+  which is now `squash-branch` plus a reset and keeps its old role in `/present`.
+
+  Both commands take a scope. `--local` collapses only the commits that were never pushed, so
+  re-reviewing a branch whose PR is already open reads the new work alone instead of re-reading
+  what already merged. The already-reviewed commits keep their own subjects. A `--local` collapse
+  refuses when the unpushed commits hold a `fixup!` aimed at an already-pushed commit, which the
+  collapse would otherwise silently discard.
+
+  **`mael gh has-pr`** reports whether a branch has a pull request, as an exit code: 0 has one,
+  1 has none, 2 could not tell. The third is what lets review pick a fresh pass over an additive
+  one without an unauthenticated `gh` being read as "no PR".
+
 - **The Compact button shows the compaction start and finish.** It stays busy for the whole
   compact rather than clearing when the relay is accepted. The session header's context figure
   falls as soon as the compact ends, instead of waiting for the agent to speak again. The

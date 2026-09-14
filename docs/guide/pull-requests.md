@@ -87,29 +87,52 @@ none. A later task in a chain re-presents the whole branch from scratch. Present
 already carrying fixups, which means it is in Land, and it stops when `mael git uncommit-branch`
 refuses — on a dirty tree that means review's fixes were never committed.
 
+An additive review passes `--local` to both commands, so present re-cuts only the new work —
+see "Re-reviewing an open PR" below.
+
 See the journey afterwards:
 
 ```bash
 git log refs/mael/history/<branch>/<stamp>
 ```
 
-### Uncommitting a branch
+### Collapsing a branch
 
-`/code-review` and `/present` each run this command for you — review to get the branch into the
-working tree, present to re-cut it afterwards. Run it yourself only to re-cut a branch's commits
-by hand.
+`/code-review` and `/present` each collapse the branch for you — review to read its final state,
+present to re-cut it afterwards. Run these yourself only to re-cut a branch's commits by hand.
 
 ```bash
-mael git uncommit-branch
+mael git squash-branch     # collapse into one commit, still committed
+mael git uncommit-branch   # collapse into the working tree, unstaged
 ```
 
-The command rebases the branch onto its base, saves the commits as a working history, then resets
-the branch to its base tip. Every change is then unstaged in the working tree, ready to be
-committed again in whatever order reads best.
+Both save the commits as a working history and rebase the branch onto its base. They differ in
+where the collapsed work ends up. `squash-branch` leaves one commit on the branch, so a stray
+`git reset --hard` cannot destroy it. `uncommit-branch` then resets that commit into the working
+tree, ready to be committed again in whatever order reads best.
 
-The command refuses, and changes nothing, when the working tree is dirty, when a rebase or merge is
-in progress, or when the branch has no commits ahead of its base. A rebase conflict aborts and
+Both refuse, and change nothing, when the working tree is dirty, when a rebase or merge is in
+progress, or when the branch has no commits ahead of its base. A rebase conflict aborts and
 restores the tree — run `mael sync`, resolve the conflict, then try again.
+
+### Re-reviewing an open PR
+
+By default a collapse takes the whole branch. When the PR is already open, only the new commits
+need review, and re-reading the merged part is waste:
+
+```bash
+mael git squash-branch --local
+```
+
+`--local` collapses only `origin/<branch>..HEAD` — the commits that were never pushed. The
+already-reviewed commits keep their own subjects. A branch that was never pushed has nothing
+pushed to keep, so `--local` takes the whole branch.
+
+`--local` rewrites the pushed commits during the rebase, so the next push must force.
+`mael gh create-pr` already does.
+
+One case is refused: an unpushed `fixup!` aimed at an already-pushed commit, which the collapse
+would silently discard. Run `mael sync --squash --no-push` first, or collapse the whole branch.
 
 The working history is your record and your undo:
 
@@ -132,12 +155,16 @@ survives. The refs are deleted with the branch.
 /code-review
 ```
 
-Review's subject is the **working tree**. It starts by running `mael git uncommit-branch`, which
-returns every commit on the branch to unstaged changes at the base tip. The reviewers then read
-the branch's final state directly, and a finding becomes a plain edit rather than a commit to
-target.
+Review's subject is the **working tree**. It starts by running `mael git squash-branch`, which
+collapses every commit on the branch into one. The reviewers then read the branch's final state
+directly, and a finding becomes a plain edit rather than a commit to target. The work stays
+committed throughout, so nothing depends on an unstaged tree surviving.
 
-That uncommit is also the sync: it fetches origin, fast-forwards local main, resolves the base
+Review chooses its scope first. A branch whose PR is already open gets an **additive** pass —
+`--local`, reading only the commits that were never pushed. Any other branch, or a request for
+substantial rework, gets a **fresh** pass over the whole branch.
+
+That squash is also the sync: it fetches origin, fast-forwards local main, resolves the base
 and rebases, which is everything `mael sync --no-push` does. It refuses a dirty working tree, so
 the build must commit its work before review runs.
 
