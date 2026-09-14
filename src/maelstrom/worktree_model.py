@@ -15,6 +15,7 @@ decision is table-testable — see ``docs/dev/architecture-patterns.md``.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 # Fixed worktree names (NATO phonetic alphabet)
 WORKTREE_NAMES = [
@@ -123,6 +124,40 @@ def history_ref(branch: str, stamp: str) -> str:
     return f"{history_ref_prefix(branch)}{stamp}"
 
 
+# How much of a branch a collapse takes in. ``remote`` is every commit ahead of
+# the base fork point — the whole branch. ``local`` is only ``origin/<branch>..HEAD``,
+# the part that was never pushed, so a re-review reads the new work alone.
+SquashScope = Literal["remote", "local"]
+
+# The subject every squashed commit gets. Fixed rather than derived: `/present`
+# re-cuts it away, so no human ever reads it.
+SQUASH_MESSAGE = "wip: squashed for review"
+
+
+@dataclass(frozen=True)
+class SquashResult:
+    """What ``squash_branch`` did: what it collapsed, and into what."""
+
+    base: str
+    """The branch the work was rebased onto — ``main`` unless it is stacked."""
+    history_ref: str
+    """The ref now holding the chronological commits that were collapsed."""
+    commits: int
+    """How many commits were collapsed."""
+    stat: str
+    """``git diff --stat`` of what the squashed commit holds."""
+    scope: SquashScope
+    """Which part of the branch was collapsed."""
+    sha: str
+    """The squashed commit."""
+    collapse_point: str
+    """The commit the squash rewound to, after the rebase moved it.
+
+    ``uncommit_branch`` resets here rather than to ``HEAD^``, which does not
+    resolve when the squashed commit is a branch's first. Empty for that root
+    case, where there is no parent to name."""
+
+
 @dataclass(frozen=True)
 class UncommitResult:
     """What ``uncommit_branch`` did: where it reset to, and what it kept."""
@@ -135,6 +170,8 @@ class UncommitResult:
     """How many commits were collapsed."""
     stat: str
     """``git diff --stat`` of what is now unstaged in the working tree."""
+    scope: SquashScope = "remote"
+    """Which part of the branch was returned to the working tree."""
 
 
 # Printed when an autorepair session resolved the conflicts. Every command that
