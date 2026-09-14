@@ -36,6 +36,84 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture
+def collapsible_project():
+    """A bare-clone project with a worktree on ``feature/work``.
+
+    The source → bare-remote → working-clone pattern, so ``origin`` is a real
+    remote and a rebase inside the command under test can fetch. Shared by the
+    squash and uncommit suites, which drive the same two commands.
+
+    Named apart from ``test_sync_flags``'s ``project_with_worktree``, which
+    yields a third element and patches ``get_maelstrom_dir``. Two fixtures of
+    one name, one shadowing the other by import, is how that suite's ``F811``
+    suppressions arose.
+
+    Yields ``(project_path, worktree_path)``.
+    """
+    import subprocess
+
+    from tests.git_helpers import create_commit, run_git, setup_git_repo
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        source_path = tmp / "source"
+        source_path.mkdir()
+        setup_git_repo(source_path)
+        create_commit(source_path, "README.md", "# Test\n", "Initial commit")
+        run_git(source_path, "branch", "-M", "main")
+
+        remote_path = tmp / "remote.git"
+        subprocess.run(
+            ["git", "clone", "--bare", str(source_path), str(remote_path)],
+            check=True,
+            capture_output=True,
+        )
+
+        project_path = tmp / "test-repo"
+        project_path.mkdir()
+        git_dir = project_path / ".git"
+        subprocess.run(
+            ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+            check=True,
+            capture_output=True,
+        )
+        run_git(project_path, "config", "core.bare", "true")
+        run_git(
+            project_path,
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        )
+        run_git(project_path, "config", "user.email", "test@test.com")
+        run_git(project_path, "config", "user.name", "Test")
+        run_git(project_path, "fetch", "origin")
+
+        head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
+        run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
+
+        worktree_path = project_path / "test-repo-alpha"
+        subprocess.run(
+            [
+                "git",
+                "worktree",
+                "add",
+                "-b",
+                "feature/work",
+                str(worktree_path),
+                "origin/main",
+            ],
+            cwd=project_path,
+            check=True,
+            capture_output=True,
+        )
+        run_git(worktree_path, "config", "user.email", "test@test.com")
+        run_git(worktree_path, "config", "user.name", "Test")
+
+        yield project_path, worktree_path
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _block_real_cmux():
     """Prevent any test from accidentally invoking the real cmux binary.
