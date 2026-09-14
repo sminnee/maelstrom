@@ -472,17 +472,30 @@ _Avoid_: PR description file, body file, draft PR (which is GitHub's own unready
 
 **Working history**:
 The ref `refs/mael/history/<branch>/<stamp>`, holding the chronological commits that
-`mael git uncommit-branch` collapsed. The working history is the order the work happened in, kept
-so `git log` can still show the journey and so the uncommit can be undone. One ref per run, stamped
-in UTC, so a second run keeps the first run's chronology. Review and present each write one.
+`mael git squash-branch` or `mael git uncommit-branch` collapsed. The working history is the order
+the work happened in, kept so `git log` can still show the journey and so the collapse can be
+undone. One ref per run, stamped in UTC, so a second run keeps the first run's chronology. Review
+and present each write one.
 _Avoid_: Backup branch, history branch, archive ref
 
+**Squash**:
+To collapse a branch's commits into one, leaving it committed. `mael git squash-branch` saves the
+working history, collapses the commits, then rebases onto the base. Review runs it to put the
+branch's final state in one commit a reviewer reads whole.
+_Avoid_: Fold, flatten, uncommit (which resets the commit into the working tree)
+
+**Scope**:
+How much of a branch a squash or an uncommit takes in. The whole branch (`--remote`, the default),
+or only the commits that were never pushed (`--local`). A re-review of a branch whose PR is open
+uses `--local`, so it reads the new work alone and the already-reviewed commits keep their own
+subjects.
+_Avoid_: Range, extent, depth
+
 **Uncommit**:
-To return a branch to unstaged changes at its base tip. `mael git uncommit-branch` rebases onto
-the base, saves the working history, then resets. Nothing is discarded — every change is in the
-working tree, ready to be committed again. Review runs it to put the branch's final state in the
-tree; present runs it again to re-cut that tree.
-_Avoid_: Reset, unwind, squash (which combines commits rather than removing them)
+To return a branch to unstaged changes at its base tip. `mael git uncommit-branch` squashes the
+branch, then resets that commit into the working tree. Nothing is discarded — every change is in
+the working tree, ready to be committed again. Present runs it to re-cut a reviewed tree.
+_Avoid_: Reset, unwind
 
 **Story commit**:
 One commit per design decision, holding the decision's rationale in its body. A reviewer reads
