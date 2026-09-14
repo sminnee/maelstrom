@@ -14,6 +14,7 @@ from .worktree import (
     get_current_branch,
     get_local_only_commits,
     merge_to_main,
+    squash_branch,
     uncommit_branch,
 )
 from .worktree_model import MAIN_BRANCH, WorktreeError
@@ -332,9 +333,68 @@ def git_merge(target, close, no_squash):
     raise click.ClickException(result.message)
 
 
+def _scope_option(fn):
+    """Add the ``--remote/--local`` scope pair to a collapse command.
+
+    One flag pair rather than two flags: the scopes are exclusive, and two
+    independent flags would allow the meaningless ``--remote --local``.
+    """
+    return click.option(
+        "--remote/--local",
+        "remote",
+        default=True,
+        help=(
+            "Collapse the whole branch (--remote, the default), or only the "
+            "commits that were never pushed (--local)."
+        ),
+    )(fn)
+
+
+@git.command("squash-branch")
+@click.argument("target", required=False, default=None)
+@_scope_option
+def git_squash_branch(target, remote):
+    """Collapse this branch's commits into one, and leave it committed.
+
+    The committed counterpart of ``uncommit-branch``: review reads one commit
+    either way, but the work stays safe from a stray ``reset --hard`` and a
+    parallel agent reading the tree sees an ordinary branch.
+
+    ``--local`` collapses only what was never pushed, so a re-review reads the
+    new work alone and the already-reviewed commits keep their own subjects.
+
+    The undo is ``git reset --hard`` onto the working-history ref it prints.
+    """
+    try:
+        context = resolve_context(target, require_project=True, require_worktree=True)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    worktree_path = context.worktree_path
+    if worktree_path is None or not worktree_path.exists():
+        raise click.ClickException(f"Worktree not found at {worktree_path}")
+
+    try:
+        result = squash_branch(worktree_path, scope="remote" if remote else "local")
+    except WorktreeError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"git failed: {e.stderr or e}", err=True)
+        raise SystemExit(1)
+
+    click.echo(f"Base: {result.base}")
+    click.echo(f"Working history: {result.history_ref}")
+    click.echo(f"Squashed {result.commits} commits into {result.sha[:12]}.")
+    if result.stat:
+        click.echo()
+        click.echo(result.stat)
+
+
 @git.command("uncommit-branch")
 @click.argument("target", required=False, default=None)
-def git_uncommit_branch(target):
+@_scope_option
+def git_uncommit_branch(target, remote):
     """Return this branch to unstaged changes at its base tip.
 
     Rebases onto the branch's base, keeps the commits under a working-history
@@ -355,7 +415,7 @@ def git_uncommit_branch(target):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     try:
-        result = uncommit_branch(worktree_path)
+        result = uncommit_branch(worktree_path, scope="remote" if remote else "local")
     except WorktreeError as e:
         click.echo(str(e), err=True)
         raise SystemExit(1)

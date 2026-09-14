@@ -13,12 +13,13 @@ from .github import (
     download_artifact,
     get_check_logs_truncated,
     get_full_check_log,
+    get_pr_info,
     get_worktree_code,
     read_pr,
     wait_for_checks,
     wait_for_review,
 )
-from .github_model import GitHubError, SyncFailed
+from .github_model import GitHubError, NoPullRequest, SyncFailed
 from .orchestrator_notify import tell_orchestrator
 
 
@@ -260,6 +261,60 @@ def gh_wait_for_pr(target, timeout, interval):
         sys.exit(2)
     except GitHubError as e:
         raise click.ClickException(str(e))
+
+
+# A PR that is neither open nor waiting to merge. ``PRInfo.state`` spells its
+# states in GitHub's own upper case, unlike ``PrStatus``, so ``is_open_pr``
+# cannot be reused here.
+_CLOSED_PR_STATES = {"MERGED", "CLOSED"}
+
+
+@gh.command("has-pr")
+@click.argument("target", required=False, default=None)
+@click.option(
+    "--open",
+    "open_only",
+    is_flag=True,
+    help="Count only a PR still waiting to merge; treat merged or closed as none.",
+)
+def gh_has_pr(target, open_only):
+    """Report whether this branch has a pull request, as an exit code.
+
+    For a skill deciding between a fresh pass and an additive one, before it
+    rewrites the branch.
+
+    Exit codes: 0 = has a PR, 1 = has none, 2 = the check could not run.
+
+    The 2 is deliberate, and departs from this file's ``raise
+    click.ClickException`` habit — which exits 1, the same as "no PR". An
+    unauthenticated or missing ``gh`` must never read as "no PR", or a caller
+    opens a duplicate. ``wait-for-pr`` uses 2 for undetermined in the same way.
+    """
+    try:
+        ctx = resolve_context(target, require_project=False, require_worktree=False)
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
+
+    if ctx.worktree_path and ctx.worktree_path.exists():
+        cwd = ctx.worktree_path
+    else:
+        cwd = Path.cwd()
+
+    try:
+        info = get_pr_info(cwd)
+    except NoPullRequest:
+        click.echo("No pull request for this branch.")
+        sys.exit(1)
+    except GitHubError as e:
+        click.echo(f"Could not determine whether this branch has a PR: {e}", err=True)
+        sys.exit(2)
+
+    if open_only and info.state in _CLOSED_PR_STATES:
+        click.echo(f"PR #{info.number} is {info.state.lower()}; none is open.")
+        sys.exit(1)
+
+    click.echo(f"PR #{info.number} ({info.state.lower()}): {info.url}")
 
 
 def _format_size(size_bytes: int) -> str:
