@@ -2,6 +2,8 @@
 
 import subprocess
 
+from maelstrom.worktree_model import history_ref_prefix
+
 
 def run_git(cwd, *args, check=True):
     """Run a git command and return CompletedProcess."""
@@ -33,3 +35,21 @@ def create_commit(path, filename, content, message):
 def setup_origin_main(repo_path):
     """Create refs/remotes/origin/main pointing to current HEAD."""
     run_git(repo_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def three_commits(worktree_path):
+    """Three ordinary commits on the current branch."""
+    create_commit(worktree_path, "one.txt", "one\n", "feat: one")
+    create_commit(worktree_path, "two.txt", "two\n", "feat: two")
+    create_commit(worktree_path, "three.txt", "three\n", "feat: three")
+
+
+def history_refs(worktree_path, branch):
+    """Every working-history ref ``branch`` currently has."""
+    result = run_git(
+        worktree_path,
+        "for-each-ref",
+        "--format=%(refname)",
+        history_ref_prefix(branch),
+    )
+    return [line for line in result.stdout.split("\n") if line]

@@ -11,7 +11,6 @@ use, so ``origin`` is a real remote and the rebase inside the command can fetch.
 
 import subprocess
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -33,107 +32,25 @@ from maelstrom.worktree_model import (
     UncommitResult,
     WorktreeError,
     history_ref,
-    history_ref_prefix,
 )
-from tests.git_helpers import create_commit, run_git, setup_git_repo
-
-
-@pytest.fixture
-def project_with_worktree():
-    """A bare-clone project with a worktree on ``feature/work``.
-
-    Yields ``(project_path, worktree_path)``.
-    """
-    with TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-
-        source_path = tmp / "source"
-        source_path.mkdir()
-        setup_git_repo(source_path)
-        create_commit(source_path, "README.md", "# Test\n", "Initial commit")
-        run_git(source_path, "branch", "-M", "main")
-
-        remote_path = tmp / "remote.git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True,
-            capture_output=True,
-        )
-
-        project_path = tmp / "test-repo"
-        project_path.mkdir()
-        git_dir = project_path / ".git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True,
-            capture_output=True,
-        )
-        run_git(project_path, "config", "core.bare", "true")
-        run_git(
-            project_path,
-            "config",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        )
-        run_git(project_path, "config", "user.email", "test@test.com")
-        run_git(project_path, "config", "user.name", "Test")
-        run_git(project_path, "fetch", "origin")
-
-        head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
-        run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
-
-        worktree_path = project_path / "test-repo-alpha"
-        subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                "-b",
-                "feature/work",
-                str(worktree_path),
-                "origin/main",
-            ],
-            cwd=project_path,
-            check=True,
-            capture_output=True,
-        )
-        run_git(worktree_path, "config", "user.email", "test@test.com")
-        run_git(worktree_path, "config", "user.name", "Test")
-
-        yield project_path, worktree_path
-
-
-def _three_commits(worktree_path: Path) -> None:
-    create_commit(worktree_path, "one.txt", "one\n", "feat: one")
-    create_commit(worktree_path, "two.txt", "two\n", "feat: two")
-    create_commit(worktree_path, "three.txt", "three\n", "feat: three")
-
-
-def _history_refs(worktree_path: Path, branch: str) -> list[str]:
-    result = run_git(
-        worktree_path,
-        "for-each-ref",
-        "--format=%(refname)",
-        history_ref_prefix(branch),
-    )
-    return [line for line in result.stdout.split("\n") if line]
+from tests.git_helpers import create_commit, history_refs, run_git, three_commits
 
 
 class TestUncommitCollapsesTheBranch:
     """Three commits ahead become zero, and their diff is unstaged."""
 
-    def test_the_commits_collapse(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_the_commits_collapse(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         result = uncommit_branch(worktree_path)
 
         assert result.commits == 3
         assert get_commits_ahead(worktree_path, "origin/main") == 0
 
-    def test_the_changes_are_unstaged_in_the_working_tree(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_the_changes_are_unstaged_in_the_working_tree(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         uncommit_branch(worktree_path)
 
@@ -143,9 +60,9 @@ class TestUncommitCollapsesTheBranch:
             "two.txt",
         ]
 
-    def test_the_history_ref_holds_the_chronology(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_the_history_ref_holds_the_chronology(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         result = uncommit_branch(worktree_path)
 
@@ -154,10 +71,10 @@ class TestUncommitCollapsesTheBranch:
         ).stdout.split("\n")
         assert subjects[:3] == ["feat: three", "feat: two", "feat: one"]
 
-    def test_the_history_survives_a_prune(self, project_with_worktree):
+    def test_the_history_survives_a_prune(self, collapsible_project):
         """The ref is what keeps the collapsed commits reachable."""
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         result = uncommit_branch(worktree_path)
         run_git(worktree_path, "gc", "--prune=now")
@@ -166,18 +83,18 @@ class TestUncommitCollapsesTheBranch:
             run_git(worktree_path, "rev-parse", "--verify", result.history_ref).stdout
         ).strip()
 
-    def test_the_stat_describes_what_is_now_unstaged(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_the_stat_describes_what_is_now_unstaged(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         result = uncommit_branch(worktree_path)
 
         assert "one.txt" in result.stat
         assert "3 files changed" in result.stat
 
-    def test_two_runs_give_two_history_refs(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_two_runs_give_two_history_refs(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         first = uncommit_branch(worktree_path)
         run_git(worktree_path, "add", "-A")
@@ -185,39 +102,39 @@ class TestUncommitCollapsesTheBranch:
         second = uncommit_branch(worktree_path)
 
         assert first.history_ref != second.history_ref
-        assert len(_history_refs(worktree_path, "feature/work")) == 2
+        assert len(history_refs(worktree_path, "feature/work")) == 2
 
 
 class TestUncommitRefuses:
     """It fails at the first bad step, and changes nothing on refusal."""
 
-    def test_a_dirty_file_refuses(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_a_dirty_file_refuses(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
         (worktree_path / "scratch.txt").write_text("wip\n")
 
         with pytest.raises(WorktreeError):
             uncommit_branch(worktree_path)
 
         assert get_commits_ahead(worktree_path, "origin/main") == 3
-        assert _history_refs(worktree_path, "feature/work") == []
+        assert history_refs(worktree_path, "feature/work") == []
 
-    def test_a_managed_file_does_not_count_as_dirty(self, project_with_worktree):
+    def test_a_managed_file_does_not_count_as_dirty(self, collapsible_project):
         """``.env`` is maelstrom's, so it never blocks the command."""
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
         (worktree_path / ".env").write_text("PORT=3000\n")
 
         assert uncommit_branch(worktree_path).commits == 3
 
-    def test_a_branch_the_rebase_empties_refuses(self, project_with_worktree):
+    def test_a_branch_the_rebase_empties_refuses(self, collapsible_project):
         """The count that matters is the one after the rebase.
 
         The pre-rebase check reads a possibly stale ``origin/<base>``. A branch
         whose commits already landed upstream passes it, and the rebase then
         leaves nothing to uncommit.
         """
-        project_path, worktree_path = project_with_worktree
+        _, worktree_path = collapsible_project
         create_commit(worktree_path, "x.txt", "x\n", "feat: x")
         run_git(worktree_path, "push", "-q", "origin", "feature/work:main")
         # Leave the remote-tracking ref behind, as it is before a fetch.
@@ -231,15 +148,15 @@ class TestUncommitRefuses:
         with pytest.raises(WorktreeError):
             uncommit_branch(worktree_path)
 
-        assert _history_refs(worktree_path, "feature/work") == []
+        assert history_refs(worktree_path, "feature/work") == []
 
-    def test_no_commit_ahead_refuses(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
+    def test_no_commit_ahead_refuses(self, collapsible_project):
+        _, worktree_path = collapsible_project
 
         with pytest.raises(WorktreeError):
             uncommit_branch(worktree_path)
 
-        assert _history_refs(worktree_path, "feature/work") == []
+        assert history_refs(worktree_path, "feature/work") == []
 
 
 class TestUncommitWhenTheResetFails:
@@ -250,9 +167,9 @@ class TestUncommitWhenTheResetFails:
     second one.
     """
 
-    def test_it_raises_and_removes_the_ref_it_wrote(self, project_with_worktree):
-        _, worktree_path = project_with_worktree
-        _three_commits(worktree_path)
+    def test_it_raises_and_removes_the_ref_it_wrote(self, collapsible_project):
+        _, worktree_path = collapsible_project
+        three_commits(worktree_path)
 
         failed = subprocess.CompletedProcess(
             args=["git"], returncode=1, stdout="", stderr="index locked"
@@ -268,7 +185,7 @@ class TestUncommitWhenTheResetFails:
             with pytest.raises(WorktreeError, match="index locked"):
                 uncommit_branch(worktree_path)
 
-        assert _history_refs(worktree_path, "feature/work") == []
+        assert history_refs(worktree_path, "feature/work") == []
         assert get_commits_ahead(worktree_path, "origin/main") == 3
 
 
@@ -295,18 +212,18 @@ class TestUncommitOnAConflict:
         run_git(worktree_path, "fetch", "-q", "origin")
         return head
 
-    def test_a_conflict_raises_and_writes_no_history_ref(self, project_with_worktree):
-        project_path, worktree_path = project_with_worktree
+    def test_a_conflict_raises_and_writes_no_history_ref(self, collapsible_project):
+        project_path, worktree_path = collapsible_project
         head = self._conflicting_branch(project_path, worktree_path)
 
         with pytest.raises(WorktreeError, match="conflicts"):
             uncommit_branch(worktree_path)
 
         assert run_git(worktree_path, "rev-parse", "HEAD").stdout.strip() == head
-        assert _history_refs(worktree_path, "feature/work") == []
+        assert history_refs(worktree_path, "feature/work") == []
 
-    def test_a_conflict_leaves_no_rebase_in_progress(self, project_with_worktree):
-        project_path, worktree_path = project_with_worktree
+    def test_a_conflict_leaves_no_rebase_in_progress(self, collapsible_project):
+        project_path, worktree_path = collapsible_project
         self._conflicting_branch(project_path, worktree_path)
 
         with pytest.raises(WorktreeError):
@@ -319,8 +236,8 @@ class TestUncommitOnAConflict:
 class TestUncommitUsesTheStackAwareBase:
     """A stacked branch resets to the base tip of its base, not of main."""
 
-    def test_a_stacked_branch_keeps_its_bases_commits(self, project_with_worktree):
-        project_path, worktree_path = project_with_worktree
+    def test_a_stacked_branch_keeps_its_bases_commits(self, collapsible_project):
+        _, worktree_path = collapsible_project
 
         # A base branch with its own commit, pushed to origin.
         run_git(worktree_path, "checkout", "-q", "-b", "feat/base")
@@ -329,7 +246,7 @@ class TestUncommitUsesTheStackAwareBase:
         run_git(worktree_path, "fetch", "-q", "origin")
 
         run_git(worktree_path, "checkout", "-q", "-b", "feat/child")
-        _three_commits(worktree_path)
+        three_commits(worktree_path)
 
         store = InMemoryBaseStore()
         store.write("feat/child", BaseRef(branch="feat/base"))
@@ -373,10 +290,14 @@ class TestUncommitBranchCommand:
         )
 
         assert result.exit_code == 0
-        assert "feat/parent" in result.output
-        assert "refs/mael/history/feat/child/20260908T121500Z" in result.output
-        assert "3" in result.output
-        assert "one.txt" in result.output
+        assert result.output == (
+            "Base: feat/parent\n"
+            "Working history: refs/mael/history/feat/child/20260908T121500Z\n"
+            "Uncommitted 3 commits into the working tree.\n"
+            "\n"
+            " one.txt | 1 +\n"
+            " 1 file changed, 1 insertion(+)\n"
+        )
 
     def test_a_git_failure_exits_1_rather_than_raising(self, tmp_path):
         """The reads before the checks can fail on a broken worktree."""
@@ -409,8 +330,8 @@ class TestDeleteBranchPrunesTheWorkingHistory:
         run_git(project_path, "update-ref", ref, "HEAD")
         return ref
 
-    def test_the_branchs_history_refs_go_with_it(self, project_with_worktree):
-        project_path, worktree_path = project_with_worktree
+    def test_the_branchs_history_refs_go_with_it(self, collapsible_project):
+        project_path, worktree_path = collapsible_project
         self._write_history(project_path, "feature/work", "20260908T120000Z")
         self._write_history(project_path, "feature/work", "20260908T130000Z")
         subprocess.run(
@@ -422,10 +343,10 @@ class TestDeleteBranchPrunesTheWorkingHistory:
 
         delete_branch(project_path, "feature/work")
 
-        assert _history_refs(project_path, "feature/work") == []
+        assert history_refs(project_path, "feature/work") == []
 
-    def test_another_branchs_history_is_left_alone(self, project_with_worktree):
-        project_path, worktree_path = project_with_worktree
+    def test_another_branchs_history_is_left_alone(self, collapsible_project):
+        project_path, worktree_path = collapsible_project
         self._write_history(project_path, "feature/work", "20260908T120000Z")
         kept = self._write_history(project_path, "feature/other", "20260908T120000Z")
         subprocess.run(
@@ -437,4 +358,4 @@ class TestDeleteBranchPrunesTheWorkingHistory:
 
         delete_branch(project_path, "feature/work")
 
-        assert _history_refs(project_path, "feature/other") == [kept]
+        assert history_refs(project_path, "feature/other") == [kept]
