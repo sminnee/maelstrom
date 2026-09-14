@@ -39,6 +39,7 @@ from .worktree_model import (
     MAELSTROM_MANAGED_FILES,
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
+    SQUASH_MESSAGE,
     SYNC_CLOSE_DELETE_BRANCH,
     SYNC_CLOSE_KEEP_BRANCH,
     WORKTREE_NAMES,
@@ -46,6 +47,8 @@ from .worktree_model import (
     CopyBackResult,
     EnvConflict,
     RebasePlan,
+    SquashResult,
+    SquashScope,
     StackTip,
     UnclosableWorktreeError,
     UncommitResult,
@@ -75,6 +78,10 @@ from .worktree_model import (
     validate_base,
     worktree_num,
 )
+
+# Git's empty tree. Diffing against it describes a root commit whole, where
+# `HEAD^` names nothing to diff from.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 @dataclass
@@ -1438,13 +1445,53 @@ def merge_to_main(
     )
 
 
+def squash_branch(
+    worktree_path: Path,
+    *,
+    scope: SquashScope = "remote",
+    store: BaseStore | None = None,
+) -> SquashResult:
+    """Collapse a branch's commits into one, and leave it committed.
+
+    The committed counterpart of :func:`uncommit_branch`. Review reads one
+    commit either way; a squash leaves the work safe from a stray
+    ``reset --hard``, and leaves a parallel agent reading this tree an ordinary
+    branch rather than a pile of unstaged edits.
+
+    ``scope`` chooses how much of the branch is collapsed — the whole branch, or
+    only what was never pushed. See :func:`_collapse_branch` for why the collapse
+    happens before the rebase, which is what makes ``local`` computable at all.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        scope: ``"remote"`` for every commit ahead of the base fork point,
+            ``"local"`` for only ``origin/<branch>..HEAD``.
+        store: Where branch bases live. Defaults to the project's git config.
+
+    Returns:
+        SquashResult naming the base, the history ref, and what was collapsed.
+
+    Raises:
+        WorktreeError: If the worktree refuses the command, or the rebase
+            conflicts. In both cases the worktree is as it was.
+    """
+    return _collapse_branch(worktree_path, scope=scope, store=store)
+
+
 def uncommit_branch(
-    worktree_path: Path, *, store: BaseStore | None = None
+    worktree_path: Path,
+    *,
+    scope: SquashScope = "remote",
+    store: BaseStore | None = None,
 ) -> UncommitResult:
     """Return a branch to unstaged changes at its base tip.
 
     The chronological commits move to a working-history ref, and the branch resets
     to where it left its base.
+
+    This is :func:`squash_branch` plus a ``git reset --mixed`` of the squashed
+    commit, so the two agree on the base, the guards and the scope by
+    construction.
 
     The rebase is not optional. Resetting to a base tip computed against a stale
     base would silently uncommit someone else's work into this tree, so the branch
@@ -1454,6 +1501,8 @@ def uncommit_branch(
 
     Args:
         worktree_path: Path to the worktree directory.
+        scope: ``"remote"`` for every commit ahead of the base fork point,
+            ``"local"`` for only ``origin/<branch>..HEAD``.
         store: Where branch bases live. Defaults to the project's git config.
 
     Returns:
@@ -1463,6 +1512,61 @@ def uncommit_branch(
         WorktreeError: If the worktree refuses the command, or the rebase
             conflicts. In both cases the worktree is as it was.
     """
+    squashed = _collapse_branch(worktree_path, scope=scope, store=store)
+
+    # Reset to the collapse point rather than `HEAD^`, which does not resolve
+    # when the squashed commit is the branch's first. A root collapse unsets
+    # HEAD instead, leaving every file staged as the branch's initial content.
+    if squashed.collapse_point:
+        reset = run_git(
+            ["reset", "--mixed", squashed.collapse_point],
+            cwd=worktree_path.resolve(),
+            quiet=True,
+            check=False,
+        )
+    else:
+        reset = run_git(
+            ["update-ref", "-d", "HEAD"],
+            cwd=worktree_path.resolve(),
+            quiet=True,
+            check=False,
+        )
+    if reset.returncode != 0:
+        # The squash landed and the history ref is written, so the work is safe
+        # and reachable either way. Only the reset failed; say so rather than
+        # implying nothing happened.
+        raise WorktreeError(
+            f"Squashed {squashed.commits} commits, but could not reset onto the "
+            f"working tree: {reset.stderr.strip() or 'git reset failed'}. "
+            f"The squashed commit is still on the branch."
+        )
+
+    return UncommitResult(
+        base=squashed.base,
+        history_ref=squashed.history_ref,
+        commits=squashed.commits,
+        stat=squashed.stat,
+        scope=squashed.scope,
+    )
+
+
+def _collapse_branch(
+    worktree_path: Path,
+    *,
+    scope: SquashScope,
+    store: BaseStore | None,
+) -> SquashResult:
+    """Collapse a branch into one commit, then rebase it onto its base.
+
+    The order is what makes ``local`` meaningful. A rebase rewrites every commit,
+    so afterwards ``origin/<branch>`` is no longer an ancestor of HEAD and
+    "already pushed" cannot be computed at all. Before it, ``origin/<branch>..HEAD``
+    is exactly the unpushed set. Collapsing first is safe: squash-then-rebase and
+    rebase-then-squash yield the same tree.
+
+    Shared by :func:`squash_branch` and :func:`uncommit_branch`, so their guards,
+    their base resolution and their history ref cannot drift apart.
+    """
     worktree_path = worktree_path.resolve()
     branch = get_current_branch(worktree_path)
 
@@ -1470,8 +1574,8 @@ def uncommit_branch(
     if dirty:
         raise WorktreeError(
             f"{branch} has uncommitted changes ({', '.join(sorted(dirty)[:5])}). "
-            "Commit or discard them first — uncommit-branch replaces the working "
-            "tree with the branch's own changes."
+            "Commit or discard them first — collapsing a branch rewrites its "
+            "commits, and uncommitted work is not part of them."
         )
     if rebase_in_progress(worktree_path) or _merge_in_progress(worktree_path):
         raise WorktreeError(
@@ -1484,50 +1588,186 @@ def uncommit_branch(
     base = resolved_store.read(branch).branch
     if get_commits_ahead(worktree_path, f"origin/{base}") == 0:
         raise WorktreeError(
-            f"{branch} has no commits ahead of origin/{base}; nothing to uncommit."
+            f"{branch} has no commits ahead of origin/{base}; nothing to collapse."
         )
 
-    rebase = rebase_worktree(
-        worktree_path, squash=False, abort_on_conflict=True, store=resolved_store
-    )
-    if not rebase.success:
-        raise WorktreeError(f"{rebase.message} Run `mael sync` and try again.")
-    base = rebase.base
-
-    fork_point = run_git(
-        ["merge-base", "HEAD", f"origin/{base}"], cwd=worktree_path, quiet=True
-    ).stdout.strip()
-    commits = get_commits_ahead(worktree_path, fork_point)
+    collapse_point = _collapse_point(worktree_path, branch, base, scope)
+    commits = get_commits_ahead(worktree_path, collapse_point)
     if commits == 0:
-        # The check above read `origin/<base>` as it was before the fetch. The
-        # rebase can still empty the branch — its commits were already upstream.
         raise WorktreeError(
-            f"{branch} has no commits ahead of origin/{base} after the rebase; "
-            "nothing to uncommit."
+            f"Every commit on {branch} is already pushed to origin/{branch}; "
+            "nothing new to collapse. Use the whole-branch scope to take it all."
         )
-
-    # The stat has to be read before the reset. Afterwards the new files are
-    # untracked, and `git diff` does not see them at all.
-    stat = run_git(
-        ["diff", "--stat", f"{fork_point}..HEAD"], cwd=worktree_path, quiet=True
-    ).stdout.strip()
+    if scope == "local":
+        _refuse_outbound_fixups(worktree_path, collapse_point)
 
     ref = _free_history_ref(worktree_path, branch)
     run_git(["update-ref", ref, "HEAD"], cwd=worktree_path, quiet=True)
 
-    reset = run_git(
-        ["reset", "--mixed", fork_point], cwd=worktree_path, quiet=True, check=False
-    )
-    if reset.returncode != 0:
-        # The ref is written but the branch never moved. Drop it, so a retry does
-        # not leave a history for work that is still committed.
+    squashed, squash_error = _squash_onto(worktree_path, collapse_point)
+    if squashed is None:
+        # The soft reset may already have moved HEAD off the commits. Restore it
+        # from the ref *before* dropping the ref — otherwise the work is left
+        # reachable only through a ref that is about to go.
+        run_git(["reset", "--soft", ref], cwd=worktree_path, quiet=True, check=False)
         run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
         raise WorktreeError(
-            f"Could not reset {branch} to its base tip: "
-            f"{reset.stderr.strip() or 'git reset failed'}"
+            f"Could not collapse {branch} into one commit: {squash_error}"
         )
 
-    return UncommitResult(base=base, history_ref=ref, commits=commits, stat=stat)
+    # No `fixup!` subject survives a squash, so autosquash would be inert here.
+    rebase = rebase_worktree(
+        worktree_path, squash=False, abort_on_conflict=True, store=resolved_store
+    )
+    if not rebase.success:
+        # Put the chronology back: the collapse is this function's to undo.
+        run_git(["reset", "--hard", ref], cwd=worktree_path, quiet=True, check=False)
+        run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
+        raise WorktreeError(f"{rebase.message} Run `mael sync` and try again.")
+    base = rebase.base
+
+    if get_commits_ahead(worktree_path, f"origin/{base}") == 0:
+        # The check above read `origin/<base>` as it was before the fetch. The
+        # rebase can still empty the branch — git skips a squashed commit whose
+        # content is already upstream as previously applied.
+        run_git(["reset", "--hard", ref], cwd=worktree_path, quiet=True, check=False)
+        run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
+        raise WorktreeError(
+            f"{branch} has no commits ahead of origin/{base} after the rebase; "
+            "nothing to collapse."
+        )
+
+    # The rebase rewrote the squashed commit, so its SHA moved; the collapse
+    # point moved with it and is re-read here for the same reason.
+    head = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
+    rebased_point = run_git(
+        ["rev-parse", "HEAD^"], cwd=worktree_path, quiet=True, check=False
+    ).stdout.strip()
+    stat = run_git(
+        ["diff", "--stat", f"{rebased_point or EMPTY_TREE}..HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+    ).stdout.strip()
+
+    return SquashResult(
+        collapse_point=rebased_point,
+        base=base,
+        history_ref=ref,
+        commits=commits,
+        stat=stat,
+        scope=scope,
+        sha=head,
+    )
+
+
+def _squash_onto(worktree_path: Path, collapse_point: str) -> tuple[str | None, str]:
+    """Collapse everything after ``collapse_point`` into one commit.
+
+    A soft reset plus a commit, rather than an interactive rebase: it cannot
+    conflict, because the tree never changes.
+
+    Returns ``(new HEAD, "")``, or ``(None, git's message)`` when it failed.
+    """
+    reset = run_git(
+        ["reset", "--soft", collapse_point], cwd=worktree_path, quiet=True, check=False
+    )
+    if reset.returncode != 0:
+        return None, reset.stderr.strip() or "git reset failed"
+
+    commit = run_git(
+        ["commit", "-m", SQUASH_MESSAGE], cwd=worktree_path, quiet=True, check=False
+    )
+    if commit.returncode != 0:
+        return None, commit.stderr.strip() or "git commit failed"
+
+    head = run_git(["rev-parse", "HEAD"], cwd=worktree_path, quiet=True).stdout.strip()
+    return head, ""
+
+
+def _collapse_point(
+    worktree_path: Path, branch: str, base: str, scope: SquashScope
+) -> str:
+    """The commit a collapse of ``scope`` rewinds to.
+
+    ``remote`` is the base fork point — the whole branch. ``local`` is
+    ``origin/<branch>``, so already-pushed commits keep their own subjects and a
+    re-review reads only the new work.
+
+    A branch with no remote has nothing pushed, so ``local`` falls back to the
+    fork point and behaves as ``remote``. :func:`get_local_only_commits` is not
+    reused for this: its own missing-remote fallback counts against
+    ``origin/main``, which on a stacked branch would sweep in the base's commits.
+    """
+    if scope == "local":
+        remote = run_git(
+            ["rev-parse", "--verify", f"origin/{branch}"],
+            cwd=worktree_path,
+            quiet=True,
+            check=False,
+        )
+        if remote.returncode == 0:
+            return remote.stdout.strip()
+
+    return run_git(
+        ["merge-base", "HEAD", f"origin/{base}"], cwd=worktree_path, quiet=True
+    ).stdout.strip()
+
+
+def _refuse_outbound_fixups(worktree_path: Path, collapse_point: str) -> None:
+    """Refuse a ``local`` collapse holding a ``fixup!`` aimed outside its range.
+
+    The collapse runs before any autosquash, so such a commit's subject
+    disappears into the squashed commit and never reaches its target. Its
+    *content* still lands, which is what makes the loss silent — the fix appears
+    to work while the commit it was meant to correct stays as it was.
+
+    A ``fixup!`` whose target is inside the range is fine: both end up in the
+    same squashed commit regardless.
+    """
+    subjects = run_git(
+        ["log", "--format=%s", f"{collapse_point}..HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+    ).stdout.splitlines()
+    fixups = [s for s in subjects if s.startswith(("fixup!", "squash!", "amend!"))]
+    if not fixups:
+        return
+
+    # Matching a target by subject is what git's own autosquash does, but git
+    # matches inside the range it is about to rewrite. Here the match decides
+    # whether rewriting is safe, so a subject repeated on both sides of the
+    # collapse point — `wip`, `fix tests` — would resolve to the wrong commit and
+    # wave through the very loss this guard exists to prevent. Ask which side each
+    # candidate is on instead.
+    outside = set(
+        run_git(
+            ["log", "--format=%s", collapse_point],
+            cwd=worktree_path,
+            quiet=True,
+        ).stdout.splitlines()
+    )
+
+    # A subject that appears on the pushed side is refused even when the range
+    # repeats it. Subjects repeat on a real branch — `wip`, `fix tests` — and
+    # git resolves a fixup by subject, so a duplicate makes the target ambiguous.
+    # Collapsing an ambiguous fixup is the silent loss this guard exists to stop,
+    # and refusing a fixup that would have landed correctly only costs the user
+    # one `mael sync --squash --no-push`.
+    outbound = []
+    for subject in fixups:
+        target = subject.split(" ", 1)[-1].strip()
+        # A target naming no commit at all is not this guard's to refuse: git
+        # leaves such a commit alone, so nothing is lost by collapsing it.
+        if target and target in outside:
+            outbound.append(subject)
+    if outbound:
+        raise WorktreeError(
+            "The unpushed commits hold a fixup! aimed at an already-pushed "
+            f"commit ({outbound[0]}). Collapsing them would lose it: the squash "
+            "runs before any autosquash, so the fixup never reaches its target. "
+            "Run `mael sync --squash --no-push` first, or use the whole-branch "
+            "scope."
+        )
 
 
 def _free_history_ref(worktree_path: Path, branch: str) -> str:
