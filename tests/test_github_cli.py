@@ -8,7 +8,9 @@ from click.testing import CliRunner
 from maelstrom.cli import cli
 from maelstrom.github_cli import _format_size, _render_pr_comments
 from maelstrom.github_model import (
+    GitHubCliMissing,
     GitHubCommandFailed,
+    NoPullRequest,
     PRComment,
     PRInfo,
     SyncFailed,
@@ -114,6 +116,7 @@ class TestGhCliRegistration:
             "download-artifact",
             "check-log",
             "show-code",
+            "has-pr",
         ):
             assert cmd in result.output
 
@@ -242,3 +245,81 @@ class TestCreatePrErrorHandling:
         result = self._invoke(err)
         assert result.exit_code == 1
         assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+class TestGhHasPr:
+    """``mael gh has-pr`` answers with its exit code, for a skill to branch on.
+
+    0 = has one, 1 = has none, 2 = the check could not run. The 2 is the point:
+    an unauthenticated ``gh`` must never read as "no PR", or a skill opens a
+    duplicate.
+    """
+
+    def _run(self, args=None, info=None, error=None):
+        with (
+            patch("maelstrom.github_cli.resolve_context") as mock_ctx,
+            patch(
+                "maelstrom.github_cli.get_pr_info",
+                side_effect=error,
+                **({} if error is not None else {"return_value": info}),
+            ),
+        ):
+            mock_ctx.return_value.worktree_path = None
+            return CliRunner().invoke(cli, ["gh", "has-pr", *(args or [])])
+
+    def _info(self, state="OPEN", merged=False):
+        return PRInfo(
+            number=7,
+            title="A change",
+            url="https://example/pr/7",
+            state=state,
+            merged=merged,
+            head_ref="feature/work",
+        )
+
+    def test_an_open_pr_exits_0(self):
+        result = self._run(info=self._info())
+
+        assert result.exit_code == 0
+        assert "7" in result.output
+
+    def test_no_pr_exits_1(self):
+        result = self._run(error=NoPullRequest())
+
+        assert result.exit_code == 1
+
+    def test_a_merged_pr_exits_0_by_default(self):
+        """Without ``--open`` the question is only whether a PR exists."""
+        result = self._run(info=self._info(state="MERGED", merged=True))
+
+        assert result.exit_code == 0
+
+    def test_open_treats_a_merged_pr_as_missing(self):
+        result = self._run(
+            args=["--open"], info=self._info(state="MERGED", merged=True)
+        )
+
+        assert result.exit_code == 1
+
+    def test_open_treats_a_closed_pr_as_missing(self):
+        result = self._run(args=["--open"], info=self._info(state="CLOSED"))
+
+        assert result.exit_code == 1
+
+    def test_open_accepts_an_open_pr(self):
+        result = self._run(args=["--open"], info=self._info())
+
+        assert result.exit_code == 0
+
+    def test_a_broken_gh_exits_2_not_1(self):
+        """The distinction a skill depends on: undetermined is not "no"."""
+        result = self._run(
+            error=GitHubCommandFailed("get PR info", "gh: not logged in")
+        )
+
+        assert result.exit_code == 2
+
+    def test_a_missing_gh_exits_2_not_1(self):
+        result = self._run(error=GitHubCliMissing("gh"))
+
+        assert result.exit_code == 2
