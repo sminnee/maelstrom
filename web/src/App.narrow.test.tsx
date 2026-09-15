@@ -123,11 +123,13 @@ describe('the narrow layout', () => {
     expect(screen.getByRole('tab', { name: /^Running/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('keeps the task list reachable, with its filters', async () => {
+  it('keeps Tasks reachable while hiding desktop filters', async () => {
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: 'Task list' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks' }));
     expect(screen.getByTestId('task-list')).toBeInTheDocument();
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Project')).toBeNull();
+    expect(screen.queryByLabelText('Branch')).toBeNull();
   });
 
   it('still starts new work', async () => {

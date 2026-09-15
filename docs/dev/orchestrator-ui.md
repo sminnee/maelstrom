@@ -153,8 +153,8 @@ what makes running work always visible: an agent shows the moment it starts, bef
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar switches between the two views; the canvas filter bar shows on the canvas
-only, since the task list carries its own.
+the desk. The top bar switches between Desk and Tasks. Project and branch apply to both views.
+Desk has Agent status and Group by controls. Tasks has status and text controls.
 
 The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every

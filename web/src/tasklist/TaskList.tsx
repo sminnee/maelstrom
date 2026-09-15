@@ -6,9 +6,7 @@ import { useWorld } from '../api/useWorld';
 import { deskIdForTask } from '../protocol/deskId';
 import type { Attention } from '../protocol/attention';
 import type { Agent } from '../protocol/entities';
-import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
-import { filterOptions } from '../selectors/filters';
 import { driftLabel, progressOf } from '../protocol/progress';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
@@ -20,8 +18,8 @@ import styles from './TaskList.module.css';
 /** Every task in the world, and the one place the desk is edited. */
 export function TaskList() {
   const { world, status, errors, retry } = useWorld();
-  const filters = useAppStore((s) => s.ui.listFilters);
-  const setFilters = useAppStore((s) => s.setListFilters);
+  const filters = useAppStore((s) => s.ui.filters);
+  const listFilters = useAppStore((s) => s.ui.listFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const addToDesk = useAddToDesk();
@@ -33,68 +31,12 @@ export function TaskList() {
   // Which row is asking whether to delete.
   const [deleting, setDeleting] = useState<TaskId | null>(null);
   const attention = useMemo(() => Object.values(world.attention), [world.attention]);
-  const options = filterOptions(world, filters);
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
-  const rows = useMemo(() => listTasks(world, filters), [world, filters]);
-
-  const toggleStatus = (status: TaskStatus) =>
-    setFilters({
-      statuses: filters.statuses.includes(status)
-        ? filters.statuses.filter((s) => s !== status)
-        : [...filters.statuses, status],
-    });
+  const rows = useMemo(() => listTasks(world, filters, listFilters), [world, filters, listFilters]);
 
   return (
     <div className={styles.view} data-testid="task-list">
-      <div className={styles.filters}>
-        {TASK_STATUSES.map((status) => (
-          <label key={status} className={styles.check}>
-            <input
-              type="checkbox"
-              checked={filters.statuses.includes(status)}
-              onChange={() => toggleStatus(status)}
-            />
-            <span>{status}</span>
-          </label>
-        ))}
-        <label className={styles.field}>
-          <span>Project</span>
-          <select
-            value={filters.project ?? ''}
-            onChange={(e) => setFilters({ project: e.target.value || null, branch: null })}
-          >
-            <option value="">all</option>
-            {options.projects.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span>Branch</span>
-          <select
-            value={filters.branch ?? ''}
-            onChange={(e) => setFilters({ branch: e.target.value || null })}
-          >
-            <option value="">all</option>
-            {options.branches.map((b) => (
-              <option key={b.key} value={b.key}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span>Search</span>
-          <input
-            type="search"
-            value={filters.text}
-            onChange={(e) => setFilters({ text: e.target.value })}
-          />
-        </label>
-      </div>
       <table className={styles.table}>
         <thead>
           <tr>
