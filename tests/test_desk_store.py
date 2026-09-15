@@ -165,9 +165,7 @@ class TestTheDeskJsonImportRung:
     @pytest.fixture(autouse=True)
     def _home(self, tmp_path, monkeypatch):
         """Keep the rung's read inside tmp_path, not the developer's ~/.maelstrom."""
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
 
     async def test_an_existing_desk_json_imports(self, tmp_path):
         path = tmp_path / "desk.json"

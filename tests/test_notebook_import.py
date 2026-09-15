@@ -44,11 +44,11 @@ A_TASK = Task(
 def _home(tmp_path, monkeypatch):
     """Keep the rung's read inside tmp_path, not the developer's ~/.maelstrom.
 
-    The suite's own ``_isolate_state_db_paths`` already does this; it is repeated
+    The suite's own ``_isolate_notebook_root`` already does this; it is repeated
     here because these tests are *about* the rung's read, so the isolation is
     load-bearing rather than incidental.
     """
-    monkeypatch.setattr("maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path)
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
 
 
 def write_task(tmp_path, task: Task) -> None:

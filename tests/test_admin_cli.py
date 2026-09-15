@@ -368,9 +368,7 @@ class TestExportQueue:
     """`mael admin export-queue` reports what the markdown export still owes."""
 
     def test_a_caught_up_export_says_so(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         result = CliRunner().invoke(cmd_export_queue, [])
@@ -380,9 +378,7 @@ class TestExportQueue:
 
     def test_it_reports_the_depth_and_the_oldest_entry(self, tmp_path, monkeypatch):
         """The two numbers that tell a stalled drain from a busy notebook."""
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
@@ -408,9 +404,7 @@ class TestExportQueue:
         A drained queue is the starting state, because that is when a lost
         export file is unrecoverable — no later save re-queues it.
         """
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
@@ -447,9 +441,7 @@ class TestExportQueue:
         ]
 
     def test_rebuild_on_an_empty_notebook_queues_nothing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         result = CliRunner().invoke(cmd_export_queue, ["--rebuild"])
@@ -459,9 +451,7 @@ class TestExportQueue:
 
     def test_a_database_behind_this_build_is_refused(self, tmp_path, monkeypatch):
         """An ordinary open never migrates, so the check names the command."""
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         open_state_db(tmp_path / "state.db").close()
 
         result = CliRunner().invoke(cmd_export_queue, [])
@@ -474,27 +464,21 @@ class TestMigrate:
     """Slice 22: `mael admin migrate` upgrades; an ordinary open refuses."""
 
     def test_it_creates_the_state_database(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "state.db").is_file()
         assert str(tmp_path / "state.db") in result.output
 
     def test_a_second_run_is_a_no_op(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
         result = CliRunner().invoke(cmd_migrate, [])
         assert result.exit_code == 0, result.output
 
     def test_it_imports_an_existing_desk(self, tmp_path, monkeypatch):
         """A user's canvas survives the move to the state database."""
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         (tmp_path / "desk.json").write_text(
             '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
         )
@@ -515,9 +499,7 @@ class TestMigrate:
         so the second run takes it and the desk row written under version 1 is
         still there afterwards.
         """
-        monkeypatch.setattr(
-            "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path
-        )
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
         assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
         db = open_state_db(tmp_path / "state.db")
