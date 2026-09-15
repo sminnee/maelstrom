@@ -12,6 +12,7 @@ from .claude_integration import install_claude_integration
 from .cli_async import AsyncGroup
 from .context import get_maelstrom_dir, harden_global_config
 from .env_cli import env
+from .notebook_root import NOTEBOOK_ROOT_ENV
 from .shell import mael_path
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
@@ -91,6 +92,8 @@ def _write_daemon_root_shim() -> str:
         f"{SHIM_MARKER} — written by `mael self-update`.\n"
         "# The everyday daemon's root, unless something already named one.\n"
         f'export {ROOT_ENV}="${{{ROOT_ENV}:-{root}}}"\n'
+        f'export {NOTEBOOK_ROOT_ENV}="${{{NOTEBOOK_ROOT_ENV}:-{get_maelstrom_dir()}}}"\n'
+        "export MAEL_PRODUCTION=1\n"
         f'exec "{real}" "$@"\n'
     )
     try:
