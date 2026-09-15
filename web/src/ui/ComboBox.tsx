@@ -33,12 +33,15 @@ export function ComboBox({
   onChange,
   id,
   placeholder,
+  readOnly,
 }: {
   value: string;
   options: readonly ComboOption[];
   onChange: (value: string) => void;
   id?: string;
   placeholder?: string;
+  /** Shows the value without offering to change it. The offer never opens. */
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   /** The row the keyboard is on, or -1 for none. Reset whenever the offer moves. */
@@ -136,6 +139,7 @@ export function ComboBox({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (!offered.length) return;
+      if (readOnly) return;
       setOpen(true);
       // Wraps. Unwalked (-1), Down opens on the first row and Up on the last.
       const step = e.key === 'ArrowDown' ? 1 : -1;
@@ -177,6 +181,7 @@ export function ComboBox({
         aria-autocomplete="list"
         autoComplete="off"
         placeholder={placeholder}
+        readOnly={readOnly}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -186,7 +191,7 @@ export function ComboBox({
         // Focus alone opens it. A click on a row keeps the focus here and so
         // reaches this input too -- an `onClick` that opens would undo the
         // choice the row just made.
-        onFocus={() => setOpen(true)}
+        onFocus={() => !readOnly && setOpen(true)}
         onKeyDown={onKeyDown}
       />
       {showing && (

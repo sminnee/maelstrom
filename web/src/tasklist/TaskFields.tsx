@@ -44,22 +44,35 @@ export function TaskFields({
   onChange,
   project,
   bucket,
+  readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
   project: string;
   /** Groups this task's images in the task repo. */
   bucket: string;
+  /** Shows the task without offering to change it. */
+  readOnly?: boolean;
 }) {
   return (
     <>
-      <TaskTitleField draft={draft} onChange={onChange} />
-      <TaskContentField draft={draft} onChange={onChange} project={project} bucket={bucket} />
+      <TaskTitleField draft={draft} onChange={onChange} readOnly={readOnly} />
+      <TaskContentField
+        draft={draft}
+        onChange={onChange}
+        project={project}
+        bucket={bucket}
+        readOnly={readOnly}
+      />
       <label className={styles.field}>
         <span>Branch</span>
-        <input value={draft.branch} onChange={(e) => onChange({ branch: e.target.value })} />
+        <input
+          value={draft.branch}
+          readOnly={readOnly}
+          onChange={(e) => onChange({ branch: e.target.value })}
+        />
       </label>
-      <TaskAdvancedFields draft={draft} onChange={onChange} />
+      <TaskAdvancedFields draft={draft} onChange={onChange} readOnly={readOnly} />
     </>
   );
 }
@@ -74,14 +87,20 @@ export function TaskFields({
 export function TaskTitleField({
   draft,
   onChange,
+  readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
+  readOnly?: boolean;
 }) {
   return (
     <label className={styles.field}>
       <span>Title</span>
-      <input value={draft.title} onChange={(e) => onChange({ title: e.target.value })} />
+      <input
+        value={draft.title}
+        readOnly={readOnly}
+        onChange={(e) => onChange({ title: e.target.value })}
+      />
     </label>
   );
 }
@@ -92,12 +111,14 @@ export function TaskContentField({
   onChange,
   project,
   bucket,
+  readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
   project: string;
   /** Groups this task's images in the task repo. */
   bucket: string;
+  readOnly?: boolean;
 }) {
   // The content field shows the whole task body: it grows to fit, and the
   // dialog scrolls.
@@ -141,6 +162,7 @@ export function TaskContentField({
             ref={grow}
             rows={1}
             value={draft.content}
+            readOnly={readOnly}
             onChange={(e) => onChange({ content: e.target.value })}
           />
         </AttachField>
@@ -158,9 +180,11 @@ export function TaskContentField({
 export function TaskAdvancedFields({
   draft,
   onChange,
+  readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
+  readOnly?: boolean;
 }) {
   return (
     <details className={styles.advanced}>
@@ -172,16 +196,22 @@ export function TaskAdvancedFields({
         <ComboBox
           value={draft.command}
           options={COMMAND_OPTIONS}
+          readOnly={readOnly}
           onChange={(command) => onChange({ command })}
         />
       </label>
       <label className={styles.field}>
         <span>Mode</span>
-        <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} />
+        <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} readOnly={readOnly} />
       </label>
       <label className={styles.field}>
         <span>Priority</span>
-        <select value={draft.priority} onChange={(e) => onChange({ priority: e.target.value })}>
+        {/* `readOnly` is not a thing on a select, so a locked one is disabled. */}
+        <select
+          value={draft.priority}
+          disabled={readOnly}
+          onChange={(e) => onChange({ priority: e.target.value })}
+        >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -191,7 +221,11 @@ export function TaskAdvancedFields({
       </label>
       <label className={styles.field}>
         <span>Model</span>
-        <ModelSelect model={draft.model} onChange={(model) => onChange({ model })} />
+        <ModelSelect
+          model={draft.model}
+          onChange={(model) => onChange({ model })}
+          readOnly={readOnly}
+        />
       </label>
     </details>
   );
@@ -201,12 +235,18 @@ export function TaskAdvancedFields({
 export function ModeSelect({
   mode,
   onChange,
+  readOnly,
 }: {
   mode: PermissionMode;
   onChange: (mode: PermissionMode) => void;
+  readOnly?: boolean;
 }) {
   return (
-    <select value={mode} onChange={(e) => onChange(e.target.value as PermissionMode)}>
+    <select
+      value={mode}
+      disabled={readOnly}
+      onChange={(e) => onChange(e.target.value as PermissionMode)}
+    >
       {MODES.map((m) => (
         <option key={m} value={m}>
           {m}
@@ -220,13 +260,15 @@ export function ModeSelect({
 export function ModelSelect({
   model,
   onChange,
+  readOnly,
 }: {
   model: string;
   onChange: (model: string) => void;
+  readOnly?: boolean;
 }) {
   const offered: readonly string[] = [UNSET_MODEL, ...MODELS];
   return (
-    <select value={model} onChange={(e) => onChange(e.target.value)}>
+    <select value={model} disabled={readOnly} onChange={(e) => onChange(e.target.value)}>
       {(offered.includes(model) ? offered : [...offered, model]).map((m) => (
         <option key={m} value={m}>
           {m === UNSET_MODEL ? 'not set' : m}
