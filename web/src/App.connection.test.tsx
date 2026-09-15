@@ -9,7 +9,7 @@ describe('loading', () => {
     const user = userEvent.setup();
     await renderApp({ ready: false });
     expect(screen.getByTestId('canvas-loading')).toHaveTextContent('Loading the world…');
-    await user.click(screen.getByRole('button', { name: 'Task list' }));
+    await user.click(screen.getByRole('button', { name: 'Tasks' }));
     expect(screen.getByTestId('task-list')).toHaveTextContent('Loading…');
     expect(screen.getByTestId('task-list')).not.toHaveTextContent('No task matches');
   });

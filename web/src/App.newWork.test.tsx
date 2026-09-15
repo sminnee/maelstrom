@@ -29,7 +29,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Task list' }));
+    await user.click(screen.getByRole('button', { name: 'Tasks' }));
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
   });
 

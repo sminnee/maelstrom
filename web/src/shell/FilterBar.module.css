@@ -2,6 +2,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1 1 600px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .field {
   display: inline-flex;
@@ -10,7 +13,15 @@
   font-size: 11px;
   color: var(--fg-muted);
 }
-.field select {
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.field select,
+.field input {
   font: inherit;
   color: var(--fg);
   background: var(--bg);

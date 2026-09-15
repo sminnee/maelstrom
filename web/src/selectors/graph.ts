@@ -8,7 +8,7 @@ import type { TaskId } from '../protocol/ids';
 import { phaseForCommand } from '../protocol/phase';
 import type { Progress } from '../protocol/progress';
 import { progressOf } from '../protocol/progress';
-import type { Filters, GroupBy } from './filters';
+import type { AgentStatusFilter, Filters, GroupBy } from './filters';
 import { branchKey } from './filters';
 
 /** What a node stands for: a notebook task, or an agent with no task. */
@@ -167,9 +167,9 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   const agents = agentsByTask(world);
   const attentionIndex = openAttentionIndex(world);
   const worktreeByBranch = openWorktreesByBranch(world);
-  const tasks = filteredTasks(world, opts.filters).filter(
-    (t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)),
-  );
+  const tasks = filteredTasks(world, opts.filters)
+    .filter((t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)))
+    .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id)));
 
   const groups = new Map<string, GraphGroup>();
   // Worktree lanes come from the world, not from the nodes, so an open
@@ -213,6 +213,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk)) continue;
     const worktree = world.worktrees[agent.worktreeId];
     if (!allowsAgent(opts.filters, agent, worktree)) continue;
+    if (!allowsAgentStatus(opts.filters.agentStatus, agent)) continue;
     const attention = attentionFrom(attentionIndex, undefined, agent);
     const groupId = groupIdForAgent(agent, worktree, opts.groupBy);
     if (!groups.has(groupId)) {
@@ -264,6 +265,27 @@ function allowsAgent(filters: Filters, agent: Agent, worktree: Worktree | undefi
   if (filters.project && project !== filters.project) return false;
   if (filters.branch && branchKey(project, worktree?.branch ?? '') !== filters.branch) return false;
   return true;
+}
+
+/** The status filter groups agent states for the Desk's scan-level control. */
+function allowsAgentStatus(
+  filter: AgentStatusFilter | undefined,
+  agent: Agent | undefined,
+): boolean {
+  switch (filter ?? 'all') {
+    case 'all':
+      return true;
+    case 'working':
+      return agent?.state === 'processing';
+    case 'idle':
+      return agent?.state === 'idle' || agent?.state.startsWith('awaiting-') === true;
+    case 'working-idle':
+      return agent !== undefined && agent.state !== 'exited';
+    case 'terminated':
+      return agent?.state === 'exited';
+    case 'planned':
+      return agent === undefined;
+  }
 }
 
 function groupIdForAgent(agent: Agent, worktree: Worktree | undefined, kind: GroupBy): string {
