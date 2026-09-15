@@ -48,6 +48,20 @@
   text-transform: uppercase;
   color: var(--fg-faint);
 }
+.table tbody tr:hover {
+  background: var(--bg-raised);
+}
+/* The whole row opens the task, so the title carries the keyboard's way in: a
+   table row is not focusable and a click handler on it reaches no keyboard. */
+.title {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
 .mono {
   font-family: var(--mono);
 }

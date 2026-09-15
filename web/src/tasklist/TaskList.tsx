@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { TaskRow } from '../api/types';
 import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
-import { useSetStatus } from '../api/tasks';
+import { useDeleteTask, useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { deskIdForTask } from '../protocol/deskId';
 import type { Attention } from '../protocol/attention';
@@ -13,6 +13,7 @@ import { driftLabel, progressOf } from '../protocol/progress';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { ConfirmButton } from '../ui/ConfirmButton';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './TaskList.module.css';
 
@@ -22,11 +23,15 @@ export function TaskList() {
   const filters = useAppStore((s) => s.ui.listFilters);
   const setFilters = useAppStore((s) => s.setListFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
+  const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const addToDesk = useAddToDesk();
   const removeFromDesk = useRemoveFromDesk();
   const setStatus = useSetStatus();
+  const deleteTask = useDeleteTask();
   // Which row's status is being picked.
   const [picking, setPicking] = useState<TaskId | null>(null);
+  // Which row is asking whether to delete.
+  const [deleting, setDeleting] = useState<TaskId | null>(null);
   const attention = useMemo(() => Object.values(world.attention), [world.attention]);
   const options = filterOptions(world, filters);
   // Re-derived only when the world or the filters move, not on every frame
@@ -93,34 +98,37 @@ export function TaskList() {
       <table className={styles.table}>
         <thead>
           <tr>
-            <th>desk</th>
             <th>id</th>
             <th>title</th>
             <th>project</th>
             <th>branch</th>
             <th>status</th>
             <th>state</th>
+            <th />
           </tr>
         </thead>
         <tbody>
           {rows.map(({ task, onDesk, agent }) => (
-            <tr key={task.id} data-task-id={task.id} data-on-desk={onDesk}>
+            <tr
+              key={task.id}
+              data-task-id={task.id}
+              data-on-desk={onDesk}
+              // A click on a control in the row is that control's, not the
+              // row's. Asked of the target rather than stopped per cell, so a
+              // control added later needs no guard of its own.
+              onClick={(e) => {
+                if (!(e.target as HTMLElement).closest('button, select, input, a')) {
+                  editTask(task.id);
+                }
+              }}
+            >
+              <td className={styles.mono}>{task.id}</td>
               <td>
-                <AppButton
-                  onClick={() =>
-                    (onDesk ? removeFromDesk : addToDesk).mutateAsync({
-                      id: deskIdForTask(task.id),
-                    })
-                  }
-                >
-                  {onDesk ? 'Remove from desk' : 'Add to desk'}
-                </AppButton>
-                <button type="button" onClick={() => editTask(task.id)}>
-                  Edit
+                {/* A real button: a row reaches no keyboard. */}
+                <button type="button" className={styles.title} onClick={() => editTask(task.id)}>
+                  {task.title}
                 </button>
               </td>
-              <td className={styles.mono}>{task.id}</td>
-              <td>{task.title}</td>
               <td>{task.project}</td>
               <td className={styles.mono}>{task.branch}</td>
               <td>
@@ -136,18 +144,46 @@ export function TaskList() {
                 />
               </td>
               <td>{stateCell(task, agent, attention)}</td>
+              <td>
+                <AppButton
+                  onClick={() =>
+                    (onDesk ? removeFromDesk : addToDesk).mutateAsync({
+                      id: deskIdForTask(task.id),
+                    })
+                  }
+                >
+                  {onDesk ? 'Remove from desk' : 'Add to desk'}
+                </AppButton>
+                {/* One question open at a time: two rows asking at once is two
+                    destructive actions one click apart. */}
+                <ConfirmButton
+                  question="Delete this task?"
+                  confirm="Delete it"
+                  asking={deleting === task.id}
+                  onAsk={() => setDeleting(task.id)}
+                  onDismiss={() => setDeleting(null)}
+                  onConfirm={async () => {
+                    await deleteTask.mutateAsync({ taskId: task.id });
+                    // The dialog mounts from the store, so a delete that
+                    // leaves it open refetches a task that is gone.
+                    if (editingTaskId === task.id) editTask(null);
+                  }}
+                >
+                  Delete
+                </ConfirmButton>
+              </td>
             </tr>
           ))}
           {status === 'loading' && (
             <tr>
-              <td colSpan={7} className={styles.empty}>
+              <td colSpan={8} className={styles.empty}>
                 Loading…
               </td>
             </tr>
           )}
           {status === 'error' && (
             <tr>
-              <td colSpan={7} className={styles.empty} role="alert">
+              <td colSpan={8} className={styles.empty} role="alert">
                 Could not load the tasks: {errors[0]?.message ?? 'unknown error'}{' '}
                 <AppButton onClick={retry}>Retry</AppButton>
               </td>
@@ -155,7 +191,7 @@ export function TaskList() {
           )}
           {status === 'ready' && rows.length === 0 && (
             <tr>
-              <td colSpan={7} className={styles.empty}>
+              <td colSpan={8} className={styles.empty}>
                 No task matches these filters.
               </td>
             </tr>
