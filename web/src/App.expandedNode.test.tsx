@@ -25,6 +25,22 @@ describe('the expanded node', () => {
   });
 
   describe('external links', () => {
+    it('keeps action links together and gives each document link its own row', async () => {
+      await renderApp();
+      clickNode('NORT-12');
+
+      const card = expanded();
+      const actions = within(card).getByTestId('node-actions');
+      expect(within(actions).getByRole('link', { name: 'Session' })).toBeInTheDocument();
+      expect(within(actions).getByRole('link', { name: /PR #118/ })).toBeInTheDocument();
+      expect(within(actions).getByRole('link', { name: 'Dev env' })).toBeInTheDocument();
+
+      const documents = within(card).getByTestId('node-documents');
+      expect(within(documents).getAllByRole('link')).toHaveLength(2);
+      expect(within(documents).getAllByRole('link')[0]!.parentElement).toBe(documents);
+      expect(within(documents).getAllByRole('link')[1]!.parentElement).toBe(documents);
+    });
+
     it('links the PR at its own URL, saying its state, in a new tab', async () => {
       await renderApp();
       clickNode('NORT-12');

@@ -221,13 +221,8 @@ export function NodeCardBody({
       )}
 
       <footer className={styles.footer}>
-        <div className={styles.links}>
+        <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
-          {documents.map((d) => (
-            <PanelLink key={d.id} tab={documentTab(d.id)}>
-              {d.title} v{d.version} · {describeDocumentStatus(d.status)}
-            </PanelLink>
-          ))}
           <PrChip worktree={where} size="large" />
           {appUrl && <ExternalLink href={appUrl}>Dev env</ExternalLink>}
         </div>
@@ -276,6 +271,15 @@ export function NodeCardBody({
             </AppButton>
           )}
         </div>
+        {documents.length > 0 && (
+          <div className={styles.documents} data-testid="node-documents">
+            {documents.map((d) => (
+              <PanelLink key={d.id} tab={documentTab(d.id)}>
+                {d.title} v{d.version} · {describeDocumentStatus(d.status)}
+              </PanelLink>
+            ))}
+          </div>
+        )}
       </footer>
     </>
   );
