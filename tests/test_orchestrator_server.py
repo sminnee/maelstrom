@@ -1637,6 +1637,59 @@ def test_delete_strips_the_id_from_a_dependent_follows(harness):
     assert run(model.load(harness.store, PROJECT, "NORT-8")).follows == []
 
 
+def test_delete_is_refused_while_an_agent_runs_on_the_task(harness):
+    """A deleted task would leave its agent alive, naming a row that is gone.
+
+    The world keys agents by ``taskId``, so such an agent is reachable from no
+    row. ``agent.launch`` refuses a task it cannot start; this is the same
+    check from the other end.
+    """
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            launch = await harness.orch.handle_command(
+                {"type": "agent.launch", "taskId": "northwind/NORT-7"}
+            )
+            assert launch["ok"], launch
+            return await harness.orch.handle_command(
+                {"type": "task.delete", "taskId": "northwind/NORT-7"}
+            )
+        finally:
+            await harness.orch.stop()
+
+    reply = run(scenario())
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "invalid"
+    # Refused before the notebook is touched.
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).id == "NORT-7"
+
+
+def test_delete_is_allowed_once_the_agent_has_exited(harness):
+    """The guard is about a live agent, not about ever having had one."""
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            await harness.orch.handle_command(
+                {"type": "agent.launch", "taskId": "northwind/NORT-7"}
+            )
+            agent_id = next(iter(harness.orch.world["agents"]))
+            harness.daemon.rows[agent_id]["state"] = "exited"
+            await harness.orch.refresh_agents()
+            return await harness.orch.handle_command(
+                {"type": "task.delete", "taskId": "northwind/NORT-7"}
+            )
+        finally:
+            await harness.orch.stop()
+
+    reply = run(scenario())
+    assert reply["ok"], reply
+    assert [t.id for t in run(model.list_tasks(harness.store, project=PROJECT))] == []
+
+
 def test_delete_of_a_task_the_notebook_never_had_is_unknown_id(harness):
     async def scenario():
         async with harness.client() as api:
