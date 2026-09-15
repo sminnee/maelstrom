@@ -29,6 +29,13 @@ task's frontmatter shows as a node with no phase rather than one claiming a phas
 as an argument rather than reading the clock, so both are pure and a test pins the answer. An
 unreadable stamp gives an empty string, and the caller draws nothing rather than a false age.
 
+`protocol/workCalendar.ts` measures an interval rather than writing a moment: how much working
+time falls inside it, once nights and weekends are weighted down. The seven-day usage window
+reads its elapsed time through this, so a budget does not recover overnight. It takes the zone
+by name — `Pacific/Auckland` — rather than reading the runner's, because a reset is a zone-free
+instant while "8am" is a wall clock, and a browser's zone would make the reading depend on where
+the laptop is.
+
 `ui/useNow` is the clock those two are given. It is one 30-second interval shared by every age on
 screen, not one timer per card: an age has to advance without a message arriving, and a desk of
 forty cards should not cost forty timers. The interval stops when the last age leaves the screen.

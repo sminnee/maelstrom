@@ -591,8 +591,9 @@ the phase hue. Two channels, two edges, no conflict.
   unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
   vouch for drops to faint and dashes its divider, and the chip itself gives up the tone.
   On a usage chip the tone reads pace, not the number beside it. A high percentage near a
-  reset stays quiet; a low one early in a window can sit amber. The title then says "ahead of
-  pace", because colour alone cannot explain a tone the value contradicts.
+  reset stays quiet; a low one early in a window can sit amber. The title carries both figures
+  — what is consumed and what the window allows for by now — because colour alone cannot
+  explain a tone the value contradicts, and the gap between the two numbers is the reading.
 
 ### Shell command
 

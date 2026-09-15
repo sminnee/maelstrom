@@ -184,7 +184,7 @@ describe('the narrow layout', () => {
     // `usage.test.ts` pins as `busy`.
     await reportUsage(server, { spent: 0.45, hoursLeft: 3 });
     await waitFor(() =>
-      expect(screen.getByLabelText(/5-hour limit: 45% used/)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/5-hour limit: 45% consumed/)).toBeInTheDocument(),
     );
   });
 
@@ -195,7 +195,7 @@ describe('the narrow layout', () => {
     await reportUsage(server, { spent: 0.2, hoursLeft: 2, week: true });
     // The week chip survives the narrow bar, so waiting on it proves the
     // reading landed before the absence below is read.
-    await screen.findByLabelText(/7-day limit: 30% used/);
+    await screen.findByLabelText(/7-day limit: 30% consumed/);
     expect(screen.queryByLabelText(/5-hour limit/)).toBeNull();
   });
 
