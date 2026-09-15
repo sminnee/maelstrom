@@ -94,6 +94,7 @@ from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
 from .attachments import MAX_BYTES, image_extension, is_image
+from .notebook_root import NotebookRootUnset
 from .session_discovery import (
     LiveSessionSet,
     ProcessInfo,
@@ -828,6 +829,12 @@ class AgentDaemon:
                 found = await table.find_by_session_id(meta.session_id)
                 rows[meta.session_id] = found.id if found else ""
             return rows
+        except NotebookRootUnset:
+            # Not a table failure: the daemon names no notebook at all. Blanking
+            # the column would hide a misconfigured root behind a listing that
+            # still succeeds, so this one says what is wrong every time.
+            log.exception("no notebook root; task column left blank")
+            raise
         except Exception:  # noqa: BLE001
             log.exception("could not read the task table; task column left blank")
             return {}

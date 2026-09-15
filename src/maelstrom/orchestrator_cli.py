@@ -19,6 +19,7 @@ import click
 from .agent_transport import SocketAsyncDaemonClient, daemon_paths
 from .context import load_global_config
 from .desk_store import SqliteDeskStore
+from .notebook_root import NotebookRootUnset
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import (
@@ -227,9 +228,10 @@ def cmd_serve(host: str, port: int, log_level: str) -> None:
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
         run_server(host, port, log_level)
-    except StateDbError as exc:
+    except (StateDbError, NotebookRootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
-        # bury it.
+        # bury it. `main()`'s arm never sees these — this command exits below
+        # Click — so the notebook root is caught here or not at all.
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     except KeyboardInterrupt:
