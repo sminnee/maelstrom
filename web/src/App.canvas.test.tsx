@@ -197,7 +197,9 @@ describe('grouping and filters', () => {
     expect(screen.getByLabelText('Project')).toHaveValue('northwind');
     expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
     expect(
-      within(screen.getByTestId('task-list')).getAllByRole('row').map((row) => row.textContent),
+      within(screen.getByTestId('task-list'))
+        .getAllByRole('row')
+        .map((row) => row.textContent),
     ).toEqual(expect.arrayContaining([expect.stringContaining('NORT-7')]));
     expect(screen.getByRole('button', { name: 'Tasks' })).toHaveAttribute('aria-pressed', 'true');
 
@@ -212,9 +214,9 @@ describe('grouping and filters', () => {
 
     await user.selectOptions(screen.getByLabelText('Agent status'), 'planned');
 
-    expect(screen.getAllByTestId('task-node').map((node) => node.getAttribute('data-task-id'))).toEqual(
-      expect.arrayContaining(['NORT-15']),
-    );
+    expect(
+      screen.getAllByTestId('task-node').map((node) => node.getAttribute('data-task-id')),
+    ).toEqual(expect.arrayContaining(['NORT-15']));
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument();
   });
 

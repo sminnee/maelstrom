@@ -4,12 +4,7 @@ export type GroupBy = 'project' | 'branch' | 'worktree' | 'none';
 
 /** Which agents the Desk shows. `planned` is a task that has not launched one. */
 export type AgentStatusFilter =
-  | 'all'
-  | 'working'
-  | 'idle'
-  | 'working-idle'
-  | 'terminated'
-  | 'planned';
+  'all' | 'working' | 'idle' | 'working-idle' | 'terminated' | 'planned';
 
 export interface Filters {
   project: string | null;

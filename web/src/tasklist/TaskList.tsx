@@ -33,10 +33,7 @@ export function TaskList() {
   const attention = useMemo(() => Object.values(world.attention), [world.attention]);
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
-  const rows = useMemo(
-    () => listTasks(world, filters, listFilters),
-    [world, filters, listFilters],
-  );
+  const rows = useMemo(() => listTasks(world, filters, listFilters), [world, filters, listFilters]);
 
   return (
     <div className={styles.view} data-testid="task-list">

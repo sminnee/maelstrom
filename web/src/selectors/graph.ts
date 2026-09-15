@@ -167,9 +167,9 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   const agents = agentsByTask(world);
   const attentionIndex = openAttentionIndex(world);
   const worktreeByBranch = openWorktreesByBranch(world);
-  const tasks = filteredTasks(world, opts.filters).filter(
-    (t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)),
-  ).filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id)));
+  const tasks = filteredTasks(world, opts.filters)
+    .filter((t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)))
+    .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id)));
 
   const groups = new Map<string, GraphGroup>();
   // Worktree lanes come from the world, not from the nodes, so an open
@@ -268,7 +268,10 @@ function allowsAgent(filters: Filters, agent: Agent, worktree: Worktree | undefi
 }
 
 /** The status filter groups agent states for the Desk's scan-level control. */
-function allowsAgentStatus(filter: AgentStatusFilter | undefined, agent: Agent | undefined): boolean {
+function allowsAgentStatus(
+  filter: AgentStatusFilter | undefined,
+  agent: Agent | undefined,
+): boolean {
   switch (filter ?? 'all') {
     case 'all':
       return true;

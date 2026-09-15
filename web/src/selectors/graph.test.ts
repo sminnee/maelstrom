@@ -62,7 +62,12 @@ describe('deriveGraph', () => {
         (node) => node.id,
       );
 
-    expect(shown('all')).toEqual(['working-agent', 'idle-agent', 'awaiting-agent', 'terminated-agent']);
+    expect(shown('all')).toEqual([
+      'working-agent',
+      'idle-agent',
+      'awaiting-agent',
+      'terminated-agent',
+    ]);
     expect(shown('working')).toEqual(['working-agent']);
     expect(shown('idle')).toEqual(['idle-agent', 'awaiting-agent']);
     expect(shown('working-idle')).toEqual(['working-agent', 'idle-agent', 'awaiting-agent']);
