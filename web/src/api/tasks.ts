@@ -76,6 +76,27 @@ export function useUpdateTask() {
 }
 
 /**
+ * Remove a task from the notebook.
+ *
+ * The desk is invalidated too: the server prunes a deleted task's `task:`
+ * entry, so the desk this client holds is stale until it reads again.
+ */
+export function useDeleteTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { taskId: TaskId }) => api.delete(`/api/tasks/${vars.taskId}`),
+    onSuccess: (_result, vars) => {
+      void queryClient.invalidateQueries({ queryKey: keys.tasks.list() });
+      // Dropped, not invalidated: an invalidated entry refetches, and a read
+      // of a task that is gone is a 404.
+      queryClient.removeQueries({ queryKey: keys.tasks.detail(vars.taskId) });
+      void queryClient.invalidateQueries({ queryKey: keys.desk() });
+    },
+  });
+}
+
+/**
  * Name a task from its prose. Slow enough to need the long timeout, and it
  * writes nothing, so nothing is invalidated.
  */
