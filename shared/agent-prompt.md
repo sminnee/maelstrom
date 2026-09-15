@@ -6,7 +6,7 @@ and acts on:
   nothing.
 - `<doc-content>`, `<doc-file>` and `<image>` — put a document or a picture in front of the user.
 
-- A ` ```callout ` fenced block — the one thing in the message the user must read.
+- A ` ```quiet ` fenced block — agent self-talk that should read quietly.
 
-Load the `agent-daemon` skill before using any marker but `<note>` and a callout: the other three
-take attributes and path rules that are wrong to guess.
+Load the `agent-daemon` skill before you use `<doc-content>`, `<doc-file>`, or `<image>`.
+The skill gives their required attributes and path rules.

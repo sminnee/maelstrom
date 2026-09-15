@@ -79,59 +79,66 @@ describe('an image in a message', () => {
   });
 });
 
-describe('a callout in a message', () => {
+describe('a quiet block in a message', () => {
   it('renders its text as prose, not as a code block', () => {
-    const { container } = render(
-      <Markdown source={'```callout\nYou will need to free 342.\n```'} />,
-    );
-    const callout = screen.getByTestId('callout');
-    expect(callout).toHaveTextContent('You will need to free 342.');
-    // The fence chrome is what a callout replaces: it is prose, not a listing.
-    expect(callout.querySelector('pre')).toBeNull();
+    const { container } = render(<Markdown source={'```quiet\nChecking port 342.\n```'} />);
+    const quiet = screen.getByTestId('quiet');
+    expect(quiet).toHaveTextContent('Checking port 342.');
+    // The fence chrome is what a quiet block replaces: it is prose, not a listing.
+    expect(quiet.querySelector('pre')).toBeNull();
     expect(container.querySelector('pre')).toBeNull();
   });
 
-  it('is still a callout when its body is empty', () => {
-    // An empty fence carries no child at all. Falling through would dress it in
-    // the sunken code chrome a callout exists to replace.
-    const { container } = render(<Markdown source={'```callout\n```'} />);
-    expect(screen.getByTestId('callout')).toBeInTheDocument();
+  it('is still quiet when its body is empty', () => {
+    const { container } = render(<Markdown source={'```quiet\n```'} />);
+    expect(screen.getByTestId('quiet')).toBeInTheDocument();
     expect(container.querySelector('pre')).toBeNull();
   });
 
-  it('stops nesting callouts past a fixed depth, so agent prose cannot recurse without limit', () => {
-    // A four-backtick fence keeps a three-backtick fence inside it verbatim, so
-    // an agent quoting a transcript that held a callout drives this recursion.
-    const source = '````callout\nouter\n\n```callout\ninner\n```\n````';
-    render(<Markdown source={source} />);
-    const callouts = screen.getAllByTestId('callout');
-    expect(callouts).toHaveLength(2);
-    expect(callouts[0]).toHaveTextContent('outer');
-    expect(callouts[1]).toHaveTextContent('inner');
-  });
-
-  it('renders the markdown inside it, so a callout can carry a literal or a link', () => {
-    render(<Markdown source={'```callout\nRun `mael env reset` or [read the doc](/docs).\n```'} />);
-    const callout = screen.getByTestId('callout');
-    expect(within(callout).getByText('mael env reset').tagName).toBe('CODE');
-    expect(within(callout).getByRole('link', { name: 'read the doc' })).toHaveAttribute(
+  it('renders the markdown inside it, so self-talk can carry a literal or a link', () => {
+    render(<Markdown source={'```quiet\nRun `mael env reset` or [read the doc](/docs).\n```'} />);
+    const quiet = screen.getByTestId('quiet');
+    expect(within(quiet).getByText('mael env reset').tagName).toBe('CODE');
+    expect(within(quiet).getByRole('link', { name: 'read the doc' })).toHaveAttribute(
       'href',
       '/docs',
     );
+  });
+
+  it('leaves quiet blocks beyond two levels as code', () => {
+    const source = '`````quiet\nouter\n\n````quiet\ninner\n\n```quiet\ndeep\n```\n````\n`````';
+    const { container } = render(<Markdown source={source} />);
+    expect(screen.getAllByTestId('quiet')).toHaveLength(2);
+    expect(container.querySelector('pre')).not.toBeNull();
+    expect(screen.getByText('deep')).toBeInTheDocument();
+  });
+
+  it('leaves the removed callout fence as a code block', () => {
+    const { container } = render(<Markdown source={'```callout\nOld instruction.\n```'} />);
+    expect(screen.queryByTestId('quiet')).toBeNull();
+    expect(container.querySelector('pre')).not.toBeNull();
+    expect(screen.getByText('Old instruction.')).toBeInTheDocument();
+  });
+
+  it('leaves a quiet fence nested in a listing as code', () => {
+    const source = '````text\nouter\n\n```quiet\ninner\n```\n````';
+    render(<Markdown source={source} />);
+    expect(screen.queryByTestId('quiet')).toBeNull();
+    expect(screen.getByText(/inner/)).toBeInTheDocument();
   });
 
   it('leaves a fence in another language as a code block', () => {
     // This override sits in front of every code block an agent writes, so the
     // ordinary case must survive it untouched.
     const { container } = render(<Markdown source={'```js\nconst x = 1;\n```'} />);
-    expect(screen.queryByTestId('callout')).toBeNull();
+    expect(screen.queryByTestId('quiet')).toBeNull();
     expect(container.querySelector('pre')).not.toBeNull();
     expect(screen.getByText(/const x = 1;/)).toBeInTheDocument();
   });
 
   it('leaves a fence with no info string as a code block', () => {
     const { container } = render(<Markdown source={'```\nplain listing\n```'} />);
-    expect(screen.queryByTestId('callout')).toBeNull();
+    expect(screen.queryByTestId('quiet')).toBeNull();
     expect(container.querySelector('pre')).not.toBeNull();
     expect(screen.getByText(/plain listing/)).toBeInTheDocument();
   });

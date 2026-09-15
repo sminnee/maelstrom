@@ -1,11 +1,6 @@
 import type { Story } from '@ladle/react';
 import { Markdown } from '../markdown/Markdown';
-import {
-  calloutTranscript,
-  ledgerRun,
-  markdownSample,
-  mixedTranscript,
-} from './transcript.fixture';
+import { quietTranscript, ledgerRun, markdownSample, mixedTranscript } from './transcript.fixture';
 import { Transcript } from './Transcript';
 
 export default { title: 'Session / Transcript' };
@@ -69,19 +64,19 @@ export const Wide: Story = () => (
 
 /**
  * The two ranks of prose. The question this story answers is whether the
- * demoted run reads as quiet or as unreadable — check both schemes, and check
+ * quiet run reads as quiet or as unreadable — check both schemes, and check
  * the user's turn still holds full rank against its accent wash.
  */
-export const Callouts: Story = () => (
+export const QuietBlocks: Story = () => (
   <Panel>
-    <Transcript items={calloutTranscript} truncatedBefore={false} />
+    <Transcript items={quietTranscript} truncatedBefore={false} />
   </Panel>
 );
 
-/** The demoted run at the narrow break, where 13px muted is hardest to read. */
-export const CalloutsNarrow: Story = () => (
+/** The quiet run at the narrow break, where 13px muted is hardest to read. */
+export const QuietBlocksNarrow: Story = () => (
   <Panel width={360}>
-    <Transcript items={calloutTranscript} truncatedBefore={false} />
+    <Transcript items={quietTranscript} truncatedBefore={false} />
   </Panel>
 );
 
