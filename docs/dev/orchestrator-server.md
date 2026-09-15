@@ -695,6 +695,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `{taskId, agentId?}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
+| `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
