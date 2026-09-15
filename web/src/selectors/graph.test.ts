@@ -20,6 +20,61 @@ function drawnWorld(parts: Parameters<typeof worldWith>[0]) {
 const byProject = { groupBy: 'project' as const, filters: noFilters() };
 
 describe('deriveGraph', () => {
+  it('filters Desk tasks by their agent status', () => {
+    const tasks = ['working', 'idle', 'awaiting', 'terminated', 'planned'].map((id) =>
+      makeTask({ id }),
+    );
+    const world = drawnWorld({
+      tasks,
+      agents: [
+        makeAgent({ id: 'working-agent', taskId: 'working', state: 'processing' }),
+        makeAgent({ id: 'idle-agent', taskId: 'idle', state: 'idle' }),
+        makeAgent({ id: 'awaiting-agent', taskId: 'awaiting', state: 'awaiting-question' }),
+        makeAgent({ id: 'terminated-agent', taskId: 'terminated', state: 'exited', exitCode: 0 }),
+      ],
+    });
+    const shown = (agentStatus: Parameters<typeof deriveGraph>[1]['filters']['agentStatus']) =>
+      deriveGraph(world, { ...byProject, filters: { ...noFilters(), agentStatus } }).nodes.map(
+        (node) => node.id,
+      );
+
+    expect(shown('all')).toEqual(['awaiting', 'idle', 'planned', 'terminated', 'working']);
+    expect(shown('working')).toEqual(['working']);
+    expect(shown('idle')).toEqual(['awaiting', 'idle']);
+    expect(shown('working-idle')).toEqual(['awaiting', 'idle', 'working']);
+    expect(shown('terminated')).toEqual(['terminated']);
+    expect(shown('planned')).toEqual(['planned']);
+  });
+
+  it('filters free agents by their status, but never treats one as planned', () => {
+    const agents = [
+      makeAgent({ id: 'working-agent', taskId: '', state: 'processing' }),
+      makeAgent({ id: 'idle-agent', taskId: '', state: 'idle' }),
+      makeAgent({ id: 'awaiting-agent', taskId: '', state: 'awaiting-question' }),
+      makeAgent({ id: 'terminated-agent', taskId: '', state: 'exited', exitCode: 0 }),
+    ];
+    const world = drawnWorld({
+      agents,
+      desk: agents.map((agent) => makeDeskEntry({ id: deskIdForAgent(agent.id) })),
+    });
+    const shown = (agentStatus: Parameters<typeof deriveGraph>[1]['filters']['agentStatus']) =>
+      deriveGraph(world, { ...byProject, filters: { ...noFilters(), agentStatus } }).nodes.map(
+        (node) => node.id,
+      );
+
+    expect(shown('all')).toEqual([
+      'working-agent',
+      'idle-agent',
+      'awaiting-agent',
+      'terminated-agent',
+    ]);
+    expect(shown('working')).toEqual(['working-agent']);
+    expect(shown('idle')).toEqual(['idle-agent', 'awaiting-agent']);
+    expect(shown('working-idle')).toEqual(['working-agent', 'idle-agent', 'awaiting-agent']);
+    expect(shown('terminated')).toEqual(['terminated-agent']);
+    expect(shown('planned')).toEqual([]);
+  });
+
   it('a task without an agent waits: ready when its turn has come, else queued', () => {
     const ready = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo', actionable: true })] });
     expect(deriveGraph(ready, byProject).nodes[0]).toMatchObject({

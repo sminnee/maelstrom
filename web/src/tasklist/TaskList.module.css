@@ -3,35 +3,6 @@
   overflow: auto;
   background: var(--bg);
 }
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
-  position: sticky;
-  top: 0;
-}
-.check,
-.field {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-.field select,
-.field input {
-  font: inherit;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1px 4px;
-  max-width: 180px;
-}
 .table {
   width: 100%;
   border-collapse: collapse;

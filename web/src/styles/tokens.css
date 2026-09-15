@@ -112,6 +112,7 @@
   --radius-sm: 3px;
   --radius: 6px;
   --radius-lg: 10px;
+  --radius-pill: 999px;
 
   /* `--text-2xs` is the floor: a tracked uppercase micro-label only. At 10px,
      sentence case in `--fg-faint` stops clearing AA. */
