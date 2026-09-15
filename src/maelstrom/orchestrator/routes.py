@@ -105,6 +105,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
     app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
+    app.router.add_delete("/api/tasks/{project}/{id}", _delete_task)
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
@@ -499,6 +500,13 @@ async def _update_task(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda body: {"type": "task.update", "taskId": task_id, "fields": body},
+    )
+
+
+async def _delete_task(request: web.Request) -> web.StreamResponse:
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda _body: {"type": "task.delete", "taskId": task_id}
     )
 
 

@@ -155,6 +155,14 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def delete(self, task_id: str) -> None:
+        """Remove a task, and strip it from every dependent's ``follows``.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+        """
+        ...
+
     def infer(self, draft: str) -> TaskNames:
         """Read a title, a branch and a command off a draft's prose.
 
@@ -351,6 +359,15 @@ class NotebookTaskSource:
         if "follows" in wanted:
             wanted["follows"] = [split_task_key(f)[1] for f in wanted["follows"]]
         await model.update(self.table, project, notebook_id, **wanted)
+
+    async def delete(self, task_id: str) -> None:
+        """Remove a task from the notebook.
+
+        The dependent rewrite is the model's, not this layer's: ``delete``
+        covers the removal and every dependent in one transaction.
+        """
+        project, notebook_id = split_task_key(task_id)
+        await model.delete(self.table, project, notebook_id)
 
     def infer(self, draft: str) -> TaskNames:
         return infer_task_names(draft)

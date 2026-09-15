@@ -1186,6 +1186,7 @@ class Orchestrator:
             "desk.remove": self._desk_remove,
             "task.setStatus": self._set_status,
             "task.update": self._update_task,
+            "task.delete": self._delete_task,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "linear.plan": self._linear_plan,
@@ -1749,6 +1750,10 @@ class Orchestrator:
         return await self._write_task(
             self.tasks.update, command["taskId"], dict(command["fields"])
         )
+
+    async def _delete_task(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Remove a task. The forced refresh is also what prunes its desk entry."""
+        return await self._write_task(self.tasks.delete, command["taskId"])
 
     async def _write_task(
         self, write: Callable[..., Any], task_id: str, *args: Any

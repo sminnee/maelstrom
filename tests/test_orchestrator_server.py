@@ -1608,6 +1608,66 @@ def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
     assert reply.body["error"]["code"] == "unknown_id"
 
 
+def test_delete_removes_the_task_from_the_notebook(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.delete("/api/tasks/northwind/NORT-7")
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert [t.id for t in run(model.list_tasks(harness.store, project=PROJECT))] == []
+
+
+def test_delete_strips_the_id_from_a_dependent_follows(harness):
+    """The model rewrites dependents, so a gate on a deleted task is not left dangling."""
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8", follows=["NORT-7"])
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.delete("/api/tasks/northwind/NORT-7")
+            return reply, await api.get_json("/api/tasks/northwind/NORT-8")
+
+    reply, dependent = run(scenario())
+    assert reply.status == 200
+    assert dependent["follows"] == []
+    assert run(model.load(harness.store, PROJECT, "NORT-8")).follows == []
+
+
+def test_delete_of_a_task_the_notebook_never_had_is_unknown_id(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.delete("/api/tasks/northwind/NOPE")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_a_deleted_tasks_desk_entry_goes_with_it(harness):
+    """Nothing prunes the desk here: the forced refresh a write does already has.
+
+    NORT-8 is seeded so the project survives the delete — ``desk.prune`` keeps
+    the entries of a project the reading did not cover.
+    """
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8")
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/desk", {"id": "task:northwind/NORT-7"})
+            before = await api.get_json("/api/desk")
+            await api.delete("/api/tasks/northwind/NORT-7")
+            return before, await api.get_json("/api/desk")
+
+    before, after = run(scenario())
+    assert [e["id"] for e in before["desk"]] == ["task:northwind/NORT-7"]
+    assert [e["id"] for e in after["desk"]] == []
+
+
 def test_desk_remove_takes_a_url_encoded_desk_id(harness):
     harness.add_task("NORT-7")
 
