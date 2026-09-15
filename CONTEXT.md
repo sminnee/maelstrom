@@ -591,12 +591,12 @@ may not show, or one that is not there, leaves prose saying so, never a broken p
 markers, with the **Document tag** and the **Note**.
 _Avoid_: Screenshot tag, figure, embed
 
-**Callout**:
-The prose an agent marks as the thing the user must read, written as a ` ```callout ` fenced block
-in an ordinary message. The transcript draws it at the reading rank and demotes the agent's other
-prose around it. Unlike the four markers it is not cut from the message: it is the message, ranked.
-It holds markdown, so a callout can carry a literal or a link. Nothing on the server parses it.
-_Avoid_: Highlight, Summary, Important
+**Quiet block**:
+Agent self-talk, written as a ` ```quiet ` fenced block in an ordinary message. The transcript
+draws it at the quiet rank. Other prose stays at the reading rank. Unlike the four markers it is
+not cut from the message. It holds markdown, so a quiet block can carry a literal or a link.
+Nothing on the server parses it.
+_Avoid_: Callout, Highlight, Summary, Important
 
 **Task notification**:
 What the harness injects to say background work finished. A subagent's arrives as a `system` event

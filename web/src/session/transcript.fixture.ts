@@ -81,11 +81,11 @@ export const ledgerRun: TranscriptItem[] = [
 ];
 
 /**
- * Self-talk against a callout: the case the two ranks of prose are built for.
+ * Quiet self-talk against the reading rank: the case the two ranks of prose are built for.
  * Long enough to read start to finish, because a one-line message does not
  * show whether 13px muted holds up.
  */
-export const calloutTranscript: TranscriptItem[] = [
+export const quietTranscript: TranscriptItem[] = [
   say('Checking whether the allocator can take another base before I start the service.', 30),
   ran(
     'Bash',
@@ -94,7 +94,7 @@ export const calloutTranscript: TranscriptItem[] = [
     'alpha 342  bravo 517',
   ),
   say(
-    'The allocator refuses a base already in use, and 342 is held by `alpha`. I can either free it or let the allocator pick the next one, which would move every service port in this worktree.\n\n```callout\nFree port 342 before you retry, or the allocator moves every port in this worktree.\n```\n\nI will wait for you rather than renumbering ports underneath a running service.',
+    'Free port 342 before you retry, or the allocator moves every port in this worktree.\n\n```quiet\nThe allocator refuses a base already in use, and 342 is held by `alpha`. I can either free it or let the allocator pick the next one, which would move every service port in this worktree.\n```\n\n```quiet\nI will wait for you rather than renumbering ports underneath a running service.\n```',
     31,
   ),
   say('Free it — nothing is attached to alpha any more.', 31, 'user'),
@@ -125,9 +125,9 @@ transformed. Inline literals like \`--measure-prose\` sit inside prose.
 }
 \`\`\`
 
-\`\`\`callout
-A callout: the one line worth reading, at the reading rank. It holds
-\`--text-md\` and a [link](/docs) like any other prose.
+\`\`\`quiet
+Quiet self-talk reads at the smaller rank. It holds \`--text-ui\` and a
+[link](/docs) like any other prose.
 \`\`\`
 
 > A quote, for the rail it draws.

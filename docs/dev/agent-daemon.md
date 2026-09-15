@@ -48,12 +48,10 @@ The markers are taught on the launch rather than in a general skill because only
 has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to
 agents that cannot use it.
 
-The prompt is a pointer, not the documentation. It names the markers and sends the agent to the
-`agent-daemon` skill for the three that take attributes and path rules. `shared/agent-prompt.md`
-holds it, beside `claude-header.md`. It is named by path rather than inlined for two reasons: the
-argv appears in every `ps` line, and `session_discovery` scans those command strings for the
-session id and the driven-agent flags. A path costs a few characters; the prose would cost a
-paragraph.
+`shared/agent-prompt.md` holds the marker contract beside `claude-header.md`. It is named by path
+rather than inlined for two reasons: the argv appears in every `ps` line, and `session_discovery`
+scans those command strings for the session id and the driven-agent flags. A path costs a few
+characters; the prose would cost a paragraph.
 
 Without `--permission-prompt-tool stdio` a headless agent has nobody to ask. Every "ask" decision
 resolves itself, the agent never pauses, and no wait is ever observable. The flag does not appear

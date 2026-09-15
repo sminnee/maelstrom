@@ -11,7 +11,7 @@ A draft is an inert task file in `.drafts/`. It becomes a task only through `mae
 mael task draft .drafts/<name>.md "<title>" --mode auto --pre-action linear.in-progress
 ```
 
-Use one file per future task. Put its execution plan in `## Content`; keep recipe fields in frontmatter. Present the complete chain to the user, in order, as soon as drafts exist, and present it for approval once it is ready. See the `agent-daemon` skill for how to show a set of files as one document.
+Use one file per future task. Put its execution plan in `## Content`; keep recipe fields in frontmatter. Present the complete chain to the user, in order, as soon as drafts exist, and present it for approval once it is ready. Use a `<doc-file kind="tasks">` tag to show a task set as one document.
 
 Edit drafts with the user. Planning changes drafts only; execute sessions own source changes.
 
