@@ -757,6 +757,37 @@ function command(
     return ok({});
   }
 
+  // The id is the rest of the path, but never past a subroute: the real route
+  // is two segments and the seed world's ids are one, so both are taken and a
+  // DELETE subroute added later is not swallowed as a task id.
+  m = pathname.match(/^\/api\/tasks\/([^/]+(?:\/[^/]+)?)$/);
+  if (m && method === 'DELETE') {
+    const task = world.tasks[m[1]!];
+    if (!task) return notFound(`task ${m[1]}`);
+    delete world.tasks[task.id];
+    // Everything the real delete does, not just the row: the model strips the
+    // id from every dependent's `follows`, and the server's forced refresh
+    // prunes the desk entry. A fake that dropped only the task would let a UI
+    // bug through.
+    const deskId = `task:${task.id}`;
+    const hadDeskEntry = deskId in world.desk;
+    delete world.desk[deskId];
+    const rewired: string[] = [];
+    for (const other of Object.values(world.tasks)) {
+      if (!other.follows.includes(task.id)) continue;
+      // Terminal tasks keep their history, as `model.delete` leaves them.
+      if (other.status === 'done' || other.status === 'cancelled') continue;
+      world.tasks[other.id] = {
+        ...other,
+        follows: other.follows.filter((f) => f !== task.id),
+      };
+      rewired.push(other.id);
+    }
+    server.change({ kind: 'task', ids: [task.id, ...rewired] });
+    if (hadDeskEntry) server.change({ kind: 'desk', ids: [deskId] });
+    return ok({});
+  }
+
   if (pathname === '/api/tasks/infer' && method === 'POST') {
     const project = str('project') ?? '';
     const draft = str('draft')?.trim() ?? '';
