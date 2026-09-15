@@ -258,58 +258,40 @@ describe('Transcript', () => {
     expect(card.textContent).not.toContain('1.4.0');
   });
 
-  it('an agent message marks its callout apart from the prose around it', () => {
+  it('an agent message marks quiet self-talk apart from the prose around it', () => {
     // CSS is invisible to vitest, so the rank is asserted as structure: the
-    // callout is its own element, and the self-talk either side stays in the
-    // message rather than being swallowed by it.
+    // Quiet self-talk is its own element, and the prose either side stays in
+    // the message rather than being swallowed by it.
     render(
       <Transcript
         truncatedBefore={false}
         items={[
           said('m1', '', {
             markdown:
-              'Checking the allocator first.\n\n```callout\nFree port 342 before you retry.\n```\n\nThen I will re-run the suite.',
+              'Free port 342 before you retry.\n\n```quiet\nChecking the allocator first.\n```\n\nThen I will re-run the suite.',
           }),
         ]}
       />,
     );
     const card = screen.getByTestId('transcript-card');
-    const callout = within(card).getByTestId('callout');
-    expect(callout).toHaveTextContent('Free port 342 before you retry.');
-    expect(within(card).getByText(/Checking the allocator first/)).toBeInTheDocument();
+    const quiet = within(card).getByTestId('quiet');
+    expect(quiet).toHaveTextContent('Checking the allocator first.');
+    expect(within(card).getByText(/Free port 342 before you retry/)).toBeInTheDocument();
     expect(within(card).getByText(/Then I will re-run the suite/)).toBeInTheDocument();
-    // The surrounding prose is not part of the callout.
-    expect(callout).not.toHaveTextContent('Checking the allocator first');
+    // The surrounding prose is not part of the quiet self-talk.
+    expect(quiet).not.toHaveTextContent('Free port 342 before you retry');
   });
 
-  it('an agent message with no callout still renders its prose', () => {
+  it('an agent message with no quiet block still renders its prose', () => {
     render(
       <Transcript
         truncatedBefore={false}
-        items={[said('m1', '', { markdown: 'No callout here, just the working commentary.' })]}
+        items={[said('m1', '', { markdown: 'No quiet block here, just the working commentary.' })]}
       />,
     );
     const card = screen.getByTestId('transcript-card');
-    expect(within(card).queryByTestId('callout')).toBeNull();
+    expect(within(card).queryByTestId('quiet')).toBeNull();
     expect(within(card).getByText(/just the working commentary/)).toBeInTheDocument();
-  });
-
-  it('demotes the agent’s prose and leaves the operator’s turn at full rank', () => {
-    // The rank itself is CSS, which the runner cannot see, so the card carries
-    // it as an attribute. Without this the demotion could be deleted and every
-    // other test here would still pass.
-    render(
-      <Transcript
-        truncatedBefore={false}
-        items={[
-          said('m1', '', { markdown: 'Working through the allocator.' }),
-          said('m2', '', { role: 'user', markdown: 'Free it.' }),
-        ]}
-      />,
-    );
-    const [agent, user] = screen.getAllByTestId('transcript-card');
-    expect(agent!.querySelector('[data-prose-rank]')).toHaveAttribute('data-prose-rank', 'demoted');
-    expect(user!.querySelector('[data-prose-rank]')).toHaveAttribute('data-prose-rank', 'full');
   });
 
   it('an image an agent showed renders as a picture in its message', () => {

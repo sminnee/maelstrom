@@ -44,22 +44,21 @@ exist:
 A filename resolves inside your worktree. An absolute path, or one climbing out with `..`, is
 refused before anything is read. A file that cannot be read still opens a document, saying so.
 
-## The prose worth reading
+## Quiet self-talk
 
-A callout is not one of the four markers. It stays in the message, and it ranks what it holds:
+A quiet block is not one of the four markers. It stays in the message, and it marks self-talk:
 
 ````
-```callout
-The port allocator refuses a base already in use. Free 342 before you retry.
+```quiet
+I am checking whether port 342 is free.
 ```
 ````
 
-The transcript draws a callout at full reading size and demotes your other prose to a quieter
-size and tone. Everything outside a callout now reads as self-talk, so mark the answer, the
-decision, or the thing the user must act on, and leave your working commentary unmarked.
+The transcript draws quiet blocks at a smaller, muted rank. Leave the answer, decision, or
+action for the user outside the block.
 
-Write at most one or two a message. A message where everything is called out ranks nothing. The
-block holds markdown, so a literal or a link inside it still renders.
+Write quiet blocks only around self-talk. The block holds markdown, so a literal or a link inside
+it still renders.
 
 ## A picture
 
