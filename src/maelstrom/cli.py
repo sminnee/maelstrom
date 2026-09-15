@@ -54,6 +54,7 @@ from .list_all import (
     session_display,
 )
 from .mv_project_cli import cmd_mv_project
+from .notebook_root import NotebookRootUnset
 from .orchestrator_cli import orchestrator as orchestrator_cli
 from .ports import get_app_url
 from .project_cli import project as project_cli
@@ -1740,6 +1741,11 @@ def main(argv: list[str] | None = None) -> int:
         # is far below the command. Catching it here is what keeps a missing
         # root an error message rather than a traceback, whichever command
         # asked for it.
+        click.echo(f"Error: {e}", err=True)
+        return 1
+    except NotebookRootUnset as e:
+        # The same shape, for the notebook: every task command resolves its
+        # root far below the command that asked.
         click.echo(f"Error: {e}", err=True)
         return 1
     except SystemExit as e:
