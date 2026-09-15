@@ -2343,3 +2343,46 @@ class TestMainExitCodes:
         assert "MAEL_AGENT_ROOT is not set" in err
         assert "mael self-env start" in err
         assert "Traceback" not in err
+
+    def test_a_missing_notebook_root_is_an_error_not_a_traceback(
+        self, monkeypatch, capsys
+    ):
+        """Every task command resolves the notebook root, and the resolver sits
+        far below the command. Without a root they must say so, and name the
+        repair — the message is all a user gets.
+
+        The project is named for the same reason the promote test names one:
+        `task list` resolves its project first, from the working directory. A
+        run from inside a project finds one and reaches the notebook; a run
+        from anywhere else raises "Could not determine project" and never gets
+        there. Naming it makes the test say the same thing wherever it runs.
+        """
+        from maelstrom.cli import main
+
+        monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
+        code = main(["task", "list", "--project", "someproject"])
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "MAEL_NOTEBOOK_ROOT is not set" in err
+        assert "Traceback" not in err
+
+    def test_a_missing_notebook_root_refuses_a_promote(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        """`task promote` is the command that planned a real task.
+
+        The draft carries real frontmatter and the project is named, so the
+        command gets past parsing and project resolution and actually reaches
+        the notebook. A draft that fails to parse would exit 1 too, and prove
+        nothing about the root.
+        """
+        from maelstrom.cli import main
+
+        monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
+        draft = tmp_path / "draft.md"
+        draft.write_text("---\ntitle: A draft\n---\n\nSome content.\n")
+
+        assert main(["task", "promote", str(draft), "-p", "someproject"]) == 1
+        err = capsys.readouterr().err
+        assert "MAEL_NOTEBOOK_ROOT is not set" in err
+        assert "Draft has no title" not in err, "must fail on the root, not parsing"
