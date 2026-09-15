@@ -141,20 +141,23 @@ def _isolate_agent_paths(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_state_db_paths(monkeypatch, tmp_path):
-    """Keep every test off the developer's live ``~/.maelstrom``.
+def _isolate_notebook_root(monkeypatch, tmp_path):
+    """Keep every test off the developer's real task notebook.
 
-    The desk ladder's import rung reads ``desk.json`` from there, so any test
-    that migrates a database would otherwise pull the developer's real desk
-    into its own. That read is silent: the rows arrive looking like the test's
-    own, and the test fails somewhere else entirely.
+    Every notebook path — ``state.db``, ``desk.json`` and the task export —
+    hangs off ``MAEL_NOTEBOOK_ROOT``, and a developer's shell sets it to a live
+    root. An unpinned test would read *and write* the real notebook.
 
-    Autouse rather than per-test, because a test author cannot be expected to
-    know that opening an in-memory database reaches a file at all.
+    Replaces a fixture that patched ``get_maelstrom_dir`` on
+    ``state_db.paths``. That module reads the root rather than the home
+    directory now, so one pinned variable covers what the patch did and the
+    store's own ``tasks_root`` besides — which the patch never reached.
+
+    Autouse and set rather than deleted: the root has no fallback, so an absent
+    one would make every task test fail on the refusal instead of exercising
+    what it means to test. Tests for the refusal delete it explicitly.
     """
-    monkeypatch.setattr(
-        "maelstrom.state_db.paths.get_maelstrom_dir", lambda: tmp_path / "maelstrom"
-    )
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path / "maelstrom"))
 
 
 @pytest.fixture(autouse=True)

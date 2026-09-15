@@ -1918,10 +1918,10 @@ class TestMvProjectIntegration:
             patch("maelstrom.cli.load_global_config", return_value=config),
             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
-            patch("maelstrom.task_store.get_maelstrom_dir", return_value=mael_dir),
-            # The task table lives in the state database, whose path resolves
-            # through its own module — the one the suite isolates everywhere.
-            patch("maelstrom.state_db.paths.get_maelstrom_dir", return_value=mael_dir),
+            # The task table lives in the state database, and the store's own
+            # root resolves beside it. Both hang off the notebook root, so one
+            # pinned variable covers what two patches used to.
+            patch.dict(os.environ, {"MAEL_NOTEBOOK_ROOT": str(mael_dir)}),
             patch("pathlib.Path.home", return_value=home),
             patch("maelstrom.mv_project_cli.all_live_sessions", _async_none),
             patch("maelstrom.mv_project_cli.update_claude_local_md"),
