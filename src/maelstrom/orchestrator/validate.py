@@ -366,6 +366,14 @@ def validate_command(
             return _check_follows(world, task_id, follows)
         return None
 
+    if kind == "task.delete":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        # Deleting a task that gates others is allowed: the model rewrites
+        # the dependents. See ``NotebookTaskSource.delete``.
+        return None
+
     if kind in ("task.infer", "shaping.start"):
         project = cmd.get("project", "")
         if project not in world["projects"]:
