@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentCounts, budgetQuotient, isNotable, usageChip, usageTone } from './usage';
+import { agentCounts, budgetReading, isNotable, usageChip, usageTone } from './usage';
 import type { UsageChip } from './usage';
 import type { Agent, Host } from '../protocol/entities';
 import { makeAgent } from '../test/fixtures';
@@ -46,7 +46,7 @@ describe('usageTone', () => {
   });
 });
 
-describe('budgetQuotient', () => {
+describe('budgetReading', () => {
   /** A reset `ms` from `NOW`, in the unix seconds the wire carries. */
   const resetIn = (ms: number) => Math.floor((NOW + ms) / 1000);
 
@@ -55,31 +55,69 @@ describe('budgetQuotient', () => {
     // both remain, so neither is ahead. The tone is asserted beside the
     // number because `toBeCloseTo` spans both sides of the threshold, and
     // which side one falls on is the decision under test.
-    const q = budgetQuotient('fiveHour', 0.4, resetIn(3 * 3_600_000), NOW);
+    const { quotient: q } = budgetReading('fiveHour', 0.4, resetIn(3 * 3_600_000), NOW);
     expect(q).toBeCloseTo(1);
     expect(usageTone(q)).toBe('neutral');
   });
 
   it('rises above one when the budget is the first to run out', () => {
-    expect(budgetQuotient('fiveHour', 0.5, resetIn(3 * 3_600_000), NOW)).toBeCloseTo(1.2);
+    expect(budgetReading('fiveHour', 0.5, resetIn(3 * 3_600_000), NOW).quotient).toBeCloseTo(1.2);
   });
 
   it('measures the week against seven days, not five hours', () => {
     // One day into the week, 30% spent. Read against the five-hour length the
     // time left would overflow the cap and the reading would be nonsense.
-    expect(budgetQuotient('sevenDay', 0.3, resetIn(6 * 86_400_000), NOW)).toBeCloseTo(1.224, 2);
+    //
+    // The figure is the weighted one: `NOW` is Friday 10pm in Auckland, and
+    // the day that has passed was a working Thursday, so it cost ten of the
+    // week's sixty weighted hours rather than a flat seventh. On the clock
+    // this read 1.224.
+    expect(budgetReading('sevenDay', 0.3, resetIn(6 * 86_400_000), NOW).quotient).toBeCloseTo(
+      1.19,
+      2,
+    );
+  });
+
+  it('spends the week in working time, so an overnight gain does not flatter it', () => {
+    // The flap this feature removes, read at the seam the chip uses. Friday
+    // 10pm and the Monday 8am after it are 2.4 days apart on the clock, which
+    // alone would hand the reading back a third of the window. Weighted, only
+    // the weekend's ten hours separate them, so the quotient falls rather than
+    // recovering.
+    const end = resetIn(6 * 86_400_000);
+    const mondayMorning = Date.parse('2026-09-13T20:00:00.000Z');
+    const friday = budgetReading('sevenDay', 0.3, end, NOW).quotient;
+    const monday = budgetReading('sevenDay', 0.3, end, mondayMorning).quotient;
+    expect(monday).toBeLessThan(friday!);
+  });
+
+  it('leaves the five-hour window on the clock, so a late session is not softened', () => {
+    // 4pm to 9pm in Auckland is mostly outside the working day, and weighting
+    // would call three of its five hours free. The same spend at the same
+    // point of the window must read alike whenever it runs: this is the
+    // decision that the short window answers "am I about to hit the wall".
+    const afternoon = Date.parse('2026-09-11T04:00:00.000Z'); // Fri 4pm
+    const lateEvening = Date.parse('2026-09-11T09:00:00.000Z'); // Fri 9pm
+    const twoHoursIn = (now: number) => Math.floor((now + 3 * 3_600_000) / 1000);
+    expect(budgetReading('fiveHour', 0.5, twoHoursIn(afternoon), afternoon).quotient).toBeCloseTo(
+      budgetReading('fiveHour', 0.5, twoHoursIn(lateEvening), lateEvening).quotient!,
+      10,
+    );
   });
 
   it('caps the time left, so a fresh window cannot be ahead of pace on a trickle', () => {
     // At the very start the whole window remains, and any spend at all would
     // clear one. Uncapped this reading is 1.0417.
-    expect(budgetQuotient('fiveHour', 0.04, resetIn(5 * 3_600_000), NOW)).toBeCloseTo(0.9896, 4);
+    expect(budgetReading('fiveHour', 0.04, resetIn(5 * 3_600_000), NOW).quotient).toBeCloseTo(
+      0.9896,
+      4,
+    );
   });
 
   it('puts the cap exactly on the pace line at 5% spent', () => {
     // The bound the constant is chosen for: 0.95/0.95. An inequality would
     // hold for any cap at or below 0.95, so the value is asserted instead.
-    const q = budgetQuotient('fiveHour', 0.05, resetIn(5 * 3_600_000), NOW);
+    const { quotient: q } = budgetReading('fiveHour', 0.05, resetIn(5 * 3_600_000), NOW);
     expect(q).toBeCloseTo(1, 10);
     expect(usageTone(q)).toBe('neutral');
   });
@@ -87,23 +125,35 @@ describe('budgetQuotient', () => {
   it('stops binding once the window is past its first twentieth', () => {
     // The cap is a start-of-window guard, not a general one. With less than
     // 95% of the window left it is a no-op, and pace alone decides.
-    expect(budgetQuotient('fiveHour', 0.049, resetIn(4.5 * 3_600_000), NOW)).toBeCloseTo(0.9464, 4);
+    expect(budgetReading('fiveHour', 0.049, resetIn(4.5 * 3_600_000), NOW).quotient).toBeCloseTo(
+      0.9464,
+      4,
+    );
   });
 
   it('reads a spent budget as past any pace', () => {
     // Nothing remains to divide by. The window cannot outlast a budget that
     // is already gone.
-    expect(budgetQuotient('fiveHour', 1, resetIn(3_600_000), NOW)).toBe(Infinity);
+    expect(budgetReading('fiveHour', 1, resetIn(3_600_000), NOW).quotient).toBe(Infinity);
   });
 
   it('reads a reset already past as no time left, never as negative', () => {
     // A negative quotient would sort below every threshold and read as
     // healthy, which is the opposite of what an overdue window means.
-    expect(budgetQuotient('fiveHour', 0.5, resetIn(-600_000), NOW)).toBe(0);
+    expect(budgetReading('fiveHour', 0.5, resetIn(-600_000), NOW).quotient).toBe(0);
   });
 
   it('reads nothing from a window the source gave no reset for', () => {
-    expect(budgetQuotient('fiveHour', 0.84, 0, NOW)).toBeNull();
+    expect(budgetReading('fiveHour', 0.84, 0, NOW).quotient).toBeNull();
+  });
+
+  it('reads nothing from a spend the source could not put a number on', () => {
+    // `float("nan")` parses on the Python side, so a NaN crosses the wire
+    // intact. Left ungated it divides through to a NaN quotient, which reads
+    // as quiet because every comparison against NaN is false — and the chip
+    // renders the spend as a literal `NaN%`.
+    expect(budgetReading('fiveHour', NaN, resetIn(3 * 3_600_000), NOW).quotient).toBeNull();
+    expect(budgetReading('fiveHour', Infinity, resetIn(3 * 3_600_000), NOW).quotient).toBeNull();
   });
 });
 
@@ -244,7 +294,7 @@ describe('usageChip', () => {
         at: '2026-09-11T09:59:00.000Z',
       },
     });
-    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 84% used');
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 84% consumed');
   });
 
   it('counts a long reset in days, which is where the week window lives', () => {
@@ -255,8 +305,10 @@ describe('usageChip', () => {
         at: '2026-09-11T09:59:00.000Z',
       },
     });
+    // The whole sentence, as a reader sees it. 17% is the budget the window
+    // allows for by now: one working Thursday out of sixty weighted hours.
     expect(usageChip(h, 'sevenDay', NOW)?.title).toBe(
-      '7-day limit: 24% used, ahead of pace, resets in 6d 1h',
+      '7-day limit: 24% consumed compared to 17% budget. 6d 1h remaining',
     );
   });
 
@@ -268,14 +320,37 @@ describe('usageChip', () => {
         at: '2026-09-11T09:59:00.000Z',
       },
     });
+    // 47% is the budget: 2h 40m of the five hours remain, so 53% is left and
+    // the window allows for the rest. A spend of 84% against it is the gap the
+    // colour also reports.
     expect(usageChip(h, 'fiveHour', NOW)?.title).toBe(
-      '5-hour limit: 84% used, well ahead of pace, resets in 2h 40m',
+      '5-hour limit: 84% consumed compared to 47% budget. 2h 40m remaining',
     );
   });
 
-  it('gives the two coloured tones different words, not one clause and a hue', () => {
-    // A screen reader gets the title and nothing else, so amber and red
-    // sharing a sentence would leave colour as the only thing between them.
+  it('shows a fresh window as no budget spent, not as the cap', () => {
+    // `MAX_TIME_LEFT` suppresses the tone at the start of a window; it is not a
+    // claim about elapsed time. Rendering the clamped figure told the reader a
+    // window with nothing elapsed already allowed for 5% of the spend — beside
+    // a spend figure they are invited to compare it against.
+    const h = host({
+      usage: {
+        fiveHour: { utilization: 0, resetsAt: Math.floor(NOW / 1000) + 5 * 3600 },
+        sevenDay: null,
+        at: '2026-09-11T09:59:00.000Z',
+      },
+    });
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe(
+      '5-hour limit: 0% consumed compared to 0% budget. 5h 0m remaining',
+    );
+  });
+
+  it('keeps the two coloured tones apart in words, not by hue alone', () => {
+    // A screen reader gets the title and nothing else, so amber and red must
+    // not share a sentence. The retired clause did that with different words;
+    // the figures do it with different numbers. Either way the titles differ,
+    // which is the property worth holding — a budget figure that went coarse,
+    // or dropped out, would collapse these two to identical prose.
     const at = (utilization: number, hoursLeft: number) =>
       host({
         usage: {
@@ -288,14 +363,14 @@ describe('usageChip', () => {
     const red = usageChip(at(0.7, 3), 'fiveHour', NOW);
     expect(amber?.tone).toBe('busy');
     expect(red?.tone).toBe('bad');
-    expect(amber?.title).toContain('ahead of pace');
-    expect(red?.title).toContain('well ahead of pace');
     expect(amber?.title).not.toBe(red?.title);
   });
 
-  it('says nothing about pace on a window that is keeping up', () => {
-    // The clause is the amber chip's explanation. On a quiet chip it would be
-    // noise on the reading a reader sees most.
+  it('says the same thing on a window that is keeping up', () => {
+    // The figures replace the pace clause on every tone, so a quiet chip
+    // carries the same sentence as a coloured one. The gap between the two
+    // numbers is what the reader compares, and it reads without the colour —
+    // which is what a screen reader gets.
     const h = host({
       usage: {
         fiveHour: { utilization: 0.2, resetsAt: Math.floor(NOW / 1000) + 9600 },
@@ -303,7 +378,10 @@ describe('usageChip', () => {
         at: '2026-09-11T09:59:00.000Z',
       },
     });
-    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 20% used, resets in 2h 40m');
+    expect(usageChip(h, 'fiveHour', NOW)?.tone).toBe('neutral');
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe(
+      '5-hour limit: 20% consumed compared to 47% budget. 2h 40m remaining',
+    );
   });
 
   it('says when a stale reading was taken instead of when it resets', () => {
@@ -314,7 +392,9 @@ describe('usageChip', () => {
         at: '2026-09-11T08:00:00.000Z',
       },
     });
-    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 10% used, as of 2h ago');
+    // No budget figure beside it: a stale reading cannot vouch for the spend,
+    // so a comparison would invite planning around a number that has moved.
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 10% consumed, as of 2h ago');
   });
 });
 
