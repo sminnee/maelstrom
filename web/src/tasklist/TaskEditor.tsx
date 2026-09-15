@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
-import { useTask, useUpdateTask } from '../api/tasks';
+import { ApiError, describeError } from '../api/http';
+import { useDeleteTask, useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
 import type { Task } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { ConfirmButton } from '../ui/ConfirmButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import type { TaskDraft } from './TaskFields';
 import { TaskFields } from './TaskFields';
@@ -56,18 +58,22 @@ function WaitShell({
 function TaskForm({ task }: { task: Task }) {
   const close = useAppStore((s) => s.setEditingTask);
   const update = useUpdateTask();
+  const remove = useDeleteTask();
   const [draft, setDraft] = useState(() => seed(task));
   const [confirming, setConfirming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
   // Frozen: the store's copy moves as the server publishes, and diffing
   // against a moved copy would send a field the user never touched.
   const opened = useRef(draft);
 
   // Leaving with unsaved edits asks first: the content field holds the task's
-  // whole body, and a stray click on the scrim would otherwise lose it.
+  // whole body, and a stray click on the scrim would otherwise lose it. A
+  // read-only dialog has nothing to lose, so it always closes at once.
   const leave = useCallback(() => {
-    if (Object.keys(changed(opened.current, draft)).length === 0) close(null);
+    if (!editing || Object.keys(changed(opened.current, draft)).length === 0) close(null);
     else setConfirming(true);
-  }, [close, draft]);
+  }, [close, draft, editing]);
 
   const set = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -79,10 +85,25 @@ function TaskForm({ task }: { task: Task }) {
     close(null);
   };
 
+  const destroy = async () => {
+    await remove.mutateAsync({ taskId: task.id });
+    close(null);
+  };
+
+  // A refused delete leaves the dialog open, so the reason is shown rather
+  // than left to the button's own "Failed".
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   return (
     <Dialog label={task.title} onClose={leave}>
       <DialogHeader title={task.notebookId} onClose={leave} />
-      <TaskFields draft={draft} onChange={set} project={task.project} bucket={task.notebookId} />
+      <TaskFields
+        draft={draft}
+        onChange={set}
+        project={task.project}
+        bucket={task.notebookId}
+        readOnly={!editing}
+      />
 
       {confirming && (
         <p className={styles.confirm} role="alert">
@@ -95,13 +116,50 @@ function TaskForm({ task }: { task: Task }) {
           </button>
         </p>
       )}
+      {deleteError && (
+        <p className={styles.confirm} role="alert">
+          {deleteError}
+        </p>
+      )}
       <DialogFooter>
-        <button type="button" onClick={leave}>
-          Cancel
-        </button>
-        <AppButton variant="primary" onClick={save}>
-          Save
-        </AppButton>
+        {editing ? (
+          <>
+            <button type="button" onClick={leave}>
+              Cancel
+            </button>
+            <AppButton variant="primary" onClick={save}>
+              Save
+            </AppButton>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={() => close(null)}>
+              Close
+            </button>
+            <ConfirmButton
+              question="Delete this task?"
+              confirm="Delete it"
+              asking={confirmingDelete}
+              onAsk={() => {
+                setDeleteError(null);
+                setConfirmingDelete(true);
+              }}
+              onDismiss={() => setConfirmingDelete(false)}
+              onConfirm={destroy}
+              // The server's own words, not the button's "Failed": a refused
+              // delete names what is holding the task, and that is what the
+              // user has to act on.
+              onError={(err) =>
+                setDeleteError(err instanceof ApiError ? err.message : describeError(err))
+              }
+            >
+              Delete
+            </ConfirmButton>
+            <AppButton variant="primary" onClick={() => setEditing(true)}>
+              Edit
+            </AppButton>
+          </>
+        )}
       </DialogFooter>
     </Dialog>
   );

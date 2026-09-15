@@ -24,6 +24,45 @@ describe('the task list', () => {
       await user.click(screen.getByRole('checkbox', { name: status }));
     }
   };
+  /**
+   * How each of the dialog's fields is locked: `readonly` for the ones that
+   * take it, `disabled` for the selects it is not a thing on, `null` when the
+   * field is free. One object, so a field that failed to lock shows up in the
+   * comparison rather than needing an assertion of its own.
+   */
+  const locked = (editor: HTMLElement) =>
+    Object.fromEntries(
+      ['Title', 'Content', 'Branch', 'Command', 'Mode', 'Priority', 'Model'].map((name) => {
+        const field = within(editor).getByLabelText(name);
+        return [
+          name,
+          field.hasAttribute('readonly')
+            ? 'readonly'
+            : field.hasAttribute('disabled')
+              ? 'disabled'
+              : null,
+        ];
+      }),
+    );
+  /** Open a task's dialog, which the row does from anywhere on it. */
+  const openTask = async (
+    user: ReturnType<typeof userEvent.setup>,
+    taskId: string,
+    name: string,
+  ) => {
+    await user.click(within(listRow(taskId) as HTMLElement).getByRole('button', { name }));
+    return screen.findByRole('dialog', { name });
+  };
+  /** Open a task's dialog and press Edit, leaving its fields editable. */
+  const openForEditing = async (
+    user: ReturnType<typeof userEvent.setup>,
+    taskId: string,
+    name: string,
+  ) => {
+    const editor = await openTask(user, taskId, name);
+    await user.click(within(editor).getByRole('button', { name: 'Edit' }));
+    return editor;
+  };
 
   it('opens on live work, and ticking the rest lists every task in the world', async () => {
     const user = userEvent.setup();
@@ -78,6 +117,8 @@ describe('the task list', () => {
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
     );
     await waitFor(() => expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false'));
+    // The toggle is the row's control, not a way into the task.
+    expect(screen.queryByRole('dialog')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
@@ -137,12 +178,9 @@ describe('the task list', () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
     // The editor fetches the task's prose, so the form follows the click.
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     const title = within(editor).getByLabelText('Title');
     expect(title).toHaveValue('Migrate to Postgres 16');
     await user.clear(title);
@@ -157,13 +195,10 @@ describe('the task list', () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
     // `docs/guide/planning.md` asks for an unset model on execute drafts, so
     // opening one must not pin it. Saving an unrelated field sends no model.
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     await user.click(within(editor).getByText('Advanced'));
     expect(within(editor).getByLabelText('Model')).toHaveValue('');
     const title = within(editor).getByLabelText('Title');
@@ -181,11 +216,8 @@ describe('the task list', () => {
     const { server } = await renderApp();
     server.world.tasks['NORT-9']!.model = 'opus';
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     await user.click(within(editor).getByText('Advanced'));
     await user.selectOptions(within(editor).getByLabelText('Model'), '');
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
@@ -202,14 +234,11 @@ describe('the task list', () => {
     // reaches it: this is a value written before the shortlist existed.
     server.world.tasks['NORT-9']!.model = 'claude-opus-4-1-20250805';
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
     // The notebook's model field is free-form, so a value this build does not
     // list is offered rather than dropped — otherwise opening the task would
     // quietly rewrite it.
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     await user.click(within(editor).getByText('Advanced'));
     expect(within(editor).getByLabelText('Model')).toHaveValue('claude-opus-4-1-20250805');
   });
@@ -218,11 +247,8 @@ describe('the task list', () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     expect(within(editor).queryByLabelText('Command')).not.toBeVisible();
     await user.click(within(editor).getByText('Advanced'));
     expect(within(editor).getByLabelText('Command')).toBeVisible();
@@ -232,11 +258,8 @@ describe('the task list', () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
-    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
     const title = within(editor).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Migrate to Postgres 17');
@@ -259,10 +282,7 @@ describe('the task list', () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
-    await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
 
     await user.keyboard('{Escape}');
 
@@ -274,12 +294,9 @@ describe('the task list', () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
 
     const title = within(
-      await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' }),
+      await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16'),
     ).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Never saved');
@@ -295,6 +312,139 @@ describe('the task list', () => {
     await user.click(screen.getByRole('button', { name: 'Discard' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 16');
+  });
+
+  it('a click anywhere on a row opens the task, read-only', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    const editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+
+    // Shown, but not editable: the dialog is a way of reading a task first,
+    // and editing only once that is asked for. Every field, not just the
+    // first: one that failed to lock would otherwise pass unnoticed.
+    expect(within(editor).getByLabelText('Title')).toHaveValue('Migrate to Postgres 16');
+    await user.click(within(editor).getByText('Advanced'));
+    expect(locked(editor)).toEqual({
+      Title: 'readonly',
+      Content: 'readonly',
+      Branch: 'readonly',
+      Command: 'readonly',
+      Mode: 'disabled',
+      Priority: 'disabled',
+      Model: 'disabled',
+    });
+    expect(within(editor).queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(within(editor).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('pressing Edit unlocks the fields and offers Save', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+
+    await user.click(within(editor).getByText('Advanced'));
+    expect(Object.values(locked(editor)).filter(Boolean)).toEqual([]);
+    expect(within(editor).getByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
+
+  it('asks before it deletes from the dialog, and closes once it has', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+
+    await user.click(within(editor).getByRole('button', { name: 'Delete' }));
+    // The question itself, not just a dialog that was open anyway.
+    expect(within(editor).getByText('Delete this task?')).toBeInTheDocument();
+    expect(listRow('NORT-9')).not.toBeNull();
+
+    await user.click(within(editor).getByRole('button', { name: 'Delete it' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(listRow('NORT-9')).toBeNull());
+  });
+
+  it('asks before it deletes from a row, and the row goes once it has', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const row = () => listRow('NORT-9') as HTMLElement;
+
+    await user.click(within(row()).getByRole('button', { name: 'Delete' }));
+    // The confirmation replaces the row's buttons, so the table does not move.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(within(row()).getByRole('button', { name: 'Delete it' })).toBeInTheDocument();
+
+    await user.click(within(row()).getByRole('button', { name: 'Delete it' }));
+
+    await waitFor(() => expect(listRow('NORT-9')).toBeNull());
+    // The dependent stays listed. That its `follows` loses the id is the
+    // notebook's doing, asserted at the HTTP seam: the editor omits `follows`,
+    // so this surface cannot see it.
+    expect(listRow('NORT-9.1')).not.toBeNull();
+  });
+
+  it('a delete the dialog cannot make says why, and keeps the task', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // The method too: a bare path would refuse the GET that loads the dialog.
+    server.refuse(/^DELETE \/api\/tasks\/NORT-9$/, {
+      status: 400,
+      code: 'invalid',
+      message: 'ag1 is running on NORT-9; stop it first',
+    });
+    await goToList(user);
+    const editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+
+    await user.click(within(editor).getByRole('button', { name: 'Delete' }));
+    await user.click(within(editor).getByRole('button', { name: 'Delete it' }));
+
+    // The reason the server gave, not the button's own "Failed": a refused
+    // delete is something the user has to act on.
+    expect(await within(editor).findByText(/stop it first/)).toBeInTheDocument();
+    expect(listRow('NORT-9')).not.toBeNull();
+  });
+
+  it('a delete the server refuses leaves the row and its buttons', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/^DELETE \/api\/tasks\/NORT-9$/, {
+      status: 409,
+      code: 'invalid',
+      message: 'refused',
+    });
+    await goToList(user);
+    const row = () => listRow('NORT-9') as HTMLElement;
+
+    await user.click(within(row()).getByRole('button', { name: 'Delete' }));
+    await user.click(within(row()).getByRole('button', { name: 'Delete it' }));
+
+    // The row stays, and the confirmation clears so the delete can be retried.
+    await waitFor(() =>
+      expect(within(row()).getByRole('button', { name: 'Delete' })).toBeInTheDocument(),
+    );
+    expect(listRow('NORT-9')).not.toBeNull();
+  });
+
+  it('deleting from a row closes that task’s open dialog', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    // The dialog is open on the task the row is about to delete.
+    await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+
+    const row = () => listRow('NORT-9') as HTMLElement;
+    await user.click(within(row()).getByRole('button', { name: 'Delete' }));
+    await user.click(within(row()).getByRole('button', { name: 'Delete it' }));
+
+    // Without this the dialog stays mounted, refetches a task that is gone,
+    // and settles on "Could not load" over a delete that worked.
+    await waitFor(() => expect(listRow('NORT-9')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('the attention chip still counts an agent blocked on an off-desk task', async () => {
