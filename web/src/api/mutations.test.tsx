@@ -36,7 +36,14 @@ import { useCreateLinearTask } from './linear';
 import { ApiError } from './http';
 import { keys } from './keys';
 import type { TaskId } from '../protocol/ids';
-import { useCreateTask, useInferTask, useLaunch, useSetStatus, useUpdateTask } from './tasks';
+import {
+  useCreateTask,
+  useDeleteTask,
+  useInferTask,
+  useLaunch,
+  useSetStatus,
+  useUpdateTask,
+} from './tasks';
 
 const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
 
@@ -88,7 +95,7 @@ function harness() {
       {children}
     </ApiProvider>
   );
-  return { server, invalidate, wrapper };
+  return { server, invalidate, wrapper, queryClient };
 }
 
 type Case = [
@@ -215,6 +222,16 @@ describe('the mutation hooks', () => {
       'PATCH /api/tasks/northwind/NORT-9',
       { follows: ['northwind/NORT-7'] },
       [keys.tasks.list(), keys.tasks.detail('northwind/NORT-9')],
+    ],
+    [
+      'useDeleteTask',
+      useDeleteTask,
+      { taskId: 'northwind/NORT-7' },
+      'DELETE /api/tasks/northwind/NORT-7',
+      undefined,
+      // The list and the desk are invalidated; the detail entry is dropped
+      // instead, so it is asserted on its own below rather than here.
+      [keys.tasks.list(), keys.desk()],
     ],
     [
       'useInferTask',
@@ -375,6 +392,21 @@ describe('the mutation hooks', () => {
       .catch((e: unknown) => e);
     expect(err).toMatchObject({ status: 400, code: 'invalid' });
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('a delete drops the task detail entry rather than refreshing it', async () => {
+    const { wrapper, queryClient } = harness();
+    const taskId = 'northwind/NORT-7' as TaskId;
+    queryClient.setQueryData(keys.tasks.detail(taskId), { id: taskId });
+    const { result } = renderHook(useDeleteTask, { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ taskId });
+    });
+
+    // Invalidating would refetch a task that is gone, and a read of one is a
+    // 404 the dialog shows as "Could not load".
+    expect(queryClient.getQueryData(keys.tasks.detail(taskId))).toBeUndefined();
   });
 
   it('a refusal rejects with the code and the message, and invalidates nothing', async () => {
