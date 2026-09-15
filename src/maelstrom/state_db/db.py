@@ -131,7 +131,7 @@ class StateDb:
     def path(self) -> str:
         """The file this database is kept in, resolved lazily.
 
-        Lazy, so a test that redirects ``get_maelstrom_dir`` is honoured.
+        Lazy, so a test that pins ``MAEL_NOTEBOOK_ROOT`` is honoured.
         """
         return self._path if self._path is not None else str(get_state_db_path())
 

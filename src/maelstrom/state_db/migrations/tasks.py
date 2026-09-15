@@ -17,11 +17,11 @@ from .notebook_md import import_notebook
 def _import_notebook(conn: sqlite3.Connection) -> None:
     """Bring an existing markdown notebook in, as the ladder's second rung.
 
-    The path is resolved here rather than captured, so a test that redirects
-    ``get_maelstrom_dir`` is honoured — and it is resolved through
-    :mod:`maelstrom.state_db.paths` rather than through
-    :func:`maelstrom.task_store.tasks_root`, which is the binding the suite's
-    isolation fixture patches.
+    The path is resolved here rather than captured, so a test that pins
+    ``MAEL_NOTEBOOK_ROOT`` is honoured. Both it and
+    :func:`maelstrom.task_store.tasks_root` resolve the same directory from that
+    one root, so the rung and the store cannot disagree about where the notebook
+    is.
 
     A ladder version guarantees a rung runs once, which is why no marker row is
     needed: a notebook the user later emptied cannot spring back from the files.

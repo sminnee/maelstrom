@@ -1,8 +1,9 @@
 """A flat key->text store over a git repository.
 
 The task notebook's own storage is :mod:`maelstrom.task_table`; this serves the
-two things that still live as files under ``~/.maelstrom/tasks``: the wiki, and
-the markdown task export that :mod:`maelstrom.task_export` writes.
+two things that still live as files under ``tasks`` in the notebook root — see
+:mod:`maelstrom.notebook_root` — the wiki, and the markdown task export that
+:mod:`maelstrom.task_export` writes.
 
 Keys are POSIX-style relative paths. A task's is ``<project>/<status>/<id>.md``,
 which is the export's layout rather than any lookup path.
@@ -31,7 +32,7 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Protocol
 
-from .context import get_maelstrom_dir
+from .notebook_root import notebook_root
 
 
 class GitCommandError(RuntimeError):
@@ -45,13 +46,20 @@ class GitCommandError(RuntimeError):
 
 
 def tasks_root() -> Path:
-    """The root of the git-backed task repo (``~/.maelstrom/tasks``).
+    """The root of the git-backed task repo (``tasks`` under the notebook root).
 
     The single source of truth for this path — :class:`GitFileStore` and any
     code that needs to locate committed task assets (e.g. localized images)
     compute the root through here rather than re-deriving the string.
+
+    Resolves the same directory as
+    :func:`maelstrom.state_db.paths.get_notebook_path`, by the other route; see
+    there for why both exist.
+
+    Raises:
+        NotebookRootUnset: If the environment names no notebook root.
     """
-    return get_maelstrom_dir() / "tasks"
+    return notebook_root() / "tasks"
 
 
 class TaskStore(Protocol):
