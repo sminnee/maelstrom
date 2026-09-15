@@ -48,22 +48,30 @@ export const Tones: Story = () => (
   <Board>
     {/* Pace, not the percentage: the tone rises and falls out of step with the numbers. */}
     <Row label="rising pace">
-      <SplitChip label="5h" title="5-hour limit: 7% used, resets in 4h 30m" tone="neutral">
+      <SplitChip
+        label="5h"
+        title="5-hour limit: 7% consumed compared to 10% budget. 4h 30m remaining"
+        tone="neutral"
+      >
         7%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 84% used, resets in 10m" tone="neutral">
+      <SplitChip
+        label="5h"
+        title="5-hour limit: 84% consumed compared to 97% budget. 10m remaining"
+        tone="neutral"
+      >
         84%
       </SplitChip>
       <SplitChip
         label="5h"
-        title="5-hour limit: 45% used, ahead of pace, resets in 3h 0m"
+        title="5-hour limit: 45% consumed compared to 40% budget. 3h 0m remaining"
         tone="busy"
       >
         45%
       </SplitChip>
       <SplitChip
         label="5h"
-        title="5-hour limit: 65% used, ahead of pace, resets in 3h 0m"
+        title="5-hour limit: 65% consumed compared to 40% budget. 3h 0m remaining"
         tone="bad"
       >
         65%
@@ -73,7 +81,7 @@ export const Tones: Story = () => (
       <SplitChip label="agents" title="3 of 5 agents working, 2 idle" tone="good">
         3/5
       </SplitChip>
-      <SplitChip label="week" title="7-day limit: 24% used" tone="quiet">
+      <SplitChip label="week" title="7-day limit: 24% consumed" tone="quiet">
         24%
       </SplitChip>
     </Row>
@@ -87,10 +95,14 @@ export const Tones: Story = () => (
 export const Stale: Story = () => (
   <Board>
     <Row label="fresh, then the same reading gone stale">
-      <SplitChip label="5h" title="5-hour limit: 96% used, resets in 41m" tone="bad">
+      <SplitChip
+        label="5h"
+        title="5-hour limit: 96% consumed compared to 86% budget. 41m remaining"
+        tone="bad"
+      >
         96%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 96% used, as of 3h ago" tone="bad" stale>
+      <SplitChip label="5h" title="5-hour limit: 96% consumed, as of 3h ago" tone="bad" stale>
         96%
       </SplitChip>
     </Row>
@@ -116,10 +128,16 @@ export const InTheTopBar: Story = () => (
   >
     <span style={{ fontSize: '14px', fontWeight: 700 }}>maelstrom</span>
     <span style={{ flex: 1 }} />
-    <SplitChip label="5h" title="5-hour limit: 7% used, resets in 2h 40m">
+    <SplitChip
+      label="5h"
+      title="5-hour limit: 7% consumed compared to 47% budget. 2h 40m remaining"
+    >
       7%
     </SplitChip>
-    <SplitChip label="week" title="7-day limit: 24% used, resets in 6d 1h">
+    <SplitChip
+      label="week"
+      title="7-day limit: 24% consumed compared to 17% budget. 6d 1h remaining"
+    >
       24%
     </SplitChip>
     <SplitChip label="agents" title="3 of 5 agents working, 2 idle" tone="busy">
@@ -135,13 +153,13 @@ export const InTheTopBar: Story = () => (
 export const HoldsItsWidth: Story = () => (
   <Board>
     <Row label="one digit, then two, then three">
-      <SplitChip label="5h" title="5-hour limit: 7% used">
+      <SplitChip label="5h" title="5-hour limit: 7% consumed">
         7%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 71% used">
+      <SplitChip label="5h" title="5-hour limit: 71% consumed">
         71%
       </SplitChip>
-      <SplitChip label="5h" title="5-hour limit: 100% used" tone="bad">
+      <SplitChip label="5h" title="5-hour limit: 100% consumed" tone="bad">
         100%
       </SplitChip>
     </Row>

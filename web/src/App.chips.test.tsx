@@ -29,8 +29,10 @@ describe('the usage and agent chips', () => {
         };
       });
     });
-    await waitFor(() => expect(screen.getByLabelText(/5-hour limit: 7% used/)).toBeInTheDocument());
-    expect(screen.getByLabelText(/7-day limit: 24% used/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/5-hour limit: 7% consumed/)).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText(/7-day limit: 24% consumed/)).toBeInTheDocument();
   });
 
   it('counts the agents that are working over those that are open', async () => {
