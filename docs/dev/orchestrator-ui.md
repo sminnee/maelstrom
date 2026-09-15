@@ -157,9 +157,12 @@ The task list also writes. A row's status is a button until it is clicked, then 
 of the six statuses. The expanded card carries the same control, at the right end of its state
 strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
 which says why the select is native. Choosing a status posts the new one, and a refusal shows
-beside the control. The Edit button
-opens the task editor, which holds title, content and branch, with command, mode, priority and
-model under a folded "Advanced". Save patches the changed fields only. The editor renders from
+beside the control. A click anywhere on a row opens the task editor, which holds title, content
+and branch, with command, mode, priority and model under a folded "Advanced". The title cell
+carries a real button, because a table row reaches no keyboard. The dialog opens read-only with
+Edit, Delete and Close; Edit unlocks the fields and restores Cancel and Save. A read-only dialog
+has nothing unsaved, so it always closes at once. Delete asks first, from the dialog and from the
+row alike. Save patches the changed fields only. The editor renders from
 `AppShell`, above both views, and its open task lives in the store, so the canvas can open the
 same editor later.
 
@@ -785,8 +788,8 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 
 Against the server, documents can be read but not reviewed: comments, review actions and
 shaping answer `not_implemented`, and the controls say so. The server drives agents, edits the
-desk, and writes a task's status, its fields and new tasks. It does nothing else to the
-notebook.
+desk, and writes a task's status, its fields, new tasks and deletions. It does nothing else to
+the notebook.
 
 The desk is the exception to persistence: it lives on the server and survives a restart. The
 open tabs, the filters and the expanded node do not. The distinction is deliberate rather than
