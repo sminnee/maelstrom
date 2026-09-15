@@ -370,6 +370,17 @@ def validate_command(
         task_id = cmd.get("taskId", "")
         if task_id not in world["tasks"]:
             return _err("unknown_id", f"No task {task_id}")
+        # A live agent names its task, and the world keys agents by that id, so
+        # deleting the task would leave the agent reachable from no row.
+        running = [
+            agent["id"]
+            for agent in world["agents"].values()
+            if agent["taskId"] == task_id and agent["state"] != "exited"
+        ]
+        if running:
+            return _err(
+                "invalid", f"{running[0]} is running on {task_id}; stop it first"
+            )
         # Deleting a task that gates others is allowed: the model rewrites
         # the dependents. See ``NotebookTaskSource.delete``.
         return None
