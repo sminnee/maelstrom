@@ -13,8 +13,8 @@ from .desk_json import import_desk_json
 def _import_desk_json(conn: sqlite3.Connection) -> None:
     """Bring an existing ``desk.json`` in, as the ladder's second rung.
 
-    The path is resolved here rather than captured, so a test that redirects
-    ``get_maelstrom_dir`` is honoured.
+    The path is resolved here rather than captured, so a test that pins
+    ``MAEL_NOTEBOOK_ROOT`` is honoured.
 
     A ladder version guarantees a rung runs once, which is why no marker row is
     needed: a desk the user later emptied cannot spring back from the file.
