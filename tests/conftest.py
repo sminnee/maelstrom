@@ -161,6 +161,12 @@ def _isolate_notebook_root(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _mark_test_commands_production(monkeypatch):
+    """Keep command-output tests free of the non-production warning."""
+    monkeypatch.setenv("MAEL_PRODUCTION", "1")
+
+
+@pytest.fixture(autouse=True)
 def _pin_harness_env(monkeypatch):
     """Keep the outer shell's harness out of the tests.
 

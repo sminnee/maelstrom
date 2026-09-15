@@ -1,6 +1,7 @@
 """Command-line interface for maelstrom."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ import click
 from . import __version__, session_discovery
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
-from .agent_transport import RootUnset
+from .agent_transport import ROOT_ENV, RootUnset
 from .base_store import GitConfigBaseStore
 from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running, resolve_socket_path
@@ -54,7 +55,7 @@ from .list_all import (
     session_display,
 )
 from .mv_project_cli import cmd_mv_project
-from .notebook_root import NotebookRootUnset
+from .notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
 from .orchestrator_cli import orchestrator as orchestrator_cli
 from .ports import get_app_url
 from .project_cli import project as project_cli
@@ -178,6 +179,14 @@ def cli(ctx, output_json):
     """Maelstrom - Parallel development environment manager."""
     ctx.ensure_object(dict)
     ctx.obj["json"] = output_json
+    if not os.environ.get("MAEL_PRODUCTION"):
+        agent_root = os.environ.get(ROOT_ENV, "(unset)")
+        notebook_root = os.environ.get(NOTEBOOK_ROOT_ENV, "(unset)")
+        click.echo(
+            "Warning: non-production mael environment, "
+            f"{ROOT_ENV}={agent_root}, {NOTEBOOK_ROOT_ENV}={notebook_root}",
+            err=True,
+        )
 
 
 # --- Core worktree commands ---

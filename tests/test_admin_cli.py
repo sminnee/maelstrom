@@ -270,6 +270,15 @@ class TestSelfUpdateWritesTheDaemonRootShim:
         assert "MAEL_AGENT_ROOT" in entrypoint.read_text()
         assert ".maelstrom/daemons/_main" in entrypoint.read_text()
 
+    def test_the_shim_names_the_notebook_root(self, tmp_path):
+        result, entrypoint = self._update(tmp_path)
+        assert result.exit_code == 0, result.output
+        assert (
+            f'export MAEL_NOTEBOOK_ROOT="${{MAEL_NOTEBOOK_ROOT:-{pathlib.Path.home() / ".maelstrom"}}}"'
+            in entrypoint.read_text()
+        )
+        assert "export MAEL_PRODUCTION=1" in entrypoint.read_text()
+
     def test_the_shim_defers_to_a_root_already_set(self, tmp_path):
         """A worktree's `uv run mael`, and a command inside a driven session,
         both arrive with a root already set. Overriding either would send them

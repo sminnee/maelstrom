@@ -35,6 +35,41 @@ async def _completed(value):
     return value
 
 
+class TestNonProductionWarning:
+    def test_unmarked_commands_name_the_active_data_roots(self, monkeypatch):
+        monkeypatch.delenv("MAEL_PRODUCTION")
+        monkeypatch.setenv("MAEL_AGENT_ROOT", "/tmp/agent")
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", "/tmp/notebook")
+        with patch("maelstrom.cli.ensure_cmux_running", return_value=True):
+            result = CliRunner().invoke(cli, ["cmux", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert result.stderr == (
+            "Warning: non-production mael environment, "
+            "MAEL_AGENT_ROOT=/tmp/agent, MAEL_NOTEBOOK_ROOT=/tmp/notebook\n"
+        )
+
+    def test_production_commands_do_not_warn(self):
+        with patch("maelstrom.cli.ensure_cmux_running", return_value=True):
+            result = CliRunner().invoke(cli, ["cmux", "status"])
+
+        assert result.exit_code == 0, result.output
+        assert "non-production" not in result.output
+
+    def test_warning_keeps_json_output_parseable(self, monkeypatch):
+        monkeypatch.delenv("MAEL_PRODUCTION")
+        with (
+            patch("maelstrom.cli.load_global_config") as config,
+            patch("maelstrom.list_all.find_all_projects", return_value=[]),
+        ):
+            config.return_value = MagicMock(projects_dir=Path("/tmp/projects"))
+            result = CliRunner().invoke(cli, ["--json", "list-all"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {"projects": []}
+        assert "Warning: non-production mael environment" in result.stderr
+
+
 def _pr(number, *, commits=1, state: PrState = "ready"):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
