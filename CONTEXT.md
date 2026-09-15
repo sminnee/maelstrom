@@ -212,8 +212,22 @@ How a usage window is doing: the fraction of the window still to run, over the f
 budget still unspent. Below one the window resets before the budget runs out. Above one the
 budget goes first, and the figure says by how much. It is what colours the top bar's usage
 chips.
+
+The first term is wall clock for the five-hour window, which is shorter than the working day it
+sits inside. The seven-day window measures it against the **working week** instead: it spans
+nights and weekends, and on the clock those hours give the reading back time nobody could have
+spent.
 _Avoid_: Burn rate, pace percentage. Not **utilisation**, which is the raw spend the source
-reports; the quotient is what that spend means against the clock.
+reports; the quotient is what that spend means against the time the window actually offers.
+
+**Working week**:
+The weighting the seven-day **budget quotient** measures elapsed time against: 8am to 6pm at full
+rate on weekdays, the same hours at half rate at the weekend, and nothing overnight. Sixty
+weighted hours to the week. The hours are read against a named zone — `Pacific/Auckland` — rather
+than the browser's, because a reset is a zone-free instant but "8am" is a wall clock, which exists
+only in a zone.
+_Avoid_: Business hours, office hours. Both imply a policy about when work is permitted; this is
+only a weighting for a reading.
 
 **Context occupancy**:
 How full a driven agent's prompt is now, read off the newest `assistant` event on its stream, or
