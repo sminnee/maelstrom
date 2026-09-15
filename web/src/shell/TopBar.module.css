@@ -39,22 +39,37 @@
 }
 .views {
   display: flex;
-  gap: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
 }
 .view {
   font: inherit;
   font-size: 11px;
   color: var(--fg-muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: transparent;
+  border: 0;
   padding: 2px 8px;
   cursor: pointer;
+}
+.view + .view {
+  border-left: 1px solid var(--border);
 }
 .view[aria-pressed='true'] {
   color: var(--fg);
   background: var(--bg-raised);
-  border-color: var(--fg-faint);
+}
+
+/* Keep the complete filter group visible between the narrow and wide layouts. */
+@media (max-width: 1280px) {
+  .bar {
+    height: auto;
+    min-height: 40px;
+    flex-wrap: wrap;
+    padding-top: var(--space-1);
+    padding-bottom: var(--space-1);
+  }
 }
 
 /*

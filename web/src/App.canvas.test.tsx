@@ -186,6 +186,38 @@ describe('change notices', () => {
 });
 
 describe('grouping and filters', () => {
+  it('uses one Project and Branch filter in Desk and Tasks', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+
+    await user.selectOptions(screen.getByLabelText('Project'), 'northwind');
+    await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/feat/orders');
+    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+
+    expect(screen.getByLabelText('Project')).toHaveValue('northwind');
+    expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
+    expect(
+      within(screen.getByTestId('task-list')).getAllByRole('row').map((row) => row.textContent),
+    ).toEqual(expect.arrayContaining([expect.stringContaining('NORT-7')]));
+    expect(screen.getByRole('button', { name: 'Tasks' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    expect(screen.getByLabelText('Project')).toHaveValue('northwind');
+    expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
+  });
+
+  it('filters Desk nodes by agent status', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+
+    await user.selectOptions(screen.getByLabelText('Agent status'), 'planned');
+
+    expect(screen.getAllByTestId('task-node').map((node) => node.getAttribute('data-task-id'))).toEqual(
+      expect.arrayContaining(['NORT-15']),
+    );
+    expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument();
+  });
+
   it('filtering by branch removes the nodes of other branches', async () => {
     const user = userEvent.setup();
     await renderApp();

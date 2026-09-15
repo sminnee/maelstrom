@@ -8,8 +8,8 @@ import { UsageChips } from './UsageChips';
 import styles from './TopBar.module.css';
 
 const VIEWS: { view: View; label: string }[] = [
-  { view: 'canvas', label: 'Canvas' },
-  { view: 'list', label: 'Task list' },
+  { view: 'canvas', label: 'Desk' },
+  { view: 'list', label: 'Tasks' },
 ];
 
 export function TopBar() {
@@ -39,14 +39,12 @@ export function TopBar() {
           </button>
         ))}
       </div>
-      {/* The narrow layout has no canvas to filter, and no room for the bar. */}
-      {view === 'canvas' && !narrow && <FilterBar />}
-      <div className={styles.spacer}>
-        {/* In both views, so the affordance never moves. */}
-        <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
-          New
-        </button>
-      </div>
+      {/* The narrow layout has no Desk canvas and no room for filters. */}
+      {!narrow && <FilterBar />}
+      <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
+        New
+      </button>
+      <div className={styles.spacer} />
       {/* The readings sit between New and the attention chip, so the one
           action and the one alarm keep the edges they already had. */}
       <div className={styles.readings}>

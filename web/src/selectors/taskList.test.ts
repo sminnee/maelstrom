@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { listTasks, noListFilters } from './taskList';
+import { noFilters } from './filters';
 import { makeAgent, makeTask, onDesk, worldWith } from '../test/fixtures';
 
 const tasks = [
@@ -22,10 +23,13 @@ const tasks = [
 
 const world = worldWith({ tasks, desk: onDesk([tasks[0]!]) });
 
-const rows = (over = {}) => listTasks(world, { ...noListFilters(), ...over }).map((r) => r.task.id);
+const rows = (over = {}, shared = {}) =>
+  listTasks(world, { ...noFilters(), ...shared }, { ...noListFilters(), ...over }).map(
+    (r) => r.task.id,
+  );
 
 /** Rows with no status narrowing, for the cases that are about another filter. */
-const anyStatus = (over = {}) => rows({ statuses: [], ...over });
+const anyStatus = (over = {}, shared = {}) => rows({ statuses: [], ...over }, shared);
 
 describe('listTasks', () => {
   it('opens on the live statuses, hiding finished work', () => {
@@ -52,13 +56,16 @@ describe('listTasks', () => {
   });
 
   it('narrows by project and by branch', () => {
-    expect(anyStatus({ project: 'maelstrom' })).toEqual(['maelstrom/MAEL-1']);
-    expect(anyStatus({ branch: 'northwind/feat/db' })).toEqual(['northwind/NORT-9']);
+    expect(anyStatus({}, { project: 'maelstrom' })).toEqual(['maelstrom/MAEL-1']);
+    expect(anyStatus({}, { branch: 'northwind/feat/db' })).toEqual(['northwind/NORT-9']);
   });
 
   it('says which rows are on the desk', () => {
     const onIt = Object.fromEntries(
-      listTasks(world, { ...noListFilters(), statuses: [] }).map((r) => [r.task.id, r.onDesk]),
+      listTasks(world, noFilters(), { ...noListFilters(), statuses: [] }).map((r) => [
+        r.task.id,
+        r.onDesk,
+      ]),
     );
     expect(onIt).toEqual({
       'maelstrom/MAEL-1': false,
@@ -77,7 +84,7 @@ describe('listTasks', () => {
       ],
     });
     const picked = Object.fromEntries(
-      listTasks(withAgents, { ...noListFilters(), statuses: [] }).map((r) => [
+      listTasks(withAgents, noFilters(), { ...noListFilters(), statuses: [] }).map((r) => [
         r.task.id,
         r.agent?.id,
       ]),
@@ -91,7 +98,9 @@ describe('listTasks', () => {
       tasks,
       agents: [makeAgent({ id: 'a1', taskId: 'northwind/NORT-7' })],
     });
-    const row = listTasks(withAgent, noListFilters()).find((r) => r.task.id === 'northwind/NORT-7');
+    const row = listTasks(withAgent, noFilters(), noListFilters()).find(
+      (r) => r.task.id === 'northwind/NORT-7',
+    );
     expect(row?.agent?.id).toBe('a1');
   });
 
@@ -103,7 +112,7 @@ describe('listTasks', () => {
         makeAgent({ id: 'p1.1', parent: 'p1', taskId: 'northwind/NORT-7', state: 'processing' }),
       ],
     });
-    const row = listTasks(withChild, { ...noListFilters(), statuses: [] }).find(
+    const row = listTasks(withChild, noFilters(), { ...noListFilters(), statuses: [] }).find(
       (r) => r.task.id === 'northwind/NORT-7',
     );
     expect(row?.agent?.id).toBe('p1');
@@ -114,6 +123,6 @@ describe('listTasks', () => {
       tasks: [makeTask({ id: 'T1' })],
       agents: [makeAgent({ id: 'free1', taskId: '' })],
     });
-    expect(listTasks(world, noListFilters()).map((r) => r.task.id)).toEqual(['T1']);
+    expect(listTasks(world, noFilters(), noListFilters()).map((r) => r.task.id)).toEqual(['T1']);
   });
 });
