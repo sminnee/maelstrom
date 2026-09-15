@@ -1,0 +1,32 @@
+.wrap {
+  display: inline-flex;
+}
+/* The trigger half of the anchor pair — see `useAnchorName`. */
+.trigger {
+  anchor-name: var(--anchor-name);
+}
+/* The shared anchor core. On the bare class because `composes` needs a simple
+   selector; the offsets below keep their own. */
+.ask {
+  composes: anchored from './anchoredPopover.module.css';
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  white-space: nowrap;
+}
+/* Under `:popover-open`, not on the bare class — the pseudo-class is what wins
+   the tie against the composed `inset: unset`. See `anchoredPopover.module.css`. */
+.ask:popover-open {
+  top: calc(anchor(bottom) + 2px);
+  /* Right-aligned to the trigger: these sit at the end of a row or a footer,
+     so growing leftward keeps the question on screen. */
+  right: anchor(right);
+}
