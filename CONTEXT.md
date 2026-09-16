@@ -591,12 +591,13 @@ may not show, or one that is not there, leaves prose saying so, never a broken p
 markers, with the **Document tag** and the **Note**.
 _Avoid_: Screenshot tag, figure, embed
 
-**Quiet block**:
-Agent self-talk, written as a ` ```quiet ` fenced block in an ordinary message. The transcript
-draws it at the quiet rank. Other prose stays at the reading rank. Unlike the four markers it is
-not cut from the message. It holds markdown, so a quiet block can carry a literal or a link.
-Nothing on the server parses it.
-_Avoid_: Callout, Highlight, Summary, Important
+**User attention**:
+The rank an agent sets with `<user-attention high>` or `<user-attention low>` in an ordinary
+message. High prose is for the user to read. Low prose is working detail. The renderer draws low
+prose at the low rank. The tag stays in the message until the renderer reads it, so it is not
+one of the four markers. Low prose holds markdown, including a literal or a link. Nothing on the
+server parses it, except that node summaries remove the tag.
+_Avoid_: Callout, Highlight, Summary, Important, Attention tag
 
 **Task notification**:
 What the harness injects to say background work finished. A subagent's arrives as a `system` event

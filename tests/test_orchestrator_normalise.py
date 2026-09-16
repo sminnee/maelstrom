@@ -1668,6 +1668,13 @@ def replay_note(text: str, **agent_over) -> Replayed:
     return replayed
 
 
+def test_user_attention_stays_in_the_transcript_but_not_the_node_summary():
+    replayed = replay_note("<user-attention low>\nChecking the allocator first.")
+    [message] = items_of(replayed, "message")
+    assert message["markdown"] == "<user-attention low>\nChecking the allocator first."
+    assert agent_of(replayed)["lastMessage"] == "Checking the allocator first."
+
+
 def test_a_note_tag_becomes_the_agents_note():
     """The answer to "what is this agent up to", in the agent's own words."""
     replayed = replay_note("<note>Rebasing onto main</note>")

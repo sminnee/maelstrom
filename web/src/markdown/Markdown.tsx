@@ -1,72 +1,89 @@
-import { isValidElement } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import styles from './Markdown.module.css';
 
-/**
- * The fence body of a ```quiet block, or null for any other `pre`.
- *
- * react-markdown hands the `pre` override its `code` child rather than the
- * text, so the language is read off that child's class. Every other fence —
- * including one with no info string, which is the common case in agent prose —
- * must fall through untouched.
- */
-function quietText(children: React.ReactNode): string | null {
-  if (!isValidElement(children)) return null;
-  const props = children.props as { className?: string; children?: React.ReactNode };
-  if (!props.className?.split(' ').includes('language-quiet')) return null;
-  // An empty fence carries no child at all, and must still be quiet: falling
-  // through would dress it in the code chrome a quiet block exists to replace.
-  if (typeof props.children !== 'string') return '';
-  return props.children.replace(/\n$/, '');
+type Attention = 'high' | 'low';
+type Segment = { attention: Attention; source: string };
+
+const ATTENTION_TAG = /^<user-attention(?:\s+([^>]*))?>\s*$/;
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+function closesFence(line: string, fence: { char: string; length: number }): boolean {
+  return new RegExp(`^ {0,3}${fence.char}{${fence.length},}[\\t ]*$`).test(line);
 }
 
-// Nested fences can make each quiet body parse the remainder again.
-const MAX_QUIET_DEPTH = 2;
+/** Split standalone attention tags without interpreting tags inside code fences. */
+function attentionSegments(source: string): Segment[] {
+  const segments: Segment[] = [];
+  let attention: Attention = 'high';
+  let lines: string[] = [];
+  let fence: { char: string; length: number } | null = null;
+  const push = () => {
+    if (lines.length) segments.push({ attention, source: lines.join('\n') });
+    lines = [];
+  };
 
-/**
- * Rendered markdown with GFM. The one place react-markdown is imported.
- *
- * An image renders as a thumbnail that opens full size. Both an image an agent
- * showed and one the user pasted arrive here as an ordinary markdown ref, so
- * the two directions draw the same way.
- *
- * A ```quiet fence marks self-talk. It renders as quiet prose rather than as a
- * listing. Its body goes back through this same component, so it can carry a
- * literal, a link or emphasis.
- */
+  for (const line of source.split('\n')) {
+    const fenceText = line.match(FENCE)?.[1];
+    if (fence) {
+      lines.push(line);
+      if (closesFence(line, fence)) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceText) {
+      fence = { char: fenceText.charAt(0), length: fenceText.length };
+      lines.push(line);
+      continue;
+    }
+    const tag = line.match(ATTENTION_TAG);
+    if (tag) {
+      push();
+      attention = tag[1] === 'low' ? 'low' : 'high';
+      continue;
+    }
+    lines.push(line);
+  }
+  push();
+  return segments;
+}
+
+function MarkdownContent({ source }: { source: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        img: ({ src, alt }) =>
+          typeof src === 'string' ? <ImageLightbox src={src} alt={alt ?? ''} /> : null,
+      }}
+    >
+      {source}
+    </ReactMarkdown>
+  );
+}
+
+/** Render agent markdown, including its user-attention ranks. */
 export function Markdown({
   source,
   className,
-  quietDepth = 0,
   ...rest
 }: {
   source: string;
   className?: string;
-  /** How many quiet blocks enclose this one. */
-  quietDepth?: number;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'className' | 'children'>) {
   return (
     <div className={[styles.markdown, className].filter(Boolean).join(' ')} {...rest}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          img: ({ src, alt }) =>
-            typeof src === 'string' ? <ImageLightbox src={src} alt={alt ?? ''} /> : null,
-          pre: ({ children, ...rest }) => {
-            const text = quietDepth < MAX_QUIET_DEPTH ? quietText(children) : null;
-            if (text === null) return <pre {...rest}>{children}</pre>;
-            return (
-              <div className={styles.quiet} data-testid="quiet">
-                <Markdown source={text} quietDepth={quietDepth + 1} />
-              </div>
-            );
-          },
-        }}
-      >
-        {source}
-      </ReactMarkdown>
+      {attentionSegments(source).map((segment, index) =>
+        segment.attention === 'low' ? (
+          <div className={styles.quiet} data-testid="quiet" key={index}>
+            <MarkdownContent source={segment.source} />
+          </div>
+        ) : (
+          <MarkdownContent key={index} source={segment.source} />
+        ),
+      )}
     </div>
   );
 }

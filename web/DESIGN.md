@@ -341,8 +341,8 @@ size step. Where prose and machinery sit side by side — the transcript is the 
 takes the page's baseline with no container, and the machinery takes the chrome. A single step
 on the ramp is not enough to rank two things the eye must separate without reading.
 
-**The Two Ranks of Prose Rule.** An agent's prose has two ranks, and the agent marks self-talk.
-A ` ```quiet ` fence reads at `--text-ui` in `--fg-muted`; other prose reads at `--text-md` in
+**The Two Ranks of Prose Rule.** An agent's prose has two ranks, and the agent marks working detail.
+A `<user-attention low>` tag reads at `--text-ui` in `--fg-muted`; other prose reads at `--text-md` in
 `--fg`. The operator's own turn stays at the reading rank. The rank is carried by size and tone
 alone: no new hue, because the Reporting Rule keeps colour for state.
 

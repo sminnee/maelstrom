@@ -40,6 +40,8 @@ Dict = dict[str, Any]
 #: The document kind whose files are draft task files, and so carry a recipe.
 DRAFT_KIND = "tasks"
 
+_USER_ATTENTION_TAG = re.compile(r"<user-attention(?:\s+[^>]*)?>")
+
 #: The recipe fields a reader approving a chain needs: they decide how the task
 #: runs. The rest of the frontmatter is identity, and a draft leaves it empty.
 _RECIPE = ("mode", "model", "command", "priority", "pre_action", "post_action")
@@ -406,7 +408,9 @@ def normalise_stream_event(
                 out.ctx = replace(out.ctx, last_assistant_text=text)
                 out.agent(
                     {
-                        "lastMessage": _one_line(text),
+                        "lastMessage": _one_line(
+                            _USER_ATTENTION_TAG.sub("", text).strip()
+                        ),
                         "lastMessageAt": out.event_ts or out.now,
                     }
                 )
