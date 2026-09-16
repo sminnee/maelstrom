@@ -142,6 +142,7 @@ Run `mael doctor NEW` afterwards.
 | `--timeout INTEGER` | Maximum seconds to wait for the merge. Default: 3600. |
 | `--interval INTEGER` | Poll interval in seconds. Default: 30. |
 | `--force` | Close incomplete work too. Aborts an in-progress sync, commits uncommitted changes as `wip: uncommitted changes`, keeps the branch and PR, and creates a "Reopen" task. |
+| `--discard` | Discard tracked, staged, and non-ignored untracked files, then close without syncing. Branch commits and ignored files remain. Cannot combine with `--force` or `--wait`. |
 
 `mael close` stops the worktree's sessions before it tears the worktree down. It asks the agent
 daemon to stop the agents running there, then signals any remaining `claude` process. The daemon

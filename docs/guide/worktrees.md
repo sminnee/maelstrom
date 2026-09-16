@@ -188,6 +188,19 @@ mael close --force
 
 Use it when priorities change mid-task and you need the worktree back.
 
+### `close --discard` removes files
+
+`--discard` is destructive. It removes tracked, staged, and non-ignored untracked files.
+It does not sync, rebase, push, create a WIP commit, or create a Reopen task.
+
+The branch and its commits remain. Ignored files, including `.env`, remain.
+
+```bash
+mael close --discard
+```
+
+Use it only when the worktree files must not be kept.
+
 ### Remove
 
 ```bash

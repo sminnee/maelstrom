@@ -210,6 +210,7 @@ agents in flight.
 - **Drafts become tasks.** A draft is inert until it is promoted into the chain.
 - **Sessions run in cmux workspaces.** `--here` is the local escape hatch.
 - **Close preserves, remove deletes.** `mael close --force` discards nothing.
+  `mael close --discard` removes dirty files but keeps branch commits and ignored files.
 - **Thin vertical slices.** Never layer-shaped iterations.
 - **The pull request is the completion signal.** Close the task as soon as it is pushed.
 

@@ -225,6 +225,9 @@ Commit and merge first. To free the slot with work still in flight, use
 `wip: uncommitted changes`, the branch and its PR survive, and maelstrom creates a
 "Reopen" task so the work is not forgotten.
 
+`mael close --discard` removes tracked, staged, and non-ignored untracked files. It keeps
+branch commits and ignored files such as `.env`.
+
 To delete a worktree outright, use `mael remove`. See [worktrees.md](worktrees.md) for the
 difference.
 

@@ -173,6 +173,9 @@ mael close --force
 `--force` discards nothing: uncommitted changes are committed as `wip: uncommitted changes`,
 the branch and its PR survive, and maelstrom creates a "Reopen" task.
 
+Use `mael close --discard` only to remove tracked, staged, and non-ignored untracked files.
+It keeps branch commits and ignored files such as `.env`.
+
 ### A rebase left the worktree mid-operation
 
 ```bash

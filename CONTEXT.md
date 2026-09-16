@@ -68,7 +68,8 @@ _Avoid_: Flatten, unstack, rebase down
 **Close**:
 Return a worktree to an empty slot: detach to `origin/main`, free the port allocation, keep the
 folder and keep the branch. `close --force` commits outstanding work as `wip: uncommitted
-changes` rather than discarding it.
+changes` rather than discarding it. `close --discard` removes dirty files but keeps branch
+commits and ignored files.
 
 **Remove**:
 Delete the worktree folder and free its port allocation. The branch survives.

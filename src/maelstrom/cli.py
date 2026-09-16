@@ -1270,7 +1270,12 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
     help="Close even with unmerged/unresolved work; aborts an in-progress sync and "
     "creates a 'reopen the branch' task.",
 )
-async def cmd_close(targets, wait, timeout, interval, force):
+@click.option(
+    "--discard",
+    is_flag=True,
+    help="Discard dirty files and close without syncing. Keeps branch commits and ignored files.",
+)
+async def cmd_close(targets, wait, timeout, interval, force, discard):
     """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
@@ -1291,7 +1296,15 @@ async def cmd_close(targets, wait, timeout, interval, force):
     dirty tree. Nothing is discarded — uncommitted changes are committed onto the
     branch as 'wip: uncommitted changes' first. The branch and its PR are never
     deleted, and a 'Reopen <branch>' task is created so the work isn't forgotten.
+
+    With --discard, removes tracked, staged, and non-ignored untracked files,
+    then closes without syncing. Branch commits and ignored files remain.
     """
+    if discard and force:
+        raise click.UsageError("--discard cannot be used with --force")
+    if discard and wait:
+        raise click.UsageError("--discard cannot be used with --wait")
+
     # If no targets given, use cwd detection (original behavior)
     if not targets:
         targets = (None,)
@@ -1338,7 +1351,12 @@ async def cmd_close(targets, wait, timeout, interval, force):
 
         # In the model, so the orchestrator server runs the same close.
         outcome = await close_worktree_fully(
-            ctx.project, ctx.worktree, worktree_path, ctx.project_path, force=force
+            ctx.project,
+            ctx.worktree,
+            worktree_path,
+            ctx.project_path,
+            force=force,
+            discard=discard,
         )
         # The rescue is reported where it ran, before the close is announced.
         split = outcome.messages_before_copy_back
