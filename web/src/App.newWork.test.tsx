@@ -286,7 +286,7 @@ describe('new work', () => {
     expect(server.world.desk[`agent:${free.id}`]).toBeDefined();
     // Unchosen, a free agent runs the same defaults a new task does.
     expect(free.permissionMode).toBe('plan');
-    expect(free.model).toBe('opus');
+    expect(free.model).toBe('claude:opus');
   });
 
   it('starts a free agent under the mode and model the form chose', async () => {
@@ -298,13 +298,13 @@ describe('new work', () => {
     await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
     await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
     await user.selectOptions(within(form).getByLabelText('Mode'), 'auto');
-    await user.selectOptions(within(form).getByLabelText('Model'), 'fable');
+    await user.selectOptions(within(form).getByLabelText('Model'), 'claude:fable');
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
     const free = startedAgent(server);
     expect(free.permissionMode).toBe('auto');
-    expect(free.model).toBe('fable');
+    expect(free.model).toBe('claude:fable');
   });
 
   it('never offers to write the task twice when only its launch failed', async () => {

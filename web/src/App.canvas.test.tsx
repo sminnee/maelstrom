@@ -150,7 +150,7 @@ describe('App', () => {
     // guards that every field reaches the line, not that the line wraps. The
     // browser check is in web/DESIGN.md, "Node Card".
     expect(within(card).getByTestId('node-meta')).toHaveTextContent(
-      'feat/rotate-auth-tokens-for-every-service · delta · opus · normal · $0.66',
+      'feat/rotate-auth-tokens-for-every-service · delta · claude:opus · normal · $0.66',
     );
   });
 

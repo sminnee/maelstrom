@@ -184,6 +184,16 @@ _Avoid_: Window, pane group
 
 ## Agents
 
+**Model reference**:
+A model name in the form `<harness>:<alias>`, such as `claude:opus`,
+`codex:terra`, or `opencode:kimi`. A bare value is Claude-compatible. A blank
+value resolves to `claude:opus`.
+
+**Harness transport**:
+The path that starts an agent. `cli` starts the CLI selected by the **Model
+reference**. `daemon` starts a driven Claude agent. Daemon agents export
+`MAEL_HARNESS_TYPE=daemon` to their children.
+
 **Driven agent**:
 A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
 launches is a driven agent, so a driven agent normally has a workspace whose pane 0 runs

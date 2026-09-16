@@ -23,6 +23,13 @@ from . import task as task_model
 from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running
 from .context import resolve_context
+from .harness_model import (
+    HARNESS_CLAUDE,
+    TRANSPORT_CLI,
+    TRANSPORT_DAEMON,
+    resolve_model_reference,
+    resolve_transport,
+)
 from .shell import exec_cmd
 from .state_db.db import StateDb
 from .state_db.migrate import open_state_db
@@ -38,83 +45,52 @@ from .worktree import (
     setup_worktree_for_branch,
 )
 from .worktree_launcher import (
-    HARNESS_CLAUDE,
-    HARNESS_DAEMON,
-    HARNESS_REGISTRY,
-    HARNESSES,
     build_task_launch_line,
-    harness_spec,
     launch_claude_in_worktree,
-    resolve_harness,
 )
 from .worktree_model import WorktreeError, has_claude_transcript
 
-_HARNESS_SHORTCUTS = "harness_shortcuts"
 
-
-def _record_harness_shortcut(name: str):
-    def callback(ctx: click.Context, _param: click.Parameter, value: bool) -> bool:
-        if value:
-            ctx.meta.setdefault(_HARNESS_SHORTCUTS, []).append(name)
-        return value
-
-    return callback
-
-
-def _selected_harness_shortcuts() -> tuple[str, ...]:
-    return tuple(click.get_current_context().meta.get(_HARNESS_SHORTCUTS, ()))
-
-
-def resolve_harness_or_fail(harness: str | None, *, here: bool = False) -> str:
-    """The CLI face of :func:`resolve_harness`: errors become ClickExceptions.
-
-    One line per call site instead of the four-line try/except each launch
-    command would otherwise repeat.
-
-    ``here`` is ``--here``, which runs the session in the current shell and so
-    has no daemon to run it in. It downgrades the daemon to the legacy runner,
-    and says so when the user named the daemon rather than defaulting to it.
-    """
+def resolve_harness_or_fail(
+    cli: bool = False, daemon: bool = False, *, here: bool = False
+) -> str:
+    """Resolve transport flags and render their errors as Click errors."""
     try:
-        resolved = resolve_harness(harness, _selected_harness_shortcuts())
+        resolved = resolve_transport(cli=cli, daemon=daemon)
     except ValueError as e:
         raise click.ClickException(str(e))
-    if here and resolved == HARNESS_DAEMON:
-        if harness is not None:
-            click.echo(
-                f"Warning: --here runs in this shell, so --harness {harness} "
-                "does not apply; launching claude.",
-                err=True,
-            )
-        return HARNESS_CLAUDE
+    if here and resolved == TRANSPORT_DAEMON:
+        raise click.ClickException("--here cannot use --daemon; use --cli.")
     return resolved
 
 
 def _harness_options():
-    """Add the registry's harness selector and shorthand flags to a command.
-
-    Applied as ``@_harness_options()``; the command body calls
-    :func:`resolve_harness_or_fail`. The registry omits a shorthand for its
-    default harness.
-    """
+    """Add mutually-exclusive CLI and daemon transport flags."""
 
     def decorator(f):
-        for spec in reversed(HARNESS_REGISTRY):
-            if spec.default:
-                continue
-            f = click.option(
-                spec.shorthand,
-                is_flag=True,
-                expose_value=False,
-                callback=_record_harness_shortcut(spec.name),
-                help=f"Shorthand for --harness {spec.name}.",
-            )(f)
+        def removed(
+            _ctx: click.Context, param: click.Parameter, value: str | bool | None
+        ):
+            if value is not None and value is not False:
+                raise click.UsageError(
+                    f"{param.opts[0]} was removed; use --cli or --daemon."
+                )
+            return value
+
+        f = click.option(
+            "--harness", hidden=True, expose_value=False, callback=removed
+        )(f)
+        f = click.option(
+            "--claude", is_flag=True, hidden=True, expose_value=False, callback=removed
+        )(f)
+        f = click.option(
+            "--codex", is_flag=True, hidden=True, expose_value=False, callback=removed
+        )(f)
+        f = click.option(
+            "--daemon", is_flag=True, help="Launch through the agent daemon."
+        )(f)
         return click.option(
-            "--harness",
-            type=click.Choice(HARNESSES),
-            default=None,
-            help="Agent harness to launch (default: the agent daemon, or "
-            "opencode when mael runs inside an OpenCode session).",
+            "--cli", is_flag=True, help="Launch the model CLI (default)."
         )(f)
 
     return decorator
@@ -206,7 +182,7 @@ async def _run_task(
     *,
     here: bool = False,
     fresh: bool = False,
-    harness: str = HARNESS_DAEMON,
+    harness: str = TRANSPORT_CLI,
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
 
@@ -230,7 +206,12 @@ async def _run_task(
     # the same way the orchestrator server does. Harnesses without task-session
     # support cannot pin, resume, or guard their own session ids.
     plan = plan_launch(project, task)
-    has_session_id = harness_spec(harness).supports_task_session
+    ref = resolve_model_reference(plan.model, task.mode)
+    if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
+        raise click.ClickException(
+            f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
+        )
+    has_session_id = ref.harness == HARNESS_CLAUDE
     session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
@@ -254,15 +235,11 @@ async def _run_task(
     perm = plan.permission_mode
 
     if here:
-        # A daemon agent runs inside the daemon, not in this shell. The CLI
-        # downgrades it, but `add --run --here` and `load-many --here` reach
-        # here with the default still set.
-        harness = HARNESS_CLAUDE if harness == HARNESS_DAEMON else harness
         # No live session exists (the guard above ruled that out), so the only
         # question is whether this task's deterministic session was started before
         # and stopped: an on-disk transcript means `--session-id` would fail with
         # "already exists", so we resume it instead. `--here` runs in the cwd.
-        # fresh ⇒ never resume; see docstring. opencode has no id to resume.
+        # fresh ⇒ never resume; see docstring. Codex has no id to resume.
         resume = False
         if has_session_id and not fresh:
             assert session_id is not None  # set above on the claude path
@@ -281,7 +258,7 @@ async def _run_task(
                 session_id=session_id,
                 resume=resume,
                 model=plan.model,
-                harness=harness,
+                harness=ref.harness,
             ),
             cwd=None,
             env=session_env,
@@ -325,7 +302,7 @@ async def _run_task(
 
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
-    # fresh ⇒ never resume; see docstring. opencode has no id to resume.
+    # fresh ⇒ never resume; see docstring. Codex has no id to resume.
     resume = False
     if has_session_id and not fresh:
         assert session_id is not None  # set above on the claude path
@@ -1252,7 +1229,8 @@ async def task_next(
     project: str | None,
     parent: str | None,
     run: bool,
-    harness: str | None,
+    cli: bool,
+    daemon: bool,
     branch: str | None,
     here: bool,
 ) -> None:
@@ -1283,7 +1261,7 @@ async def task_next(
             proj,
             nxt,
             here=here,
-            harness=resolve_harness_or_fail(harness, here=here),
+            harness=resolve_harness_or_fail(cli, daemon, here=here),
         )
     else:
         click.echo(nxt.id)
@@ -1302,10 +1280,11 @@ async def task_run(
     id: str,
     project: str | None,
     here: bool,
-    harness: str | None,
+    cli: bool,
+    daemon: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
-    resolved = resolve_harness_or_fail(harness, here=here)
+    resolved = resolve_harness_or_fail(cli, daemon, here=here)
     proj = _resolve_project(project)
     table = await _table()
     try:

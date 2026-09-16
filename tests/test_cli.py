@@ -1215,7 +1215,7 @@ class TestCmdAddExistingBranch:
                 existing_wt,
                 project="proj",
                 worktree="bravo",
-                harness="daemon",
+                harness="cli",
             )
             mocks["create_worktree"].assert_not_called()
             # cmd_add no longer runs install itself; the launcher owns it.
@@ -1235,7 +1235,7 @@ class TestCmdAddExistingBranch:
                 existing_wt,
                 project="proj",
                 worktree="bravo",
-                harness="daemon",
+                harness="cli",
             )
             mocks["create_worktree"].assert_not_called()
 
@@ -2105,16 +2105,12 @@ class TestMvProjectIntegration:
 
 
 class TestOpenHarness:
-    """`mael open` / `mael claude` thread the harness flags to the launcher."""
+    """`mael open` selects a harness transport."""
 
     def _invoke(self, args, tmp_path):
         worktree = tmp_path / "wt"
         worktree.mkdir()
-        ctx = SimpleNamespace(
-            project="p",
-            worktree="alpha",
-            worktree_path=worktree,
-        )
+        ctx = SimpleNamespace(project="p", worktree="alpha", worktree_path=worktree)
         with ExitStack() as stack:
             stack.enter_context(
                 patch("maelstrom.cli.resolve_context", return_value=ctx)
@@ -2126,67 +2122,34 @@ class TestOpenHarness:
             result = CliRunner().invoke(cli, args)
         return result, launch
 
-    def test_open_default_harness_is_the_daemon(self, tmp_path):
-        result, launch = self._invoke(["open", "p/alpha"], tmp_path)
+    @pytest.mark.parametrize(
+        ("args", "transport"),
+        [([], "cli"), (["--cli"], "cli"), (["--daemon"], "daemon")],
+    )
+    def test_open_selects_transport(self, tmp_path, args, transport):
+        result, launch = self._invoke(["open", "p/alpha", *args], tmp_path)
         assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "daemon"
+        assert launch.call_args.kwargs["harness"] == transport
 
-    def test_open_claude_shorthand(self, tmp_path):
-        result, launch = self._invoke(["open", "p/alpha", "--claude"], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "claude"
-
-    def test_open_opencode_shorthand(self, tmp_path):
-        result, launch = self._invoke(["open", "p/alpha", "--opencode"], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "opencode"
-
-    def test_open_codex_shorthand(self, tmp_path):
-        result, launch = self._invoke(["open", "p/alpha", "--codex"], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "codex"
-
-    def test_claude_harness_flag(self, tmp_path):
-        result, launch = self._invoke(
-            ["open", "p/alpha", "--harness", "opencode"], tmp_path
-        )
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "opencode"
-
-    def test_conflicting_flags_error(self, tmp_path):
-        result, _ = self._invoke(
-            ["open", "p/alpha", "--harness", "claude", "--opencode"], tmp_path
-        )
+    @pytest.mark.parametrize("flag", ["--harness", "--claude", "--codex"])
+    def test_open_removed_harness_flags_explain_the_migration(self, tmp_path, flag):
+        args = ["open", "p/alpha", flag]
+        if flag == "--harness":
+            args.append("claude")
+        result, _ = self._invoke(args, tmp_path)
         assert result.exit_code != 0
-        assert "--opencode" in result.output
-
-    def test_claude_shorthand_conflicts_with_harness_flag(self, tmp_path):
-        result, _ = self._invoke(
-            ["open", "p/alpha", "--harness", "opencode", "--claude"], tmp_path
-        )
-        assert result.exit_code != 0
-        assert "--claude" in result.output
-
-    def test_codex_shorthand_conflicts_with_harness_flag(self, tmp_path):
-        result, _ = self._invoke(
-            ["open", "p/alpha", "--harness", "opencode", "--codex"], tmp_path
-        )
-        assert result.exit_code != 0
-        assert "--codex" in result.output
+        assert "use --cli or --daemon" in result.output
 
 
 class TestAddHarness:
-    """`mael add` starts a session too, so it takes the harness flags."""
+    """`mael add` selects a harness transport."""
 
     def _invoke_add(self, args, tmp_path):
         projects = tmp_path / "Projects"
         project_path = projects / "proj"
         project_path.mkdir(parents=True)
         ctx = SimpleNamespace(
-            project="proj",
-            project_path=project_path,
-            worktree=None,
-            worktree_path=None,
+            project="proj", project_path=project_path, worktree=None, worktree_path=None
         )
         with ExitStack() as stack:
             stack.enter_context(
@@ -2196,9 +2159,7 @@ class TestAddHarness:
                 patch(
                     "maelstrom.cli.setup_worktree_for_branch",
                     return_value=WorktreeSetup(
-                        path=project_path / "proj-bravo",
-                        name="bravo",
-                        action="created",
+                        path=project_path / "proj-bravo", name="bravo", action="created"
                     ),
                 )
             )
@@ -2209,64 +2170,14 @@ class TestAddHarness:
             result = CliRunner().invoke(cli, ["add", "feat-x", "-p", "proj", *args])
         return result, launch
 
-    def test_add_opencode_shorthand(self, tmp_path):
-        result, launch = self._invoke_add(["--opencode"], tmp_path)
+    @pytest.mark.parametrize(
+        ("args", "transport"),
+        [([], "cli"), (["--cli"], "cli"), (["--daemon"], "daemon")],
+    )
+    def test_add_selects_transport(self, tmp_path, args, transport):
+        result, launch = self._invoke_add(args, tmp_path)
         assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "opencode"
-
-    def test_add_default_harness_is_the_daemon(self, tmp_path):
-        result, launch = self._invoke_add([], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "daemon"
-
-    def test_add_claude_shorthand(self, tmp_path):
-        result, launch = self._invoke_add(["--claude"], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == "claude"
-
-    def test_add_open_with_harness_flag_warns(self, tmp_path, capsys):
-        # --open opens the editor instead of a session, so the harness flag
-        # is inert there — say so rather than dropping it silently.
-        projects = tmp_path / "Projects"
-        project_path = projects / "proj"
-        project_path.mkdir(parents=True)
-        ctx = SimpleNamespace(
-            project="proj",
-            project_path=project_path,
-            worktree=None,
-            worktree_path=None,
-        )
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch("maelstrom.cli.resolve_context", return_value=ctx)
-            )
-            stack.enter_context(
-                patch(
-                    "maelstrom.cli.create_worktree",
-                    return_value=project_path / "proj-bravo",
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "maelstrom.cli.extract_worktree_name_from_folder",
-                    return_value="bravo",
-                )
-            )
-            stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
-            stack.enter_context(patch("maelstrom.cli.update_claude_local_md"))
-            stack.enter_context(patch("maelstrom.cli.run_install_cmd"))
-            stack.enter_context(
-                patch(
-                    "maelstrom.cli.load_global_config",
-                    return_value=SimpleNamespace(open_command="code"),
-                )
-            )
-            stack.enter_context(patch("maelstrom.cli.open_worktree"))
-            result = CliRunner().invoke(
-                cli, ["add", "-p", "proj", "--open", "--opencode"]
-            )
-        assert result.exit_code == 0, result.output
-        assert "--open" in result.output and "harness" in result.output
+        assert launch.call_args.kwargs["harness"] == transport
 
 
 class TestWorktreeDomainErrorsAtTheCli:

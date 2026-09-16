@@ -229,7 +229,7 @@ resolves its own conflicts instead.
 
 | Command | Description |
 |---|---|
-| `mael open [TARGET]` | Start an agent session in a worktree. `--harness daemon\|claude\|codex\|opencode`, or a harness shorthand, picks the runner. |
+| `mael open [TARGET]` | Start an agent session in a worktree. `--cli` or `--daemon` picks the harness transport. |
 | `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List running Claude Code sessions. |
@@ -248,16 +248,14 @@ mael --json session info 97894d02  # the same fields as JSON
 mael session end 97894d02          # stop that session
 ```
 
-**Harness choice.** `mael add`, `mael open`, `mael task run` and `mael task next --run`
-take `--harness daemon|claude|codex|opencode` (default `daemon`). Each non-default
-harness also has a shorthand: `--claude`, `--codex`, or `--opencode`.
+**Harness transport.** `mael add`, `mael open`, `mael task run` and `mael task next --run`
+take `--cli` or `--daemon`. The default is `--cli`. `--cli` starts the CLI selected
+by the model reference. `--daemon` starts a driven Claude agent.
 
 | Harness | What pane 0 runs | Who owns the agent |
 |---|---|---|
-| `daemon` (default) | `mael agent attach <id>` | The agent daemon |
-| `claude` | `claude` | The pane |
-| `codex` | `codex` | The pane |
-| `opencode` | `opencode2` | The pane |
+| `cli` (default) | `claude`, `codex`, or `opencode` | The pane |
+| `daemon` | `mael agent attach <id>` | The agent daemon |
 
 With `daemon` the agent daemon runs the `claude` child, and the pane attaches to it as a client.
 The session appears in `mael agent list` and in the orchestrator UI. Ctrl-C in the pane detaches
@@ -265,32 +263,22 @@ the client and leaves the agent running — reattach with `mael agent attach <id
 still `claude` with the session's environment, so skills, hooks and `CLAUDE.md` behave as they
 always did.
 
-With `claude` the pane runs `claude` itself. Nothing outside the pane sees the session, and
-Ctrl-C ends it.
-
-With `codex` the pane runs `codex`. Codex uses its configured model and permissions. Maelstrom
-does not pin, resume, or duplicate-guard Codex sessions. Each Codex launch starts fresh, and the
-task prompt is its opening positional argument.
-
-With `opencode` the session runs `opencode2`. OpenCode assigns its own session ids, so maelstrom
-does not pin, resume, or duplicate-guard those sessions — every opencode launch starts a fresh
-session, and the task prompt reaches it through `--prompt`.
-
-When no harness flag is given, a shell inside OpenCode (`OPENCODE_TERMINAL=1`) defaults to
-`opencode`. Every other shell defaults to `daemon`. `CLAUDECODE=1` is not a signal: every session
-maelstrom launches sets it, so detecting it would send every nested `mael open` back to the pane
-runner. An explicit flag always wins — pass `--harness daemon` to launch a driven agent from
-inside an OpenCode session. Two harness flags that name different harnesses are an error.
+`claude:sonnet`, `claude:opus`, `claude:fable`, `codex:luna`, `codex:terra`,
+`codex:sol`, `codex:astra`, `opencode:kimi`, `opencode:glm`,
+`opencode:glm-flash`, `opencode:qwen`, `opencode:qwen-flash`, and
+`opencode:deepseek` select a CLI and pass its alias. Blank models resolve to
+`claude:opus`. Bare models remain Claude-compatible. `--daemon` refuses a
+non-Claude model until that harness has a daemon. `--harness`, `--claude`, and
+`--codex` were removed; use a transport flag.
 
 `mael task run --here` runs the session in the current shell, so the daemon has no meaning there.
 That path falls back to `claude`, and warns when you named the daemon rather than defaulting to
 it.
 
 ```bash
-mael open                    # a driven agent; the pane attaches to it
-mael open --claude           # the legacy pane runner
-mael open --codex            # Codex in the pane
-mael open --harness opencode # opencode2 in the pane
+mael open                    # Claude CLI with the default model
+mael task run NORT-7 --cli   # selected CLI in the pane
+mael task run NORT-7 --daemon
 ```
 
 **`mael session info` and `mael session end`**
@@ -481,8 +469,7 @@ the field.
 | `--run` | Launch the next actionable task as a session. |
 | `-b`, `--branch TEXT` | Restrict strictly to this branch. No fallback to other branches. |
 | `--here` | With `--run`, launch in the current shell. |
-| `--harness NAME` | Agent harness to launch: `daemon` (default), `claude`, `codex`, or `opencode`. |
-| `--claude`, `--codex`, `--opencode` | Shorthand for the matching non-default harness. |
+| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`. |
 
 By default `next` prefers a task on the current git branch, then falls back to the global
 next task.
@@ -492,8 +479,7 @@ next task.
 | Option | Description |
 |---|---|
 | `--here` | Launch in the current shell. No worktree, no new workspace. |
-| `--harness NAME` | Agent harness to launch: `daemon` (default), `claude`, `codex`, or `opencode`. |
-| `--claude`, `--codex`, `--opencode` | Shorthand for the matching non-default harness. |
+| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`. |
 
 **`mael task load-many`**
 

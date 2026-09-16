@@ -86,7 +86,7 @@ DEFAULT_MODE = "plan"
 # The model a session runs on when its task names none. Applied at launch, not
 # at ``create()``: storing it would pin every task written before the default
 # moved, and an empty ``model`` stays the notebook's word for "unset".
-DEFAULT_MODEL = "opus"
+DEFAULT_MODEL = "claude:opus"
 
 # Where a planning session writes its drafts. Named here because the draft
 # concept lives in this module; `worktree.py` gitignores it and
@@ -172,8 +172,8 @@ TASK_FIELDS = (
     # Sort priority (critical/high/medium/low). Appended at the end so existing
     # files keep a stable diff; missing key defaults to medium on load.
     _FieldSpec("priority", block=True),
-    # LLM model for the session (``claude --model``). Free-form: an alias (opus)
-    # or a full id. Empty = launch on ``DEFAULT_MODEL``.
+    # LLM model reference. Bare values remain Claude-compatible; empty selects
+    # ``DEFAULT_MODEL`` at launch.
     _FieldSpec("model", block=True),
     # The branch this task's branch is stacked on -- a declarative input that
     # seeds the branch's stored base when the worktree is set up. Empty = use the

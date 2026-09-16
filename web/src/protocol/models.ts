@@ -5,7 +5,21 @@
  * and the notebook stores whatever it is given. This list is the UI's own
  * shortlist over that field, the way `KNOWN_COMMANDS` is over `command`.
  */
-export const MODELS = ['opus', 'fable'] as const;
+export const MODELS = [
+  'claude:sonnet',
+  'claude:opus',
+  'claude:fable',
+  'codex:luna',
+  'codex:terra',
+  'codex:sol',
+  'codex:astra',
+  'opencode:kimi',
+  'opencode:glm',
+  'opencode:glm-flash',
+  'opencode:qwen',
+  'opencode:qwen-flash',
+  'opencode:deepseek',
+] as const;
 
 /**
  * The unset model. The launch substitutes the default for it, so a form must be
@@ -17,7 +31,7 @@ export const UNSET_MODEL = '';
  * What the new-work form pre-selects for a free agent, which has no launch to
  * default it. A hand-kept mirror of `task.DEFAULT_MODEL`, like `MODES`.
  */
-export const DEFAULT_MODEL = 'opus';
+export const DEFAULT_MODEL = 'claude:opus';
 
 /**
  * A model as the interface says it, from whatever the wire holds.
@@ -31,8 +45,10 @@ export const DEFAULT_MODEL = 'opus';
  * `MODELS` passes through whole.
  */
 export function modelLabel(model: string): string {
-  const match = MODELS.find(
+  const match = MODELS.find((m) => model === m);
+  if (match) return match;
+  const claude = ['sonnet', 'opus', 'fable'].find(
     (m) => model === m || model === `claude-${m}` || model.startsWith(`claude-${m}-`),
   );
-  return match ?? model;
+  return claude ? `claude:${claude}` : model;
 }

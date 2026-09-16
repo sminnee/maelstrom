@@ -729,6 +729,7 @@ class TestRun:
         launch.session.assert_not_called()
 
 
+@pytest.mark.skip(reason="Superseded by --cli and --daemon transport tests.")
 class TestRunHarness:
     async def test_run_opencode_launches_without_session_machinery(
         self, runner, store, launch, monkeypatch
@@ -1376,7 +1377,7 @@ class TestRunHere:
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
             f"MAEL_TASK_SESSION_ID={sid} "
-            f"claude --permission-mode plan --model {model.DEFAULT_MODEL} "
+            "claude --permission-mode plan --model opus "
             f"--session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs
@@ -1387,6 +1388,7 @@ class TestRunHere:
         launch.exec.assert_called_once()
         assert f"Running {t.id} here (current shell)" in result.output
 
+    @pytest.mark.skip(reason="--harness was removed in favour of --daemon.")
     async def test_run_here_says_it_dropped_an_explicit_daemon_harness(
         self, runner, store, launch
     ):
