@@ -23,11 +23,8 @@ Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
 module (nothing in it calls the launcher).
 """
 
-import os
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 import click
 
@@ -36,6 +33,14 @@ from .agent_transport import client as daemon_client
 from .cmux import mael_layout
 from .cmux.client import ensure_cmux_running
 from .config import load_config_or_default
+from .harness_model import (
+    HARNESS_CLAUDE,
+    HARNESS_CODEX,
+    HARNESS_OPENCODE,
+    TRANSPORT_CLI,
+    TRANSPORT_DAEMON,
+    resolve_model_reference,
+)
 from .shell import (
     Command,
     Pipeline,
@@ -44,85 +49,6 @@ from .shell import (
     describe,
     run_cmd,
 )
-
-HARNESS_DAEMON = "daemon"
-HARNESS_CLAUDE = "claude"
-HARNESS_CODEX = "codex"
-HARNESS_OPENCODE = "opencode"
-
-
-@dataclass(frozen=True)
-class Harness:
-    """One harness's command, task capabilities, and workspace placement."""
-
-    name: str
-    command: tuple[str, ...] | None
-    prompt_delivery: Literal["stdin", "argument", "option"] | None
-    shorthand: str
-    default: bool = False
-    prompt_option: str | None = None
-    detects_environment: str | None = None
-    supports_task_session: bool = False
-    supports_permission_mode: bool = False
-    supports_model: bool = False
-    uses_daemon: bool = False
-    open_cmux_workspace: bool = True
-
-
-HARNESS_REGISTRY = (
-    Harness(
-        HARNESS_DAEMON,
-        None,
-        None,
-        "--daemon",
-        default=True,
-        supports_task_session=True,
-        supports_permission_mode=True,
-        supports_model=True,
-        uses_daemon=True,
-        open_cmux_workspace=True,
-    ),
-    Harness(
-        HARNESS_CLAUDE,
-        ("claude",),
-        "stdin",
-        "--claude",
-        supports_task_session=True,
-        supports_permission_mode=True,
-        supports_model=True,
-        open_cmux_workspace=True,
-    ),
-    Harness(
-        HARNESS_CODEX,
-        ("codex",),
-        "argument",
-        "--codex",
-        open_cmux_workspace=True,
-    ),
-    Harness(
-        HARNESS_OPENCODE,
-        ("opencode2",),
-        "option",
-        "--opencode",
-        prompt_option="--prompt",
-        detects_environment="OPENCODE_TERMINAL",
-        open_cmux_workspace=True,
-    ),
-)
-HARNESSES = tuple(spec.name for spec in HARNESS_REGISTRY)
-
-
-def harness_spec(name: str) -> Harness:
-    """Return the registered harness called ``name``."""
-    for spec in HARNESS_REGISTRY:
-        if spec.name == name:
-            return spec
-    raise ValueError(f"Unknown harness: {name!r}")
-
-
-def default_harness() -> Harness:
-    """Return the one harness the registry marks as its default."""
-    return next(spec for spec in HARNESS_REGISTRY if spec.default)
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -187,59 +113,27 @@ def build_harness_command(
     *,
     resume: bool = False,
     model: str | None = None,
-    harness: str = HARNESS_CLAUDE,
+    harness: str | None = None,
 ) -> list[str]:
-    """Build a registered direct harness's command line."""
-    spec = harness_spec(harness)
-    if spec.uses_daemon or spec.command is None:
-        raise ValueError(f"Harness {harness!r} has no direct command")
-    argv = list(spec.command)
-    if spec.supports_permission_mode and permission_mode:
-        argv += ["--permission-mode", permission_mode]
-    if spec.supports_model and model:
-        argv += ["--model", model]
-    if spec.supports_task_session and session_id:
+    """Build the direct CLI command selected by ``model``.
+
+    ``harness`` remains an optional compatibility selector for callers that
+    deliberately run another CLI. A model from the other prefix then supplies
+    no model argument, so that CLI uses its configured default.
+    """
+    ref = resolve_model_reference(model, permission_mode or "normal")
+    selected = harness or ref.harness
+    if selected not in (HARNESS_CLAUDE, HARNESS_CODEX, HARNESS_OPENCODE):
+        raise ValueError(f"Unknown CLI harness: {selected!r}")
+    selected_ref = resolve_model_reference(
+        f"{selected}:opus", permission_mode or "normal"
+    )
+    argv = [selected, *selected_ref.mode_args]
+    if selected == ref.harness:
+        argv += ref.cli_args
+    if selected == HARNESS_CLAUDE and session_id:
         argv += ["--resume", session_id] if resume else ["--session-id", session_id]
     return argv
-
-
-def _detect_harness_from_env() -> str | None:
-    """The harness that launched the current shell, from its environment.
-
-    Only OpenCode is detected (``OPENCODE_TERMINAL=1``), so an OpenCode user's
-    ``mael task run`` stays in OpenCode. ``CLAUDECODE=1`` is not a signal: every
-    session mael launches sets it, so detecting it would send every nested
-    ``mael open`` back to the pane runner.
-    """
-    for spec in HARNESS_REGISTRY:
-        if spec.detects_environment and os.environ.get(spec.detects_environment):
-            return spec.name
-    return None
-
-
-def resolve_harness(harness: str | None, shortcuts: tuple[str, ...] = ()) -> str:
-    """Merge ``--harness <name>`` with registry-derived shorthand flags.
-
-    ``--harness`` is ``None`` when the flag was not given. Precedence, strongest
-    first: an explicit flag (``--harness`` or a shorthand), then
-    the environment the command runs in (a ``mael task run`` typed inside an
-    OpenCode session launches OpenCode; ``--harness daemon`` overrides), then the
-    default. Two flags that name different harnesses are a user error.
-    """
-    selected = set(shortcuts)
-    if len(selected) > 1:
-        flags = sorted(harness_spec(name).shorthand for name in selected)
-        raise ValueError(f"{flags[0]} conflicts with {flags[1]}")
-    if selected:
-        selected_name = selected.pop()
-        flag = harness_spec(selected_name).shorthand
-        if harness is not None and harness != selected_name:
-            raise ValueError(f"{flag} conflicts with --harness {harness}")
-        return selected_name
-    if harness is None:
-        return _detect_harness_from_env() or default_harness().name
-    harness_spec(harness)
-    return harness
 
 
 def build_task_launch_line(
@@ -251,12 +145,9 @@ def build_task_launch_line(
     *,
     resume: bool = False,
     model: str | None = None,
-    harness: str = HARNESS_CLAUDE,
+    harness: str | None = None,
 ) -> ShellExpr:
-    """Build a task's prompt command for the selected direct harness."""
-    spec = harness_spec(harness)
-    if spec.uses_daemon:
-        raise ValueError(f"Harness {harness!r} has no direct task command")
+    """Build a task prompt command for the CLI selected by its model."""
     command_env = dict(env or {})
     if session_id:
         command_env["MAEL_TASK_SESSION_ID"] = session_id
@@ -264,14 +155,13 @@ def build_task_launch_line(
     harness_argv = build_harness_command(
         permission_mode, session_id, resume=resume, model=model, harness=harness
     )
-    if spec.prompt_delivery == "stdin":
+    selected = (
+        harness or resolve_model_reference(model, permission_mode or "normal").harness
+    )
+    if selected == HARNESS_CLAUDE:
         return Pipeline([Command(prompt_argv), Command(harness_argv, env=command_env)])
     prompt = command_substitution(prompt_argv)
-    if spec.prompt_delivery == "option":
-        assert spec.prompt_option is not None
-        harness_argv += [spec.prompt_option, prompt]
-    else:
-        harness_argv.append(prompt)
+    harness_argv.append(prompt)
     return Command(harness_argv, env=command_env)
 
 
@@ -302,19 +192,6 @@ def open_claude_workspace(
 ) -> bool:
     """Compatibility name for :func:`open_cmux_workspace`."""
     return open_cmux_workspace(project, worktree, worktree_path, command)
-
-
-def _open_harness_workspace(
-    spec: Harness,
-    project: str | None,
-    worktree: str | None,
-    worktree_path: Path,
-    command: ShellExpr,
-) -> bool:
-    """Place a harness instruction when its registry entry allows cmux."""
-    if not spec.open_cmux_workspace:
-        return False
-    return open_claude_workspace(project, worktree, worktree_path, command)
 
 
 async def launch_agent_in_worktree(
@@ -350,6 +227,11 @@ async def launch_agent_in_worktree(
     either way — an empty pane would be worse. The agent survives that: it is
     running, and ``mael agent attach`` reaches it.
     """
+    ref = resolve_model_reference(model, permission_mode or "normal")
+    if ref.harness != HARNESS_CLAUDE:
+        raise ValueError(
+            f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
+        )
     agent_env = dict(env or {})
     if session_id:
         agent_env["MAEL_TASK_SESSION_ID"] = session_id
@@ -359,7 +241,7 @@ async def launch_agent_in_worktree(
         env=agent_env,
         session_id=session_id,
         resume=resume,
-        model=model,
+        model=ref.alias,
         prompt=prompt,
     )
     reply = await daemon_client().request(payload)
@@ -371,8 +253,6 @@ async def launch_agent_in_worktree(
             err=True,
         )
         return False
-    if not harness_spec(HARNESS_DAEMON).open_cmux_workspace:
-        return True
     if not ensure_cmux_running():
         return False
     return open_claude_workspace(
@@ -395,7 +275,7 @@ async def launch_claude_in_worktree(
     resume: bool = False,
     model: str | None = None,
     prompt: str = "",
-    harness: str = HARNESS_DAEMON,
+    harness: str = TRANSPORT_CLI,
 ) -> bool:
     """Launch Claude for a worktree inside cmux. True if placed, False otherwise.
 
@@ -418,8 +298,7 @@ async def launch_claude_in_worktree(
     the session's LLM (``claude --model``). Either way env rides inside the
     ``ShellExpr``.
     """
-    spec = harness_spec(harness)
-    if spec.uses_daemon:
+    if harness == TRANSPORT_DAEMON:
         # The agent start comes first. cmux is only needed for the pane, and
         # starting the app before a launch that then fails would leave the user
         # with a cmux they did not have running.
@@ -445,7 +324,7 @@ async def launch_claude_in_worktree(
             session_id=session_id,
             resume=resume,
             model=model,
-            harness=harness,
+            harness=None,
         )
     else:
         command = Command(
@@ -454,8 +333,8 @@ async def launch_claude_in_worktree(
                 session_id,
                 resume=resume,
                 model=model,
-                harness=harness,
+                harness=None,
             ),
             env=dict(env or {}),
         )
-    return _open_harness_workspace(spec, project, worktree, worktree_path, command)
+    return open_claude_workspace(project, worktree, worktree_path, command)

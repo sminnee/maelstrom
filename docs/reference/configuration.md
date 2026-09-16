@@ -9,6 +9,10 @@ Maelstrom reads two files:
 
 Maelstrom finds `.maelstrom.yaml` by searching upward from the current directory.
 
+`MAEL_HARNESS_TYPE` is a process environment variable, not a YAML key. Set it to `cli` or
+`daemon` to select the default harness transport. Other values select `cli`. Daemon agents set
+it to `daemon` for nested launches.
+
 ---
 
 ## Project configuration — `.maelstrom.yaml`

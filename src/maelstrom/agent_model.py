@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from .agent_transport import ROOT_ENV
 from .claude_integration import get_shared_dir
+from .harness_model import HARNESS_TYPE_ENV, TRANSPORT_DAEMON
 from .util import sanitise_child_env
 
 if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
@@ -208,9 +209,8 @@ def build_agent_env(
     Takes ``base`` (the daemon's own environment), drops the variables no child
     should inherit and the two markers that can stop the child writing a
     transcript, asks for persistence outright, turns off cmux's hook injection,
-    names ``root`` as the daemon root, then lets ``extra`` win — the
-    no-allowlist contract in ``docs/dev/agent-daemon.md`` stands, so a client
-    can set any of them back.
+    names ``root`` as the daemon root, then lets ``extra`` win. The harness
+    transport is the exception: every driven child must inherit `daemon`.
 
     ``root`` is the spawning daemon's own root, so a ``mael agent`` command run
     inside the session reaches the daemon that holds it. Without it the child
@@ -225,6 +225,7 @@ def build_agent_env(
         env[ROOT_ENV] = str(root)
     env[CMUX_HOOKS_DISABLED_ENV] = "1"
     env.update(extra or {})
+    env[HARNESS_TYPE_ENV] = TRANSPORT_DAEMON
     return env
 
 

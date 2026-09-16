@@ -458,6 +458,11 @@ def test_env_leaves_the_caller_the_last_word():
     assert env["CLAUDECODE"] == "1"
 
 
+def test_env_marks_driven_children_for_the_daemon():
+    env = build_agent_env({"PATH": "/bin"}, {"MAEL_HARNESS_TYPE": "cli"})
+    assert env["MAEL_HARNESS_TYPE"] == "daemon"
+
+
 def test_env_drops_the_inherited_virtualenv():
     # The daemon is started as a service from `_main`, so its own VIRTUAL_ENV
     # names `_main`'s venv — the wrong one for an agent in any other worktree.

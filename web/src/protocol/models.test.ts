@@ -4,12 +4,12 @@ import { modelLabel } from './models';
 
 describe('modelLabel', () => {
   it('reads a resolved id as the alias it was launched with', () => {
-    expect(modelLabel('claude-opus-5')).toBe('opus');
-    expect(modelLabel('claude-fable-5-1')).toBe('fable');
+    expect(modelLabel('claude-opus-5')).toBe('claude:opus');
+    expect(modelLabel('claude-fable-5-1')).toBe('claude:fable');
   });
 
   it('leaves an alias alone', () => {
-    expect(modelLabel('opus')).toBe('opus');
+    expect(modelLabel('opus')).toBe('claude:opus');
   });
 
   it('passes an unrecognised id through whole, rather than mangling it', () => {

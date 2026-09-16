@@ -45,6 +45,7 @@ from .github_model import (
     is_open_pr,
     pr_from_row,
 )
+from .harness_model import TRANSPORT_CLI
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -63,7 +64,7 @@ from .schedule_launchd import schedule_group
 from .session_cli import session as session_cli
 from .table import draw_table
 from .task_cli import _harness_options as _harness_flags
-from .task_cli import _selected_harness_shortcuts, add_task, resolve_harness_or_fail
+from .task_cli import add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .util import error_text
 from .wiki_cli import wiki as wiki_cli
@@ -92,11 +93,7 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_close import close_worktree_fully
-from .worktree_launcher import (
-    HARNESS_DAEMON,
-    launch_claude_in_worktree,
-    open_worktree,
-)
+from .worktree_launcher import launch_claude_in_worktree, open_worktree
 from .worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
@@ -118,7 +115,7 @@ async def _launch_claude_or_raise(
     worktree_path: Path,
     project: str | None,
     worktree: str | None,
-    harness: str = HARNESS_DAEMON,
+    harness: str = TRANSPORT_CLI,
 ) -> None:
     """Launch a plain harness session inside cmux, or raise if placement fails.
 
@@ -331,7 +328,7 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-async def cmd_add(branch, project, open, no_recycle, base, harness):
+async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -344,7 +341,7 @@ async def cmd_add(branch, project, open, no_recycle, base, harness):
 
     Use --no-recycle to always create a new worktree even when closed ones exist.
     """
-    resolved_harness = resolve_harness_or_fail(harness)
+    resolved_harness = resolve_harness_or_fail(cli, daemon)
     try:
         ctx = resolve_context(
             project,
@@ -383,11 +380,11 @@ async def cmd_add(branch, project, open, no_recycle, base, harness):
             click.echo(f"App: {url}")
         run_install_cmd(worktree_path)
         if open:
-            if harness or _selected_harness_shortcuts():
+            if cli or daemon:
                 # --open starts no session, so the harness flag is inert here.
                 click.echo(
                     "Warning: --open starts an editor, not a session; "
-                    "the harness flags were ignored.",
+                    "the transport flags were ignored.",
                     err=True,
                 )
             global_config = load_global_config()
@@ -471,11 +468,11 @@ async def cmd_add(branch, project, open, no_recycle, base, harness):
     # pane on create, blocking in non-cmux), but the editor path has no launcher,
     # so run it blocking here.
     if open:
-        if harness or _selected_harness_shortcuts():
+        if cli or daemon:
             # --open starts no session, so the harness flag is inert here.
             click.echo(
                 "Warning: --open starts an editor, not a session; "
-                "the harness flags were ignored.",
+                "the transport flags were ignored.",
                 err=True,
             )
         run_install_cmd(worktree_path)
@@ -834,7 +831,7 @@ async def cmd_list_all():
 @cli.command("open")
 @_harness_flags()
 @click.argument("target", required=False, default=None)
-async def cmd_open(target, harness: str | None):
+async def cmd_open(target, cli: bool, daemon: bool):
     """Start a Claude Code CLI session in a worktree."""
     try:
         ctx = resolve_context(
@@ -854,7 +851,7 @@ async def cmd_open(target, harness: str | None):
         worktree_path,
         ctx.project,
         ctx.worktree,
-        harness=resolve_harness_or_fail(harness),
+        harness=resolve_harness_or_fail(cli, daemon),
     )
 
 

@@ -94,6 +94,7 @@ from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
 from .attachments import MAX_BYTES, image_extension, is_image
+from .harness_model import HARNESS_CLAUDE, resolve_model_reference
 from .notebook_root import NotebookRootUnset
 from .session_discovery import (
     LiveSessionSet,
@@ -876,12 +877,17 @@ class AgentDaemon:
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         session_id = session_id or str(uuid.uuid4())
+        ref = resolve_model_reference(model, permission_mode or "normal")
+        if ref.harness != HARNESS_CLAUDE:
+            raise ValueError(
+                f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
+            )
         spec = AgentSpec(
             agent_id=agent_id,
             cwd=cwd,
             session_id=session_id,
             permission_mode=permission_mode,
-            model=model,
+            model=ref.alias,
             env=dict(env or {}),
             prompt=prompt if record_prompt is None else record_prompt,
             status=SPEC_RUNNING,
@@ -892,7 +898,7 @@ class AgentDaemon:
         argv = build_agent_argv(
             permission_mode=permission_mode,
             session_id=session_id,
-            model=model,
+            model=ref.alias,
             resume=resume,
         )
         # stderr joins stdout so a child that dies early — a bad --model, an
@@ -1104,11 +1110,11 @@ class AgentDaemon:
                     env=payload.get("env") or None,
                     resume=bool(payload.get("resume", False)),
                 )
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 # Without this the exception escapes `handle`, the connection
                 # closes unanswered, and the CLI blames the daemon for a
                 # `claude` that is simply not on PATH.
-                return {"error": f"could not start claude: {exc}"}
+                return {"error": f"could not start agent: {exc}"}
             return {"ok": True, "id": agent_id}
 
         if command == "shutdown":
