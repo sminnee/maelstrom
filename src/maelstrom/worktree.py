@@ -1805,7 +1805,9 @@ def _merge_in_progress(worktree_path: Path) -> bool:
     return path.exists()
 
 
-def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
+def close_worktree(
+    worktree_path: Path, *, force: bool = False, discard: bool = False
+) -> CloseResult:
     """Close a worktree by syncing and resetting to origin/main.
 
     A branch other branches are stacked on keeps its branch: only HEAD detaches.
@@ -1827,9 +1829,13 @@ def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
     and reappear when it is reopened. The branch (and its PR) is never deleted; the
     returned ``branch`` / ``had_unmerged_work`` let the caller create a reopen task.
 
+    With ``discard=True`` the close removes tracked, staged, and non-ignored
+    untracked files without syncing or changing the branch. Ignored files stay.
+
     Args:
         worktree_path: Path to the worktree directory.
         force: If True, close even with unmerged/dirty/conflicting work (see above).
+        discard: If True, destructively remove worktree files before closing.
 
     Returns:
         CloseResult with status and message.
@@ -1844,6 +1850,20 @@ def close_worktree(worktree_path: Path, *, force: bool = False) -> CloseResult:
         )
 
     branch = get_current_branch(worktree_path)  # capture before any detach
+
+    if discard:
+        # A rebase owns index and worktree state. Abort it before discarding so
+        # reset and clean leave a normal worktree for the detach below.
+        if rebase_in_progress(worktree_path):
+            _abort_rebase(worktree_path)
+        # Do not pass -x: ignored generated files such as .env must survive.
+        # Clean first because the current branch's ignore rules can be files
+        # that reset removes when it restores HEAD.
+        run_git(["clean", "-ffd"], cwd=worktree_path)
+        run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
+        result = _detach_and_free_ports(worktree_path)
+        result.branch = branch
+        return result
 
     # --force never loses work: commit any dirty/untracked changes onto the branch
     # FIRST, so they survive the close and reappear when the branch is reopened.

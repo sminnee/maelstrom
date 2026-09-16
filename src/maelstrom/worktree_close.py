@@ -55,8 +55,8 @@ def _copy_back(project_path: Path, worktree_path: Path) -> CopyBackResult:
     return copy_back_new_env_vars(project_path, worktree_path)
 
 
-def _close(worktree_path: Path, force: bool) -> CloseResult:
-    return close_worktree(worktree_path, force=force)
+def _close(worktree_path: Path, force: bool, discard: bool) -> CloseResult:
+    return close_worktree(worktree_path, force=force, discard=discard)
 
 
 def _close_workspace(project: str, worktree: str) -> bool:
@@ -74,7 +74,7 @@ class CloseSteps:
     live_sessions: Callable[[Path], Sequence[LiveSession]] = _live_sessions
     stop_sessions: Callable[[Sequence[LiveSession]], list[str]] = _stop_sessions
     copy_back: Callable[[Path, Path], CopyBackResult] = _copy_back
-    close: Callable[[Path, bool], CloseResult] = _close
+    close: Callable[[Path, bool, bool], CloseResult] = _close
     close_workspace: Callable[[str, str], bool] = _close_workspace
 
 
@@ -104,6 +104,7 @@ async def close_worktree_fully(
     project_path: Path | None,
     *,
     force: bool = False,
+    discard: bool = False,
     steps: CloseSteps | None = None,
 ) -> FullCloseResult:
     """Close ``worktree`` and everything living in it.
@@ -142,7 +143,7 @@ async def close_worktree_fully(
         copy_back = steps.copy_back(project_path, worktree_path)
 
     messages.append(f"Closing worktree '{worktree}'...")
-    close = steps.close(worktree_path, force)
+    close = steps.close(worktree_path, force, discard)
     if close.success:
         messages.append(close.message)
         if steps.close_workspace(project, worktree):

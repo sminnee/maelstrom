@@ -24,6 +24,7 @@ from maelstrom.worktree import (
     CloseResult,
     close_worktree,
     setup_worktree_for_branch,
+    sync_worktree,
 )
 from tests.git_helpers import create_commit, run_git
 
@@ -165,6 +166,70 @@ class TestCloseForce:
         assert not _is_detached(worktree_path)
 
 
+class TestCloseDiscard:
+    """`close_worktree(discard=True)` removes files but keeps branch commits."""
+
+    def test_discard_removes_dirty_files_preserves_ignored_files_and_branch(
+        self, project_with_worktree
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        record_port_allocation(project_path, "alpha", 350)
+        create_commit(worktree_path, "branch.txt", "branch work\n", "Branch commit")
+        branch_tip = _current_head(worktree_path)
+        exclude = Path(
+            run_git(
+                worktree_path, "rev-parse", "--git-path", "info/exclude"
+            ).stdout.strip()
+        )
+        if not exclude.is_absolute():
+            exclude = worktree_path / exclude
+        exclude.write_text(".env\npreserved.ignore\n")
+        (worktree_path / "README.md").write_text("tracked change\n")
+        (worktree_path / "staged.txt").write_text("staged change\n")
+        run_git(worktree_path, "add", "staged.txt")
+        (worktree_path / "untracked.txt").write_text("untracked change\n")
+        nested_repository = worktree_path / "nested-repository"
+        subprocess.run(
+            ["git", "init", str(nested_repository)], check=True, capture_output=True
+        )
+        (worktree_path / ".env").write_text("PORT_BASE=350\n")
+        (worktree_path / "preserved.ignore").write_text("keep me\n")
+
+        result = close_worktree(worktree_path, discard=True)
+
+        assert result.success is True
+        assert _is_detached(worktree_path)
+        assert _current_head(worktree_path) == _current_head_of_ref(
+            project_path, "origin/main"
+        )
+        assert get_port_allocation(project_path, "alpha") is None
+        assert not (worktree_path / "staged.txt").exists()
+        assert not (worktree_path / "untracked.txt").exists()
+        assert not nested_repository.exists()
+        assert (worktree_path / ".env").read_text() == "PORT_BASE=350\n"
+        assert (worktree_path / "preserved.ignore").read_text() == "keep me\n"
+        assert run_git(worktree_path, "status", "--porcelain").stdout == ""
+        assert _current_head_of_ref(project_path, "feature/work") == branch_tip
+        assert (
+            run_git(project_path, "show", "feature/work:branch.txt").stdout
+            == "branch work\n"
+        )
+
+    def test_discard_aborts_a_rebase_without_syncing(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        _make_conflict(project_path, worktree_path, remote_path)
+        sync_worktree(worktree_path)
+        assert _rebase_in_progress(worktree_path)
+
+        with patch("maelstrom.worktree.sync_worktree") as sync:
+            result = close_worktree(worktree_path, discard=True)
+
+        sync.assert_not_called()
+        assert result.success is True
+        assert not _rebase_in_progress(worktree_path)
+        assert _is_detached(worktree_path)
+
+
 # ---------------------------------------------------------------------------
 # Reopen round-trip — force-close, then setup_worktree_for_branch restores it
 # ---------------------------------------------------------------------------
@@ -299,3 +364,33 @@ class TestCloseForceCli:
             runner.invoke(cli, ["close", "myproject.alpha", "--force"])
         _, kwargs = mock_close.call_args
         assert kwargs["force"] is True
+
+
+class TestCloseDiscardCli(TestCloseForceCli):
+    def test_discard_does_not_create_a_reopen_task(self):
+        close_result = CloseResult(
+            success=True,
+            message="Worktree closed (detached at origin/main)",
+            branch="feature/work",
+            had_unmerged_work=True,
+        )
+        result, mock_add_task = self._run(["--discard"], close_result)
+
+        assert result.exit_code == 0
+        mock_add_task.assert_not_called()
+
+    def test_discard_cannot_be_combined_with_force(self):
+        result, _ = self._run(
+            ["--discard", "--force"], CloseResult(success=True, message="Closed")
+        )
+
+        assert result.exit_code == 2
+        assert "--discard cannot be used with --force" in result.output
+
+    def test_discard_cannot_be_combined_with_wait(self):
+        result, _ = self._run(
+            ["--discard", "--wait"], CloseResult(success=True, message="Closed")
+        )
+
+        assert result.exit_code == 2
+        assert "--discard cannot be used with --wait" in result.output
