@@ -79,24 +79,25 @@ describe('an image in a message', () => {
   });
 });
 
-describe('a quiet block in a message', () => {
-  it('renders its text as prose, not as a code block', () => {
-    const { container } = render(<Markdown source={'```quiet\nChecking port 342.\n```'} />);
+describe('user attention in a message', () => {
+  it('renders untagged prose at the reading rank', () => {
+    render(<Markdown source={'Working commentary.'} />);
+    expect(screen.queryByTestId('quiet')).toBeNull();
+    expect(screen.getByText('Working commentary.')).toBeInTheDocument();
+  });
+
+  it('keeps prose before the first tag at the reading rank', () => {
+    render(<Markdown source={'Answer first.\n\n<user-attention low>\nWorking detail.'} />);
     const quiet = screen.getByTestId('quiet');
-    expect(quiet).toHaveTextContent('Checking port 342.');
-    // The fence chrome is what a quiet block replaces: it is prose, not a listing.
-    expect(quiet.querySelector('pre')).toBeNull();
-    expect(container.querySelector('pre')).toBeNull();
+    expect(screen.getByText('Answer first.')).toBeInTheDocument();
+    expect(quiet).toHaveTextContent('Working detail.');
+    expect(quiet).not.toHaveTextContent('Answer first.');
   });
 
-  it('is still quiet when its body is empty', () => {
-    const { container } = render(<Markdown source={'```quiet\n```'} />);
-    expect(screen.getByTestId('quiet')).toBeInTheDocument();
-    expect(container.querySelector('pre')).toBeNull();
-  });
-
-  it('renders the markdown inside it, so self-talk can carry a literal or a link', () => {
-    render(<Markdown source={'```quiet\nRun `mael env reset` or [read the doc](/docs).\n```'} />);
+  it('renders low-ranked markdown as prose', () => {
+    render(
+      <Markdown source={'<user-attention low>\nRun `mael env reset` or [read the doc](/docs).'} />,
+    );
     const quiet = screen.getByTestId('quiet');
     expect(within(quiet).getByText('mael env reset').tagName).toBe('CODE');
     expect(within(quiet).getByRole('link', { name: 'read the doc' })).toHaveAttribute(
@@ -105,35 +106,40 @@ describe('a quiet block in a message', () => {
     );
   });
 
-  it('leaves quiet blocks beyond two levels as code', () => {
-    const source = '`````quiet\nouter\n\n````quiet\ninner\n\n```quiet\ndeep\n```\n````\n`````';
-    const { container } = render(<Markdown source={source} />);
-    expect(screen.getAllByTestId('quiet')).toHaveLength(2);
-    expect(container.querySelector('pre')).not.toBeNull();
-    expect(screen.getByText('deep')).toBeInTheDocument();
+  it('switches back to the reading rank with a second tag', () => {
+    render(
+      <Markdown source={'<user-attention low>\nChecking.\n\n<user-attention high>\nFinished.'} />,
+    );
+    expect(screen.getByTestId('quiet')).toHaveTextContent('Checking.');
+    expect(screen.getByText('Finished.')).toBeInTheDocument();
   });
 
-  it('leaves the removed callout fence as a code block', () => {
-    const { container } = render(<Markdown source={'```callout\nOld instruction.\n```'} />);
+  it('treats an unknown attention value as high', () => {
+    render(<Markdown source={'<user-attention medium>\nRead this.'} />);
     expect(screen.queryByTestId('quiet')).toBeNull();
-    expect(container.querySelector('pre')).not.toBeNull();
-    expect(screen.getByText('Old instruction.')).toBeInTheDocument();
+    expect(screen.getByText('Read this.')).toBeInTheDocument();
   });
 
-  it('leaves a quiet fence nested in a listing as code', () => {
-    const source = '````text\nouter\n\n```quiet\ninner\n```\n````';
+  it('leaves a marker in a fenced listing literal', () => {
+    const source = '````text\nouter\n\n<user-attention low>\ninner\n````';
     render(<Markdown source={source} />);
     expect(screen.queryByTestId('quiet')).toBeNull();
-    expect(screen.getByText(/inner/)).toBeInTheDocument();
+    expect(screen.getByText(/user-attention low/)).toBeInTheDocument();
   });
 
-  it('leaves a fence in another language as a code block', () => {
+  it('leaves a marker mid-paragraph literal', () => {
+    render(<Markdown source={'Answer <user-attention low> working detail.'} />);
+    expect(screen.queryByTestId('quiet')).toBeNull();
+    expect(screen.getByText(/user-attention low/)).toBeInTheDocument();
+  });
+
+  it('leaves the retired quiet fence as a code block', () => {
     // This override sits in front of every code block an agent writes, so the
     // ordinary case must survive it untouched.
-    const { container } = render(<Markdown source={'```js\nconst x = 1;\n```'} />);
+    const { container } = render(<Markdown source={'```quiet\nChecking port 342.\n```'} />);
     expect(screen.queryByTestId('quiet')).toBeNull();
     expect(container.querySelector('pre')).not.toBeNull();
-    expect(screen.getByText(/const x = 1;/)).toBeInTheDocument();
+    expect(screen.getByText(/Checking port 342/)).toBeInTheDocument();
   });
 
   it('leaves a fence with no info string as a code block', () => {

@@ -1,7 +1,8 @@
 ## Language
 
 Be direct, concise, and dry. Omit conversational filler, polite greetings, and unnecessary
-explanations. Output code and technical facts only.
+explanations. Output code and technical facts only. Working detail is welcome at the low rank;
+the rank changes its presentation and does not delete it.
 
 Write in ASD-STE100 (Simplified Technical English). A minimal amount of software vocabulary
 is acceptable, and the reader knows the project's architecture. Do not explain concepts that

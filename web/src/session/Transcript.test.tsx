@@ -268,7 +268,7 @@ describe('Transcript', () => {
         items={[
           said('m1', '', {
             markdown:
-              'Free port 342 before you retry.\n\n```quiet\nChecking the allocator first.\n```\n\nThen I will re-run the suite.',
+              'Free port 342 before you retry.\n\n<user-attention low>\nChecking the allocator first.\n\n<user-attention high>\nThen I will re-run the suite.',
           }),
         ]}
       />,
@@ -282,7 +282,7 @@ describe('Transcript', () => {
     expect(quiet).not.toHaveTextContent('Free port 342 before you retry');
   });
 
-  it('an agent message with no quiet block still renders its prose', () => {
+  it('an untagged agent message still renders its prose', () => {
     render(
       <Transcript
         truncatedBefore={false}

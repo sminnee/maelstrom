@@ -94,7 +94,7 @@ export const quietTranscript: TranscriptItem[] = [
     'alpha 342  bravo 517',
   ),
   say(
-    'Free port 342 before you retry, or the allocator moves every port in this worktree.\n\n```quiet\nThe allocator refuses a base already in use, and 342 is held by `alpha`. I can either free it or let the allocator pick the next one, which would move every service port in this worktree.\n```\n\n```quiet\nI will wait for you rather than renumbering ports underneath a running service.\n```',
+    'Free port 342 before you retry, or the allocator moves every port in this worktree.\n\n<user-attention low>\nThe allocator refuses a base already in use, and 342 is held by `alpha`. I can either free it or let the allocator pick the next one, which would move every service port in this worktree.\n\nI will wait for you rather than renumbering ports underneath a running service.',
     31,
   ),
   say('Free it — nothing is attached to alpha any more.', 31, 'user'),
@@ -125,10 +125,9 @@ transformed. Inline literals like \`--measure-prose\` sit inside prose.
 }
 \`\`\`
 
-\`\`\`quiet
-Quiet self-talk reads at the smaller rank. It holds \`--text-ui\` and a
+<user-attention low>
+Working detail reads at the smaller rank. It holds \`--text-ui\` and a
 [link](/docs) like any other prose.
-\`\`\`
 
 > A quote, for the rail it draws.
 
