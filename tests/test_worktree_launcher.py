@@ -12,13 +12,17 @@ import pytest
 from maelstrom.agent_transport import RecordingDaemonClient
 from maelstrom.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
+    AddContext,
     build_claude_command,
     build_harness_command,
     build_task_launch_line,
+    detect_add_context,
+    launch_add_in_worktree,
     launch_agent_in_worktree,
     launch_claude_in_worktree,
     open_claude_workspace,
     open_worktree,
+    start_install_async,
 )
 
 
@@ -51,6 +55,130 @@ class TestOpenWorktree:
                 mock_run.side_effect = subprocess.CalledProcessError(1, "code")
                 with pytest.raises(RuntimeError, match="Failed to open worktree"):
                     open_worktree(worktree_path, "code")
+
+
+class TestAddLauncher:
+    def test_daemon_context_takes_precedence_over_cmux(self):
+        with (
+            patch.dict(os.environ, {"MAEL_HARNESS_TYPE": "daemon"}),
+            patch("maelstrom.worktree_launcher.current_client") as cmux,
+        ):
+            assert detect_add_context() == AddContext.DAEMON
+        cmux.assert_not_called()
+
+    def test_install_starts_asynchronously_in_the_worktree(self, tmp_path):
+        with (
+            patch("maelstrom.worktree_launcher.load_config_or_default") as config,
+            patch("maelstrom.worktree_launcher.subprocess.Popen") as popen,
+        ):
+            config.return_value.install_cmd = "uv sync"
+            assert start_install_async(tmp_path)
+        popen.assert_called_once_with(
+            ["sh", "-c", "uv sync"], cwd=tmp_path, start_new_session=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_regular_cli_runs_in_the_prepared_worktree(self, tmp_path):
+        with patch("maelstrom.worktree_launcher.subprocess.run") as run:
+            run.return_value.returncode = 0
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.REGULAR,
+                harness="cli",
+            )
+        assert run.call_args.kwargs["cwd"] == tmp_path
+
+    @pytest.mark.asyncio
+    async def test_regular_daemon_starts_an_agent_without_cmux(self, tmp_path):
+        with (
+            patch(
+                "maelstrom.worktree_launcher.start_agent_in_worktree",
+                return_value="agent-1",
+            ) as start,
+            patch("maelstrom.worktree_launcher.subprocess.run") as run,
+        ):
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.REGULAR,
+                harness="daemon",
+            )
+        start.assert_awaited_once_with(tmp_path)
+        run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_driven_cli_leaves_the_worktree_when_cmux_is_unavailable(
+        self, tmp_path
+    ):
+        with (
+            patch(
+                "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
+            ),
+            patch("maelstrom.worktree_launcher.start_agent_in_worktree") as start,
+        ):
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.DAEMON,
+                harness="cli",
+            )
+        start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cmux_daemon_attaches_the_started_agent(self, tmp_path):
+        with (
+            patch("maelstrom.worktree_launcher.load_config_or_default") as config,
+            patch(
+                "maelstrom.worktree_launcher.start_agent_in_worktree",
+                return_value="agent-1",
+            ),
+            patch(
+                "maelstrom.worktree_launcher.mael_layout.ensure_worktree_install_shell",
+                return_value=True,
+            ),
+            patch(
+                "maelstrom.worktree_launcher.mael_layout.add_worktree_agent",
+                return_value=True,
+            ) as workspace,
+        ):
+            config.return_value.install_cmd = "uv sync"
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.CMUX,
+                harness="daemon",
+            )
+        assert workspace.call_args.args[:2] == ("proj", "alpha")
+        assert workspace.call_args.args[2].command == "mael agent attach agent-1"
+
+    @pytest.mark.asyncio
+    async def test_cmux_no_agent_uses_one_shell_surface(self, tmp_path):
+        with (
+            patch("maelstrom.worktree_launcher.load_config_or_default") as config,
+            patch(
+                "maelstrom.worktree_launcher.mael_layout.ensure_worktree_shell_workspace",
+                return_value=True,
+            ) as shell,
+            patch("maelstrom.worktree_launcher.start_agent_in_worktree") as agent,
+        ):
+            config.return_value.install_cmd = "uv sync"
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.CMUX,
+                harness="cli",
+                no_agent=True,
+            )
+        shell.assert_called_once_with(
+            "proj", "alpha", str(tmp_path), install_cmd="uv sync"
+        )
+        agent.assert_not_called()
 
 
 class TestBuildClaudeCommand:

@@ -175,7 +175,7 @@ same editor later.
 
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
-lane from the worktree it runs in. A `mael add` or `mael open` session is exactly that: the
+lane from the worktree it runs in. A `mael add --daemon` session is exactly that: the
 launch starts a driven agent and passes no task, so the session draws as a freeAgent node. An
 agent linked to a task draws as that task's node, so nothing appears twice. Edges come from
 `task.follows`, so a free agent is never an endpoint. A subagent, an agent with a `parent`, is

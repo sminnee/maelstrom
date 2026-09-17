@@ -126,7 +126,7 @@ no command line, so the pid is the only handle that always resolves.
 Do not use `MAEL_TASK_SESSION_ID` to name the session you are in. It holds the id the session
 started with, which is right until a `/clear` and points at a finished transcript after one.
 
-**`mael open` sets none of them.** It launches a plain session with
+**`mael add` sets none of them for a plain CLI session.** It launches with
 no task attached. `mael task status done` in such a session fails with "No task id given and
 MAEL_TASK_ID is not set". Name the task explicitly there.
 

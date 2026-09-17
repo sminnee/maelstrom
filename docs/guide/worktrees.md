@@ -90,11 +90,13 @@ mael env status                    # detected from the current directory
 mael add feature/avatar-upload    # branch + worktree, recycling a closed slot if free
 mael add                          # a fresh worktree on main, never recycled
 mael add feature/x --no-recycle   # force a new slot
-mael add feature/x --open         # open the editor instead of a Claude session
+mael add feature/x --open         # open the editor instead of an agent
+mael add feature/x --no-agent     # prepare the worktree and open a shell
 ```
 
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
-and launches a Claude session. Alpha is created for you by `mael add-project`.
+and starts the configured installer asynchronously. It then starts an agent or a shell.
+Alpha is created for you by `mael add-project`.
 
 Opening a worktree also rebases its branch onto its base first, so the session always
 starts on current code. This matters when the branch already exists: a branch preserved by

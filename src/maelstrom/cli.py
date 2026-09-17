@@ -45,7 +45,6 @@ from .github_model import (
     is_open_pr,
     pr_from_row,
 )
-from .harness_model import TRANSPORT_CLI
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -85,7 +84,6 @@ from .worktree import (
     rebase_worktree_with_autorepair,
     remove_worktree_by_path,
     run_git,
-    run_install_cmd,
     setup_worktree_for_branch,
     sync_worktree,
     sync_worktree_with_autorepair,
@@ -93,7 +91,14 @@ from .worktree import (
     update_claude_local_md,
 )
 from .worktree_close import close_worktree_fully
-from .worktree_launcher import launch_claude_in_worktree, open_worktree
+from .worktree_launcher import (
+    AddContext,
+    detect_add_context,
+    has_install_command,
+    launch_add_in_worktree,
+    open_worktree,
+    start_install_async,
+)
 from .worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
@@ -111,30 +116,47 @@ from .worktree_model import (
 START_BRANCH = "feat/start-project"
 
 
-async def _launch_claude_or_raise(
+async def _finish_add(
     worktree_path: Path,
-    project: str | None,
-    worktree: str | None,
-    harness: str = TRANSPORT_CLI,
+    project: str,
+    worktree: str,
+    *,
+    context: AddContext,
+    harness: str,
+    open_editor: bool,
+    no_agent: bool,
 ) -> None:
-    """Launch a plain harness session inside cmux, or raise if placement fails.
-
-    ``mael`` always places the session in cmux by driving the socket — starting
-    the app if it's down. There is no local fallback: if cmux can't be reached
-    we error clearly rather than silently dropping a ``claude`` into the current
-    shell. ``mael task run --here`` is the only path that runs Claude locally.
-
-    The launch names its own reason on the way out — a daemon that would not
-    answer, or a cmux that would not start — so this message points at both
-    rather than blaming cmux for a failure that was not its.
-    """
-    if not await launch_claude_in_worktree(
-        worktree_path, project=project, worktree=worktree, harness=harness
+    """Report install state, then select the prepared worktree's surface."""
+    if (
+        context == AddContext.CMUX
+        and not open_editor
+        and has_install_command(worktree_path)
     ):
-        raise click.ClickException(
-            "the session did not start; check the message above, "
-            "and that cmux is running"
-        )
+        click.echo("Installer: shown in the worktree shell.")
+    elif context == AddContext.CMUX and not open_editor:
+        click.echo("Installer: no install command configured.")
+    elif start_install_async(worktree_path):
+        click.echo("Installer: started in the background.")
+    else:
+        click.echo("Installer: no install command configured.")
+
+    if open_editor:
+        config = load_global_config()
+        try:
+            open_worktree(worktree_path, config.open_command)
+        except RuntimeError as exc:
+            click.echo(f"Warning: Could not open worktree: {exc}", err=True)
+        return
+
+    if not await launch_add_in_worktree(
+        worktree_path,
+        project,
+        worktree,
+        context=context,
+        harness=harness,
+        no_agent=no_agent,
+    ):
+        raise click.ClickException("the selected worktree surface did not start")
 
 
 def _report_open_sync(sync: SyncResult | None) -> None:
@@ -317,6 +339,11 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     "--open", is_flag=True, help="Open in configured editor instead of Claude CLI"
 )
 @click.option(
+    "--no-agent",
+    is_flag=True,
+    help="Prepare the worktree without starting an agent.",
+)
+@click.option(
     "--no-recycle",
     is_flag=True,
     help="Don't recycle closed worktrees, always create new",
@@ -328,7 +355,7 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
+async def cmd_add(branch, project, open, no_agent, no_recycle, base, cli, daemon):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -341,7 +368,14 @@ async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
 
     Use --no-recycle to always create a new worktree even when closed ones exist.
     """
+    if no_agent and open:
+        raise click.UsageError("--no-agent conflicts with --open")
+    if no_agent and cli:
+        raise click.UsageError("--no-agent conflicts with --cli")
+    if no_agent and daemon:
+        raise click.UsageError("--no-agent conflicts with --daemon")
     resolved_harness = resolve_harness_or_fail(cli, daemon)
+    add_context = detect_add_context()
     try:
         ctx = resolve_context(
             project,
@@ -370,6 +404,10 @@ async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
             raise click.ClickException(f"Error creating worktree: {e}")
         click.echo(f"Worktree created at: {worktree_path}")
         wt_name = extract_worktree_name_from_folder(ctx.project, worktree_path.name)
+        if wt_name is None:
+            raise click.ClickException(
+                f"Could not identify worktree at {worktree_path}"
+            )
         if wt_name and update_claude_local_md(project_path, worktree_path, wt_name):
             click.echo(
                 ".claude/CLAUDE.local.md generated with maelstrom workflow instructions"
@@ -378,27 +416,15 @@ async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
         if app_info:
             url, _ = app_info
             click.echo(f"App: {url}")
-        run_install_cmd(worktree_path)
-        if open:
-            if cli or daemon:
-                # --open starts no session, so the harness flag is inert here.
-                click.echo(
-                    "Warning: --open starts an editor, not a session; "
-                    "the transport flags were ignored.",
-                    err=True,
-                )
-            global_config = load_global_config()
-            try:
-                open_worktree(worktree_path, global_config.open_command)
-            # Broad on purpose: `open_worktree` and worktree setup still raise bare
-            # RuntimeError. Narrowing waits on the worktree/env typed-error
-            # increment (architecture-patterns.md §3).
-            except RuntimeError as e:
-                click.echo(f"Warning: Could not open worktree: {e}", err=True)
-        else:
-            await _launch_claude_or_raise(
-                worktree_path, ctx.project, wt_name, harness=resolved_harness
-            )
+        await _finish_add(
+            worktree_path,
+            ctx.project,
+            wt_name,
+            context=add_context,
+            harness=resolved_harness,
+            open_editor=open,
+            no_agent=no_agent,
+        )
         return
 
     click.echo(f"Creating worktree for branch '{branch}'...")
@@ -463,31 +489,15 @@ async def cmd_add(branch, project, open, no_recycle, base, cli, daemon):
         url, _ = app_info
         click.echo(f"App: {url}")
 
-    # Open in editor or start a Claude session. Install was deferred
-    # (run_install=False above): the launcher owns it for the Claude path (shell
-    # pane on create, blocking in non-cmux), but the editor path has no launcher,
-    # so run it blocking here.
-    if open:
-        if cli or daemon:
-            # --open starts no session, so the harness flag is inert here.
-            click.echo(
-                "Warning: --open starts an editor, not a session; "
-                "the transport flags were ignored.",
-                err=True,
-            )
-        run_install_cmd(worktree_path)
-        global_config = load_global_config()
-        try:
-            open_worktree(worktree_path, global_config.open_command)
-        # Broad on purpose: `open_worktree` and worktree setup still raise bare
-        # RuntimeError. Narrowing waits on the worktree/env typed-error
-        # increment (architecture-patterns.md §3).
-        except RuntimeError as e:
-            click.echo(f"Warning: Could not open worktree: {e}", err=True)
-    else:
-        await _launch_claude_or_raise(
-            worktree_path, ctx.project, wt_name, harness=resolved_harness
-        )
+    await _finish_add(
+        worktree_path,
+        ctx.project,
+        wt_name,
+        context=add_context,
+        harness=resolved_harness,
+        open_editor=open,
+        no_agent=no_agent,
+    )
 
 
 @cli.command("remove")
@@ -826,33 +836,6 @@ async def cmd_list_all():
         click.echo("\nClosed environments:")
         for proj, names in closed_by_project.items():
             click.echo(f" - {proj}: {', '.join(names)}")
-
-
-@cli.command("open")
-@_harness_flags()
-@click.argument("target", required=False, default=None)
-async def cmd_open(target, cli: bool, daemon: bool):
-    """Start a Claude Code CLI session in a worktree."""
-    try:
-        ctx = resolve_context(
-            target,
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    worktree_path = ctx.worktree_path
-
-    if worktree_path is None or not worktree_path.exists():
-        raise click.ClickException(f"Worktree not found at {worktree_path}")
-
-    await _launch_claude_or_raise(
-        worktree_path,
-        ctx.project,
-        ctx.worktree,
-        harness=resolve_harness_or_fail(cli, daemon),
-    )
 
 
 @cli.command("ide")
