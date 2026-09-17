@@ -27,6 +27,13 @@ _MODELS = {
     ),
 }
 
+_CODEX_MODELS = {
+    "astra": ("gpt-6-astra", None),
+    "sol": ("gpt-5.6-sol", "low"),
+    "terra": ("gpt-5.6-terra", "medium"),
+    "luna": ("gpt-5.6-luna", None),
+}
+
 
 @dataclass(frozen=True)
 class ModelReference:
@@ -55,10 +62,17 @@ def resolve_model_reference(model: str | None, mode: str = "normal") -> ModelRef
         )
     if not alias:
         raise ValueError("A model reference needs an alias after ':'.")
+    cli_args = ("--model", alias)
+    if prefix == HARNESS_CODEX and (codex_model := _CODEX_MODELS.get(alias)):
+        model_id, effort = codex_model
+        cli_args = ("--model", model_id)
+        if effort:
+            cli_args += ("-c", f"model_reasoning_effort={effort}")
+
     return ModelReference(
         harness=prefix,
         alias=alias,
-        cli_args=("--model", alias),
+        cli_args=cli_args,
         mode_args=_mode_args(prefix, mode),
     )
 

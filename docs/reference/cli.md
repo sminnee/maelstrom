@@ -272,7 +272,17 @@ always did.
 `claude:sonnet`, `claude:opus`, `claude:fable`, `codex:luna`, `codex:terra`,
 `codex:sol`, `codex:astra`, `opencode:kimi`, `opencode:glm`,
 `opencode:glm-flash`, `opencode:qwen`, `opencode:qwen-flash`, and
-`opencode:deepseek` select a CLI and pass its alias. Blank models resolve to
+`opencode:deepseek` select a CLI. Claude and OpenCode pass their alias. The
+listed Codex aliases resolve as follows:
+
+| Model reference | Codex model | Reasoning effort |
+|---|---|---|
+| `codex:astra` | `gpt-6-astra` | Codex default |
+| `codex:sol` | `gpt-5.6-sol` | `low` |
+| `codex:terra` | `gpt-5.6-terra` | `medium` |
+| `codex:luna` | `gpt-5.6-luna` | Codex default |
+
+Unknown Codex aliases pass through unchanged. Blank models resolve to
 `claude:opus`. Bare models remain Claude-compatible. `--daemon` refuses a
 non-Claude model until that harness has a daemon. `--harness`, `--claude`, and
 `--codex` were removed; use a transport flag.
