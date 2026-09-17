@@ -63,6 +63,8 @@ class TestEnsureWorktreeWorkspace:
             if args[0] == "new-split":
                 state["split"] = True
                 return "OK surface:90 workspace:1"
+            if args[0] == "new-surface":
+                return "OK surface:6 pane:0 workspace:1"
             if args[0] == "list-pane-surfaces":
                 pane = args[2]
                 return {
@@ -83,8 +85,16 @@ class TestEnsureWorktreeWorkspace:
         assert placed is True
         # Workspace created running the worktree cd.
         assert ("new-workspace", "--command", "cd /wt") in client.calls
-        # Claude command sent into the initial pane-0 surface.
-        assert ("send", "--workspace", "workspace:1", "--", "claude\n") in client.calls
+        # Claude starts only after the installer shell is ready.
+        assert (
+            "send",
+            "--surface",
+            "surface:6",
+            "--workspace",
+            "workspace:1",
+            "--",
+            "claude\n",
+        ) in client.calls
         # Shell pane (pane 1) split off and install run there.
         assert any(c[0] == "new-split" for c in client.calls)
         assert (
@@ -155,6 +165,47 @@ class TestEnsureWorktreeWorkspace:
                 install_cmd="npm i",
             )
         assert placed is False
+
+
+class TestEnsureWorktreeShellWorkspace:
+    def test_create_runs_the_installer_in_the_initial_shell(self):
+        state = {"created": False}
+
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "workspace:1  myproject-alpha" if state["created"] else ""
+            if args[0] == "new-workspace":
+                state["created"] = True
+                return "OK workspace:1"
+            if args[0] == "list-panes":
+                return "pane:0"
+            if args[0] == "list-pane-surfaces":
+                return 'surface:5 terminal "shell"'
+            return "OK"
+
+        client, patcher = _patch_current(fn)
+        with patcher, patch("maelstrom.cmux.model.time.sleep"):
+            assert mael_layout.ensure_worktree_shell_workspace(
+                "myproject", "alpha", "/wt", install_cmd="npm i"
+            )
+        assert ("send", "--workspace", "workspace:1", "--", "npm i\n") in client.calls
+
+    def test_reuse_adds_a_shell_without_running_the_installer(self):
+        def fn(*args):
+            if args[0] == "list-workspaces":
+                return "workspace:13  myproject-alpha"
+            if args[0] == "list-panes":
+                return "pane:0 pane:1"
+            if args[0] == "new-surface":
+                return "OK surface:99 pane:1 workspace:13"
+            return "OK"
+
+        client, patcher = _patch_current(fn)
+        with patcher:
+            assert mael_layout.ensure_worktree_shell_workspace(
+                "myproject", "alpha", "/wt", install_cmd="npm i"
+            )
+        assert not any(c[0] == "send" and "npm i\n" in c for c in client.calls)
 
     def test_reuse_path_returns_false_when_new_surface_fails(self):
         """Existing workspace but add_terminal (new-surface) non-OK → False."""

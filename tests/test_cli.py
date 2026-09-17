@@ -1012,6 +1012,9 @@ class TestCmdAddRecycle:
         closed_wt = MagicMock(path=worktree_path)
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+        stack.enter_context(
+            patch("maelstrom.cli.detect_add_context", return_value="regular")
+        )
         # The recycle collaborators now run inside worktree.setup_worktree_for_branch.
         stack.enter_context(
             patch(
@@ -1059,7 +1062,10 @@ class TestCmdAddRecycle:
                 return_value="bravo",
             )
         )
-        stack.enter_context(patch("maelstrom.cli.launch_claude_in_worktree"))
+        stack.enter_context(
+            patch("maelstrom.cli.detect_add_context", return_value="regular")
+        )
+        stack.enter_context(patch("maelstrom.cli.launch_add_in_worktree"))
 
         helper = stack.enter_context(
             patch(
@@ -1145,6 +1151,9 @@ class TestCmdAddExistingBranch:
         )
 
         stack.enter_context(patch("maelstrom.cli.resolve_context", return_value=ctx))
+        stack.enter_context(
+            patch("maelstrom.cli.detect_add_context", return_value="regular")
+        )
         # cmd_add now defers entirely to the shared launcher for reuse: it always
         # calls setup_worktree_for_branch (the core fn) then launch_claude_in_worktree.
         # The core fn reads find_worktree_by_branch / extract_worktree_name_from_folder
@@ -1184,8 +1193,8 @@ class TestCmdAddExistingBranch:
             "run_install_cmd": stack.enter_context(
                 patch("maelstrom.worktree.run_install_cmd")
             ),
-            "launch_claude_in_worktree": stack.enter_context(
-                patch("maelstrom.cli.launch_claude_in_worktree")
+            "launch_add_in_worktree": stack.enter_context(
+                patch("maelstrom.cli.launch_add_in_worktree")
             ),
             "find_closed_worktree": stack.enter_context(
                 patch("maelstrom.worktree.find_closed_worktree", return_value=None)
@@ -1211,11 +1220,13 @@ class TestCmdAddExistingBranch:
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
 
-            mocks["launch_claude_in_worktree"].assert_called_once_with(
+            mocks["launch_add_in_worktree"].assert_called_once_with(
                 existing_wt,
-                project="proj",
-                worktree="bravo",
+                "proj",
+                "bravo",
+                context="regular",
                 harness="cli",
+                no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
             # cmd_add no longer runs install itself; the launcher owns it.
@@ -1231,11 +1242,13 @@ class TestCmdAddExistingBranch:
             result = CliRunner().invoke(cli, ["add", "feat-x"])
             assert result.exit_code == 0, result.output
 
-            mocks["launch_claude_in_worktree"].assert_called_once_with(
+            mocks["launch_add_in_worktree"].assert_called_once_with(
                 existing_wt,
-                project="proj",
-                worktree="bravo",
+                "proj",
+                "bravo",
+                context="regular",
                 harness="cli",
+                no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
 
@@ -1290,9 +1303,10 @@ class TestCmdAddSync:
                 )
             )
             stack.enter_context(patch("maelstrom.cli.get_app_url", return_value=None))
-            launch = stack.enter_context(
-                patch("maelstrom.cli.launch_claude_in_worktree")
+            stack.enter_context(
+                patch("maelstrom.cli.detect_add_context", return_value="regular")
             )
+            launch = stack.enter_context(patch("maelstrom.cli.launch_add_in_worktree"))
             result = CliRunner().invoke(cli, ["add", "feat-x"])
         return result, launch
 
@@ -1529,57 +1543,6 @@ class TestCmdSyncAutorepair:
         assert "Starting autorepair" in result.output
 
 
-class TestClaudePlacementFailure:
-    """`mael claude` / `mael open` cmux-or-error behaviour.
-
-    With no local-execvp fallback, a failed cmux placement must raise a clear
-    ClickException — never silently run `claude` in the current shell.
-    """
-
-    def _ctx(self, tmp_path):
-        wt = tmp_path / "proj-bravo"
-        wt.mkdir()
-        return MagicMock(
-            project="proj",
-            worktree="bravo",
-            worktree_path=wt,
-        )
-
-    def test_claude_raises_when_placement_fails(self, tmp_path):
-        from contextlib import ExitStack
-
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
-            )
-            stack.enter_context(
-                patch(
-                    "maelstrom.cli.launch_claude_in_worktree",
-                    return_value=False,
-                )
-            )
-            result = CliRunner().invoke(cli, ["open", "proj.bravo"])
-            assert result.exit_code != 0
-            assert "the session did not start" in result.output
-
-    def test_claude_succeeds_when_placed(self, tmp_path):
-        from contextlib import ExitStack
-
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch("maelstrom.cli.resolve_context", return_value=self._ctx(tmp_path))
-            )
-            launch = stack.enter_context(
-                patch(
-                    "maelstrom.cli.launch_claude_in_worktree",
-                    return_value=True,
-                )
-            )
-            result = CliRunner().invoke(cli, ["open", "proj.bravo"])
-            assert result.exit_code == 0, result.output
-            launch.assert_called_once()
-
-
 class TestCmuxStatus:
     """`mael cmux status` reports whether ensure_cmux_running succeeds."""
 
@@ -1763,8 +1726,9 @@ class TestCreateProjectIntegration:
             patch("maelstrom.cli.load_global_config", return_value=config),
             patch("maelstrom.context.load_global_config", return_value=config),
             patch("maelstrom.cli.create_project_repo", return_value=str(upstream)),
-            patch("maelstrom.cli.launch_claude_in_worktree", side_effect=fake_launch),
-            patch("maelstrom.cli.run_install_cmd"),
+            patch("maelstrom.cli.detect_add_context", return_value="regular"),
+            patch("maelstrom.cli.launch_add_in_worktree", side_effect=fake_launch),
+            patch("maelstrom.cli.start_install_async", return_value=False),
         ):
             result = CliRunner().invoke(cli, ["create-project", repo_name])
         return result, projects, launched
@@ -2104,43 +2068,6 @@ class TestMvProjectIntegration:
         assert not bad, [(c.status, c.message) for c in bad]
 
 
-class TestOpenHarness:
-    """`mael open` selects a harness transport."""
-
-    def _invoke(self, args, tmp_path):
-        worktree = tmp_path / "wt"
-        worktree.mkdir()
-        ctx = SimpleNamespace(project="p", worktree="alpha", worktree_path=worktree)
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch("maelstrom.cli.resolve_context", return_value=ctx)
-            )
-            launch = stack.enter_context(
-                patch("maelstrom.cli.launch_claude_in_worktree")
-            )
-            launch.return_value = True
-            result = CliRunner().invoke(cli, args)
-        return result, launch
-
-    @pytest.mark.parametrize(
-        ("args", "transport"),
-        [([], "cli"), (["--cli"], "cli"), (["--daemon"], "daemon")],
-    )
-    def test_open_selects_transport(self, tmp_path, args, transport):
-        result, launch = self._invoke(["open", "p/alpha", *args], tmp_path)
-        assert result.exit_code == 0, result.output
-        assert launch.call_args.kwargs["harness"] == transport
-
-    @pytest.mark.parametrize("flag", ["--harness", "--claude", "--codex"])
-    def test_open_removed_harness_flags_explain_the_migration(self, tmp_path, flag):
-        args = ["open", "p/alpha", flag]
-        if flag == "--harness":
-            args.append("claude")
-        result, _ = self._invoke(args, tmp_path)
-        assert result.exit_code != 0
-        assert "use --cli or --daemon" in result.output
-
-
 class TestAddHarness:
     """`mael add` selects a harness transport."""
 
@@ -2163,9 +2090,10 @@ class TestAddHarness:
                     ),
                 )
             )
-            launch = stack.enter_context(
-                patch("maelstrom.cli.launch_claude_in_worktree")
+            stack.enter_context(
+                patch("maelstrom.cli.detect_add_context", return_value="regular")
             )
+            launch = stack.enter_context(patch("maelstrom.cli.launch_add_in_worktree"))
             launch.return_value = True
             result = CliRunner().invoke(cli, ["add", "feat-x", "-p", "proj", *args])
         return result, launch
@@ -2178,6 +2106,17 @@ class TestAddHarness:
         result, launch = self._invoke_add(args, tmp_path)
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == transport
+
+    @pytest.mark.parametrize("flag", ["--open", "--cli", "--daemon"])
+    def test_no_agent_rejects_other_agent_surface_flags(self, flag):
+        result = CliRunner().invoke(cli, ["add", "feat-x", "--no-agent", flag])
+        assert result.exit_code != 0
+        assert f"--no-agent conflicts with {flag}" in result.output
+
+    def test_open_is_absent_from_the_command_help(self):
+        result = CliRunner().invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "  open" not in result.output
 
 
 class TestWorktreeDomainErrorsAtTheCli:

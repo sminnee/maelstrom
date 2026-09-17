@@ -229,8 +229,7 @@ resolves its own conflicts instead.
 
 | Command | Description |
 |---|---|
-| `mael open [TARGET]` | Start an agent session in a worktree. `--cli` or `--daemon` picks the harness transport. |
-| `mael add [BRANCH]` | Add a worktree for a branch and start a session in it. Takes the same harness flags. |
+| `mael add [BRANCH]` | Add or reuse a worktree. It prepares the worktree, starts installation, then selects an agent or shell surface. `--cli`, `--daemon`, and `--no-agent` select that surface. |
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List running Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
@@ -238,8 +237,7 @@ resolves its own conflicts instead.
 | `mael cmux status` | Report whether maelstrom can place a session into cmux. Starts cmux if it is down. Exits non-zero when cmux cannot be reached. |
 
 ```bash
-mael open                          # Claude session in the current worktree
-mael open myproject.b              # ...in bravo
+mael add feature/avatar-upload     # create or reuse a branch worktree
 mael session list                  # what is running
 mael session info                  # the session you are in
 mael session info 97894d02         # ...named by an id prefix from the ID column
@@ -248,9 +246,17 @@ mael --json session info 97894d02  # the same fields as JSON
 mael session end 97894d02          # stop that session
 ```
 
-**Harness transport.** `mael add`, `mael open`, `mael task run` and `mael task next --run`
-take `--cli` or `--daemon`. The default is `--cli`. `--cli` starts the CLI selected
-by the model reference. `--daemon` starts a driven Claude agent.
+**Harness transport.** `mael add`, `mael task run` and `mael task next --run`
+take `--cli` or `--daemon`. `mael add --no-agent` prepares a shell without an
+agent. It conflicts with `--open`, `--cli`, and `--daemon`.
+
+`mael add` detects its invocation context. In a regular shell, the selected CLI
+runs in the worktree, and `--no-agent` starts a temporary child shell. In cmux,
+maelstrom creates or focuses the worktree workspace. Pane 0 runs the agent and
+pane 1 shows the installer. With `--no-agent`, pane 0 is the installer shell.
+A driven agent starts a child driven agent by default.
+Explicit `--cli` asks cmux for a CLI workspace. If cmux cannot start, the prepared
+worktree remains available.
 
 | Harness | What pane 0 runs | Who owns the agent |
 |---|---|---|
@@ -276,7 +282,7 @@ That path falls back to `claude`, and warns when you named the daemon rather tha
 it.
 
 ```bash
-mael open                    # Claude CLI with the default model
+mael add feature/avatar-upload --cli
 mael task run NORT-7 --cli   # selected CLI in the pane
 mael task run NORT-7 --daemon
 ```
@@ -596,7 +602,7 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
-in. This path is how `mael open`, `mael add` and `mael task run` launch a session: the daemon
+in. This path is how `mael add` and `mael task run` launch a session: the daemon
 runs the agent, and pane 0 attaches to it. `mael agent start` makes an agent with no workspace at
 all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 

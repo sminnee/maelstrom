@@ -23,7 +23,9 @@ Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
 module (nothing in it calls the launcher).
 """
 
+import os
 import subprocess
+from enum import StrEnum
 from pathlib import Path
 
 import click
@@ -31,7 +33,8 @@ import click
 from .agent_model import build_start_payload
 from .agent_transport import client as daemon_client
 from .cmux import mael_layout
-from .cmux.client import ensure_cmux_running
+from .cmux.client import current_client, ensure_cmux_running
+from .cmux.model import TerminalTab
 from .config import load_config_or_default
 from .harness_model import (
     HARNESS_CLAUDE,
@@ -49,6 +52,157 @@ from .shell import (
     describe,
     run_cmd,
 )
+
+
+class AddContext(StrEnum):
+    """The surface from which ``mael add`` was invoked."""
+
+    REGULAR = "regular"
+    CMUX = "cmux"
+    DAEMON = "daemon"
+
+
+def detect_add_context() -> AddContext:
+    """Detect the ``add`` invocation surface.
+
+    A driven agent takes precedence because its children inherit cmux variables.
+    """
+    if os.environ.get("MAEL_HARNESS_TYPE") == TRANSPORT_DAEMON:
+        return AddContext.DAEMON
+    return AddContext.CMUX if current_client() else AddContext.REGULAR
+
+
+def start_install_async(worktree_path: Path) -> bool:
+    """Start the configured installer without waiting for it."""
+    install_cmd = load_config_or_default(worktree_path).install_cmd
+    if not install_cmd:
+        return False
+    subprocess.Popen(
+        ["sh", "-c", install_cmd],
+        cwd=worktree_path,
+        start_new_session=True,
+    )
+    return True
+
+
+def has_install_command(worktree_path: Path) -> bool:
+    """Whether this worktree configures an install command."""
+    return bool(load_config_or_default(worktree_path).install_cmd)
+
+
+async def start_agent_in_worktree(
+    worktree_path: Path,
+    *,
+    permission_mode: str | None = None,
+    env: dict[str, str] | None = None,
+    session_id: str | None = None,
+    resume: bool = False,
+    model: str | None = None,
+    prompt: str = "",
+) -> str | None:
+    """Start a driven agent and return its id without placing a cmux client."""
+    ref = resolve_model_reference(model, permission_mode or "normal")
+    if ref.harness != HARNESS_CLAUDE:
+        raise ValueError(
+            f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
+        )
+    agent_env = dict(env or {})
+    if session_id:
+        agent_env["MAEL_TASK_SESSION_ID"] = session_id
+    payload = build_start_payload(
+        worktree_path,
+        permission_mode=permission_mode,
+        env=agent_env,
+        session_id=session_id,
+        resume=resume,
+        model=ref.alias,
+        prompt=prompt,
+    )
+    reply = await daemon_client().request(payload)
+    error = reply.get("error")
+    agent_id = reply.get("id")
+    if error or not agent_id:
+        click.echo(
+            f"Could not start the agent: {error or 'the daemon sent no agent id'}",
+            err=True,
+        )
+        return None
+    return str(agent_id)
+
+
+async def launch_add_in_worktree(
+    worktree_path: Path,
+    project: str,
+    worktree: str,
+    *,
+    context: AddContext,
+    harness: str,
+    no_agent: bool = False,
+) -> bool:
+    """Select the agent or shell surface for a prepared ``mael add`` worktree."""
+    install_cmd = load_config_or_default(worktree_path).install_cmd or None
+    if context == AddContext.CMUX:
+        if no_agent:
+            return mael_layout.ensure_worktree_shell_workspace(
+                project, worktree, str(worktree_path), install_cmd=install_cmd
+            )
+        if harness == TRANSPORT_DAEMON:
+            if not mael_layout.ensure_worktree_install_shell(
+                project, worktree, str(worktree_path), install_cmd=install_cmd
+            ):
+                return False
+            agent_id = await start_agent_in_worktree(worktree_path)
+            if not agent_id:
+                return False
+            return mael_layout.add_worktree_agent(
+                project,
+                worktree,
+                TerminalTab(
+                    "Claude",
+                    cwd=str(worktree_path),
+                    command=describe(Command(["mael", "agent", "attach", agent_id])),
+                ),
+            )
+        else:
+            command = Command(build_harness_command())
+        return mael_layout.ensure_worktree_workspace(
+            project,
+            worktree,
+            str(worktree_path),
+            command=describe(command),
+            install_cmd=install_cmd,
+        )
+
+    if context == AddContext.DAEMON:
+        if no_agent:
+            return True
+        if harness == TRANSPORT_CLI:
+            if not ensure_cmux_running():
+                return True
+            return await launch_add_in_worktree(
+                worktree_path,
+                project,
+                worktree,
+                context=AddContext.CMUX,
+                harness=harness,
+            )
+        agent_id = await start_agent_in_worktree(worktree_path)
+        if agent_id:
+            click.echo(f"Agent started: {agent_id}")
+            click.echo(f"Attach with: mael agent attach {agent_id}")
+        return agent_id is not None
+
+    if no_agent:
+        result = subprocess.run([os.environ.get("SHELL", "/bin/sh")], cwd=worktree_path)
+        return result.returncode == 0
+    if harness == TRANSPORT_DAEMON:
+        agent_id = await start_agent_in_worktree(worktree_path)
+        if agent_id:
+            click.echo(f"Agent started: {agent_id}")
+            click.echo(f"Attach with: mael agent attach {agent_id}")
+        return agent_id is not None
+    result = subprocess.run(build_harness_command(), cwd=worktree_path)
+    return result.returncode == 0
 
 
 def open_worktree(worktree_path: Path, command: str) -> None:
@@ -227,31 +381,16 @@ async def launch_agent_in_worktree(
     either way — an empty pane would be worse. The agent survives that: it is
     running, and ``mael agent attach`` reaches it.
     """
-    ref = resolve_model_reference(model, permission_mode or "normal")
-    if ref.harness != HARNESS_CLAUDE:
-        raise ValueError(
-            f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
-        )
-    agent_env = dict(env or {})
-    if session_id:
-        agent_env["MAEL_TASK_SESSION_ID"] = session_id
-    payload = build_start_payload(
+    agent_id = await start_agent_in_worktree(
         worktree_path,
         permission_mode=permission_mode,
-        env=agent_env,
+        env=env,
         session_id=session_id,
         resume=resume,
-        model=ref.alias,
+        model=model,
         prompt=prompt,
     )
-    reply = await daemon_client().request(payload)
-    error = reply.get("error")
-    agent_id = reply.get("id")
-    if error or not agent_id:
-        click.echo(
-            f"Could not start the agent: {error or 'the daemon sent no agent id'}",
-            err=True,
-        )
+    if not agent_id:
         return False
     if not ensure_cmux_running():
         return False
@@ -259,7 +398,7 @@ async def launch_agent_in_worktree(
         project,
         worktree,
         worktree_path,
-        Command(["mael", "agent", "attach", str(agent_id)]),
+        Command(["mael", "agent", "attach", agent_id]),
     )
 
 

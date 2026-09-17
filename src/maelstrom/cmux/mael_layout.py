@@ -50,21 +50,63 @@ def ensure_worktree_workspace(
     install/shell pane stays best-effort: a workspace with Claude but no shell
     pane is degraded, not a failed placement.
     """
+    claude = TerminalTab("Claude", cwd=path, command=command)
+    if not ensure_worktree_install_shell(
+        project, worktree, path, install_cmd=install_cmd
+    ):
+        return False
+    return add_worktree_agent(project, worktree, claude)
+
+
+def ensure_worktree_install_shell(
+    project: str, worktree: str, path: str, *, install_cmd: str | None
+) -> bool:
+    """Create the installer shell before an agent starts.
+
+    A live workspace is unchanged. Its first install already ran.
+    """
     lay = CmuxLayout.current(workspace_name(project, worktree))
     if lay is None:
         return False
-
-    claude = TerminalTab("Claude", cwd=path, command=command)
     if lay.has_workspace():
-        return lay.add_terminal(CLAUDE_PANE, claude) is not None
-
-    if lay.ensure_workspace(claude) is None:
+        return True
+    if lay.ensure_workspace(TerminalTab("Claude", cwd=path)) is None:
         return False
     lay.ensure_terminal(
-        SHELL_PANE,
-        TerminalTab("Terminal", cwd=path, command=install_cmd),
+        SHELL_PANE, TerminalTab("Terminal", cwd=path, command=install_cmd)
     )
     return True
+
+
+def add_worktree_agent(project: str, worktree: str, agent: TerminalTab) -> bool:
+    """Add an agent tab after the worktree installer shell is ready."""
+    lay = CmuxLayout.current(workspace_name(project, worktree))
+    return bool(lay and lay.add_terminal(CLAUDE_PANE, agent) is not None)
+
+
+def ensure_worktree_shell_workspace(
+    project: str,
+    worktree: str,
+    path: str,
+    *,
+    install_cmd: str | None,
+) -> bool:
+    """Focus a worktree workspace with one shell pane.
+
+    A new workspace runs its installer in pane 0.  A live workspace is only
+    focused.  In particular, reuse must not start a second installer.
+    """
+    lay = CmuxLayout.current(workspace_name(project, worktree))
+    if lay is None:
+        return False
+    if lay.has_workspace():
+        return (
+            lay.add_terminal(SHELL_PANE, TerminalTab("Terminal", cwd=path)) is not None
+        )
+    return (
+        lay.ensure_workspace(TerminalTab("Terminal", cwd=path, command=install_cmd))
+        is not None
+    )
 
 
 def show_app_browser(project: str, worktree: str, url: str) -> str | None:
