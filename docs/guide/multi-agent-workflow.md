@@ -187,7 +187,7 @@ them:
    as plain edits and committing them.
 4. Run `/present` — re-cut the reviewed tree into story commits, one per design decision, so the
    reviewer reads the change as a story rather than as the order the work happened in.
-5. Push: `mael gh create-pr PROJ-123 --squash`. The `--squash` autosquashes any fixups into
+5. Push: `mael gh create-pr --squash`. The `--squash` autosquashes any fixups into
    their targets while rebasing onto the branch's base, so the PR lands with clean history.
 6. Close the task: `mael task status done`.
 7. Run `/watch-pr` to take CI (continuous integration) to green.

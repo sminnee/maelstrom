@@ -18,4 +18,4 @@ Load `mael` first. An open PR for the current branch is required. Run this loop 
 
 Stay on the current branch. Do not run `/present` or close the task here. Stop only on pass, timeout, or a failure you cannot resolve; report the blocker.
 
-Use the Playwright trace skill for a `trace.zip`. Classify a fix by the failing path: PR-caused work is a fixup on its story commit; other work is a separate `chore:`. If `mael sync` reports a successful rebase but a failed push, retry with `mael gh create-pr <ISSUE-ID>`. An ad-hoc parent is not a Linear id; derive an issue id only from a `linear.` parent or branch history.
+Use the Playwright trace skill for a `trace.zip`. Classify a fix by the failing path: PR-caused work is a fixup on its story commit; other work is a separate `chore:`. If `mael sync` reports a successful rebase but a failed push, retry with `mael gh create-pr`.

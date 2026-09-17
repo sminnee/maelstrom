@@ -192,7 +192,7 @@ mael task promote <draft>…  →  mael task status done  →  mael task next --
 Execute session (auto mode, own worktree, own ports)
    │  implement → commit → /code-review → /present
    ▼
-mael gh create-pr PROJ-123 --squash   →   mael task status done   →   /watch-pr
+mael gh create-pr --squash            →   mael task status done   →   /watch-pr
    │
    ▼
 One pull request per parent

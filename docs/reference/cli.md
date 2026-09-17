@@ -775,7 +775,7 @@ mael env status myproject._main
 
 | Command | Description |
 |---|---|
-| `mael gh create-pr [ISSUE_ID]` | Create a PR for the current worktree, or push if one exists. |
+| `mael gh create-pr` | Create a PR for the current worktree, or push if one exists. |
 | `mael gh read-pr [TARGET]` | Read PR status, comments and check results. |
 | `mael gh show-code [TARGET]` | Show commits and uncommitted changes for a worktree. |
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
@@ -785,15 +785,14 @@ mael env status myproject._main
 
 ```bash
 mael gh show-code --uncommitted      # review before committing
-mael gh create-pr ME-41 --squash     # autosquash fixups, push, set Linear "In Review"
+mael gh create-pr --squash           # autosquash fixups and push
 mael gh read-pr                      # status, comments, unresolved threads
 mael gh check-log 12345678 --failed-only
 ```
 
 **`mael gh create-pr`**
 
-With `ISSUE_ID` (e.g. `ME-41`), appends `(Fixes ISSUE_ID)` to the PR title for Linear
-auto-linking and sets the Linear issue to "In Review".
+When `MAEL_TASK_ID` is set, appends `[<task-id>]` to a new PR title.
 
 The PR body comes from the PR draft — see [the pull requests guide](../guide/pull-requests.md).
 
@@ -802,7 +801,6 @@ A failed body write warns and still returns the PR URL — the branch is pushed 
 | Option | Description |
 |---|---|
 | `--draft` | Create as a draft PR. |
-| `--progress` | Use `(Progresses ISSUE_ID)` instead of `Fixes`, and do not set "In Review". For multi-session tasks with work remaining. |
 | `--wait` | Wait for CI checks to finish after creating the PR. |
 | `--wait-for-review` | Wait until a reviewer leaves feedback. Exits 0 on the first review, 2 on timeout. |
 | `--squash` | Autosquash `fixup!` commits before pushing. |

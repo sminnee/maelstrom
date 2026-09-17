@@ -1083,7 +1083,9 @@ class TestCreatePrUsesThePrDraft:
         draft.write_text(text)
         return draft
 
-    def _run(self, tmp_path, *, pr_open, edit_fails=False, branch="feat/solo"):
+    def _run(
+        self, tmp_path, *, pr_open, edit_fails=False, branch="feat/solo", task_id=None
+    ):
         """Call create_pr on an unstacked branch, capturing gh/git argv.
 
         ``bodies`` records what the draft file held when ``gh pr edit`` ran, so
@@ -1139,7 +1141,7 @@ class TestCreatePrUsesThePrDraft:
             patch("maelstrom.github.run_git", side_effect=fake_run_git),
             patch("maelstrom.github.update_local_main"),
         ):
-            url, created = create_pr(cwd=tmp_path)
+            url, created = create_pr(cwd=tmp_path, task_id=task_id)
         return url, created, calls, bodies
 
     def _creates(self, calls):
@@ -1168,6 +1170,22 @@ class TestCreatePrUsesThePrDraft:
 
         create = self._creates(calls)[0]
         assert create[create.index("--body") + 1] == ""
+
+    def test_a_new_pr_appends_its_task_id_to_the_title(self, tmp_path):
+        _, _, calls, _ = self._run(
+            tmp_path, pr_open=False, task_id="maintenance.2026-09-17"
+        )
+
+        create = self._creates(calls)[0]
+        assert (
+            create[create.index("--title") + 1] == "feat/solo [maintenance.2026-09-17]"
+        )
+
+    def test_a_new_pr_without_a_task_id_keeps_its_title(self, tmp_path):
+        _, _, calls, _ = self._run(tmp_path, pr_open=False)
+
+        create = self._creates(calls)[0]
+        assert create[create.index("--title") + 1] == "feat/solo"
 
     def test_an_existing_pr_gets_the_draft_written_to_its_body(self, tmp_path):
         self._write_draft(tmp_path, "## Overview\n\nRound two.\n")

@@ -33,11 +33,11 @@ After green gates, run this unattended sequence:
 2. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
 3. Run `/code-review`. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
 4. Run `/present`.
-5. Push with `mael gh create-pr <ISSUE-ID> --squash`.
+5. Push with `mael gh create-pr --squash`.
 6. Run `mael task status done`.
 7. Run `/watch-pr` until CI passes or times out.
 
-Use `--progress` for a multi-session PR. Run waits in the background and read their body, not only exit status.
+Run waits in the background and read their body, not only exit status.
 
 `mael gh read-pr --wait` can report success before substantive CI starts, or hide its exit status through a pipe or background shell. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
 

@@ -142,6 +142,16 @@ class TestGhCliRegistration:
         """A PR push must not start an agent unasked."""
         assert self._run_create_pr([])["autorepair"] is False
 
+    def test_create_pr_uses_the_running_task_id(self, monkeypatch):
+        monkeypatch.setenv("MAEL_TASK_ID", "maintenance.2026-09-17")
+
+        assert self._run_create_pr([])["task_id"] == "maintenance.2026-09-17"
+
+    def test_create_pr_rejects_legacy_id_and_progress_inputs(self):
+        for args in (["ME-41"], ["--progress"]):
+            result = CliRunner().invoke(cli, ["gh", "create-pr", *args])
+            assert result.exit_code != 0
+
     def test_create_pr_tells_the_orchestrator(self):
         """The PR is not in any world until something looks it up, and the next
         worktree poll is up to a minute away. The canvas would sit without a
