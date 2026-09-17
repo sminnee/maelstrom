@@ -1,5 +1,6 @@
 """CLI commands for GitHub operations."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -68,13 +69,7 @@ REFRESH_PATH = "/api/worktrees/refresh"
 
 
 @gh.command("create-pr")
-@click.argument("issue_id", required=False, default=None)
 @click.option("--draft", is_flag=True, help="Create as draft PR")
-@click.option(
-    "--progress",
-    is_flag=True,
-    help="Mark as progress (not final). Uses 'Progresses' instead of 'Fixes' and skips setting status to 'In Review'",
-)
 @click.option(
     "--wait", is_flag=True, help="Wait for CI checks to complete after creating PR"
 )
@@ -93,17 +88,8 @@ REFRESH_PATH = "/api/worktrees/refresh"
 @click.option(
     "--target", default=None, help="Project/worktree target for directory resolution"
 )
-def gh_create_pr(
-    issue_id, draft, progress, wait, wait_for_review_flag, squash, autorepair, target
-):
-    """Create a PR for the current worktree (or push if PR exists).
-
-    If ISSUE_ID is provided (e.g., ME-41), appends (Fixes ISSUE_ID) to the PR title
-    for Linear auto-linking, and the task status is set to "In Review".
-
-    With --progress, uses (Progresses ISSUE_ID) instead and does not change the task
-    status to "In Review" (for multi-session tasks with remaining work).
-    """
+def gh_create_pr(draft, wait, wait_for_review_flag, squash, autorepair, target):
+    """Create a PR for the current worktree (or push if PR exists)."""
     if wait and wait_for_review_flag:
         raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
 
@@ -122,8 +108,7 @@ def gh_create_pr(
         url, created = create_pr(
             cwd=cwd,
             draft=draft,
-            issue_id=issue_id,
-            progress=progress,
+            task_id=os.environ.get("MAEL_TASK_ID"),
             squash=squash,
             autorepair=autorepair,
             announce=click.echo,
@@ -143,66 +128,6 @@ def gh_create_pr(
         # are not bounded to GitHubError yet. A git failure must read as a
         # message, not a traceback.
         raise click.ClickException(str(e))
-
-    # If issue_id provided, update Linear task status
-    if issue_id:
-        try:
-            from .integrations.linear import (
-                get_issue,
-                get_labels,
-                get_product_label,
-                get_workflow_states,
-                update_issue,
-            )
-
-            issue = get_issue(issue_id)
-            states = get_workflow_states()
-
-            if not progress:
-                # Final PR: set status to "In Review"
-                if "In Review" not in states:
-                    click.echo(
-                        "Warning: 'In Review' state not found in workflow", err=True
-                    )
-                else:
-                    # Build label list with product label
-                    labels_map = get_labels()
-                    current_labels = [
-                        label["name"]
-                        for label in issue.get("labels", {}).get("nodes", [])
-                    ]
-                    product_label = get_product_label()
-                    new_labels = list(current_labels)
-                    if (
-                        product_label
-                        and product_label not in new_labels
-                        and product_label in labels_map
-                    ):
-                        new_labels.append(product_label)
-
-                    label_ids = [
-                        labels_map[name] for name in new_labels if name in labels_map
-                    ]
-
-                    update_issue(
-                        issue["id"],
-                        stateId=states["In Review"],
-                        labelIds=label_ids,
-                    )
-                    click.echo(f"Updated {issue['identifier']} status to: In Review")
-
-            # Promote parent from early states to In Progress
-            if issue.get("parent"):
-                parent = get_issue(issue["parent"]["id"])
-                early_states = {"Todo", "Planned", "Backlog"}
-                if parent["state"]["name"] in early_states:
-                    if "In Progress" in states:
-                        update_issue(parent["id"], stateId=states["In Progress"])
-                        click.echo(
-                            f"Updated parent {parent['identifier']} status to: In Progress"
-                        )
-        except Exception as e:
-            click.echo(f"Warning: Could not update Linear task: {e}", err=True)
 
     # Wait for CI checks if requested
     if wait:

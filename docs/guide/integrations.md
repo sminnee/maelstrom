@@ -59,8 +59,7 @@ mael linear plan PROJ-123                 # seed a planning task and launch it
 ```
 Todo ──────────────► Planned        set-status … planned, or create-subtask
 Planned/Todo ──────► In Progress    start-task, or set-status … in-progress
-In Progress ───────► In Review      mael gh create-pr PROJ-123
-In Review ─────────► Unreleased     set-status … done
+In Progress ───────► Unreleased     set-status … done
 Unreleased ────────► Done           mael linear release
 ```
 
@@ -115,7 +114,7 @@ brew install gh && gh auth login
 ```
 
 ```bash
-mael gh create-pr PROJ-123 --squash        # create or push
+mael gh create-pr --squash                 # create or push
 mael gh read-pr                            # status, comments, CI
 mael gh read-pr --wait                     # block until CI finishes
 mael gh show-code --uncommitted            # review before committing

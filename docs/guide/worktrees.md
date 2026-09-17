@@ -271,7 +271,7 @@ Every command that rebases takes the flag:
 mael sync --autorepair                    # this worktree
 mael sync --squash --no-push --autorepair # tidy fixups, publish nothing
 mael sync-all --autorepair                # every worktree, one session per conflict
-mael gh create-pr ME-41 --autorepair      # the pre-push sync
+mael gh create-pr --autorepair            # the pre-push sync
 ```
 
 `--autorepair` is off by default on all four. The flag starts an unattended agent, so it

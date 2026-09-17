@@ -13,7 +13,7 @@ type check, as CLAUDE.md defines them:
    review reads first, and it becomes the PR body.
 3. Run `/code-review`. It uncommits the branch, reviews the working tree, and commits its fixes.
 4. Run `/present` to re-cut the reviewed tree into story commits.
-5. Push: `mael gh create-pr <ISSUE-ID> --squash`.
+5. Push: `mael gh create-pr --squash`.
 6. **Close the task:** `mael task status done`.
 7. Run `/watch-pr` to take CI (continuous integration) to green.
 
@@ -229,13 +229,12 @@ history.
 ## Pushing
 
 ```bash
-mael gh create-pr PROJ-123 --squash
+mael gh create-pr --squash
 ```
 
 - **New PR** — the first commit becomes the title.
 - **Existing PR** — this just pushes. It does not open a second one.
-- **With an issue id** — appends `(Fixes PROJ-123)` for Linear auto-linking and sets the
-  issue to "In Review".
+- **With `MAEL_TASK_ID`** — appends `[<task-id>]` to a new PR title.
 - **`--squash`** — autosquashes `fixup!` commits into their targets while rebasing onto
   `origin/main`, then force-pushes with `--force-with-lease`.
 
@@ -249,13 +248,9 @@ The title is never touched on an open PR. Set it with `gh pr edit <n> --title` i
 Other flags:
 
 ```bash
-mael gh create-pr PROJ-123 --draft       # draft PR
-mael gh create-pr PROJ-123 --progress    # "(Progresses …)"; leaves status alone
-mael gh create-pr PROJ-123 --wait        # block until CI finishes
+mael gh create-pr --draft       # draft PR
+mael gh create-pr --wait        # block until CI finishes
 ```
-
-Use `--progress` for a multi-session task with iterations still to come. It avoids marking
-the issue "In Review" before the work is actually complete.
 
 ## Why the task closes before the CI watch
 

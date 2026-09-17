@@ -411,8 +411,7 @@ def discard_pr_draft(cwd: Path) -> None:
 def create_pr(
     cwd: Path | None = None,
     draft: bool = False,
-    issue_id: str | None = None,
-    progress: bool = False,
+    task_id: str | None = None,
     squash: bool = False,
     autorepair: bool = False,
     announce: Callable[[str], None] = print_flushed,
@@ -425,9 +424,7 @@ def create_pr(
     Args:
         cwd: Current working directory (default: actual cwd).
         draft: Create as draft PR (only if creating new PR).
-        issue_id: Optional Linear issue ID to prepend to PR title (e.g., "ME-41").
-        progress: If True, use "Progresses" instead of "Fixes" in PR title for
-            multi-session tasks that aren't complete yet.
+        task_id: Optional Mael task id to append to a new PR title.
         squash: If True, autosquash ``fixup!`` commits during the pre-push sync.
         autorepair: If True, a conflict in the pre-push sync starts a headless
             Claude session to resolve it. Off by default: a PR push must not
@@ -550,10 +547,8 @@ def create_pr(
     except subprocess.CalledProcessError:
         title = branch_name
 
-    # Append issue ID to title if provided (enables Linear's GitHub auto-linking)
-    if issue_id:
-        verb = "Progresses" if progress else "Fixes"
-        title = f"{title} ({verb} {issue_id.upper()})"
+    if task_id:
+        title = f"{title} [{task_id}]"
 
     # Create the PR with explicit title (--fill can fail if base branch not fetched)
     # The body goes as a file, not as argv: a draft carrying an overview,
