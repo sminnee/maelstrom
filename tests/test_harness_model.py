@@ -40,7 +40,6 @@ def test_model_reference_resolves_the_supported_forms(model, harness, alias):
     ref = resolve_model_reference(model)
     assert ref.harness == harness
     assert ref.alias == alias
-    assert ref.cli_args == ("--model", alias)
 
 
 def test_codex_mode_settings_never_request_an_interactive_plan_mode():
@@ -82,9 +81,56 @@ def test_cli_command_uses_the_model_prefix_and_omits_a_mismatched_alias():
         "--sandbox",
         "read-only",
         "--model",
-        "terra",
+        "gpt-5.6-terra",
+        "-c",
+        "model_reasoning_effort=medium",
     ]
     assert build_harness_command(model="codex:terra", harness="claude") == ["claude"]
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        (
+            "codex:astra",
+            ["codex", "--sandbox", "workspace-write", "--model", "gpt-6-astra"],
+        ),
+        (
+            "codex:sol",
+            [
+                "codex",
+                "--sandbox",
+                "workspace-write",
+                "--model",
+                "gpt-5.6-sol",
+                "-c",
+                "model_reasoning_effort=low",
+            ],
+        ),
+        (
+            "codex:terra",
+            [
+                "codex",
+                "--sandbox",
+                "workspace-write",
+                "--model",
+                "gpt-5.6-terra",
+                "-c",
+                "model_reasoning_effort=medium",
+            ],
+        ),
+        (
+            "codex:luna",
+            ["codex", "--sandbox", "workspace-write", "--model", "gpt-5.6-luna"],
+        ),
+        (
+            "codex:custom",
+            ["codex", "--sandbox", "workspace-write", "--model", "custom"],
+        ),
+    ],
+)
+def test_codex_commands_resolve_known_aliases_and_set_effort_defaults(model, expected):
+    assert build_harness_command(model=model) == expected
 
 
 def test_opencode_cli_passes_its_selected_alias():
