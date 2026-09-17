@@ -45,6 +45,7 @@ from .github_model import (
     is_open_pr,
     pr_from_row,
 )
+from .harness_model import HARNESS_CLAUDE, TRANSPORT_DAEMON, resolve_model_reference
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -123,6 +124,7 @@ async def _finish_add(
     *,
     context: AddContext,
     harness: str,
+    model: str | None,
     open_editor: bool,
     no_agent: bool,
 ) -> None:
@@ -154,6 +156,7 @@ async def _finish_add(
         worktree,
         context=context,
         harness=harness,
+        model=model,
         no_agent=no_agent,
     ):
         raise click.ClickException("the selected worktree surface did not start")
@@ -333,6 +336,11 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
 @_harness_flags()
 @click.argument("branch", required=False, default=None)
 @click.option(
+    "--model",
+    default=None,
+    help="Model reference (for example, opus or codex:terra).",
+)
+@click.option(
     "-p", "--project", default=None, help="Project name (default: detect from cwd)"
 )
 @click.option(
@@ -355,7 +363,9 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Stack the new branch on BASE (default: the project's stack tip). "
     "Use 'main' to start unstacked.",
 )
-async def cmd_add(branch, project, open, no_agent, no_recycle, base, cli, daemon):
+async def cmd_add(
+    branch, project, model, open, no_agent, no_recycle, base, cli, daemon
+):
     """Add a new worktree for a branch.
 
     If BRANCH is provided:
@@ -374,7 +384,20 @@ async def cmd_add(branch, project, open, no_agent, no_recycle, base, cli, daemon
         raise click.UsageError("--no-agent conflicts with --cli")
     if no_agent and daemon:
         raise click.UsageError("--no-agent conflicts with --daemon")
+    if no_agent and model is not None:
+        raise click.UsageError("--no-agent conflicts with --model")
+    if open and model is not None:
+        raise click.UsageError("--model conflicts with --open")
+    try:
+        model_ref = resolve_model_reference(model)
+    except ValueError as e:
+        raise click.UsageError(str(e))
     resolved_harness = resolve_harness_or_fail(cli, daemon)
+    if resolved_harness == TRANSPORT_DAEMON and model_ref.harness != HARNESS_CLAUDE:
+        raise click.ClickException(
+            f"The {model_ref.harness} daemon is not available; use --cli with a "
+            f"{model_ref.harness}:* model."
+        )
     add_context = detect_add_context()
     try:
         ctx = resolve_context(
@@ -422,6 +445,7 @@ async def cmd_add(branch, project, open, no_agent, no_recycle, base, cli, daemon
             wt_name,
             context=add_context,
             harness=resolved_harness,
+            model=model,
             open_editor=open,
             no_agent=no_agent,
         )
@@ -495,6 +519,7 @@ async def cmd_add(branch, project, open, no_agent, no_recycle, base, cli, daemon
         wt_name,
         context=add_context,
         harness=resolved_harness,
+        model=model,
         open_editor=open,
         no_agent=no_agent,
     )

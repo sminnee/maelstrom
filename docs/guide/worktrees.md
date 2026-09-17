@@ -90,6 +90,8 @@ mael env status                    # detected from the current directory
 mael add feature/avatar-upload    # branch + worktree, recycling a closed slot if free
 mael add                          # a fresh worktree on main, never recycled
 mael add feature/x --no-recycle   # force a new slot
+mael add feature/x --model sonnet       # start Claude with the Sonnet model
+mael add feature/x --model codex:terra  # start the Codex CLI with Terra
 mael add feature/x --open         # open the editor instead of an agent
 mael add feature/x --no-agent     # prepare the worktree and open a shell
 ```
@@ -97,6 +99,11 @@ mael add feature/x --no-agent     # prepare the worktree and open a shell
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
 and starts the configured installer asynchronously. It then starts an agent or a shell.
 Alpha is created for you by `mael add-project`.
+
+`--model` accepts a **Model reference**. A bare value selects Claude. A qualified
+value selects its CLI harness. The default is `claude:opus`. `--model` cannot
+be used with `--open` or `--no-agent`. Daemon transport supports Claude model
+references only. Use `--cli` for Codex or OpenCode.
 
 Opening a worktree also rebases its branch onto its base first, so the session always
 starts on current code. This matters when the branch already exists: a branch preserved by
