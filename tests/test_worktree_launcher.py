@@ -22,6 +22,7 @@ from maelstrom.worktree_launcher import (
     launch_claude_in_worktree,
     open_claude_workspace,
     open_worktree,
+    start_agent_in_worktree,
     start_install_async,
 )
 
@@ -91,6 +92,72 @@ class TestAddLauncher:
         assert run.call_args.kwargs["cwd"] == tmp_path
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("model", "command"),
+        [
+            ("opus", ["claude", "--model", "opus"]),
+            (
+                "codex:terra",
+                [
+                    "codex",
+                    "--sandbox",
+                    "workspace-write",
+                    "--model",
+                    "gpt-5.6-terra",
+                    "-c",
+                    "model_reasoning_effort=medium",
+                ],
+            ),
+            ("opencode:kimi", ["opencode", "--model", "kimi"]),
+        ],
+    )
+    async def test_regular_cli_uses_the_selected_model_command(
+        self, tmp_path, model, command
+    ):
+        with patch("maelstrom.worktree_launcher.subprocess.run") as run:
+            run.return_value.returncode = 0
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.REGULAR,
+                harness="cli",
+                model=model,
+            )
+        assert run.call_args.args[0] == command
+
+    @pytest.mark.asyncio
+    async def test_omitted_model_uses_claude_opus(self, tmp_path):
+        with patch("maelstrom.worktree_launcher.subprocess.run") as run:
+            run.return_value.returncode = 0
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.REGULAR,
+                harness="cli",
+            )
+        assert run.call_args.args[0] == ["claude", "--model", "opus"]
+
+    @pytest.mark.asyncio
+    async def test_daemon_receives_the_claude_model_alias(self, tmp_path):
+        client = RecordingDaemonClient(replies=[{"id": "agent-1"}])
+        with patch("maelstrom.worktree_launcher.daemon_client", return_value=client):
+            assert (
+                await start_agent_in_worktree(tmp_path, model="claude:sonnet")
+                == "agent-1"
+            )
+        assert client.calls == [
+            {"cmd": "start", "cwd": str(tmp_path), "model": "sonnet", "resume": False}
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", ["codex:terra", "opencode:kimi"])
+    async def test_daemon_rejects_non_claude_models(self, tmp_path, model):
+        with pytest.raises(ValueError, match="daemon is not available"):
+            await start_agent_in_worktree(tmp_path, model=model)
+
+    @pytest.mark.asyncio
     async def test_regular_daemon_starts_an_agent_without_cmux(self, tmp_path):
         with (
             patch(
@@ -106,7 +173,7 @@ class TestAddLauncher:
                 context=AddContext.REGULAR,
                 harness="daemon",
             )
-        start.assert_awaited_once_with(tmp_path)
+        start.assert_awaited_once_with(tmp_path, model=None)
         run.assert_not_called()
 
     @pytest.mark.asyncio
@@ -155,6 +222,29 @@ class TestAddLauncher:
             )
         assert workspace.call_args.args[:2] == ("proj", "alpha")
         assert workspace.call_args.args[2].command == "mael agent attach agent-1"
+
+    @pytest.mark.asyncio
+    async def test_cmux_cli_uses_the_selected_model_command(self, tmp_path):
+        with (
+            patch("maelstrom.worktree_launcher.load_config_or_default") as config,
+            patch(
+                "maelstrom.worktree_launcher.mael_layout.ensure_worktree_workspace",
+                return_value=True,
+            ) as workspace,
+        ):
+            config.return_value.install_cmd = ""
+            assert await launch_add_in_worktree(
+                tmp_path,
+                "proj",
+                "alpha",
+                context=AddContext.CMUX,
+                harness="cli",
+                model="codex:terra",
+            )
+        assert workspace.call_args.kwargs["command"] == (
+            "codex --sandbox workspace-write --model gpt-5.6-terra -c "
+            "model_reasoning_effort=medium"
+        )
 
     @pytest.mark.asyncio
     async def test_cmux_no_agent_uses_one_shell_surface(self, tmp_path):

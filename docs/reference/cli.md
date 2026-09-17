@@ -80,6 +80,7 @@ and does not resolve `@` imports). Both are gitignored per worktree.
 | Option | Description |
 |---|---|
 | `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
+| `--model TEXT` | Model reference. A bare value selects Claude. A qualified value selects its CLI harness. Default: `claude:opus`. |
 | `--open` | Open the configured editor instead of a Claude session. |
 | `--no-recycle` | Always create a new worktree, even when closed ones exist. |
 | `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
@@ -247,8 +248,11 @@ mael session end 97894d02          # stop that session
 ```
 
 **Harness transport.** `mael add`, `mael task run` and `mael task next --run`
-take `--cli` or `--daemon`. `mael add --no-agent` prepares a shell without an
-agent. It conflicts with `--open`, `--cli`, and `--daemon`.
+take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
+A bare value selects Claude. A qualified value selects its CLI harness.
+The default is `claude:opus`. `--model` conflicts with `--open` and `--no-agent`.
+`mael add --no-agent` prepares a shell without an agent. It conflicts with
+`--open`, `--cli`, and `--daemon`.
 
 `mael add` detects its invocation context. In a regular shell, the selected CLI
 runs in the worktree, and `--no-agent` starts a temporary child shell. In cmux,
@@ -264,6 +268,8 @@ worktree remains available.
 | `daemon` | `mael agent attach <id>` | The agent daemon |
 
 With `daemon` the agent daemon runs the `claude` child, and the pane attaches to it as a client.
+Daemon transport supports Claude model references only. Use `--cli` with a
+`codex:*` or `opencode:*` model reference.
 The session appears in `mael agent list` and in the orchestrator UI. Ctrl-C in the pane detaches
 the client and leaves the agent running — reattach with `mael agent attach <id>`. The child is
 still `claude` with the session's environment, so skills, hooks and `CLAUDE.md` behave as they

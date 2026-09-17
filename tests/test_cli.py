@@ -1226,6 +1226,7 @@ class TestCmdAddExistingBranch:
                 "bravo",
                 context="regular",
                 harness="cli",
+                model=None,
                 no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
@@ -1248,6 +1249,7 @@ class TestCmdAddExistingBranch:
                 "bravo",
                 context="regular",
                 harness="cli",
+                model=None,
                 no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
@@ -2082,7 +2084,7 @@ class TestAddHarness:
             stack.enter_context(
                 patch("maelstrom.cli.resolve_context", return_value=ctx)
             )
-            stack.enter_context(
+            setup = stack.enter_context(
                 patch(
                     "maelstrom.cli.setup_worktree_for_branch",
                     return_value=WorktreeSetup(
@@ -2096,6 +2098,7 @@ class TestAddHarness:
             launch = stack.enter_context(patch("maelstrom.cli.launch_add_in_worktree"))
             launch.return_value = True
             result = CliRunner().invoke(cli, ["add", "feat-x", "-p", "proj", *args])
+        launch.setup_worktree_for_branch = setup
         return result, launch
 
     @pytest.mark.parametrize(
@@ -2107,11 +2110,43 @@ class TestAddHarness:
         assert result.exit_code == 0, result.output
         assert launch.call_args.kwargs["harness"] == transport
 
+    def test_add_forwards_model_to_the_launcher(self, tmp_path):
+        result, launch = self._invoke_add(["--model", "codex:terra"], tmp_path)
+        assert result.exit_code == 0, result.output
+        assert launch.call_args.kwargs["model"] == "codex:terra"
+
     @pytest.mark.parametrize("flag", ["--open", "--cli", "--daemon"])
     def test_no_agent_rejects_other_agent_surface_flags(self, flag):
         result = CliRunner().invoke(cli, ["add", "feat-x", "--no-agent", flag])
         assert result.exit_code != 0
         assert f"--no-agent conflicts with {flag}" in result.output
+
+    def test_no_agent_rejects_model(self):
+        result = CliRunner().invoke(
+            cli, ["add", "feat-x", "--no-agent", "--model=opus"]
+        )
+        assert result.exit_code != 0
+        assert "--no-agent conflicts with --model" in result.output
+
+    @pytest.mark.parametrize("surface", ["--open", "--no-agent"])
+    def test_model_rejects_agentless_surface_when_blank(self, surface):
+        result = CliRunner().invoke(cli, ["add", "feat-x", "--model", "", surface])
+        assert result.exit_code != 0
+        assert "--model" in result.output
+
+    def test_model_rejects_open(self, tmp_path):
+        result, _ = self._invoke_add(["--model", "opus", "--open"], tmp_path)
+        assert result.exit_code != 0
+        assert "--model conflicts with --open" in result.output
+
+    def test_daemon_rejects_non_claude_model(self, tmp_path):
+        result, launch = self._invoke_add(
+            ["--daemon", "--model", "codex:terra"], tmp_path
+        )
+        assert result.exit_code != 0
+        assert "The codex daemon is not available" in result.output
+        launch.setup_worktree_for_branch.assert_not_called()
+        launch.assert_not_called()
 
     def test_open_is_absent_from_the_command_help(self):
         result = CliRunner().invoke(cli, ["--help"])

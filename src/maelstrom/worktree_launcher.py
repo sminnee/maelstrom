@@ -137,6 +137,7 @@ async def launch_add_in_worktree(
     *,
     context: AddContext,
     harness: str,
+    model: str | None = None,
     no_agent: bool = False,
 ) -> bool:
     """Select the agent or shell surface for a prepared ``mael add`` worktree."""
@@ -151,7 +152,7 @@ async def launch_add_in_worktree(
                 project, worktree, str(worktree_path), install_cmd=install_cmd
             ):
                 return False
-            agent_id = await start_agent_in_worktree(worktree_path)
+            agent_id = await start_agent_in_worktree(worktree_path, model=model)
             if not agent_id:
                 return False
             return mael_layout.add_worktree_agent(
@@ -164,7 +165,7 @@ async def launch_add_in_worktree(
                 ),
             )
         else:
-            command = Command(build_harness_command())
+            command = Command(build_harness_command(model=model))
         return mael_layout.ensure_worktree_workspace(
             project,
             worktree,
@@ -185,8 +186,9 @@ async def launch_add_in_worktree(
                 worktree,
                 context=AddContext.CMUX,
                 harness=harness,
+                model=model,
             )
-        agent_id = await start_agent_in_worktree(worktree_path)
+        agent_id = await start_agent_in_worktree(worktree_path, model=model)
         if agent_id:
             click.echo(f"Agent started: {agent_id}")
             click.echo(f"Attach with: mael agent attach {agent_id}")
@@ -196,12 +198,12 @@ async def launch_add_in_worktree(
         result = subprocess.run([os.environ.get("SHELL", "/bin/sh")], cwd=worktree_path)
         return result.returncode == 0
     if harness == TRANSPORT_DAEMON:
-        agent_id = await start_agent_in_worktree(worktree_path)
+        agent_id = await start_agent_in_worktree(worktree_path, model=model)
         if agent_id:
             click.echo(f"Agent started: {agent_id}")
             click.echo(f"Attach with: mael agent attach {agent_id}")
         return agent_id is not None
-    result = subprocess.run(build_harness_command(), cwd=worktree_path)
+    result = subprocess.run(build_harness_command(model=model), cwd=worktree_path)
     return result.returncode == 0
 
 
