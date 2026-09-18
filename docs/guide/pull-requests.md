@@ -171,10 +171,10 @@ the build must commit its work before review runs.
 Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
 parent's context. One runs per concern:
 
-- **Design and architecture** — the review guide's layers 1 and 2, plus naming and vocabulary. It
-  judges the decisions `.drafts/pr.md` states against what the tree actually does.
+- **Code** — the review guide's layers 1, 2, 4, and 5: design and architecture, security and
+  correctness, and naming and vocabulary. It judges the decisions `.drafts/pr.md` states
+  against what the tree actually does.
 - **Tests** — layer 3: what is tested, at which seam, and whether the assertions read.
-- **Security and correctness** — layer 4.
 - **Prose** — comments, docstrings, and documents.
 
 Splitting by concern rather than by commit gives each reviewer the whole change to judge, so a

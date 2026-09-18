@@ -91,7 +91,7 @@ assignment names the layers that are yours.** Work those, and leave the rest to 
 they belong to.
 
 Within your assignment the layer ordering still sets your attention: the earlier the layer, the
-more it is worth. A design reviewer holding layers 1, 2 and 5 should weigh accidental complexity,
+more it is worth. A code reviewer holding layers 1, 2, 4 and 5 should weigh accidental complexity,
 subsystems polluted with concerns that are not their own, and a supporting tool the code is
 tolerating instead of redesigning above the coding-standards items it also holds.
 
