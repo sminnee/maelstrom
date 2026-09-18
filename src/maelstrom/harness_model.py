@@ -1,6 +1,7 @@
 """Model references and the transport that starts their harness."""
 
 import os
+import re
 from dataclasses import dataclass
 
 HARNESS_CLAUDE = "claude"
@@ -75,6 +76,34 @@ def resolve_model_reference(model: str | None, mode: str = "normal") -> ModelRef
         cli_args=cli_args,
         mode_args=_mode_args(prefix, mode),
     )
+
+
+#: What an execute-model alias may contain. The alias reaches the child as the
+#: text of a ``/model`` user turn rather than as an argv element, so a newline
+#: in it would deliver a second turn of its own. Same character set and same
+#: reason as :func:`maelstrom.task.is_safe_id`.
+_SAFE_ALIAS = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def resolve_execute_model(model: str) -> ModelReference:
+    """Resolve an execute model, or raise ``ValueError`` saying why it cannot be one.
+
+    The one place the execute-model rules live, so every entry point refuses
+    the same value with the same words. Two rules beyond an ordinary reference:
+
+    - it must name the ``claude`` harness, because the switch is a ``/model``
+      command and that cannot change which binary is running;
+    - its alias must be plain, because it travels as message content.
+    """
+    ref = resolve_model_reference(model)
+    if ref.harness != HARNESS_CLAUDE:
+        raise ValueError(
+            f"An execute model must be a Claude model, not {ref.harness}: "
+            "/model cannot change harness."
+        )
+    if not _SAFE_ALIAS.fullmatch(ref.alias):
+        raise ValueError(f"Unsafe execute model alias: {ref.alias!r}")
+    return ref
 
 
 def _mode_args(harness: str, mode: str) -> tuple[str, ...]:
