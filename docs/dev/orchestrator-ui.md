@@ -537,7 +537,8 @@ and it shows a title without a content field.
 
 `ui/ComboBox.tsx` is the combobox the Branch, Command and Issue fields all use: a text field that
 offers a list and keeps anything else typed. A row can carry a label apart from its value, so the
-Issue field offers an issue by its title and submits its id.
+Issue field offers an issue by its title and submits its id. `ui/MultiComboBox.tsx` extends it for
+the Follows field, which picks several values shown as removable chips instead of one.
 
 ### The top layer
 
