@@ -32,7 +32,7 @@ from ..task_table import TaskTable
 from ..worktree import WorktreeSetup
 from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
-from .validate import CREATABLE, EDITABLE
+from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
     project_entity,
     split_task_key,
@@ -57,6 +57,22 @@ CloseWorktree = Callable[[str, str, str], Awaitable[None]]
 
 class CloseBlocked(Exception):
     """The worktree must not close now. The message says why, for the user."""
+
+
+def _rename_wire_fields(
+    fields: dict[str, Any], allowed: tuple[str, ...]
+) -> dict[str, Any]:
+    """``fields`` filtered to ``allowed`` and renamed from wire to model keys.
+
+    Membership is checked under the wire name a key would take were it
+    renamed, since ``fields`` arrives wire-spelled and ``allowed`` does not.
+    """
+    wanted: dict[str, Any] = {}
+    for key, value in fields.items():
+        model_key = WIRE_RENAMES.get(key, key)
+        if model_key in allowed:
+            wanted[model_key] = value
+    return wanted
 
 
 @dataclass(frozen=True)
@@ -363,7 +379,7 @@ class NotebookTaskSource:
         written, so a client cannot reach a field the wire does not offer.
         """
         project, notebook_id = split_task_key(task_id)
-        wanted = {k: v for k, v in fields.items() if k in EDITABLE}
+        wanted = _rename_wire_fields(fields, EDITABLE)
         # The notebook stores a bare id; ``world_build`` qualifies it on the way
         # out, so a wire id has to lose its project again here.
         if "follows" in wanted:
@@ -404,7 +420,7 @@ class NotebookTaskSource:
         choose. It never carries request data, so the filter above stays the
         only door a client writes through.
         """
-        wanted = {k: v for k, v in fields.items() if k in CREATABLE}
+        wanted = _rename_wire_fields(fields, CREATABLE)
         wanted.update(extra or {})
         task = await model.create(self.table, project=project, **wanted)
         return task_key(project, task.id)

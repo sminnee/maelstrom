@@ -27,6 +27,7 @@ EDITABLE = (
     "mode",
     "priority",
     "model",
+    "execute_model",
     "follows",
 )
 
@@ -36,6 +37,11 @@ EDITABLE = (
 #: The notebook stores a bare id, and only ``update`` unqualifies one, so a
 #: ``follows`` written here would be a wire pointing at nothing.
 CREATABLE = tuple(key for key in EDITABLE if key != "follows")
+
+#: Wire keys that spell a model field differently, mapped wire -> model. Every
+#: other ``EDITABLE``/``CREATABLE`` key is spelled identically in both, so a
+#: membership check against either tuple must go by the wire name.
+WIRE_RENAMES = {"executeModel": "execute_model"}
 
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
@@ -135,6 +141,16 @@ def _check_follows(world: World, task_id: str, follows: Any) -> dict[str, str] |
     if _reaches(world, follows, task_id):
         return _err("invalid", "That would make a cycle")
     return None
+
+
+def _wire_edited(fields: dict[str, Any], allowed: tuple[str, ...]) -> list[str]:
+    """The wire-spelled keys of ``fields`` that name a field in ``allowed``.
+
+    ``allowed`` (``EDITABLE``/``CREATABLE``) lists model-spelled keys, but
+    ``fields``/``cmd`` arrive wire-spelled, so membership is checked under the
+    wire name a key would take were it renamed.
+    """
+    return [key for key in fields if WIRE_RENAMES.get(key, key) in allowed]
 
 
 def _reaches(world: World, starts: list[str], goal: str) -> bool:
@@ -347,7 +363,9 @@ def validate_command(
         if task_id not in world["tasks"]:
             return _err("unknown_id", f"No task {task_id}")
         fields = cmd.get("fields") or {}
-        edited = [key for key in EDITABLE if fields.get(key) is not None]
+        edited = [
+            key for key in _wire_edited(fields, EDITABLE) if fields.get(key) is not None
+        ]
         if not edited:
             return _err("invalid", "Nothing to change")
         title = fields.get("title")
@@ -403,7 +421,7 @@ def validate_command(
         # new task carries. A field left out takes the notebook's own default,
         # so only what was sent is checked. A null is not "left out": it
         # reaches the notebook, which writes strings, and breaks the write.
-        if any(cmd.get(key, "") is None for key in CREATABLE):
+        if any(cmd.get(key) is None for key in _wire_edited(cmd, CREATABLE)):
             return _err("invalid", "A field is null")
         if cmd.get("follows") is not None:
             return _err("invalid", "A new task is wired after it is created")

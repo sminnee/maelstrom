@@ -319,6 +319,18 @@ def test_accepts_an_update_that_changes_one_field():
     assert validate_command(world, cmd) is None
 
 
+def test_accepts_an_update_that_only_changes_the_execute_model():
+    # `executeModel` is the one field whose wire and model spelling differ —
+    # the membership check must go by the wire name, not `execute_model`.
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"executeModel": "claude:opus"},
+    }
+    assert validate_command(world, cmd) is None
+
+
 def test_unknown_id_for_an_update_of_a_task_not_in_the_world():
     cmd = {
         "type": "task.update",
@@ -567,6 +579,13 @@ def test_invalid_for_a_create_whose_field_is_null():
     # A null is not "left out": it reaches the notebook and breaks the write.
     world = world_with(projects=[PROJECT])
     assert code(validate_command(world, _create(content=None))) == "invalid"
+
+
+def test_invalid_for_a_create_whose_execute_model_is_null():
+    # Same wire-vs-model spelling as the update check above.
+    world = world_with(projects=[PROJECT])
+    cmd = _create(executeModel=None)
+    assert code(validate_command(world, cmd)) == "invalid"
 
 
 def test_a_create_may_leave_the_optional_fields_out():
