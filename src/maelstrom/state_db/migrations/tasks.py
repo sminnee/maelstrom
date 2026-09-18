@@ -29,8 +29,13 @@ def _import_notebook(conn: sqlite3.Connection) -> None:
     import_notebook(conn, get_notebook_path())
 
 
-#: Every column the ``tasks`` table carries, in the order the DDL declares them.
-#: The 17 frontmatter fields, plus ``project`` and ``status`` — which the key and
+#: The columns rung 1's ``CREATE TABLE`` declares, in its order. Frozen: a rung
+#: runs against whatever version a database is stamped at, and every database —
+#: a fresh one included — starts at 0 and climbs the whole ladder. So a column
+#: added here as well as in a later ``ALTER TABLE`` rung would be declared
+#: twice on a fresh install and fail. A new field goes in a rung, and only in a
+#: rung. ``execute_model`` is the worked example below.
+#: The 17 original frontmatter fields, plus ``project`` and ``status`` — which the key and
 #: the folder used to carry — plus ``session_id`` and the three body columns.
 #:
 #: ``id`` is ``<project>/<id>``: :class:`~maelstrom.state_db.db.StateDb` keys
@@ -87,4 +92,7 @@ TASKS: tuple[Rung, ...] = (
         run=_import_notebook,
         description="import the markdown task notebook, if there is one",
     ),
+    # The model a session switches to when its plan is approved. A rung, not a
+    # ``_COLUMNS`` entry — see the note on ``_COLUMNS``.
+    Migration(("ALTER TABLE tasks ADD COLUMN execute_model TEXT NOT NULL DEFAULT ''",)),
 )

@@ -45,6 +45,7 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         priority="high",
         model="opus",
         base="main",
+        execute_model="sonnet",
         content="The prose the row carries.",
         steps="1. write the ladder",
         log="- started",
