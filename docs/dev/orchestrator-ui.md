@@ -461,17 +461,21 @@ moves. The form is one step: everything the work needs is on one surface.
   what the work is. The prose is the only field a task needs.
 - **A task** also shows its title, its branch, its planning level, and Advanced. "Save" writes the
   task as `todo`; "Start" writes it and launches it. Both put it on the desk. The prose becomes
-  the task's content unchanged, so the surface shows no second content field.
+  the task's content unchanged, so the surface shows no second content field. Advanced's Model and
+  Execute Model sit side by side. Execute Model defaults to "(Same as plan)" — unset, which keeps
+  the session on its plan's model.
 - **"Suggest"**, beside Branch, calls `useInferTask` and fills the title, branch, command and mode
   from the reply. It is a button rather than a gate: inference shells out to a model and takes tens
   of seconds, and a task rarely needs a better name than its own prose gives it. It is an
   `AppButton`, so those tens of seconds show on the control that started them — see "Commands are
   mutations". A save that never presses it still writes a title and a branch — see "Naming a task
   from its prose" below.
-- **A free agent** names a branch, a mode and a model instead. The branch combobox offers the
-  branches of open worktrees in the chosen project and keeps anything else typed, so a branch with
-  no worktree gets one provisioned. Mode and model start on `plan` — a new task's own default —
-  and `opus`, the UI's shortlist default. "Start" runs `useStartAgent`.
+- **A free agent** names a branch, a mode, a model and an execute model instead. The branch
+  combobox offers the branches of open worktrees in the chosen project and keeps anything else
+  typed, so a branch with no worktree gets one provisioned. Mode and model start on `plan` — a
+  new task's own default — and `opus`, the UI's shortlist default. Model and Execute Model sit
+  side by side, the same as a task's Advanced row — defaulting the same way too, though a free
+  agent has no plan to default "same as" from. "Start" runs `useStartAgent`.
 - **The Linear kind** shows only for a project whose `.maelstrom.yaml` names a `linear.team_id`,
   which reaches the UI as `hasLinear` on the wire project. One combobox offers the current cycle's
   issues, each row showing the issue id and its title; the field carries the id. "Save" and "Start"
