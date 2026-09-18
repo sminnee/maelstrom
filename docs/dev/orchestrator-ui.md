@@ -115,6 +115,10 @@ with a doubling wait, a `4409` at once, and a `4404` ends the stream. Nothing cl
 stream at once, so a provider that unmounts and mounts again comes back with its streams
 intact.
 
+A sent message shows at once, before the daemon's own echo of the turn arrives: `sendLocal`
+appends a `pending` stand-in item straight to the store, and the append/snapshot/replay paths
+each drop the oldest matching stand-in once the real, non-pending item lands.
+
 **Commands are mutations.** One hook per command in `api/` — `useApprove`, `useLaunch`,
 `useSetStatus`, `useAddToDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves
 with the result, or rejects with an `ApiError` carrying the code. On success the hook
