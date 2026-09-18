@@ -12,7 +12,7 @@ socket client, and a scripted fake that records calls.
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
-from typing import Any, Protocol
+from typing import Any
 
 from ..agent_model import (
     AGENT_DETAIL,
@@ -26,29 +26,138 @@ from ..agent_model import (
     reply_for_approval,
     reply_for_denial,
 )
-from ..agent_transport import (
-    attach_command,
-)
+from ..agent_store import AgentStore
+from ..agent_transport import AsyncDaemonClient, attach_command
+from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
+
+DaemonClient = AsyncDaemonClient
 
 
-class AsyncDaemonClient(Protocol):
-    """One request-reply, or one attach stream, against the agent host."""
+@dataclass
+class DaemonRouter:
+    """Route an agent operation through the Harness that owns it."""
+
+    claude: DaemonClient
+    codex: DaemonClient
+    agents: AgentStore
+    _harnesses: dict[str, str] = field(default_factory=dict, init=False)
+    _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
+    _restored: bool = field(default=False, init=False)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send ``payload`` and return the host's reply."""
-        ...
+        command = str(payload.get("cmd", ""))
+        if command == "list":
+            await self._restore()
+            claude = await self.claude.request(payload)
+            codex = await self.codex.request(payload)
+            live_rows: dict[str, dict[str, Any]] = {}
+            for row in [*claude.get("agents", []), *codex.get("agents", [])]:
+                if isinstance(row, dict) and row.get("id"):
+                    live_rows[str(row["id"])] = row
+            rows: list[dict[str, Any]] = []
+            for agent_id, agent in self._agents.items():
+                rows.append(_stored_agent_row(agent, live_rows.get(agent_id)))
+                # A live subagent has no record of its own — see Agent
+                # record in CONTEXT.md — so it rides through unchanged.
+                rows.extend(
+                    row for row in live_rows.values() if row.get("parent") == agent_id
+                )
+            return {"agents": rows, "usage": claude.get("usage")}
+        await self._restore()
+        try:
+            client, harness = self._client_for(payload)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        reply = await client.request(payload)
+        if command == "start" and reply.get("ok") and reply.get("id"):
+            agent_id = str(reply["id"])
+            self._harnesses[agent_id] = harness
+            agent = {
+                "id": agent_id,
+                "harness": harness,
+                "task_session_id": str(payload.get("session") or ""),
+                # Not read yet: link_agent still resolves the task by
+                # session-id reverse-lookup. Persisted now so it is there
+                # when a reader needs it.
+                "task_id": str(payload.get("env", {}).get("MAEL_TASK_ID", "")),
+                "cwd": str(payload.get("cwd") or ""),
+                "model": str(payload.get("model") or ""),
+                "mode": str(payload.get("mode") or "normal"),
+            }
+            self._agents[agent_id] = agent
+            await self.agents.save(agent)
+        if command == "set-mode" and reply.get("ok"):
+            agent_id = str(payload.get("id", ""))
+            if agent := self._agents.get(agent_id):
+                agent["mode"] = str(payload.get("mode") or agent["mode"])
+                await self.agents.save(agent)
+        if command == "stop" and reply.get("ok"):
+            agent_id = str(payload.get("id", ""))
+            self._agents.pop(agent_id, None)
+            self._harnesses.pop(agent_id, None)
+            await self.agents.remove(agent_id)
+        return reply
 
     def attach(
         self, agent_id: str, from_seq: int = 0, epoch: str = ""
     ) -> AsyncIterator[dict[str, Any]]:
-        """Stream one agent's events: the backlog, the marker, then live events.
+        client = (
+            self.codex
+            if self._harnesses.get(agent_id) == HARNESS_CODEX
+            else self.claude
+        )
+        return client.attach(agent_id, from_seq, epoch)
 
-        With a cursor — ``from_seq`` and the ``epoch`` it belongs to — the
-        backlog holds only what came after it. The stream ends when the host
-        closes it — after the exit marker, or because the host went away. An
-        unknown agent yields one ``error`` dict.
-        """
-        ...
+    def _client_for(self, payload: dict[str, Any]) -> tuple[DaemonClient, str]:
+        if payload.get("cmd") == "start":
+            model = str(payload.get("model") or "")
+            harness = resolve_model_reference(model).harness
+            if harness == HARNESS_CODEX:
+                return self.codex, harness
+            if harness == HARNESS_CLAUDE:
+                return self.claude, harness
+            raise ValueError(f"The {harness} daemon is not available.")
+        harness = self._harnesses.get(str(payload.get("id", "")), HARNESS_CLAUDE)
+        return (
+            (self.codex, harness)
+            if harness == HARNESS_CODEX
+            else (self.claude, harness)
+        )
+
+    async def _restore(self) -> None:
+        if self._restored:
+            return
+        self._restored = True
+        agents = await self.agents.list()
+        self._agents = {str(agent["id"]): agent for agent in agents if agent.get("id")}
+        restore = getattr(self.codex, "restore", None)
+        if restore is not None:
+            await restore(agents)
+        for agent_id, agent in self._agents.items():
+            if agent.get("harness"):
+                self._harnesses[agent_id] = str(agent["harness"])
+
+
+def _stored_agent_row(
+    agent: dict[str, Any], live: dict[str, Any] | None
+) -> dict[str, Any]:
+    """The canonical Agent record with fresh harness state when available.
+
+    A stored agent absent from the daemon's own ``list`` (killed outside
+    ``mael agent stop``, or reaped by ``gc``) is reported ``exited`` rather
+    than left with no ``state`` at all: the server's reconcile loop only
+    retires an agent whose id disappears from ``list``, and a stored id never
+    does that on its own.
+    """
+    return {
+        "state": "exited",
+        **(live or {}),
+        "id": agent["id"],
+        "session": agent["task_session_id"],
+        "cwd": agent["cwd"],
+        "model": agent["model"],
+        "mode": agent["mode"],
+    }
 
 
 _END = object()

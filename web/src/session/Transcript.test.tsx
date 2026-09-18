@@ -23,6 +23,22 @@ const said = (
 });
 
 describe('Transcript', () => {
+  it('shows an unsupported Codex event as expandable JSON', () => {
+    const item: TranscriptItem = {
+      id: 'item-raw' as TranscriptItem['id'],
+      ts: '2026-09-01T00:00:00Z',
+      type: 'raw_event',
+      method: 'item/started',
+      params: { threadId: 'thread-1', item: { type: 'agentMessage' } },
+    };
+
+    render(<Transcript items={[item]} truncatedBefore={false} />);
+
+    expect(screen.getByTestId('raw-event')).toHaveTextContent(
+      'Codex · item/started{ "threadId": "thread-1"',
+    );
+  });
+
   it('renders one card per item of a normalised fixture, in order and typed by item', () => {
     const items = goldenItems('plan-review.jsonl');
     render(<Transcript items={items} truncatedBefore={false} />);

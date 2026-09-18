@@ -113,7 +113,9 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, SqliteDeskStore)
     assert orchestrator.worktrees.projects_dir == projects_dir
-    assert orchestrator.daemon.socket_path == f"{tmp_path / 'root'}/agent-daemon.sock"
+    assert orchestrator.daemon.claude.socket_path == (
+        f"{tmp_path / 'root'}/agent-daemon.sock"
+    )
     assert opened is setup
     open_wt.assert_called_once()
     assert open_wt.call_args.args[:3] == (

@@ -16,10 +16,14 @@ from pathlib import Path
 
 import click
 
+from .agent_store import SqliteAgentStore
 from .agent_transport import SocketAsyncDaemonClient, daemon_paths
+from .codex_bridge import CodexBridge
+from .codex_daemon import CodexDaemonClient
 from .context import load_global_config
 from .desk_store import SqliteDeskStore
 from .notebook_root import NotebookRootUnset
+from .orchestrator.daemon_bridge import DaemonRouter
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
 from .orchestrator.sources import (
@@ -100,7 +104,11 @@ def build_orchestrator(
         open_worktree=open_worktree,
     )
     worktrees = ListAllWorktreeSource(projects_dir, close=close_worktree)
-    daemon = SocketAsyncDaemonClient(str(daemon_paths().socket))
+    daemon = DaemonRouter(
+        SocketAsyncDaemonClient(str(daemon_paths().socket)),
+        CodexDaemonClient(CodexBridge()),
+        SqliteAgentStore(state_db),
+    )
     return Orchestrator(
         tasks,
         worktrees,

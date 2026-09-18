@@ -111,16 +111,20 @@ def _mode_args(harness: str, mode: str) -> tuple[str, ...]:
         return () if mode == "normal" else ("--permission-mode", mode)
     if harness == HARNESS_OPENCODE:
         return ("--auto",) if mode == "auto" else ()
+    options = codex_thread_start_options(mode)
+    args = ("--sandbox", str(options["sandbox"]))
+    if approval_policy := options.get("approvalPolicy"):
+        args += ("--ask-for-approval", str(approval_policy))
+    return args
+
+
+def codex_thread_start_options(mode: str) -> dict[str, str]:
+    """Map Maelstrom's Agent mode onto Codex thread-start settings."""
     if mode == "plan":
-        return ("--sandbox", "read-only")
+        return {"sandbox": "read-only"}
     if mode == "auto":
-        return (
-            "--sandbox",
-            "workspace-write",
-            "--ask-for-approval",
-            "on-request",
-        )
-    return ("--sandbox", "workspace-write")
+        return {"sandbox": "workspace-write", "approvalPolicy": "on-request"}
+    return {"sandbox": "workspace-write"}
 
 
 def resolve_transport(*, cli: bool = False, daemon: bool = False) -> str:

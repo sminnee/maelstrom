@@ -152,6 +152,13 @@ export interface ShellItem extends Base {
   status: ToolCallStatus;
 }
 
+/** An unsupported harness event, retained until it has a native Session card. */
+export interface RawEventItem extends Base {
+  type: 'raw_event';
+  method: string;
+  params: Record<string, unknown>;
+}
+
 export type TranscriptItem =
   | MessageItem
   | ToolCallItem
@@ -166,7 +173,8 @@ export type TranscriptItem =
   | GapItem
   | SkillItem
   | TaskNotificationItem
-  | ShellItem;
+  | ShellItem
+  | RawEventItem;
 
 export interface Transcript {
   agentId: AgentId;

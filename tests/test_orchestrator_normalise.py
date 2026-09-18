@@ -238,6 +238,32 @@ def types(replayed: Replayed) -> list[str]:
     return [item["type"] for item in replayed.items]
 
 
+def test_codex_event_is_a_raw_transcript_fallback() -> None:
+    state = seed([make_agent(id="ag1")])
+
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        {
+            "type": "codex_raw",
+            "method": "item/started",
+            "params": {"threadId": "thread-1", "item": {"type": "agentMessage"}},
+        },
+        NOW,
+    )
+
+    assert out.events[0]["item"] == {
+        "type": "raw_event",
+        "method": "item/started",
+        "params": {
+            "threadId": "thread-1",
+            "item": {"type": "agentMessage"},
+        },
+        "id": "ag1-1",
+        "ts": NOW,
+    }
+
+
 def agent_of(replayed: Replayed) -> dict:
     return replayed.state["world"]["agents"]["ag1"]
 

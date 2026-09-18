@@ -13,6 +13,7 @@ from maelstrom.harness_model import (
     HARNESS_OPENCODE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
+    codex_thread_start_options,
     resolve_execute_model,
     resolve_model_reference,
     resolve_transport,
@@ -58,6 +59,15 @@ def test_codex_mode_settings_never_request_an_interactive_plan_mode():
         "--ask-for-approval",
         "on-request",
     )
+
+
+def test_codex_thread_start_options_matches_the_cli_mode_args():
+    assert codex_thread_start_options("plan") == {"sandbox": "read-only"}
+    assert codex_thread_start_options("normal") == {"sandbox": "workspace-write"}
+    assert codex_thread_start_options("auto") == {
+        "sandbox": "workspace-write",
+        "approvalPolicy": "on-request",
+    }
 
 
 def test_transport_defaults_to_cli_and_only_accepts_the_two_values():

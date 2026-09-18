@@ -153,12 +153,14 @@
 }
 /* The same ledger row a tool call draws: both are collapsed disclosures of
    something the agent did, so neither outranks the prose between them. */
-.skill {
+.skill,
+.rawEvent {
   border: 1px solid transparent;
   border-radius: var(--radius);
   color: var(--fg-faint);
 }
-.skill[open] {
+.skill[open],
+.rawEvent[open] {
   border-color: var(--border);
   background: var(--bg-sunken);
   color: var(--fg-muted);
@@ -178,4 +180,20 @@
 .skillName {
   font-family: var(--mono);
   font-weight: var(--weight-semibold);
+}
+.rawEventHead {
+  padding: 3px var(--space-2);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-ui);
+}
+.rawJson {
+  overflow-x: auto;
+  margin: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-ui);
+  white-space: pre;
 }
