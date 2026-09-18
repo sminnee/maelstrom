@@ -216,7 +216,7 @@ describe('the task list', () => {
     expect(patch!.body).toMatchObject({ command: 'plan-task', mode: 'normal' });
   });
 
-  it('lists same-project tasks to follow, checked for what the task already follows', async () => {
+  it('shows a chip for what the task already follows, offering the rest to add', async () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
@@ -226,17 +226,16 @@ describe('the task list', () => {
     const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
     await user.click(within(editor).getByText('Advanced'));
 
-    expect(
-      within(editor).getByRole('checkbox', { name: /NORT-9\b.*Migrate to Postgres 16/ }),
-    ).toBeChecked();
-    expect(
-      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
-    ).not.toBeChecked();
-    // A task cannot follow itself.
-    expect(within(editor).queryByRole('checkbox', { name: /NORT-9\.1\b/ })).toBeNull();
+    expect(within(editor).getByText('Migrate to Postgres 16')).toBeInTheDocument();
+    const follows = within(editor).getByRole('combobox', { name: 'Follows' });
+    await user.click(follows);
+    expect(within(editor).getByRole('option', { name: /Rotate auth tokens/ })).toBeInTheDocument();
+    // A task cannot follow itself, and cannot offer what it already follows.
+    expect(within(editor).queryByRole('option', { name: /Watch the migration PR/ })).toBeNull();
+    expect(within(editor).queryByRole('option', { name: /Migrate to Postgres 16/ })).toBeNull();
   });
 
-  it('writes the follows list when a checkbox is checked', async () => {
+  it('writes the follows list when an offered task is chosen', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToList(user);
@@ -244,7 +243,8 @@ describe('the task list', () => {
 
     const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
     await user.click(within(editor).getByText('Advanced'));
-    await user.click(within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }));
+    await user.click(within(editor).getByRole('combobox', { name: 'Follows' }));
+    await user.click(within(editor).getByRole('option', { name: /Rotate auth tokens/ }));
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -252,7 +252,7 @@ describe('the task list', () => {
     expect(patch!.body).toMatchObject({ follows: ['NORT-9', 'NORT-12'] });
   });
 
-  it('writes the follows list when a checkbox is unchecked', async () => {
+  it('writes the follows list when a chip is removed', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToList(user);
@@ -261,9 +261,7 @@ describe('the task list', () => {
     // NORT-9.1 already follows NORT-9.
     const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
     await user.click(within(editor).getByText('Advanced'));
-    await user.click(
-      within(editor).getByRole('checkbox', { name: /NORT-9\b.*Migrate to Postgres 16/ }),
-    );
+    await user.click(within(editor).getByRole('button', { name: 'Remove Migrate to Postgres 16' }));
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -417,12 +415,10 @@ describe('the task list', () => {
     });
     expect(within(editor).queryByRole('button', { name: 'Save' })).toBeNull();
     expect(within(editor).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
-    // The planning radios and the follows checkboxes lock too: both sit in a
-    // fieldset, not a field `locked()` reads.
+    // The planning radios lock, in a fieldset `locked()` does not read; Follows
+    // locks like `ComboBox`'s own fields, as a readonly combobox.
     expect(within(editor).getByRole('radio', { name: 'None' })).toBeDisabled();
-    expect(
-      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
-    ).toBeDisabled();
+    expect(within(editor).getByRole('combobox', { name: 'Follows' })).toHaveAttribute('readonly');
   });
 
   it('pressing Edit unlocks the fields and offers Save', async () => {
@@ -435,9 +431,9 @@ describe('the task list', () => {
     await user.click(within(editor).getByText('Advanced'));
     expect(Object.values(locked(editor)).filter(Boolean)).toEqual([]);
     expect(within(editor).getByRole('radio', { name: 'None' })).toBeEnabled();
-    expect(
-      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
-    ).toBeEnabled();
+    expect(within(editor).getByRole('combobox', { name: 'Follows' })).not.toHaveAttribute(
+      'readonly',
+    );
     expect(within(editor).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 

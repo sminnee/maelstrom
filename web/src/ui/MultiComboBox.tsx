@@ -1,29 +1,20 @@
-import { useMemo } from 'react';
-import styles from './ComboBox.module.css';
+import { useMemo, useState } from 'react';
+import type { ComboOption } from './ComboBox';
+import styles from './MultiComboBox.module.css';
 import { useComboBoxOffer } from './useComboBoxOffer';
 
-/** One row of the offer. `label` names the value; the field shows the value alone. */
-export interface ComboOption {
-  value: string;
-  label?: string;
-}
-
 /**
- * A text field that offers a list, and keeps anything else typed.
+ * A text field that picks many values from a list, shown as removable chips.
  *
- * A row shows `value` and `label`; the field submits the value alone, so an
- * id-shaped option is choosable by its words. `<datalist>` cannot do this — an
- * option's `value` is both what shows and what submits.
+ * Unlike `ComboBox`, the typed text is never itself a value: there is no
+ * single free-text field to keep, so a choice must come from the list. Picking
+ * a row appends it and clears the filter, keeping the offer open for the next
+ * pick — repeated choosing, not choose-and-close.
  *
- * The offer narrows to what is typed and closes when nothing matches, so a
- * free-text value is never blocked by an empty box. Use a `<select>` instead
- * where free text is not a legal answer.
- *
- * The offer is a popover, so it draws in the top layer and no scrolling
- * ancestor clips it — the dialogs that hold this control all scroll. CSS
- * anchors it to the field; see `useAnchorName` for the pair.
+ * An option already chosen drops out of the offer, so the list only ever
+ * shows what is still choosable.
  */
-export function ComboBox({
+export function MultiComboBox({
   value,
   options,
   onChange,
@@ -31,22 +22,28 @@ export function ComboBox({
   placeholder,
   readOnly,
 }: {
-  value: string;
+  value: readonly string[];
   options: readonly ComboOption[];
-  onChange: (value: string) => void;
+  onChange: (value: string[]) => void;
   id?: string;
   placeholder?: string;
-  /** Shows the value without offering to change it. The offer never opens. */
+  /** Shows the chips without offering to change them. The offer never opens. */
   readOnly?: boolean;
 }) {
+  const [text, setText] = useState('');
+
+  const byLabel = useMemo(() => new Map(options.map((o) => [o.value, o])), [options]);
+
   const offered = useMemo(() => {
-    const needle = value.trim().toLowerCase();
-    if (!needle) return options;
-    return options.filter(
-      (o) =>
-        o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle),
-    );
-  }, [options, value]);
+    const needle = text.trim().toLowerCase();
+    return options.filter((o) => {
+      if (value.includes(o.value)) return false;
+      if (!needle) return true;
+      return (
+        o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle)
+      );
+    });
+  }, [options, value, text]);
 
   const {
     open,
@@ -65,18 +62,16 @@ export function ComboBox({
   } = useComboBoxOffer(offered.length);
 
   const choose = (option: ComboOption) => {
-    onChange(option.value);
-    setOpen(false);
+    onChange([...value, option.value]);
+    setText('');
     setActive(-1);
   };
+
+  const remove = (id: string) => onChange(value.filter((v) => v !== id));
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (!open) return;
-      // `preventDefault` is what holds the dialog open: a modal dialog closes on
-      // Escape unless the key was default-prevented, and `stopPropagation` does
-      // not reach that. Both are needed -- one press dismisses the offer, and a
-      // second closes the dialog.
       e.stopPropagation();
       e.preventDefault();
       setOpen(false);
@@ -88,7 +83,6 @@ export function ComboBox({
       if (!offered.length) return;
       if (readOnly) return;
       setOpen(true);
-      // Wraps. Unwalked (-1), Down opens on the first row and Up on the last.
       const step = e.key === 'ArrowDown' ? 1 : -1;
       setActive((was) =>
         was < 0
@@ -104,6 +98,14 @@ export function ComboBox({
       if (!row) return;
       e.preventDefault();
       choose(row);
+      return;
+    }
+    // Removes the last chip on Backspace over an empty filter, the way a
+    // browser's own multi-value inputs (email `To:`) let a chip be undone
+    // without reaching for the mouse.
+    if (e.key === 'Backspace' && text === '' && value.length > 0) {
+      if (readOnly) return;
+      remove(value[value.length - 1]!);
     }
   };
 
@@ -111,12 +113,32 @@ export function ComboBox({
     <div
       className={styles.box}
       ref={box}
-      // A blur inside the box is a move between its own parts; one that lands
-      // outside has left the control.
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
       }}
     >
+      {value.length > 0 && (
+        <ul className={styles.chips}>
+          {value.map((v) => {
+            const option = byLabel.get(v);
+            return (
+              <li key={v} className={styles.chip}>
+                <span>{option?.label ?? v}</span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className={styles.remove}
+                    aria-label={`Remove ${option?.label ?? v}`}
+                    onClick={() => remove(v)}
+                  >
+                    ×
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <input
         id={id}
         ref={input}
@@ -129,15 +151,12 @@ export function ComboBox({
         autoComplete="off"
         placeholder={placeholder}
         readOnly={readOnly}
-        value={value}
+        value={text}
         onChange={(e) => {
-          onChange(e.target.value);
+          setText(e.target.value);
           setOpen(true);
           setActive(-1);
         }}
-        // Focus alone opens it. A click on a row keeps the focus here and so
-        // reaches this input too -- an `onClick` that opens would undo the
-        // choice the row just made.
         onFocus={() => !readOnly && setOpen(true)}
         onKeyDown={onKeyDown}
       />
@@ -158,9 +177,8 @@ export function ComboBox({
               key={option.value}
               id={`${rowId}-${i}`}
               role="option"
-              aria-selected={option.value === value}
+              aria-selected={false}
               className={i === active ? styles.active : undefined}
-              // The input keeps the focus, so the press must not steal it.
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(option)}

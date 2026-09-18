@@ -1,6 +1,5 @@
 import { useId } from 'react';
-import dialog from '../ui/Dialog.module.css';
-import styles from './NewWork.module.css';
+import styles from '../ui/Dialog.module.css';
 
 /**
  * Which project the work belongs to: a radio per project on the canvas, and
@@ -67,7 +66,7 @@ export function ProjectField({
       </fieldset>
 
       {other && (
-        <div className={dialog.field}>
+        <div className={styles.field}>
           <label htmlFor={otherId}>Other project</label>
           <select id={otherId} value={project} onChange={(e) => setProject(e.target.value)}>
             {rest.map((n) => (

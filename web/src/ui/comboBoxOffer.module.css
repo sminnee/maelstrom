@@ -1,0 +1,45 @@
+/*
+ * The offer list `ComboBox` and `MultiComboBox` share: the anchored popover
+ * itself, its rows, and the active/value/label styling within a row. Each
+ * composes `.list` from here — see `anchoredPopover.module.css` for why the
+ * offsets below stay on the composing module rather than moving here too.
+ */
+.list {
+  composes: anchored from './anchoredPopover.module.css';
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Long lists scroll rather than running off the screen. Each component's
+     `place()` lowers this when the field has less room than this above or
+     below it. */
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+.active {
+  background: var(--bg-hover);
+}
+.value {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+/* The label explains the value, so it gives way first when the row is tight. */
+.label {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
