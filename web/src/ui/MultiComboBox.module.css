@@ -1,0 +1,69 @@
+/*
+ * The field is a plain input: `Dialog.module.css`'s `.field input` rule
+ * dresses it, so this matches the fields either side of it.
+ */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.box input {
+  width: 100%;
+  /* The trigger half of the anchor pair — see `useAnchorName`. */
+  anchor-name: var(--anchor-name);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.remove {
+  font: inherit;
+  line-height: 1;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.remove:hover {
+  color: var(--fg);
+}
+/* The shared offer core — see `comboBoxOffer.module.css`. On the bare class
+   because `composes` needs a simple selector; the offsets below keep their
+   own, per the note in `anchoredPopover.module.css`. */
+.list {
+  composes: list from './comboBoxOffer.module.css';
+}
+.list:popover-open {
+  top: calc(anchor(bottom) + 2px);
+  left: anchor(left);
+  min-width: anchor-size(width);
+}
+.list:popover-open[data-position='top'] {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
+}
+.active {
+  composes: active from './comboBoxOffer.module.css';
+}
+.value {
+  composes: value from './comboBoxOffer.module.css';
+}
+.label {
+  composes: label from './comboBoxOffer.module.css';
+}
