@@ -71,6 +71,27 @@
   resize: none;
   overflow: hidden;
 }
+.kinds {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  border: none;
+}
+.kinds legend {
+  padding: 0;
+}
+.kind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
 .advanced {
   display: flex;
   flex-direction: column;
