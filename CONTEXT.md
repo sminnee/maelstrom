@@ -703,9 +703,11 @@ canvas.
 _Avoid_: Table view, index
 
 **Task editor**:
-The form that edits one task's fields: title, content and branch, with command, mode, priority
-and model folded away. It opens from the task list and writes through `task.update`. A status
-moves through the status picker instead, because status is folder-derived.
+The form that edits one task's fields: title, content and branch, with the planning level shown
+above Advanced, and command, mode, priority, model and follows folded away there. It opens from
+the task list or a task's node on the desk, and writes through `task.update`. A status moves
+through the status picker instead, because status is folder-derived. New work composes the same
+field components, so both surfaces read and order fields the same way.
 _Avoid_: Task modal, edit form, task detail
 
 **Planning level**:
@@ -713,8 +715,9 @@ How much planning a new task gets before it is built: high, regular or none. The
 reading over the task's `command` and `mode`, never stored as a field of its own — high is
 `plan-task` under `normal`, regular is no command under `plan`, none is no command under `auto`.
 High and none mirror `mode_for_command`; regular has no equivalent in Python, where an empty
-command means `auto`. The new-work form offers the three as radios and reads them back off the
-two fields, so editing either field re-derives the level and a pair no level names reads as N/A.
+command means `auto`. New work and the task editor both offer the three as radios and read them
+back off the two fields, so editing either field re-derives the level and a pair no level names
+reads as N/A.
 _Avoid_: Planning depth, plan mode (that is a permission mode), autonomy
 
 **Expanded node**:
