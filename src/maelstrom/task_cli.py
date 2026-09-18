@@ -27,6 +27,7 @@ from .harness_model import (
     HARNESS_CLAUDE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
+    resolve_execute_model,
     resolve_model_reference,
     resolve_transport,
 )
@@ -211,6 +212,13 @@ async def _run_task(
         raise click.ClickException(
             f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
         )
+    if plan.execute_model:
+        # Refused here rather than at the daemon, where the plan is already
+        # approved and the context already cleared.
+        try:
+            resolve_execute_model(plan.execute_model)
+        except ValueError as e:
+            raise click.ClickException(str(e))
     has_session_id = ref.harness == HARNESS_CLAUDE
     session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
@@ -248,6 +256,14 @@ async def _run_task(
             table, project, task.id, model.STATUS_IN_PROGRESS
         )  # write BEFORE launch; fires pre_action
         suffix = " (resuming)" if resume else ""
+        if plan.execute_model:
+            # --here runs the harness in this shell, with no daemon between —
+            # so nothing switches the model when the plan is approved.
+            click.echo(
+                f"Ignoring the execute model {plan.execute_model!r}: --here has "
+                "no daemon to switch it when the plan is approved.",
+                err=True,
+            )
         click.echo(f"Running {task.id} here (current shell){suffix}")
         exec_cmd(
             build_task_launch_line(
@@ -323,6 +339,7 @@ async def _run_task(
         session_id=session_id,
         resume=resume,
         model=plan.model,
+        execute_model=plan.execute_model,
         prompt=plan.prompt,
         harness=harness,
     )
@@ -437,6 +454,15 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
         "Not the same as --parent: --parent shares one branch and one PR, "
         "--base stacks a different branch as its own PR.",
         update_help="Set the branch this task's branch stacks on (pass '' to clear).",
+    ),
+    "execute-model": _Opt(
+        "LLM model to switch to when the session's plan is approved "
+        "(default: none, which keeps the session on --model throughout). "
+        "Claude models only.",
+        update_help=(
+            "Set the model the session switches to on plan approval "
+            "(pass '' to clear, which keeps it on --model throughout)."
+        ),
     ),
 }
 
@@ -624,6 +650,7 @@ async def task_add(
     # is the --model flag's value here, and the body never needs the module.
     model: str,
     base: str,
+    execute_model: str,
     priority: str | None,
     branch: str,
     parent: str,
@@ -648,6 +675,7 @@ async def task_add(
         mode=mode,
         model=model,
         base=base,
+        execute_model=execute_model,
         priority=priority,
         branch=branch,
         parent=parent,
@@ -677,6 +705,8 @@ async def add_task(
     model: str = "",
     # Branch to stack this task's branch on; empty uses the project's stack tip.
     base: str = "",
+    # The model the session switches to on plan approval; empty means no switch.
+    execute_model: str = "",
     priority: str | None = None,
     branch: str = "",
     parent: str = "",
@@ -731,6 +761,7 @@ async def add_task(
                 command=command or None,
                 mode=mode or None,
                 model=model or None,
+                execute_model=execute_model or None,
                 priority=priority,
                 content=content,
                 pre_action=pre_action or None,
@@ -752,6 +783,7 @@ async def add_task(
             mode=mode,
             model=model,
             base=base,
+            execute_model=execute_model,
             priority=priority or task_model.DEFAULT_PRIORITY,
             branch=branch,
             parent=parent,
@@ -792,6 +824,7 @@ def task_draft(
     mode: str,
     model: str,  # the --model flag; shadows the module alias (see add_task)
     base: str,
+    execute_model: str,
     priority: str | None,
     branch: str,
     parent: str,
@@ -819,6 +852,7 @@ def task_draft(
             mode=mode,
             model=model,
             base=base,
+            execute_model=execute_model,
             priority=priority or "",
             branch=branch,
             parent=parent,
@@ -845,6 +879,7 @@ async def task_promote(
     mode: str | None,
     model: str | None,  # the --model flag; shadows the module alias (see add_task)
     base: str | None,
+    execute_model: str | None,
     priority: str | None,
     branch: str | None,
     parent: str | None,
@@ -889,6 +924,7 @@ async def task_promote(
                 "command": command,
                 "mode": mode,
                 "model": model,
+                "execute_model": execute_model,
                 "base": base,
                 "priority": priority,
                 "branch": branch,
@@ -1462,6 +1498,8 @@ async def task_show(id: str, project: str | None) -> None:
     # Code default", which is nothing to report.
     if t.model:
         click.echo(f"model:   {t.model}")
+    if t.execute_model:
+        click.echo(f"execute-model: {t.execute_model}")
     click.echo(f"priority: {t.priority}")
     click.echo(f"branch:  {t.branch}")
     if t.parent:
@@ -1605,6 +1643,7 @@ async def task_update(
     # reaches the model layer via the `task_model` binding (see the imports).
     model: str | None,
     base: str | None,
+    execute_model: str | None,
     priority: str | None,
     pre_action: str | None,
     post_action: str | None,
@@ -1666,6 +1705,7 @@ async def task_update(
             mode=mode,
             model=model,
             base=base,
+            execute_model=execute_model,
             priority=priority,
             pre_action=pre_action,
             post_action=post_action,

@@ -263,6 +263,38 @@ class TestCmdPlan:
         assert created[0].parent == "linear.NORT-123"
         assert created[0].branch == "feat/123-do-thing"
 
+    @patch("maelstrom.integrations.linear.get_issue")
+    async def test_plan_persists_the_execute_model(self, mock_get, monkeypatch):
+        """The flag must reach the task, not merely exist.
+
+        ``cmd_plan`` enumerates ``add_task``'s kwargs by hand, so the shared
+        decorator proves the *flag* is offered while the value can still be
+        dropped on the way through. This asserts on the stored task.
+        """
+        mock_get.return_value = {
+            "identifier": "NORT-123",
+            "title": "Do the thing",
+            "description": "",
+        }
+        store = InMemoryTaskTable()
+
+        async def _table():
+            return store
+
+        monkeypatch.setattr(task_cli, "_table", _table)
+        monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
+        monkeypatch.setattr(
+            task_cli, "_resolve_project", lambda project: project or "p"
+        )
+        runner = ThreadedCliRunner()
+        result = runner.invoke(
+            linear, ["plan", "NORT-123", "--no-run", "--execute-model", "sonnet"]
+        )
+        assert result.exit_code == 0, result.output
+
+        created = await model.list_tasks(store, project="p")
+        assert [t.execute_model for t in created] == ["sonnet"]
+
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 

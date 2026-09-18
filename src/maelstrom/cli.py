@@ -45,7 +45,12 @@ from .github_model import (
     is_open_pr,
     pr_from_row,
 )
-from .harness_model import HARNESS_CLAUDE, TRANSPORT_DAEMON, resolve_model_reference
+from .harness_model import (
+    HARNESS_CLAUDE,
+    TRANSPORT_DAEMON,
+    resolve_execute_model,
+    resolve_model_reference,
+)
 from .integrations.linear import linear
 from .integrations.sentry import sentry
 from .integrations.slack import slack
@@ -125,6 +130,7 @@ async def _finish_add(
     context: AddContext,
     harness: str,
     model: str | None,
+    execute_model: str | None,
     open_editor: bool,
     no_agent: bool,
 ) -> None:
@@ -157,6 +163,7 @@ async def _finish_add(
         context=context,
         harness=harness,
         model=model,
+        execute_model=execute_model,
         no_agent=no_agent,
     ):
         raise click.ClickException("the selected worktree surface did not start")
@@ -341,6 +348,14 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     help="Model reference (for example, opus or codex:terra).",
 )
 @click.option(
+    "--execute-model",
+    "execute_model",
+    default=None,
+    help="Model to switch to when the session's plan is approved "
+    "(default: none, which keeps the session on --model throughout). "
+    "Claude models only.",
+)
+@click.option(
     "-p", "--project", default=None, help="Project name (default: detect from cwd)"
 )
 @click.option(
@@ -364,7 +379,16 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     "Use 'main' to start unstacked.",
 )
 async def cmd_add(
-    branch, project, model, open, no_agent, no_recycle, base, cli, daemon
+    branch,
+    project,
+    model,
+    execute_model,
+    open,
+    no_agent,
+    no_recycle,
+    base,
+    cli,
+    daemon,
 ):
     """Add a new worktree for a branch.
 
@@ -388,10 +412,24 @@ async def cmd_add(
         raise click.UsageError("--no-agent conflicts with --model")
     if open and model is not None:
         raise click.UsageError("--model conflicts with --open")
+    if no_agent and execute_model is not None:
+        raise click.UsageError("--no-agent conflicts with --execute-model")
+    if open and execute_model is not None:
+        raise click.UsageError("--execute-model conflicts with --open")
+    if cli and execute_model is not None:
+        # A CLI session has no daemon, so no `_approve_plan` and nothing to
+        # switch it. Refused rather than warned: `mael add` has no task behind
+        # it, so there is nothing left running that the value could serve.
+        raise click.UsageError("--execute-model conflicts with --cli")
     try:
         model_ref = resolve_model_reference(model)
     except ValueError as e:
         raise click.UsageError(str(e))
+    if execute_model is not None:
+        try:
+            resolve_execute_model(execute_model)
+        except ValueError as e:
+            raise click.UsageError(str(e))
     resolved_harness = resolve_harness_or_fail(cli, daemon)
     if resolved_harness == TRANSPORT_DAEMON and model_ref.harness != HARNESS_CLAUDE:
         raise click.ClickException(
@@ -446,6 +484,7 @@ async def cmd_add(
             context=add_context,
             harness=resolved_harness,
             model=model,
+            execute_model=execute_model,
             open_editor=open,
             no_agent=no_agent,
         )
@@ -520,6 +559,7 @@ async def cmd_add(
         context=add_context,
         harness=resolved_harness,
         model=model,
+        execute_model=execute_model,
         open_editor=open,
         no_agent=no_agent,
     )

@@ -38,6 +38,10 @@ class LaunchPlan:
     branch: str
     #: The task's model, or :data:`~maelstrom.task.DEFAULT_MODEL` when it names none.
     model: str
+    #: The model the session switches to when its plan is approved, raw from the
+    #: task. No default is substituted: empty means no switch, and a fallback to
+    #: ``DEFAULT_MODEL`` here would switch every planning session.
+    execute_model: str
     prompt: str
 
 
@@ -58,6 +62,7 @@ def plan_launch(project: str, task: model.Task) -> LaunchPlan:
         permission_mode=model.permission_mode_for(task.mode),
         branch=task.branch or model.default_branch(task.id, task.parent),
         model=task.model or model.DEFAULT_MODEL,
+        execute_model=task.execute_model,
         prompt=model.build_prompt(task),
     )
 

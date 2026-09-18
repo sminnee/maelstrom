@@ -152,6 +152,29 @@ class TestAddLauncher:
         ]
 
     @pytest.mark.asyncio
+    async def test_the_daemon_receives_the_execute_model_unresolved(self, tmp_path):
+        """Raw, not an alias: the daemon resolves it when the plan is approved,
+        and nothing spends it until then."""
+        client = RecordingDaemonClient(replies=[{"id": "agent-1"}])
+        with patch("maelstrom.worktree_launcher.daemon_client", return_value=client):
+            assert (
+                await start_agent_in_worktree(
+                    tmp_path, model="claude:opus", execute_model="claude:sonnet"
+                )
+                == "agent-1"
+            )
+        assert client.calls[0]["execute_model"] == "claude:sonnet"
+
+    @pytest.mark.asyncio
+    async def test_no_execute_model_sends_no_key(self, tmp_path):
+        """The no-op guarantee, at the wire: an older daemon reads the same
+        payload it always did."""
+        client = RecordingDaemonClient(replies=[{"id": "agent-1"}])
+        with patch("maelstrom.worktree_launcher.daemon_client", return_value=client):
+            await start_agent_in_worktree(tmp_path, model="claude:opus")
+        assert "execute_model" not in client.calls[0]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("model", ["codex:terra", "opencode:kimi"])
     async def test_daemon_rejects_non_claude_models(self, tmp_path, model):
         with pytest.raises(ValueError, match="daemon is not available"):
@@ -173,7 +196,7 @@ class TestAddLauncher:
                 context=AddContext.REGULAR,
                 harness="daemon",
             )
-        start.assert_awaited_once_with(tmp_path, model=None)
+        start.assert_awaited_once_with(tmp_path, model=None, execute_model=None)
         run.assert_not_called()
 
     @pytest.mark.asyncio
