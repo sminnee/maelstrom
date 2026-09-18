@@ -46,6 +46,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     priority: 'medium',
     model: '',
     base: '',
+    executeModel: '',
     content: '',
     steps: [],
     log: [],

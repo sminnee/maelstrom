@@ -44,7 +44,15 @@ _USER_ATTENTION_TAG = re.compile(r"<user-attention(?:\s+[^>]*)?>")
 
 #: The recipe fields a reader approving a chain needs: they decide how the task
 #: runs. The rest of the frontmatter is identity, and a draft leaves it empty.
-_RECIPE = ("mode", "model", "command", "priority", "pre_action", "post_action")
+_RECIPE = (
+    "mode",
+    "model",
+    "execute_model",
+    "command",
+    "priority",
+    "pre_action",
+    "post_action",
+)
 
 
 def _as_plan(text: str) -> str:

@@ -33,6 +33,7 @@ function task(over: Partial<Task> = {}): Task {
     priority: 'medium',
     model: '',
     base: '',
+    executeModel: '',
     content: '',
     steps: [],
     log: [],

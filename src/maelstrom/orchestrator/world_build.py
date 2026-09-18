@@ -108,6 +108,7 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
         "priority": task.priority,
         "model": task.model,
         "base": task.base,
+        "executeModel": task.execute_model,
         "content": task.content.strip(),
         "steps": parse_steps(task.steps),
         "log": parse_log(task.log),

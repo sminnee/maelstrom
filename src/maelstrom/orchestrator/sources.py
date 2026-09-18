@@ -24,6 +24,7 @@ from .. import task_actions
 from ..agent_model import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
 from ..github_model import PrStatus, RateLimited, pr_from_row
+from ..harness_model import resolve_execute_model
 from ..list_all import build_list_all_data
 from ..session_discovery import LiveSessionSet
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
@@ -323,6 +324,14 @@ class NotebookTaskSource:
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
         plan = plan_launch(task.project, task)
+        if plan.execute_model:
+            # The board's launch reaches the daemon without passing `validate`,
+            # which guards the free-agent path only. Refused here for the same
+            # reason the CLI refuses it: after approval the context is gone.
+            try:
+                resolve_execute_model(plan.execute_model)
+            except ValueError as exc:
+                raise LaunchBlocked(str(exc)) from exc
         check_not_live(task.id, plan.session_id, self.live_sessions())
         setup = self.open_worktree(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
@@ -332,6 +341,7 @@ class NotebookTaskSource:
             prompt=plan.prompt,
             permission_mode=plan.permission_mode,
             model=model_name or plan.model,
+            execute_model=plan.execute_model,
             session_id=plan.session_id,
             env=plan.env,
             # A task that has run before already owns its session id.

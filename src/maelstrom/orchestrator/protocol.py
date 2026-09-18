@@ -81,6 +81,7 @@ class Task(TypedDict):
     priority: str
     model: str
     base: str
+    executeModel: str
     content: str
     steps: list[TaskStep]
     log: list[TaskLogEntry]
@@ -109,6 +110,7 @@ class TaskRow(TypedDict):
     priority: str
     model: str
     base: str
+    executeModel: str
     steps: list[TaskStep]
     created: str
     updated: str

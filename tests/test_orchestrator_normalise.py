@@ -1485,6 +1485,19 @@ def test_a_task_set_shows_the_recipe_the_user_is_approving():
     assert not doc["markdown"].lstrip().startswith("---")
 
 
+def test_a_task_set_shows_the_execute_model_in_its_recipe():
+    """It decides how the task runs -- which model builds it -- so a reader
+    approving the chain has to see it alongside the model it plans on."""
+    draft = task_model.draft_markdown(
+        title="Execute: demo",
+        model="opus",
+        execute_model="sonnet",
+        content="Body.",
+    )
+    doc = show_file("tasks", "iter1.md", draft)
+    assert "execute-model: sonnet" in doc["markdown"]
+
+
 def test_a_task_set_whose_draft_will_not_parse_is_still_shown():
     """A draft the user must fix is exactly the one they need to read."""
     doc = show_file("tasks", "iter1.md", '---\ntitle: "unclosed\n---\n\nBody.\n')

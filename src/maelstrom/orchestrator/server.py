@@ -1533,6 +1533,7 @@ class Orchestrator:
             "prompt": command["prompt"],
             "mode": model_permission_mode(command.get("mode", "")),
             "model": command.get("model") or None,
+            "execute_model": command.get("executeModel") or None,
             "resume": False,
         }
         reply = await self.daemon.request(payload)
