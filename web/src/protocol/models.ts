@@ -22,6 +22,12 @@ export const MODELS = [
 ] as const;
 
 /**
+ * The models an execute-model form offers: the Claude harnesses
+ * `resolve_execute_model` can switch to, a subset of `MODELS`.
+ */
+export const EXECUTE_MODELS = MODELS.filter((model) => model.startsWith('claude:'));
+
+/**
  * The unset model. The launch substitutes the default for it, so a form must be
  * able to say it — `docs/guide/planning.md` asks for it on execute drafts.
  */

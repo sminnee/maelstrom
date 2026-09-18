@@ -17,6 +17,7 @@ export interface TaskEdit {
   mode?: TaskMode;
   priority?: string;
   model?: string;
+  executeModel?: string;
   /** Every id the task follows, in full: the write replaces the list. */
   follows?: TaskId[];
 }
@@ -50,6 +51,7 @@ export interface AgentStart {
   prompt: string;
   mode: TaskMode;
   model?: string;
+  executeModel?: string;
 }
 
 /** The server's refusal codes, plus the two the client makes for itself. */
