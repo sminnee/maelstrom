@@ -138,6 +138,46 @@ async def test_a_task_outside_the_read_projects_is_left_out(table):
     assert [t["id"] for t in changed.tasks] == []
 
 
+async def test_update_renames_the_wire_s_execute_model_key(table):
+    """``executeModel`` on the wire lands on ``execute_model`` in the notebook.
+
+    The one field whose wire and model spelling differ — see
+    ``WIRE_RENAMES`` in ``validate.py``.
+    """
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    source = a_source(table)
+
+    await source.update(f"{PROJECT}/NORT-7", {"executeModel": "claude:opus"})
+
+    task = await model.load(table, PROJECT, "NORT-7")
+    assert task.execute_model == "claude:opus"
+
+
+async def test_update_drops_a_field_outside_editable(table):
+    """A field the wire filter does not name never reaches the notebook."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    source = a_source(table)
+
+    await source.update(f"{PROJECT}/NORT-7", {"status": "done", "title": "Shipped"})
+
+    task = await model.load(table, PROJECT, "NORT-7")
+    assert task.title == "Shipped"
+    assert task.status != "done"
+
+
+async def test_create_renames_the_wire_s_execute_model_key(table):
+    """``task.create`` renames ``executeModel`` the same way ``update`` does."""
+    source = a_source(table)
+
+    wire_id = await source.create(
+        PROJECT, {"title": "Ship it", "executeModel": "claude:sonnet"}
+    )
+
+    _, notebook_id = wire_id.split("/", 1)
+    task = await model.load(table, PROJECT, notebook_id)
+    assert task.execute_model == "claude:sonnet"
+
+
 def test_a_row_id_is_already_the_wire_id_for_a_task():
     """A task's row id and its wire id are the same string, and that is load-bearing.
 
