@@ -53,6 +53,7 @@ from .agent_server import (
     kill_groups,
 )
 from .agent_spec_store import JsonAgentSpecStore
+from .agent_store import SqliteAgentStore, register_agent
 from .agent_transport import (
     KIND_UNREACHABLE,
     AsyncDaemonClient,
@@ -69,6 +70,9 @@ from .context import resolve_context
 from .env import format_uptime
 from .harness_model import resolve_execute_model
 from .session_discovery import ProcessTableUnavailable, list_claude_processes
+from .state_db.migrate import open_state_db
+from .state_db.paths import get_state_db_path
+from .state_db.types import StateDbError
 from .table import draw_table
 
 #: Columns ``mael agent list`` prints, in order.
@@ -742,6 +746,47 @@ async def cmd_set_mode(agent_id: str, mode: str) -> None:
 async def cmd_stop(agent_id: str) -> None:
     """Stop an agent."""
     await _send({"cmd": "stop", "id": agent_id})
+
+
+@agent.command("register")
+@click.argument("agent_id")
+@click.option(
+    "--task-id",
+    default="",
+    help="The Task id this agent belongs to.",
+)
+async def cmd_register(agent_id: str, task_id: str) -> None:
+    """Adopt a live agent that has no Agent record.
+
+    Every other `mael agent` command speaks only to the daemon socket. This
+    one also opens the state database, because store-as-truth means an agent
+    live on a daemon with no record is invisible to `list` — see
+    ``daemon_bridge.DaemonRouter``. That extra dependency is the honest cost
+    of adopting one after the fact.
+
+    This socket is the Claude agent daemon, the only harness `mael agent`
+    reaches, so the harness is always ``claude`` — see
+    :func:`maelstrom.agent_store.register_agent`.
+    """
+    reply = await _daemon_at(None).request({"cmd": "list"})
+    if "error" in reply:
+        click.echo(f"Error: {reply['error']}", err=True)
+        sys.exit(1)
+    row = next((r for r in reply.get("agents", []) if r.get("id") == agent_id), None)
+    if row is None:
+        click.echo(f"Error: no live agent {agent_id!r}.", err=True)
+        sys.exit(1)
+    path = get_state_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = open_state_db(path)
+    try:
+        try:
+            await db.check()
+        except StateDbError as exc:
+            raise click.ClickException(str(exc)) from exc
+        await register_agent(SqliteAgentStore(db), agent_id, row, task_id)
+    finally:
+        db.close()
 
 
 @agent.command("resume")
