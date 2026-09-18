@@ -238,6 +238,16 @@ describe('new work', () => {
     await waitFor(() => expect(suggest).not.toHaveAttribute('aria-busy'));
   });
 
+  it('shows Title above the prose field, matching the task editor', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    const title = within(form).getByLabelText('Title');
+    const prose = within(form).getByLabelText('What needs doing?');
+    // DOCUMENT_POSITION_FOLLOWING on `prose` means `title` comes first.
+    expect(title.compareDocumentPosition(prose) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('lets every field the form named stay editable', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

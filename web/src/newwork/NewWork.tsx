@@ -528,6 +528,10 @@ function Capture({
 
       {kind === 'linear' && <LinearFields project={project} issue={issue} setIssue={setIssue} />}
 
+      {/* Title first, matching the task editor's order — see
+          `tasklist/TaskFields.tsx`. */}
+      {kind === 'task' && <TaskTitleField draft={task} onChange={patchTask} />}
+
       {kind !== 'linear' && (
         <div className={dialog.field}>
           <label htmlFor={draftId}>What needs doing?</label>
@@ -582,9 +586,6 @@ function Capture({
           fields are -- see `tasklist/TaskFields.tsx`. */}
       {kind === 'task' && (
         <>
-          {/* The title alone: the prose field above already asks what needs
-              doing, and that prose is the task's content. */}
-          <TaskTitleField draft={task} onChange={patchTask} />
           <div className={styles.branchRow}>
             <label className={dialog.field}>
               <span>Branch</span>
