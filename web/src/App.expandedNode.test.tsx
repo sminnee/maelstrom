@@ -295,6 +295,28 @@ describe('the expanded node', () => {
       .find((b) => statuses.has(b.textContent ?? ''));
     expect(opener).toBeUndefined();
   });
+
+  it('opens the task editor from the card, the same dialog the task list opens', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9');
+
+    await user.click(within(expanded()).getByRole('button', { name: 'Edit task' }));
+
+    const editor = await screen.findAllByRole('dialog', { name: 'Migrate to Postgres 16' });
+    // The card is one dialog, the editor another; the editor's Title field is
+    // what proves the second one opened.
+    expect(editor).toHaveLength(2);
+    const withTitle = editor.find((d) => within(d).queryByLabelText('Title'));
+    expect(withTitle).toBeDefined();
+    expect(within(withTitle!).getByLabelText('Title')).toHaveValue('Migrate to Postgres 16');
+  });
+
+  it('has no Edit task button on a free agent, which has no task to open', async () => {
+    await renderApp();
+    clickNode('f2c6a9d4');
+    expect(within(expanded()).queryByRole('button', { name: 'Edit task' })).toBeNull();
+  });
 });
 
 /** Put NORT-9's agent's last message `minutesAgo`, in whatever `state`. */
