@@ -299,6 +299,10 @@ describe('new work', () => {
     await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
     await user.selectOptions(within(form).getByLabelText('Mode'), 'auto');
     await user.selectOptions(within(form).getByLabelText('Model'), 'claude:fable');
+    // The fake host validates `executeModel` the way `validate.py` does but,
+    // like the model, never echoes it back on the started `Agent` — it is a
+    // fire-once launch parameter, not part of the agent's own wire entity.
+    await user.selectOptions(within(form).getByLabelText('Execute Model'), 'claude:sonnet');
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());

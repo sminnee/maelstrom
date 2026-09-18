@@ -175,6 +175,7 @@ function seed(task: Task): TaskDraft {
     mode: task.mode,
     priority: task.priority,
     model: task.model,
+    executeModel: task.executeModel,
   };
 }
 

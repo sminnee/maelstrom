@@ -14,6 +14,7 @@ import { fieldsForLevel } from '../protocol/planningLevel';
 import { projectsInView } from '../selectors/projectsInView';
 import type { TaskDraft } from '../tasklist/TaskFields';
 import {
+  ExecuteModelSelect,
   ModeSelect,
   ModelSelect,
   TaskAdvancedFields,
@@ -68,6 +69,7 @@ interface Captured {
   branch: string;
   mode: PermissionMode;
   model: string;
+  executeModel: string;
   attached: Attachment[];
   /**
    * Groups this dialog's images in the task repo. Minted once and then held: a
@@ -81,6 +83,7 @@ interface Captured {
   priority: string;
   taskMode: PermissionMode;
   taskModel: string;
+  taskExecuteModel: string;
 }
 
 /**
@@ -98,6 +101,7 @@ const initialCaptured: Captured = {
   branch: '',
   mode: MODES[0],
   model: DEFAULT_MODEL,
+  executeModel: UNSET_MODEL,
   attached: [],
   bucket: '',
   title: '',
@@ -105,6 +109,7 @@ const initialCaptured: Captured = {
   priority: 'medium',
   taskMode: DEFAULT_LEVEL_FIELDS.mode,
   taskModel: UNSET_MODEL,
+  taskExecuteModel: UNSET_MODEL,
 };
 
 /** A bucket for a dialog that has none held yet. */
@@ -138,8 +143,8 @@ export function NewWork() {
   // embeds the bucket, so a re-minted bucket would make removing a thumbnail a
   // silent no-op and send the agent a link to an image it never got.
   const [captured, setCaptured, release] = useRetained(retainedKey.newWork(), initialCaptured);
-  const { kind, issue, draft, branch, mode, model, attached } = captured;
-  const { title, command, priority, taskMode, taskModel } = captured;
+  const { kind, issue, draft, branch, mode, model, executeModel, attached } = captured;
+  const { title, command, priority, taskMode, taskModel, taskExecuteModel } = captured;
   // One bucket for the dialog's whole life. State with a
   // lazy initialiser, so it is settled once on mount: an expression like
   // `held || mintBucket()` in the render yields a new directory every pass until
@@ -179,6 +184,7 @@ export function NewWork() {
     mode: taskMode,
     priority,
     model: taskModel,
+    executeModel: taskExecuteModel,
   };
   const patchTask = (fields: Partial<TaskDraft>) =>
     setCaptured((was) => ({
@@ -190,6 +196,7 @@ export function NewWork() {
       ...(fields.mode !== undefined ? { taskMode: fields.mode } : {}),
       ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
       ...(fields.model !== undefined ? { taskModel: fields.model } : {}),
+      ...(fields.executeModel !== undefined ? { taskExecuteModel: fields.executeModel } : {}),
     }));
 
   // The branches on offer are those with a worktree already open in the
@@ -245,6 +252,7 @@ export function NewWork() {
       prompt: draft,
       mode,
       model,
+      executeModel,
     });
     // Submitted, so the held copy is spent. Before the close, which unmounts the
     // dialog and would otherwise flush what is still in the field.
@@ -324,6 +332,8 @@ export function NewWork() {
         branches={branches}
         model={model}
         setModel={(next) => patch({ model: next })}
+        executeModel={executeModel}
+        setExecuteModel={(next) => patch({ executeModel: next })}
         mode={mode}
         setMode={(next) => patch({ mode: next })}
         bucket={bucket}
@@ -431,6 +441,8 @@ function Capture({
   branches,
   model,
   setModel,
+  executeModel,
+  setExecuteModel,
   mode,
   setMode,
   bucket,
@@ -459,6 +471,8 @@ function Capture({
   branches: string[];
   model: string;
   setModel: (model: string) => void;
+  executeModel: string;
+  setExecuteModel: (model: string) => void;
   mode: PermissionMode;
   setMode: (mode: PermissionMode) => void;
   bucket: string;
@@ -543,10 +557,16 @@ function Capture({
             <span>Mode</span>
             <ModeSelect mode={mode} onChange={setMode} />
           </label>
-          <label className={dialog.field}>
-            <span>Model</span>
-            <ModelSelect model={model} onChange={setModel} />
-          </label>
+          <div className={dialog.row}>
+            <label className={dialog.field}>
+              <span>Model</span>
+              <ModelSelect model={model} onChange={setModel} />
+            </label>
+            <label className={dialog.field}>
+              <span>Execute Model</span>
+              <ExecuteModelSelect model={executeModel} onChange={setExecuteModel} />
+            </label>
+          </div>
         </>
       )}
 
