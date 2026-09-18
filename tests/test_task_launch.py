@@ -62,6 +62,20 @@ def test_a_task_that_names_no_model_launches_on_the_default():
     assert plan_launch("northwind", task).model == model.DEFAULT_MODEL
 
 
+def test_the_execute_model_travels_raw():
+    """Unlike ``model``, no default is substituted: empty means "no switch", and
+    a fallback to DEFAULT_MODEL here would switch every planning session."""
+    task = model.Task(
+        id="NORT-9", title="x", project="northwind", execute_model="claude:sonnet"
+    )
+    assert plan_launch("northwind", task).execute_model == "claude:sonnet"
+
+
+def test_a_task_naming_no_execute_model_plans_an_empty_one():
+    task = model.Task(id="NORT-9", title="x", project="northwind")
+    assert plan_launch("northwind", task).execute_model == ""
+
+
 def test_check_not_live_refuses_a_task_with_a_live_session():
     session = LiveSession(pid=42, cwd=Path("/x"), session_id="s-1")
     live = LiveSessionSet([session])

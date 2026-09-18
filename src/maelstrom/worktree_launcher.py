@@ -98,6 +98,7 @@ async def start_agent_in_worktree(
     session_id: str | None = None,
     resume: bool = False,
     model: str | None = None,
+    execute_model: str | None = None,
     prompt: str = "",
 ) -> str | None:
     """Start a driven agent and return its id without placing a cmux client."""
@@ -116,6 +117,9 @@ async def start_agent_in_worktree(
         session_id=session_id,
         resume=resume,
         model=ref.alias,
+        # Raw, not resolved: the daemon resolves it when the plan is approved,
+        # and nothing spends it until then.
+        execute_model=execute_model,
         prompt=prompt,
     )
     reply = await daemon_client().request(payload)
@@ -138,6 +142,7 @@ async def launch_add_in_worktree(
     context: AddContext,
     harness: str,
     model: str | None = None,
+    execute_model: str | None = None,
     no_agent: bool = False,
 ) -> bool:
     """Select the agent or shell surface for a prepared ``mael add`` worktree."""
@@ -152,7 +157,9 @@ async def launch_add_in_worktree(
                 project, worktree, str(worktree_path), install_cmd=install_cmd
             ):
                 return False
-            agent_id = await start_agent_in_worktree(worktree_path, model=model)
+            agent_id = await start_agent_in_worktree(
+                worktree_path, model=model, execute_model=execute_model
+            )
             if not agent_id:
                 return False
             return mael_layout.add_worktree_agent(
@@ -187,8 +194,11 @@ async def launch_add_in_worktree(
                 context=AddContext.CMUX,
                 harness=harness,
                 model=model,
+                execute_model=execute_model,
             )
-        agent_id = await start_agent_in_worktree(worktree_path, model=model)
+        agent_id = await start_agent_in_worktree(
+            worktree_path, model=model, execute_model=execute_model
+        )
         if agent_id:
             click.echo(f"Agent started: {agent_id}")
             click.echo(f"Attach with: mael agent attach {agent_id}")
@@ -198,7 +208,9 @@ async def launch_add_in_worktree(
         result = subprocess.run([os.environ.get("SHELL", "/bin/sh")], cwd=worktree_path)
         return result.returncode == 0
     if harness == TRANSPORT_DAEMON:
-        agent_id = await start_agent_in_worktree(worktree_path, model=model)
+        agent_id = await start_agent_in_worktree(
+            worktree_path, model=model, execute_model=execute_model
+        )
         if agent_id:
             click.echo(f"Agent started: {agent_id}")
             click.echo(f"Attach with: mael agent attach {agent_id}")
@@ -360,6 +372,7 @@ async def launch_agent_in_worktree(
     *,
     resume: bool = False,
     model: str | None = None,
+    execute_model: str | None = None,
     prompt: str = "",
 ) -> bool:
     """Start a daemon-driven agent, then place a pane that attaches to it.
@@ -390,6 +403,7 @@ async def launch_agent_in_worktree(
         session_id=session_id,
         resume=resume,
         model=model,
+        execute_model=execute_model,
         prompt=prompt,
     )
     if not agent_id:
@@ -415,6 +429,7 @@ async def launch_claude_in_worktree(
     *,
     resume: bool = False,
     model: str | None = None,
+    execute_model: str | None = None,
     prompt: str = "",
     harness: str = TRANSPORT_CLI,
 ) -> bool:
@@ -452,7 +467,17 @@ async def launch_claude_in_worktree(
             session_id=session_id,
             resume=resume,
             model=model,
+            execute_model=execute_model,
             prompt=prompt,
+        )
+    if execute_model:
+        # A CLI session has no daemon, so no `_approve_plan` and nothing to
+        # switch it. Said rather than dropped silently: the user asked for two
+        # models and would otherwise get one with no sign why.
+        click.echo(
+            f"Ignoring the execute model {execute_model!r}: a --cli session "
+            "has no daemon to switch it when the plan is approved.",
+            err=True,
         )
     if not ensure_cmux_running():
         return False

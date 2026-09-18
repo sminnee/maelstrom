@@ -67,6 +67,7 @@ from .agent_transport import client as daemon_client
 from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import format_uptime
+from .harness_model import resolve_execute_model
 from .session_discovery import ProcessTableUnavailable, list_claude_processes
 from .table import draw_table
 
@@ -418,6 +419,13 @@ def _started(stamp: str) -> str:
 @click.option("--mode", default=None, help="Permission mode, e.g. auto or plan.")
 @click.option("--model", default=None, help="Model for the agent.")
 @click.option(
+    "--execute-model",
+    "execute_model",
+    default=None,
+    help="Model to switch to when the agent's plan is approved "
+    "(default: none, which keeps it on --model throughout). Claude models only.",
+)
+@click.option(
     "--session-id",
     "session_id",
     default=None,
@@ -428,15 +436,22 @@ async def cmd_start(
     prompt: str,
     mode: str | None,
     model: str | None,
+    execute_model: str | None,
     session_id: str | None,
 ) -> None:
     """Start an agent in CWD."""
+    if execute_model is not None:
+        try:
+            resolve_execute_model(execute_model)
+        except ValueError as exc:
+            raise click.UsageError(str(exc))
     reply = await _send(
         build_start_payload(
             Path(cwd).resolve(),
             prompt=prompt,
             permission_mode=mode,
             model=model,
+            execute_model=execute_model,
             session_id=session_id,
         )
     )

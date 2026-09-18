@@ -1388,6 +1388,21 @@ class TestRunHere:
         launch.exec.assert_called_once()
         assert f"Running {t.id} here (current shell)" in result.output
 
+    async def test_run_here_says_it_cannot_switch_the_execute_model(
+        self, runner, store, launch
+    ):
+        # --here runs the harness in this shell with no daemon between, so
+        # nothing performs the switch. Said rather than dropped silently: the
+        # user asked for two models and would otherwise get one with no sign why.
+        t = await model.create(
+            store, project="p", title="Here", mode="plan", execute_model="sonnet"
+        )
+        # --cli explicitly: `--here` refuses the daemon transport, which is the
+        # environment's default here.
+        result = runner.invoke(task_cli.task, ["run", t.id, "--here", "--cli"])
+        assert result.exit_code == 0, result.output
+        assert "Ignoring the execute model 'sonnet'" in result.output
+
     @pytest.mark.skip(reason="--harness was removed in favour of --daemon.")
     async def test_run_here_says_it_dropped_an_explicit_daemon_harness(
         self, runner, store, launch

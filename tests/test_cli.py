@@ -1227,6 +1227,7 @@ class TestCmdAddExistingBranch:
                 context="regular",
                 harness="cli",
                 model=None,
+                execute_model=None,
                 no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
@@ -1250,6 +1251,7 @@ class TestCmdAddExistingBranch:
                 context="regular",
                 harness="cli",
                 model=None,
+                execute_model=None,
                 no_agent=False,
             )
             mocks["create_worktree"].assert_not_called()
@@ -2133,6 +2135,25 @@ class TestAddHarness:
         result = CliRunner().invoke(cli, ["add", "feat-x", "--model", "", surface])
         assert result.exit_code != 0
         assert "--model" in result.output
+
+    @pytest.mark.parametrize("flag", ["--open", "--no-agent", "--cli"])
+    def test_execute_model_rejects_surfaces_that_cannot_switch(self, flag):
+        # None of the three reaches `_approve_plan`: --open starts an editor,
+        # --no-agent starts nothing, and --cli has no daemon between. Refused
+        # rather than warned, because `mael add` has no task left running that
+        # the value could still serve.
+        result = CliRunner().invoke(
+            cli, ["add", "feat-x", "--execute-model", "sonnet", flag]
+        )
+        assert result.exit_code != 0
+        assert "--execute-model" in result.output
+
+    def test_execute_model_rejects_a_non_claude_model(self):
+        result = CliRunner().invoke(
+            cli, ["add", "feat-x", "--execute-model", "codex:sol"]
+        )
+        assert result.exit_code != 0
+        assert "must be a Claude model" in result.output
 
     def test_model_rejects_open(self, tmp_path):
         result, _ = self._invoke_add(["--model", "opus", "--open"], tmp_path)
