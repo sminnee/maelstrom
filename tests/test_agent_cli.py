@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import agent_cli, agent_transport
+from maelstrom import admin_cli, agent_cli, agent_transport
 from maelstrom.agent_model import (
     AGENT_EXITED,
     apply_event,
@@ -22,10 +22,12 @@ from maelstrom.agent_model import (
 )
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_stop import stop_agents_in_worktree
+from maelstrom.agent_store import SqliteAgentStore
 from maelstrom.agent_transport import (
     RecordingDaemonClient,
     SocketAsyncDaemonClient,
 )
+from maelstrom.state_db.migrate import open_state_db
 
 
 def _unreachable(root) -> dict:
@@ -140,6 +142,65 @@ def test_set_mode_refuses_a_mode_that_is_not_one_of_the_three():
     result, client = run_cli(["set-mode", "a1", "nonsense"])
     assert result.exit_code != 0
     assert client.calls == []
+
+
+def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
+    """A daemon-only agent, born before this branch, gets a store record."""
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+
+    result, client = run_cli(
+        ["register", "a1", "--task-id", "2026-09-16.4.3"],
+        [
+            {
+                "agents": [
+                    {
+                        "id": "a1",
+                        "session": "task-session-1",
+                        "cwd": "/worktree",
+                        "model": "claude:opus",
+                        "mode": "plan",
+                    }
+                ]
+            }
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert client.calls == [{"cmd": "list"}]
+    db = open_state_db(tmp_path / "state.db")
+    try:
+        stored = asyncio.run(SqliteAgentStore(db).list())
+    finally:
+        db.close()
+    assert stored == [
+        {
+            "id": "a1",
+            "harness": "claude",
+            "task_session_id": "task-session-1",
+            "task_id": "2026-09-16.4.3",
+            "cwd": "/worktree",
+            "model": "claude:opus",
+            "mode": "plan",
+        }
+    ]
+
+
+def test_register_refuses_an_agent_id_the_daemon_does_not_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+
+    result, client = run_cli(["register", "ghost"], [{"agents": []}])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert client.calls == [{"cmd": "list"}]
+
+
+def test_register_reports_an_unreachable_daemon():
+    result, client = run_cli(["register", "a1"], [_unreachable("/x")])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
 
 
 def test_attach_refuses_without_a_terminal_and_names_tail():

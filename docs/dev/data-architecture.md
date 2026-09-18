@@ -54,7 +54,8 @@ the worktree table. A task read is now a query.
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ CANONICAL        write ──► db ──► revision ──► notice                    │
-│  tasks, desk     read: the database. The write is the authoritative act. │
+│  tasks, desk,    read: the database. The write is the authoritative act. │
+│  agents                                                                  │
 │                  durable: backed up, migrated, never rebuilt from empty  │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ CACHED           read: the database, always, whatever its age            │
@@ -68,7 +69,7 @@ the worktree table. A task read is now a query.
 │  attachment bytes     Cheap to read, or it must be exact.                │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PUSHED           the owner streams it; the database holds nothing live   │
-│  agents               The agent host already works this way.             │
+│  live sessions        The agent host already works this way.             │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PROGRESSIVE      a slow write answers at once, then reports itself       │
 │  worktree setup  command ──► row at `preparing` ──► reply                │
@@ -89,8 +90,13 @@ A canonical table needs a backup story, a versioned migration, and no recovery s
 rebuilds it from nothing. That last rule is what separates it from a cached table, and it must
 be hard to break by accident.
 
-Tasks and the desk are canonical. A task's row carries its prose, not a pointer to prose
+Tasks, the desk and agents are canonical. A task's row carries its prose, not a pointer to prose
 elsewhere: splitting a row across two stores is what makes a rollback partial.
+
+An **Agent record** (see `CONTEXT.md`) is canonical for the same reason a task is: it is the
+only copy of the harness, mode, model and task an agent started with. Losing it loses that
+history. It differs from a task in what it is not: it does not describe the agent's live state,
+only what started it. The live session that state belongs to is PUSHED, below.
 
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
@@ -138,8 +144,9 @@ in the canonical table with the rest of the task.
 
 The owner holds the state and streams it. The database holds nothing live.
 
-The agent host works this way already, and it is the fastest and most correct subsystem here.
-Caching live agent state would add a second place for that state to be wrong.
+A live session works this way already, and it is the fastest and most correct subsystem
+here. Caching live agent state would add a second place for that state to be wrong. This is the
+agent's running state only — what started it is the canonical **Agent record**, above.
 
 A poll may still run as a reconciliation net — the server reconciles the host's `list` against
 the world every 2 s — but it corrects the stream rather than replacing it.

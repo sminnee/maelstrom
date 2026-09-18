@@ -201,6 +201,14 @@ The path that starts an agent. `cli` starts the CLI selected by the **Model
 reference**. `daemon` starts a driven Claude agent. Daemon agents export
 `MAEL_HARNESS_TYPE=daemon` to their children.
 
+**Agent record**:
+The canonical row for an agent maelstrom started: its harness, mode, model, and task, stored so
+it survives an orchestrator restart. `DaemonRouter` writes one at start, and reads every record
+back to restore Codex threads and rebuild `list`. A live subagent has no record of its own; it
+rides through on its parent's. `mael agent register` writes one by hand for an agent already live
+on a daemon.
+_Avoid_: Agent session, binding.
+
 **Driven agent**:
 A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
 launches is a driven agent, so a driven agent normally has a workspace whose pane 0 runs
