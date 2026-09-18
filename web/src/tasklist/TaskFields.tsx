@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { TaskEdit } from '../api/types';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
-import { UNSET_MODEL, MODELS } from '../protocol/models';
+import { UNSET_MODEL, MODELS, EXECUTE_MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { AttachField } from '../ui/AttachField';
@@ -219,14 +219,24 @@ export function TaskAdvancedFields({
           ))}
         </select>
       </label>
-      <label className={styles.field}>
-        <span>Model</span>
-        <ModelSelect
-          model={draft.model}
-          onChange={(model) => onChange({ model })}
-          readOnly={readOnly}
-        />
-      </label>
+      <div className={styles.row}>
+        <label className={styles.field}>
+          <span>Model</span>
+          <ModelSelect
+            model={draft.model}
+            onChange={(model) => onChange({ model })}
+            readOnly={readOnly}
+          />
+        </label>
+        <label className={styles.field}>
+          <span>Execute Model</span>
+          <ExecuteModelSelect
+            model={draft.executeModel}
+            onChange={(executeModel) => onChange({ executeModel })}
+            readOnly={readOnly}
+          />
+        </label>
+      </div>
     </details>
   );
 }
@@ -272,6 +282,32 @@ export function ModelSelect({
       {(offered.includes(model) ? offered : [...offered, model]).map((m) => (
         <option key={m} value={m}>
           {m === UNSET_MODEL ? 'not set' : m}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * The model an execute session switches to on plan approval. Unset means no
+ * switch — the session keeps the plan's model. A stored model outside
+ * `EXECUTE_MODELS` is offered too.
+ */
+export function ExecuteModelSelect({
+  model,
+  onChange,
+  readOnly,
+}: {
+  model: string;
+  onChange: (model: string) => void;
+  readOnly?: boolean;
+}) {
+  const offered: readonly string[] = [UNSET_MODEL, ...EXECUTE_MODELS];
+  return (
+    <select value={model} disabled={readOnly} onChange={(e) => onChange(e.target.value)}>
+      {(offered.includes(model) ? offered : [...offered, model]).map((m) => (
+        <option key={m} value={m}>
+          {m === UNSET_MODEL ? '(Same as plan)' : m}
         </option>
       ))}
     </select>
