@@ -1121,6 +1121,32 @@ def test_a_resume_after_set_mode_normal_omits_the_flag():
     assert "--permission-mode" not in argv
 
 
+def test_a_resume_keeps_the_execute_model():
+    """The record is the resume contract, and a daemon restart is routine.
+
+    Without this the field is erased by any bounce before the plan is approved,
+    and the session then builds on the planning model with nothing to say so.
+    """
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            model="opus",
+            execute_model="sonnet",
+            status="exited",
+            exit_code=-9,
+        )
+    )
+    daemon.agents["a1"] = _stub_agent()
+    daemon.agents["a1"].state = mark_exited(daemon.agents["a1"].state, -9)
+
+    _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+
+    assert specs.read("a1").execute_model == "sonnet"
+
+
 def test_resume_of_a_child_that_never_got_its_prompt_starts_it_fresh():
     """No prompt means no transcript, so ``--resume`` would have nothing to replay."""
     daemon, specs = _daemon_with_specs(has_transcript=False)
@@ -1972,6 +1998,118 @@ def test_a_refused_mode_does_not_undo_the_approval():
     spec = daemon.specs.read("a1")
     assert spec is not None
     assert spec.permission_mode is None
+
+
+def _approving_agent(execute_model: str | None = None, model: str | None = None):
+    """An agent at a plan review, whose spawn record may name an execute model."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="s1",
+            model=model,
+            execute_model=execute_model,
+        )
+    )
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    return daemon, sent
+
+
+def _texts(sent: list[dict]) -> list[str]:
+    """The text of every ordinary user turn in ``sent``, in order."""
+    return [m["message"]["content"][0]["text"] for m in sent if m.get("type") == "user"]
+
+
+def test_approving_a_plan_switches_to_the_execute_model():
+    """The point of the feature: planning and building on different models.
+
+    The switch travels as an ordinary user turn, the same path ``/clear`` takes
+    — there is no control subtype for it.
+    """
+    daemon, sent = _approving_agent(execute_model="sonnet")
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert "/model sonnet" in _texts(sent)
+    # The reply names it beside the mode, so a caller sees what the approval did.
+    assert reply["model"] == "sonnet"
+    # And the record moves with it. A daemon restart reads the record back, so
+    # without this write the next approval would switch a second time.
+    assert daemon.specs.read("a1").model == "sonnet"
+
+
+def test_the_execute_model_lands_after_the_mode_and_before_the_handover():
+    """Order is the design. After the mode, because the clear must precede both;
+    before the handover, because the handover starts the build turn and
+    switching after it would leave the first and most consequential turn on the
+    planning model."""
+    daemon, sent = _approving_agent(execute_model="sonnet")
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert sent[2]["message"]["content"][0]["text"] == "/clear"
+    assert sent[3]["request"] == {"subtype": "set_permission_mode", "mode": "auto"}
+    assert sent[4]["message"]["content"][0]["text"] == "/model sonnet"
+    assert ".md" in sent[5]["message"]["content"][0]["text"]
+    # The count is part of the order: one extra write and no more.
+    assert len(sent) == 6
+
+
+def test_a_plan_with_no_execute_model_switches_nothing():
+    """The no-op guarantee. Every task that does not set the field must approve
+    exactly as it did before the feature existed."""
+    daemon, sent = _approving_agent()
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert not any(t.startswith("/model") for t in _texts(sent))
+    assert len(sent) == 5
+    assert reply == {"ok": True, "mode": "auto", "cleared": True}
+
+
+def test_an_execute_model_equal_to_the_current_one_switches_nothing():
+    """Already there: a redundant ``/model`` costs a turn and reports a change
+    that did not happen. Compared against the spawn record's own reference, the
+    one value in the same vocabulary — ``AgentState.model`` holds the full id
+    the init reported (``claude-sonnet-5``), not the alias."""
+    daemon, sent = _approving_agent(execute_model="sonnet", model="sonnet")
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert not any(t.startswith("/model") for t in _texts(sent))
+    assert "model" not in reply
+    # Pinned like the positive case: an absence alone would also pass if the
+    # switch path broke before its send.
+    assert len(sent) == 5
+
+
+def test_a_qualified_execute_model_sends_the_bare_alias():
+    """``/model`` takes a Claude alias, not a maelstrom model reference."""
+    daemon, sent = _approving_agent(execute_model="claude:fable")
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert "/model fable" in _texts(sent)
+
+
+def test_an_unusable_execute_model_still_hands_over():
+    """The precedent a refused mode sets: the clear cannot be undone, so an
+    agent left without the plan has no context, no brief and nothing to do. A
+    non-Claude value is refused at the CLI, so reaching here means a record
+    written by hand or by an older build."""
+    daemon, sent = _approving_agent(execute_model="codex:sol")
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    assert not any(t.startswith("/model") for t in _texts(sent))
+    assert reply["ok"] is True
+    assert "Claude model" in reply["warning"]
+    # The handover still went, and still last -- five writes, not six.
+    assert len(sent) == 5
+    assert ".md" in sent[-1]["message"]["content"][0]["text"]
 
 
 def _two_asks_agent():

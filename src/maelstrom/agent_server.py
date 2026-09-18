@@ -49,6 +49,7 @@ from .agent_model import (
     INTERRUPTIBLE,
     LOST_ASK_RESUME_PROMPT,
     MESSAGE_CHARS,
+    MODEL_COMMAND,
     MODES,
     NO_PLAN_FILE_REASON,
     SEQ_KEY,
@@ -94,7 +95,11 @@ from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
 from .attachments import MAX_BYTES, image_extension, is_image
-from .harness_model import HARNESS_CLAUDE, resolve_model_reference
+from .harness_model import (
+    HARNESS_CLAUDE,
+    resolve_execute_model,
+    resolve_model_reference,
+)
 from .notebook_root import NotebookRootUnset
 from .session_discovery import (
     LiveSessionSet,
@@ -849,6 +854,7 @@ class AgentDaemon:
         *,
         permission_mode: str | None = None,
         model: str | None = None,
+        execute_model: str | None = None,
         session_id: str | None = None,
         agent_id: str | None = None,
         env: dict[str, str] | None = None,
@@ -888,6 +894,7 @@ class AgentDaemon:
             session_id=session_id,
             permission_mode=permission_mode,
             model=ref.alias,
+            execute_model=execute_model or None,
             env=dict(env or {}),
             prompt=prompt if record_prompt is None else record_prompt,
             status=SPEC_RUNNING,
@@ -1018,6 +1025,7 @@ class AgentDaemon:
             prompt,
             permission_mode=spec.permission_mode,
             model=spec.model,
+            execute_model=spec.execute_model,
             session_id=spec.session_id,
             agent_id=spec.agent_id,
             env=spec.env or None,
@@ -1106,6 +1114,7 @@ class AgentDaemon:
                     payload.get("prompt", ""),
                     permission_mode=payload.get("mode"),
                     model=payload.get("model"),
+                    execute_model=payload.get("execute_model"),
                     session_id=payload.get("session"),
                     env=payload.get("env") or None,
                     resume=bool(payload.get("resume", False)),
@@ -1367,9 +1376,10 @@ class AgentDaemon:
     async def _approve_plan(self, agent: Agent, pending: PendingRequest) -> dict:
         """Accept ``pending``'s plan, then clear the context it was written in.
 
-        Six writes in a fixed order: the allow, the other asks denied, an
-        interrupt, ``/clear``, the mode, then the handover. The order is
-        load-bearing — see ``docs/dev/agent-daemon.md``, "The control socket".
+        Six writes in a fixed order — seven when the agent names an execute
+        model: the allow, the other asks denied, an interrupt, ``/clear``, the
+        mode, the model, then the handover. The order is load-bearing — see
+        ``docs/dev/agent-daemon.md``, "The control socket".
 
         A plan review that names no file is denied instead, leaving the agent
         its context to write the plan down and retry.
@@ -1416,11 +1426,56 @@ class AgentDaemon:
         # edit instead, which is a worse outcome than the mode it refused.
         error = await self._set_mode(agent, AUTO)
 
+        # The seventh write, before the handover because the handover starts the
+        # build turn.
+        switched, refusal = await self._set_model(agent)
+
         if not await agent.send(user_message(build_plan_handover_prompt(plan_file))):
             return _unreachable(agent)
-        if error is not None:
-            return {"ok": True, "cleared": True, "warning": error["error"]}
-        return {"ok": True, "mode": AUTO, "cleared": True}
+
+        reply: dict = {"ok": True, "cleared": True}
+        warning = error["error"] if error is not None else refusal
+        if error is None:
+            reply["mode"] = AUTO
+        if switched is not None:
+            reply["model"] = switched
+        if warning is not None:
+            reply["warning"] = warning
+        return reply
+
+    async def _set_model(self, agent: Agent) -> tuple[str | None, str | None]:
+        """Switch ``agent`` to its execute model. Returns ``(alias, warning)``.
+
+        ``(None, None)`` means nothing was sent: no execute model, or the one
+        the agent already runs on. Unlike :meth:`_set_mode` there is no control
+        subtype and so no reply to wait on — see ``docs/dev/agent-daemon.md``,
+        "The control socket protocol".
+        """
+        spec = self.specs.read(agent.state.agent_id)
+        if spec is None or not spec.execute_model:
+            return None, None
+        try:
+            # Every entry point refuses an unusable value before it is stored,
+            # so reaching here means a hand-written or older record.
+            ref = resolve_execute_model(spec.execute_model)
+        except ValueError as exc:
+            return None, f"agent {agent.state.agent_id}: {exc}"
+        if ref.alias == spec.model:
+            return None, None
+        try:
+            sent = await agent.send(user_message(f"{MODEL_COMMAND} {ref.alias}"))
+        except (ConnectionResetError, BrokenPipeError) as exc:
+            # `drain` raises on a pipe that broke after the closed check. The
+            # handover below would raise the same way, escaping `handle` and
+            # closing the connection unanswered, so it is caught here instead.
+            return None, f"agent {agent.state.agent_id} has exited: {exc}"
+        if not sent:
+            return None, f"could not send {MODEL_COMMAND} to {agent.state.agent_id}"
+        # The re-emitted `system/init` is what moves `AgentState.model`, so
+        # nothing is written here. The record is, because it is the resume
+        # contract: a restarted daemon must not switch a second time.
+        self.specs.write(replace(spec, model=ref.alias))
+        return ref.alias, None
 
     async def _set_mode(self, agent: Agent, mode: str) -> dict | None:
         """Move ``agent`` to ``mode``, returning an error reply or ``None``.
