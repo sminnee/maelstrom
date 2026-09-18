@@ -191,6 +191,86 @@ describe('the task list', () => {
     await waitFor(() => expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 17'));
   });
 
+  it('shows the planning level the task already names, above Advanced', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    // NORT-9 has an empty command under `auto`, which is the `none` level.
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+    expect(within(editor).getByRole('radio', { name: 'None' })).toBeChecked();
+    expect(within(editor).getByRole('radio', { name: 'High' })).not.toBeChecked();
+  });
+
+  it('writes both fields when a planning level is chosen', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+    await user.click(within(editor).getByRole('radio', { name: 'High' }));
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.filter((r) => r.method === 'PATCH').at(-1);
+    expect(patch!.body).toMatchObject({ command: 'plan-task', mode: 'normal' });
+  });
+
+  it('lists same-project tasks to follow, checked for what the task already follows', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await showEveryStatus(user);
+
+    // NORT-9.1 already follows NORT-9.
+    const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
+    await user.click(within(editor).getByText('Advanced'));
+
+    expect(
+      within(editor).getByRole('checkbox', { name: /NORT-9\b.*Migrate to Postgres 16/ }),
+    ).toBeChecked();
+    expect(
+      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
+    ).not.toBeChecked();
+    // A task cannot follow itself.
+    expect(within(editor).queryByRole('checkbox', { name: /NORT-9\.1\b/ })).toBeNull();
+  });
+
+  it('writes the follows list when a checkbox is checked', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+    await showEveryStatus(user);
+
+    const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
+    await user.click(within(editor).getByText('Advanced'));
+    await user.click(within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }));
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.filter((r) => r.method === 'PATCH').at(-1);
+    expect(patch!.body).toMatchObject({ follows: ['NORT-9', 'NORT-12'] });
+  });
+
+  it('writes the follows list when a checkbox is unchecked', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+    await showEveryStatus(user);
+
+    // NORT-9.1 already follows NORT-9.
+    const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
+    await user.click(within(editor).getByText('Advanced'));
+    await user.click(
+      within(editor).getByRole('checkbox', { name: /NORT-9\b.*Migrate to Postgres 16/ }),
+    );
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.filter((r) => r.method === 'PATCH').at(-1);
+    expect(patch!.body).toMatchObject({ follows: [] });
+  });
+
   it('leaves a task that names no model inheriting the default', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
@@ -337,6 +417,12 @@ describe('the task list', () => {
     });
     expect(within(editor).queryByRole('button', { name: 'Save' })).toBeNull();
     expect(within(editor).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    // The planning radios and the follows checkboxes lock too: both sit in a
+    // fieldset, not a field `locked()` reads.
+    expect(within(editor).getByRole('radio', { name: 'None' })).toBeDisabled();
+    expect(
+      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
+    ).toBeDisabled();
   });
 
   it('pressing Edit unlocks the fields and offers Save', async () => {
@@ -348,6 +434,10 @@ describe('the task list', () => {
 
     await user.click(within(editor).getByText('Advanced'));
     expect(Object.values(locked(editor)).filter(Boolean)).toEqual([]);
+    expect(within(editor).getByRole('radio', { name: 'None' })).toBeEnabled();
+    expect(
+      within(editor).getByRole('checkbox', { name: /NORT-12.*Rotate auth tokens/ }),
+    ).toBeEnabled();
     expect(within(editor).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 

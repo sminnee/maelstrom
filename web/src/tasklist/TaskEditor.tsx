@@ -101,6 +101,7 @@ function TaskForm({ task }: { task: Task }) {
         draft={draft}
         onChange={set}
         project={task.project}
+        taskId={task.id}
         bucket={task.notebookId}
         readOnly={!editing}
       />
@@ -176,14 +177,27 @@ function seed(task: Task): TaskDraft {
     priority: task.priority,
     model: task.model,
     executeModel: task.executeModel,
+    follows: task.follows,
   };
 }
 
-/** Only what the user moved. */
+/** Only what the user moved. `follows` is an array, so `!==` always differs. */
 function changed(before: TaskDraft, after: TaskDraft): TaskEdit {
   const fields: TaskEdit = {};
   for (const key of Object.keys(before) as (keyof TaskDraft)[]) {
+    if (key === 'follows') {
+      if (!sameIds(before.follows, after.follows)) fields.follows = after.follows;
+      continue;
+    }
     if (after[key] !== before[key]) Object.assign(fields, { [key]: after[key] });
   }
   return fields;
+}
+
+/** Whether two id lists hold the same ids, order aside. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((id, i) => id === sortedB[i]);
 }
