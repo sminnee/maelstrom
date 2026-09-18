@@ -2,7 +2,7 @@ import { useId } from 'react';
 import type { PermissionMode } from '../protocol/modes';
 import type { PlanningLevel } from '../protocol/planningLevel';
 import { PLANNING_LEVELS, fieldsForLevel, levelForFields } from '../protocol/planningLevel';
-import styles from './NewWork.module.css';
+import styles from '../ui/Dialog.module.css';
 
 /** What each level is called on screen. */
 const LABELS: Record<PlanningLevel, string> = {
@@ -24,17 +24,19 @@ export function PlanningLevelField({
   command,
   mode,
   onChange,
+  readOnly,
 }: {
   command: string;
   mode: PermissionMode;
   onChange: (fields: { command: string; mode: PermissionMode }) => void;
+  readOnly?: boolean;
 }) {
   // Document-global, so nothing else on the page may share it.
   const name = useId();
   const level = levelForFields({ command, mode });
 
   return (
-    <fieldset className={styles.kinds}>
+    <fieldset className={styles.kinds} disabled={readOnly}>
       <legend>Planning</legend>
       {PLANNING_LEVELS.map((value) => (
         <label key={value} className={styles.kind}>

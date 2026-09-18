@@ -26,7 +26,7 @@ import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { LinearFields } from './LinearFields';
-import { PlanningLevelField } from './PlanningLevelField';
+import { PlanningLevelField } from '../tasklist/PlanningLevelField';
 import { ProjectField } from './ProjectField';
 import { branchFromDraft, titleFromDraft } from '../protocol/branchFromDraft';
 import { Spinner } from '../ui/Spinner';
@@ -495,7 +495,7 @@ function Capture({
     <>
       <ProjectField names={names} inView={inView} project={project} setProject={setProject} />
 
-      <fieldset className={styles.kinds}>
+      <fieldset className={dialog.kinds}>
         <legend>Kind</legend>
         {(
           [
@@ -506,7 +506,7 @@ function Capture({
             ...(hasLinear ? ([['linear', 'Linear']] as const) : []),
           ] as const
         ).map(([value, label]) => (
-          <label key={value} className={styles.kind}>
+          <label key={value} className={dialog.kind}>
             <input
               type="radio"
               name={kindName}
