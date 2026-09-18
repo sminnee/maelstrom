@@ -185,6 +185,7 @@ export function NewWork() {
     priority,
     model: taskModel,
     executeModel: taskExecuteModel,
+    follows: [],
   };
   const patchTask = (fields: Partial<TaskDraft>) =>
     setCaptured((was) => ({
@@ -285,12 +286,18 @@ export function NewWork() {
     try {
       await create.mutateAsync({
         project: chosen,
-        ...task,
-        // A save that never pressed Suggest still needs a title and a branch.
-        // Both come from the prose, by the same deterministic rule the notebook
-        // falls back to -- see `branchFromDraft`.
         title: task.title.trim() || titleFromDraft(draft),
+        // Both come from the prose when Suggest was never pressed, by the same
+        // deterministic rule the notebook falls back to -- see `branchFromDraft`.
         branch: task.branch.trim() || branchFromDraft(draft),
+        content: task.content,
+        command: task.command,
+        mode: task.mode,
+        priority: task.priority,
+        model: task.model,
+        executeModel: task.executeModel,
+        // `follows` is left out: a new task has nothing to follow yet, and an
+        // explicit empty list would be a needless field on the wire.
         ...(launch ? { launch } : {}),
       });
     } catch (e) {
