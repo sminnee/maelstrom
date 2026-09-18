@@ -12,21 +12,11 @@
      the top layer, so this is what puts it under the field. */
   anchor-name: var(--anchor-name);
 }
-/* The shared anchor core. On the bare class because `composes` needs a simple
-   selector; the offsets below keep their own. */
+/* The shared offer core — see `comboBoxOffer.module.css`. On the bare class
+   because `composes` needs a simple selector; the offsets below keep their
+   own, per the note in `anchoredPopover.module.css`. */
 .list {
-  composes: anchored from './anchoredPopover.module.css';
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  /* Long lists scroll rather than running off the screen. `ComboBox.tsx` lowers
-     this when the field has less room than this above or below it. */
-  max-height: 240px;
-  overflow-y: auto;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
+  composes: list from './comboBoxOffer.module.css';
 }
 /* Under `:popover-open`, not on the bare class — the pseudo-class is what wins
    the tie against the composed `inset: unset`. See `anchoredPopover.module.css`. */
@@ -41,27 +31,12 @@
   top: auto;
   bottom: calc(anchor(top) + 2px);
 }
-.list li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--fg);
-  cursor: pointer;
-}
 .active {
-  background: var(--bg-hover);
+  composes: active from './comboBoxOffer.module.css';
 }
 .value {
-  font-family: var(--mono);
-  white-space: nowrap;
+  composes: value from './comboBoxOffer.module.css';
 }
-/* The label explains the value, so it gives way first when the row is tight. */
 .label {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  composes: label from './comboBoxOffer.module.css';
 }

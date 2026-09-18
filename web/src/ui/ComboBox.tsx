@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import styles from './ComboBox.module.css';
-import { useAnchorName } from './useAnchorName';
-
-/** Both duplicate `ComboBox.module.css` — change them together. */
-const GAP = 2;
-const MAX_HEIGHT = 240;
+import { useComboBoxOffer } from './useComboBoxOffer';
 
 /** One row of the offer. `label` names the value; the field shows the value alone. */
 export interface ComboOption {
@@ -43,16 +39,6 @@ export function ComboBox({
   /** Shows the value without offering to change it. The offer never opens. */
   readOnly?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  /** The row the keyboard is on, or -1 for none. Reset whenever the offer moves. */
-  const [active, setActive] = useState(-1);
-  const listId = useId();
-  const rowId = useId();
-  const box = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLUListElement>(null);
-  const input = useRef<HTMLInputElement>(null);
-  const { anchorStyle } = useAnchorName();
-
   const offered = useMemo(() => {
     const needle = value.trim().toLowerCase();
     if (!needle) return options;
@@ -62,60 +48,21 @@ export function ComboBox({
     );
   }, [options, value]);
 
-  // An empty offer shows no box: the value is free text, not a dead end.
-  const showing = open && offered.length > 0;
-  const activeId = showing && active >= 0 ? `${rowId}-${active}` : undefined;
-
-  // A click outside is a dismissal. `mousedown`, not `click`, so the box is
-  // gone before the thing under the pointer takes the press.
-  useEffect(() => {
-    if (!showing) return;
-    const onDown = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [showing]);
-
-  // `showing` stays the one source of truth: the effect follows it, rather than
-  // the popover's own open state becoming a second place to ask. That is also
-  // why the popover is `manual` and not `auto` — light dismiss would close it
-  // behind the component's back, and a press on a row would dismiss the offer
-  // before the row's `onClick` could choose from it.
-  // Which side to open, and how tall. CSS anchors the offer, but it cannot ask
-  // whether the field has room below it, so JS picks the side and CSS reads the
-  // choice back off `data-position`.
-  const place = useCallback((el: HTMLUListElement) => {
-    const field = input.current?.getBoundingClientRect();
-    if (!field) return;
-    const below = window.innerHeight - field.bottom - GAP;
-    const above = field.top - GAP;
-    // How tall the offer wants to be: its rows, capped. Measured rather than
-    // assumed, because a three-row offer fits under a field that a full-height
-    // one would not, and flipping that one up reads as a jump.
-    el.style.removeProperty('max-height');
-    const wants = Math.min(el.scrollHeight, MAX_HEIGHT);
-    // Downward whenever it fits below, not merely when there is more room
-    // below -- a short window often has more room above and space enough here.
-    const down = wants <= below || below >= above;
-    const room = down ? below : above;
-    el.dataset.position = down ? 'bottom' : 'top';
-    // Only cap when the side chosen has less room than the offer wants; an
-    // unset max-height lets a short list draw short.
-    if (room < wants) el.style.maxHeight = `${room}px`;
-  }, []);
-
-  // Open and place together, and place again whenever the offer's own height
-  // moves. Typing does not reopen the popover -- `showing` stays true -- so a
-  // placement made once at open goes stale as the rows narrow under the filter.
-  useEffect(() => {
-    const el = list.current;
-    if (!el) return;
-    if (!showing) return;
-    el.showPopover();
-    place(el);
-    return () => el.hidePopover();
-  }, [showing, offered.length, place]);
+  const {
+    open,
+    setOpen,
+    active,
+    setActive,
+    showing,
+    activeId,
+    listId,
+    rowId,
+    box,
+    list,
+    input,
+    anchorStyle,
+    place,
+  } = useComboBoxOffer(offered.length);
 
   const choose = (option: ComboOption) => {
     onChange(option.value);
