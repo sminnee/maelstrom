@@ -15,6 +15,7 @@ import pytest
 from maelstrom import task as model
 from maelstrom.orchestrator.sources import NotebookTaskSource
 from maelstrom.state_db.migrate import open_state_db
+from maelstrom.task_launch import LaunchBlocked
 from maelstrom.task_table import InMemoryTaskTable, SqliteTaskTable
 
 PROJECT = "northwind"
@@ -434,3 +435,22 @@ async def _refuse_whole_read():
 
 async def _refuse_partial_read(since: int):
     raise AssertionError("a forced refresh took the partial path")
+
+
+async def test_the_board_refuses_a_non_claude_execute_model(table):
+    """The board's launch never passes through ``validate``, which guards the
+    free-agent path only. Without its own check a task carrying an inert execute
+    model reaches the daemon, and the user learns it did nothing only after the
+    plan is approved and the context is already cleared."""
+    await model.create(
+        table,
+        project=PROJECT,
+        title="Ship it",
+        id="NORT-7",
+        execute_model="codex:sol",
+    )
+    source = NotebookTaskSource(
+        table, lambda: [PROJECT], open_worktree=lambda *a, **k: None
+    )
+    with pytest.raises(LaunchBlocked, match="must be a Claude model"):
+        await source.launch(f"{PROJECT}/NORT-7", None)

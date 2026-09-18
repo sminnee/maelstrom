@@ -875,6 +875,12 @@ function command(
     if (!world.projects[project]) return notFound(`project ${project}`);
     if (!str('branch')?.trim()) return error(400, 'invalid', 'A branch is required');
     if (!str('prompt')?.trim()) return error(400, 'invalid', 'A prompt is required');
+    // `validate.py` refuses a non-Claude execute model here, so the fake holds
+    // the same line: `/model` cannot change which binary is running.
+    const executeModel = str('executeModel');
+    if (executeModel && !/^(claude:)?[A-Za-z0-9._-]+$/.test(executeModel)) {
+      return error(400, 'invalid', 'An execute model must be a Claude model');
+    }
     const agentId = `new${mint()}`;
     // A free agent carries no task: that absence is what makes it free.
     world.agents[agentId] = makeNewAgent(agentId, {
@@ -968,6 +974,7 @@ function makeNewTask(
     mode: (str('mode') || 'plan') as TaskMode,
     priority: str('priority') || 'medium',
     model: str('model'),
+    executeModel: str('executeModel'),
     parent: '',
     follows: [],
     base: '',

@@ -27,6 +27,7 @@ def make_task(**over):
         "priority": "normal",
         "model": "",
         "base": "",
+        "executeModel": "",
         "content": "",
         "steps": [],
         "log": [],

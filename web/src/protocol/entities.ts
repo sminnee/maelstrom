@@ -86,6 +86,8 @@ export interface Task {
   priority: string;
   model: string;
   base: string;
+  /** The model the session switches to when its plan is approved; '' = no switch. */
+  executeModel: string;
   content: string;
   steps: TaskStep[];
   log: TaskLogEntry[];

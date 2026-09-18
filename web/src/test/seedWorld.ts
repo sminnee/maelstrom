@@ -83,6 +83,7 @@ function task(spec: TaskSpec): Task {
     priority: 'medium',
     model: '',
     base: '',
+    executeModel: '',
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
     steps: [],
     log: [],

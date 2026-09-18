@@ -9,6 +9,7 @@ the web tests, so a rule added here belongs there too.
 from typing import Any
 
 from ..agent_model import MODES as AGENT_MODES
+from ..harness_model import resolve_execute_model
 from ..worktree_model import is_worktree_closable
 from .desk import split_desk_id
 from .protocol import World
@@ -435,6 +436,15 @@ def validate_command(
         mode = cmd.get("mode")
         if mode is not None and mode not in MODES:
             return _err("invalid", f"No mode {mode}")
+        execute_model = cmd.get("executeModel")
+        if execute_model:
+            # Unlike `model`, which the daemon refuses if it cannot use it, a
+            # non-Claude execute model is *inert*: the switch would silently
+            # never happen.
+            try:
+                resolve_execute_model(str(execute_model))
+            except ValueError as exc:
+                return _err("invalid", str(exc))
         return None
 
     if kind == "worktree.refresh":
