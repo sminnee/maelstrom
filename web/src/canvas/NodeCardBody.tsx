@@ -3,6 +3,7 @@ import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
+import { useAppStore } from '../store/store';
 import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
@@ -58,6 +59,7 @@ export function NodeCardBody({
   const stop = useStop();
   const setStatus = useSetStatus();
   const removeFromDesk = useRemoveFromDesk();
+  const editTask = useAppStore((s) => s.setEditingTask);
   const briefBox = useRef<HTMLDivElement>(null);
   const [expandedContent, setExpandedContent] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -248,6 +250,11 @@ export function NodeCardBody({
               }}
             >
               Dismiss
+            </AppButton>
+          )}
+          {node.kind === 'task' && task && (
+            <AppButton variant="quiet" onClick={() => editTask(task.id)}>
+              Edit task
             </AppButton>
           )}
           {/* Hidden rather than disabled, unlike Dismiss above: a task keeps
