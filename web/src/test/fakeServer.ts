@@ -738,13 +738,13 @@ function command(
     // refused here too rather than silently written.
     if (b.follows !== undefined) {
       if (!Array.isArray(b.follows)) return error(400, 'invalid', 'follows must be a list');
-      const project = task.id.split('/')[0]!;
       for (const followed of b.follows as string[]) {
         if (followed === task.id) {
           return error(400, 'invalid', 'A task cannot follow itself');
         }
-        if (!world.tasks[followed]) return notFound(`task ${followed}`);
-        if (!followed.startsWith(`${project}/`)) {
+        const other = world.tasks[followed];
+        if (!other) return notFound(`task ${followed}`);
+        if (other.project !== task.project) {
           return error(400, 'invalid', `${followed} is in another project`);
         }
       }

@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { TaskEdit } from '../api/types';
+import { useWorld } from '../api/useWorld';
+import type { TaskId } from '../protocol/ids';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { UNSET_MODEL, MODELS, EXECUTE_MODELS } from '../protocol/models';
 import { KNOWN_COMMANDS } from '../protocol/phase';
 import { withoutRef, type Attachment } from '../api/attachments';
+import { followsAfterConnect, followsAfterDisconnect } from '../canvas/connect';
 import { AttachField } from '../ui/AttachField';
 import { ComboBox, type ComboOption } from '../ui/ComboBox';
 import styles from '../ui/Dialog.module.css';
+import { PlanningLevelField } from './PlanningLevelField';
 
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 /**
- * Every editable field of a task, as a form holds them. `follows` is not one:
- * a wire is drawn on the canvas, not typed into the editor, so leaving it out
- * keeps it out of the form's own diff.
+ * Every editable field of a task, as a form holds them. New work has no
+ * existing task to follow anything, so it seeds `follows` to `[]` and never
+ * renders the control that would patch it — inert there, live in the editor.
  */
-export type TaskDraft = Required<Omit<TaskEdit, 'follows'>>;
+export type TaskDraft = Required<TaskEdit>;
 
 /** The known commands, plus the empty one that means "run the task itself". */
 const COMMAND_OPTIONS: readonly ComboOption[] = [
@@ -43,12 +47,15 @@ export function TaskFields({
   draft,
   onChange,
   project,
+  taskId,
   bucket,
   readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
   project: string;
+  /** The task being edited, excluded from its own follows list. */
+  taskId: TaskId;
   /** Groups this task's images in the task repo. */
   bucket: string;
   /** Shows the task without offering to change it. */
@@ -72,7 +79,19 @@ export function TaskFields({
           onChange={(e) => onChange({ branch: e.target.value })}
         />
       </label>
-      <TaskAdvancedFields draft={draft} onChange={onChange} readOnly={readOnly} />
+      <PlanningLevelField
+        command={draft.command}
+        mode={draft.mode}
+        onChange={(fields) => onChange(fields)}
+        readOnly={readOnly}
+      />
+      <TaskAdvancedFields
+        draft={draft}
+        onChange={onChange}
+        project={project}
+        taskId={taskId}
+        readOnly={readOnly}
+      />
     </>
   );
 }
@@ -172,18 +191,24 @@ export function TaskContentField({
 }
 
 /**
- * The fields folded into Advanced: command, mode, priority and model.
+ * The fields folded into Advanced: command, mode, priority, model and follows.
  *
  * New work renders this below its planning-level radios, which read the same
  * command and mode two ways — so editing either here re-derives the level.
+ * New work has no existing task, so it passes no `taskId` and the follows
+ * control does not render.
  */
 export function TaskAdvancedFields({
   draft,
   onChange,
+  project,
+  taskId,
   readOnly,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
+  project?: string;
+  taskId?: TaskId;
   readOnly?: boolean;
 }) {
   return (
@@ -237,7 +262,66 @@ export function TaskAdvancedFields({
           />
         </label>
       </div>
+      {/* New work passes no `taskId`. */}
+      {taskId && (
+        <TaskFollowsField
+          follows={draft.follows}
+          onChange={(follows) => onChange({ follows })}
+          project={project ?? ''}
+          taskId={taskId}
+          readOnly={readOnly}
+        />
+      )}
     </details>
+  );
+}
+
+/**
+ * Every sibling task in the same project the task may follow, as a
+ * multi-select. Excludes the task's own id, mirroring `canConnect`'s
+ * no-self-edge rule (see `canvas/connect.ts`).
+ *
+ * Uses the same write semantics as the canvas wire — `followsAfterConnect` /
+ * `followsAfterDisconnect` — so checking a box here and dragging a wire there
+ * agree on what the write replaces.
+ */
+export function TaskFollowsField({
+  follows,
+  onChange,
+  project,
+  taskId,
+  readOnly,
+}: {
+  follows: TaskId[];
+  onChange: (follows: TaskId[]) => void;
+  project: string;
+  taskId: TaskId;
+  readOnly?: boolean;
+}) {
+  const { world } = useWorld();
+  const siblings = Object.values(world.tasks).filter(
+    (t) => t.project === project && t.id !== taskId,
+  );
+  return (
+    <fieldset className={styles.field} disabled={readOnly}>
+      <legend>Follows</legend>
+      {siblings.map((t) => (
+        <label key={t.id} className={styles.field}>
+          <input
+            type="checkbox"
+            checked={follows.includes(t.id)}
+            onChange={() =>
+              onChange(
+                follows.includes(t.id)
+                  ? followsAfterDisconnect(follows, t.id)
+                  : followsAfterConnect(follows, t.id),
+              )
+            }
+          />
+          {t.id} — {t.title}
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
