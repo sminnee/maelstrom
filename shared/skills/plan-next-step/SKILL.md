@@ -29,4 +29,8 @@ mael session end
 
 UI approval already promoted drafts. On rejection, delete them. If no work remains after this step, create no tail.
 
-Set the tail model to this planner's model. Its `## Remaining work` removes the planned step and its completed-state summary adds that step. Keep `branch:` unset. Confirm the launched id is the step just promoted; a blocked chain requires `mael task list`, not a different task launch.
+Set the tail model to this planner's model.
+When a step plans before it builds, give its draft `--execute-model <alias>` and confirm the alias with the user. Use Claude aliases only.
+Its `## Remaining work` removes the planned step and its completed-state summary adds that step.
+Keep `branch:` unset.
+Confirm the launched id is the step just promoted; a blocked chain requires `mael task list`, not a different task launch.

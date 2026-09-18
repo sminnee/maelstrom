@@ -189,6 +189,13 @@ A model name in the form `<harness>:<alias>`, such as `claude:opus`,
 `codex:terra`, or `opencode:kimi`. A bare value is Claude-compatible. A blank
 value resolves to `claude:opus`.
 
+**Execute model**:
+The **Model reference** a session switches to when its plan is approved. A session plans on its
+model and builds on its execute model. An unset execute model means no switch, which is what
+every session did before the field existed. It must name the `claude` harness: the switch is a
+`/model` command, and that cannot change which binary is running.
+_Avoid_: Child model, next model, build model
+
 **Harness transport**:
 The path that starts an agent. `cli` starts the CLI selected by the **Model
 reference**. `daemon` starts a driven Claude agent. Daemon agents export

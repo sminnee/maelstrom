@@ -200,7 +200,9 @@ Drafts omit `parent:`; it defaults to `$MAEL_TASK_PARENT` at promote time.
 
 Pin the tail draft to the model the planning session is running, so every planner in the
 chain stays on one model. Planning is where the leverage is. Leave `--model` unset on execute
-drafts: an unset model launches on `opus`.
+drafts: an unset model launches on `opus`. Where a step plans before it builds, set
+`--execute-model` on the execute draft, so the session plans on `opus` and builds on the
+model named there.
 
 ### Lifecycle actions mirror to Linear
 

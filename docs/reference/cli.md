@@ -81,6 +81,7 @@ and does not resolve `@` imports). Both are gitignored per worktree.
 |---|---|
 | `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
 | `--model TEXT` | Model reference. A bare value selects Claude. A qualified value selects its CLI harness. Default: `claude:opus`. |
+| `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
 | `--open` | Open the configured editor instead of a Claude session. |
 | `--no-recycle` | Always create a new worktree, even when closed ones exist. |
 | `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
@@ -251,6 +252,10 @@ mael session end 97894d02          # stop that session
 take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
 A bare value selects Claude. A qualified value selects its CLI harness.
 The default is `claude:opus`. `--model` conflicts with `--open` and `--no-agent`.
+`--execute-model` names the model the session switches to when its plan is
+approved. It must be a Claude model: `/model` cannot change which binary is
+running. On `mael add` it conflicts with `--open`, `--no-agent` and `--cli` —
+none of those reaches the approval that would perform the switch.
 `mael add --no-agent` prepares a shell without an agent. It conflicts with
 `--open`, `--cli`, and `--daemon`.
 
@@ -295,7 +300,8 @@ non-Claude model until that harness has a daemon. `--harness`, `--claude`, and
 
 `mael task run --here` runs the session in the current shell, so the daemon has no meaning there.
 That path falls back to `claude`, and warns when you named the daemon rather than defaulting to
-it.
+it. A task's `execute-model` is reported and ignored there for the same reason, as it is on a
+`--cli` run.
 
 ```bash
 mael add feature/avatar-upload --cli
@@ -394,6 +400,7 @@ Every task command takes `--project TEXT` (default: from the current directory).
 | `--post-action TEXT` | Lifecycle action fired when the task finishes, e.g. `linear.done`. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
 | `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: `opus`, applied when the task launches. |
+| `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
 | `--base TEXT` | Branch to stack this task's branch on. Default: the project's stack tip. Not the same as `--parent`: `--parent` shares one branch and one PR, `--base` stacks a different branch as its own PR. |
 | `--follow TEXT` | Id this task follows. Repeatable. |
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
@@ -413,7 +420,7 @@ Writes a task file to `FILE` instead of the store. The file is inert — invisib
 
 `TITLE` is required. The recipe flags are the same as `add`'s (`-c`/`--command`,
 `-m`/`--mode`, `-b`/`--branch`, `-P`/`--parent`, `--pre-action`, `--post-action`,
-`--priority`, `--model`, `--content-file`), plus:
+`--priority`, `--model`, `--execute-model`, `--content-file`), plus:
 
 | Option | Description |
 |---|---|
@@ -436,7 +443,8 @@ semantics as `add --from`). On an error — missing file, bad frontmatter, no ti
 is left untouched and no task is created.
 
 Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branch`,
-`-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`). There is no
+`-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
+`--execute-model`). There is no
 `--content-file` — the draft's body already carries the content. Plus:
 
 | Option | Description |
@@ -467,12 +475,13 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--post-action TEXT` | Lifecycle action fired when the task finishes. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. |
 | `--model TEXT` | LLM model for the session. |
+| `--execute-model TEXT` | Model the session switches to when its plan is approved. |
 | `--base TEXT` | Branch this task's branch stacks on. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
-Pass `''` to `--pre-action`, `--post-action`, `--model`, `--base` or `--schedule` to clear
-the field.
+Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base` or
+`--schedule` to clear the field.
 
 **`mael task list`**
 
@@ -629,7 +638,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
 | `mael agent daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
 | `mael agent daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
-| `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--session-id`. |
+| `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--execute-model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
 | `mael agent tail ID` | Print an agent's events and stop, without driving it. `-f` keeps streaming. `--raw` prints each event as JSON, one per line, which is how a fixture is recorded. A dotted id tails one subagent's stream; a parent's tail shows none of its subagents. The read-only half of `attach`. |
@@ -984,7 +993,7 @@ mael linear set-status ME-41 done               # "Unreleased"
 Runs by default: the planning session launches immediately. It takes the same
 block-settable options as `mael task add` — `--project`, `-c/--command`, `-m/--mode`,
 `-b/--branch`, `-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
-`--follow`, `--follow-end`, `--here` — plus:
+`--execute-model`, `--follow`, `--follow-end`, `--here` — plus:
 
 | Option | Description |
 |---|---|

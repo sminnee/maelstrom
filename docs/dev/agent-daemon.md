@@ -774,8 +774,28 @@ Six writes, and the order is the design:
 5. the mode, after the clear so the new conversation carries it;
 6. the handover naming the plan file, last, or the clear would discard it.
 
-A refused mode does not withhold the handover. The clear cannot be undone, so an agent left
-without the plan has no context, no brief and nothing to do.
+An agent whose spawn record names an execute model takes a seventh write, between the mode and the
+handover: `/model <alias>`. It travels the same ordinary-user-turn path `/clear` takes, because
+there is no control subtype for it. The child answers with a fresh `system/init` naming the new
+model, so `AgentState.model` updates through the reducer's existing `init` case.
+
+The switch goes before the handover because the handover starts the build turn. Switching after it
+would leave the first and most consequential turn on the planning model.
+
+A record naming no execute model sends no `/model` and the reply carries no `model` key. So does
+one naming the model the agent already runs on: a redundant switch costs a turn and reports a
+change that did not happen. The comparison is against the spawn record's own `model`, which holds
+the alias; `AgentState.model` holds the full id the `system/init` reported, such as
+`claude-sonnet-5`.
+
+An unusable execute model is reported under `warning` and nothing is sent. Two make it unusable:
+a non-Claude harness, because `/model` cannot change which binary is running; and an alias that is
+not plain `[A-Za-z0-9._-]`, because the alias travels as message content and a newline in it would
+deliver a turn of its own. `resolve_execute_model` holds both rules, and every entry point calls
+it before storing a value, so a record carrying one was written by hand or by an older build.
+
+A refused mode does not withhold the handover, and neither does a refused model. The clear cannot
+be undone, so an agent left without the plan has no context, no brief and nothing to do.
 
 The context level is reset by hand at step 4. `context_tokens` moves on an `assistant` event or a
 `compact_boundary`, and the clear is neither: it is something the daemon did rather than something
