@@ -11,6 +11,7 @@ import { followsAfterConnect, followsAfterDisconnect } from '../canvas/connect';
 import { AttachField } from '../ui/AttachField';
 import { ComboBox, type ComboOption } from '../ui/ComboBox';
 import styles from '../ui/Dialog.module.css';
+import { MultiComboBox } from '../ui/MultiComboBox';
 import { PlanningLevelField } from './PlanningLevelField';
 
 /** From `task.PRIORITIES`, highest first. */
@@ -282,8 +283,8 @@ export function TaskAdvancedFields({
  * no-self-edge rule (see `canvas/connect.ts`).
  *
  * Uses the same write semantics as the canvas wire — `followsAfterConnect` /
- * `followsAfterDisconnect` — so checking a box here and dragging a wire there
- * agree on what the write replaces.
+ * `followsAfterDisconnect` — so picking an option here and dragging a wire
+ * there agree on what the write replaces.
  */
 export function TaskFollowsField({
   follows,
@@ -298,30 +299,38 @@ export function TaskFollowsField({
   taskId: TaskId;
   readOnly?: boolean;
 }) {
+  // Explicit id, not a wrapping label: the chips sit between the label and
+  // the field, the way `AttachField` does above, so an implicit association
+  // would fold their text into the field's accessible name.
+  const followsId = useId();
   const { world } = useWorld();
   const siblings = Object.values(world.tasks).filter(
     (t) => t.project === project && t.id !== taskId,
   );
+  const options: ComboOption[] = siblings.map((t) => ({ value: t.id, label: t.title }));
+
+  // Diffed against the current list and routed through the same
+  // connect/disconnect helpers the canvas wire uses, rather than writing
+  // `next` straight through — see the docstring above for why the two paths
+  // must agree on what a change means.
+  const change = (next: string[]) => {
+    let result = follows;
+    for (const id of follows) if (!next.includes(id)) result = followsAfterDisconnect(result, id);
+    for (const id of next) if (!follows.includes(id)) result = followsAfterConnect(result, id);
+    onChange(result);
+  };
+
   return (
-    <fieldset className={styles.field} disabled={readOnly}>
-      <legend>Follows</legend>
-      {siblings.map((t) => (
-        <label key={t.id} className={styles.field}>
-          <input
-            type="checkbox"
-            checked={follows.includes(t.id)}
-            onChange={() =>
-              onChange(
-                follows.includes(t.id)
-                  ? followsAfterDisconnect(follows, t.id)
-                  : followsAfterConnect(follows, t.id),
-              )
-            }
-          />
-          {t.id} — {t.title}
-        </label>
-      ))}
-    </fieldset>
+    <div className={styles.field}>
+      <label htmlFor={followsId}>Follows</label>
+      <MultiComboBox
+        id={followsId}
+        value={follows}
+        options={options}
+        onChange={change}
+        readOnly={readOnly}
+      />
+    </div>
   );
 }
 
