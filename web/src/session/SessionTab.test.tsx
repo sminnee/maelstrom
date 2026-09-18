@@ -306,6 +306,32 @@ describe('the compact button', () => {
 
     expect(screen.queryByRole('button', { name: 'Compact' })).not.toBeInTheDocument();
   });
+
+  it('drops its own pending bubble when the relay is refused', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'idle' };
+    });
+    await openTaskSession(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+    const transcript = screen.getByTestId('transcript-scroll');
+    server.refuse(/\/say/, { status: 500, code: 'internal_error' });
+
+    // Held, for the same reason a fast-refused `say` needs it elsewhere in
+    // this file: without it, the append and its removal can both land before
+    // an assertion ever polls for the bubble.
+    server.hold();
+    await user.click(screen.getByRole('button', { name: 'Compact' }));
+
+    expect(await within(transcript).findByText('/compact')).toBeInTheDocument();
+
+    server.release();
+
+    await waitFor(() => expect(within(transcript).queryByText('/compact')).not.toBeInTheDocument());
+    // The button recovers rather than staying stuck on its own pending state.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+  });
 });
 
 /**
@@ -550,6 +576,60 @@ describe('following the transcript', () => {
     appendMany(server, 1, 'following');
     await screen.findByText('following 0');
     expect(scrolled).toHaveBeenCalled();
+  });
+});
+
+describe('sending a message', () => {
+  it('shows the message at once, before the `say` POST even resolves', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+    const transcript = screen.getByTestId('transcript-scroll');
+
+    // Held: the fake echoes synchronously on resolving, unlike the real
+    // daemon, so without holding it this couldn't isolate the client-side
+    // append from the fake's own confirmation.
+    server.hold();
+    await user.type(screen.getByLabelText('Message to agent'), 'Rebase onto main');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await within(transcript).findByText('Rebase onto main')).toBeInTheDocument();
+
+    // The `say` POST resolves and the fake appends the echo, the way the
+    // daemon eventually does.
+    server.release();
+
+    // Exactly one copy: the local stand-in is gone, not stacked with the echo.
+    await waitFor(() =>
+      expect(within(transcript).getAllByText('Rebase onto main')).toHaveLength(1),
+    );
+  });
+
+  it('drops the pending bubble and keeps the text when the send fails', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+    const transcript = screen.getByTestId('transcript-scroll');
+    server.refuse(/\/say/, { status: 500, code: 'internal_error' });
+
+    // Held: on a fast refusal the append and its removal could both land in
+    // one microtask, before the assertion below ever polls for the bubble.
+    server.hold();
+    const input = screen.getByLabelText('Message to agent');
+    await user.type(input, 'Rebase onto main');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await within(transcript).findByText('Rebase onto main')).toBeInTheDocument();
+
+    server.release();
+
+    await waitFor(() =>
+      expect(within(transcript).queryByText('Rebase onto main')).not.toBeInTheDocument(),
+    );
+    // The failed send keeps the text held, so the reader can retry.
+    expect(input).toHaveValue('Rebase onto main');
   });
 });
 
