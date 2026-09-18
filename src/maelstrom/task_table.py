@@ -56,6 +56,7 @@ _SCALARS = (
     "priority",
     "model",
     "base",
+    "execute_model",
     "content",
     "steps",
     "log",

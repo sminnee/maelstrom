@@ -42,6 +42,12 @@ _KEBAB = {
 }
 
 #: Every scalar column an imported row may carry, with the notebook's defaults.
+#:
+#: Frozen at the shape the ``tasks`` table had when this rung was written. The
+#: rung runs second, before any later ``ALTER TABLE`` rung, so a column added
+#: after it does not exist yet and an INSERT naming one would fail. A field
+#: added later arrives at its own rung with its default, which is right: the
+#: markdown notebook this reads predates every such field.
 _SCALARS = {
     "title": "",
     "command": "",

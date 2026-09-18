@@ -86,6 +86,22 @@ class TestTheNotebookImportRung:
         finally:
             db.close()
 
+    async def test_a_post_rung_field_imports_at_its_default(self, tmp_path):
+        """A column added by a later rung does not exist yet when this one runs.
+
+        So the importer reads the frontmatter keys the table had at rung 2 and
+        no more, and a field like ``execute-model`` arrives empty. Right for a
+        markdown notebook, which predates every such field.
+        """
+        write_task(tmp_path, Task(**{**vars(A_TASK), "execute_model": "sonnet"}))
+        db = await migrated(tmp_path)
+        try:
+            loaded = await SqliteTaskTable(db).load("maelstrom", "2026-06-11.1")
+            assert loaded is not None
+            assert loaded.execute_model == ""
+        finally:
+            db.close()
+
     async def test_the_rows_carry_revision_zero(self, tmp_path):
         """A migration must not bump the counter: a client reads them as the start."""
         write_task(tmp_path, A_TASK)

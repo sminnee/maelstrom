@@ -95,9 +95,27 @@ class TestRoundTrip:
         )
         assert Task.from_markdown(text).base == ""
 
-    def test_base_is_last_in_the_frontmatter_order(self):
+    def test_execute_model_is_last_in_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-1] == "base"
+        assert model.FRONTMATTER_KEYS[-1] == "execute-model"
+
+    def test_execute_model_round_trips(self):
+        # The model the session switches to when its plan is approved. Free-form
+        # like ``model``, and kebab-case in the frontmatter.
+        t = Task(id="x", title="t", project="p", execute_model="sonnet")
+        back = Task.from_markdown(t.to_markdown())
+        assert back.execute_model == "sonnet"
+
+    def test_missing_execute_model_defaults_to_empty(self):
+        # Empty means "no switch" -- the pre-feature behaviour. There is no
+        # inheritance from ``model`` and no fallback to ``DEFAULT_MODEL``.
+        text = (
+            "---\n"
+            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
+            "created: c\nupdated: u\n"
+            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+        )
+        assert Task.from_markdown(text).execute_model == ""
 
     @pytest.mark.parametrize("priority", ["critical", "high", "low"])
     def test_priority_round_trips(self, priority):

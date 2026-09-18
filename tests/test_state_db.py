@@ -125,6 +125,36 @@ class TestLadderInjection:
             db.close()
 
 
+class TestTheTasksLadderUpgrade:
+    """An existing database gains a new task column from its own rung.
+
+    ``_COLUMNS`` alone serves a fresh install's ``CREATE TABLE``; a database
+    already stamped past that rung never re-runs it, so a new field needs an
+    ``ALTER TABLE`` rung as well. This holds both halves honest.
+    """
+
+    async def test_an_older_database_gains_execute_model(self, tmp_path):
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            # Stand the database up at the ladder as it was before the field —
+            # its CREATE TABLE has no ``execute_model`` column.
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:2]
+            await db.migrate()
+            await db.write_all(
+                [Write("tasks", "maelstrom/2026-06-11.1", {"title": "Older"})]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            row = await db.read("tasks", "maelstrom/2026-06-11.1")
+            assert row is not None
+            assert row["execute_model"] == ""
+        finally:
+            db.close()
+
+
 class TestFailedMigration:
     """Slice 3: a migration that raises leaves the schema where it was."""
 

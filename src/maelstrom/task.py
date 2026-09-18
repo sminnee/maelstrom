@@ -182,6 +182,9 @@ TASK_FIELDS = (
     # meaning. ``parent`` groups tasks onto ONE branch and ONE PR; ``base`` stacks
     # a DIFFERENT branch as its own PR. See ``docs/dev/stacking.md``.
     _FieldSpec("base", block=True),
+    # The execute model. Appended at the end so existing files keep a stable
+    # diff. See CONTEXT.md, "Execute model".
+    _FieldSpec("execute-model", block=True),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -272,6 +275,8 @@ class Task:
     # Branch to stack this task's branch on; empty uses the project's stack tip.
     # Declarative input only — the stored base in git config is the live value.
     base: str = ""
+    # The execute model; empty means no switch. See CONTEXT.md.
+    execute_model: str = ""
     content: str = ""
     steps: str = ""
     log: str = ""
@@ -332,6 +337,7 @@ class Task:
             or DEFAULT_PRIORITY,
             model=str(frontmatter.get("model", "")),
             base=str(frontmatter.get("base", "")),
+            execute_model=str(frontmatter.get("execute-model", "")),
             content=sections.get("content", ""),
             steps=sections.get("steps", ""),
             log=sections.get("log", ""),
@@ -625,6 +631,7 @@ async def create(
     command: str = "",
     mode: str = "",
     model: str = "",
+    execute_model: str = "",
     base: str = "",
     branch: str = "",
     parent: str = "",
@@ -696,6 +703,7 @@ async def create(
         last_run=last_run,
         priority=resolved_priority,
         model=model,
+        execute_model=execute_model,
         base=base,
         content=content,
         status=status,
@@ -713,6 +721,7 @@ async def duplicate(
     command: str | None = None,
     mode: str | None = None,
     model: str | None = None,
+    execute_model: str | None = None,
     content: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
@@ -750,6 +759,9 @@ async def duplicate(
         command=command if command is not None else src.command,
         mode=mode if mode is not None else src.mode,
         model=model if model is not None else src.model,
+        execute_model=(
+            execute_model if execute_model is not None else src.execute_model
+        ),
         branch=branch,
         pre_action=pre_action if pre_action is not None else src.pre_action,
         post_action=post_action if post_action is not None else src.post_action,
@@ -774,6 +786,7 @@ def draft_markdown(
     command: str = "",
     mode: str = "",
     model: str = "",
+    execute_model: str = "",
     base: str = "",
     branch: str = "",
     parent: str = "",
@@ -804,6 +817,7 @@ def draft_markdown(
         post_action=post_action,
         priority=resolved_priority,
         model=model,
+        execute_model=execute_model,
         base=base,
         content=content,
     )
@@ -841,6 +855,7 @@ PROMOTABLE_FIELDS = (
     "command",
     "mode",
     "model",
+    "execute_model",
     "base",
     "priority",
     "branch",
@@ -1098,6 +1113,7 @@ async def load_many(
                 command=str(args.get("command", "")),
                 mode=str(args.get("mode", "")),
                 model=str(args.get("model", "")),
+                execute_model=str(args.get("execute-model", "")),
                 priority=str(args.get("priority", "")),
                 # An explicit branch: opts the task out of "one PR per parent" —
                 # create() gives it precedence over sibling/parent inheritance,
@@ -1197,6 +1213,7 @@ async def update(
     command: str | None = None,
     mode: str | None = None,
     model: str | None = None,
+    execute_model: str | None = None,
     base: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
@@ -1225,6 +1242,8 @@ async def update(
         task.mode = mode
     if model is not None:
         task.model = model
+    if execute_model is not None:
+        task.execute_model = execute_model
     if base is not None:
         task.base = base
     if pre_action is not None:
