@@ -213,4 +213,101 @@ describe('agent streams', () => {
     expect(sockets[1]!.url).toBe('/api/agents/ag1/stream');
     expect(store.state['ag1']).toMatchObject({ status: 'connecting' });
   });
+
+  describe('a local stand-in', () => {
+    beforeEach(() => {
+      streams.acquire('ag1');
+      sockets[0]!.open();
+      sockets[0]!.receive({
+        type: 'transcript.snapshot',
+        seq: 1,
+        items: [],
+        truncatedBefore: false,
+      });
+    });
+
+    it('shows at once and its remover drops it again', () => {
+      const remove = streams.sendLocal('ag1', 'hello');
+      expect(store.state['ag1']!.items).toHaveLength(1);
+      expect(store.state['ag1']!.items[0]).toMatchObject({
+        role: 'user',
+        markdown: 'hello',
+        pending: true,
+      });
+
+      remove();
+      expect(store.state['ag1']!.items).toHaveLength(0);
+    });
+
+    it('is dropped once a matching append lands, and the append still moves the cursor', () => {
+      streams.sendLocal('ag1', 'hello');
+      sockets[0]!.receive({
+        seq: 2,
+        event: {
+          type: 'transcript.append',
+          agentId: 'ag1',
+          item: { ...item('echo'), markdown: 'hello' },
+        },
+      });
+      expect(store.state['ag1']).toMatchObject({
+        items: [{ ...item('echo'), markdown: 'hello' }],
+        cursor: 2,
+      });
+    });
+
+    it('is left alone by an append whose markdown does not match', () => {
+      streams.sendLocal('ag1', 'hello');
+      const standIn = store.state['ag1']!.items[0]!;
+      sockets[0]!.receive(append(2, 'unrelated'));
+      expect(store.state['ag1']!.items).toEqual([standIn, item('unrelated')]);
+    });
+
+    it('the oldest of two matching stand-ins is the one an echo drops', () => {
+      streams.sendLocal('ag1', 'hello');
+      streams.sendLocal('ag1', 'hello');
+      const [first, second] = store.state['ag1']!.items;
+
+      sockets[0]!.receive({
+        seq: 2,
+        event: {
+          type: 'transcript.append',
+          agentId: 'ag1',
+          item: { ...item('echo'), markdown: 'hello' },
+        },
+      });
+
+      expect(store.state['ag1']!.items).toEqual([second, { ...item('echo'), markdown: 'hello' }]);
+      expect(store.state['ag1']!.items).not.toContainEqual(first);
+    });
+
+    it('is dropped when the arriving item comes from a snapshot', () => {
+      streams.sendLocal('ag1', 'hello');
+      sockets[0]!.receive({
+        type: 'transcript.snapshot',
+        seq: 5,
+        items: [{ ...item('echo'), markdown: 'hello' }],
+        truncatedBefore: false,
+      });
+      expect(store.state['ag1']!.items).toEqual([{ ...item('echo'), markdown: 'hello' }]);
+    });
+
+    it('is dropped when the arriving item comes from a replay', () => {
+      streams.sendLocal('ag1', 'hello');
+      sockets[0]!.receive({
+        type: 'transcript.replay',
+        seq: 6,
+        frames: [
+          {
+            seq: 6,
+            event: {
+              type: 'transcript.append',
+              agentId: 'ag1',
+              item: { ...item('echo'), markdown: 'hello' },
+            },
+          },
+        ],
+      });
+      expect(store.state['ag1']!.items).toEqual([{ ...item('echo'), markdown: 'hello' }]);
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   useAnswer,
   useApprove,
@@ -9,7 +9,7 @@ import {
   useSetMode,
 } from '../api/agents';
 import { useWorld } from '../api/useWorld';
-import { useAgentStream } from '../live/useAgentStream';
+import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import { modelLabel } from '../protocol/models';
 import { nextMode } from '../protocol/modes';
@@ -70,6 +70,8 @@ export function SessionTab({ agentId }: { agentId: string }) {
   const run = useRun();
   const setMode = useSetMode();
   const interrupt = useInterrupt();
+  const streams = useContext(AgentStreamsContext);
+  if (!streams) throw new Error('SessionTab outside LiveProvider');
   const { world } = useWorld();
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
@@ -204,10 +206,14 @@ export function SessionTab({ agentId }: { agentId: string }) {
                 title={compactTitle}
                 processingChildren="Compacting…"
                 onClick={async () => {
+                  const removeLocal = streams.sendLocal(agentId, COMPACT_COMMAND);
                   // `say` resolves when the server accepts the relay, which is
                   // all the relay does. The compaction takes 10s–130s after
                   // that, so the button holds until the boundary says it ended.
-                  await say.mutateAsync({ agentId, text: COMPACT_COMMAND });
+                  await say.mutateAsync({ agentId, text: COMPACT_COMMAND }).catch((err) => {
+                    removeLocal();
+                    throw err;
+                  });
                   await awaitCompact(agentId, (abandon) => {
                     abandonCompact.current = abandon;
                   });
@@ -269,7 +275,13 @@ export function SessionTab({ agentId }: { agentId: string }) {
           bucket={`agent-${agentId}`}
           agentId={agentId}
           disabled={agent.state === 'exited'}
-          onSend={(text, attachments) => say.mutateAsync({ agentId, text, attachments })}
+          onSend={(text, attachments) => {
+            const removeLocal = text ? streams.sendLocal(agentId, text) : undefined;
+            return say.mutateAsync({ agentId, text, attachments }).catch((err) => {
+              removeLocal?.();
+              throw err;
+            });
+          }}
           onRun={(command) => run.mutateAsync({ agentId, command })}
         />
       )}

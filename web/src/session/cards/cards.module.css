@@ -14,6 +14,10 @@
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
 }
+/* Not yet confirmed by the daemon's own echo of the turn. */
+.message[data-pending] {
+  opacity: 0.6;
+}
 .role {
   font-size: var(--text-2xs);
   text-transform: uppercase;
