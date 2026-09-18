@@ -17,6 +17,8 @@ export interface MessageItem extends Base {
   type: 'message';
   role: 'user' | 'assistant';
   markdown: string;
+  /** Shown before the daemon's own echo confirms the turn reached the agent. */
+  pending?: true;
 }
 
 export type ToolCallStatus = 'pending' | 'running' | 'done' | 'error' | 'denied';
