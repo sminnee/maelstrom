@@ -495,11 +495,14 @@ def test_spec_round_trips_through_plain_json():
         session_id="sid",
         permission_mode="auto",
         model="opus",
+        execute_model="sonnet",
         env={"MAEL_TASK_ID": "t1"},
         prompt="go",
         status="exited",
         exit_code=-9,
     )
+    # The record is the resume contract, so a field it drops is one a restarted
+    # daemon would approve the plan without.
     assert spec_from_dict(spec_to_dict(spec)) == spec
 
 

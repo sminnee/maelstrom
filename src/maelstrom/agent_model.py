@@ -331,6 +331,11 @@ class AgentSpec:
     session_id: str
     permission_mode: str | None = None
     model: str | None = None
+    #: The model this agent switches to when its plan is approved; ``None`` or
+    #: empty means no switch. Here rather than on :class:`AgentState` because no
+    #: stream event reports one — it is a spawn-time parameter, and the record is
+    #: what ``_approve_plan`` reads it back from after a daemon restart.
+    execute_model: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     prompt: str = ""
     status: str = SPEC_RUNNING
@@ -349,6 +354,7 @@ def build_start_payload(
     session_id: str | None = None,
     resume: bool = False,
     model: str | None = None,
+    execute_model: str | None = None,
     prompt: str = "",
 ) -> dict[str, Any]:
     """The daemon's ``start`` command for a launch. Pure.
@@ -376,6 +382,8 @@ def build_start_payload(
         payload["mode"] = permission_mode
     if model:
         payload["model"] = model
+    if execute_model:
+        payload["execute_model"] = execute_model
     if session_id:
         payload["session"] = session_id
     if env:
@@ -391,6 +399,7 @@ def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
         "session_id": spec.session_id,
         "permission_mode": spec.permission_mode,
         "model": spec.model,
+        "execute_model": spec.execute_model,
         "env": dict(spec.env),
         "prompt": spec.prompt,
         "status": spec.status,
@@ -415,6 +424,7 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         session_id=data["session_id"],
         permission_mode=data.get("permission_mode"),
         model=data.get("model"),
+        execute_model=data.get("execute_model"),
         env=dict(data.get("env") or {}),
         prompt=data.get("prompt", ""),
         status=data.get("status", SPEC_RUNNING),
@@ -1821,6 +1831,10 @@ INTERRUPTED_REASON = "Interrupted by user"
 #: The slash command that starts a new conversation. It reaches Claude Code as
 #: the text of an ordinary user turn, which is the same path a prompt takes.
 CLEAR_COMMAND = "/clear"
+
+#: The slash command that switches model mid-session. Same path as
+#: ``CLEAR_COMMAND``; the child answers with a fresh ``system/init``.
+MODEL_COMMAND = "/model"
 
 #: Why a plan review with no plan file is denied — see ``docs/dev/agent-daemon.md``.
 #: It reaches the agent verbatim as the tool result, so it says what to do
