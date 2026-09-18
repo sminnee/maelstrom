@@ -1,5 +1,5 @@
 import type { AgentId } from '../protocol/ids';
-import type { TranscriptItem } from '../protocol/transcript';
+import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import { browserSocket, type SocketLike } from './socketLike';
 import {
   emptyTranscript,
@@ -27,6 +27,11 @@ export interface AgentStreamsOptions {
 export interface AgentStreams {
   /** Show an agent's transcript. Returns the release; the last release closes the stream. */
   acquire(agentId: AgentId): () => void;
+  /**
+   * Show a sent message before the daemon's echo confirms it reached the
+   * agent. Returns a remover, for a failed send.
+   */
+  sendLocal(agentId: AgentId, markdown: string): () => void;
   /**
    * Drop every stream and the timers it is holding, without touching the
    * store. A release only decrements a refcount and arms a grace timer, so
@@ -74,6 +79,24 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
     store.set(agentId, { ...(store.get(agentId) ?? emptyTranscript()), ...patch });
   };
 
+  /**
+   * Drop the oldest local stand-in that matches a just-arrived real user
+   * message, so the two never coexist as duplicate bubbles. At most one
+   * stand-in is in flight per send, so a single match is enough.
+   */
+  const dropEchoedStandIn = (state: TranscriptState, item: TranscriptItem): TranscriptState => {
+    if (item.type !== 'message' || item.role !== 'user' || item.pending) return state;
+    const index = state.items.findIndex(
+      (i) => i.type === 'message' && i.pending && i.markdown === item.markdown,
+    );
+    if (index < 0) return state;
+    return { ...state, items: state.items.toSpliced(index, 1) };
+  };
+
+  /** `dropEchoedStandIn`, applied only when the frame is the kind it acts on. */
+  const reconcileFrame = (state: TranscriptState, frame: TranscriptFrame): TranscriptState =>
+    frame.event.type === 'transcript.append' ? dropEchoedStandIn(state, frame.event.item) : state;
+
   const connect = (agentId: AgentId, stream: Stream) => {
     const cursor = store.get(agentId)?.cursor ?? 0;
     const query = cursor > 0 ? `?from=${cursor}` : '';
@@ -95,19 +118,24 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       }
       if ('seq' in message && 'event' in message) {
         const current = store.get(agentId) ?? emptyTranscript();
-        store.set(agentId, { ...reduceTranscript(current, message), status: 'live' });
+        const state = reconcileFrame(reduceTranscript(current, message), message);
+        store.set(agentId, { ...state, status: 'live' });
         return;
       }
       if (message.type === 'transcript.snapshot') {
-        store.set(agentId, {
+        let state: TranscriptState = {
           items: message.items,
           truncatedBefore: message.truncatedBefore,
           cursor: message.seq,
           status: 'live',
-        });
+        };
+        for (const item of message.items) state = dropEchoedStandIn(state, item);
+        store.set(agentId, state);
       } else if (message.type === 'transcript.replay') {
         let state = store.get(agentId) ?? emptyTranscript();
-        for (const frame of message.frames) state = reduceTranscript(state, frame);
+        for (const frame of message.frames) {
+          state = reconcileFrame(reduceTranscript(state, frame), frame);
+        }
         store.set(agentId, { ...state, cursor: message.seq, status: 'live' });
       }
     };
@@ -174,6 +202,24 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
           stream.graceTimer = null;
           if (stream.refs === 0) close(agentId, stream);
         }, graceMs);
+      };
+    },
+    sendLocal(agentId, markdown) {
+      const id = `local-${crypto.randomUUID()}`;
+      const item: MessageItem = {
+        id,
+        ts: new Date().toISOString(),
+        type: 'message',
+        role: 'user',
+        markdown,
+        pending: true,
+      };
+      const state = store.get(agentId) ?? emptyTranscript();
+      store.set(agentId, { ...state, items: [...state.items, item] });
+      return () => {
+        const current = store.get(agentId);
+        if (!current) return;
+        store.set(agentId, { ...current, items: current.items.filter((i) => i.id !== id) });
       };
     },
     dispose() {
