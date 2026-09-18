@@ -8,6 +8,7 @@ moves.
 from pathlib import Path
 
 from .db import StateDb
+from .migrations.agents import AGENTS
 from .migrations.desk import DESK
 from .migrations.spine import SPINE
 from .migrations.task_export import TASK_EXPORT
@@ -20,6 +21,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "desk": DESK,
     "tasks": TASKS,
     "task_export": TASK_EXPORT,
+    "agents": AGENTS,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
@@ -31,6 +33,7 @@ TABLES: dict[str, TableSpec] = {
     # nothing reads the tree it feeds on any code path. So a write to it is not
     # news for a client, even though it shares the task write's transaction.
     "task_export": TableSpec("task_export", notifies=False),
+    "agents": TableSpec("agents", notifies=False),
 }
 
 

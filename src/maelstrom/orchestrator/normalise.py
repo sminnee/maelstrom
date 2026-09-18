@@ -262,7 +262,18 @@ def normalise_stream_event(
     )
     kind = raw.get("type")
 
-    if kind == "system":
+    if kind == "codex_raw":
+        # Codex has a richer event vocabulary than the Claude stream-json
+        # protocol. Keep an unsupported record visible instead of discarding
+        # it while the two formats are brought into parity.
+        out.append(
+            {
+                "type": "raw_event",
+                "method": _str(raw.get("method")),
+                "params": _dict(raw.get("params")),
+            }
+        )
+    elif kind == "system":
         if raw.get("subtype") == "init":
             session_id = _str(raw.get("session_id"))
             model = _str(raw.get("model"))

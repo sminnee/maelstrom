@@ -34,7 +34,7 @@ export interface TranscriptHandlers {
  * and spaced it as prose. One value, read by both.
  */
 function registerOf(item: TranscriptItem): 'ledger' | 'prose' {
-  return item.type === 'tool_call' ? 'ledger' : 'prose';
+  return item.type === 'tool_call' || item.type === 'raw_event' ? 'ledger' : 'prose';
 }
 
 /**
@@ -271,6 +271,13 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
           {item.status}
           {item.summary && ` · ${item.summary}`}
         </div>
+      );
+    case 'raw_event':
+      return (
+        <details className={styles.rawEvent} data-testid="raw-event">
+          <summary className={styles.rawEventHead}>Codex · {item.method || 'event'}</summary>
+          <pre className={styles.rawJson}>{JSON.stringify(item.params, null, 2)}</pre>
+        </details>
       );
   }
 }
