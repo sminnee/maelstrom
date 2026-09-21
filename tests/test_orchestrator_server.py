@@ -5182,3 +5182,36 @@ def test_the_milestones_route_serves_an_empty_ledger_as_no_stages(harness):
     assert known["stages"] == []
     assert unknown["stages"] == []
     assert unknown["agent_id"] == "nobody"
+
+
+def test_a_replayed_milestone_is_not_recorded_twice(harness):
+    """A restart re-reads the host's window from the start.
+
+    The marker was recorded by the run that first read it. The ledger keys on
+    an ordinal rather than on the marker, so recording it again appends a
+    second row whose delta is 0 — and the card, which shows the last stage,
+    would then report a stage that cost nothing.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+    harness.daemon.backlog["ag1"] = [
+        tag_event("<milestone>green</milestone>"),
+        end_turn(cost=1.0),
+    ]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                # The marker's own message lands as an item, so the backlog is
+                # replayed by the time the transcript holds it.
+                await wait_until(
+                    lambda: any(
+                        i["type"] == "message"
+                        for i in harness.orch.transcript_log("ag1").items
+                    )
+                )
+                return await harness.orch.milestones.list(), milestone_items(harness)
+
+    rows, items = run(scenario())
+    assert rows == []
+    assert items == []

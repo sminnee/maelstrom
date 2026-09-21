@@ -1149,7 +1149,12 @@ class Orchestrator:
             watch.pending_milestone = out.milestone
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
-            await self._record_milestone(watch, milestone)
+            # A replayed marker was recorded by the run that first read it. The
+            # ledger keys on an ordinal, so recording it again would append a
+            # second row rather than replace the first — and its delta would be
+            # 0, because no tokens were spent between the two writes.
+            if watch.caught_up.is_set():
+                await self._record_milestone(watch, milestone)
 
     async def _record_milestone(self, watch: AgentWatch, milestone: Milestone) -> None:
         """Snapshot what the agent had spent when it marked a stage reached.
