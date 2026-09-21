@@ -5033,3 +5033,104 @@ def test_a_message_with_no_milestone_writes_nothing(harness):
                 return await harness.orch.milestones.list()
 
     assert run(scenario()) == []
+
+
+def milestone_items(harness) -> list[dict]:
+    """Every milestone bar in ag1's transcript."""
+    return [
+        item
+        for item in harness.orch.transcript_log("ag1").items
+        if item["type"] == "milestone"
+    ]
+
+
+def test_a_milestone_also_appends_a_transcript_bar_carrying_the_stages_delta(harness):
+    """The reading the ledger exists to give, on the surface that shows the run.
+
+    The bar says what the *stage* cost, not the running total: the delta is
+    the figure that answers "where did the burn go". It comes off the ledger
+    write, so one arithmetic feeds both the CLI and the UI.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>planned</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.0))
+                await recorded(harness, 1)
+                harness.daemon.rows["ag1"] = agent_row(
+                    cost="3.5000", tokens=90_000, subagent_tokens={"total": 5_000}
+                )
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["totalTokens"] == 90_000,
+                )
+                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=3.5))
+                await recorded(harness, 2)
+                return milestone_items(harness)
+
+    first, second = run(scenario())
+    assert first["name"] == "planned"
+    assert first["recognised"] is True
+    assert second["name"] == "green"
+    assert second["deltaTokens"] == 85_000
+    assert second["costDelta"] == 2.5
+
+
+def test_the_milestone_bar_lands_after_the_turn_that_declared_it(harness):
+    """A bar drawn at the tag would sit before the work it prices.
+
+    The tag rides an ``assistant`` event; the turn's tokens only reach the
+    world on its ``result``. So the bar appends on the result, which puts it
+    below the message that carried the marker.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event("Done.\n\n<milestone>green</milestone>")
+                )
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["lastMessage"] == "Done.",
+                )
+                # The tag alone must not draw a bar: the result has not landed.
+                before = milestone_items(harness)
+                harness.daemon.push("ag1", end_turn(cost=1.0))
+                await recorded(harness, 1)
+                types = [i["type"] for i in harness.orch.transcript_log("ag1").items]
+                return before, types
+
+    before, types = run(scenario())
+    assert before == []
+    assert types.index("milestone") > types.index("message")
+
+
+def test_an_unrecognised_milestone_name_draws_a_bar_that_says_so(harness):
+    """Never dropped, never lit: a name the flow does not declare is shown flagged."""
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>deployed</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.0))
+                await recorded(harness, 1)
+                return milestone_items(harness)
+
+    [item] = run(scenario())
+    assert item["name"] == "deployed"
+    assert item["recognised"] is False

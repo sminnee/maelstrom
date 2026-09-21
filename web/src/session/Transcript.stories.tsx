@@ -7,6 +7,7 @@ import {
   settledQuestions,
   ledgerRun,
   markdownSample,
+  milestoneRun,
   mixedTranscript,
 } from './transcript.fixture';
 import { Transcript } from './Transcript';
@@ -39,6 +40,30 @@ function Panel({ width = 460, children }: { width?: number; children: React.Reac
 export const Mixed: Story = () => (
   <Panel>
     <Transcript items={mixedTranscript} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * The milestone bar between work either side of it.
+ *
+ * Check: it reads as a boundary and not as an alert, the `--ok` rule is
+ * visible without competing with an amber attention prompt, and the flagged
+ * name sits a register below the lit one.
+ */
+export const Milestones: Story = () => (
+  <Panel>
+    <Transcript items={milestoneRun} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * At panel minimum the bar is a flex rule with `::before`/`::after`, so the
+ * rules shrink and the label must still read. jsdom computes no layout, so
+ * this is the only place that can be judged.
+ */
+export const MilestonesNarrow: Story = () => (
+  <Panel width={360}>
+    <Transcript items={milestoneRun} truncatedBefore={false} />
   </Panel>
 );
 
