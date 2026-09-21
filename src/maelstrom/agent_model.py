@@ -609,6 +609,10 @@ class SubagentState:
     #: The asks this subagent is blocked on, by request id, oldest first. Its
     #: own, not the parent's, though the parent's pipe takes the reply.
     pending: dict[str, PendingRequest] = field(default_factory=dict)
+    #: What this subagent's own requests have consumed. A subagent emits no
+    #: ``result``, so this is summed off its ``assistant`` events under the
+    #: dedupe rule in :func:`_count_subagent_usage`.
+    tokens: TokenUsage = field(default_factory=TokenUsage)
 
 
 @dataclass(frozen=True)
@@ -711,6 +715,15 @@ class AgentState:
     #: Every dotted id ever handed out, by the ``Agent`` call's tool use id.
     #: Outlives eviction, so an ordinal is never reused.
     subagent_ids: dict[str, str] = field(default_factory=dict)
+    #: What every subagent of this agent has consumed, summed. Kept on the
+    #: parent rather than derived from :attr:`subagents`, because
+    #: :data:`SUBAGENT_LIMIT` evicts a subagent and the tokens it spent were
+    #: still spent. Disjoint from :attr:`total_tokens`.
+    subagent_tokens: TokenUsage = field(default_factory=TokenUsage)
+    #: The last ``usage`` read for each subagent ``message.id``, so a second
+    #: block of one request replaces its reading rather than adding a second.
+    #: See :func:`_count_subagent_usage`.
+    subagent_readings: dict[str, TokenUsage] = field(default_factory=dict)
     #: The same dotted ids, by the ``task_started`` id Claude Code knows the
     #: subagent as. A ``can_use_tool`` names its asker under ``agent_id``, and
     #: this is what turns that into a dotted id.
@@ -1411,7 +1424,40 @@ def _apply_subagent_event(
         last_message_at=last_message_at,
         status=SUB_RUNNING,
     )
-    return replace(state, subagents={**state.subagents, dotted: updated})
+    state = replace(state, subagents={**state.subagents, dotted: updated})
+    return _count_subagent_usage(state, dotted, event)
+
+
+def _count_subagent_usage(
+    state: AgentState, dotted: str, event: dict[str, Any]
+) -> AgentState:
+    """``state`` with what one subagent ``assistant`` event consumed counted in.
+
+    **Deduplicated by** ``message.id``, **last reading wins**: one request emits
+    two ``assistant`` events when its answer holds both a text and a
+    ``tool_use`` block, and both carry the whole ``usage``. This is the only
+    place a subagent's spend is seen, because it emits no ``result``. See
+    ``docs/dev/agent-daemon.md``, "A turn", for why last-wins, and why the sum
+    across ids is a total where a parent's is a level.
+    """
+    message = event.get("message")
+    if event.get("type") != "assistant" or not isinstance(message, dict):
+        return state
+    message_id = str(message.get("id") or "")
+    if not message_id:
+        return state
+    reading = usage_of(message.get("usage"))
+    previous = state.subagent_readings.get(message_id, TokenUsage())
+    # The delta, so a second reading of one id replaces rather than adds. Both
+    # the parent's running total and the subagent's own move by it.
+    delta = reading - previous
+    sub = state.subagents[dotted]
+    return replace(
+        state,
+        subagents={**state.subagents, dotted: replace(sub, tokens=sub.tokens + delta)},
+        subagent_tokens=state.subagent_tokens + delta,
+        subagent_readings={**state.subagent_readings, message_id: reading},
+    )
 
 
 def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
@@ -1497,6 +1543,9 @@ def build_agent_row(state: AgentState, spawn_session: str = "") -> dict[str, Any
         "last_note_at": state.last_note_at,
         "cost": f"{state.total_cost_usd:.4f}" if state.total_cost_usd else "",
         "tokens": state.total_tokens,
+        # The agent's own; ``subagent_tokens`` is its subagents'. Neither holds
+        # the other, so their sum is the tree's.
+        "subagent_tokens": state.subagent_tokens.as_row(),
         "context_tokens": state.context_tokens,
     }
 
@@ -1527,10 +1576,13 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
     agent, even for a nested subagent, because that is whose child process
     carries it. ``session``, ``cwd``, ``pid``, ``model`` and ``mode`` are the
     parent's: a subagent runs inside the parent's process, in its directory,
-    under its mode. ``cost`` is empty and both token counts are 0 for the same
-    reason: a subagent has no session of its own, so its spend and its size are
-    in the parent's totals, and repeating them here would double-count. Its
-    context is the parent's prompt, which the parent's own row already reports.
+    under its mode.
+
+    ``tokens`` is its own, summed off its ``assistant`` events under the dedupe
+    rule (:func:`_count_subagent_usage`), and is **not** in the parent's.
+    ``cost`` is empty because the host reports one dollar figure per session and
+    it is the parent's; ``context_tokens`` is 0 because a subagent's context is
+    the parent's prompt, which the parent's own row already reports.
     ``waiting_on`` is its own — a subagent that asks is blocked itself, and a
     row saying only ``processing`` would hide that.
     """
@@ -1554,7 +1606,10 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
         "last_note": "",
         "last_note_at": "",
         "cost": "",
-        "tokens": 0,
+        "tokens": sub.tokens.total,
+        # A subagent of a subagent is counted on the top-level agent, whose
+        # row is the one that reports a tree.
+        "subagent_tokens": TokenUsage().as_row(),
         "context_tokens": 0,
     }
 

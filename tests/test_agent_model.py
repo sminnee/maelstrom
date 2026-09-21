@@ -1533,10 +1533,20 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         # A subagent writes no note, for the reason it mints no document.
         "last_note": "",
         "last_note_at": "",
+        # The parent's dollars: the host reports one figure per session.
         "cost": "",
-        # All blank: a subagent has no session, so its spend, its size and its
-        # context are counted in the parent's totals, not again here.
-        "tokens": 0,
+        # Its own spend, summed off its assistant events. Not in the parent's
+        # `tokens`, which covers the parent's own requests alone.
+        "tokens": 52443,
+        # A subagent of a subagent is counted on the top-level agent's row.
+        "subagent_tokens": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_creation": 0,
+            "total": 0,
+        },
+        # Its context is the parent's prompt, which the parent's row reports.
         "context_tokens": 0,
     }
     assert last_message.startswith("`docs/dev` exists")
@@ -1946,3 +1956,96 @@ class TestNestedSubagentPermission:
         assert asked in started
         # The deeper of the two: spawned by the subagent, not by the parent.
         assert started[asked]["spawn_depth"] == 2
+
+
+# --- a subagent's own token spend -------------------------------------------
+
+
+#: The three distinct ``message.id``s ``subagent-turn.jsonl`` records for its
+#: subagent, and what each one's ``usage`` sums to. Written out so the dedupe
+#: test asserts against a hand-computed figure rather than against the code.
+SUBAGENT_MESSAGE_TOTALS = {
+    "msg_011Cei5jmMBbMcC1qqp5ZfNo": 2 + 1 + 0 + 15497,
+    "msg_011Cei5n4RuBMYpWMSQfNRjD": 2 + 2 + 15497 + 799,
+    "msg_011Cei5oVSq2kiUHPPLFMiUY": 2 + 1 + 16296 + 4344,
+}
+
+
+def test_a_subagents_assistant_events_are_counted_once_per_message_id():
+    """The load-bearing rule: two blocks of one request are one reading.
+
+    The fixture records five ``assistant`` events for three requests, because
+    a text block and a tool_use block of the same request each carry the whole
+    ``usage``. Summing the events would count two of the three twice.
+    """
+    state = replay("subagent-turn.jsonl")
+    assert state.subagents["a1.1"].tokens.total == sum(SUBAGENT_MESSAGE_TOTALS.values())
+
+
+def test_a_subagents_tokens_and_its_parents_are_disjoint():
+    """Neither figure holds the other, so the cumulative total is their sum.
+
+    The parent's ``result`` reports only its own requests — a subagent emits
+    no ``result`` at all. Both figures are hand-computed off the fixture.
+    """
+    state = replay("subagent-turn.jsonl")
+    assert state.total_tokens == 4 + 12198 + 39691 + 528
+    assert state.subagent_tokens.total == 52443
+
+
+def test_a_later_reading_of_one_message_id_replaces_the_earlier_one():
+    """A partial block reports a low ``output_tokens``; the final block is real."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _parented("t1", "working"))
+    partial = _subagent_usage("t1", "msg_1", output_tokens=1)
+    final = _subagent_usage("t1", "msg_1", output_tokens=500)
+    state = apply_event(state, partial)
+    state = apply_event(state, final)
+    assert state.subagents["a1.1"].tokens.output == 500
+    assert state.subagent_tokens.output == 500
+
+
+def test_an_evicted_subagents_tokens_stay_on_the_parent():
+    """``SUBAGENT_LIMIT`` drops the state; the tokens it spent were still spent."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for n in range(SUBAGENT_LIMIT + 1):
+        state = apply_event(state, _parented(f"t{n}", "working"))
+        state = apply_event(
+            state, _subagent_usage(f"t{n}", f"msg_{n}", output_tokens=10)
+        )
+        # Only a finished subagent is evicted, so each one ends before the
+        # next opens.
+        state = apply_event(state, _notification(f"t{n}", "completed", "done"))
+    assert len(state.subagents) == SUBAGENT_LIMIT
+    assert "a1.1" not in state.subagents
+    assert state.subagent_tokens.output == (SUBAGENT_LIMIT + 1) * 10
+
+
+def test_an_agent_row_splits_its_own_tokens_from_its_subagents():
+    state = replay("subagent-turn.jsonl")
+    row = build_agent_row(state)
+    # The existing key is unchanged: it is the agent's own, as it always was.
+    assert row["tokens"] == state.total_tokens
+    assert row["subagent_tokens"]["total"] == 52443
+
+
+def test_a_subagent_row_reports_the_tokens_it_spent():
+    state = replay("subagent-turn.jsonl")
+    [row] = build_subagent_rows(state)
+    assert row["tokens"] == 52443
+    # Its context is the parent's prompt, and its dollars are the parent's.
+    assert row["context_tokens"] == 0
+    assert row["cost"] == ""
+
+
+def _subagent_usage(tool_use_id: str, message_id: str, **counts: int) -> dict:
+    """One ``assistant`` event from a subagent, carrying a usage block."""
+    return {
+        "type": "assistant",
+        "parent_tool_use_id": tool_use_id,
+        "message": {
+            "id": message_id,
+            "content": [{"type": "text", "text": "working"}],
+            "usage": {"input_tokens": 0, **counts},
+        },
+    }
