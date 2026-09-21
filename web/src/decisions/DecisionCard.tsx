@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
 import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
@@ -13,7 +13,7 @@ import { QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { AppButton } from '../ui/AppButton';
-import { useClamped } from '../ui/useClamped';
+import { useExpandableClamp } from '../ui/useExpandableClamp';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
@@ -189,15 +189,12 @@ function DockedContext({ items }: { items: ContextItem[] }) {
 /**
  * The card's context: inline, open, and clamped.
  *
- * The clamp bounds the height of context the operator wants; the fold removes
- * context they have already read. Two controls, because they answer different
- * questions.
+ * The clamp bounds the height of context the operator wants; folding the
+ * `<details>` removes context they have already read. Distinct from expanding
+ * the clamp, which `useExpandableClamp` owns.
  */
 function InlineContext({ items }: { items: ContextItem[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const body = useRef<HTMLDivElement>(null);
-  const bodyId = useId();
-  const clamped = useClamped(body, [items, expanded]);
+  const { expanded, collapse, bodyProps } = useExpandableClamp([items]);
 
   return (
     <details
@@ -206,26 +203,20 @@ function InlineContext({ items }: { items: ContextItem[] }) {
       data-testid="decision-context"
       // Folding it away resets the clamp, so re-opening gives the short rail
       // rather than whatever height it was left at.
-      onToggle={(e) => !e.currentTarget.open && setExpanded(false)}
+      onToggle={(e) => !e.currentTarget.open && collapse()}
     >
       <summary className={styles.contextHead}>Before this</summary>
-      <div
-        className={styles.contextBody}
-        ref={body}
-        id={bodyId}
-        data-expanded={expanded || undefined}
-      >
+      <div className={styles.contextBody} {...bodyProps}>
         <ContextItems items={items} />
       </div>
-      {(clamped || expanded) && (
+      {expanded && (
         <AppButton
           className={styles.more}
-          variant="quiet"
-          aria-expanded={expanded}
-          aria-controls={bodyId}
-          onClick={() => setExpanded((was) => !was)}
+          variant="link"
+          aria-controls={bodyProps.id}
+          onClick={collapse}
         >
-          {expanded ? 'Show less' : 'Show more'}
+          Show less
         </AppButton>
       )}
     </details>
