@@ -195,7 +195,8 @@ them:
 The session writes a `<milestone>` marker as it passes each stage — `planned`, `built`, `green`,
 `reviewed`, `presented`, `shipped`. Maelstrom snapshots the agent's spend at each one, so
 `mael agent cost` answers which stage the tokens went to, for a stopped agent as well as a live
-one.
+one. The orchestrator UI shows the same reading: a bar in the session transcript where each stage
+closed, and the latest stage on the agent's expanded card.
 
 ### Why the task closes at step 6, not step 7
 

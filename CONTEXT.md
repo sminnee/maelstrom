@@ -631,7 +631,8 @@ a document awaits review.
 What a driven agent had spent when it reached a milestone: its own tokens, its subagents' tokens,
 and the host's dollar figure, with the delta since the milestone before it. The deltas sum to the
 total, which is what makes the record answer which stage the spend went to. Written to the
-`agent_milestones` table, so it outlives the agent, and read by `mael agent cost`.
+`agent_milestones` table, so it outlives the agent. Read by `mael agent cost` and by the
+orchestrator UI, which draws it in the session panel and on the expanded node card.
 _Avoid_: Checkpoint, usage record. Not a **usage window**, which is the account's budget rather
 than one agent's spend.
 

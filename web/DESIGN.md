@@ -584,6 +584,12 @@ lines and fades out at the cut, with a More control that opens it in place. A br
 or fewer shows whole and offers no control. The card measures itself when its size changes, so
 opening a long brief pans the card back into view.
 
+An agent past a stage gets one line under the status strip, in the identity register: the stage
+in Clear Green, then its cost and its age — `built · 19k · $0.24 · 6m ago`. The latest stage
+only, and nothing at all when there is none. No hairline: the band gap separates it, as it
+separates the status line from the Now block, and a rule would rank a closed stage above the
+brief. See **Milestone bar**.
+
 A drifting task gets its own band under the status strip: the amber caret, a sentence naming
 both the task status and what the agent is doing, and a button that applies the fix where there
 is one. The sentence takes `--fg-muted`, because an open attention item is a real block and
@@ -632,6 +638,27 @@ they did, not something the agent did.
 It therefore takes the interactive channel rather than the agent's ledger — a Signal Blue wash
 and border, with a tracked `you ran` label — and reads as a quieter sibling of a user turn. A
 tool call recedes; a shell command does not, because the operator put it there.
+
+### Milestone bar
+
+The full-width rule the transcript draws where a stage of the work closed, holding the stage and
+what it cost: `green · 95k · $2.10`. It takes the compact rule's shape — a hairline with the words
+sitting in it — and, unlike a compact, a hue: Clear Green at 40% for the rule and full strength
+for the stage name, with the figures left muted so the stage leads.
+
+`--ok` rather than a new token, because a closed stage is exactly what Clear Green already means,
+and because done work should recede. The Reporting Rule allows the hue only as a report of state,
+and "which stage closed" is state. A milestone is never permitted Signal Amber and never a glow:
+the Single Interrupt Rule keeps both for the one thing asking to be acted on, and a milestone asks
+for nothing. Beside an amber attention prompt it must read as a boundary, not a second alert.
+
+The figures are the stage's own delta, not the running total the session header already carries. A
+stage name the flow does not declare drops to the compact register and gains `(?)`. It is shown,
+because a typo must be visible, but it has closed no stage anyone can price, so it does not take
+the lit rule.
+
+The node card carries the same reading as one line in the identity register, with the stage's
+age: see **Node Card**.
 
 ### Panel Tabs
 

@@ -151,9 +151,8 @@ A fifth marker mints no document either:
 A milestone names a stage of the work the agent has just reached, from the vocabulary in
 `CONTEXT.md`. The latest one in a message wins, as a note's does, and a subagent writes none.
 
-Unlike every other tag, a milestone changes no world entity, so it does not travel as a
-`ServerEvent`: `apply_event` raises on an event type it does not know, and adding one for a write
-that moves nothing would put a ledger row in the client's reducer. It rides out on
+Unlike every other tag, a milestone changes no world entity, so it mints no `upsert`: adding one
+for a write that moves nothing would put a ledger row in the client's reducer. It rides out on
 `Normalised.milestone` instead, and `server._record_milestone` does the write. That keeps
 `normalise` a pure function, which is what the goldens rest on.
 
@@ -162,6 +161,16 @@ declaring turn's `result`. The agent writes the marker on an `assistant` event, 
 tokens only reach the world when its `result` lands — and that turn is usually the stage's most
 expensive one, so a snapshot taken at the tag would push it onto the next stage. An agent the
 world does not know writes nothing: there would be no totals to record.
+
+The write also appends a `milestone` transcript item, the bar the session panel draws. A
+`transcript.append` is not a world event — `apply_event` returns the state untouched for the three
+transcript kinds, because each agent's `TranscriptLog` keeps them — so the bar still puts nothing
+in the reducer. `MilestoneStore.record` returns the row it wrote, and `normalise_milestone` turns
+that row into the item. The delta the bar reports is therefore the one `agent_store._snapshot`
+computed, so the panel and `mael agent cost` cannot disagree.
+
+The bar lands on the `result` for the same reason the snapshot does: the item is minted where the
+figures are. A bar drawn where the marker was read would sit above the turn it is pricing.
 
 A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
 carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,
@@ -624,6 +633,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
 | `GET /api/agents` | `{agents: [Agent]}` |
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
+| `GET /api/agents/{id}/milestones` | The agent's `AgentCost`: its totals, and a `stages` list saying what each stage cost. Served through `agent_cost.build_cost_report`, the report `mael agent cost` prints. An agent that reached no stage gets that report with `stages: []`, not a 404 |
 | `GET /api/attention?open=1` | `{attention: [Attention]}`; `open` keeps only items not yet cleared |
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
