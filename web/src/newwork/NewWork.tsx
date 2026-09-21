@@ -179,6 +179,9 @@ export function NewWork() {
   const task: TaskDraft = {
     title,
     content: draft,
+    // New work has no status to choose: a created task always starts in
+    // `todo`, and Advanced offers no control that would change it here.
+    status: 'todo',
     branch,
     command,
     mode: taskMode,

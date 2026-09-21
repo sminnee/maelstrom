@@ -32,17 +32,19 @@ describe('the task list', () => {
    */
   const locked = (editor: HTMLElement) =>
     Object.fromEntries(
-      ['Title', 'Content', 'Branch', 'Command', 'Mode', 'Priority', 'Model'].map((name) => {
-        const field = within(editor).getByLabelText(name);
-        return [
-          name,
-          field.hasAttribute('readonly')
-            ? 'readonly'
-            : field.hasAttribute('disabled')
-              ? 'disabled'
-              : null,
-        ];
-      }),
+      ['Title', 'Status', 'Content', 'Branch', 'Command', 'Mode', 'Priority', 'Model'].map(
+        (name) => {
+          const field = within(editor).getByLabelText(name);
+          return [
+            name,
+            field.hasAttribute('readonly')
+              ? 'readonly'
+              : field.hasAttribute('disabled')
+                ? 'disabled'
+                : null,
+          ];
+        },
+      ),
     );
   /** Open a task's dialog, which the row does from anywhere on it. */
   const openTask = async (
@@ -356,6 +358,27 @@ describe('the task list', () => {
     expect(patch?.body).toEqual({ title: 'Migrate to Postgres 17' });
   });
 
+  it('saves a changed status through its own route, batched with the rest', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+    const title = within(editor).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Migrate to Postgres 17');
+    await user.selectOptions(within(editor).getByLabelText('Status'), 'blocked');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Status goes out on its own route, not folded into the PATCH body.
+    const patch = server.requests.find((r) => r.method === 'PATCH');
+    expect(patch?.body).toEqual({ title: 'Migrate to Postgres 17' });
+    const statusPost = server.requests.find((r) => r.path.endsWith('/status'));
+    expect(statusPost?.body).toEqual({ status: 'blocked' });
+    expect(server.world.tasks['NORT-9']?.status).toBe('blocked');
+  });
+
   it('closes the editor on Escape when nothing was typed', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -406,6 +429,7 @@ describe('the task list', () => {
     await user.click(within(editor).getByText('Advanced'));
     expect(locked(editor)).toEqual({
       Title: 'readonly',
+      Status: 'disabled',
       Content: 'readonly',
       Branch: 'readonly',
       Command: 'readonly',
