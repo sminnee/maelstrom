@@ -30,7 +30,8 @@ from .agent_model import (
     PLAN_TOOL,
     QUESTION_TOOL,
     TRUNCATED,
-    USAGE_FIELDS,
+    TokenUsage,
+    usage_of,
 )
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
@@ -45,33 +46,6 @@ from .orchestrator.protocol import (
 
 #: Item types that carry a ``requestId`` the user can answer.
 PROMPT_ITEMS = ("question", "permission_request", "plan_review")
-
-
-@dataclass(frozen=True)
-class TokenUsage:
-    """Tokens the session has consumed, summed over its turns.
-
-    A ``result`` reports the turn that just ended, not the session, so each one
-    adds to the running total. ``total_cost_usd`` on the same event is the
-    session's, which is why the footer's cost is read and its tokens are added.
-    """
-
-    input: int = 0
-    output: int = 0
-    cache_read: int = 0
-    cache_creation: int = 0
-
-    @property
-    def total(self) -> int:
-        return self.input + self.output + self.cache_read + self.cache_creation
-
-    def __add__(self, other: "TokenUsage") -> "TokenUsage":
-        return TokenUsage(
-            input=self.input + other.input,
-            output=self.output + other.output,
-            cache_read=self.cache_read + other.cache_read,
-            cache_creation=self.cache_creation + other.cache_creation,
-        )
 
 
 @dataclass(frozen=True)
@@ -189,7 +163,10 @@ def apply_stream_event(
             view = replace(view, cwd=cwd)
 
     if kind == "result":
-        view = replace(view, usage=view.usage + _usage_of(raw))
+        # A ``result`` reports the turn that just ended, not the session, so
+        # each reading adds. The cost on the same event is the session's and
+        # replaces, which is why the footer reads one and sums the other.
+        view = replace(view, usage=view.usage + usage_of(raw.get("usage")))
 
     result = normalise_stream_event(view.client, view.ctx, raw, now)
     client = _reduce(view.client, result.events)
@@ -235,30 +212,6 @@ def _with_items(
                 for i in out
             ]
     return tuple(out)
-
-
-def _usage_of(raw: dict[str, Any]) -> TokenUsage:
-    """The turn's usage, split the way the footer reports it.
-
-    The breakdown is this module's own; the *total* must match what
-    ``agent_model.tokens_of`` puts on the agent row, so the four field names
-    come from :data:`~maelstrom.agent_model.USAGE_FIELDS` rather than being
-    written out twice.
-    """
-    usage = raw.get("usage")
-    if not isinstance(usage, dict):
-        return TokenUsage()
-    read = {name: _int(usage.get(name)) for name in USAGE_FIELDS}
-    return TokenUsage(
-        input=read["input_tokens"],
-        output=read["output_tokens"],
-        cache_read=read["cache_read_input_tokens"],
-        cache_creation=read["cache_creation_input_tokens"],
-    )
-
-
-def _int(value: Any) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _int_or_none(value: Any) -> int | None:

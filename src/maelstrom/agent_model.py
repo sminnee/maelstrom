@@ -543,6 +543,51 @@ AGENT_TASK_TYPE = "local_agent"
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    """Tokens some run consumed, split the four ways a ``usage`` block reports.
+
+    The daemon's state and the attach footer share the split, so the two can
+    never disagree about what a turn held.
+    """
+
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_creation: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.input + self.output + self.cache_read + self.cache_creation
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(
+            input=self.input + other.input,
+            output=self.output + other.output,
+            cache_read=self.cache_read + other.cache_read,
+            cache_creation=self.cache_creation + other.cache_creation,
+        )
+
+    def __sub__(self, other: "TokenUsage") -> "TokenUsage":
+        """What was spent between two readings. Never negative: a reset reads 0."""
+        return TokenUsage(
+            input=max(self.input - other.input, 0),
+            output=max(self.output - other.output, 0),
+            cache_read=max(self.cache_read - other.cache_read, 0),
+            cache_creation=max(self.cache_creation - other.cache_creation, 0),
+        )
+
+    def as_row(self) -> dict[str, int]:
+        """This figure as a row reports it: the four counts and their total."""
+        return {
+            "input": self.input,
+            "output": self.output,
+            "cache_read": self.cache_read,
+            "cache_creation": self.cache_creation,
+            "total": self.total,
+        }
+
+
+@dataclass(frozen=True)
 class SubagentState:
     """One subagent of an agent: a stream of its own, keyed by a dotted id.
 
@@ -1031,6 +1076,28 @@ USAGE_FIELDS = (
 )
 
 
+def usage_of(usage: Any) -> TokenUsage:
+    """One ``usage`` block, split the four ways. A missing block reads as zero.
+
+    The field names come from :data:`USAGE_FIELDS`, so this split and the
+    total :func:`tokens_of` reports can never name different fields.
+    """
+    if not isinstance(usage, dict):
+        return TokenUsage()
+    read = {name: _count(usage.get(name)) for name in USAGE_FIELDS}
+    return TokenUsage(
+        input=read["input_tokens"],
+        output=read["output_tokens"],
+        cache_read=read["cache_read_input_tokens"],
+        cache_creation=read["cache_creation_input_tokens"],
+    )
+
+
+def _count(value: Any) -> int:
+    """``value`` when it is a count, else 0. A bool is not a count."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def tokens_of(event: dict[str, Any]) -> int:
     """How many tokens the turn ``event`` reports, or 0 when it reports none.
 
@@ -1073,12 +1140,7 @@ def _sum_usage(usage: Any, field_names: tuple[str, ...]) -> int:
     """
     if not isinstance(usage, dict):
         return 0
-    total = 0
-    for field_name in field_names:
-        value = usage.get(field_name)
-        if isinstance(value, int) and not isinstance(value, bool):
-            total += value
-    return total
+    return sum(_count(usage.get(field_name)) for field_name in field_names)
 
 
 def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
