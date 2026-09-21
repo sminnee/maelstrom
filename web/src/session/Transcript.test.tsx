@@ -71,13 +71,22 @@ describe('Transcript', () => {
             status: 'done',
           },
           said('m2', '', { markdown: 'Done.' }),
+          {
+            id: 'ms1',
+            ts: '',
+            type: 'milestone',
+            name: 'green',
+            recognised: true,
+            deltaTokens: 95_000,
+            costDelta: 2.1,
+          },
         ]}
       />,
     );
     const registers = screen
       .getAllByTestId('transcript-card')
       .map((c) => c.getAttribute('data-register'));
-    expect(registers).toEqual(['prose', 'machinery', 'prose']);
+    expect(registers).toEqual(['prose', 'machinery', 'prose', 'machinery']);
   });
 
   it('an all-low agent message registers as machinery; a mixed one registers as prose', () => {
@@ -506,6 +515,42 @@ describe('Transcript', () => {
       .getAllByTestId('transcript-card')
       .find((c) => c.querySelector('[data-tool-kind="bash"]'))!;
     expect(within(card).getByText('denied')).toBeInTheDocument();
+  });
+});
+
+describe('the milestone bar', () => {
+  const reached = (name: string, recognised = true): TranscriptItem => ({
+    id: `item-${name}` as TranscriptItem['id'],
+    ts: '2026-09-01T00:00:00Z',
+    type: 'milestone',
+    name,
+    recognised,
+    deltaTokens: 95_000,
+    costDelta: 2.1,
+  });
+
+  it('says which stage closed and what that stage cost', () => {
+    // The delta, never the running total: "which stage was expensive" is the
+    // reading the ledger exists to give.
+    render(<Transcript items={[reached('green')]} truncatedBefore={false} />);
+    expect(screen.getByTestId('milestone')).toHaveTextContent('green · 95k · $2.10');
+  });
+
+  it('flags a name the flow does not declare, and does not light the rule for it', () => {
+    // Never dropped — a typo must be visible. But an undeclared name has
+    // closed no stage anyone can price, so it does not take the lit rule.
+    render(<Transcript items={[reached('deployed', false)]} truncatedBefore={false} />);
+    const bar = screen.getByTestId('milestone');
+    expect(bar).toHaveTextContent('deployed (?)');
+    expect(bar).toHaveAttribute('data-recognised', 'false');
+  });
+
+  it('says only the stage when the stage spent nothing', () => {
+    // A stage reached twice deltas to zero against the row before it, which
+    // is a real ledger state. `· 0k · $0.00` would read as a measurement.
+    const item = { ...reached('green'), deltaTokens: 0, costDelta: 0 };
+    render(<Transcript items={[item]} truncatedBefore={false} />);
+    expect(screen.getByTestId('milestone')).toHaveTextContent(/^green$/);
   });
 });
 

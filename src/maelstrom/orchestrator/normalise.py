@@ -227,6 +227,40 @@ def normalise_gap(
     return out.done()
 
 
+def normalise_milestone(
+    state: ClientState, ctx: NormaliseContext, row: Dict, now: str
+) -> Normalised:
+    """The bar that divides the transcript where a stage closed.
+
+    ``row`` is the ledger snapshot the server has just written, so the figures
+    are the stage's own delta rather than a running total — the reading the
+    ledger exists to give. The delta arithmetic stays in
+    :func:`~maelstrom.agent_store._snapshot`; this only reports it.
+
+    A transcript item, not a world entity: ``apply_event`` leaves the world
+    untouched for a ``transcript.append``, so the ledger reaches no reducer.
+
+    The item takes the ledger's own timestamp, which is when the agent wrote
+    the marker. The bar still lands after the declaring turn, because the
+    server records on that turn's ``result``: a bar minted where the marker
+    was read would sit above the work it prices.
+    """
+    agent = state["world"]["agents"].get(ctx.agent_id)
+    if agent is None:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now, event_ts=_str(row.get("at")))
+    out.append(
+        {
+            "type": "milestone",
+            "name": _str(row.get("name")),
+            "recognised": bool(row.get("recognised")),
+            "deltaTokens": row["own_delta"] + row["sub_delta"],
+            "costDelta": float(row["cost_delta"]),
+        }
+    )
+    return out.done()
+
+
 def normalise_stream_event(
     state: ClientState,
     ctx: NormaliseContext,

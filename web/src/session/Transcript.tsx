@@ -52,6 +52,7 @@ function registerOf(item: TranscriptItem): 'machinery' | 'prose' {
     case 'system':
     case 'gap':
     case 'task_notification':
+    case 'milestone':
       return 'machinery';
     case 'message': {
       // `registerOf` runs outside `CardBoundary`, ahead of the card that
@@ -244,6 +245,22 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
                 {contextFigure(item.preTokens)} → {contextSize(item.postTokens) || '0 ctx'}
               </>
             )}
+          </span>
+        </div>
+      );
+    case 'milestone':
+      // The `.compact` idiom, coloured. See `web/DESIGN.md`, "Milestone bar".
+      return (
+        <div
+          className={styles.milestone}
+          data-testid="milestone"
+          data-recognised={item.recognised}
+        >
+          <span className={styles.milestoneLabel}>
+            <span className={styles.milestoneName}>{item.name}</span>
+            {!item.recognised && ' (?)'}
+            {item.deltaTokens > 0 && ` · ${contextFigure(item.deltaTokens)}`}
+            {item.costDelta > 0 && ` · $${item.costDelta.toFixed(2)}`}
           </span>
         </div>
       );

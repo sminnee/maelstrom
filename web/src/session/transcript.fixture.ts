@@ -80,6 +80,37 @@ export const ledgerRun: TranscriptItem[] = [
   say('Seven sites, all in one module. That makes this a single change rather than a sweep.', 21),
 ];
 
+const reached = (name: string, minute: number, delta: number, cost: number, recognised = true) =>
+  ({
+    id: id(),
+    ts: at(minute),
+    type: 'milestone',
+    name,
+    recognised,
+    deltaTokens: delta,
+    costDelta: cost,
+  }) satisfies TranscriptItem;
+
+/**
+ * Two stages closing, with work either side of each.
+ *
+ * The bar's whole job is to read as a boundary the eye crosses rather than an
+ * alert, and that only shows with prose and machinery around it. The second
+ * name is one the flow does not declare, so the story holds both registers:
+ * the lit rule and the flagged one.
+ */
+export const milestoneRun: TranscriptItem[] = [
+  say('The plan is agreed: the reader moves to the model layer, tests first.', 12),
+  reached('planned', 13, 12_400, 0.31),
+  say('Writing the failing test for the stale-HEAD branch before I touch the reader.', 14),
+  ran('Bash', { description: 'Run the new test', command: 'uv run pytest -k stale_head' }, 15),
+  ran('Edit', { file_path: 'src/maelstrom/task_index.py' }, 16),
+  say('Green. The reader now restamps only when the scan completed.', 18),
+  reached('green', 19, 95_000, 2.1),
+  say('Handing off to the deploy step, which the flow does not name.', 21),
+  reached('deployed', 22, 8_300, 0.14, false),
+];
+
 /**
  * Quiet self-talk against the reading rank: the case the two ranks of prose are built for.
  * Long enough to read start to finish, because a one-line message does not

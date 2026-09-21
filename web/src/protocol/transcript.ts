@@ -154,6 +154,25 @@ export interface ShellItem extends Base {
   status: ToolCallStatus;
 }
 
+/**
+ * A stage of the work the agent marked as reached — see `CONTEXT.md`,
+ * "Milestone". A boundary the reading crosses, not a state: the node's
+ * progress is already that.
+ *
+ * The figures are the stage's own delta, not the running total: the ledger
+ * exists to say which stage the spend went to.
+ */
+export interface MilestoneItem extends Base {
+  type: 'milestone';
+  name: string;
+  /** Whether `name` is one the flow declares; a typo shows rather than hides. */
+  recognised: boolean;
+  /** Own + subagent tokens this stage alone consumed. */
+  deltaTokens: number;
+  /** Dollars this stage alone cost. Parent-only, as everywhere. */
+  costDelta: number;
+}
+
 /** An unsupported harness event, retained until it has a native Session card. */
 export interface RawEventItem extends Base {
   type: 'raw_event';
@@ -176,6 +195,7 @@ export type TranscriptItem =
   | SkillItem
   | TaskNotificationItem
   | ShellItem
+  | MilestoneItem
   | RawEventItem;
 
 export interface Transcript {

@@ -43,6 +43,7 @@ from .normalise import (
     context_for_agent,
     mark_exited,
     normalise_gap,
+    normalise_milestone,
     normalise_stream_event,
     revive_agent,
 )
@@ -1148,9 +1149,9 @@ class Orchestrator:
             watch.pending_milestone = out.milestone
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
-            await self._record_milestone(milestone)
+            await self._record_milestone(watch, milestone)
 
-    async def _record_milestone(self, milestone: Milestone) -> None:
+    async def _record_milestone(self, watch: AgentWatch, milestone: Milestone) -> None:
         """Snapshot what the agent had spent when it marked a stage reached.
 
         Read off the world rather than the raw event: the world is where the
@@ -1160,11 +1161,15 @@ class Orchestrator:
 
         Called once the declaring turn's ``result`` has been normalised, so the
         figures include that turn. It is usually the stage's most expensive one.
+
+        The write also appends the transcript's bar, from the row it returns:
+        the delta the bar reports is the one the ledger just computed, so the
+        CLI's report and the UI's bar cannot drift.
         """
         agent = self.world["agents"].get(milestone.agent_id)
         if agent is None:
             return
-        await self.milestones.record(
+        row = await self.milestones.record(
             {
                 "agent_id": milestone.agent_id,
                 "name": milestone.name,
@@ -1174,6 +1179,9 @@ class Orchestrator:
                 "subagent_tokens": agent["subagentTokens"],
                 "cost_usd": agent["costUsd"],
             }
+        )
+        await self._emit(
+            watch, normalise_milestone(self.state.state, watch.ctx, row, self.clock())
         )
 
     async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
