@@ -94,10 +94,22 @@ export function Dialog({
 }
 
 /** The dialog's title row, with the × that closes it. */
-export function DialogHeader({ title, onClose }: { title: string; onClose: () => void }) {
+export function DialogHeader({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  /** Extra controls beside the title, e.g. a task editor's Prev/Next. */
+  children?: React.ReactNode;
+}) {
   return (
     <header className={styles.header}>
       <h2 className={styles.heading}>{title}</h2>
+      {/* One flex item, so a multi-button child (e.g. Prev/Next) clusters
+          beside the close button rather than spreading across the header. */}
+      {children && <span className={styles.headerControls}>{children}</span>}
       <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
         ×
       </button>
