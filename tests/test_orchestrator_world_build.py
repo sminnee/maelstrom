@@ -13,6 +13,7 @@ from maelstrom.orchestrator.world_build import (
     link_agent,
     parse_agent_state,
     project_entity,
+    row_totals,
     split_task_key,
     task_entity,
     task_key,
@@ -363,3 +364,32 @@ def test_agent_entity_of_a_subagent_row_names_its_parent_and_description():
         "exitCode": 0,
         "taskId": "NORT-7",
     }
+
+
+# --- what a row says its subagents spent -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "row, expected",
+    [
+        ({"subagent_tokens": {"total": 15_000}}, 15_000),
+        # A host that predates the field. The whole point of the branch is that
+        # this reads 0 rather than raising — but a reader must know it is 0
+        # because nothing was reported, not because nothing was spent.
+        ({}, 0),
+        # Shapes a host could send that are not a figure.
+        ({"subagent_tokens": None}, 0),
+        ({"subagent_tokens": 15_000}, 0),
+        ({"subagent_tokens": {}}, 0),
+        ({"subagent_tokens": {"total": "15000"}}, 0),
+        ({"subagent_tokens": {"total": True}}, 0),
+    ],
+)
+def test_row_totals_reads_what_a_row_says_its_subagents_spent(row, expected):
+    """A malformed figure reads 0, never raises: no host row is worth a crash.
+
+    Reading 0 here would make the milestone ledger record 0 for every stage —
+    the exact under-count the branch exists to fix — so the shapes that reach
+    this path are worth pinning.
+    """
+    assert row_totals(row)["subagentTokens"] == expected

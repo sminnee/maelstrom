@@ -20,6 +20,7 @@
         "lastNoteAt": "",
         "costUsd": 0,
         "totalTokens": 0,
+        "subagentTokens": 0,
         "contextTokens": 28907,
         "taskId": "NORT-7",
         "project": "northwind",

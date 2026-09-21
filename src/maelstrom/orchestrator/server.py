@@ -1015,6 +1015,7 @@ class Orchestrator:
             # flat would walk the numbers backwards between polls.
             "costUsd": max(agent["costUsd"], totals["costUsd"]),
             "totalTokens": max(agent["totalTokens"], totals["totalTokens"]),
+            "subagentTokens": max(agent["subagentTokens"], totals["subagentTokens"]),
         }
         # Occupancy is not monotonic — a compact is meant to drop it — so it
         # takes the row as it stands. Only when the row is entitled to speak:

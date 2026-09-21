@@ -110,6 +110,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     lastNoteAt: '',
     costUsd: 0.42,
     totalTokens: 42_000,
+    subagentTokens: 0,
     contextTokens: 24_500,
     taskId: t.id,
     project: t.project,
@@ -144,6 +145,7 @@ function freeAgent(
     lastNoteAt: '',
     costUsd: 0,
     totalTokens: 0,
+    subagentTokens: 0,
     contextTokens: 0,
     taskId: '',
     project,
@@ -404,6 +406,7 @@ body rather than the query builder.
       pendingRequestIds: ['req-nort7-plan'],
       costUsd: 0.81,
       totalTokens: 81_400,
+      subagentTokens: 0,
       contextTokens: 34_800,
     }),
     agent('b7d2e4a0', mael52, 'maelstrom-alpha', {
@@ -414,6 +417,7 @@ body rather than the query builder.
       pendingRequestIds: ['req-mael52-q'],
       costUsd: 1.12,
       totalTokens: 112_900,
+      subagentTokens: 0,
       contextTokens: 48_200,
     }),
     agent('c3e8f1b5', mael401, 'maelstrom-bravo', {
@@ -421,6 +425,7 @@ body rather than the query builder.
       lastMessageAt: T(1),
       costUsd: 0.37,
       totalTokens: 37_200,
+      subagentTokens: 0,
       contextTokens: 21_600,
     }),
     agent('d9a4c7f1', nort9, 'northwind-bravo', {
@@ -430,6 +435,7 @@ body rather than the query builder.
       // The two must stay far apart: the header test asserts it draws the
       // context and not the cumulative total, which needs them tellable apart.
       totalTokens: 1_240_000,
+      subagentTokens: 0,
       contextTokens: 152_000,
     }),
     agent('e5b1d8c3', nort12, 'northwind-delta', {
@@ -437,6 +443,7 @@ body rather than the query builder.
       lastMessageAt: T(96),
       costUsd: 0.66,
       totalTokens: 66_800,
+      subagentTokens: 0,
       contextTokens: 29_400,
     }),
     // A subagent of NORT-9's agent.
@@ -447,6 +454,7 @@ body rather than the query builder.
       lastMessageAt: T(25),
       costUsd: 0,
       totalTokens: 0,
+      subagentTokens: 0,
       contextTokens: 0,
     }),
     freeAgent('f2c6a9d4', 'maelstrom', 'maelstrom-bravo', {
@@ -454,6 +462,7 @@ body rather than the query builder.
       lastMessageAt: T(2),
       costUsd: 0.19,
       totalTokens: 19_500,
+      subagentTokens: 0,
       contextTokens: 12_300,
     }),
   ];
