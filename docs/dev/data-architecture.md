@@ -103,9 +103,14 @@ spend recorded against it survives. `DaemonRouter` restores only live records, b
 one would come back as an `exited` row on every poll and the reconcile loop retires an agent by
 its id dropping out of `list`.
 
-Store-as-truth cuts both ways, so `list` repairs the store in both directions. A live top-level row
-with no record is **adopted**. `mael add` and `mael agent start` reach the daemon socket directly,
-and without this their agents are invisible to every reader.
+Store-as-truth cuts both ways, so `list` repairs the store in both directions:
+
+- A live top-level row with no record is **adopted**. `mael add` and `mael agent start` reach the
+  daemon socket directly, and without this their agents are invisible to every reader.
+- A record the daemon does not name is retired only after `UNCONFIRMED_LISTS_BEFORE_END`
+  consecutive lists miss it, and never inside `START_GRACE_SECONDS` of its start. One missing row
+  is not evidence of an exit — `daemon_bridge.py` says what else looks the same.
+- A reply that carries an `error` counts as neither a sighting nor a miss.
 
 The `agent_milestones` table is canonical too: a **milestone snapshot** is the only record of what
 an agent had spent at each stage, and no transcript can rebuild it. It carries no `fetched_at` and

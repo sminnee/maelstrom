@@ -12,6 +12,7 @@ socket client, and a scripted fake that records calls.
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from ..agent_model import (
@@ -39,6 +40,17 @@ from ..util import now_iso
 
 DaemonClient = AsyncDaemonClient
 
+#: How many consecutive ``list`` calls must fail to name a stored agent before
+#: its record is retired. One is not evidence: a daemon restart, a slow socket
+#: and a router pointed at another worktree's daemon root all look the same on
+#: a single list, and retiring on the first one draws a working agent as dead.
+UNCONFIRMED_LISTS_BEFORE_END = 5
+
+#: How long after its start a record is never retired, however many lists miss
+#: it. The daemon takes a moment to hold a new agent, and every poll inside
+#: that window misses it — the very case this bug was reported for.
+START_GRACE_SECONDS = 60.0
+
 
 @dataclass
 class DaemonRouter:
@@ -52,6 +64,9 @@ class DaemonRouter:
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
+    #: Per agent, how many consecutive lists have failed to name it. Reset on
+    #: every sighting, so it counts a run of misses rather than a total.
+    _misses: dict[str, int] = field(default_factory=dict, init=False)
     #: Per agent, the last row a daemon reported for it and which daemon did.
     #: The harness is what an adopted record is written with. Kept only for
     #: agents in the live set.
@@ -78,13 +93,27 @@ class DaemonRouter:
             for agent_id, row in live_rows.items():
                 if not row.get("parent") and agent_id not in self._agents:
                     await self._adopt(agent_id, row)
+            # Count the misses before the rows are built, so a row that says
+            # `exited` is the same decision that retires the record rather
+            # than one list behind it. A reply that errored carries no agents,
+            # which says nothing about what is alive, so it counts as no
+            # information: neither a sighting nor a miss.
+            retiring: set[str] = set()
+            if not (claude.get("error") or codex.get("error")):
+                for agent_id, agent in self._agents.items():
+                    if agent_id in live_rows:
+                        self._misses.pop(agent_id, None)
+                        continue
+                    self._misses[agent_id] = self._misses.get(agent_id, 0) + 1
+                    if self._is_retiring(agent_id, agent):
+                        retiring.add(agent_id)
             rows: list[dict[str, Any]] = []
-            lost: list[str] = []
             for agent_id, agent in self._agents.items():
-                live = live_rows.get(agent_id)
-                rows.append(_stored_agent_row(agent, live))
-                if live is None:
-                    lost.append(agent_id)
+                rows.append(
+                    _stored_agent_row(
+                        agent, live_rows.get(agent_id), retiring=agent_id in retiring
+                    )
+                )
                 # A live subagent has no record of its own — see Agent
                 # record in CONTEXT.md — so it rides through unchanged.
                 rows.extend(
@@ -94,7 +123,7 @@ class DaemonRouter:
             # Only `stop` writes the status directly, and a crash, an outside
             # kill and a `gc` reap all bypass it — so a record left `running`
             # would be restored live for ever and report `exited` on every poll.
-            for agent_id in lost:
+            for agent_id in retiring:
                 await self._end(agent_id)
             return {"agents": rows, "usage": claude.get("usage")}
         await self._restore()
@@ -152,6 +181,14 @@ class DaemonRouter:
             started_at=self.clock(),
         )
 
+    def _is_retiring(self, agent_id: str, agent: dict[str, Any]) -> bool:
+        """Whether this agent's run of misses is now enough to write it off."""
+        if self._misses.get(agent_id, 0) < UNCONFIRMED_LISTS_BEFORE_END:
+            return False
+        return _seconds_since(str(agent.get("started_at") or ""), self.clock()) >= (
+            START_GRACE_SECONDS
+        )
+
     async def _end(self, agent_id: str) -> None:
         """Retire one agent's record, keeping the row.
 
@@ -159,6 +196,10 @@ class DaemonRouter:
         it. It drops out of the live set instead, so `list` stops reporting it.
         """
         self._harnesses.pop(agent_id, None)
+        # The miss count and the last-seen row go with the record: an id adopted
+        # again later must start its own run of misses, not inherit the one that
+        # retired it.
+        self._misses.pop(agent_id, None)
         self._last_seen.pop(agent_id, None)
         if agent := self._agents.pop(agent_id, None):
             await self.agents.save(
@@ -213,19 +254,35 @@ class DaemonRouter:
                 self._harnesses[agent_id] = str(agent["harness"])
 
 
+def _seconds_since(stamp: str, now: str) -> float:
+    """How long ago ``stamp`` was, read against ``now``.
+
+    A record with no readable start is treated as arbitrarily old: it predates
+    the field, so it is certainly not the just-launched agent the grace period
+    protects.
+    """
+    try:
+        elapsed = datetime.fromisoformat(now) - datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        # `TypeError` for a naive stamp against an aware clock: `started_at` is
+        # free-form text read back out of a JSON blob, so neither operand is
+        # this module's to trust.
+        return float("inf")
+    return elapsed.total_seconds()
+
+
 def _stored_agent_row(
-    agent: dict[str, Any], live: dict[str, Any] | None
+    agent: dict[str, Any], live: dict[str, Any] | None, *, retiring: bool
 ) -> dict[str, Any]:
     """The canonical Agent record with fresh harness state when available.
 
-    A stored agent absent from the daemon's own ``list`` (killed outside
-    ``mael agent stop``, or reaped by ``gc``) is reported ``exited`` rather
-    than left with no ``state`` at all: the server's reconcile loop only
-    retires an agent whose id disappears from ``list``, and a stored id never
-    does that on its own.
+    A stored agent the daemon did not name reads ``exited`` only on the one row
+    that retires it: the server's reconcile loop only exits an agent whose id
+    disappears from ``list``, and a stored id never does that on its own, so
+    that row is its only chance to say so.
     """
     return {
-        "state": "exited",
+        "state": "exited" if retiring else "idle",
         **(live or {}),
         "id": agent["id"],
         "session": agent["task_session_id"],
