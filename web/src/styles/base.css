@@ -7,6 +7,12 @@ body,
   height: 100%;
   margin: 0;
 }
+/* The app is a fixed viewport: scrolling belongs to the two inner boxes, not to
+   the document. Clipping here stops a tall panel child putting a scrollbar on
+   the page. */
+#root {
+  overflow: hidden;
+}
 body {
   background: var(--bg);
   color: var(--fg);
