@@ -5,11 +5,13 @@ from dataclasses import dataclass, field
 
 from maelstrom.orchestrator.daemon_bridge import DaemonRouter, ScriptedAsyncDaemonClient
 
+#: A pinned clock, so a record's start and end are assertable.
+STAMP = "2026-09-21T10:00:00+00:00"
+
 
 @dataclass
 class Agents:
     rows: dict[str, dict] = field(default_factory=dict)
-    removed: list[str] = field(default_factory=list)
 
     async def save(self, agent: dict) -> None:
         self.rows[agent["id"]] = agent
@@ -17,17 +19,13 @@ class Agents:
     async def list(self) -> list[dict]:
         return list(self.rows.values())
 
-    async def remove(self, agent_id: str) -> None:
-        self.removed.append(agent_id)
-        self.rows.pop(agent_id, None)
-
 
 def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
     async def scenario():
         claude = ScriptedAsyncDaemonClient()
         codex = ScriptedAsyncDaemonClient(next_start_id="thread-1")
         agents = Agents()
-        router = DaemonRouter(claude, codex, agents)
+        router = DaemonRouter(claude, codex, agents, clock=lambda: STAMP)
         codex_reply = await router.request(
             {
                 "cmd": "start",
@@ -56,7 +54,6 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
             claude.calls,
             codex.calls,
             agents.rows,
-            agents.removed,
         )
 
     (
@@ -67,7 +64,6 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
         claude_calls,
         codex_calls,
         rows,
-        removed,
     ) = asyncio.run(scenario())
 
     assert codex_reply == {"ok": True, "id": "thread-1"}
@@ -79,6 +75,9 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
         "cwd": "/worktree",
         "model": "codex:sol",
         "mode": "plan",
+        "status": "running",
+        "started_at": STAMP,
+        "ended_at": "",
     }
     assert claude_reply == {"ok": True, "id": "new1"}
     assert stopped == {"ok": True}
@@ -93,9 +92,25 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
             "cwd": "/other-worktree",
             "model": "claude:opus",
             "mode": "auto",
-        }
+            "status": "running",
+            "started_at": STAMP,
+            "ended_at": "",
+        },
+        # Stopped, and still on file: the record outlives the agent so its
+        # spend can be read afterwards.
+        "thread-1": {
+            "id": "thread-1",
+            "harness": "codex",
+            "task_session_id": "task-session-1",
+            "task_id": "2026-09-16.4.3",
+            "cwd": "/worktree",
+            "model": "codex:sol",
+            "mode": "plan",
+            "status": "ended",
+            "started_at": STAMP,
+            "ended_at": STAMP,
+        },
     }
-    assert removed == ["thread-1"]
 
 
 def test_list_passes_through_a_live_subagent_of_a_stored_agent() -> None:
@@ -216,3 +231,186 @@ def test_router_refuses_opencode_daemon_launch() -> None:
         "ok": False,
         "error": "The opencode daemon is not available.",
     }
+
+
+# --- an agent's record outlives the agent -----------------------------------
+
+
+def test_stop_ends_the_record_rather_than_deleting_it() -> None:
+    """An agent's spend must survive it, so the row stays and gains an end."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(next_start_id="a1")
+        agents = Agents()
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        await router.request(
+            {"cmd": "start", "cwd": "/worktree", "model": "claude:opus"}
+        )
+        await router.request({"cmd": "stop", "id": "a1"})
+        return agents.rows
+
+    rows = asyncio.run(scenario())
+
+    # The row stays on file; only its status moves.
+    assert rows["a1"]["status"] == "ended"
+    assert rows["a1"]["ended_at"]
+
+
+def test_a_started_record_opens_at_running_with_a_start_time() -> None:
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(next_start_id="a1")
+        agents = Agents()
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        await router.request(
+            {"cmd": "start", "cwd": "/worktree", "model": "claude:opus"}
+        )
+        return agents.rows["a1"]
+
+    row = asyncio.run(scenario())
+
+    assert row["status"] == "running"
+    assert row["started_at"]
+    assert row["ended_at"] == ""
+
+
+def test_an_ended_record_is_not_listed_as_a_live_agent() -> None:
+    """The table now holds ended agents; ``list`` is about live ones.
+
+    Without this an agent stopped weeks ago would come back as an ``exited``
+    row on every poll, and the server's reconcile loop could never retire it.
+    """
+
+    async def scenario():
+        agents = Agents(
+            rows={
+                "ag1": {
+                    "id": "ag1",
+                    "harness": "claude",
+                    "task_session_id": "s1",
+                    "cwd": "/worktree",
+                    "model": "claude:opus",
+                    "mode": "normal",
+                    "status": "ended",
+                    "ended_at": "2026-09-20T09:00:00Z",
+                },
+                "ag2": {
+                    "id": "ag2",
+                    "harness": "claude",
+                    "task_session_id": "s2",
+                    "cwd": "/worktree",
+                    "model": "claude:opus",
+                    "mode": "normal",
+                    "status": "running",
+                },
+            }
+        )
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(), ScriptedAsyncDaemonClient(), agents
+        )
+        return await router.request({"cmd": "list"})
+
+    listed = asyncio.run(scenario())
+
+    assert [row["id"] for row in listed["agents"]] == ["ag2"]
+
+
+def test_a_record_written_before_status_existed_still_lists() -> None:
+    """Every row in an existing database has no ``status``; none may vanish."""
+
+    async def scenario():
+        agents = Agents(
+            rows={
+                "ag1": {
+                    "id": "ag1",
+                    "harness": "claude",
+                    "task_session_id": "s1",
+                    "cwd": "/worktree",
+                    "model": "claude:opus",
+                    "mode": "normal",
+                }
+            }
+        )
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(), ScriptedAsyncDaemonClient(), agents
+        )
+        return await router.request({"cmd": "list"})
+
+    listed = asyncio.run(scenario())
+
+    assert [row["id"] for row in listed["agents"]] == ["ag1"]
+
+
+def test_an_agent_the_daemon_no_longer_holds_is_ended_on_the_next_list() -> None:
+    """Only `stop` writes `ended`, and an agent can end without one.
+
+    A crash, a kill outside `mael agent stop`, or a `gc` reap leaves the record
+    `running`. Without this the record is restored live for ever and reports an
+    `exited` row on every poll — the very state the ended filter exists to
+    avoid.
+    """
+
+    async def scenario():
+        agents = Agents(
+            rows={
+                "ag1": {
+                    "id": "ag1",
+                    "harness": "claude",
+                    "task_session_id": "s1",
+                    "cwd": "/worktree",
+                    "model": "claude:opus",
+                    "mode": "normal",
+                    "status": "running",
+                    "started_at": STAMP,
+                    "ended_at": "",
+                }
+            }
+        )
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(),
+            ScriptedAsyncDaemonClient(),
+            agents,
+            clock=lambda: STAMP,
+        )
+        # The daemon holds no such agent, so the row it reports is synthesised.
+        listed = await router.request({"cmd": "list"})
+        return listed, agents.rows
+
+    listed, rows = asyncio.run(scenario())
+
+    # Still reported this once, so a reader learns the agent exited.
+    assert [row["state"] for row in listed["agents"]] == ["exited"]
+    assert rows["ag1"]["status"] == "ended"
+    assert rows["ag1"]["ended_at"] == STAMP
+
+
+def test_a_live_agent_is_not_ended_by_a_list() -> None:
+    """The guard: only an agent the daemon has lost is retired."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        agents = Agents(
+            rows={
+                "ag1": {
+                    "id": "ag1",
+                    "harness": "claude",
+                    "task_session_id": "s1",
+                    "cwd": "/worktree",
+                    "model": "claude:opus",
+                    "mode": "normal",
+                    "status": "running",
+                }
+            }
+        )
+        claude.rows["ag1"] = {
+            "id": "ag1",
+            "state": "idle",
+            "session": "s1",
+            "cwd": "/worktree",
+            "model": "claude:opus",
+            "parent": "",
+        }
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        await router.request({"cmd": "list"})
+        return agents.rows
+
+    assert asyncio.run(scenario())["ag1"]["status"] == "running"

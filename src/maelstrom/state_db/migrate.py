@@ -34,6 +34,9 @@ TABLES: dict[str, TableSpec] = {
     # news for a client, even though it shares the task write's transaction.
     "task_export": TableSpec("task_export", notifies=False),
     "agents": TableSpec("agents", notifies=False),
+    # The ledger the cost report reads. Nothing in the UI draws it, so a write
+    # is not news for a client — as for `agents` itself.
+    "agent_milestones": TableSpec("agent_milestones", notifies=False),
 }
 
 

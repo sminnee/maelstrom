@@ -154,6 +154,31 @@ class TestTheTasksLadderUpgrade:
         finally:
             db.close()
 
+    async def test_an_older_database_gains_the_milestone_ledger(self, tmp_path):
+        """The new rung opens an existing database and leaves its agents alone.
+
+        The failure this guards is the one the plan names: editing the shipped
+        ``CREATE TABLE`` instead of appending, which leaves every existing
+        database without the table while ``check()`` reports it up to date.
+        """
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["agents"]
+            db.ladders["agents"] = full[:1]
+            await db.migrate()
+            await db.write_all([Write("agents", "a1", {"body": '{"id": "a1"}'})])
+            assert not await db.has_table("agent_milestones")
+
+            db.ladders["agents"] = full
+            await db.migrate()
+
+            assert await db.has_table("agent_milestones")
+            row = await db.read("agents", "a1")
+            assert row is not None
+            assert row["body"] == '{"id": "a1"}'
+        finally:
+            db.close()
+
 
 class TestFailedMigration:
     """Slice 3: a migration that raises leaves the schema where it was."""
@@ -402,6 +427,43 @@ class TestNoticesSince:
         await db.upsert("desk", "a", body="one")
         await db.delete("desk", "a")
         assert await db.notices_since(1) == ({"desk": {"a"}}, 2)
+
+
+class TestReadWhere:
+    """Slice 9: a subset read, so a store need not scan and filter in Python."""
+
+    async def test_it_reads_only_the_rows_whose_column_matches(self, db):
+        await db.upsert("agent_milestones", "a1#0001", agent_id="a1", name="planned")
+        await db.upsert("agent_milestones", "a1#0002", agent_id="a1", name="green")
+        await db.upsert("agent_milestones", "a2#0001", agent_id="a2", name="planned")
+        rows = await db.read_where("agent_milestones", "agent_id", "a1")
+        assert [row["id"] for row in rows] == ["a1#0001", "a1#0002"]
+
+    async def test_it_orders_by_id_as_read_all_does(self, db):
+        """The two reads answer in one order, so a caller can swap between them."""
+        for ordinal in (10, 2, 1):
+            await db.upsert(
+                "agent_milestones", f"a1#{ordinal:04d}", agent_id="a1", name="green"
+            )
+        rows = await db.read_where("agent_milestones", "agent_id", "a1")
+        assert [row["id"] for row in rows] == ["a1#0001", "a1#0002", "a1#0010"]
+
+    async def test_no_match_reads_empty(self, db):
+        await db.upsert("agent_milestones", "a1#0001", agent_id="a1")
+        assert await db.read_where("agent_milestones", "agent_id", "nobody") == []
+
+    async def test_an_unknown_table_is_refused(self, db):
+        with pytest.raises(UnknownTableError):
+            await db.read_where("nope", "agent_id", "a1")
+
+    async def test_an_unknown_column_is_refused(self, db):
+        """A column name cannot be bound, so it is checked before interpolation.
+
+        This is the injection guard, not a nicety: the name reaches the SQL
+        text itself.
+        """
+        with pytest.raises(UnknownColumnError):
+            await db.read_where("agent_milestones", "agent_id = '' OR 1=1 --", "x")
 
 
 class TestConcurrency:

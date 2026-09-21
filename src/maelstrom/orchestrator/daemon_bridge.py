@@ -10,7 +10,7 @@ socket client, and a scripted fake that records calls.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -29,8 +29,15 @@ from ..agent_model import (
 from ..agent_store import AgentStore
 from ..agent_transport import AsyncDaemonClient, attach_command
 from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
+from ..util import now_iso
 
 DaemonClient = AsyncDaemonClient
+
+#: The statuses an Agent record carries. ``running`` from the start until
+#: ``stop``, ``ended`` from then on. A record written before this field existed
+#: carries neither and reads as ``running``, which is what it meant.
+AGENT_RUNNING = "running"
+AGENT_ENDED = "ended"
 
 
 @dataclass
@@ -40,6 +47,8 @@ class DaemonRouter:
     claude: DaemonClient
     codex: DaemonClient
     agents: AgentStore
+    #: What stamps a record's start and end. Injected so a test can pin them.
+    clock: Callable[[], str] = now_iso
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
@@ -55,13 +64,23 @@ class DaemonRouter:
                 if isinstance(row, dict) and row.get("id"):
                     live_rows[str(row["id"])] = row
             rows: list[dict[str, Any]] = []
+            lost: list[str] = []
             for agent_id, agent in self._agents.items():
-                rows.append(_stored_agent_row(agent, live_rows.get(agent_id)))
+                live = live_rows.get(agent_id)
+                rows.append(_stored_agent_row(agent, live))
+                if live is None:
+                    lost.append(agent_id)
                 # A live subagent has no record of its own — see Agent
                 # record in CONTEXT.md — so it rides through unchanged.
                 rows.extend(
                     row for row in live_rows.values() if row.get("parent") == agent_id
                 )
+            # An agent the daemon no longer holds has ended, however it went.
+            # Only `stop` writes the status directly, and a crash, an outside
+            # kill and a `gc` reap all bypass it — so a record left `running`
+            # would be restored live for ever and report `exited` on every poll.
+            for agent_id in lost:
+                await self._end(agent_id)
             return {"agents": rows, "usage": claude.get("usage")}
         await self._restore()
         try:
@@ -83,6 +102,11 @@ class DaemonRouter:
                 "cwd": str(payload.get("cwd") or ""),
                 "model": str(payload.get("model") or ""),
                 "mode": str(payload.get("mode") or "normal"),
+                # The record now outlives the agent, so it says whether the
+                # agent is still there and when each end of its life was.
+                "status": AGENT_RUNNING,
+                "started_at": self.clock(),
+                "ended_at": "",
             }
             self._agents[agent_id] = agent
             await self.agents.save(agent)
@@ -92,11 +116,20 @@ class DaemonRouter:
                 agent["mode"] = str(payload.get("mode") or agent["mode"])
                 await self.agents.save(agent)
         if command == "stop" and reply.get("ok"):
-            agent_id = str(payload.get("id", ""))
-            self._agents.pop(agent_id, None)
-            self._harnesses.pop(agent_id, None)
-            await self.agents.remove(agent_id)
+            await self._end(str(payload.get("id", "")))
         return reply
+
+    async def _end(self, agent_id: str) -> None:
+        """Retire one agent's record, keeping the row.
+
+        The record stays: the spend recorded against it is the point of keeping
+        it. It drops out of the live set instead, so `list` stops reporting it.
+        """
+        self._harnesses.pop(agent_id, None)
+        if agent := self._agents.pop(agent_id, None):
+            await self.agents.save(
+                {**agent, "status": AGENT_ENDED, "ended_at": self.clock()}
+            )
 
     def attach(
         self, agent_id: str, from_seq: int = 0, epoch: str = ""
@@ -129,7 +162,15 @@ class DaemonRouter:
             return
         self._restored = True
         agents = await self.agents.list()
-        self._agents = {str(agent["id"]): agent for agent in agents if agent.get("id")}
+        # Live ones only. The table holds every agent Maelstrom ever started,
+        # and an ended one restored here would come back as an `exited` row on
+        # every poll — which the server's reconcile loop could never retire,
+        # because it retires an id that drops out of `list`.
+        self._agents = {
+            str(agent["id"]): agent
+            for agent in agents
+            if agent.get("id") and agent.get("status", AGENT_RUNNING) != AGENT_ENDED
+        }
         restore = getattr(self.codex, "restore", None)
         if restore is not None:
             await restore(agents)
