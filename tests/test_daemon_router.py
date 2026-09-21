@@ -242,6 +242,54 @@ def test_a_stored_agent_reads_as_exited_only_once_it_is_retired() -> None:
     assert record["ended_at"] == STAMP
 
 
+def test_an_unconfirmed_row_reports_the_state_the_agent_was_last_seen_in() -> None:
+    """A transient miss must not change what the agent is doing.
+
+    The server ends every wait a row does not report as ``awaiting-``, so a
+    placeholder state on an agent blocked on a permission ask cancels that ask
+    and the user's turn vanishes from the canvas. The last state the daemon
+    named is the truthful answer until the sweep gives up.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", state="awaiting-permission")
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        seen = await router.request({"cmd": "list"})
+        del claude.rows["ag1"]
+        missed = await router.request({"cmd": "list"})
+        return seen["agents"][0]["state"], missed["agents"][0]["state"]
+
+    seen, missed = asyncio.run(scenario())
+
+    assert seen == "awaiting-permission"
+    assert missed == "awaiting-permission"
+
+
+def test_an_agent_never_seen_live_reports_idle_while_unconfirmed() -> None:
+    """A restored record has no last-seen state, and must not read as exited.
+
+    ``idle`` stands for "the daemon did not say". It is the state that keeps a
+    working agent off the red fault state, which is the reported bug.
+    """
+
+    async def scenario():
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(),
+            ScriptedAsyncDaemonClient(),
+            agents,
+            clock=lambda: STAMP,
+        )
+        listed = await router.request({"cmd": "list"})
+        return listed["agents"][0]["state"]
+
+    assert asyncio.run(scenario()) == "idle"
+
+
 def test_list_adopts_a_live_agent_the_store_does_not_know() -> None:
     """`mael add` and `mael agent start` reach the socket, not the store.
 
