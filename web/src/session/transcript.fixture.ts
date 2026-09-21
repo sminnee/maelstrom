@@ -100,6 +100,42 @@ export const quietTranscript: TranscriptItem[] = [
   say('Free it — nothing is attached to alpha any more.', 31, 'user'),
 ];
 
+/** A settled question, a stale one and a real user turn, so the two washes compare directly. */
+export const settledQuestions: TranscriptItem[] = [
+  say('Free port 342 before you retry, or the allocator moves every port in this worktree.', 40),
+  {
+    id: id(),
+    ts: at(40),
+    type: 'question',
+    requestId: `req-${n}`,
+    questions: [
+      {
+        question: 'Free the port or let the allocator move it?',
+        header: 'Port',
+        multiSelect: false,
+        options: [],
+      },
+    ],
+    answers: { 'Free the port or let the allocator move it?': 'Free it' },
+  },
+  say('Free it — nothing is attached to alpha any more.', 41, 'user'),
+  {
+    id: id(),
+    ts: at(42),
+    type: 'question',
+    requestId: `req-${n}`,
+    questions: [
+      {
+        question: 'Rebase now, or wait for CI?',
+        header: 'Rebase',
+        multiSelect: false,
+        options: [],
+      },
+    ],
+    stale: true,
+  },
+];
+
 /** A quiet block short enough that the clamp offers no control. */
 export const quietShort: TranscriptItem[] = [
   say('<user-attention low>\nOne short line of working detail.', 50),
