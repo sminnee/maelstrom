@@ -155,6 +155,8 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
             "status": "ended",
             "started_at": STAMP,
             "ended_at": STAMP,
+            # A deliberate stop, so never revivable.
+            "swept": False,
         },
     }
 
@@ -323,6 +325,99 @@ def test_list_adopts_a_live_agent_the_store_does_not_know() -> None:
         "started_at": STAMP,
         "ended_at": "",
     }
+
+
+def test_an_agent_wrongly_retired_while_alive_keeps_its_own_record() -> None:
+    """A live agent whose record says `ended` was written off by mistake.
+
+    Six such records exist on this machine, retired by the sweep this branch
+    replaces. The agent is demonstrably alive, so the record goes back to
+    `running` — it must not be overwritten as a fresh adoption, which would
+    lose the task it was started for and claim it began just now.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1")
+        agents = Agents(
+            rows={
+                "ag1": stored_agent(
+                    status="ended",
+                    ended_at="2026-09-20T11:00:00+00:00",
+                    task_id="2026-09-16.4.3",
+                )
+            }
+        )
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        listed = await router.request({"cmd": "list"})
+        return listed, agents.rows["ag1"]
+
+    listed, record = asyncio.run(scenario())
+
+    assert [row["id"] for row in listed["agents"]] == ["ag1"]
+    assert record["status"] == "running"
+    assert record["ended_at"] == ""
+    # What the record was started with survives the revival.
+    assert record["task_id"] == "2026-09-16.4.3"
+    assert record["started_at"] == LONG_AGO
+
+
+def test_a_record_ended_before_the_swept_field_existed_is_revivable() -> None:
+    """The six wrongly-retired records on this machine carry no ``swept``.
+
+    They were ended by the sweep this branch replaces, which retired an agent on
+    one unconfirmed list. A missing field must therefore read as revivable, or
+    they stay written off for ever while their agents run.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1")
+        agents = Agents(rows={"ag1": stored_agent(status="ended", task_id="t-1")})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        await router.request({"cmd": "list"})
+        return agents.rows["ag1"]
+
+    record = asyncio.run(scenario())
+
+    assert record["status"] == "running"
+    assert record["task_id"] == "t-1"
+
+
+def test_a_stopped_agent_is_not_revived_even_if_a_daemon_still_names_it() -> None:
+    """A deliberate stop is settled; only a swept-away record is revivable.
+
+    Reviving exists for a record the sweep wrote off while its agent ran. A
+    `stop` is the opposite: the user asked for it. A daemon that still reports
+    the row — which is what the wrong-daemon-root condition this branch
+    survives looks like — must not undo it.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(next_start_id="a1")
+        agents = Agents()
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        await router.request(
+            {"cmd": "start", "cwd": "/worktree", "model": "claude:opus"}
+        )
+        await router.request({"cmd": "stop", "id": "a1"})
+        # The daemon that answers the poll still holds the row, as one pointed
+        # at another root would.
+        claude.rows["a1"] = live_row("a1")
+        listed = await router.request({"cmd": "list"})
+        return listed, agents.rows["a1"]
+
+    listed, record = asyncio.run(scenario())
+
+    assert [row["id"] for row in listed["agents"]] == []
+    assert record["status"] == "ended"
+    assert record["ended_at"] == STAMP
 
 
 def test_an_adopted_agent_keeps_the_harness_that_holds_it() -> None:

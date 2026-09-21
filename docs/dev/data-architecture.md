@@ -111,6 +111,8 @@ Store-as-truth cuts both ways, so `list` repairs the store in both directions:
   consecutive lists miss it, and never inside `START_GRACE_SECONDS` of its start. One missing row
   is not evidence of an exit — `daemon_bridge.py` says what else looks the same.
 - A reply that carries an `error` counts as neither a sighting nor a miss.
+- A **swept** record whose agent turns out to be alive is **revived** onto its own row, keeping the
+  task and the start it really had. A record a `stop` ended is settled and never comes back.
 - An unconfirmed row reports the state the agent was last seen in. The server ends every wait a row
   does not report as `awaiting-`, so a placeholder would cancel a live agent's open ask.
 

@@ -216,6 +216,17 @@ A live top-level agent with no Agent record, given one by the next `list`. `mael
 record; adoption is what makes them visible to every reader. A subagent is never adopted.
 _Avoid_: Claimed, imported, registered.
 
+**Swept**:
+Retired because several consecutive `list` calls did not name the agent, rather than because a
+`stop` ended it. The record says which, because only a swept one may be **revived**.
+_Avoid_: Reaped, culled, timed out.
+
+**Revived**:
+An Agent record that read `ended` and is set back to `running`, because its agent turned out to be
+alive. Keeps the task and the start the agent really had, which a fresh adoption would lose. Only
+a **swept** record is revived; a stop is settled.
+_Avoid_: Restored, resurrected, reopened.
+
 **Driven agent**:
 A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
 launches is a driven agent, so a driven agent normally has a workspace whose pane 0 runs
