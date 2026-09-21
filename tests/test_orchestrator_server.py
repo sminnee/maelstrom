@@ -1528,6 +1528,21 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     assert stored.branch == "feat/orders"
 
 
+def test_update_writes_base(harness):
+    harness.add_task("NORT-7", base="main")
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.patch("/api/tasks/northwind/NORT-7", {"base": "develop"})
+            return reply, await api.get_json("/api/tasks/northwind/NORT-7")
+
+    reply, task = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {}
+    assert task["base"] == "develop"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).base == "develop"
+
+
 def test_a_rewire_stores_bare_ids_and_serves_qualified_ones(harness):
     """The wire is qualified both ways; the notebook holds the bare id."""
     harness.add_task("NORT-7")

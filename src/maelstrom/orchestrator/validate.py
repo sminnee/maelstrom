@@ -28,6 +28,7 @@ EDITABLE = (
     "priority",
     "model",
     "execute_model",
+    "base",
     "follows",
 )
 
