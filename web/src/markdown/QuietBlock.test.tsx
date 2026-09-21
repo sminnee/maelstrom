@@ -26,6 +26,7 @@ describe('QuietBlock', () => {
   it('offers no control when nothing is clamped', () => {
     render(<Markdown source={'<user-attention low>\nOne short line.'} />);
     expect(screen.queryByRole('button', { name: /show more/i })).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('keeps the full text in the accessibility tree while collapsed', () => {
@@ -43,25 +44,44 @@ describe('QuietBlock', () => {
     expect(screen.queryByRole('button', { name: /show less/i })).toBeNull();
   });
 
-  it('the expand button carries aria-expanded and points at the body it controls, and Enter expands it', async () => {
+  it('a click on the clamped text itself expands it', async () => {
+    mockClamped();
+    const user = userEvent.setup();
+    render(<Markdown source={withLink} />);
+    await user.click(screen.getByText(/Checking the allocator first/));
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
+  });
+
+  it('the collapsed body is keyboard-focusable and Enter expands it, revealing a Show less link', async () => {
     mockClamped();
     const user = userEvent.setup();
     render(<Markdown source={withLink} />);
 
-    const button = screen.getByRole('button', { name: 'Show more' });
-    expect(button).toHaveAttribute('aria-expanded', 'false');
-    const bodyId = button.getAttribute('aria-controls');
-    expect(bodyId).toBeTruthy();
-    expect(document.getElementById(bodyId!)).not.toBeNull();
+    const body = screen.getByRole('button', { name: /Checking the allocator first/ });
+    expect(body).toHaveAttribute('aria-expanded', 'false');
 
-    await user.tab(); // the link inside the block
-    await user.tab(); // the expand control, after it in source order
-    expect(button).toHaveFocus();
+    await user.tab(); // the body wraps the link, so it is first in tab order
+    expect(body).toHaveFocus();
     await user.keyboard('{Enter}');
 
-    expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
+    const showLess = screen.getByRole('button', { name: 'Show less' });
+    expect(showLess).toHaveAttribute('aria-controls', body.id);
+    expect(body).not.toHaveAttribute('role');
+
+    await user.click(showLess);
+    expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
+  });
+
+  it('a Space key on the focused collapsed body also expands it', async () => {
+    mockClamped();
+    const user = userEvent.setup();
+    render(<Markdown source={withLink} />);
+
+    const body = screen.getByRole('button', { name: /Checking the allocator first/ });
+    await user.tab();
+    expect(body).toHaveFocus();
+    await user.keyboard(' ');
+
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
   });
 });
