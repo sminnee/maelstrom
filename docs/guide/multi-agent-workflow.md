@@ -192,6 +192,11 @@ them:
 6. Close the task: `mael task status done`.
 7. Run `/watch-pr` to take CI (continuous integration) to green.
 
+The session writes a `<milestone>` marker as it passes each stage — `planned`, `built`, `green`,
+`reviewed`, `presented`, `shipped`. Maelstrom snapshots the agent's spend at each one, so
+`mael agent cost` answers which stage the tokens went to, for a stopped agent as well as a live
+one.
+
 ### Why the task closes at step 6, not step 7
 
 **The pull request is the completion signal.** Once it is raised, the work cannot be

@@ -23,6 +23,7 @@ from typing import Any
 
 import click
 
+from .agent_cost import AgentCost, Stage, build_cost_report
 from .agent_model import (
     AGENT_DETAIL,
     AGENT_EXITED,
@@ -53,7 +54,7 @@ from .agent_server import (
     kill_groups,
 )
 from .agent_spec_store import JsonAgentSpecStore
-from .agent_store import SqliteAgentStore, register_agent
+from .agent_store import SqliteAgentStore, SqliteMilestoneStore, register_agent
 from .agent_transport import (
     KIND_UNREACHABLE,
     AsyncDaemonClient,
@@ -932,3 +933,73 @@ def _render(event: dict[str, Any]) -> str:
     if kind == "result":
         return f"— turn complete ({event.get('subtype', '')})"
     return ""
+
+
+#: Columns ``mael agent cost`` prints per stage, in order.
+COST_COLUMNS = ["stage", "tokens", "own", "subagent", "total", "cost"]
+
+
+@agent.command("cost")
+@click.argument("agent_id", default="")
+@json_option
+async def cmd_cost(agent_id: str, as_json: bool) -> None:
+    """Show what each agent spent, and which stage of its work spent it.
+
+    Reads the milestone ledger, not the daemon, so a stopped agent still
+    reports. ``$`` covers the agent's own requests alone; a subagent's spend is
+    reported in tokens.
+    """
+    path = get_state_db_path()
+    db = open_state_db(path)
+    try:
+        try:
+            await db.check()
+        except StateDbError as exc:
+            raise click.ClickException(str(exc)) from exc
+        rows = await SqliteMilestoneStore(db).list(agent_id)
+    finally:
+        db.close()
+    report = build_cost_report(rows)
+    if as_json:
+        click.echo(json.dumps(report, indent=2))
+        return
+    if not report:
+        click.echo(
+            f"No milestones recorded for {agent_id}."
+            if agent_id
+            else "No milestones recorded."
+        )
+        return
+    for index, agent_cost in enumerate(report):
+        if index:
+            click.echo()
+        _draw_cost(agent_cost)
+
+
+def _draw_cost(agent_cost: AgentCost) -> None:
+    """One agent's spend: the totals, then a row per stage.
+
+    The stage rows carry the deltas, because the question is which stage was
+    expensive. The cumulative figure rides beside each one so a reader can see
+    the total climbing without adding up the column.
+    """
+    click.echo(
+        f"{agent_cost['agent_id']}: "
+        f"{agent_cost['total_tokens']:,} tokens "
+        f"({agent_cost['own_tokens']:,} own + "
+        f"{agent_cost['subagent_tokens']:,} subagent), "
+        f"${agent_cost['cost_usd']:.4f} (own requests only)"
+    )
+    draw_table([_cost_row(stage) for stage in agent_cost["stages"]], COST_COLUMNS)
+
+
+def _cost_row(stage: Stage) -> dict[str, Any]:
+    """One stage as a table row. An unrecognised name says so beside itself."""
+    return {
+        "stage": stage["name"] if stage["recognised"] else f"{stage['name']} (?)",
+        "tokens": f"{stage['delta_tokens']:,}",
+        "own": f"{stage['own_delta']:,}",
+        "subagent": f"{stage['subagent_delta']:,}",
+        "total": f"{stage['total_tokens']:,}",
+        "cost": f"{stage['cost_delta']:.4f}",
+    }

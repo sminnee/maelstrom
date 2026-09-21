@@ -15,6 +15,9 @@ Work one vertical slice at a time:
 4. Make the smallest production change that turns it green.
 5. Repeat.
 
+Write `<milestone>built</milestone>` when the last slice is written. Write
+`<milestone>green</milestone>` when the project's gates pass.
+
 For a feature, add tests for additive behaviour. Re-cut the suite first if the feature reframes existing behaviour. Production refactoring belongs in review, not the loop.
 
 Avoid internal mocks and private-method tests, assertions that recompute the result, query-count assertions, append-only test growth, bulk horizontal test writing, and weakening user behaviour to satisfy a test.

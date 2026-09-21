@@ -265,6 +265,13 @@ how much work the session has done.
 _Avoid_: Token count, context window usage. Do not call the session total a context size — the
 two numbers differ by an order of magnitude on a long session.
 
+**Subagent tokens**:
+What a driven agent's subagents consumed, summed, and held on the parent. Disjoint from the
+**session total**, which covers the agent's own requests alone: a subagent emits no `result`, so
+the host never counted it there. The two sum to the tree's spend, and the parent holds the figure
+because an evicted subagent's tokens were still spent.
+_Avoid_: Child tokens, nested usage. Not the **session total**, which is the parent's own.
+
 **Compact boundary**:
 Where a driven agent's context was compacted, and the only event that says a compact finished. It
 carries the occupancy either side of the fall and whether a person asked for it. A compact the
@@ -595,7 +602,8 @@ user. `<doc-content>` carries the markdown inline; `<doc-file>` names files in t
 worktree, comma-separated, resolved against that directory and nothing outside it. The tag names
 the document's `kind` and `title`, and is cut out of the message the transcript shows. A tag
 opens its document at `draft`; `review="true"` opens it awaiting review instead, which is what
-raises an attention item. One of four markers, with the **Image tag** and the **Note**. The names
+raises an attention item. One of five markers, with the **Image tag**, the **Note** and the
+**Milestone**. The names
 carry nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
 
@@ -605,23 +613,42 @@ ordinary message. A field rather than a document: it is cut from the message, an
 replaces the one before it. The expanded card shows it in place of the agent's last message, which
 is whatever prose happened to end a turn. A message carrying no note leaves the standing one
 alone, and a subagent writes none. The card still dates its block from the last message, because
-silence means the agent said nothing, and a note is not speech.
+silence means the agent said nothing, and a note is not speech. One of five markers, with the
+**Document tag**, the **Image tag** and the **Milestone**.
 _Avoid_: Status, Progress (that is a node's state), Activity
+
+**Milestone**:
+A stage of the work an agent marks as reached, written as `<milestone>green</milestone>` in the
+text of an ordinary message. The vocabulary is the task-completion flow: `planned`, `built`,
+`green`, `reviewed`, `presented`, `shipped`. A name outside it is recorded as the agent wrote it
+and flagged, never dropped. The marker is cut from the message and writes a **milestone
+snapshot**; the latest one in a message wins, as a note does. One of five markers, with the
+**Document tag**, the **Image tag** and the **Note**. A subagent writes none.
+_Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
+a document awaits review.
+
+**Milestone snapshot**:
+What a driven agent had spent when it reached a milestone: its own tokens, its subagents' tokens,
+and the host's dollar figure, with the delta since the milestone before it. The deltas sum to the
+total, which is what makes the record answer which stage the spend went to. Written to the
+`agent_milestones` table, so it outlives the agent, and read by `mael agent cost`.
+_Avoid_: Checkpoint, usage record. Not a **usage window**, which is the account's budget rather
+than one agent's spend.
 
 **Image tag**:
 The marker an agent writes in the text of an ordinary message to show the user a picture:
 `<image src="docs/shot.png" alt="The failing dialog">`. The tag becomes a picture where it was
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
-may not show, or one that is not there, leaves prose saying so, never a broken picture. One of four
-markers, with the **Document tag** and the **Note**.
+may not show, or one that is not there, leaves prose saying so, never a broken picture. One of five
+markers, with the **Document tag**, the **Note** and the **Milestone**.
 _Avoid_: Screenshot tag, figure, embed
 
 **User attention**:
 The rank an agent sets with `<user-attention high>` or `<user-attention low>` in an ordinary
 message. High prose is for the user to read. Low prose is working detail. The renderer draws low
 prose at the low rank. The tag stays in the message until the renderer reads it, so it is not
-one of the four markers. Low prose holds markdown, including a literal or a link. Nothing on the
+one of the five markers. Low prose holds markdown, including a literal or a link. Nothing on the
 server parses it, except that node summaries remove the tag.
 _Avoid_: Callout, Highlight, Summary, Important, Attention tag
 

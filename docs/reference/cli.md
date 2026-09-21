@@ -652,6 +652,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent set-mode ID MODE` | Change a running agent's permission mode: `plan`, `normal` or `auto`. Takes effect on the running turn, and the spawn record keeps it. |
 | `mael agent stop ID` | Stop an agent. No daemon start brings a stopped agent back, but its spawn record is kept, so `mael agent resume ID` still works. |
 | `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
+| `mael agent cost [ID]` | Show what each agent spent and which stage of its work spent it, from the milestone ledger. Reads the state database, not the daemon, so a stopped agent still reports. Per stage: the tokens it consumed, split own and subagent, and the running total. `$` covers the agent's own requests alone — a subagent's spend is reported in tokens, because there is no price table. With no ID, every agent. `--json` emits the report as JSON. |
 | `mael agent register ID` | Adopt an agent already live on a daemon with no Agent record: read its row from the daemon's own `list` and write a record by hand. `--task-id ID` names the Task it belongs to. |
 
 ```bash
@@ -678,6 +679,8 @@ mael agent set-mode 1761dcf6 auto               # done planning: let it work
 mael agent stop 1761dcf6
 mael agent resume 1761dcf6                      # after a crash: same id, same conversation
 mael agent resume 1761dcf6 --text "rerun the failing test"
+mael agent cost                                 # every agent: where its tokens went
+mael agent cost 1761dcf6                        # one agent, stage by stage
 mael agent register 1761dcf6 --task-id NORT-42  # adopt a live agent with no record
 mael agent daemon status                        # which daemon is serving, running whose code
 mael agent daemon list                          # every record: pid, alive, held, mismatch

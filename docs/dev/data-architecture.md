@@ -98,6 +98,15 @@ only copy of the harness, mode, model and task an agent started with. Losing it 
 history. It differs from a task in what it is not: it does not describe the agent's live state,
 only what started it. The live session that state belongs to is PUSHED, below.
 
+The record outlives the agent: `stop` writes `status: ended` rather than deleting the row, so the
+spend recorded against it survives. `DaemonRouter` restores only live records, because an ended
+one would come back as an `exited` row on every poll and the reconcile loop retires an agent by
+its id dropping out of `list`.
+
+The `agent_milestones` table is canonical too: a **milestone snapshot** is the only record of what
+an agent had spent at each stage, and no transcript can rebuild it. It carries no `fetched_at` and
+nothing draws it, so a write to it is not news for a client.
+
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
 prose queries the table.
