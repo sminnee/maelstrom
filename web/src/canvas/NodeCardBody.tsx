@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
@@ -22,7 +22,7 @@ import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
-import { useClamped } from '../ui/useClamped';
+import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './NodeCard.module.css';
 
@@ -60,15 +60,17 @@ export function NodeCardBody({
   const setStatus = useSetStatus();
   const removeFromDesk = useRemoveFromDesk();
   const editTask = useAppStore((s) => s.setEditingTask);
-  const briefBox = useRef<HTMLDivElement>(null);
-  const [expandedContent, setExpandedContent] = useState(false);
   const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
   const brief = detail.data?.content.trim() ?? '';
 
-  const longContent = useClamped(briefBox, [brief, expandedContent]);
+  const {
+    expanded: expandedContent,
+    collapse,
+    bodyProps: briefProps,
+  } = useExpandableClamp([brief]);
 
   // A plan document is found by its task; a free agent has no task, so a
   // document it tagged is found by its agent alone.
@@ -175,19 +177,18 @@ export function NodeCardBody({
 
       {brief && (
         <div className={styles.content} data-testid="task-content" data-expanded={expandedContent}>
-          <div ref={briefBox} className={styles.briefBox} id={`brief-${node.id}`}>
+          <div className={styles.briefBox} {...briefProps}>
             <Markdown source={brief} className={styles.brief} />
           </div>
-          {(longContent || expandedContent) && (
-            <button
-              type="button"
+          {expandedContent && (
+            <AppButton
+              variant="link"
               className={styles.more}
-              aria-expanded={expandedContent}
-              aria-controls={`brief-${node.id}`}
-              onClick={() => setExpandedContent((open) => !open)}
+              aria-controls={briefProps.id}
+              onClick={collapse}
             >
-              {expandedContent ? 'Less' : 'More'}
-            </button>
+              Show less
+            </AppButton>
           )}
         </div>
       )}

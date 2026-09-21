@@ -234,16 +234,8 @@
 }
 .more {
   margin-top: var(--space-1);
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
   font-size: var(--text-xs);
   font-weight: 500;
-  cursor: pointer;
-}
-.more:hover {
-  text-decoration: underline;
 }
 
 .now {
