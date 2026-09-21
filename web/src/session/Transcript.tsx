@@ -251,11 +251,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
     case 'milestone':
       // The `.compact` idiom, coloured. See `web/DESIGN.md`, "Milestone bar".
       return (
-        <div
-          className={styles.milestone}
-          data-testid="milestone"
-          data-recognised={item.recognised}
-        >
+        <div className={styles.milestone} data-testid="milestone" data-recognised={item.recognised}>
           <span className={styles.milestoneLabel}>
             <span className={styles.milestoneName}>{item.name}</span>
             {!item.recognised && ' (?)'}
