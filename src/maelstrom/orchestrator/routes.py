@@ -16,6 +16,7 @@ from typing import Any
 
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
+from ..agent_cost import build_cost_report, empty_cost_report
 from .hubs import Lagging
 from .protocol import HOST_ID, document_row, task_row
 from .server import Orchestrator
@@ -94,6 +95,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/agents", _agents)
     app.router.add_get("/api/agents/{id}", _agent)
     app.router.add_get("/api/agents/{id}/transcript", _transcript)
+    app.router.add_get("/api/agents/{id}/milestones", _milestones)
     app.router.add_get("/api/agents/{id}/stream", _transcript_stream)
     app.router.add_get("/api/attention", _attention)
     app.router.add_get("/api/documents", _documents)
@@ -230,6 +232,24 @@ async def _agent(request: web.Request) -> web.Response:
     return web.json_response(
         {**agent, "pendingRequests": orch.pending_requests(agent_id)}
     )
+
+
+async def _milestones(request: web.Request) -> web.Response:
+    """One agent's stages and what each cost — the ledger, not the transcript.
+
+    The card reads this rather than scanning its transcript for bars: a
+    restarted server keeps the ledger and drops the transcript, and the
+    daemon's window rolls the older items away in a long run.
+
+    Served through ``build_cost_report``, which ``mael agent cost`` also
+    prints, so the page and the terminal read one report. An agent that
+    reached no stage gets that report with no stages, rather than a 404: an
+    empty ledger is not an unknown agent, and the card draws nothing for it.
+    """
+    orch = await _ready(request)
+    agent_id = request.match_info["id"]
+    reports = build_cost_report(await orch.milestones.list(agent_id))
+    return web.json_response(reports[0] if reports else empty_cost_report(agent_id))
 
 
 async def _attention(request: web.Request) -> web.Response:

@@ -63,6 +63,23 @@ def build_cost_report(rows: list[dict[str, Any]]) -> list[AgentCost]:
     return [_agent_cost(agent_id, snaps) for agent_id, snaps in by_agent.items()]
 
 
+def empty_cost_report(agent_id: str) -> AgentCost:
+    """The report for an agent whose ledger is empty: zeroed, with no stages.
+
+    Beside :func:`build_cost_report` so the two constructions of
+    :class:`AgentCost` stay in step.
+    """
+    return {
+        "agent_id": agent_id,
+        "own_tokens": 0,
+        "subagent_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "cost_is_parent_only": True,
+        "stages": [],
+    }
+
+
 def _agent_cost(agent_id: str, snapshots: list[dict[str, Any]]) -> AgentCost:
     last = snapshots[-1]
     own, sub = last["own_total"], last["sub_total"]
