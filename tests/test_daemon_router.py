@@ -9,6 +9,37 @@ from maelstrom.orchestrator.daemon_bridge import DaemonRouter, ScriptedAsyncDaem
 
 #: A pinned clock, so a record's start and end are assertable.
 STAMP = "2026-09-21T10:00:00+00:00"
+#: Long enough before ``STAMP`` to be past the grace period.
+LONG_AGO = "2026-09-20T10:00:00+00:00"
+
+
+def stored_agent(started_at: str = LONG_AGO, **fields) -> dict:
+    """A running Agent record, old enough to be retired unless said otherwise."""
+    return {
+        "id": "ag1",
+        "harness": "claude",
+        "task_session_id": "s1",
+        "cwd": "/worktree",
+        "model": "claude:opus",
+        "mode": "normal",
+        "status": "running",
+        "started_at": started_at,
+        "ended_at": "",
+        **fields,
+    }
+
+
+def live_row(agent_id: str, **fields) -> dict:
+    """One row as a daemon's ``list`` reports it."""
+    return {
+        "id": agent_id,
+        "state": "idle",
+        "session": "s1",
+        "cwd": "/worktree",
+        "model": "claude:opus",
+        "parent": "",
+        **fields,
+    }
 
 
 @dataclass
@@ -199,6 +230,82 @@ def test_list_reports_a_stored_agent_absent_from_the_daemon_as_exited() -> None:
             "mode": "normal",
         }
     ]
+
+
+def test_list_adopts_a_live_agent_the_store_does_not_know() -> None:
+    """`mael add` and `mael agent start` reach the socket, not the store.
+
+    Store-as-truth makes an agent with no record invisible to `list`, so it
+    never reaches the canvas. Adopting on read closes that without teaching
+    every launch path about the state database.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", mode="auto")
+        agents = Agents()
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        return await router.request({"cmd": "list"}), agents.rows
+
+    listed, rows = asyncio.run(scenario())
+
+    assert [row["id"] for row in listed["agents"]] == ["ag1"]
+    assert rows["ag1"] == {
+        "id": "ag1",
+        "harness": "claude",
+        "task_session_id": "s1",
+        # Unknown at adoption: `link_agent` resolves the task by session id.
+        "task_id": "",
+        "cwd": "/worktree",
+        "model": "claude:opus",
+        "mode": "auto",
+        "status": "running",
+        "started_at": STAMP,
+        "ended_at": "",
+    }
+
+
+def test_an_adopted_agent_keeps_the_harness_that_holds_it() -> None:
+    """A Codex row adopted as `claude` would route its every later command wrong."""
+
+    async def scenario():
+        codex = ScriptedAsyncDaemonClient()
+        codex.rows["thread-1"] = live_row("thread-1", model="codex:sol")
+        agents = Agents()
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(), codex, agents, clock=lambda: STAMP
+        )
+        await router.request({"cmd": "list"})
+        # Routed by the harness the adoption recorded, not the default.
+        await router.request({"cmd": "stop", "id": "thread-1"})
+        return agents.rows, codex.calls
+
+    rows, codex_calls = asyncio.run(scenario())
+
+    assert rows["thread-1"]["harness"] == "codex"
+    assert [call["cmd"] for call in codex_calls] == ["list", "stop"]
+
+
+def test_list_does_not_adopt_a_live_subagent() -> None:
+    """A subagent has no record of its own — see Agent record in CONTEXT.md."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1")
+        claude.rows["ag1.1"] = live_row("ag1.1", parent="ag1", session="")
+        agents = Agents()
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        listed = await router.request({"cmd": "list"})
+        return listed, agents.rows
+
+    listed, rows = asyncio.run(scenario())
+
+    assert list(rows) == ["ag1"]
+    assert {row["id"] for row in listed["agents"]} == {"ag1", "ag1.1"}
 
 
 def test_set_mode_updates_the_stored_record() -> None:

@@ -758,13 +758,15 @@ async def cmd_stop(agent_id: str) -> None:
     help="The Task id this agent belongs to.",
 )
 async def cmd_register(agent_id: str, task_id: str) -> None:
-    """Adopt a live agent that has no Agent record.
+    """Adopt a live agent that has no Agent record, by hand.
 
-    Every other `mael agent` command speaks only to the daemon socket. This
-    one also opens the state database, because store-as-truth means an agent
-    live on a daemon with no record is invisible to `list` — see
-    ``daemon_bridge.DaemonRouter``. That extra dependency is the honest cost
-    of adopting one after the fact.
+    The orchestrator's own `list` adopts such an agent — see
+    ``daemon_bridge.DaemonRouter._adopt``. This is for a record that must exist
+    before the orchestrator next polls, or when no orchestrator runs.
+
+    Every other `mael agent` command speaks only to the daemon socket. This one
+    also opens the state database, which is the cost of writing a record
+    outside the router.
 
     This socket is the Claude agent daemon, the only harness `mael agent`
     reaches, so the harness is always ``claude`` — see

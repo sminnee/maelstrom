@@ -103,6 +103,10 @@ spend recorded against it survives. `DaemonRouter` restores only live records, b
 one would come back as an `exited` row on every poll and the reconcile loop retires an agent by
 its id dropping out of `list`.
 
+Store-as-truth cuts both ways, so `list` repairs the store in both directions. A live top-level row
+with no record is **adopted**. `mael add` and `mael agent start` reach the daemon socket directly,
+and without this their agents are invisible to every reader.
+
 The `agent_milestones` table is canonical too: a **milestone snapshot** is the only record of what
 an agent had spent at each stage, and no transcript can rebuild it. It carries no `fetched_at` and
 nothing draws it, so a write to it is not news for a client.

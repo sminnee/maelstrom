@@ -205,9 +205,16 @@ reference**. `daemon` starts a driven Claude agent. Daemon agents export
 The canonical row for an agent maelstrom started: its harness, mode, model, and task, stored so
 it survives an orchestrator restart. `DaemonRouter` writes one at start, and reads every record
 back to restore Codex threads and rebuild `list`. A live subagent has no record of its own; it
-rides through on its parent's. `mael agent register` writes one by hand for an agent already live
-on a daemon.
+rides through on its parent's. An agent live on a daemon with no record is **adopted** by the next
+`list`, which writes one for it; `mael agent register` writes one by hand when that has not
+happened.
 _Avoid_: Agent session, binding.
+
+**Adopted**:
+A live top-level agent with no Agent record, given one by the next `list`. `mael add` and
+`mael agent start` reach the daemon socket without the router, so their agents arrive with no
+record; adoption is what makes them visible to every reader. A subagent is never adopted.
+_Avoid_: Claimed, imported, registered.
 
 **Driven agent**:
 A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
