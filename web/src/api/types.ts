@@ -21,6 +21,7 @@ export interface TaskEdit {
   priority?: string;
   model?: string;
   executeModel?: string;
+  base?: string;
   /** Every id the task follows, in full: the write replaces the list. */
   follows?: TaskId[];
 }

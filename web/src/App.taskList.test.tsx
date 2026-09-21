@@ -32,7 +32,7 @@ describe('the task list', () => {
    */
   const locked = (editor: HTMLElement) =>
     Object.fromEntries(
-      ['Title', 'Status', 'Content', 'Branch', 'Command', 'Mode', 'Priority', 'Model'].map(
+      ['Title', 'Status', 'Content', 'Branch', 'Command', 'Base', 'Mode', 'Priority', 'Model'].map(
         (name) => {
           const field = within(editor).getByLabelText(name);
           return [
@@ -379,6 +379,23 @@ describe('the task list', () => {
     expect(server.world.tasks['NORT-9']?.status).toBe('blocked');
   });
 
+  it('round-trips base through Save, alongside the other advanced fields', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+    await user.click(within(editor).getByText('Advanced'));
+    const base = within(editor).getByLabelText('Base');
+    await user.clear(base);
+    await user.type(base, 'develop');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const patch = server.requests.find((r) => r.method === 'PATCH');
+    expect(patch?.body).toEqual({ base: 'develop' });
+  });
+
   it('closes the editor on Escape when nothing was typed', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -433,6 +450,7 @@ describe('the task list', () => {
       Content: 'readonly',
       Branch: 'readonly',
       Command: 'readonly',
+      Base: 'readonly',
       Mode: 'disabled',
       Priority: 'disabled',
       Model: 'disabled',

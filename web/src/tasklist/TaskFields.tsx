@@ -247,6 +247,14 @@ export function TaskAdvancedFields({
         <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} readOnly={readOnly} />
       </label>
       <label className={styles.field}>
+        <span>Base</span>
+        <input
+          value={draft.base}
+          readOnly={readOnly}
+          onChange={(e) => onChange({ base: e.target.value })}
+        />
+      </label>
+      <label className={styles.field}>
         <span>Priority</span>
         {/* `readOnly` is not a thing on a select, so a locked one is disabled. */}
         <select

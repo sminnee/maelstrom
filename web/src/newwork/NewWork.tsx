@@ -84,6 +84,7 @@ interface Captured {
   taskMode: PermissionMode;
   taskModel: string;
   taskExecuteModel: string;
+  taskBase: string;
 }
 
 /**
@@ -110,6 +111,7 @@ const initialCaptured: Captured = {
   taskMode: DEFAULT_LEVEL_FIELDS.mode,
   taskModel: UNSET_MODEL,
   taskExecuteModel: UNSET_MODEL,
+  taskBase: '',
 };
 
 /** A bucket for a dialog that has none held yet. */
@@ -144,7 +146,7 @@ export function NewWork() {
   // silent no-op and send the agent a link to an image it never got.
   const [captured, setCaptured, release] = useRetained(retainedKey.newWork(), initialCaptured);
   const { kind, issue, draft, branch, mode, model, executeModel, attached } = captured;
-  const { title, command, priority, taskMode, taskModel, taskExecuteModel } = captured;
+  const { title, command, priority, taskMode, taskModel, taskExecuteModel, taskBase } = captured;
   // One bucket for the dialog's whole life. State with a
   // lazy initialiser, so it is settled once on mount: an expression like
   // `held || mintBucket()` in the render yields a new directory every pass until
@@ -188,6 +190,7 @@ export function NewWork() {
     priority,
     model: taskModel,
     executeModel: taskExecuteModel,
+    base: taskBase,
     follows: [],
   };
   const patchTask = (fields: Partial<TaskDraft>) =>
@@ -201,6 +204,7 @@ export function NewWork() {
       ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
       ...(fields.model !== undefined ? { taskModel: fields.model } : {}),
       ...(fields.executeModel !== undefined ? { taskExecuteModel: fields.executeModel } : {}),
+      ...(fields.base !== undefined ? { taskBase: fields.base } : {}),
     }));
 
   // The branches on offer are those with a worktree already open in the
@@ -299,6 +303,7 @@ export function NewWork() {
         priority: task.priority,
         model: task.model,
         executeModel: task.executeModel,
+        base: task.base,
         // `follows` is left out: a new task has nothing to follow yet, and an
         // explicit empty list would be a needless field on the wire.
         ...(launch ? { launch } : {}),
