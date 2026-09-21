@@ -706,6 +706,32 @@ class StateDb:
             ).fetchall()
         )
 
+    async def read_where(
+        self, table: str, column: str, value: Any
+    ) -> list[sqlite3.Row]:
+        """``table``'s rows whose ``column`` equals ``value``, ordered by id.
+
+        The subset read. Without it a store wanting one entity's rows reads the
+        whole table and filters in Python, which makes the per-entity index a
+        table carries unreachable — no query could ever use it.
+
+        ``column`` is checked against the table's own columns before it is
+        interpolated, because a column name cannot be bound as a parameter.
+        That check is the injection guard, not a nicety.
+        """
+        spec = self._spec(table)
+
+        def read(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+            if column not in self._columns(conn, spec.name):
+                raise UnknownColumnError(f"{spec.name} has no column {column}")
+            return conn.execute(
+                f"SELECT * FROM {spec.name} WHERE {column} = ? "  # noqa: S608
+                "ORDER BY id",
+                (value,),
+            ).fetchall()
+
+        return await self._call(read)
+
     async def changed_since(self, table: str, since: int) -> list[sqlite3.Row]:
         """``table``'s rows written after revision ``since``.
 
