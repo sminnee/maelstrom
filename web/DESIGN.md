@@ -600,6 +600,9 @@ the phase hue. Two channels, two edges, no conflict.
 - **Primary:** Signal Blue border and text at 600 weight. Emphasis by colour and weight, never
   by a filled block.
 - **Quiet:** muted text on the same chassis.
+- **Link:** no chassis — no border, no background, no padding. Accent-coloured text, underlined
+  only on hover. For a control that reads as prose, not a box, e.g. "Show less" beside a body
+  that is already its own expand control.
 - **Disabled:** 0.5 opacity, default cursor.
 - **Focus:** the global 2px Signal Blue ring at 2px offset. Never removed.
 
