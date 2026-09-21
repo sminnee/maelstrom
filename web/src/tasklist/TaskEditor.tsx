@@ -1,9 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ApiError, describeError } from '../api/http';
 import { useDeleteTask, useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
+import { useWorld } from '../api/useWorld';
 import type { Task } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
+import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -61,19 +63,51 @@ function TaskForm({ task }: { task: Task }) {
   const remove = useDeleteTask();
   const [draft, setDraft] = useState(() => seed(task));
   const [confirming, setConfirming] = useState(false);
+  const [pendingNav, setPendingNav] = useState<TaskId | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   // Frozen: the store's copy moves as the server publishes, and diffing
   // against a moved copy would send a field the user never touched.
   const opened = useRef(draft);
 
+  const { world } = useWorld();
+  const filters = useAppStore((s) => s.ui.filters);
+  const listFilters = useAppStore((s) => s.ui.listFilters);
+  const { prevId, nextId } = useMemo(() => {
+    const rows = listTasks(world, filters, listFilters);
+    const index = rows.findIndex((r) => r.task.id === task.id);
+    return {
+      prevId: index > 0 ? rows.at(index - 1)?.task.id : undefined,
+      nextId: index >= 0 && index < rows.length - 1 ? rows.at(index + 1)?.task.id : undefined,
+    };
+  }, [world, filters, listFilters, task.id]);
+
+  // A function, not a render-time value: `opened` is a ref, and reading it
+  // during render (rather than from an event handler) is unsafe even though
+  // this one is frozen after mount.
+  const dirty = useCallback(
+    () => editing && Object.keys(changed(opened.current, draft)).length > 0,
+    [editing, draft],
+  );
+
   // Leaving with unsaved edits asks first: the content field holds the task's
   // whole body, and a stray click on the scrim would otherwise lose it. A
   // read-only dialog has nothing to lose, so it always closes at once.
   const leave = useCallback(() => {
-    if (!editing || Object.keys(changed(opened.current, draft)).length === 0) close(null);
+    if (!dirty()) close(null);
     else setConfirming(true);
-  }, [close, draft, editing]);
+  }, [close, dirty]);
+
+  // Prev/Next go through the same guard as the ×/Escape/backdrop: a dirty
+  // draft asks before it is dropped, whichever adjacent id it is dropped for.
+  const go = useCallback(
+    (id: TaskId | undefined) => {
+      if (id === undefined) return;
+      if (!dirty()) close(id);
+      else setPendingNav(id);
+    },
+    [close, dirty],
+  );
 
   const set = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -96,7 +130,14 @@ function TaskForm({ task }: { task: Task }) {
 
   return (
     <Dialog label={task.title} onClose={leave}>
-      <DialogHeader title={task.notebookId} onClose={leave} />
+      <DialogHeader title={task.notebookId} onClose={leave}>
+        <button type="button" disabled={prevId === undefined} onClick={() => go(prevId)}>
+          ‹ Prev
+        </button>
+        <button type="button" disabled={nextId === undefined} onClick={() => go(nextId)}>
+          Next ›
+        </button>
+      </DialogHeader>
       <TaskFields
         draft={draft}
         onChange={set}
@@ -106,13 +147,19 @@ function TaskForm({ task }: { task: Task }) {
         readOnly={!editing}
       />
 
-      {confirming && (
+      {(confirming || pendingNav !== null) && (
         <p className={styles.confirm} role="alert">
           <span>Throw away your changes?</span>
-          <button type="button" onClick={() => setConfirming(false)}>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirming(false);
+              setPendingNav(null);
+            }}
+          >
             Keep editing
           </button>
-          <button type="button" onClick={() => close(null)}>
+          <button type="button" onClick={() => close(pendingNav)}>
             Discard
           </button>
         </p>

@@ -437,6 +437,63 @@ describe('the task list', () => {
     expect(within(editor).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
+  it('steps to the adjacent task in the list order, disabled at the ends', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    // NORT-9 sits between NORT-7.1 and NORT-9.1 in the live-status, id-sorted
+    // order the list itself uses.
+    let editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+    await user.click(within(editor).getByRole('button', { name: 'Next ›' }));
+    editor = await screen.findByRole('dialog', { name: 'Watch the migration PR' });
+    expect(within(editor).getByLabelText('Title')).toHaveValue('Watch the migration PR');
+
+    await user.click(within(editor).getByRole('button', { name: '‹ Prev' }));
+    editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    // Neither end of the list, so both directions stay live.
+    expect(within(editor).getByRole('button', { name: '‹ Prev' })).toBeEnabled();
+    expect(within(editor).getByRole('button', { name: 'Next ›' })).toBeEnabled();
+  });
+
+  it('disables Prev on the first row and Next on the last', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+
+    const ids = listedIds();
+    const titleOf = (id: string) => server.world.tasks[id]!.title;
+
+    const openFirst = await openTask(user, ids[0]!, titleOf(ids[0]!));
+    expect(within(openFirst).getByRole('button', { name: '‹ Prev' })).toBeDisabled();
+    expect(within(openFirst).getByRole('button', { name: 'Next ›' })).toBeEnabled();
+    await user.keyboard('{Escape}');
+
+    const last = ids.at(-1)!;
+    const openLast = await openTask(user, last, titleOf(last));
+    expect(within(openLast).getByRole('button', { name: 'Next ›' })).toBeDisabled();
+    expect(within(openLast).getByRole('button', { name: '‹ Prev' })).toBeEnabled();
+  });
+
+  it('asks before Next drops an unsaved edit, and lands on the next task once confirmed', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
+    const title = within(editor).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Never saved');
+    await user.click(within(editor).getByRole('button', { name: 'Next ›' }));
+
+    expect(within(editor).getByText('Throw away your changes?')).toBeInTheDocument();
+    await user.click(within(editor).getByRole('button', { name: 'Discard' }));
+
+    const next = await screen.findByRole('dialog', { name: 'Watch the migration PR' });
+    expect(within(next).getByLabelText('Title')).toHaveValue('Watch the migration PR');
+    expect(server.requests.some((r) => r.method === 'PATCH')).toBe(false);
+  });
+
   it('asks before it deletes from the dialog, and closes once it has', async () => {
     const user = userEvent.setup();
     await renderApp();
