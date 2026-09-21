@@ -12,6 +12,11 @@ interface Draft {
   other: Record<string, string>;
 }
 
+/** A question's header, or the generic fallback when the agent left it blank. */
+function headerOf(q: Question): string {
+  return q.header || 'Question';
+}
+
 /** The answer a draft holds for `q`: the chosen labels, then the Other text when chosen. */
 function answerFor(draft: Draft, q: Question): string {
   const chosen = draft.chosen[q.question] ?? [];
@@ -129,7 +134,7 @@ export function QuestionPrompt({
         </div>
       )}
       <div className={styles.qhead}>
-        {current.header || 'Question'}
+        {headerOf(current)}
         {current.multiSelect ? ' · choose any' : ''}
       </div>
       <div id={labelId} className={styles.questionText}>
@@ -203,23 +208,37 @@ export function QuestionPrompt({
 
 /** The questions with no controls: answered, or stale with nothing to show but the ask. */
 function ReadOnly({ item, answered }: { item: QuestionItem; answered: boolean }) {
+  return answered ? <Answered item={item} /> : <Stale item={item} />;
+}
+
+/** A settled question takes the operator's wash, not the `.prompt` chassis — see `web/DESIGN.md`, § Components, "Question". */
+function Answered({ item }: { item: QuestionItem }) {
   return (
-    <div
-      className={styles.prompt}
-      data-answered={answered || undefined}
-      data-stale={!answered || undefined}
-    >
-      <div className={styles.qhead}>{answered ? 'Answered' : 'Question'}</div>
+    <div className={styles.settled} data-testid="question-answered">
       {item.questions.map((q) => (
-        <div key={q.question} className={styles.answeredRow}>
-          <span className={styles.stepHeader}>{q.header || 'Question'}</span>
-          <span className={styles.questionText}>{q.question}</span>
-          {answered && (
-            <span className={styles.answer}>{item.answers?.[q.question] ?? '(no answer)'}</span>
-          )}
+        <div key={q.question}>
+          <span className={styles.settledQuestion}>
+            {headerOf(q)}: {q.question}
+          </span>
+          <span className={styles.settledAnswer}>
+            {item.answers?.[q.question] ?? '(no answer)'}
+          </span>
         </div>
       ))}
-      {!answered && <div className={styles.answer}>no longer pending</div>}
+    </div>
+  );
+}
+
+/** Nobody answered — not the operator's voice, so it takes the `.note` register. */
+function Stale({ item }: { item: QuestionItem }) {
+  return (
+    <div className={styles.stale} data-testid="question-stale">
+      {item.questions.map((q) => (
+        <div key={q.question}>
+          {headerOf(q)}: {q.question}
+        </div>
+      ))}
+      no longer pending
     </div>
   );
 }

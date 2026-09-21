@@ -4,6 +4,7 @@ import {
   quietTranscript,
   quietShort,
   quietBlockElements,
+  settledQuestions,
   ledgerRun,
   markdownSample,
   mixedTranscript,
@@ -149,5 +150,12 @@ export const QuietOnSunken: Story = () => (
 export const Clustered: Story = () => (
   <Panel>
     <Transcript items={ledgerRun} truncatedBefore={false} />
+  </Panel>
+);
+
+/** Answered, stale and a real user turn together, so the two washes compare directly. */
+export const SettledQuestion: Story = () => (
+  <Panel>
+    <Transcript items={settledQuestions} truncatedBefore={false} />
   </Panel>
 );
