@@ -20,6 +20,7 @@ from typing import Any
 import click
 
 from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
+from ..agent_store import InMemoryMilestoneStore, MilestoneStore
 from ..branch_name import lead_with_number
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..github_model import RateLimited
@@ -35,6 +36,7 @@ from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .file_registry import FileRegistry
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
+    Milestone,
     NormaliseContext,
     Normalised,
     apply_agent_detail,
@@ -135,6 +137,10 @@ class AgentWatch:
         self.task: asyncio.Task[None] | None = None
         #: Set once the backlog marker has arrived, or the stream ended first.
         self.caught_up = asyncio.Event()
+        #: A milestone waiting for its turn to end. The agent writes the marker
+        #: on an ``assistant`` event, but the turn's tokens only reach the
+        #: world when its ``result`` lands — so the snapshot waits for that.
+        self.pending_milestone: Milestone | None = None
 
 
 class Cursor:
@@ -155,6 +161,7 @@ class Orchestrator:
         daemon: AsyncDaemonClient,
         *,
         desk: DeskStore | None = None,
+        milestones: MilestoneStore | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -172,6 +179,13 @@ class Orchestrator:
         self.worktrees = worktrees
         self.daemon = daemon
         self.desk = desk if desk is not None else InMemoryDeskStore()
+        #: The ledger of what each agent had spent at each stage of its work,
+        #: written when an agent's message carries a ``<milestone>``. The
+        #: normaliser reads the tag; the write is here, because the normaliser
+        #: is a pure function and the database is the server's.
+        self.milestones = (
+            milestones if milestones is not None else InMemoryMilestoneStore()
+        )
         #: Writes the markdown export, or ``None`` when this server keeps none.
         #: A task write queues its export whatever runs; the server is what
         #: drains the queue, so a build without one simply lets it grow.
@@ -1128,6 +1142,39 @@ class Orchestrator:
             replay=not watch.caught_up.is_set(),
         )
         await self._emit(watch, out)
+        if out.milestone is not None:
+            # Held, not recorded: see `AgentWatch.pending_milestone`. A second
+            # marker in one turn replaces the first, as last-wins says.
+            watch.pending_milestone = out.milestone
+        if raw.get("type") == "result" and watch.pending_milestone is not None:
+            milestone, watch.pending_milestone = watch.pending_milestone, None
+            await self._record_milestone(milestone)
+
+    async def _record_milestone(self, milestone: Milestone) -> None:
+        """Snapshot what the agent had spent when it marked a stage reached.
+
+        Read off the world rather than the raw event: the world is where the
+        poll and the stream have both put the agent's totals, so it is the one
+        place that holds the figure as it stands now. An agent the world does
+        not know writes nothing — there would be no totals to record.
+
+        Called once the declaring turn's ``result`` has been normalised, so the
+        figures include that turn. It is usually the stage's most expensive one.
+        """
+        agent = self.world["agents"].get(milestone.agent_id)
+        if agent is None:
+            return
+        await self.milestones.record(
+            {
+                "agent_id": milestone.agent_id,
+                "name": milestone.name,
+                "at": milestone.at,
+                "recognised": milestone.recognised,
+                "own_tokens": agent["totalTokens"],
+                "subagent_tokens": agent["subagentTokens"],
+                "cost_usd": agent["costUsd"],
+            }
+        )
 
     async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
         """Take a normaliser's output: keep its context, and publish its events."""

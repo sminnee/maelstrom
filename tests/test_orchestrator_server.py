@@ -4863,3 +4863,173 @@ def test_the_desk_survives_a_restart_on_the_state_database(store, tmp_path):
 
     assert [e["id"] for e in run(read_back())["desk"]] == ["task:northwind/NORT-7"]
     db.close()
+
+
+# --- the milestone ledger ----------------------------------------------------
+
+
+def end_turn(cost: float = 0.0, tokens: int = 0) -> dict:
+    """The ``result`` that closes a turn, as the host streams one."""
+    return {
+        "type": "result",
+        "total_cost_usd": cost,
+        "usage": {"input_tokens": tokens, "output_tokens": 0},
+    }
+
+
+async def recorded(harness, count: int, timeout: float = 2.0) -> list[dict]:
+    """The ledger once it holds ``count`` rows.
+
+    The write happens after the normaliser's events are published, so a test
+    that waited on a world notice could read the ledger a beat too early. It
+    waits on the ledger itself instead.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        rows = await harness.orch.milestones.list()
+        if len(rows) >= count:
+            return rows
+        if asyncio.get_running_loop().time() > deadline:
+            raise TimeoutError(f"ledger never reached {count} rows; held {rows!r}")
+        await asyncio.sleep(0.01)
+
+
+def test_a_milestone_tag_writes_a_ledger_row_with_the_agents_totals(harness):
+    """The write the normaliser cannot do itself: it is a pure function.
+
+    The figures come off the world, where the poll and the stream have both
+    put them, so the snapshot says what the agent had spent when it wrote the
+    marker.
+    """
+    harness.daemon.rows["ag1"] = agent_row(
+        cost="1.2500",
+        tokens=40_000,
+        subagent_tokens={"total": 15_000},
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                # The snapshot waits for the declaring turn to end.
+                harness.daemon.push("ag1", end_turn(cost=1.25))
+                return await recorded(harness, 1)
+
+    [row] = run(scenario())
+    assert row["name"] == "green"
+    assert row["recognised"] is True
+    assert row["own_total"] == 40_000
+    assert row["sub_total"] == 15_000
+    assert row["cost_usd"] == 1.25
+
+
+def test_a_second_milestone_records_what_the_stage_between_them_cost(harness):
+    """The question the ledger exists to answer: where did the burn go."""
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>planned</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.0))
+                await recorded(harness, 1)
+                harness.daemon.rows["ag1"] = agent_row(cost="3.5000", tokens=90_000)
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["totalTokens"] == 90_000,
+                )
+                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=3.5))
+                return await recorded(harness, 2)
+
+    rows = run(scenario())
+    assert [r["name"] for r in rows] == ["planned", "green"]
+    assert rows[1]["own_delta"] == 80_000
+    assert rows[1]["cost_delta"] == 2.5
+
+
+def test_a_milestone_counts_the_turn_that_declared_it(harness):
+    """The stage's own turn is usually its most expensive one.
+
+    An agent writes `<milestone>green</milestone>` at the end of the work, on
+    an ``assistant`` event. The turn's tokens only land on the world when its
+    ``result`` arrives, a moment later — so a snapshot taken when the tag is
+    read would miss the whole turn and push it onto the next stage.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push(
+                    "ag1",
+                    {
+                        "type": "result",
+                        "total_cost_usd": 2.5,
+                        "usage": {"input_tokens": 30_000, "output_tokens": 0},
+                    },
+                )
+                return await recorded(harness, 1)
+
+    [row] = run(scenario())
+    # 10,000 from the row the world was seeded with, plus the 30,000 this
+    # turn spent. A snapshot taken at the tag would read 10,000.
+    assert row["own_total"] == 40_000
+    assert row["cost_usd"] == 2.5
+
+
+def test_a_milestone_from_an_agent_the_world_does_not_know_writes_nothing(harness):
+    """There are no totals to snapshot, so the guard is silence, not a crash.
+
+    Without a test the failure is invisible: if the world lookup ever changed
+    shape, milestones would stop being recorded and the ledger would simply
+    stay empty, which reads the same as "nobody wrote one".
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                # A stream for an agent the world never adopted.
+                harness.daemon.push("ghost", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ghost", end_turn(cost=1.0))
+                harness.daemon.push("ag1", tag_event("Working."))
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["lastMessage"] == "Working.",
+                )
+                return await harness.orch.milestones.list()
+
+    assert run(scenario()) == []
+
+
+def test_a_message_with_no_milestone_writes_nothing(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("Just working."))
+                # The message lands as a transcript item; the ledger stays empty.
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["lastMessage"] == "Just working.",
+                )
+                return await harness.orch.milestones.list()
+
+    assert run(scenario()) == []
