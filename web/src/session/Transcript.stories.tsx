@@ -145,3 +145,9 @@ export const QuietOnSunken: Story = () => (
   </Panel>
 );
 
+/** The three gaps end to end. If a seam's rank cannot be named by looking at it, there are too many. */
+export const Clustered: Story = () => (
+  <Panel>
+    <Transcript items={ledgerRun} truncatedBefore={false} />
+  </Panel>
+);

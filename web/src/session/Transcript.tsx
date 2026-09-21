@@ -1,4 +1,4 @@
-import { Markdown } from '../markdown/Markdown';
+import { attentionSegments, Markdown } from '../markdown/Markdown';
 import type { TranscriptItem } from '../protocol/transcript';
 import { clockTime } from '../protocol/time';
 import { contextFigure, contextSize } from '../protocol/tokens';
@@ -27,14 +27,44 @@ export interface TranscriptHandlers {
 }
 
 /**
- * Which of the transcript's two registers an item draws in.
+ * Which register an item draws in.
+ *
+ * `machinery` is anything the operator scans past: a tool call, a skill, a
+ * carried-over summary, a raw event, a note the session makes about itself —
+ * and an agent message that is nothing but working detail.
+ *
+ * That last case is why this reads the markdown and not only the type. A
+ * message whose every segment is `<user-attention low>` is machinery by the
+ * agent's own marking. A mixed message leads with prose and stays prose, so a
+ * card still has exactly one register.
  *
  * The spacing rule and the card chrome both need this, and deriving it twice is
  * how they drift: a shell item drew `BashCard` while the CSS read its item type
  * and spaced it as prose. One value, read by both.
  */
-function registerOf(item: TranscriptItem): 'ledger' | 'prose' {
-  return item.type === 'tool_call' || item.type === 'raw_event' ? 'ledger' : 'prose';
+function registerOf(item: TranscriptItem): 'machinery' | 'prose' {
+  switch (item.type) {
+    case 'tool_call':
+    case 'raw_event':
+    case 'skill':
+    case 'compact_summary':
+    case 'compact':
+    case 'system':
+    case 'gap':
+    case 'task_notification':
+      return 'machinery';
+    case 'message': {
+      // `registerOf` runs outside `CardBoundary`, ahead of the card that
+      // would otherwise catch a malformed item, so it must not throw on one.
+      if (typeof item.markdown !== 'string') return 'prose';
+      const segments = attentionSegments(item.markdown);
+      return segments.length > 0 && segments.every((s) => s.attention === 'low')
+        ? 'machinery'
+        : 'prose';
+    }
+    default:
+      return 'prose';
+  }
 }
 
 /**

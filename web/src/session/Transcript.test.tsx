@@ -52,6 +52,51 @@ describe('Transcript', () => {
     );
   });
 
+  it('registers a tool call as machinery and a plain message as prose, in item order', () => {
+    // This rule has no test today, and a shell item once drew one register
+    // while the CSS spaced it as the other — exactly what keying both off one
+    // computed value, read as `data-register`, is meant to prevent.
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          said('m1', '', { markdown: 'Free port 342 before you retry.' }),
+          {
+            id: 't1',
+            ts: '',
+            type: 'tool_call',
+            toolUseId: 't1',
+            tool: 'Bash',
+            input: { command: 'mael env list' },
+            status: 'done',
+          },
+          said('m2', '', { markdown: 'Done.' }),
+        ]}
+      />,
+    );
+    const registers = screen
+      .getAllByTestId('transcript-card')
+      .map((c) => c.getAttribute('data-register'));
+    expect(registers).toEqual(['prose', 'machinery', 'prose']);
+  });
+
+  it('an all-low agent message registers as machinery; a mixed one registers as prose', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          said('m1', '', { markdown: '<user-attention low>\nChecking the allocator first.' }),
+          said('m2', '', {
+            markdown: 'Free port 342.\n\n<user-attention low>\nChecking the allocator first.',
+          }),
+        ]}
+      />,
+    );
+    const cards = screen.getAllByTestId('transcript-card');
+    expect(cards[0]).toHaveAttribute('data-register', 'machinery');
+    expect(cards[1]).toHaveAttribute('data-register', 'prose');
+  });
+
   it('ends a turn with how it went and how long, and leaves the money to the header', () => {
     // `costUsd` on a turn is the session's total, not the turn's. The header
     // says it once; see `docs/dev/orchestrator-ui.md`.
