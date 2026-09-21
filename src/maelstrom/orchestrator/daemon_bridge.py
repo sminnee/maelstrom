@@ -131,7 +131,7 @@ class DaemonRouter:
             # kill and a `gc` reap all bypass it — so a record left `running`
             # would be restored live for ever and report `exited` on every poll.
             for agent_id in retiring:
-                await self._end(agent_id)
+                await self._end(agent_id, revivable=True)
             return {"agents": rows, "usage": claude.get("usage")}
         await self._restore()
         try:
@@ -167,16 +167,35 @@ class DaemonRouter:
         return reply
 
     async def _adopt(self, agent_id: str, row: dict[str, Any]) -> None:
-        """Write a record for a live agent that has none, and hold it live.
+        """Take a live agent into the live set, writing a record if it has none.
 
-        ``build_start_payload`` has callers that reach the daemon socket
-        directly — ``mael add`` and ``mael agent start`` — so an agent can be
-        live with nothing in the store. Adopting on read keeps every launch path
-        working without teaching each one about the state database.
+        Adopting on read keeps every launch path working without teaching each
+        one about the state database. Three cases, and the store tells them
+        apart: a record the sweep wrote off comes back, a record the user
+        stopped stays stopped, and an agent with no record gets one.
         """
+        stored = await self.agents.read(agent_id)
+        if stored is not None and not _is_revivable(stored):
+            # A deliberate stop is settled. A daemon that still reports the row
+            # — the wrong-daemon-root condition this guard survives — must not
+            # undo it.
+            return
         last_seen = self._last_seen.get(agent_id)
         harness = last_seen[0] if last_seen else HARNESS_CLAUDE
         self._harnesses[agent_id] = harness
+        if stored is not None:
+            # Demonstrably alive, so the sweep wrote the record off by mistake —
+            # it did that to six live agents on this machine. Revived onto its
+            # own row, which keeps the task and the start the agent really had.
+            agent = {
+                **stored,
+                "status": AGENT_RUNNING,
+                "ended_at": "",
+                "swept": False,
+            }
+            self._agents[agent_id] = agent
+            await self.agents.save(agent)
+            return
         self._agents[agent_id] = await register_agent(
             self.agents,
             agent_id,
@@ -196,11 +215,15 @@ class DaemonRouter:
             START_GRACE_SECONDS
         )
 
-    async def _end(self, agent_id: str) -> None:
+    async def _end(self, agent_id: str, *, revivable: bool = False) -> None:
         """Retire one agent's record, keeping the row.
 
         The record stays: the spend recorded against it is the point of keeping
         it. It drops out of the live set instead, so `list` stops reporting it.
+
+        ``revivable`` marks a record the sweep wrote off rather than one the
+        user stopped. Only the first may come back: a ``stop`` is settled, and a
+        daemon that still reports the row must not undo it.
         """
         self._harnesses.pop(agent_id, None)
         # The miss count and the last-seen row go with the record: an id adopted
@@ -210,7 +233,14 @@ class DaemonRouter:
         self._last_seen.pop(agent_id, None)
         if agent := self._agents.pop(agent_id, None):
             await self.agents.save(
-                {**agent, "status": AGENT_ENDED, "ended_at": self.clock()}
+                {
+                    **agent,
+                    "status": AGENT_ENDED,
+                    "ended_at": self.clock(),
+                    # Says which way the record ended, so a later `list` that
+                    # finds the agent alive knows whether it may come back.
+                    "swept": revivable,
+                }
             )
 
     def attach(
@@ -259,6 +289,18 @@ class DaemonRouter:
         for agent_id, agent in self._agents.items():
             if agent.get("harness"):
                 self._harnesses[agent_id] = str(agent["harness"])
+
+
+def _is_revivable(agent: dict[str, Any]) -> bool:
+    """Whether an ended record may come back when its agent turns up alive.
+
+    A record carries ``swept`` to say which way it ended. One written before
+    that field existed was ended by the old sweep, which retired an agent on a
+    single unconfirmed list — so those are revivable, and the six live agents it
+    wrongly wrote off on this machine are repaired by being seen. Only a record
+    a ``stop`` ended says ``swept: False``.
+    """
+    return bool(agent.get("swept", True))
 
 
 def _seconds_since(stamp: str, now: str) -> float:
