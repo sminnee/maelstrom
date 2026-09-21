@@ -65,6 +65,30 @@ def test_list_skips_a_row_whose_body_is_not_json_or_whose_id_disagrees(
     assert asyncio.run(scenario()) == [{"id": "thread-1", "harness": "codex"}]
 
 
+def test_read_answers_one_record_without_scanning_the_table(tmp_path) -> None:
+    """The router asks about one id at adoption, not the whole history.
+
+    The table holds every agent Maelstrom ever started, so reading it whole to
+    answer "is there a record for this id" costs the lifetime agent count.
+    """
+
+    async def scenario() -> tuple:
+        db = open_state_db(tmp_path / "state.db")
+        await db.migrate()
+        store = SqliteAgentStore(db)
+        await store.save({"id": "a1", "harness": "claude", "status": "ended"})
+        await store.save({"id": "a2", "harness": "codex"})
+        found = await store.read("a1")
+        missing = await store.read("nobody")
+        db.close()
+        return found, missing
+
+    found, missing = asyncio.run(scenario())
+
+    assert found == {"id": "a1", "harness": "claude", "status": "ended"}
+    assert missing is None
+
+
 # --- the milestone ledger ---------------------------------------------------
 
 

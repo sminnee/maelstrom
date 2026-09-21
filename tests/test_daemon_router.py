@@ -21,6 +21,9 @@ class Agents:
     async def list(self) -> list[dict]:
         return list(self.rows.values())
 
+    async def read(self, agent_id: str) -> dict | None:
+        return self.rows.get(agent_id)
+
 
 def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
     async def scenario():

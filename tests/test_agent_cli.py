@@ -174,17 +174,23 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
         stored = asyncio.run(SqliteAgentStore(db).list())
     finally:
         db.close()
-    assert stored == [
-        {
-            "id": "a1",
-            "harness": "claude",
-            "task_session_id": "task-session-1",
-            "task_id": "2026-09-16.4.3",
-            "cwd": "/worktree",
-            "model": "claude:opus",
-            "mode": "plan",
-        }
-    ]
+    [record] = stored
+    # A registered agent must be indistinguishable from a launched one: the
+    # record carries a status and a start, or the router's sweep reads it as a
+    # legacy row and cannot tell a new agent from an ancient one.
+    assert record["started_at"]
+    assert record | {"started_at": ""} == {
+        "id": "a1",
+        "harness": "claude",
+        "task_session_id": "task-session-1",
+        "task_id": "2026-09-16.4.3",
+        "cwd": "/worktree",
+        "model": "claude:opus",
+        "mode": "plan",
+        "status": "running",
+        "started_at": "",
+        "ended_at": "",
+    }
 
 
 def test_register_refuses_an_agent_id_the_daemon_does_not_list(tmp_path, monkeypatch):

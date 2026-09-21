@@ -6,6 +6,12 @@ from typing import Any, Protocol
 from .harness_model import HARNESS_CLAUDE
 from .state_db.db import StateDb
 
+#: The statuses an Agent record carries. ``running`` from the start until
+#: ``stop``, ``ended`` from then on. A record written before this field existed
+#: carries neither and reads as ``running``, which is what it meant.
+AGENT_RUNNING = "running"
+AGENT_ENDED = "ended"
+
 
 class AgentStore(Protocol):
     """The canonical records for Agents Maelstrom has started."""
@@ -13,6 +19,8 @@ class AgentStore(Protocol):
     async def save(self, agent: dict[str, Any]) -> None: ...
 
     async def list(self) -> list[dict[str, Any]]: ...
+
+    async def read(self, agent_id: str) -> dict[str, Any] | None: ...
 
 
 class SqliteAgentStore:
@@ -29,34 +37,100 @@ class SqliteAgentStore:
     async def list(self) -> list[dict[str, Any]]:
         agents: list[dict[str, Any]] = []
         for row in await self._db.read_all("agents"):
-            try:
-                agent = json.loads(row["body"])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(agent, dict) and agent.get("id") == row["id"]:
+            if (agent := _decoded(row)) is not None:
                 agents.append(agent)
         return agents
 
+    async def read(self, agent_id: str) -> dict[str, Any] | None:
+        """One agent's record, or ``None``. Keyed, so it costs one row.
+
+        The table holds every agent Maelstrom ever started, so a caller asking
+        about a single id must not pay the lifetime agent count to find out.
+        """
+        row = await self._db.read("agents", agent_id)
+        return _decoded(row) if row is not None else None
+
+
+def _decoded(row: Any) -> dict[str, Any] | None:
+    """One stored row as a record, or ``None`` when it is not one.
+
+    A store bug must drop the bad row rather than corrupt the read, so a body
+    that is not JSON, or whose ``id`` disagrees with the row's, is no record.
+    """
+    try:
+        agent = json.loads(row["body"])
+    except json.JSONDecodeError:
+        return None
+    if isinstance(agent, dict) and agent.get("id") == row["id"]:
+        return agent
+    return None
+
+
+def new_agent_record(
+    agent_id: str,
+    *,
+    harness: str,
+    task_session_id: str,
+    task_id: str,
+    cwd: str,
+    model: str,
+    mode: str,
+    started_at: str,
+) -> dict[str, Any]:
+    """One running Agent record, however the agent arrived.
+
+    The single constructor for the shape, so a launched agent and an adopted one
+    cannot end up describable by different fields — which is the
+    indistinguishability the adoption path exists to give.
+
+    The record outlives the agent, so it says whether the agent is still there
+    and when each end of its life was.
+    """
+    return {
+        "id": agent_id,
+        "harness": harness,
+        "task_session_id": task_session_id,
+        "task_id": task_id,
+        "cwd": cwd,
+        "model": model,
+        "mode": mode or "normal",
+        "status": AGENT_RUNNING,
+        "started_at": started_at,
+        "ended_at": "",
+    }
+
 
 async def register_agent(
-    store: AgentStore, agent_id: str, row: dict[str, Any], task_id: str
-) -> None:
+    store: AgentStore,
+    agent_id: str,
+    row: dict[str, Any],
+    task_id: str,
+    *,
+    harness: str = HARNESS_CLAUDE,
+    started_at: str = "",
+) -> dict[str, Any]:
     """Adopt a live agent that has no Agent record: ``row`` is its daemon ``list`` entry.
 
-    ``mael agent register`` reaches only the Claude agent daemon, so the
-    harness is always ``claude``.
+    Returned as well as saved, because the router holds its live set in memory
+    and would otherwise read the store back to get it.
+
+    ``harness`` defaults to ``claude`` for ``mael agent register``, which
+    reaches only the Claude agent daemon. ``started_at`` is when the adoption
+    happened, not when the agent did: nobody recorded the real start. An empty
+    one reads as arbitrarily old, so the record gets no grace period.
     """
-    await store.save(
-        {
-            "id": agent_id,
-            "harness": HARNESS_CLAUDE,
-            "task_session_id": row.get("session", ""),
-            "task_id": task_id,
-            "cwd": row.get("cwd", ""),
-            "model": row.get("model", ""),
-            "mode": row.get("mode") or "normal",
-        }
+    agent = new_agent_record(
+        agent_id,
+        harness=harness,
+        task_session_id=str(row.get("session", "")),
+        task_id=task_id,
+        cwd=str(row.get("cwd", "")),
+        model=str(row.get("model", "")),
+        mode=str(row.get("mode") or "normal"),
+        started_at=started_at,
     )
+    await store.save(agent)
+    return agent
 
 
 class MilestoneStore(Protocol):

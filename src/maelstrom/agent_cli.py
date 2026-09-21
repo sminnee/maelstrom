@@ -75,6 +75,7 @@ from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
 from .table import draw_table
+from .util import now_iso
 
 #: Columns ``mael agent list`` prints, in order.
 LIST_COLUMNS = [
@@ -785,7 +786,9 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
             await db.check()
         except StateDbError as exc:
             raise click.ClickException(str(exc)) from exc
-        await register_agent(SqliteAgentStore(db), agent_id, row, task_id)
+        await register_agent(
+            SqliteAgentStore(db), agent_id, row, task_id, started_at=now_iso()
+        )
     finally:
         db.close()
 

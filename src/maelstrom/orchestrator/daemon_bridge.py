@@ -26,18 +26,12 @@ from ..agent_model import (
     reply_for_approval,
     reply_for_denial,
 )
-from ..agent_store import AgentStore
+from ..agent_store import AGENT_ENDED, AGENT_RUNNING, AgentStore, new_agent_record
 from ..agent_transport import AsyncDaemonClient, attach_command
 from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
 from ..util import now_iso
 
 DaemonClient = AsyncDaemonClient
-
-#: The statuses an Agent record carries. ``running`` from the start until
-#: ``stop``, ``ended`` from then on. A record written before this field existed
-#: carries neither and reads as ``running``, which is what it meant.
-AGENT_RUNNING = "running"
-AGENT_ENDED = "ended"
 
 
 @dataclass
@@ -91,23 +85,19 @@ class DaemonRouter:
         if command == "start" and reply.get("ok") and reply.get("id"):
             agent_id = str(reply["id"])
             self._harnesses[agent_id] = harness
-            agent = {
-                "id": agent_id,
-                "harness": harness,
-                "task_session_id": str(payload.get("session") or ""),
+            agent = new_agent_record(
+                agent_id,
+                harness=harness,
+                task_session_id=str(payload.get("session") or ""),
                 # Not read yet: link_agent still resolves the task by
                 # session-id reverse-lookup. Persisted now so it is there
                 # when a reader needs it.
-                "task_id": str(payload.get("env", {}).get("MAEL_TASK_ID", "")),
-                "cwd": str(payload.get("cwd") or ""),
-                "model": str(payload.get("model") or ""),
-                "mode": str(payload.get("mode") or "normal"),
-                # The record now outlives the agent, so it says whether the
-                # agent is still there and when each end of its life was.
-                "status": AGENT_RUNNING,
-                "started_at": self.clock(),
-                "ended_at": "",
-            }
+                task_id=str(payload.get("env", {}).get("MAEL_TASK_ID", "")),
+                cwd=str(payload.get("cwd") or ""),
+                model=str(payload.get("model") or ""),
+                mode=str(payload.get("mode") or "normal"),
+                started_at=self.clock(),
+            )
             self._agents[agent_id] = agent
             await self.agents.save(agent)
         if command == "set-mode" and reply.get("ok"):
