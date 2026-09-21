@@ -62,7 +62,7 @@ async def register_agent(
 class MilestoneStore(Protocol):
     """The ledger of what each agent had spent at each stage of the work."""
 
-    async def record(self, milestone: dict[str, Any]) -> None: ...
+    async def record(self, milestone: dict[str, Any]) -> dict[str, Any]: ...
 
     async def list(self, agent_id: str = "") -> list[dict[str, Any]]: ...
 
@@ -77,11 +77,15 @@ class SqliteMilestoneStore:
     def __init__(self, db: StateDb) -> None:
         self._db = db
 
-    async def record(self, milestone: dict[str, Any]) -> None:
-        """Write one snapshot, its delta included.
+    async def record(self, milestone: dict[str, Any]) -> dict[str, Any]:
+        """Write one snapshot, its delta included, and return it.
 
         A stage reached twice writes two rows rather than replacing one: the
         second run spent real tokens, and collapsing them would hide the spend.
+
+        The row comes back because the caller has no other way to learn what
+        the stage cost: the delta is computed here, against a previous
+        snapshot only this store holds.
         """
         previous = await self.list(str(milestone["agent_id"]))
         row = _snapshot(
@@ -92,6 +96,7 @@ class SqliteMilestoneStore:
             row["id"],
             **{key: value for key, value in row.items() if key != "id"},
         )
+        return _milestone_row(row)
 
     async def list(self, agent_id: str = "") -> list[dict[str, Any]]:
         """Every snapshot, oldest first. One agent's with ``agent_id``, else all.
@@ -121,12 +126,16 @@ class InMemoryMilestoneStore:
     def __init__(self) -> None:
         self._rows: list[dict[str, Any]] = []
 
-    async def record(self, milestone: dict[str, Any]) -> None:
+    async def record(self, milestone: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(milestone["agent_id"])
         previous = [row for row in self._rows if row["agent_id"] == agent_id]
-        self._rows.append(
-            _snapshot(milestone, previous[-1] if previous else None, len(previous) + 1)
+        row = _snapshot(
+            milestone, previous[-1] if previous else None, len(previous) + 1
         )
+        self._rows.append(row)
+        # Through `_milestone_row`, as `list` reads back and as the SQLite
+        # backend returns: the two must stay indistinguishable.
+        return _milestone_row(row)
 
     async def list(self, agent_id: str = "") -> list[dict[str, Any]]:
         # Through `_milestone_row`, as the SQLite backend reads back: a caller
