@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
+import { useMilestones } from '../api/milestones';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
@@ -20,6 +21,7 @@ import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
+import { contextFigure } from '../protocol/tokens';
 import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
@@ -55,6 +57,7 @@ export function NodeCardBody({
 }) {
   const { world } = useWorld();
   const transcript = useAgentStream(node.agent?.id ?? null);
+  const milestones = useMilestones(node.agent?.id ?? null);
   const launch = useLaunch();
   const stop = useStop();
   const setStatus = useSetStatus();
@@ -107,6 +110,16 @@ export function NodeCardBody({
   // display exists to show.
   const quiet = silentFor(spokeAt, clock);
   const silent = agent?.state === 'processing' && quiet !== null && quiet >= SILENT_MS;
+  // The last stage only. See `docs/dev/orchestrator-ui.md`.
+  const stage = milestones.data?.stages.at(-1);
+  const stageAge = stage ? ago(stage.at, clock) : '';
+  // The ledger moves no world entity, so no change notice fires: a bar
+  // arriving is the only signal there is a newer stage to read.
+  const barsSeen = transcript.items.filter((i) => i.type === 'milestone').length;
+  const refetchMilestones = milestones.refetch;
+  useEffect(() => {
+    if (barsSeen > 0) void refetchMilestones();
+  }, [barsSeen, refetchMilestones]);
 
   return (
     <>
@@ -155,6 +168,27 @@ export function NodeCardBody({
           />
         )}
       </div>
+
+      {stage && (
+        <div
+          className={styles.stage}
+          data-testid="milestone-band"
+          data-recognised={stage.recognised}
+        >
+          <span className={styles.stageName}>{stage.name}</span>
+          {!stage.recognised && ' (?)'}
+          {stage.delta_tokens > 0 && ` · ${contextFigure(stage.delta_tokens)}`}
+          {stage.cost_delta > 0 && ` · $${stage.cost_delta.toFixed(2)}`}
+          {stageAge && (
+            <>
+              {' · '}
+              <time dateTime={stage.at} title={clockTime(stage.at, clock)}>
+                {stageAge} ago
+              </time>
+            </>
+          )}
+        </div>
+      )}
 
       {task && node.progress.drift && (
         <div className={styles.drift} data-testid="drift-band">

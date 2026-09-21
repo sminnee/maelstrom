@@ -15,7 +15,9 @@ export interface Seed {
   transcripts: Record<AgentId, Transcript>;
 }
 
-const T = (minutesAgo: number) =>
+/** A moment `minutesAgo` before {@link SEED_TIME}. Exported so a test can
+ *  name the same instant the seed stamped. */
+export const T = (minutesAgo: number) =>
   new Date(Date.parse(SEED_TIME) - minutesAgo * 60_000).toISOString();
 
 function project(id: string, stackTip: string, hasLinear = false): Project {
@@ -559,6 +561,32 @@ body rather than the query builder.
 
   const world: FakeWorld = {
     host: { id: 'agent-host', reachable: true, since: T(9), socket: '', usage: null },
+    // One agent past a stage, the rest with none: the card's band is the
+    // exception, not a row every card pays for.
+    milestones: {
+      c3e8f1b5: [
+        {
+          name: 'planned',
+          at: T(48),
+          recognised: true,
+          total_tokens: 12_400,
+          delta_tokens: 12_400,
+          own_delta: 12_400,
+          subagent_delta: 0,
+          cost_delta: 0.11,
+        },
+        {
+          name: 'built',
+          at: T(6),
+          recognised: true,
+          total_tokens: 31_900,
+          delta_tokens: 19_500,
+          own_delta: 19_500,
+          subagent_delta: 0,
+          cost_delta: 0.24,
+        },
+      ],
+    },
     linearIssues: {
       maelstrom: [
         { id: 'MAEL-70', title: 'Add a Linear kind to the new panel', status: 'Todo' },

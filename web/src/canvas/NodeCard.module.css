@@ -148,6 +148,17 @@
   flex: none;
   font-weight: 500;
 }
+/* The stage last reached. See DESIGN.md, "Node Card". */
+.stage {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.stageName {
+  color: var(--ok);
+}
+.stage[data-recognised='false'] .stageName {
+  color: inherit;
+}
 /* Drift band. See DESIGN.md, Node Card. */
 .drift {
   display: flex;
