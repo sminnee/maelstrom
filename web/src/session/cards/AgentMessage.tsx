@@ -9,7 +9,7 @@ import styles from './cards.module.css';
 export function AgentMessage({ item }: { item: MessageItem }) {
   return (
     <div className={styles.message} data-role={item.role} data-pending={item.pending || undefined}>
-      <div className={styles.role}>{item.role === 'user' ? 'you' : 'agent'}</div>
+      {item.role === 'user' && <span className="srOnly">you</span>}
       <Markdown source={item.markdown} />
     </div>
   );

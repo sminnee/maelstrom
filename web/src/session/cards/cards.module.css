@@ -18,13 +18,6 @@
 .message[data-pending] {
   opacity: 0.6;
 }
-.role {
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-micro);
-  color: var(--fg-faint);
-  margin-bottom: 2px;
-}
 /*
  * Closed, no chrome at all: a rule under the row was still a line the eye had to
  * dismiss on every call, and a run of them read as ruled paper. What separates a
