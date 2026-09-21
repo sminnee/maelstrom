@@ -111,6 +111,8 @@ Store-as-truth cuts both ways, so `list` repairs the store in both directions:
   consecutive lists miss it, and never inside `START_GRACE_SECONDS` of its start. One missing row
   is not evidence of an exit — `daemon_bridge.py` says what else looks the same.
 - A reply that carries an `error` counts as neither a sighting nor a miss.
+- An unconfirmed row reports the state the agent was last seen in. The server ends every wait a row
+  does not report as `awaiting-`, so a placeholder would cancel a live agent's open ask.
 
 The `agent_milestones` table is canonical too: a **milestone snapshot** is the only record of what
 an agent had spent at each stage, and no transcript can rebuild it. It carries no `fetched_at` and

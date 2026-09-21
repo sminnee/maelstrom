@@ -68,8 +68,9 @@ class DaemonRouter:
     #: every sighting, so it counts a run of misses rather than a total.
     _misses: dict[str, int] = field(default_factory=dict, init=False)
     #: Per agent, the last row a daemon reported for it and which daemon did.
-    #: The harness is what an adopted record is written with. Kept only for
-    #: agents in the live set.
+    #: The state is what an unconfirmed row falls back to, so a transient miss
+    #: does not change what the agent is doing; the harness is what an adopted
+    #: record is written with. Kept only for agents in the live set.
     _last_seen: dict[str, tuple[str, dict[str, Any]]] = field(
         default_factory=dict, init=False
     )
@@ -109,9 +110,15 @@ class DaemonRouter:
                         retiring.add(agent_id)
             rows: list[dict[str, Any]] = []
             for agent_id, agent in self._agents.items():
+                last_seen = self._last_seen.get(agent_id)
                 rows.append(
                     _stored_agent_row(
-                        agent, live_rows.get(agent_id), retiring=agent_id in retiring
+                        agent,
+                        live_rows.get(agent_id),
+                        retiring=agent_id in retiring,
+                        last_state=str(last_seen[1].get("state", ""))
+                        if last_seen
+                        else "",
                     )
                 )
                 # A live subagent has no record of its own — see Agent
@@ -198,7 +205,7 @@ class DaemonRouter:
         self._harnesses.pop(agent_id, None)
         # The miss count and the last-seen row go with the record: an id adopted
         # again later must start its own run of misses, not inherit the one that
-        # retired it.
+        # retired it, and must not report a state from its previous life.
         self._misses.pop(agent_id, None)
         self._last_seen.pop(agent_id, None)
         if agent := self._agents.pop(agent_id, None):
@@ -272,17 +279,27 @@ def _seconds_since(stamp: str, now: str) -> float:
 
 
 def _stored_agent_row(
-    agent: dict[str, Any], live: dict[str, Any] | None, *, retiring: bool
+    agent: dict[str, Any],
+    live: dict[str, Any] | None,
+    *,
+    retiring: bool,
+    last_state: str = "",
 ) -> dict[str, Any]:
     """The canonical Agent record with fresh harness state when available.
 
-    A stored agent the daemon did not name reads ``exited`` only on the one row
-    that retires it: the server's reconcile loop only exits an agent whose id
-    disappears from ``list``, and a stored id never does that on its own, so
-    that row is its only chance to say so.
+    A stored agent the daemon did not name keeps ``last_state``, the state it
+    was last seen in, and reads ``exited`` on the one row that retires it. The
+    server ends every wait a row does not report as ``awaiting-``, so a
+    placeholder here would cancel a live agent's open permission ask on a
+    single transient miss. An agent never seen live has no such state and reads
+    ``idle``, which means "the daemon did not say".
+
+    The server's reconcile loop only exits an agent whose id disappears from
+    ``list``, and a stored id never does that on its own, so the retiring row
+    is its only chance to say the agent has gone.
     """
     return {
-        "state": "exited" if retiring else "idle",
+        "state": "exited" if retiring else (last_state or "idle"),
         **(live or {}),
         "id": agent["id"],
         "session": agent["task_session_id"],
