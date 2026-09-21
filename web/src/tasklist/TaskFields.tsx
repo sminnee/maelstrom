@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { TaskEdit } from '../api/types';
 import { useWorld } from '../api/useWorld';
+import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
@@ -65,6 +66,21 @@ export function TaskFields({
   return (
     <>
       <TaskTitleField draft={draft} onChange={onChange} readOnly={readOnly} />
+      <label className={styles.field}>
+        <span>Status</span>
+        {/* `readOnly` is not a thing on a select, so a locked one is disabled. */}
+        <select
+          value={draft.status}
+          disabled={readOnly}
+          onChange={(e) => onChange({ status: e.target.value as TaskStatus })}
+        >
+          {TASK_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </label>
       <TaskContentField
         draft={draft}
         onChange={onChange}

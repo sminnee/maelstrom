@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ApiError, describeError } from '../api/http';
-import { useDeleteTask, useTask, useUpdateTask } from '../api/tasks';
+import { useDeleteTask, useSetStatus, useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
 import { useWorld } from '../api/useWorld';
 import type { Task } from '../protocol/entities';
@@ -60,6 +60,7 @@ function WaitShell({
 function TaskForm({ task }: { task: Task }) {
   const close = useAppStore((s) => s.setEditingTask);
   const update = useUpdateTask();
+  const setStatus = useSetStatus();
   const remove = useDeleteTask();
   const [draft, setDraft] = useState(() => seed(task));
   const [confirming, setConfirming] = useState(false);
@@ -112,10 +113,13 @@ function TaskForm({ task }: { task: Task }) {
   const set = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const save = async () => {
-    const fields = changed(opened.current, draft);
+    const { status, ...fields } = changed(opened.current, draft);
+    const writes: Promise<unknown>[] = [];
+    if (Object.keys(fields).length > 0) writes.push(update.mutateAsync({ taskId: task.id, fields }));
+    if (status !== undefined) writes.push(setStatus.mutateAsync({ taskId: task.id, status }));
     // Nothing moved: the same close as Cancel, rather than a refused command.
-    if (Object.keys(fields).length === 0) return close(null);
-    await update.mutateAsync({ taskId: task.id, fields });
+    if (writes.length === 0) return close(null);
+    await Promise.all(writes);
     close(null);
   };
 
@@ -218,6 +222,7 @@ function seed(task: Task): TaskDraft {
   return {
     title: task.title,
     content: task.content,
+    status: task.status,
     branch: task.branch,
     command: task.command,
     mode: task.mode,

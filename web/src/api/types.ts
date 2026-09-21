@@ -1,4 +1,4 @@
-import type { Task, TaskMode } from '../protocol/entities';
+import type { Task, TaskMode, TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 
 /** A task as the list carries it: everything but the prose. */
@@ -7,11 +7,14 @@ export type TaskRow = Omit<Task, 'content' | 'log'>;
 /**
  * The fields of a task the UI may edit, all optional. Only the keys present
  * are written, matching the notebook's own "an omitted field is left as-is"
- * contract. Status is folder-derived, so it moves through its own route.
+ * contract. `status` is folder-derived: the editor writes it through
+ * `useSetStatus`, not this shape's own PATCH, but it drafts alongside the
+ * rest so Save reads as one batch.
  */
 export interface TaskEdit {
   title?: string;
   content?: string;
+  status?: TaskStatus;
   branch?: string;
   command?: string;
   mode?: TaskMode;
