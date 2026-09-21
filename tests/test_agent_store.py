@@ -246,3 +246,29 @@ def test_milestones_survive_a_state_db_reopen(tmp_path) -> None:
     [row] = asyncio.run(scenario())
     assert row["name"] == "shipped"
     assert row["sub_total"] == 10
+
+
+def test_record_returns_the_row_it_wrote(tmp_path) -> None:
+    """The caller needs the delta it did not compute.
+
+    ``_snapshot`` is the one place the delta arithmetic lives. The server
+    appends a transcript bar saying what the stage cost, and reading the
+    ledger back to learn it would be a second read of a figure the write
+    already had in hand.
+    """
+
+    async def scenario(store) -> dict:
+        await store.record(milestone("a1", "planned", own=100, sub=10, cost=0.5))
+        return await store.record(milestone("a1", "green", own=350, sub=60, cost=2.0))
+
+    for store in both_backends(tmp_path):
+        assert spend(asyncio.run(scenario(store))) == {
+            "name": "green",
+            "recognised": True,
+            "own_total": 350,
+            "sub_total": 60,
+            "own_delta": 250,
+            "sub_delta": 50,
+            "cost_usd": 2.0,
+            "cost_delta": 1.5,
+        }
