@@ -157,15 +157,14 @@
 }
 /*
  * Quiet self-talk is prose, not a listing, so it takes none of the `pre` chrome
- * it replaces — no ground, no border, no box.
+ * it replaces — no ground, no border, no box. Low attention is the
+ * transcript's second prose rank, and machinery besides — see the Two Ranks
+ * of Prose Rule and the Register Is One Value Rule in DESIGN.md.
  */
 .quiet {
   margin: 0 0 var(--prose-gap);
-}
-/* Low attention creates the transcript's second prose rank. */
-.quiet {
   font-size: var(--text-ui);
-  color: var(--fg-muted);
+  color: var(--fg-recessed);
   line-height: 20px;
 
   --prose-gap: 20px;
@@ -175,6 +174,40 @@
 .quiet :is(h1, h2, h3, h4, h5, h6),
 .quiet strong {
   color: inherit;
+}
+/*
+ * The two-line clamp, by `max-height` rather than `-webkit-line-clamp`: a
+ * quiet block can carry headings, lists, fences and tables, and line-clamp
+ * cannot cross a block boundary — it would clamp the first block and leave
+ * the rest full height.
+ *
+ * The fade starts at 55%, above the cut, because a hard cut slices a glyph
+ * row whenever the block does not open with a plain paragraph, and a sliced
+ * row under a hard cut reads as a rendering bug rather than as clamped.
+ *
+ * No `aria-hidden` on the clipped overflow: the clamp is a visual economy,
+ * and the full text stays in the accessibility tree.
+ */
+.quietBody {
+  /* Falls back to `none` where nothing sets `--quiet-clamp`: a reading
+     surface, not only the transcript, must stay unclamped by default. A
+     default declared on `.quiet` itself would win over the transcript's
+     ancestor override, since a value set directly on an element always beats
+     one merely inherited — the fallback here is what lets `.transcript` reach
+     this property at all. */
+  max-height: var(--quiet-clamp, none);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, var(--fg) 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, var(--fg) 55%, transparent 100%);
+}
+.quietBody[data-expanded] {
+  max-height: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.quietMore {
+  margin-top: var(--prose-gap-tight);
+  font-size: var(--text-xs);
 }
 
 .markdown table {

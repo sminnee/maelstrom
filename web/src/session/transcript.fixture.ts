@@ -100,6 +100,36 @@ export const quietTranscript: TranscriptItem[] = [
   say('Free it — nothing is attached to alpha any more.', 31, 'user'),
 ];
 
+/** A quiet block short enough that the clamp offers no control. */
+export const quietShort: TranscriptItem[] = [
+  say('<user-attention low>\nOne short line of working detail.', 50),
+];
+
+/**
+ * A quiet block for each markdown element it might open with — the
+ * highest-risk case for the clamp: `max-height` cannot know where a block
+ * boundary falls, so a heading, a list, a fence or a table at the top can cut
+ * mid-row in a way a plain paragraph does not.
+ */
+export const quietBlockElements: TranscriptItem[] = [
+  say(
+    '<user-attention low>\n## A heading first\n\nThen prose long enough to run past the clamp and show whether the fade lands cleanly below a fixed 24px heading.',
+    60,
+  ),
+  say(
+    '<user-attention low>\n- First item in a list that opens the block\n- Second item\n- Third item, long enough to wrap onto a second line and test the clamp against list rhythm rather than paragraph rhythm',
+    61,
+  ),
+  say(
+    '<user-attention low>\n```ts\nfunction opensWithAFence() {\n  return "chrome alone is about one line";\n}\n```\n\nProse after the fence, to check the clamp still finds it.',
+    62,
+  ),
+  say(
+    '<user-attention low>\n| Token | Value |\n| --- | --- |\n| `--text-ui` | 13px |\n| `--fg-recessed` | tracks `--fg-faint` |\n\nProse after the table.',
+    63,
+  ),
+];
+
 /** Every markdown element the agent actually emits, at panel width. */
 export const markdownSample = `# A plan document
 

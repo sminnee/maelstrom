@@ -1,6 +1,13 @@
 import type { Story } from '@ladle/react';
 import { Markdown } from '../markdown/Markdown';
-import { quietTranscript, ledgerRun, markdownSample, mixedTranscript } from './transcript.fixture';
+import {
+  quietTranscript,
+  quietShort,
+  quietBlockElements,
+  ledgerRun,
+  markdownSample,
+  mixedTranscript,
+} from './transcript.fixture';
 import { Transcript } from './Transcript';
 
 export default { title: 'Session / Transcript' };
@@ -88,3 +95,53 @@ export const Prose: Story = () => (
     </div>
   </Panel>
 );
+
+/** A quiet block long enough to clamp: does the fade read as "there is more", or as a bug? */
+export const QuietClamped: Story = () => (
+  <Panel>
+    <Transcript items={quietTranscript} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * A quiet block opening with a heading, list, fence and table in turn — the
+ * highest-risk case, since a `max-height` clamp cannot know where a block
+ * boundary falls.
+ */
+export const QuietBlockElements: Story = () => (
+  <Panel>
+    <Transcript items={quietBlockElements} truncatedBefore={false} />
+  </Panel>
+);
+
+/** A one-line quiet block: the clamp must offer no control here. */
+export const QuietShort: Story = () => (
+  <Panel>
+    <Transcript items={quietShort} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * Quiet prose inside an open `skill` row, on `--bg-sunken`. Point a contrast
+ * tool at this one in the light scheme — `--fg-faint` on `--bg-sunken` is
+ * 4.15:1 there, under AA, which is why `.skill[open]` re-points
+ * `--fg-recessed` to `--fg-muted`.
+ */
+export const QuietOnSunken: Story = () => (
+  <Panel>
+    <Transcript
+      truncatedBefore={false}
+      items={[
+        {
+          id: 'skill-1',
+          ts: '',
+          type: 'skill',
+          skill: 'mael',
+          markdown:
+            '<user-attention low>\nQuiet prose inside a skill body, on the sunken ground the open row sets. Long enough to clamp and show the fade against that ground rather than the panel background.',
+        },
+      ]}
+    />
+  </Panel>
+);
+

@@ -62,6 +62,10 @@
   --fg-literal: var(--n7);
   --fg-muted: var(--n6);
   --fg-faint: var(--n5-text);
+  /* The tone working detail and closed machinery share. Tracks `--fg-faint`
+     where the ground allows it; a sunken surface re-points it, because
+     `--fg-faint` on `--bg-sunken` is 4.15:1 in light and misses AA. */
+  --fg-recessed: var(--fg-faint);
   /*
    * The fill of a dot or a bar reporting no state. It is not text, so it is not
    * bound by the contrast floor that tunes `--fg-faint` — keeping them apart
