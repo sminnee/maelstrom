@@ -26,7 +26,13 @@ from ..agent_model import (
     reply_for_approval,
     reply_for_denial,
 )
-from ..agent_store import AGENT_ENDED, AGENT_RUNNING, AgentStore, new_agent_record
+from ..agent_store import (
+    AGENT_ENDED,
+    AGENT_RUNNING,
+    AgentStore,
+    new_agent_record,
+    register_agent,
+)
 from ..agent_transport import AsyncDaemonClient, attach_command
 from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
 from ..util import now_iso
@@ -46,6 +52,12 @@ class DaemonRouter:
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
+    #: Per agent, the last row a daemon reported for it and which daemon did.
+    #: The harness is what an adopted record is written with. Kept only for
+    #: agents in the live set.
+    _last_seen: dict[str, tuple[str, dict[str, Any]]] = field(
+        default_factory=dict, init=False
+    )
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         command = str(payload.get("cmd", ""))
@@ -54,9 +66,18 @@ class DaemonRouter:
             claude = await self.claude.request(payload)
             codex = await self.codex.request(payload)
             live_rows: dict[str, dict[str, Any]] = {}
-            for row in [*claude.get("agents", []), *codex.get("agents", [])]:
-                if isinstance(row, dict) and row.get("id"):
-                    live_rows[str(row["id"])] = row
+            for reply, harness in ((claude, HARNESS_CLAUDE), (codex, HARNESS_CODEX)):
+                for row in reply.get("agents", []):
+                    if isinstance(row, dict) and row.get("id"):
+                        live_rows[str(row["id"])] = row
+                        self._last_seen[str(row["id"])] = (harness, row)
+            # A live top-level row the store does not know is an agent started
+            # outside the router — `mael add` and `mael agent start` both reach
+            # the socket directly. Adopt it rather than dropping it, or it is
+            # invisible to every reader of this `list`.
+            for agent_id, row in live_rows.items():
+                if not row.get("parent") and agent_id not in self._agents:
+                    await self._adopt(agent_id, row)
             rows: list[dict[str, Any]] = []
             lost: list[str] = []
             for agent_id, agent in self._agents.items():
@@ -109,6 +130,28 @@ class DaemonRouter:
             await self._end(str(payload.get("id", "")))
         return reply
 
+    async def _adopt(self, agent_id: str, row: dict[str, Any]) -> None:
+        """Write a record for a live agent that has none, and hold it live.
+
+        ``build_start_payload`` has callers that reach the daemon socket
+        directly — ``mael add`` and ``mael agent start`` — so an agent can be
+        live with nothing in the store. Adopting on read keeps every launch path
+        working without teaching each one about the state database.
+        """
+        last_seen = self._last_seen.get(agent_id)
+        harness = last_seen[0] if last_seen else HARNESS_CLAUDE
+        self._harnesses[agent_id] = harness
+        self._agents[agent_id] = await register_agent(
+            self.agents,
+            agent_id,
+            row,
+            # Unknown at adoption. `link_agent` resolves the task by session-id
+            # reverse-lookup, so nothing reads this yet.
+            task_id="",
+            harness=harness,
+            started_at=self.clock(),
+        )
+
     async def _end(self, agent_id: str) -> None:
         """Retire one agent's record, keeping the row.
 
@@ -116,6 +159,7 @@ class DaemonRouter:
         it. It drops out of the live set instead, so `list` stops reporting it.
         """
         self._harnesses.pop(agent_id, None)
+        self._last_seen.pop(agent_id, None)
         if agent := self._agents.pop(agent_id, None):
             await self.agents.save(
                 {**agent, "status": AGENT_ENDED, "ended_at": self.clock()}
