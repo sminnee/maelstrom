@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from .agent_store import SqliteAgentStore
+from .agent_store import SqliteAgentStore, SqliteMilestoneStore
 from .agent_transport import SocketAsyncDaemonClient, daemon_paths
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
@@ -114,6 +114,7 @@ def build_orchestrator(
         worktrees,
         daemon,
         desk=SqliteDeskStore(state_db),
+        milestones=SqliteMilestoneStore(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.
