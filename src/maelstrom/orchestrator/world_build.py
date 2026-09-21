@@ -204,10 +204,11 @@ def agent_entity(
 
 
 class RowTotals(TypedDict):
-    """The three numbers a host row reports about an agent's spend and size."""
+    """The numbers a host row reports about an agent's spend and size."""
 
     costUsd: float
     totalTokens: int
+    subagentTokens: int
     contextTokens: int
 
 
@@ -221,8 +222,15 @@ def row_totals(row: dict[str, Any]) -> RowTotals:
     return {
         "costUsd": float(row.get("cost") or 0),
         "totalTokens": _tokens(row.get("tokens")),
+        "subagentTokens": _subagent_tokens(row),
         "contextTokens": _tokens(row.get("context_tokens")),
     }
+
+
+def _subagent_tokens(row: dict[str, Any]) -> int:
+    """What ``row`` says its subagents consumed. 0 from a host that predates it."""
+    figure = row.get("subagent_tokens")
+    return _tokens(figure.get("total")) if isinstance(figure, dict) else 0
 
 
 def _pid(value: Any) -> int | None:

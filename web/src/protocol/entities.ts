@@ -140,10 +140,14 @@ export interface Agent {
    * cache each request, so this counts the same context again and again and
    * runs past any window. `contextTokens` is the figure for that.
    *
-   * `0` for a subagent, which has no session of its own — its size is counted
-   * in its parent's total.
+   * A subagent reports its own figure here, summed off its `assistant`
+   * events. It is not in its parent's: a subagent emits no `result`, so the
+   * parent's total covers the parent's own requests alone.
    */
   totalTokens: number;
+  /** What this agent's subagents consumed, summed. Disjoint from
+   * `totalTokens`, which is the agent's own; their sum is the tree's total. */
+  subagentTokens: number;
   /**
    * What the agent's prompt last held, off the newest `assistant` event: a
    * level, not a total, so it falls when the agent compacts. This is what a

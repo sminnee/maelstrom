@@ -155,6 +155,11 @@ class Agent(TypedDict):
     #: cache each request, so this counts the same context again and again and
     #: runs past any window. :attr:`contextTokens` is the figure for that.
     totalTokens: int
+    #: What this agent's subagents have consumed, summed. Disjoint from
+    #: :attr:`totalTokens`, which is the agent's own; their sum is the tree's.
+    #: Carried here rather than summed from the subagent entities, because an
+    #: evicted subagent leaves the host's ``list`` and its tokens were spent.
+    subagentTokens: int
     #: What the agent's prompt last held, off the newest ``assistant`` event: a
     #: level, not a total, so it falls when the agent compacts. This is what a
     #: reader deciding whether to compact wants.

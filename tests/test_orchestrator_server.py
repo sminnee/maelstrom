@@ -354,6 +354,7 @@ def test_the_started_row_carries_every_key_the_real_builder_does():
     assert real - started == {
         "last_message_at",
         "tokens",
+        "subagent_tokens",
         "context_tokens",
         "pid",
     }
