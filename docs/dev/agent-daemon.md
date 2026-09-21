@@ -42,7 +42,7 @@ Seven flags matter, and two of them are easy to miss:
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
-| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`. Omitted when the file is missing. |
+| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`, `<milestone>`. Omitted when the file is missing. |
 
 The markers are taught on the launch rather than in a general skill because only a driven agent
 has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to

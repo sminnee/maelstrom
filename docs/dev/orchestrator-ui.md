@@ -213,6 +213,16 @@ ended a turn. The block is still dated from the last message, never the note, be
 drives the silent-agent colouring and silence means the agent said nothing. An agent that noted
 once would otherwise look alive for ever.
 
+Under the status band the card shows the stage the agent last reached, its cost, and how long ago
+it closed. The latest stage only, and nothing when the agent has reached none. See `web/DESIGN.md`,
+"Node Card".
+
+The band reads `GET /api/agents/{id}/milestones`, not the transcript's bars. A restarted server
+keeps the ledger and drops the transcript, and the host's window rolls the older bars away in a
+long run, so the card would go quiet on exactly the agents that have been running longest. A bar
+arriving on the transcript is still the live signal: nothing about the ledger moves the world, so
+no change notice fires, and the count of bars is what refetches the route.
+
 The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
 card. That control is disabled while the agent runs, because a live agent is drawn whatever the
 desk says; a remove that arrives anyway is accepted and takes effect once the agent stops. A task
@@ -320,6 +330,10 @@ The transcript draws a full-width rule at the boundary, naming the fall: `compac
 ctx`. The tool row deliberately carries no rule, because a run of them read as ruled paper. That
 holds where a rule falls on every call. A compact happens a handful of times in a session, and a
 boundary is the one thing a rule is for.
+
+A milestone takes the same rule, in `--ok`: `green · 95k · $2.10`. The figures are the stage's
+own delta, and a name the flow does not declare keeps the compact register and gains `(?)`. See
+`web/DESIGN.md`, "Milestone bar".
 
 Two turns the harness injects follow that rule. The summary it writes to carry the conversation on
 folds under "carried over", the way a loaded skill body does: it runs to thousands of characters,
