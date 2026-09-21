@@ -97,6 +97,26 @@ describe('Transcript', () => {
     expect(cards[1]).toHaveAttribute('data-register', 'prose');
   });
 
+  it('draws no visible role label, agent or you, on any message', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          said('m1', '', { role: 'user', markdown: 'Free it.' }),
+          said('m2', '', { markdown: 'Done.' }),
+        ]}
+      />,
+    );
+    // The deleted label rendered these exact lowercase strings as their own
+    // visible text node; the uppercase look came from CSS alone, which
+    // `textContent` never sees, so the check must match the removed markup,
+    // not its paint. `ignore: '.srOnly'` excludes the user turn's intended,
+    // screen-reader-only "you" — that one is meant to survive.
+    for (const word of ['you', 'agent']) {
+      expect(screen.queryByText(word, { exact: true, ignore: '.srOnly' })).toBeNull();
+    }
+  });
+
   it('ends a turn with how it went and how long, and leaves the money to the header', () => {
     // `costUsd` on a turn is the session's total, not the turn's. The header
     // says it once; see `docs/dev/orchestrator-ui.md`.
