@@ -19,6 +19,9 @@ export const keys = {
     list: () => ['agents', 'list'] as const,
     detail: (id: string) => ['agents', 'detail', id] as const,
   },
+  /** The ledger, not the world: no change notice names it, so only a `reset`
+   *  and the card's own signal refresh it. */
+  milestones: (agentId: string) => ['milestones', agentId] as const,
   /** Read straight from Linear, so keyed per project rather than off the world. */
   linear: {
     issues: (project: string) => ['linear', 'issues', project] as const,

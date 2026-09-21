@@ -5134,3 +5134,51 @@ def test_an_unrecognised_milestone_name_draws_a_bar_that_says_so(harness):
     [item] = run(scenario())
     assert item["name"] == "deployed"
     assert item["recognised"] is False
+
+
+def test_the_milestones_route_serves_the_agents_stages(harness):
+    """The card must still report once the transcript window has rolled.
+
+    The route reads the ledger through ``build_cost_report``, the same pure
+    function ``mael agent cost`` prints, so the two readers cannot disagree.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="1.2500", tokens=40_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.25))
+                await recorded(harness, 1)
+                return await api.get_json("/api/agents/ag1/milestones")
+
+    body = run(scenario())
+    [stage] = body["stages"]
+    assert stage["name"] == "green"
+    assert stage["delta_tokens"] == 40_000
+    assert stage["cost_delta"] == 1.25
+
+
+def test_the_milestones_route_serves_an_empty_ledger_as_no_stages(harness):
+    """Most agents reach no stage. The card draws nothing, so the route must
+    say "none" rather than 404: an absent ledger is not an unknown agent.
+
+    An id the world does not know reads the same way, because the route asks
+    the ledger rather than the world. The fake server matches it.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                return (
+                    await api.get_json("/api/agents/ag1/milestones"),
+                    await api.get_json("/api/agents/nobody/milestones"),
+                )
+
+    known, unknown = run(scenario())
+    assert known["stages"] == []
+    assert unknown["stages"] == []
+    assert unknown["agent_id"] == "nobody"
