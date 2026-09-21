@@ -5,8 +5,10 @@ import userEvent from '@testing-library/user-event';
 import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { FakeServer } from './test/fakeServer';
+import type { TranscriptItem } from './protocol/transcript';
 import { askQuestion, chipCount, expanded, nodeState } from './test/appHelpers';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
+import { T } from './test/seedWorld';
 
 describe('the expanded node', () => {
   it('clicking a node expands it in place with its state in words; a second click or Esc collapses it', async () => {
@@ -492,6 +494,103 @@ describe('drift between the task file and the agent', () => {
         (r) => r.method === 'POST' && r.path.includes('MAEL-40.1') && r.path.endsWith('/status'),
       );
       expect(posted?.body).toEqual({ status: 'done' });
+    });
+  });
+
+  describe('the milestone band', () => {
+    it('says the stage last reached, what it cost and how long ago', async () => {
+      // The latest only, not a six-stage rail: the card is already carrying
+      // the brief and the decision. The figures are the stage's own delta.
+      const { server } = await renderApp();
+      // The seed's stamps are relative to a fixed past date, so the age would
+      // drift with the wall clock. Date this one from now, as `spokeAt` does.
+      const closedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+      server.world.milestones.c3e8f1b5!.at(-1)!.at = closedAt;
+      clickNode('MAEL-40.1');
+      const band = await within(expanded()).findByTestId('milestone-band');
+      expect(band).toHaveTextContent('built · 19k · $0.24 · 6m ago');
+      expect(band.querySelector('time')).toHaveAttribute('datetime', closedAt);
+    });
+
+    it('follows a stage the agent reaches while the card is open', async () => {
+      // The ledger is the source of record, but nothing about it moves the
+      // world, so no change notice fires. The bar arriving on the transcript
+      // is the signal that there is a newer stage to read.
+      const { server } = await renderApp();
+      clickNode('MAEL-40.1');
+      expect(await within(expanded()).findByTestId('milestone-band')).toHaveTextContent('built');
+
+      act(() => {
+        server.world.milestones.c3e8f1b5!.push({
+          name: 'green',
+          at: T(0),
+          recognised: true,
+          total_tokens: 48_000,
+          delta_tokens: 16_100,
+          own_delta: 16_100,
+          subagent_delta: 0,
+          cost_delta: 0.19,
+        });
+        server.append('c3e8f1b5' as Agent['id'], {
+          id: 'item-green' as TranscriptItem['id'],
+          ts: T(0),
+          type: 'milestone',
+          name: 'green',
+          recognised: true,
+          deltaTokens: 16_100,
+          costDelta: 0.19,
+        });
+      });
+
+      await waitFor(() =>
+        expect(within(expanded()).getByTestId('milestone-band')).toHaveTextContent('green'),
+      );
+    });
+
+    it('says only the stage and its age when the stage spent nothing', async () => {
+      // A stage reached twice deltas to zero, which is a real ledger state.
+      const { server } = await renderApp();
+      server.world.milestones.c3e8f1b5!.push({
+        name: 'built',
+        at: new Date(Date.now() - 3 * 60_000).toISOString(),
+        recognised: true,
+        total_tokens: 31_900,
+        delta_tokens: 0,
+        own_delta: 0,
+        subagent_delta: 0,
+        cost_delta: 0,
+      });
+      clickNode('MAEL-40.1');
+      const band = await within(expanded()).findByTestId('milestone-band');
+      expect(band).toHaveTextContent('built · 3m ago');
+    });
+
+    it('flags a stage name the flow does not declare', async () => {
+      // The card shows the latest stage only, so a typo on the last marker
+      // would otherwise hide the real progress behind a fiction.
+      const { server } = await renderApp();
+      server.world.milestones.c3e8f1b5!.push({
+        name: 'deploed',
+        at: T(2),
+        recognised: false,
+        total_tokens: 40_000,
+        delta_tokens: 8_100,
+        own_delta: 8_100,
+        subagent_delta: 0,
+        cost_delta: 0.09,
+      });
+      clickNode('MAEL-40.1');
+      const band = await within(expanded()).findByTestId('milestone-band');
+      expect(band).toHaveTextContent('deploed (?)');
+      expect(band).toHaveAttribute('data-recognised', 'false');
+    });
+
+    it('draws nothing at all for an agent that has reached no stage', async () => {
+      // Most agents have none, and an empty band would cost every card a row.
+      await renderApp();
+      clickNode('NORT-7');
+      await waitFor(() => expect(within(expanded()).getByTestId('node-meta')).toBeInTheDocument());
+      expect(within(expanded()).queryByTestId('milestone-band')).toBeNull();
     });
   });
 });

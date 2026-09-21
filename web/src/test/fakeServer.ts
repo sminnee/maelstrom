@@ -1,3 +1,4 @@
+import type { AgentCost, Stage } from '../api/milestones';
 import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
@@ -43,11 +44,18 @@ export interface FakeWorld {
    * the fake keeps them here so a test can say what the picker offers.
    */
   linearIssues: Record<string, { id: string; title: string; status: string }[]>;
+  /**
+   * Each agent's milestone ledger. Beside `linearIssues` and for the same
+   * reason: the real server keeps these in its own table rather than in the
+   * world it polls, and the route reads them from there.
+   */
+  milestones: Record<AgentId, Stage[]>;
 }
 
 export function emptyFakeWorld(): FakeWorld {
   return {
     linearIssues: {},
+    milestones: {},
     projects: {},
     worktrees: {},
     tasks: {},
@@ -356,6 +364,26 @@ function omit<T extends object>(value: T, ...names: (keyof T)[]): Partial<T> {
   return copy;
 }
 
+/**
+ * The report the milestones route serves, built from a ledger.
+ *
+ * `total_tokens` is the last stage's, as `agent_cost._agent_cost` takes it.
+ * The own/subagent split and the dollar figure come from the ledger row's
+ * cumulative fields, which `Stage` does not carry, so they stand at 0: the
+ * card reads neither. Widen this before asserting on them.
+ */
+function agentCost(agentId: string, stages: Stage[]): AgentCost {
+  return {
+    agent_id: agentId,
+    own_tokens: 0,
+    subagent_tokens: 0,
+    total_tokens: stages.at(-1)?.total_tokens ?? 0,
+    cost_usd: 0,
+    cost_is_parent_only: true,
+    stages,
+  };
+}
+
 // -- reads --
 
 function read(path: string, server: FakeServer): Reply {
@@ -390,6 +418,13 @@ function read(path: string, server: FakeServer): Reply {
     if (!world.agents[agentId]) return notFound(`agent ${agentId}`);
     const transcript = transcripts[agentId] ?? { items: [], truncatedBefore: false };
     return ok({ agentId, items: transcript.items, truncatedBefore: transcript.truncatedBefore });
+  }
+  m = pathname.match(/^\/api\/agents\/([^/]+)\/milestones$/);
+  if (m) {
+    // No unknown-agent guard, matching the route: an empty ledger is not an
+    // unknown agent, so any id gets the report with no stages.
+    const agentId = m[1]!;
+    return ok(agentCost(agentId, world.milestones[agentId] ?? []));
   }
   m = pathname.match(/^\/api\/agents\/([^/]+)$/);
   if (m) {
