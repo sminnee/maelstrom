@@ -26,6 +26,7 @@ from ..agent_model import (
 from ..attachments import markdown_ref
 from ..task import parse_draft
 from .document_tags import (
+    MILESTONES,
     DocumentTag,
     ImageTag,
     read_tags,
@@ -133,9 +134,26 @@ class NormaliseContext:
 
 
 @dataclass(frozen=True)
+class Milestone:
+    """A stage of the work the agent says it has reached.
+
+    ``recognised`` is whether the name is one of :data:`MILESTONES`.
+    """
+
+    agent_id: str
+    name: str
+    at: str
+    recognised: bool
+
+
+@dataclass(frozen=True)
 class Normalised:
     events: list[ServerEvent]
     ctx: NormaliseContext
+    #: The milestone the event carried, if any. Not a :class:`ServerEvent`:
+    #: it changes no world entity, and the ledger it writes is the server's
+    #: own table. The caller writes it; this module stays a pure function.
+    milestone: "Milestone | None" = None
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -443,6 +461,15 @@ def normalise_stream_event(
                             "lastNoteAt": out.event_ts or out.now,
                         }
                     )
+                # A milestone marks a stage rather than moving the world, so
+                # it leaves the agent alone and rides out on `Normalised`.
+                if tagged and tagged.milestone:
+                    out.milestone = Milestone(
+                        agent_id=out.ctx.agent_id,
+                        name=tagged.milestone,
+                        at=out.event_ts or out.now,
+                        recognised=tagged.milestone in MILESTONES,
+                    )
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -603,6 +630,8 @@ class _Emitter:
         # Entities this batch created, so a later step in the batch can update them.
         self.local_attention: dict[str, Attention] = {}
         self.local_documents: dict[str, Document] = {}
+        #: The stage the agent marked, if it marked one. Last wins, as a note does.
+        self.milestone: Milestone | None = None
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -963,7 +992,7 @@ class _Emitter:
             self.events.append(
                 {"type": "upsert", "kind": "agent", "entity": self.agent_entity}
             )
-        return Normalised(self.events, self.ctx)
+        return Normalised(self.events, self.ctx, self.milestone)
 
 
 #: The line the harness opens an injected skill body with: the prefix, an

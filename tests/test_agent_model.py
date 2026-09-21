@@ -651,6 +651,33 @@ def test_both_note_patterns_are_still_in_step():
     assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags
 
 
+def test_both_milestone_patterns_are_still_in_step():
+    """The daemon strips the marker too, so it never stands as the last message."""
+    assert agent_model._MILESTONE_TAG.pattern == document_tags._MILESTONE_TAG.pattern
+    assert agent_model._MILESTONE_TAG.flags == document_tags._MILESTONE_TAG.flags
+
+
+def test_a_milestone_is_cut_from_what_the_agent_last_said():
+    """Otherwise raw tag syntax shows in `mael agent list`."""
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "Gates pass.\n\n<milestone>green</milestone>",
+    )
+    assert state.last_message == "Gates pass."
+
+
+def test_a_message_that_is_only_a_milestone_says_nothing():
+    """The cut empties the message, as a note-only message already does.
+
+    The marker never survives as raw syntax, which is the point of the cut.
+    Whether an empty message should leave the standing one alone is a question
+    about ``<note>`` too, and this branch does not answer it.
+    """
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "Working on it.")
+    state = _say(state, "<milestone>built</milestone>")
+    assert state.last_message == ""
+
+
 def test_a_note_replaces_the_one_before_it():
     state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "<note>Reading</note>")
     state = _say(state, "<note>Fixing</note>")

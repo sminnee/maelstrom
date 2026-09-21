@@ -753,6 +753,24 @@ _ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
 #: readers cut the tag, and the daemon does not depend on the orchestrator to do
 #: it. ``test_both_readers_agree_on_the_note_tag`` keeps the two in step.
 _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
+#: Which stage of the work the agent has reached. The daemon does not record a
+#: milestone — the orchestrator owns the ledger — but it cuts the tag, or the
+#: raw syntax would stand as the agent's last message in ``mael agent list``.
+#: ``document_tags`` holds its own copy, as for the note above.
+_MILESTONE_TAG = re.compile(
+    rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
+)
+
+
+def cut_milestone(text: str) -> str:
+    """``text`` with its milestone tags cut.
+
+    A marker is not speech. The daemon reads nothing from it, so only the cut
+    matters here.
+    """
+    if not _MILESTONE_TAG.search(text):
+        return text
+    return re.sub(r"\n{3,}", "\n\n", _MILESTONE_TAG.sub("", text)).strip()
 
 
 def read_note(text: str) -> tuple[str, str]:
@@ -870,7 +888,7 @@ def _with_last_message(
     said = _said(event, now)
     if said is None:
         return state
-    text, note = read_note(said[0])
+    text, note = read_note(cut_milestone(said[0]))
     if not note:
         return replace(
             state, last_message=text[:MESSAGE_CHARS], last_message_at=said[1]

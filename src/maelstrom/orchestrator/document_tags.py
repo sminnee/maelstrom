@@ -21,6 +21,11 @@ document::
 
     <note>Rebasing onto main, then re-running the failing port test</note>
 
+A fifth marks a stage of the work as reached, so a reader can say where the
+token spend went::
+
+    <milestone>green</milestone>
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -55,6 +60,16 @@ _IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
 #: the same tag without depending on the orchestrator. The two are kept in step
 #: by ``test_both_readers_agree_on_the_note_tag``.
 _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
+#: Which stage of the work the agent has just reached. No attributes are read;
+#: the body is the name.
+_MILESTONE_TAG = re.compile(
+    rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
+)
+
+#: The stages the task-completion flow passes through, in order. A name outside
+#: this set is recorded as written and flagged, so a typo is visible rather than
+#: silently costing a snapshot.
+MILESTONES = ("planned", "built", "green", "reviewed", "presented", "shipped")
 
 
 @dataclass(frozen=True)
@@ -98,12 +113,14 @@ class TaggedMessage:
 
     ``note`` is what the agent said it is doing, and is empty when the message
     carried none. A note replaces rather than accumulates, so this is the
-    latest one the message held.
+    latest one the message held. ``milestone`` follows the same rule, and names
+    the stage of the work the agent has just reached.
     """
 
     text: str
     tags: tuple[DocumentTag, ...]
     note: str = ""
+    milestone: str = ""
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -171,6 +188,16 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         note = match.group(2)
         spans.append(match.span())
 
+    milestone = ""
+    for match in _MILESTONE_TAG.finditer(text):
+        # A `<milestone>` inside a `<doc-content>` body is that body's text.
+        if any(start <= match.start() < end for start, end in spans):
+            continue
+        # The last one wins, as a note's does: a message that crosses two
+        # stages has reached the later one.
+        milestone = match.group(2).strip()
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a `<doc-content>` body is that body's text.
@@ -192,6 +219,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         text=_rewritten(text, spans, replacements),
         tags=tuple(tag for _, tag in tags),
         note=note,
+        milestone=milestone,
     )
 
 

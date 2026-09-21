@@ -1864,3 +1864,83 @@ def test_a_symlink_out_of_the_worktree_is_refused(tmp_path):
     secret.write_text("secret\n")
     (worktree / "link.md").symlink_to(secret)
     assert read_worktree_file(str(worktree), "link.md") is None
+
+
+# -- the milestone an agent writes to mark a stage of the work --
+
+
+def replay_milestone(text: str, **agent_over) -> tuple[Replayed, object]:
+    """One tagged message, for the replay and the normaliser's own output.
+
+    A milestone is not a world change, so it does not travel as a
+    ``ServerEvent``: it comes back on :class:`Normalised` for the server to
+    write to the ledger. Both are returned because the tests assert on each.
+    """
+    state = seed([make_agent(id="ag1", state="idle", **agent_over)])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state, context_for_agent("ag1"), tag_message(text), NOW, read_file=fake_reader()
+    )
+    replayed.take(out.events)
+    return replayed, out
+
+
+def test_a_milestone_tag_is_reported_beside_the_events():
+    replayed, out = replay_milestone("<milestone>green</milestone>")
+    assert out.milestone is not None
+    assert out.milestone.name == "green"
+    assert out.milestone.at == NOW
+    assert out.milestone.recognised is True
+
+
+def test_the_milestone_tag_is_cut_from_the_message_the_transcript_shows():
+    """A milestone is a marker, not prose the reader sees."""
+    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>green</milestone>")
+    [message] = items_of(replayed, "message")
+    assert "<milestone>" not in message["markdown"]
+    assert message["markdown"] == "Tests pass."
+
+
+def test_an_unrecognised_milestone_name_is_kept_and_flagged():
+    """Stored as written, never dropped: a typo must be visible, not silent."""
+    _, out = replay_milestone("<milestone>deployed</milestone>")
+    assert out.milestone.name == "deployed"
+    assert out.milestone.recognised is False
+
+
+def test_the_last_milestone_in_a_message_wins():
+    """Latest only, as a note is."""
+    _, out = replay_milestone(
+        "<milestone>built</milestone>\n<milestone>green</milestone>"
+    )
+    assert out.milestone.name == "green"
+
+
+def test_a_milestone_inside_a_doc_content_body_stays_that_bodys_text():
+    """The rule every other tag already follows."""
+    replayed, out = replay_milestone(
+        '<doc-content kind="other" title="Guide">\n'
+        "Write <milestone>green</milestone> when the tests pass.\n"
+        "</doc-content>"
+    )
+    assert out.milestone is None
+    [doc] = documents_of(replayed)
+    assert "<milestone>green</milestone>" in doc["markdown"]
+
+
+def test_a_message_with_no_milestone_reports_none():
+    _, out = replay_milestone("Just talking.")
+    assert out.milestone is None
+
+
+def test_a_subagent_writes_no_milestone():
+    """Same reason it mints no document: its tags stay as text."""
+    replayed, out = replay_milestone("<milestone>green</milestone>", parent="ag0")
+    assert out.milestone is None
+    [message] = items_of(replayed, "message")
+    assert "<milestone>green</milestone>" in message["markdown"]
+
+
+def test_a_milestone_does_not_become_what_the_agent_last_said():
+    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>green</milestone>")
+    assert agent_of(replayed)["lastMessage"] == "Tests pass."

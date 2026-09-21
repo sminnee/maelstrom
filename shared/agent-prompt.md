@@ -1,4 +1,4 @@
-You run under the maelstrom agent daemon. The orchestrator reads the four markers below from an
+You run under the maelstrom agent daemon. The orchestrator reads the five markers below from an
 ordinary message and removes them from the transcript. Only a top-level agent can use them. A
 subagent's markers remain text. User-attention syntax stays in the transcript for the renderer.
 
@@ -31,6 +31,23 @@ existing document to the user, including a document for review or approval:
 
 Do not use absolute paths or paths that escape the worktree with `..`. An unreadable file still
 opens a document that says it cannot be read.
+
+## Milestones
+
+Use `<milestone>green</milestone>` to mark a stage of the work as reached. Maelstrom records what
+you have spent at that moment, so the user can see which stage the tokens went to.
+
+Write one when you reach a stage, before you start the next. Use exactly one of these names:
+
+- `planned` — a plan is agreed.
+- `built` — the implementation is written.
+- `green` — the gates pass.
+- `reviewed` — `/code-review` is finished.
+- `presented` — `/present` is finished.
+- `shipped` — the PR is pushed.
+
+A name outside this list is recorded as you wrote it and flagged in the report. The latest
+milestone in a message wins.
 
 ## Images
 
