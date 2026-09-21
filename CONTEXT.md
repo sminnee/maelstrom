@@ -711,11 +711,12 @@ canvas.
 _Avoid_: Table view, index
 
 **Task editor**:
-The form that edits one task's fields: title, content and branch, with the planning level shown
-above Advanced, and command, mode, priority, model and follows folded away there. It opens from
-the task list or a task's node on the desk, and writes through `task.update`. A status moves
-through the status picker instead, because status is folder-derived. New work composes the same
-field components, so both surfaces read and order fields the same way.
+The form that edits one task's fields: title, status, content and branch, with the planning level
+shown above Advanced, and command, mode, base, priority, model and follows folded away there. It
+opens from the task list or a task's node on the desk, and writes through `task.update`, except
+status, which writes through its own route since it is folder-derived. New work composes the same
+field components, so both surfaces read and order fields the same way — except status, which new
+work has no control for.
 _Avoid_: Task modal, edit form, task detail
 
 **Planning level**:

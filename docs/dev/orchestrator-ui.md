@@ -168,14 +168,19 @@ The task list also writes. A row's status is a button until it is clicked, then 
 of the six statuses. The expanded card carries the same control, at the right end of its state
 strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
 which says why the select is native. Choosing a status posts the new one, and a refusal shows
-beside the control. A click anywhere on a row opens the task editor, which holds title, content
-and branch, with command, mode, priority and model under a folded "Advanced". The title cell
-carries a real button, because a table row reaches no keyboard. The dialog opens read-only with
-Edit, Delete and Close; Edit unlocks the fields and restores Cancel and Save. A read-only dialog
-has nothing unsaved, so it always closes at once. Delete asks first, from the dialog and from the
-row alike. Save patches the changed fields only. The editor renders from
-`AppShell`, above both views, and its open task lives in the store, so the canvas can open the
-same editor later.
+beside the control. A click anywhere on a row opens the task editor, which holds title, status,
+content and branch, with command, mode, base, priority and model under a folded "Advanced". The
+title cell carries a real button, because a table row reaches no keyboard. The dialog opens
+read-only with Edit, Delete and Close; Edit unlocks the fields and restores Cancel and Save. Every
+read-only or disabled field draws with a transparent background and a fainter border, the one
+global rule in `base.css` rather than a per-field affordance. A read-only dialog has nothing
+unsaved, so it always closes at once. Delete asks first, from the dialog and from the row alike.
+Save patches the changed fields, and a changed status goes out through the same route the list's
+own picker uses rather than the batched PATCH, since status is folder-derived. The header also
+carries Prev/Next, which step to the adjacent task in the list's own filtered, sorted order,
+disabled at either end. Both go through the same unsaved-changes guard as the ×, Escape and the
+backdrop. The editor renders from `AppShell`, above both views, and its open task lives in the
+store, so the canvas can open the same editor later.
 
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
