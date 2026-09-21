@@ -3,6 +3,8 @@
 import asyncio
 from dataclasses import dataclass, field
 
+from maelstrom.agent_cost import build_cost_report
+from maelstrom.agent_store import InMemoryMilestoneStore
 from maelstrom.orchestrator.daemon_bridge import DaemonRouter, ScriptedAsyncDaemonClient
 
 #: A pinned clock, so a record's start and end are assertable.
@@ -414,3 +416,42 @@ def test_a_live_agent_is_not_ended_by_a_list() -> None:
         return agents.rows
 
     assert asyncio.run(scenario())["ag1"]["status"] == "running"
+
+
+def test_a_stopped_agents_spend_is_still_on_file() -> None:
+    """The branch's headline claim, end to end.
+
+    Started, recorded against, stopped — and the ledger still answers. The
+    router and the report are otherwise tested apart, each holding one half of
+    this.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(next_start_id="a1")
+        agents = Agents()
+        milestones = InMemoryMilestoneStore()
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        await router.request(
+            {"cmd": "start", "cwd": "/worktree", "model": "claude:opus"}
+        )
+        await milestones.record(
+            {
+                "agent_id": "a1",
+                "name": "shipped",
+                "at": STAMP,
+                "recognised": True,
+                "own_tokens": 40_000,
+                "subagent_tokens": 12_000,
+                "cost_usd": 1.5,
+            }
+        )
+        await router.request({"cmd": "stop", "id": "a1"})
+        return agents.rows["a1"], build_cost_report(await milestones.list("a1"))
+
+    record, [report] = asyncio.run(scenario())
+
+    assert record["status"] == "ended"
+    assert report["total_tokens"] == 52_000
+    assert [stage["name"] for stage in report["stages"]] == ["shipped"]

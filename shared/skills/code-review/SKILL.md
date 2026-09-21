@@ -14,7 +14,7 @@ Review the whole branch as a working tree, split by concern. Judge against the s
 5. Merge the reports by concern under `Summary`, then each concern's `Design decisions` and `Findings`. Write the summary; retain findings. Deduplicate across concerns, keeping the prose version for general duplicates and the code version for documentation coverage. List clean concerns rather than empty sections.
 6. Triage the merged report before editing. Apply correct, in-scope findings as plain edits to the working tree. Discard invalid findings with a reason. Collect scope changes, potential refactors, and prose cuts in untouched files for one user decision after in-scope fixes. `.drafts/pr.md` already exists — the build wrote it. Append deferred scope work under `## Raised by review, not actioned`, and leave the build's own sections intact; never silently drop it.
 7. Commit any fixes you applied as `fixup!` commits on the squashed commit, or as one `wip: review fixes` commit. Skip this when no finding was applied: the branch is already committed from step 2, so there is nothing at risk. `/present` re-cuts these away.
-8. Ask the user once about collected scope work. Report applied fixes, discards, deferrals, and the history ref.
+8. Ask the user once about collected scope work. Report applied fixes, discards, deferrals, and the history ref. Write `<milestone>reviewed</milestone>`.
 
 `/present` runs next and partitions the reviewed tree into story commits.
 

@@ -22,11 +22,12 @@ from maelstrom.agent_model import (
 )
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_stop import stop_agents_in_worktree
-from maelstrom.agent_store import SqliteAgentStore
+from maelstrom.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from maelstrom.agent_transport import (
     RecordingDaemonClient,
     SocketAsyncDaemonClient,
 )
+from maelstrom.orchestrator.document_tags import MILESTONES
 from maelstrom.state_db.migrate import open_state_db
 
 
@@ -1194,3 +1195,106 @@ class TestTailRaw:
         backlog = [{"type": "result", "subtype": "success"}]
         result = self.run_tail(monkeypatch, ["tail", "a1"], backlog)
         assert result.output.strip() == "— turn complete (success)"
+
+
+# --- mael agent cost ---------------------------------------------------------
+
+
+def seed_ledger(tmp_path, *snapshots: dict) -> None:
+    """Write ``snapshots`` to the ledger the ``cost`` command reads."""
+    db = open_state_db(tmp_path / "state.db")
+    try:
+        store = SqliteMilestoneStore(db)
+        for snapshot in snapshots:
+            asyncio.run(store.record(snapshot))
+    finally:
+        db.close()
+
+
+def snapshot(name: str, own: int, sub: int, cost: float, agent_id: str = "a1") -> dict:
+    """One milestone, as the server writes it."""
+    return {
+        "agent_id": agent_id,
+        "name": name,
+        "at": "2026-09-21T10:00:00Z",
+        "recognised": name in MILESTONES,
+        "own_tokens": own,
+        "subagent_tokens": sub,
+        "cost_usd": cost,
+    }
+
+
+def test_cost_reports_each_stage_and_names_the_dollars_parent_only(
+    tmp_path, monkeypatch
+):
+    """The whole point: which stage was expensive, and what the $ covers."""
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+    seed_ledger(
+        tmp_path,
+        snapshot("planned", 10_000, 0, 0.5),
+        snapshot("green", 75_000, 30_000, 2.6),
+    )
+
+    result = CliRunner().invoke(agent_cli.agent, ["cost"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert "105,000 tokens (75,000 own + 30,000 subagent)" in lines[0]
+    # Named every time the figure is printed: it is not the tree's.
+    assert "own requests only" in lines[0]
+    assert lines[1].split() == agent_cli.COST_COLUMNS
+    # Each stage's own spend, beside the total by then.
+    assert [line.split()[0] for line in lines[3:5]] == ["planned", "green"]
+    assert lines[3].split()[1:] == ["10,000", "10,000", "0", "10,000", "0.5000"]
+    assert lines[4].split()[1:] == ["95,000", "65,000", "30,000", "105,000", "2.1000"]
+
+
+def test_cost_makes_no_daemon_call(tmp_path, monkeypatch):
+    """It reads the ledger, which is what lets a stopped agent still report."""
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+    seed_ledger(tmp_path, snapshot("shipped", 40_000, 0, 1.0))
+
+    result, client = run_cli(["cost", "a1"])
+
+    assert result.exit_code == 0, result.output
+    assert client.calls == []
+    assert "40,000 tokens" in result.output
+
+
+def test_cost_flags_a_stage_name_the_flow_does_not_declare(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+    seed_ledger(tmp_path, snapshot("deployed", 5_000, 0, 0.1))
+
+    result = CliRunner().invoke(agent_cli.agent, ["cost"])
+
+    assert result.exit_code == 0, result.output
+    assert "deployed (?)" in result.output
+
+
+def test_cost_says_so_when_nothing_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+
+    result = CliRunner().invoke(agent_cli.agent, ["cost"])
+
+    assert result.exit_code == 0, result.output
+    assert "No milestones recorded." in result.output
+
+
+def test_cost_json_carries_the_stage_deltas(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+    seed_ledger(
+        tmp_path,
+        snapshot("planned", 10_000, 0, 0.5),
+        snapshot("green", 75_000, 30_000, 2.6),
+    )
+
+    result = CliRunner().invoke(agent_cli.agent, ["cost", "--json"])
+
+    [agent] = json.loads(result.output)
+    assert agent["total_tokens"] == 105_000
+    assert [s["name"] for s in agent["stages"]] == ["planned", "green"]

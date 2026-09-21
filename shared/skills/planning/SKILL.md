@@ -15,6 +15,8 @@ Use one file per future task. Put its execution plan in `## Content`; keep recip
 
 Edit drafts with the user. Planning changes drafts only; execute sessions own source changes.
 
+Write `<milestone>planned</milestone>` when the user approves the chain.
+
 `promote` deletes a draft and echoes its id; wire later drafts from that id. Drafts have no follow flags because identities do not exist until promotion.
 
 On chat approval, promote in dependency order. Capture each returned id:

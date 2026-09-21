@@ -108,6 +108,24 @@ restart rebuilds `AgentState` and the total starts again at 0, where `total_cost
 from the host's own report on the next `result`. An attach does not double it: the backlog it
 replays is already in the row the total was seeded from, so only a live turn adds.
 
+A subagent's tokens are in neither of those figures. **A subagent emits no `result`**, so the
+parent's `usage` covers the parent's own requests and nothing else. The subagent's spend is only
+in its own `assistant` events, where `parent_tool_use_id` is set, and
+`agent_model._count_subagent_usage` sums it there.
+
+That sum is **deduplicated by `message.id`, last reading wins**. One request produces two
+`assistant` events when its answer holds both a text block and a `tool_use` block, and both carry
+the whole `usage`. Adding each event would count nearly every request twice. Across ids the sum is
+right, because each id is one request — unlike a parent's `assistant` events, which re-read one
+growing prompt and are a level rather than a total. Last-wins rather than first-wins because a
+partial block reports a low `output_tokens` and the final block for that id carries the real count.
+
+The running total lives on `AgentState.subagent_tokens`, on the parent, not on the subagents:
+`SUBAGENT_LIMIT` evicts a subagent and the tokens it spent were still spent. The parent's own
+total and this one are disjoint, so their sum is the tree's. There is no price table, so a
+subagent's spend is reported in tokens and never in dollars — `cost` on any row is the host's
+figure, which is parent-only.
+
 The orchestrator re-reads all three numbers off the row on every poll, not only when it adopts
 the agent — otherwise an agent adopted before its first turn, off a synthesised launch row that
 carries none of them, reads 0 until a `result` the server itself saw. Spend and size are taken as

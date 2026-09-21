@@ -44,6 +44,7 @@ lastNote  # unused variable (src/maelstrom/orchestrator/protocol.py:147)
 lastNoteAt  # unused variable (src/maelstrom/orchestrator/protocol.py:149)
 costUsd  # unused variable (src/maelstrom/orchestrator/protocol.py:145)
 totalTokens  # unused variable (src/maelstrom/orchestrator/protocol.py:150)
+subagentTokens  # unused variable (src/maelstrom/orchestrator/protocol.py:164)
 contextTokens  # unused variable (src/maelstrom/orchestrator/protocol.py:154)
 taskId  # unused variable (src/maelstrom/orchestrator/protocol.py:155)
 worktreeId  # unused variable (src/maelstrom/orchestrator/protocol.py:157)
@@ -86,3 +87,14 @@ process_cleanup  # unused variable (tests/e2e/conftest.py)
 # Parameters a lambda must accept to match the signature it replaces.
 pp  # unused variable (tests/test_task_cli.py, tests/test_worktree_close.py)
 num  # unused variable (tests/test_ports.py)
+
+
+# The cost report's shape (src/maelstrom/agent_cost.py). `build_cost_report`
+# writes every field and `agent_cli._draw_cost` or a `--json` reader takes it
+# from there, through a subscript vulture does not count as a use.
+delta_tokens  # unused variable (src/maelstrom/agent_cost.py:32)
+subagent_delta  # unused variable (src/maelstrom/agent_cost.py:34)
+cost_delta  # unused variable (src/maelstrom/agent_cost.py:35)
+cost_is_parent_only  # unused variable (src/maelstrom/agent_cost.py:49)
+cost_usd  # unused variable (src/maelstrom/agent_cost.py:48)
+own_tokens  # unused variable (src/maelstrom/agent_cost.py:44)

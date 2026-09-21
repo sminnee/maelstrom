@@ -142,6 +142,27 @@ agent's last message, and the orchestrator cuts it here so the transcript shows 
 holds its own copy of the pattern rather than sharing one: the daemon sits below the orchestrator,
 and a shared module would invert that. A test asserts the two patterns still agree.
 
+A fifth marker mints no document either:
+
+```
+<milestone>green</milestone>
+```
+
+A milestone names a stage of the work the agent has just reached, from the vocabulary in
+`CONTEXT.md`. The latest one in a message wins, as a note's does, and a subagent writes none.
+
+Unlike every other tag, a milestone changes no world entity, so it does not travel as a
+`ServerEvent`: `apply_event` raises on an event type it does not know, and adding one for a write
+that moves nothing would put a ledger row in the client's reducer. It rides out on
+`Normalised.milestone` instead, and `server._record_milestone` does the write. That keeps
+`normalise` a pure function, which is what the goldens rest on.
+
+The figures come off the world rather than off the raw event, and the snapshot waits for the
+declaring turn's `result`. The agent writes the marker on an `assistant` event, but that turn's
+tokens only reach the world when its `result` lands — and that turn is usually the stage's most
+expensive one, so a snapshot taken at the tag would push it onto the next stage. An agent the
+world does not know writes nothing: there would be no totals to record.
+
 A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
 carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,
 before anything is read, so a tag can never show a file elsewhere on the machine. A file that
