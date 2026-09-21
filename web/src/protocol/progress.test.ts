@@ -474,11 +474,13 @@ describe('progressOf', () => {
     ).toMatchObject({ state: 'needs-attention', drift: null });
   });
 
-  it('says an unobserved exit code is not a clean exit', () => {
+  it('does not draw an unobserved exit as a fault', () => {
     const agent = makeAgent({ state: 'exited', exitCode: null });
     expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
-      state: 'exited',
-      words: 'Exited (unknown code)',
+      state: 'stopped',
+      // Not "Finished": nobody saw this agent finish, so the words must not
+      // claim the work completed while offering to mark the task done.
+      words: 'Stopped',
       drift: 'finished',
     });
   });

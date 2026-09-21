@@ -547,9 +547,11 @@ def mark_exited(
     out = _Emitter(state, agent, ctx, now)
     out.end_every_wait()
     out.agent({"state": "exited", "exitCode": exit_code})
-    if exit_code != 0 and not agent["parent"]:
+    if exit_code not in (0, None) and not agent["parent"]:
         # A subagent's failure is the parent's to report: the parent gets the
-        # notification and says what it makes of it.
+        # notification and says what it makes of it. A `None` code is an exit
+        # nobody observed — a daemon that could not confirm the agent, not a
+        # process that failed — so it raises nothing.
         out.raise_attention("agent_exited", f"Exited with code {exit_code}", None, None)
     return out.done()
 

@@ -979,6 +979,20 @@ def test_mark_exited_with_a_clean_exit_raises_nothing():
     assert open_attention(state) == []
 
 
+def test_mark_exited_raises_nothing_when_nobody_saw_the_exit():
+    """A ``None`` code is an unobserved exit, which is not evidence of failure.
+
+    Only a real exit carries a code. A synthesised one — a daemon that cannot
+    confirm the agent — carries ``None``, and must not be reported as a fault.
+    """
+    state = replay("normal-turn.jsonl")
+    out = mark_exited(state.state, state.ctx, None, NOW)
+    state.take(out.events)
+    assert agent_of(state)["state"] == "exited"
+    assert agent_of(state)["exitCode"] is None
+    assert open_attention(state) == []
+
+
 def test_an_unknown_agent_normalises_to_nothing():
     state = seed([])
     ctx = NormaliseContext(agent_id="ghost")
