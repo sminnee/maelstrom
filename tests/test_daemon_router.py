@@ -5,12 +5,22 @@ from dataclasses import dataclass, field
 
 from maelstrom.agent_cost import build_cost_report
 from maelstrom.agent_store import InMemoryMilestoneStore
-from maelstrom.orchestrator.daemon_bridge import DaemonRouter, ScriptedAsyncDaemonClient
+from maelstrom.orchestrator.daemon_bridge import (
+    UNCONFIRMED_LISTS_BEFORE_END,
+    DaemonRouter,
+    ScriptedAsyncDaemonClient,
+)
 
 #: A pinned clock, so a record's start and end are assertable.
 STAMP = "2026-09-21T10:00:00+00:00"
 #: Long enough before ``STAMP`` to be past the grace period.
 LONG_AGO = "2026-09-20T10:00:00+00:00"
+
+# The specification point, not a tuning choice: retiring an agent on a single
+# unconfirmed list is the bug this branch fixes. Several tests below drive
+# `UNCONFIRMED_LISTS_BEFORE_END - 1` lists and would pass on an empty loop if
+# the threshold were ever set to 1.
+assert UNCONFIRMED_LISTS_BEFORE_END > 1
 
 
 def stored_agent(started_at: str = LONG_AGO, **fields) -> dict:
@@ -192,44 +202,44 @@ def test_list_passes_through_a_live_subagent_of_a_stored_agent() -> None:
     assert child["parent"] == "ag1"
 
 
-def test_list_reports_a_stored_agent_absent_from_the_daemon_as_exited() -> None:
+def test_a_stored_agent_reads_as_exited_only_once_it_is_retired() -> None:
     """A stored id must disappear from ``state`` too, not just from the daemon.
 
     The server's reconcile loop only exits an agent whose id drops out of
-    ``list`` entirely. A stored agent's id never drops out on its own, so a
-    missing live row has to read as ``exited`` or the loop can never retire it.
+    ``list`` entirely. A stored agent's id never drops out on its own, so the
+    row that retires it has to read as ``exited``. Until then it reads ``idle``,
+    which is what keeps a working agent off the red fault state — the reported
+    bug was this row saying ``exited`` on the first poll after a launch.
     """
 
     async def scenario():
-        agents = Agents(
-            rows={
-                "ag1": {
-                    "id": "ag1",
-                    "harness": "claude",
-                    "task_session_id": "task-session-1",
-                    "cwd": "/worktree",
-                    "model": "claude:opus",
-                    "mode": "normal",
-                }
-            }
-        )
+        agents = Agents(rows={"ag1": stored_agent(task_session_id="task-session-1")})
         router = DaemonRouter(
-            ScriptedAsyncDaemonClient(), ScriptedAsyncDaemonClient(), agents
+            ScriptedAsyncDaemonClient(),
+            ScriptedAsyncDaemonClient(),
+            agents,
+            clock=lambda: STAMP,
         )
-        return await router.request({"cmd": "list"})
+        first = await router.request({"cmd": "list"})
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END - 1):
+            last = await router.request({"cmd": "list"})
+        return first, last, agents.rows["ag1"]
 
-    listed = asyncio.run(scenario())
+    first, last, record = asyncio.run(scenario())
 
-    assert listed["agents"] == [
+    assert first["agents"] == [
         {
             "id": "ag1",
-            "state": "exited",
+            "state": "idle",
             "session": "task-session-1",
             "cwd": "/worktree",
             "model": "claude:opus",
             "mode": "normal",
         }
     ]
+    assert last["agents"][0]["state"] == "exited"
+    assert record["status"] == "ended"
+    assert record["ended_at"] == STAMP
 
 
 def test_list_adopts_a_live_agent_the_store_does_not_know() -> None:
@@ -452,47 +462,75 @@ def test_a_record_written_before_status_existed_still_lists() -> None:
     assert [row["id"] for row in listed["agents"]] == ["ag1"]
 
 
-def test_an_agent_the_daemon_no_longer_holds_is_ended_on_the_next_list() -> None:
-    """Only `stop` writes `ended`, and an agent can end without one.
+def test_seeing_an_agent_again_forgives_its_earlier_misses() -> None:
+    """The threshold counts consecutive misses, so a blip must not accumulate.
 
-    A crash, a kill outside `mael agent stop`, or a `gc` reap leaves the record
-    `running`. Without this the record is restored live for ever and reports an
-    `exited` row on every poll — the very state the ended filter exists to
-    avoid.
+    A sighting must clear the count, not decrement it: the agent survives a
+    whole fresh run of misses afterwards, which only a true reset allows.
     """
 
     async def scenario():
-        agents = Agents(
-            rows={
-                "ag1": {
-                    "id": "ag1",
-                    "harness": "claude",
-                    "task_session_id": "s1",
-                    "cwd": "/worktree",
-                    "model": "claude:opus",
-                    "mode": "normal",
-                    "status": "running",
-                    "started_at": STAMP,
-                    "ended_at": "",
-                }
-            }
+        claude = ScriptedAsyncDaemonClient()
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
         )
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END - 1):
+            await router.request({"cmd": "list"})
+        claude.rows["ag1"] = live_row("ag1")
+        await router.request({"cmd": "list"})
+        del claude.rows["ag1"]
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END - 1):
+            await router.request({"cmd": "list"})
+        return agents.rows
+
+    assert asyncio.run(scenario())["ag1"]["status"] == "running"
+
+
+def test_a_daemon_that_answers_with_an_error_retires_nothing() -> None:
+    """An errored reply carries no agents, which is not the same as none.
+
+    Read as an empty list it writes off every stored agent at once, which is
+    the worst reading of a socket that simply failed.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.replies["list"] = [{"error": "daemon unreachable"}] * (
+            UNCONFIRMED_LISTS_BEFORE_END + 1
+        )
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END + 1):
+            await router.request({"cmd": "list"})
+        return agents.rows
+
+    assert asyncio.run(scenario())["ag1"]["status"] == "running"
+
+
+def test_a_record_younger_than_the_grace_period_is_never_retired() -> None:
+    """A just-started agent is the case the bug was reported for.
+
+    The daemon can take a moment to hold a new agent, and every poll in that
+    window misses it. Retiring it draws a working agent red seconds after
+    launch.
+    """
+
+    async def scenario():
+        agents = Agents(rows={"ag1": stored_agent(started_at=STAMP)})
         router = DaemonRouter(
             ScriptedAsyncDaemonClient(),
             ScriptedAsyncDaemonClient(),
             agents,
             clock=lambda: STAMP,
         )
-        # The daemon holds no such agent, so the row it reports is synthesised.
-        listed = await router.request({"cmd": "list"})
-        return listed, agents.rows
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END + 2):
+            await router.request({"cmd": "list"})
+        return agents.rows
 
-    listed, rows = asyncio.run(scenario())
-
-    # Still reported this once, so a reader learns the agent exited.
-    assert [row["state"] for row in listed["agents"]] == ["exited"]
-    assert rows["ag1"]["status"] == "ended"
-    assert rows["ag1"]["ended_at"] == STAMP
+    assert asyncio.run(scenario())["ag1"]["status"] == "running"
 
 
 def test_a_live_agent_is_not_ended_by_a_list() -> None:
