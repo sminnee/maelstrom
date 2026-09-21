@@ -9,6 +9,10 @@
      container cannot be styled by its own container query. */
   --gutter: 3.5rem;
   container-type: inline-size;
+  /* Two 20px line boxes at 13px quiet prose, in ems so a size change carries
+     it. Only the transcript clamps — a reading surface takes `.quiet`
+     unclamped, which is why this lives here and not in `Markdown.module.css`. */
+  --quiet-clamp: 3.08em;
 }
 /* A fixed time column, then the card. The times form a clean vertical rule
    down the left edge and the cards keep their own, so the eye reads either
@@ -23,12 +27,16 @@
   min-width: 0;
 }
 /*
- * A ledger row following a ledger row closes up, so a run of them reads as one
- * block rather than as separate events. Prose keeps the full gap, and that
- * difference is what gives the column its rhythm.
+ * Three gaps, keyed on the register `Transcript.tsx` computes, not on the item
+ * type, so the spacing cannot disagree with the chrome the card drew:
  *
- * Keyed on the register `Transcript.tsx` computes, not on the item type, so the
- * spacing cannot disagree with the chrome the card drew.
+ *   2px  machinery after machinery — one block, not ruled paper
+ *   8px  the default
+ *  16px  the seam between machinery and prose — where the eye re-enters
+ *
+ * Source order is load-bearing and ungated: the 2px rule must follow the 8px
+ * default, and the 16px seam rule must follow both, or a later rule of equal
+ * specificity silently wins.
  *
  * Spacing lives between siblings rather than on the container's `gap`, because
  * only a rule between two of them can know what both are. It covers every child,
@@ -37,8 +45,12 @@
 .transcript > * + * {
   margin-top: var(--space-2);
 }
-.transcript > .card[data-register='ledger'] + .card[data-register='ledger'] {
+.transcript > .card[data-register='machinery'] + .card[data-register='machinery'] {
   margin-top: 2px;
+}
+.transcript > .card[data-register='machinery'] + .card[data-register='prose'],
+.transcript > .card[data-register='prose'] + .card[data-register='machinery'] {
+  margin-top: var(--space-4);
 }
 .gutter {
   text-align: right;
@@ -164,6 +176,10 @@
   border-color: var(--border);
   background: var(--bg-sunken);
   color: var(--fg-muted);
+  /* `--fg-recessed` tracks `--fg-faint`, which misses AA on this ground in
+     light — see `tokens.css`. One grep point when a third sunken surface
+     appears. */
+  --fg-recessed: var(--fg-muted);
 }
 .skillHead {
   display: flex;
