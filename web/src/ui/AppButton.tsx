@@ -12,7 +12,7 @@ export interface AppButtonProps extends Omit<
 > {
   ref?: React.Ref<HTMLButtonElement>;
   onClick?: ButtonClickHandler;
-  variant?: 'plain' | 'primary' | 'quiet';
+  variant?: 'plain' | 'primary' | 'quiet' | 'link';
   /** Shown beside the spinner while the handler is pending. Defaults to `children`. */
   processingChildren?: ReactNode;
   /** Shown after the handler rejects. Defaults to "Failed"; the message goes in `title`. */
