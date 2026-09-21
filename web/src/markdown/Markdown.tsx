@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImageLightbox } from '../ui/ImageLightbox';
+import { QuietBlock } from './QuietBlock';
 import styles from './Markdown.module.css';
 
 type Attention = 'high' | 'low';
@@ -14,7 +15,7 @@ function closesFence(line: string, fence: { char: string; length: number }): boo
 }
 
 /** Split standalone attention tags without interpreting tags inside code fences. */
-function attentionSegments(source: string): Segment[] {
+export function attentionSegments(source: string): Segment[] {
   const segments: Segment[] = [];
   let attention: Attention = 'high';
   let lines: string[] = [];
@@ -77,9 +78,9 @@ export function Markdown({
     <div className={[styles.markdown, className].filter(Boolean).join(' ')} {...rest}>
       {attentionSegments(source).map((segment, index) =>
         segment.attention === 'low' ? (
-          <div className={styles.quiet} data-testid="quiet" key={index}>
+          <QuietBlock key={index}>
             <MarkdownContent source={segment.source} />
-          </div>
+          </QuietBlock>
         ) : (
           <MarkdownContent key={index} source={segment.source} />
         ),
