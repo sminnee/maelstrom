@@ -115,7 +115,8 @@ function TaskForm({ task }: { task: Task }) {
   const save = async () => {
     const { status, ...fields } = changed(opened.current, draft);
     const writes: Promise<unknown>[] = [];
-    if (Object.keys(fields).length > 0) writes.push(update.mutateAsync({ taskId: task.id, fields }));
+    if (Object.keys(fields).length > 0)
+      writes.push(update.mutateAsync({ taskId: task.id, fields }));
     if (status !== undefined) writes.push(setStatus.mutateAsync({ taskId: task.id, status }));
     // Nothing moved: the same close as Cancel, rather than a refused command.
     if (writes.length === 0) return close(null);
