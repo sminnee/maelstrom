@@ -320,6 +320,14 @@ used for a tracked uppercase micro-label — never for prose, and never for a se
 the floor. Every step clears WCAG AA against its own ground in both schemes; the 10px label is
 the tightest, and it is measured, not assumed.
 
+`--fg-recessed` is the measured case this rule stops from regressing. It tracks `--fg-faint`,
+which clears AA against `--bg`, `--bg-raised` and `--bg-sunken` in dark, and against `--bg` and
+`--bg-raised` in light. On `--bg-sunken` in light it is 4.15:1, under the 4.5:1 floor. An
+open `skill` or `raw_event` row sets that ground, and quiet prose can sit inside one, so the
+failing case is real rather than theoretical. The surface that sets `--bg-sunken` re-points
+`--fg-recessed` to `--fg-muted` rather than guarding every call site; do the same for a third
+sunken surface, and check its contrast before trusting the token to carry it.
+
 **The Mono Means Literal Rule.** Monospace marks a string the operator might copy, type or
 match against something else. Prose never uses it, and a mono string is never truncated
 without an ellipsis, because a half-shown id is worse than an obviously cut one.
@@ -331,20 +339,38 @@ plan document, where six or seven literals a paragraph turn a sentence into a ro
 **The Operator's Words Rule.** State appears in words the operator already owns — "Needs you ·
 plan review" — never a raw agent state, and never a term `CONTEXT.md` lists under `_Avoid_`.
 
-**The Register Is One Value Rule.** The transcript's two registers — prose and ledger — are
-computed once in `Transcript.tsx` and read as `data-register`. Spacing and chrome both derive
+**The Register Is One Value Rule.** The transcript's two registers — `prose` and `machinery` —
+are computed once in `Transcript.tsx` and read as `data-register`. Spacing and chrome both derive
 from it, so they cannot disagree. Keying either on the raw item type is how a shell command came
-to draw one register and be spaced as the other.
+to draw one register and be spaced as the other — and how a `skill` or `compact_summary` item
+once drew ledger chrome while returning `'prose'`, so it was spaced as the register it did not
+draw.
+
+`machinery` reads attention as well as type: an agent message whose every segment is
+`<user-attention low>` is machinery by the agent's own marking, because the operator scans past
+it exactly as they scan past a tool call. A mixed message leads with prose and stays prose, so a
+card still carries exactly one register.
 
 **The Rank Is Structural Rule.** Two registers on one surface are told apart by more than a
 size step. Where prose and machinery sit side by side — the transcript is the case — prose
 takes the page's baseline with no container, and the machinery takes the chrome. A single step
-on the ramp is not enough to rank two things the eye must separate without reading.
+on the ramp is not enough to rank two things the eye must separate without reading. Prose takes
+no label either: `AgentMessage` draws no visible role text, because labelling the baseline is
+labelling the page. The speaker survives for a screen reader on the user turn alone, in a
+visually-hidden span — the agent turn needs none, because it is the baseline everything else is
+read against.
 
-**The Two Ranks of Prose Rule.** An agent's prose has two ranks, and the agent marks working detail.
-A `<user-attention low>` tag reads at `--text-ui` in `--fg-muted`; other prose reads at `--text-md` in
-`--fg`. The operator's own turn stays at the reading rank. The rank is carried by size and tone
-alone: no new hue, because the Reporting Rule keeps colour for state.
+**The Two Ranks of Prose Rule.** An agent's prose has two ranks, and the agent marks working
+detail. A `<user-attention low>` tag reads at `--text-ui` in `--fg-recessed`; other prose reads
+at `--text-md` in `--fg`. The operator's own turn stays at the reading rank. The rank is carried
+by size, tone **and extent**. In the transcript, a `<user-attention low>` block also clamps to
+two lines behind a fade, because low attention is machinery under the Register Is One Value
+Rule, and machinery is scanned past, not read in full. The tone drop and the clamp are one
+commitment — neither ships without the other, or the block reads as demoted without reading as
+skippable. The clamp is transcript-only. `Markdown`'s other callers — a document tab, the
+decision rail, a node card's brief — take the unclamped tone, because each already owns its own
+answer to "there is more here." No new hue for any of this: the Reporting Rule keeps colour for
+state.
 
 ## Layout
 
@@ -665,6 +691,24 @@ idiom the node card uses for a long brief. The heading is also a fold, so a rail
 has already read can be put away entirely. It opens by default and the state does not persist,
 because the panel keeps no view state across renders.
 
+### Question
+
+A question the agent asked reads three ways, depending on what has happened to it.
+
+**Answered** is the operator's voice, so it takes the operator's wash rather than the amber
+`.prompt` chassis. The question sits as a caption
+at `--text-xs` `--fg-muted`; the answer reads on its own line at the reading rank in `--fg`.
+
+**Stale** — nobody answered before the ask closed — is not the operator's voice, so it takes no
+wash. It reads in the `.note` register: `--text-xs`, `--fg-faint`, mono, the same reading the
+session's own remarks about itself take elsewhere in the transcript.
+
+**A permission** keeps `.prompt`, whether decided or stale. This is the deliberate asymmetry: a
+settled question reads as a user turn because it _is_ a structured message the operator composed,
+while a settled permission is a yes/no on a piece of machinery, never a message. Do not "fix" a
+permission into the settled-question wash — the two are answering different questions about what
+happened.
+
 ### Review Dock
 
 The band under a document, holding whatever waits on the operator there. One dock, one place,
@@ -736,7 +780,14 @@ one could draw a state the code cannot produce, which is the one thing a fixture
 
 The stories carry the states worth checking: prose against tool calls, a long ledger run, the
 truncation note, the narrow layout under the 30rem container query, a wide panel, every markdown
-element at panel width, the review dock waiting and settled, and every node state side by side.
+element at panel width, the review dock waiting and settled, and every node state side by side —
+and, for the quiet-block clamp: a two-line clamp with its fade, a block opening with each markdown
+element in turn (heading, list, fence, table — the highest-risk case, since the clamp is a plain
+`max-height` that cannot know where a block boundary falls), a one-line block that offers no
+control, quiet prose on the `--bg-sunken` ground inside an open `skill` row (point a contrast tool
+at this one in the light scheme — it is the 4.15:1 case `--fg-recessed` exists for), the three
+gap sizes end to end, and an answered question, a stale question and a real user turn side by
+side so the two washes can be compared directly.
 
 Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
 schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story
