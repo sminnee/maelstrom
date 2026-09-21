@@ -73,19 +73,17 @@ function nodeState(
   attention: readonly Attention[],
 ): NodeState {
   // The task closes when the PR is pushed, and watch-pr keeps running to take
-  // CI green. That tail is the ordinary end of a task, so it has its own
-  // state rather than reading as a task status fighting its agent.
-  // A dead agent is the stronger signal: its attention item still counts in
-  // the chip, but the node draws red rather than orange. An unknown exit code
-  // counts as abnormal: only an observed 0 is a clean exit.
-  // The task closes when the PR is pushed, and watch-pr keeps running to take
   // CI green. That tail is the ordinary end of a task, so it draws as its own
-  // state. Once nothing is running the task is history, and an item still open
-  // against it is stale bookkeeping rather than the user's turn.
+  // state rather than reading as a task status fighting its agent. Once
+  // nothing is running the task is history, and an item still open against it
+  // is stale bookkeeping rather than the user's turn.
+  // A dead agent is the stronger signal: its attention item still counts in
+  // the chip, but the node draws red rather than orange. Only an observed
+  // nonzero code is a fault — see `mark_exited` in `normalise.py`.
   const live = agent !== undefined && isTurning(agent);
   const terminal = task?.status === 'done' || task?.status === 'cancelled';
   if (terminal && !live) return task?.status === 'done' ? 'done' : 'cancelled';
-  if (agent?.state === 'exited' && agent.exitCode !== 0) return 'exited';
+  if (agent?.state === 'exited' && agent.exitCode !== 0 && agent.exitCode !== null) return 'exited';
   const open = attention.some(
     (item) =>
       isOpen(item) && ((task && item.taskId === task.id) || (agent && item.agentId === agent.id)),
@@ -118,9 +116,9 @@ function describeState(
     case 'cancelled':
       return 'Cancelled';
     case 'exited':
-      return agent?.exitCode === null || agent?.exitCode === undefined
-        ? 'Exited (unknown code)'
-        : `Exited (code ${agent.exitCode})`;
+      // Only an observed nonzero code reaches here, so there is always a
+      // code to name.
+      return `Exited (code ${agent?.exitCode})`;
     case 'working':
       return 'Working';
     case 'finalising':
@@ -132,9 +130,12 @@ function describeState(
     case 'needs-attention':
       return needsYouWords(agent);
     case 'stopped':
-      // A clean exit is the work finishing, not a fault, and a resume brings
-      // the session back, so it says finished rather than naming the exit.
-      return 'Finished';
+      // An observed clean exit is the work finishing, not a fault, and a resume
+      // brings the session back, so it says finished rather than naming the
+      // exit. An unobserved one is not a fault either, but nobody saw it
+      // finish — and this state offers to mark the task done, so the words must
+      // not claim a completion no one witnessed.
+      return agent?.exitCode === 0 ? 'Finished' : 'Stopped';
     case 'idle':
       return 'Idle';
   }
