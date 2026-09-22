@@ -1,17 +1,11 @@
+/* The identity register, as the node's footer reads it: mono, one step back
+   from the label, never truncated. The tone comes from the tab, which owns
+   the state — see `--tab-id-color` in `PanelTabs.module.css`. */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
+  flex: none;
   font-family: var(--mono);
-  color: var(--fg-muted);
-}
-.swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: var(--phase);
-}
-.task {
+  font-size: var(--text-xs);
   font-weight: 600;
+  white-space: nowrap;
+  color: var(--tab-id-color, var(--fg-faint));
 }
