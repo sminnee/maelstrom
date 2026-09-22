@@ -26,7 +26,7 @@ model once the user approves its plan. Confirm the alias with the user. Use Clau
 
 For remaining work, add a normal-mode `plan-next-step` tail draft using this session's model. Each execute draft must name context, implementation steps, files, public **Seams under test**, and verification. A tail states what remains and what should already be done.
 
-Sculpt the drafts with the user. On approval, write `<milestone>planned</milestone>`, set Linear to planned when applicable, promote drafts in order, close this planning task, launch the head scoped to `$MAEL_TASK_PARENT`, then end the session:
+Sculpt the drafts with the user. On approval, set Linear to planned when applicable, promote drafts in order, close this planning task, launch the head scoped to `$MAEL_TASK_PARENT`, then end the session:
 
 ```bash
 mael task promote .drafts/iter1.md --follow-end '*'

@@ -1169,9 +1169,17 @@ class Orchestrator:
         )
         await self._emit(watch, out)
         if out.milestone is not None:
-            # Held, not recorded: see `AgentWatch.pending_milestone`. A second
-            # marker in one turn replaces the first, as last-wins says.
-            watch.pending_milestone = out.milestone
+            if raw.get("type") == "control_response":
+                # Recorded at once, not parked: no `result` for the planning
+                # turn is coming. See `docs/dev/orchestrator-server.md`, "One
+                # milestone does not wait".
+                if watch.caught_up.is_set():
+                    await self._record_milestone(watch, out.milestone)
+            else:
+                # Held, not recorded: see `AgentWatch.pending_milestone`. A
+                # second marker in one turn replaces the first, as last-wins
+                # says.
+                watch.pending_milestone = out.milestone
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
