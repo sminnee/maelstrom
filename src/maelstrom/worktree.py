@@ -7,7 +7,8 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,6 +79,7 @@ from .worktree_model import (
     validate_base,
     worktree_num,
 )
+from .worktree_steps import Scope, scope_lock
 
 # Git's empty tree. Diffing against it describes a root commit whole, where
 # `HEAD^` names nothing to diff from.
@@ -863,18 +865,27 @@ def rebase_worktree(
     # Fetch from origin (unless skipped)
     if not skip_fetch:
         try:
-            run_git(
-                ["fetch", "origin"] + (["--prune"] if prune else []),
-                cwd=worktree_path,
-            )
-            # Fast-forward local main to match origin/main
-            update_local_main(worktree_path.parent)
+            # Repo-scoped, though it is issued from inside a worktree: the
+            # fetch writes the shared object store and the remote refs every
+            # other worktree rebases against, `--prune` deletes refs one may
+            # be mid-rebase on, and `update_local_main` then writes the
+            # project's own `main`. Held only for the fetch, so two worktrees
+            # rebase at once and queue only here.
+            with scope_lock(worktree_path.parent, Scope.REPO, None):
+                run_git(
+                    ["fetch", "origin"] + (["--prune"] if prune else []),
+                    cwd=worktree_path,
+                )
+                # Fast-forward local main to match origin/main
+                update_local_main(worktree_path.parent)
         except subprocess.CalledProcessError as e:
             return SyncResult(
                 success=False,
                 branch=branch,
                 message=f"Failed to fetch from origin: {e.stderr}",
             )
+        except TimeoutError as e:
+            return SyncResult(success=False, branch=branch, message=str(e))
 
     base, plan = resolve_rebase_plan(
         worktree_path, branch, resolved_store, skip_fetch=skip_fetch
@@ -3073,6 +3084,16 @@ def _rebase_reused_worktree(
     )
 
 
+@contextmanager
+def _claim_scope(project_path: Path) -> Generator[None]:
+    """Hold the repo scope for a worktree claim, as a domain refusal."""
+    try:
+        with scope_lock(project_path, Scope.REPO, None):
+            yield
+    except TimeoutError as exc:
+        raise WorktreeError(str(exc)) from exc
+
+
 def setup_worktree_for_branch(
     project_path: Path,
     project_name: str,
@@ -3135,28 +3156,37 @@ def setup_worktree_for_branch(
     action = "created"
 
     # Recycle a closed worktree if allowed.
+    #
+    # Under the repo scope for the whole claim, not one git call: finding a
+    # closed worktree and then recycling it is a check-then-act over state the
+    # whole project shares, so two opens at once would otherwise pick the same
+    # one. The scope covers the port reclaim for the same reason.
+    # A contended scope is a refusal, not a crash: the callers handle
+    # WorktreeError and print its message, and a bare TimeoutError out of the
+    # model would reach `mael add` and the server's open as a traceback.
     if not no_recycle:
-        closed_wt = find_closed_worktree(project_path)
-        if closed_wt is not None:
-            try:
-                worktree_path = recycle_worktree(
-                    closed_wt.path, branch, base=resolved_base
-                )
-                action = "recycled"
-                wt_name = extract_worktree_name_from_folder(
-                    project_name, closed_wt.path.name
-                )
-                if wt_name:
-                    reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
-                # Recycled worktrees skip _finalize_worktree; set up memory symlink.
-                setup_claude_memory_symlink(project_path, worktree_path)
-            except Exception as e:
-                print(
-                    f"Warning: Could not recycle worktree: {e}; creating new one.",
-                    file=sys.stderr,
-                )
-                worktree_path = None
-                action = "created"
+        with _claim_scope(project_path):
+            closed_wt = find_closed_worktree(project_path)
+            if closed_wt is not None:
+                try:
+                    worktree_path = recycle_worktree(
+                        closed_wt.path, branch, base=resolved_base
+                    )
+                    action = "recycled"
+                    wt_name = extract_worktree_name_from_folder(
+                        project_name, closed_wt.path.name
+                    )
+                    if wt_name:
+                        reclaim_or_allocate_ports(project_path, worktree_path, wt_name)
+                    # Recycled worktrees skip _finalize_worktree; set up memory symlink.
+                    setup_claude_memory_symlink(project_path, worktree_path)
+                except Exception as e:
+                    print(
+                        f"Warning: Could not recycle worktree: {e}; creating new one.",
+                        file=sys.stderr,
+                    )
+                    worktree_path = None
+                    action = "created"
 
     # Create a new worktree if not recycled.
     if worktree_path is None:

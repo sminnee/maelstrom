@@ -7,13 +7,18 @@ suites.
 """
 
 import asyncio
+import contextlib
+import fcntl
 import os
+import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
+from maelstrom import worktree as worktree_mod
 from maelstrom.worktree_steps import (
     Scope,
     SequenceResult,
@@ -272,6 +277,104 @@ class TestTheLockFile:
             os.close(read)
             os.kill(pid, 9)
             os.waitpid(pid, 0)
+
+
+class TestTheProductionCallSites:
+    """The scope, taken by the code that needs it — not by the test.
+
+    A test that calls ``scope_lock`` itself proves only that ``flock`` works.
+    These drive the real functions and watch the lock they take, so deleting a
+    ``scope_lock`` from ``worktree.py`` turns them red.
+    """
+
+    def test_a_rebase_takes_the_repo_scope_over_its_fetch(self, monkeypatch, tmp_path):
+        """`fetch --prune` deletes refs another worktree may be mid-rebase on.
+
+        It looks worktree-local — `rebase_worktree` runs it with
+        `cwd=worktree_path` — but it writes the shared object store and then
+        `update_local_main` on the project.
+        """
+        repo = tmp_path / "project"
+        (repo / ".git").mkdir(parents=True)
+        worktree = repo / "project-alpha"
+        worktree.mkdir()
+        held: list[bool] = []
+
+        def fake_git(args, **kwargs):
+            if args and args[0] == "fetch":
+                # A peer cannot take the repo scope while the fetch runs.
+                held.append(_repo_scope_is_taken(repo))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(worktree_mod, "run_git", fake_git)
+        monkeypatch.setattr(worktree_mod, "get_current_branch", lambda p: "feat/x")
+        monkeypatch.setattr(worktree_mod, "update_local_main", lambda p: None)
+        monkeypatch.setattr(
+            worktree_mod,
+            "resolve_rebase_plan",
+            lambda *a, **k: (_ for _ in ()).throw(_StopAfterFetch()),
+        )
+
+        with contextlib.suppress(_StopAfterFetch):
+            worktree_mod.rebase_worktree(worktree)
+
+        assert held == [True], "the fetch ran without the repo scope held"
+
+    def test_claiming_a_closed_worktree_takes_the_repo_scope(
+        self, monkeypatch, tmp_path
+    ):
+        """`find_closed_worktree` then `recycle_worktree` is a check-then-act.
+
+        Two opens in one project could otherwise claim the same closed
+        worktree, so the scope covers the whole claim rather than one git call.
+        """
+        repo = tmp_path / "project"
+        (repo / ".git").mkdir(parents=True)
+        held: list[bool] = []
+
+        def find_closed(project_path):
+            held.append(_repo_scope_is_taken(repo))
+            raise _StopAfterClaim()
+
+        monkeypatch.setattr(worktree_mod, "find_worktree_by_branch", lambda *a: None)
+        monkeypatch.setattr(worktree_mod, "_branch_exists_anywhere", lambda *a: False)
+        monkeypatch.setattr(
+            worktree_mod, "_resolve_new_branch_base", lambda *a, **k: "main"
+        )
+        monkeypatch.setattr(worktree_mod, "find_closed_worktree", find_closed)
+
+        with contextlib.suppress(_StopAfterClaim):
+            worktree_mod.setup_worktree_for_branch(repo, "project", "feat/x")
+
+        assert held == [True], "the claim ran without the repo scope held"
+
+
+class _StopAfterFetch(Exception):
+    """Ends the call once the assertion's subject has run."""
+
+
+class _StopAfterClaim(Exception):
+    """Ends the call once the assertion's subject has run."""
+
+
+def _repo_scope_is_taken(repo: Path) -> bool:
+    """Whether some open file description already holds the repo scope.
+
+    Asked from this same process, which is the point: ``flock`` is per open
+    file description, so a fresh fd contends with a held one even here.
+    """
+    path = repo / ".git" / "mael-locks" / "repo.lock"
+    if not path.exists():
+        return False
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
 
 
 class TestTheExecutor:
