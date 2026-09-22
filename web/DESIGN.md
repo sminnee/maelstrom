@@ -95,10 +95,11 @@ components:
     rounded: '{rounded.pill}'
     size: '16px'
   panel-tab:
-    backgroundColor: '{colors.console-slate}'
+    backgroundColor: '{colors.console-slate}' # the body's ground; the strip is console-slate-raised
     textColor: '{colors.readout}'
-    borderLeft: '2px solid {colors.phase-build}' # the phase in view; drained when inactive
-    rounded: '0'
+    border: '1px solid {colors.hairline-strong}' # top and right; no bottom, where the tab opens
+    borderLeft: '4px solid {colors.phase-build}' # the tab in view only; others reserve it clear
+    rounded: '6px 6px 0 0'
     padding: '0 8px'
     height: '32px'
 ---
@@ -180,8 +181,8 @@ every phase to the same grey. **A new phase hue must add its `--phase-dormant` b
 ### Neutral
 
 - **Console Slate** (`--bg`): the field everything sits on.
-- **Console Slate Raised** (`--bg-raised`): nodes, cards, bars, tab strips — anything that is
-  a surface rather than the room.
+- **Console Slate Raised** (`--bg-raised`): nodes, cards, bars — anything that is a surface
+  rather than the room.
 - **Console Slate Sunken** (`--bg-sunken`): the recessed ground beneath the field.
 - **Hairline** (`--border`) and **Hairline Strong** (`--border-strong`): separation without
   weight. Structure is drawn with one-pixel lines, never with fills or heavy rules.
@@ -501,8 +502,9 @@ is the only size cue the corner language gives.
 Pills (999px) are reserved for two things: status dots and count badges. A pill therefore
 always means "one small piece of state", never a button or a tag.
 
-Panel tabs are deliberately square. They are a strip of contiguous surfaces divided by hairlines
-and marked active by a 2px inset underline in Signal Blue, in the manner of an editor's tabs.
+Panel tabs round their top corners only, at `--radius`. They are rounded where they leave the
+strip and square where they join the body, in the manner of an editor's tabs, and the tab in
+view is marked by a hairline outline rather than by a fill.
 
 The signature form is the phase bar: a 4px left border in `--phase` on every task node and
 every expanded card. It is the one place the system uses a heavy line, and it turns a rectangle
@@ -617,8 +619,8 @@ the phase hue. Two channels, two edges, no conflict.
 
 - **Attention chip:** a button in Alert Amber at 600 weight with a 50%-mixed amber border.
   At zero it drops to faint text and a plain hairline — present, unlit, not hidden.
-- **Tab chip:** an 8px phase swatch at 2px radius beside a mono task id. The smallest possible
-  restatement of "which agent is this".
+- **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
+  of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
 - **Split chip:** one pill in two halves, divided by a hairline — what is measured, then what it
   reads. Sunken ground, so it sits _in_ the raised bar; mono tabular value, so the chip holds
@@ -663,9 +665,9 @@ age: see **Node Card**.
 
 ### Panel Tabs
 
-A horizontally scrolling strip of square tabs on a raised ground, divided by hairlines, 32px
-minimum height, each tab as wide as what it holds. A tab leads with its identity: the qualified
-task id, mono at `--text-xs`, or a free agent's own id in the same slot.
+A horizontally scrolling strip of tabs on `--bg-raised`, divided by hairlines, 32px minimum
+height, each tab as wide as what it holds. A tab leads with its identity: the qualified task id,
+mono at `--text-xs`, or a free agent's own id in the same slot.
 
 A session tab carries nothing else. The id alone says which session it is, and a real qualified
 id — `maelstrom/2026-09-22.1` — is long enough that a word beside it squeezes to a letter. Only
@@ -678,27 +680,61 @@ for prose. The accessible name is pinned with `aria-label` to the same id and la
 reads: a computed name would take the contents _and_ the close button's label, announcing
 "NORT-7 Close NORT-7".
 
-Phase runs down the tab's leading edge, at 2px. The Left Edge Rule governs which channel that
-edge carries, not how heavily: a tab is neither a node nor a card, and the node's 4px bar
-would outweigh a 32px strip. `data-phase` is set on the tab and inherited, so the edge reads
-`--phase` and no component looks a hue up.
+The tab in view is ranked structurally rather than decorated, and it is marked out by a line
+rather than by a ground of its own. It takes the panel body's `--bg`, which the status row
+under it takes too, so the three read as one surface the strip is cut away from. A
+`--border-strong` hairline outlines the three edges that face the strip, and nothing is drawn
+along the bottom, where the tab opens onto what it heads. It rounds its top corners at
+`--radius`, the radius `base.css` gives every button, and leaves its bottom square. That is the
+tab idiom: rounded where it leaves the strip, square where it joins the body. Its text goes to
+`--fg` and its id brightens with it.
 
-The active tab is ranked structurally rather than decorated. It takes the panel body's own
-ground, so it reads as continuous with what it is showing; its text goes to `--fg`, its id
-brightens with it, and its phase edge burns at full strength while every other tab's is
-drained to `--phase-dormant`. There is no underline and no second affordance: the strip is
-ranked by one channel. A tab hovers to `--bg-hover`.
+The line under the strip is drawn per tab, not across the strip and then masked. Each tab owns
+its own segment as a `border-bottom`, the tab in view sets that segment transparent, and a
+`::after` on the strip carries the line past the last tab to the panel's edge. Masking is not
+available: `.strip` has `overflow-x: auto`, which clips on both axes, so no tab can escape the
+strip's box to paint over a line below it.
+
+Phase runs down that tab's leading edge at 4px, the Left Edge Rule's own width, as a node card
+and a desk row draw it. `data-phase` is set on the tab and inherited, so the edge reads
+`--phase` and no component looks a hue up. Only the tab in view draws one: a phase edge on every
+tab at once read as a row of swatches and cost the strip its rank. Every tab reserves the 4px,
+transparent, so the strip does not shift as the view moves.
+
+The strip pads 4px above its tabs, so the tab in view is a shape standing in the band rather
+than a block filling it.
+
+The status row is its own surface, not the top of the body: the session's `.head` and the
+document's `.header` each hold the controls for what the tab opened, and the reading below them
+is content. They share the tab in view's ground, so the seam the reader sees is the status
+row's own bottom hairline.
+
+The workbench story builds that shape rather than a flat stack — a scrolling box holding a
+status row and a reading, as `Panel.tsx` does. The nesting is what makes the strip legible: a
+flat shell let a tab appear to escape its strip, which the real panel's `overflow: auto` never
+permits.
 
 The focus ring is the global one and is never removed, but a tab has to redraw it on an inset
 layer. A tab's edges sit flush against its neighbours', so a ring outside the box is clipped,
-and one 2px inside lands exactly on the phase border — hiding the phase on the one tab the
-keyboard is on. Drawn inside the padding box, both channels read at once.
+and one 2px inside lands on the phase border — hiding the phase on the one tab the keyboard is
+on. Drawn inside the padding box, both channels read at once.
 
 The close control is a drawn glyph in the app's icon family — 12px, 1.2 stroke, round caps,
-beside `OpenInPanelIcon` and `ExternalLinkIcon`. It shows on hover and on the tab in view, and
-holds its place in the layout so no tab changes width under the pointer. It fades rather than
-hides: `visibility: hidden` takes an element out of the focus order, which would leave an
-inactive tab with no keyboard route to closing it. The strip is one tab stop; arrows move
+beside `OpenInPanelIcon` and `ExternalLinkIcon`. On the tab in view it sits in the flow and is
+always visible, so that tab pays for its width. On every other tab it is absolute and overlays
+the id's last characters, so the tab does not change width under the pointer. The id does not
+ellipsise under it — the cross's fill covers the characters outright, which is a live conflict
+with the Mono Means Literal Rule and is recorded as such rather than settled.
+
+An inactive tab reveals its cross only under the cross itself, not anywhere on the tab: a whole
+row lighting up as the pointer crossed it read as a row of controls rather than a row of tabs.
+The revealed cross takes a circular ring and a `--bg-raised` fill, which is what holds it off
+the id underneath. The ring is the hover treatment alone — the tab in view keeps a plain cross,
+and every tab reserves the ring's width so nothing shifts as it appears.
+
+The control fades rather than hides: `visibility: hidden` takes an element out of the focus
+order, which would leave an inactive tab with no keyboard route to closing it, and an invisible
+button keeps the hit area the cross's own hover needs. The strip is one tab stop; arrows move
 between tabs, and Tab reaches every close button in turn.
 
 ### Session header
@@ -853,10 +889,12 @@ element in turn (heading, list, fence, table — the highest-risk case, since th
 control, quiet prose on the `--bg-sunken` ground inside an open `skill` row (point a contrast tool
 at this one in the light scheme — it is the 4.15:1 case `--fg-recessed` exists for), the three
 gap sizes end to end, and an answered question, a stale question and a real user turn side by
-side so the two washes can be compared directly. For the tab strip: one tab, four phases side by
-side, a session beside its own plan, a free agent beside a task's, a tab whose entity has gone, a
-long label truncating, and four tabs at the panel's 320px minimum — where the label truncates
-away entirely and the ids alone tell four agents apart.
+side so the two washes can be compared directly. For the tab strip: one tab, four tabs of
+different phase — arrow along them, because only the tab in view draws its edge — a session
+beside its own plan, a free agent beside a task's, a tab whose entity has gone, a long label
+truncating, and four tabs at the panel's 320px minimum, where the label truncates away entirely
+and the ids alone tell four agents apart. Hover an inactive tab: its close control overlays the
+id rather than widening the tab, so watch that the tab does not move.
 
 Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
 schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story

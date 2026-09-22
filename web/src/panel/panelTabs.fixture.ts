@@ -5,10 +5,13 @@ import { makeAgent, makeDocument, makeTask, worldWith } from '../test/fixtures';
 /**
  * Strips to look at without a server.
  *
- * The strip's hardest problems are visual — whether the active tab reads as
- * active beside its neighbours, whether the phase edge is legible at the
+ * The strip's hardest problems are visual — whether the tab in view reads as
+ * in view beside its neighbours, whether its phase edge is legible at the
  * strip's scale, whether four tabs at the panel's 320px minimum truncate
  * usefully — and jsdom computes no layout, so tests cannot answer them.
+ *
+ * Only the tab in view draws a phase edge, so `fourPhases` is read by arrowing
+ * along the strip rather than at a glance.
  *
  * Every tab is read through `tabAttribution` by the component itself: the
  * fixture supplies a world and a tab list, never an attribution, so a story

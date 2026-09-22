@@ -61,14 +61,36 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
         }}
       >
         <PanelTabs />
-        <div
-          style={{
-            padding: 'var(--space-5)',
-            color: 'var(--fg-faint)',
-            fontSize: 'var(--text-sm)',
-          }}
-        >
-          The panel body. The tab in view takes this ground.
+        {/*
+          The shape `Panel.tsx` builds: a scrolling box holding a status row
+          and the reading under it. Keep the nesting, or the story stops
+          matching the panel it stands for.
+        */}
+        <div style={{ overflow: 'auto' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 'var(--space-2)',
+              padding: '6px 12px',
+              borderBottom: '1px solid var(--border)',
+              color: 'var(--fg-muted)',
+              fontFamily: 'var(--mono)',
+              fontSize: 'var(--text-xs)',
+            }}
+          >
+            <span>The status row. The tab in view opens onto it.</span>
+            <span>34k ctx</span>
+          </div>
+          <div
+            style={{
+              padding: 'var(--space-5)',
+              color: 'var(--fg-faint)',
+              fontSize: 'var(--text-sm)',
+            }}
+          >
+            The conversation body.
+          </div>
         </div>
       </div>
     </ApiProvider>
@@ -79,8 +101,8 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
 export const OneTab: Story = () => <Strip strip={single} />;
 
 /**
- * Four tabs, one per phase. This is where the edge is read: whether 2px names
- * a phase, and whether the drained edges of the three inactive tabs still do.
+ * Four tabs, one per phase. This is where the edge is read: only the tab in
+ * view draws one, so arrow along the strip to see each phase in turn.
  */
 export const FourPhases: Story = () => <Strip strip={fourPhases} />;
 
@@ -99,5 +121,11 @@ export const LongLabel: Story = () => <Strip strip={longTitle} />;
 /** Four tabs at the panel's 320px minimum: the width the truncation is for. */
 export const NarrowPanel: Story = () => <Strip strip={fourPhases} width={320} />;
 
-/** Ids at the length the notebook really writes them. See `panelTabs.fixture.ts`. */
+/**
+ * Ids at the length the notebook really writes them. See `panelTabs.fixture.ts`.
+ *
+ * This is where the close control is judged: hover an inactive tab's cross and
+ * watch what it covers. The id does not ellipsise under it — a known conflict
+ * with the Mono Means Literal Rule, recorded rather than settled.
+ */
 export const RealWidths: Story = () => <Strip strip={realWidths} />;
