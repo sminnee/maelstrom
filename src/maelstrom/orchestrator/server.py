@@ -33,6 +33,7 @@ from . import desk as desk_model
 from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
+from .document_tags import FINAL_STAGE
 from .file_registry import FileRegistry
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .normalise import (
@@ -115,6 +116,21 @@ CHILD_DETACH_SECS = 5.0
 
 def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _totals_of(agent: Agent) -> tuple[int, int, float]:
+    """What an agent has spent: own tokens, subagent tokens, dollars."""
+    return agent["totalTokens"], agent["subagentTokens"], agent["costUsd"]
+
+
+def _stage_total(rows: list[dict[str, Any]]) -> int:
+    """What the agent had spent by its last recorded stage, own and subagent.
+
+    The last row's cumulative figure rather than a sum of the deltas: the
+    snapshot is the reading the host gave, where a sum could drift.
+    """
+    last = rows[-1]
+    return int(last["own_total"]) + int(last["sub_total"])
 
 
 def _is_task_set(document: Document) -> bool:
@@ -1222,6 +1238,46 @@ class Orchestrator:
             watch, normalise_milestone(self.state.state, watch.ctx, row, self.clock())
         )
 
+    async def _close_ledger(
+        self, agent_id: str, totals: tuple[int, int, float]
+    ) -> None:
+        """Record what the agent spent after its last stage, as it exits.
+
+        See ``docs/dev/orchestrator-server.md``, "One row comes from no marker
+        at all", for why the row is written rather than synthesised on read.
+
+        ``totals`` are the agent's own, subagent and dollar figures as its
+        caller read them off the world. They are passed rather than read here
+        because this runs after the exit is applied, by which time the world
+        reports the agent as gone.
+
+        Nothing is written when the agent spent nothing since its last stage:
+        an empty row would report a stage that cost nothing.
+        """
+        own, sub, cost = totals
+        previous = await self.milestones.list(agent_id)
+        if own + sub - (_stage_total(previous) if previous else 0) <= 0:
+            return
+        row = await self.milestones.record(
+            {
+                "agent_id": agent_id,
+                "name": FINAL_STAGE,
+                "at": self.clock(),
+                "recognised": True,
+                "own_tokens": own,
+                "subagent_tokens": sub,
+                "cost_usd": cost,
+            }
+        )
+        # The bar needs a watch to append to. An agent whose watch has already
+        # gone still gets the row: the ledger outlives the transcript, and
+        # `mael agent cost` reads the ledger.
+        if (watch := self._watches.get(agent_id)) is not None:
+            await self._emit(
+                watch,
+                normalise_milestone(self.state.state, watch.ctx, row, self.clock()),
+            )
+
     async def _emit(self, watch: AgentWatch, out: Normalised) -> None:
         """Take a normaliser's output: keep its context, and publish its events."""
         watch.ctx = out.ctx
@@ -1240,12 +1296,21 @@ class Orchestrator:
         agent = self.world["agents"].get(agent_id)
         if agent is None or agent["state"] == "exited":
             return
+        # The totals as the agent finished, read before the exit is applied.
+        # Held rather than read again below, because `_close_ledger` runs after
+        # the state flips and the world no longer carries them.
+        totals = _totals_of(agent)
         watch = self._watches.get(agent_id)
         ctx = watch.ctx if watch else context_for_agent(agent_id)
         out = mark_exited(self.state.state, ctx, exit_code, self.clock())
         if watch:
             watch.ctx = out.ctx
         self._apply(out.events)
+        # After the state says exited, so the guard above closes the door on a
+        # second `_exit`. `_exit` has four callers and the stream task and the
+        # poll loop run concurrently: closing the ledger before the flip would
+        # let two of them through and write the closing row twice.
+        await self._close_ledger(agent_id, totals)
         if watch and watch.task and not from_stream:
             watch.task.cancel()
 

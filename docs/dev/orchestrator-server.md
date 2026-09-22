@@ -145,7 +145,7 @@ and a shared module would invert that. A test asserts the two patterns still agr
 A fifth marker mints no document either:
 
 ```
-<milestone>green</milestone>
+<milestone>built</milestone>
 ```
 
 A milestone names a stage of the work the agent has just reached, from the vocabulary in
@@ -171,6 +171,25 @@ computed, so the panel and `mael agent cost` cannot disagree.
 
 The bar lands on the `result` for the same reason the snapshot does: the item is minted where the
 figures are. A bar drawn where the marker was read would sit above the turn it is pricing.
+
+One milestone does not wait, and the asymmetry is deliberate rather than an oversight. `planned`
+is Maelstrom's own marker, not an agent's: the normaliser mints it when a plan approval is
+allowed, and `_normalise` records it the moment it reads it. Approving a plan interrupts the
+agent and clears its context, so no `result` for the planning turn is ever coming — and the next
+`result` belongs to the build turn, which would price the planning stage at the build turn's
+tokens. Recording at once is safe because the world's totals are poll-fed every 2s, so they are
+already current when the approval lands. The `caught_up` guard matters more here than for an
+agent's own marker: a re-attach replays the `control_response` verbatim, so without it every
+reconnect would append a second `planned` row.
+
+One row comes from no marker at all. An agent goes on spending after its last stage — `/present`,
+the PR push, the CI watch — and `_exit` closes the ledger with a **closing row** named `<final>`
+for that spend, before the exit is applied and while the world still holds the totals the agent
+finished with. It is a real ledger row rather than a synthesis on read, so `mael agent cost` stays
+a printer over the table and a stopped agent reports the same figures a live one did. An agent
+that spent nothing since its last stage gets none: an empty row would report a stage that cost
+nothing. The bar needs a watch to append to, and an agent whose watch has already gone still gets
+the row — the ledger outlives the transcript.
 
 A `<doc-file>` resolves against the agent's own `cwd` — the worktree the agent row already
 carries — **and nothing outside it**. `document_tags.stays_within` refuses a path that escapes,

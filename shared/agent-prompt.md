@@ -40,20 +40,19 @@ as `planFilePath`. A plan sent as a document cannot be approved.
 
 ## Milestones
 
-Use `<milestone>green</milestone>` to mark a stage of the work as reached. Maelstrom records what
+Use `<milestone>built</milestone>` to mark a stage of the work as reached. Maelstrom records what
 you have spent at that moment, so the user can see which stage the tokens went to.
 
 Write one when you reach a stage, before you start the next. Use exactly one of these names:
 
-- `planned` — a plan is agreed.
-- `built` — the implementation is written.
-- `green` — the gates pass.
+- `built` — the implementation is written and the gates pass.
 - `reviewed` — `/code-review` is finished.
 - `presented` — `/present` is finished.
-- `shipped` — the PR is pushed.
 
 A name outside this list is recorded as you wrote it and flagged in the report. The latest
 milestone in a message wins.
+
+Maelstrom writes `planned` itself when the user approves a plan. Do not write it.
 
 ## Images
 

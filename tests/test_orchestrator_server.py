@@ -4911,13 +4911,13 @@ def test_a_milestone_tag_writes_a_ledger_row_with_the_agents_totals(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
                 # The snapshot waits for the declaring turn to end.
                 harness.daemon.push("ag1", end_turn(cost=1.25))
                 return await recorded(harness, 1)
 
     [row] = run(scenario())
-    assert row["name"] == "green"
+    assert row["name"] == "built"
     assert row["recognised"] is True
     assert row["own_total"] == 40_000
     assert row["sub_total"] == 15_000
@@ -4943,12 +4943,12 @@ def test_a_second_milestone_records_what_the_stage_between_them_cost(harness):
                     "/api/agents/ag1",
                     lambda b: b["totalTokens"] == 90_000,
                 )
-                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
                 harness.daemon.push("ag1", end_turn(cost=3.5))
                 return await recorded(harness, 2)
 
     rows = run(scenario())
-    assert [r["name"] for r in rows] == ["planned", "green"]
+    assert [r["name"] for r in rows] == ["planned", "built"]
     assert rows[1]["own_delta"] == 80_000
     assert rows[1]["cost_delta"] == 2.5
 
@@ -4956,7 +4956,7 @@ def test_a_second_milestone_records_what_the_stage_between_them_cost(harness):
 def test_a_milestone_counts_the_turn_that_declared_it(harness):
     """The stage's own turn is usually its most expensive one.
 
-    An agent writes `<milestone>green</milestone>` at the end of the work, on
+    An agent writes `<milestone>built</milestone>` at the end of the work, on
     an ``assistant`` event. The turn's tokens only land on the world when its
     ``result`` arrives, a moment later — so a snapshot taken when the tag is
     read would miss the whole turn and push it onto the next stage.
@@ -4967,7 +4967,7 @@ def test_a_milestone_counts_the_turn_that_declared_it(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
                 harness.daemon.push(
                     "ag1",
                     {
@@ -4999,7 +4999,7 @@ def test_a_milestone_from_an_agent_the_world_does_not_know_writes_nothing(harnes
             async with api.events() as stream:
                 await stream.next("reset")
                 # A stream for an agent the world never adopted.
-                harness.daemon.push("ghost", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ghost", tag_event("<milestone>built</milestone>"))
                 harness.daemon.push("ghost", end_turn(cost=1.0))
                 harness.daemon.push("ag1", tag_event("Working."))
                 await settled(
@@ -5070,7 +5070,7 @@ def test_a_milestone_also_appends_a_transcript_bar_carrying_the_stages_delta(har
                     "/api/agents/ag1",
                     lambda b: b["totalTokens"] == 90_000,
                 )
-                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
                 harness.daemon.push("ag1", end_turn(cost=3.5))
                 await recorded(harness, 2)
                 return milestone_items(harness)
@@ -5078,7 +5078,7 @@ def test_a_milestone_also_appends_a_transcript_bar_carrying_the_stages_delta(har
     first, second = run(scenario())
     assert first["name"] == "planned"
     assert first["recognised"] is True
-    assert second["name"] == "green"
+    assert second["name"] == "built"
     assert second["deltaTokens"] == 85_000
     assert second["costDelta"] == 2.5
 
@@ -5097,7 +5097,7 @@ def test_the_milestone_bar_lands_after_the_turn_that_declared_it(harness):
             async with api.events() as stream:
                 await stream.next("reset")
                 harness.daemon.push(
-                    "ag1", tag_event("Done.\n\n<milestone>green</milestone>")
+                    "ag1", tag_event("Done.\n\n<milestone>built</milestone>")
                 )
                 await settled(
                     stream,
@@ -5148,14 +5148,14 @@ def test_the_milestones_route_serves_the_agents_stages(harness):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                harness.daemon.push("ag1", tag_event("<milestone>green</milestone>"))
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
                 harness.daemon.push("ag1", end_turn(cost=1.25))
                 await recorded(harness, 1)
                 return await api.get_json("/api/agents/ag1/milestones")
 
     body = run(scenario())
     [stage] = body["stages"]
-    assert stage["name"] == "green"
+    assert stage["name"] == "built"
     assert stage["delta_tokens"] == 40_000
     assert stage["cost_delta"] == 1.25
 
@@ -5194,7 +5194,7 @@ def test_a_replayed_milestone_is_not_recorded_twice(harness):
     """
     harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
     harness.daemon.backlog["ag1"] = [
-        tag_event("<milestone>green</milestone>"),
+        tag_event("<milestone>built</milestone>"),
         end_turn(cost=1.0),
     ]
 
@@ -5492,3 +5492,263 @@ def test_a_server_that_cannot_change_environments_says_so(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "cannot start or stop environments" in reply.body["error"]["message"]
+
+
+# --- the milestone Maelstrom writes when the user approves a plan ------------
+
+
+def plan_request(request_id: str = "req-plan") -> dict:
+    """The agent asking for its plan to be reviewed, as the host streams one."""
+    return {
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": "ExitPlanMode",
+            "input": {"plan": "# The plan", "planFilePath": "/p.md"},
+            "tool_use_id": "toolu_plan",
+        },
+    }
+
+
+def plan_decision(*, allow: bool, request_id: str = "req-plan") -> dict:
+    """The verdict on that plan, echoed back on the stream."""
+    return {
+        "type": "control_response",
+        "response": {
+            "request_id": request_id,
+            "response": {"behavior": "allow" if allow else "deny"},
+        },
+    }
+
+
+def test_approving_a_plan_records_the_planned_milestone(harness):
+    """The stage the agent cannot mark for itself.
+
+    An approval interrupts the agent and clears its context, so there is no
+    turn in which it could write the marker. Maelstrom writes it instead, off
+    the same world the agent's own markers are priced against.
+
+    No `result` is pushed here, and the row is still written: the approval
+    interrupts the planning turn, so no `result` for it is ever coming. A
+    marker parked for the flush that agent-written markers use would wait for
+    the build turn's `result` and be priced at the build turn's tokens.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="0.5000", tokens=12_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", plan_request())
+                harness.daemon.push("ag1", plan_decision(allow=True))
+                return await recorded(harness, 1)
+
+    [row] = run(scenario())
+    assert row["name"] == "planned"
+    assert row["recognised"] is True
+    assert row["own_total"] == 12_000
+    assert row["cost_usd"] == 0.5
+
+
+def test_denying_a_plan_records_nothing(harness):
+    """The agent goes back to planning: no stage was reached."""
+    harness.daemon.rows["ag1"] = agent_row(cost="0.5000", tokens=12_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", plan_request())
+                harness.daemon.push("ag1", plan_decision(allow=False))
+                harness.daemon.push("ag1", tag_event("Reworking the plan."))
+                await wait_until(
+                    lambda: any(
+                        i["type"] == "message"
+                        for i in harness.orch.transcript_log("ag1").items
+                    )
+                )
+                return await harness.orch.milestones.list()
+
+    assert run(scenario()) == []
+
+
+def test_approving_a_plan_appends_the_transcript_bar(harness):
+    """Maelstrom's marker reads on the transcript as an agent's own does."""
+    harness.daemon.rows["ag1"] = agent_row(cost="0.5000", tokens=12_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", plan_request())
+                harness.daemon.push("ag1", plan_decision(allow=True))
+                await recorded(harness, 1)
+                return milestone_items(harness)
+
+    [item] = run(scenario())
+    assert item["name"] == "planned"
+    assert item["recognised"] is True
+
+
+def test_a_replayed_plan_approval_is_not_recorded_twice(harness):
+    """A re-attach replays the `control_response` verbatim.
+
+    Without the `caught_up` guard every reconnect would append a second
+    `planned` row, whose delta would be 0.
+    """
+    harness.daemon.rows["ag1"] = agent_row(cost="0.5000", tokens=12_000)
+    harness.daemon.backlog["ag1"] = [
+        plan_request(),
+        plan_decision(allow=True),
+        tag_event("Starting the build."),
+    ]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await wait_until(
+                    lambda: any(
+                        i["type"] == "message"
+                        for i in harness.orch.transcript_log("ag1").items
+                    )
+                )
+                return await harness.orch.milestones.list(), milestone_items(harness)
+
+    rows, items = run(scenario())
+    assert rows == []
+    assert items == []
+
+
+# --- the row that closes an agent's ledger -----------------------------------
+
+
+def test_an_exit_records_what_was_spent_after_the_last_stage(harness):
+    """The stages account for the work up to the last marker, and an agent
+    goes on spending after it — `/present`, the PR push, the CI watch.
+
+    Without a closing row that spend is invisible: the deltas would no longer
+    sum to the total, and the report's question is where the burn went.
+    """
+    from maelstrom.agent_model import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.0, tokens=10_000))
+                await recorded(harness, 1)
+                # Spend after the marker, which no stage has claimed. The
+                # world has to hold it before the exit, or the closing row is
+                # measured against figures the poll has not caught up with.
+                harness.daemon.rows["ag1"] = agent_row(cost="1.7500", tokens=28_000)
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda b: b["totalTokens"] == 28_000,
+                )
+                harness.daemon.rows["ag1"]["state"] = "exited(0)"
+                harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 0})
+                harness.daemon.end_stream("ag1")
+                return await recorded(harness, 2)
+
+    rows = run(scenario())
+    assert [row["name"] for row in rows] == ["built", "<final>"]
+    assert rows[1]["own_delta"] == 8_000
+    assert round(rows[1]["cost_delta"], 4) == 0.75
+
+
+def test_an_exit_that_spent_nothing_since_the_last_stage_closes_no_row(harness):
+    """A marker written on the way out leaves nothing for a closing row to say.
+
+    An empty row would report a stage that cost nothing, which is the same
+    false reading a replayed marker would give.
+    """
+    from maelstrom.agent_model import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("<milestone>built</milestone>"))
+                harness.daemon.push("ag1", end_turn(cost=1.0, tokens=10_000))
+                await recorded(harness, 1)
+                harness.daemon.rows["ag1"]["state"] = "exited(0)"
+                harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 0})
+                harness.daemon.end_stream("ag1")
+                await wait_until(
+                    lambda: harness.orch.world["agents"]["ag1"]["state"] == "exited"
+                )
+                return await harness.orch.milestones.list()
+
+    rows = run(scenario())
+    assert [row["name"] for row in rows] == ["built"]
+
+
+def test_an_agent_that_reached_no_stage_still_closes_its_ledger(harness):
+    """Most agents reach no marker at all, and their spend is the whole run.
+
+    Measured from zero, so the one row carries the lot.
+    """
+    from maelstrom.agent_model import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row(cost="0.4000", tokens=5_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.rows["ag1"]["state"] = "exited(0)"
+                harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 0})
+                harness.daemon.end_stream("ag1")
+                return await recorded(harness, 1)
+
+    rows = run(scenario())
+    assert [row["name"] for row in rows] == ["<final>"]
+    assert rows[0]["own_delta"] == 5_000
+
+
+def test_the_ledger_closes_only_after_the_exit_is_applied(harness):
+    """`_exit` has four callers, and the stream and the poll run concurrently.
+
+    The guard that makes an exit idempotent reads the agent's state, so the
+    ledger must close after that state is set. Closing first leaves a window
+    where two callers both pass the guard and both write a closing row — the
+    same duplicate the replay guard exists to prevent.
+
+    The order is what the test can observe: a real race needs two schedulers
+    and would flake. This asserts the world already reports the agent exited
+    by the time the row is written, which is the property the window needs.
+    """
+    from maelstrom.agent_model import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row(cost="0.4000", tokens=5_000)
+    seen: list[str] = []
+    record = harness.orch.milestones.record
+
+    async def watched(milestone):
+        seen.append(harness.orch.world["agents"]["ag1"]["state"])
+        return await record(milestone)
+
+    harness.orch.milestones.record = watched
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.rows["ag1"]["state"] = "exited(0)"
+                harness.daemon.push("ag1", {"type": AGENT_EXITED, "exit_code": 0})
+                harness.daemon.end_stream("ag1")
+                return await recorded(harness, 1)
+
+    rows = run(scenario())
+    assert [row["name"] for row in rows] == ["<final>"]
+    assert seen == ["exited"]

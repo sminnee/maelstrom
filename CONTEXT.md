@@ -653,11 +653,13 @@ silence means the agent said nothing, and a note is not speech. One of five mark
 _Avoid_: Status, Progress (that is a node's state), Activity
 
 **Milestone**:
-A stage of the work an agent marks as reached, written as `<milestone>green</milestone>` in the
+A stage of the work an agent marks as reached, written as `<milestone>built</milestone>` in the
 text of an ordinary message. The vocabulary is the task-completion flow: `planned`, `built`,
-`green`, `reviewed`, `presented`, `shipped`. A name outside it is recorded as the agent wrote it
+`reviewed` and `presented`. A name outside it is recorded as the agent wrote it
 and flagged, never dropped. The marker is cut from the message and writes a **milestone
-snapshot**; the latest one in a message wins, as a note does. One of five markers, with the
+snapshot**; the latest one in a message wins, as a note does. `planned` is Maelstrom's own: it is
+written when the user approves a plan, because the approval clears the agent before it could
+write one. One of five markers, with the
 **Document tag**, the **Image tag** and the **Note**. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
@@ -670,6 +672,15 @@ total, which is what makes the record answer which stage the spend went to. Writ
 orchestrator UI, which draws it in the session panel and on the expanded node card.
 _Avoid_: Checkpoint, usage record. Not a **usage window**, which is the account's budget rather
 than one agent's spend.
+
+**Closing row**:
+The milestone snapshot Maelstrom writes as an agent exits, named `<final>`, holding what the
+agent spent after its last stage — `/present`, the PR push, the CI watch. Without it that spend
+is unaccounted and the deltas no longer sum to the total. Maelstrom's own row, so it is never
+flagged as an unknown name, and the brackets are syntax no marker can carry, so an agent cannot
+write one. An agent that spent nothing since its last stage gets none.
+_Avoid_: Final milestone, shipped. A **milestone** is a stage the agent declares; this one closes
+the ledger instead.
 
 **Image tag**:
 The marker an agent writes in the text of an ordinary message to show the user a picture:
