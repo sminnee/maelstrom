@@ -2,9 +2,24 @@
 .strip {
   display: flex;
   overflow-x: auto;
-  border-bottom: 1px solid var(--border);
+  /* The strip is the one tinted surface here. The tab in view leaves it for
+     the body's own ground — see DESIGN.md, "Panel Tabs". */
   background: var(--bg-raised);
   min-height: 32px;
+  /* Room above the tabs, so the tab in view is a shape standing in the band
+     rather than a block filling it to the edge. */
+  padding-top: var(--space-1);
+}
+/* The line's tail, past the last tab. Each tab draws its own segment, and the
+   tabs are sized to their contents, so without this the line stops wherever
+   the last one ends rather than at the panel's edge. */
+.strip::after {
+  content: '';
+  /* Grows into the room left over and shrinks away when there is none, so the
+     tail never adds to the width the tabs themselves need to scroll. */
+  flex: 1 1 auto;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-strong);
 }
 .tab {
   position: relative;
@@ -12,11 +27,16 @@
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-2);
-  /* The leading edge carries phase. A tab is not a node or a card, so the
-     Left Edge Rule's 4px bar would overweight it at the strip's scale: the
-     same channel, on the same edge, at the strip's own weight. */
-  border-left: 2px solid var(--phase-dormant);
-  border-right: 1px solid var(--border);
+  /* The tab fills the band's full height, so the tab in view meets the body
+     along its bottom edge with no strip showing under it. */
+  align-self: stretch;
+  /* Held, not drawn: only the tab in view colours these edges, and reserving
+     their width here stops the strip shifting as the view moves. */
+  border: 1px solid transparent;
+  border-left: 4px solid transparent;
+  /* Each tab draws its own segment of the line under the strip; the tab in
+     view leaves its segment out. */
+  border-bottom: 1px solid var(--border-strong);
   cursor: pointer;
   white-space: nowrap;
   min-width: 0;
@@ -26,6 +46,23 @@
      down rather than set on the chip, because the state lives here: an
      inactive tab's id must not hold one tone through every state. */
   --tab-id-color: var(--fg-faint);
+}
+/* The hairline between tabs. Drawn rather than a `border-right`, so it stops
+   short of the band's padded top edge instead of rising above the tabs. It is
+   left out beside the tab in view, whose own shape already separates it. */
+.tab::before {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  width: 1px;
+  background: var(--border);
+}
+.tab:last-child::before,
+.tab[data-active]::before,
+.tab:has(+ .tab[data-active])::before {
+  display: none;
 }
 .tab:hover {
   background: var(--bg-hover);
@@ -41,18 +78,38 @@
   inset: 0;
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+  /* The tab in view is rounded, and it is the only tab Tab reaches, so a
+     square ring would be the common case rather than the edge one. */
+  border-radius: inherit;
   pointer-events: none;
+  z-index: 1;
 }
 .tab[data-active] {
   color: var(--fg);
+  /* The body's own ground, and the status row below takes it too: the tab in
+     view is marked out by a line, not by a tone of its own. */
   background: var(--bg);
-  /* The phase burns at full strength on the tab in view, and is drained on
-     the rest: one channel ranking the strip, not a second affordance. */
+  /* The outline that does that marking, on the three edges facing the strip.
+     Nothing is drawn along the bottom, where the tab joins what it heads. */
+  border-color: var(--border-strong);
+  /* The phase edge marks the tab in view and only that tab. On every tab at
+     once it read as a row of swatches, and the strip lost its rank. */
   border-left-color: var(--phase);
+  /* Tab-shaped: rounded where it leaves the strip, square where it meets the
+     body. The radius is the buttons' own, from `base.css`. */
+  border-radius: var(--radius) var(--radius) 0 0;
+  /* Open into what it heads: this tab leaves its own line segment out. The
+     line is drawn per tab rather than across the strip and masked, because
+     `.strip` has `overflow-x: auto` and so clips on both axes — see
+     DESIGN.md, "Panel Tabs". */
+  border-bottom-color: transparent;
   --tab-id-color: var(--fg-muted);
 }
+/* Stated, not inherited from source order: `.tab:hover` sets a dimmer colour,
+   and only its position above this block keeps it from winning. */
 .tab[data-active]:hover {
   background: var(--bg);
+  color: var(--fg);
 }
 /* Only the label truncates; the id never does (Mono Means Literal). */
 .label {
@@ -66,27 +123,50 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  border: none;
-  background: none;
+  justify-content: center;
   padding: var(--space-1);
-  margin-right: calc(var(--space-1) * -1);
-  border-radius: var(--radius-sm);
+  /* Held clear, and coloured only on hover: the ring is the hover treatment,
+     not the control's resting shape. Reserving its width here stops the cross
+     shifting as the ring appears under the pointer. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
   color: var(--fg-faint);
-  /* It appears on hover and on the tab in view: a strip of crosses reads as
-     a row of controls rather than a row of tabs. It fades rather than hides,
-     because `visibility: hidden` takes an element out of the focus order —
-     which would leave an inactive tab with no keyboard route to closing it,
-     and make the `:focus-visible` rule below unreachable. It keeps its place
-     in the layout either way, so no tab changes width under the pointer. */
+  /* It fades rather than hides, because `visibility: hidden` takes an element
+     out of the focus order, leaving an inactive tab with no keyboard route to
+     closing it. */
   opacity: 0;
   transition: opacity var(--duration-fast);
+  /* Lifted out of the flow and laid over the id's last characters: an
+     inactive tab must not pay width for a control nobody can see. */
+  position: absolute;
+  right: var(--space-1);
+  z-index: 1;
 }
-.tab:hover .close,
+/* An invisible control must not take the pointer. `opacity: 0` alone leaves
+   the hit area live, so a click on the right third of an inactive tab closed
+   it instead of opening it. The tab takes the pointer back below, on hover. */
+.tab:not([data-active]) .close {
+  pointer-events: none;
+}
+.tab:not([data-active]):hover .close {
+  pointer-events: auto;
+}
+.tab[data-active] .close {
+  position: static;
+  margin-right: calc(var(--space-1) * -1);
+}
+/* An inactive tab reveals its cross under the cross itself, not anywhere on
+   the tab — see DESIGN.md, "Panel Tabs". */
 .tab[data-active] .close,
+.close:hover,
 .close:focus-visible {
   opacity: 1;
 }
-.close:hover {
-  background: var(--bg-hover);
+/* The fill is what holds the glyph off the id it overlays. */
+.close:hover,
+.close:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--bg-raised);
   color: var(--fg);
 }
