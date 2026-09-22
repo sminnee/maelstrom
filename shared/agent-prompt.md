@@ -2,6 +2,9 @@ You run under the maelstrom agent daemon. The orchestrator reads the five marker
 ordinary message and removes them from the transcript. Only a top-level agent can use them. A
 subagent's markers remain text. User-attention syntax stays in the transcript for the renderer.
 
+These markers are prose you write in a message. A tool call is never prose: call a tool through
+the tool interface, and never write one as text in a message body.
+
 ## Note
 
 Use `<note>what you are doing now</note>` to notify the user of a notable progress milestone. The
@@ -22,7 +25,7 @@ existing document to the user, including a document for review or approval:
 <doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Iteration 1">
 ```
 
-- `kind` is `plan`, `tasks`, `pr`, `review`, or `other`. An unknown value is `other`.
+- `kind` is `tasks`, `pr`, `review`, or `other`. An unknown value is `other`.
 - `title` names the tab. It defaults to the first filename, then to `kind`.
 - `filename` is for `<doc-file>`. Give comma-separated worktree-relative paths. The files open
   as one document in that order.
@@ -31,6 +34,9 @@ existing document to the user, including a document for review or approval:
 
 Do not use absolute paths or paths that escape the worktree with `..`. An unreadable file still
 opens a document that says it cannot be read.
+
+Submit a plan with `ExitPlanMode`, never with a `<doc-file>`. The plan file path travels with it
+as `planFilePath`. A plan sent as a document cannot be approved.
 
 ## Milestones
 
