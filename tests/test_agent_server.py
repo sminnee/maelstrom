@@ -2983,6 +2983,7 @@ def test_driving_a_subagent_is_refused_with_the_parent_named():
         "deny",
         "answer",
         "interrupt",
+        "recover",
         "stop",
         "resume",
     ):
@@ -3415,3 +3416,222 @@ def test_say_refuses_an_attachment_that_is_not_an_image(tmp_path):
 
     assert "not an image" in reply["error"]
     assert sent == []
+
+
+def test_recovering_clears_then_hands_the_plan_back():
+    """A poisoned conversation is recovered by breaking the context, not by
+    prompting into it: the bad turn is *in* that context, so another prompt is
+    read as one more example to copy. Same two writes as an approval's tail,
+    and the same reason for their order — the clear must land before the
+    handover, or the handover is what the clear discards."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="s1",
+            plan_file="/plans/p.md",
+        )
+    )
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    assert reply == {"ok": True, "cleared": True}
+    assert sent[0]["message"]["content"][0]["text"] == "/clear"
+    handover = sent[1]["message"]["content"][0]["text"]
+    assert "/plans/p.md" in handover
+    assert "fresh conversation" in handover
+    # The order is the design, so the count is part of it.
+    assert len(sent) == 2
+
+
+def test_recovering_without_a_plan_resends_the_original_prompt():
+    """An agent that never had a plan approved still has a brief: the prompt it
+    was spawned with. Without this it would come back from the clear with an
+    empty context and nothing to do."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1", cwd="/tmp/x", session_id="s1", prompt="build the thing"
+        )
+    )
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    assert sent[0]["message"]["content"][0]["text"] == "/clear"
+    assert sent[1]["message"]["content"][0]["text"] == "build the thing"
+    assert len(sent) == 2
+
+
+def test_recovering_prefers_the_plan_over_the_spawn_prompt():
+    """Both are present on a driven agent whose plan was approved. The plan is
+    the later and narrower brief, so a recovery that sent the spawn prompt
+    would send it back to work it has already done."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="s1",
+            prompt="plan the thing",
+            plan_file="/plans/p.md",
+        )
+    )
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    assert "/plans/p.md" in sent[1]["message"]["content"][0]["text"]
+    # One brief, not two: a second would be a contradictory instruction.
+    assert len(sent) == 2
+    assert "plan the thing" not in sent[1]["message"]["content"][0]["text"]
+
+
+def test_recovering_forgets_how_full_the_context_was():
+    """No event reports a clear, so the level is reset here or it stands until
+    the agent next speaks."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1", cwd="/tmp/x", session_id="s1", prompt="build the thing"
+        )
+    )
+    agent, sent = _answering_agent()
+    agent.state = replace(agent.state, context_tokens=148_000, total_tokens=200_000)
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    # The brief went out, so this is the full path and not the early return a
+    # briefless record takes.
+    assert len(sent) == 2
+    assert agent.state.context_tokens == 0
+    # The total is spend, not a level: it stays.
+    assert agent.state.total_tokens == 200_000
+
+
+def test_recovering_does_not_respawn_the_child():
+    """The child is alive and healthy — only its conversation is poisoned. A
+    respawn would lose the session and the task link with it."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1", cwd="/tmp/x", session_id="s1", prompt="build the thing"
+        )
+    )
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    # On the full path, not the early return a briefless record takes.
+    assert len(sent) == 2
+    assert daemon.agents["a1"] is agent
+    assert daemon.specs.read("a1").session_id == "s1"
+
+
+def test_approving_a_plan_records_the_plan_file_for_a_later_recovery():
+    """The ask carrying ``planFilePath`` is answered and gone by the time an
+    agent needs recovering, so the approval is the only moment the file can be
+    written down."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, _ = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    # Captured before the approval answers and closes the ask.
+    [ask] = list(_asks(agent.state).values())
+    expected = ask.input["planFilePath"]
+
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    # The exact path, not merely a `.md` one: the wrong ask's file would pass a
+    # shape check while briefing a recovery from the wrong plan.
+    assert daemon.specs.read("a1").plan_file == expected
+
+
+def test_recovering_a_briefless_agent_says_why_it_waits():
+    """A record naming neither a plan file nor a prompt is cleared all the
+    same: the clear cannot be undone, so the caller is told rather than
+    refused. Only the clear is sent — there is nothing to follow it with."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1"))
+    agent, sent = _answering_agent()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    assert reply["ok"] is True
+    assert reply["cleared"] is True
+    assert "no plan file and no prompt" in reply["warning"]
+    assert len(sent) == 1
+    assert sent[0]["message"]["content"][0]["text"] == "/clear"
+
+
+def test_an_approved_plan_survives_the_store_and_briefs_a_recovery(tmp_path):
+    """The approval and the recovery are separated by a write to disk, and the
+    only store the daemon really uses is the JSON one. Held in memory, a field
+    the serialiser drops behaves exactly like one it keeps, so the preference
+    this feature exists for passes in memory and does nothing in production."""
+    daemon = AgentDaemon(specs=JsonAgentSpecStore(tmp_path))
+    daemon.specs.write(
+        AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="s1", prompt="plan the thing")
+    )
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+    asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
+
+    # Re-read through the store, as a later recovery does.
+    plan_file = daemon.specs.read("a1").plan_file
+    assert plan_file.endswith(".md")
+
+    sent.clear()
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    assert sent[0]["message"]["content"][0]["text"] == "/clear"
+    handover = sent[1]["message"]["content"][0]["text"]
+    assert plan_file in handover
+    assert "plan the thing" not in handover
+
+
+def test_recovering_denies_every_open_ask_first():
+    """The clear discards the conversation an ask belongs to, so nothing can
+    ever answer it afterwards. A subagent's ask is filed on the subagent and
+    outlives its parent's turn, so an undenied one blocks its caller for ever
+    — the same reason the approval denies before it clears."""
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    daemon.specs.write(
+        AgentSpec(
+            agent_id="a1", cwd="/tmp/x", session_id="s1", prompt="build the thing"
+        )
+    )
+    agent, sent = _answering_agent()
+    for line in (FIXTURES / "subagent-permission.jsonl").read_text().splitlines():
+        event = json.loads(line) if line.strip() else {}
+        if event.get("type") == "control_request":
+            agent.state = apply_event(agent.state, event)
+            break
+    open_ids = list(_asks(agent.state))
+    assert open_ids, "the subagent's ask is open"
+    daemon.agents["a1"] = agent
+
+    asyncio.run(_handle(daemon, {"cmd": "recover", "id": "a1"}))
+
+    answered = {
+        m["response"]["request_id"]: m["response"]["response"]["behavior"]
+        for m in sent
+        if m.get("type") == "control_response"
+    }
+    assert all(answered[rid] == "deny" for rid in open_ids)
+    # The denials come before the clear, or they answer a conversation that is
+    # already gone.
+    texts = [m for m in sent if m.get("type") != "control_response"]
+    assert texts[0]["message"]["content"][0]["text"] == "/clear"
+    assert len(sent) == len(open_ids) + 2

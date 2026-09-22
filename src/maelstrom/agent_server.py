@@ -684,6 +684,7 @@ DRIVING_COMMANDS = (
     "set-mode",
     "stop",
     "resume",
+    "recover",
 )
 
 #: What ``list`` may be asked for. ``running`` is the default and is what the
@@ -1301,6 +1302,9 @@ class AgentDaemon:
             error = await self._set_mode(agent, mode)
             return error if error is not None else {"ok": True, "mode": mode}
 
+        if command == "recover":
+            return await self._recover(agent)
+
         asks = open_asks(agent.state)
         pending = _oldest_pending(agent.state)
 
@@ -1373,6 +1377,61 @@ class AgentDaemon:
 
         return {"error": f"unknown command: {command}"}
 
+    async def _recover(self, agent: Agent) -> dict:
+        """Break ``agent``'s context and send it its work again.
+
+        Does not respawn: the child is healthy and only its context is bad, and
+        a respawn would lose the session and the task link with it. See
+        ``docs/dev/agent-daemon.md``, "Recovering a poisoned context".
+
+        Two writes, in the order ``_approve_plan`` ends on and for the same
+        reason: the clear, then the turn that follows it. Sent the other way
+        round, the clear is what discards that turn.
+
+        Any open ask is denied before the clear, as the approval does it: the
+        clear discards the conversation the ask belongs to, so nothing could
+        answer it afterwards. A subagent's ask is filed on the subagent and
+        outlives its parent's turn, so an undenied one blocks its caller for
+        ever.
+        """
+        for open_ask in open_asks(agent.state).values():
+            denial = reply_for_denial(open_ask, INTERRUPTED_REASON)
+            if not await agent.send(denial):
+                return _unreachable(agent)
+            agent.record(denial)
+
+        if not await agent.send(user_message(CLEAR_COMMAND)):
+            return _unreachable(agent)
+        # No event reports a clear, so the level is reset here or it stands
+        # until the agent next speaks. The total is spend; it stays.
+        agent.state = replace(agent.state, context_tokens=0)
+
+        # A handover outranks the spawn prompt: it is the later and narrower
+        # instruction, and an agent whose plan was approved has already done
+        # the work the spawn prompt asks for.
+        spec = self.specs.read(agent.state.agent_id)
+        plan_file = spec.plan_file if spec is not None else ""
+        follow_up = (
+            build_plan_handover_prompt(plan_file)
+            if plan_file
+            else (spec.prompt if spec is not None else "")
+        )
+        if not follow_up:
+            # The clear has already happened and cannot be undone, so this is
+            # reported rather than refused: an agent with no context and no
+            # instruction still needs the caller to know why it is idle.
+            return {
+                "ok": True,
+                "cleared": True,
+                "warning": (
+                    f"agent {agent.state.agent_id} has no plan file and no "
+                    "prompt to send; it has been cleared and is waiting"
+                ),
+            }
+        if not await agent.send(user_message(follow_up)):
+            return _unreachable(agent)
+        return {"ok": True, "cleared": True}
+
     async def _approve_plan(self, agent: Agent, pending: PendingRequest) -> dict:
         """Accept ``pending``'s plan, then clear the context it was written in.
 
@@ -1391,6 +1450,13 @@ class AgentDaemon:
                 return _unreachable(agent)
             agent.record(reply)
             return {"ok": True, "cleared": False, "warning": NO_PLAN_FILE_REASON}
+
+        # Written before the sends, while the file is still in hand: the ask
+        # that carried it is about to be answered, and nothing else names it.
+        # A recovery later reads it back to rebuild the handover.
+        spec = self.specs.read(agent.state.agent_id)
+        if spec is not None:
+            self.specs.write(replace(spec, plan_file=plan_file))
 
         reply = reply_for_approval(pending)
         if not await agent.send(reply):

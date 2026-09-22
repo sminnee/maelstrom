@@ -735,6 +735,17 @@ async def cmd_interrupt(agent_id: str) -> None:
     await _send({"cmd": "interrupt", "id": agent_id})
 
 
+@agent.command("recover")
+@click.argument("agent_id")
+async def cmd_recover(agent_id: str) -> None:
+    """Clear a poisoned context and send the agent its work again.
+
+    For an agent that answers but does no work. The child keeps running and
+    keeps its session, so the task link survives.
+    """
+    await _send({"cmd": "recover", "id": agent_id})
+
+
 @agent.command("set-mode")
 @click.argument("agent_id")
 @click.argument("mode", type=click.Choice(MODES))
