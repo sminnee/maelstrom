@@ -133,6 +133,11 @@ def test_interrupt_sends_the_interrupt_command():
     assert client.calls == [{"cmd": "interrupt", "id": "a1"}]
 
 
+def test_recover_sends_the_recover_command():
+    _, client = run_cli(["recover", "a1"], [{"ok": True, "cleared": True}])
+    assert client.calls == [{"cmd": "recover", "id": "a1"}]
+
+
 def test_set_mode_sends_the_mode():
     _, client = run_cli(["set-mode", "a1", "auto"], [{"ok": True, "mode": "auto"}])
     assert client.calls == [{"cmd": "set-mode", "id": "a1", "mode": "auto"}]
