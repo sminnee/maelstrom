@@ -85,6 +85,17 @@ export function nodeTitle(node: GraphNode): string {
   return worktree.branch ? `${worktree.nato} · ${worktree.branch}` : worktree.nato;
 }
 
+/**
+ * The id a node shows: a task's bare notebook id, because the lane already
+ * names the project, else the free agent's own id — the **Failover id** rule
+ * in `CONTEXT.md`.
+ *
+ * An agent id is already 8 characters, so nothing here truncates.
+ */
+export function nodeIdLine(node: GraphNode): string {
+  return node.task ? node.task.notebookId : node.id;
+}
+
 /** Whether an agent is still running. An exited one draws nothing by itself. */
 export function isLive(agent: Agent | undefined): boolean {
   return agent !== undefined && agent.state !== 'exited';
