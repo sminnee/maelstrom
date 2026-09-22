@@ -54,9 +54,33 @@ OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 #: over the agent host's socket.
 CloseWorktree = Callable[[str, str, str], Awaitable[None]]
 
+#: Rebases one worktree: ``(project, nato, path, mode) -> None``. ``mode`` is
+#: ``plain``, ``autorepair`` or ``squash``, the three settings ``mael sync``
+#: already has. One callable rather than three: it is one operation the user
+#: chooses a setting for, not three operations.
+#:
+SyncWorktree = Callable[[str, str, str, str], Awaitable[None]]
+
+#: Removes one worktree outright: ``(project, nato, path) -> None``. The close
+#: parks a worktree for reuse; this deletes the checkout.
+RemoveWorktree = Callable[[str, str, str], Awaitable[None]]
+
+#: Starts or stops a worktree's environment:
+#: ``(project, nato, path, action) -> None`` where ``action`` is ``start``,
+#: ``stop`` or ``restart``. The environment is keyed by project and worktree
+#: name, but a start reads the checkout's own ``.env`` and services, so the
+#: path comes too.
+#:
+EnvWorktree = Callable[[str, str, str, str], Awaitable[None]]
+
 
 class CloseBlocked(Exception):
-    """The worktree must not close now. The message says why, for the user."""
+    """The operation must not run now. The message says why, for the user.
+
+    Raised by every worktree operation, not only the close: what reaches the
+    button is one message, and one refusal type is what keeps it that way.
+    The name predates the others.
+    """
 
 
 def _rename_wire_fields(
@@ -248,6 +272,21 @@ class WorktreeSource(Protocol):
 
     #: Closes a worktree, or ``None`` on a source that cannot.
     close: CloseWorktree | None
+
+    #: Closes a worktree past its refusals, or ``None`` on a source that
+    #: cannot. Separate from ``close`` because forcing writes a wip commit: it
+    #: is a different decision, taken behind a confirm. It creates no reopen
+    #: task — that belongs to ``mael close --force`` alone.
+    force_close: CloseWorktree | None
+
+    #: Rebases a worktree, or ``None`` on a source that cannot.
+    sync: SyncWorktree | None
+
+    #: Removes a worktree, or ``None`` on a source that cannot.
+    remove: RemoveWorktree | None
+
+    #: Starts or stops a worktree's environment, or ``None``.
+    env: EnvWorktree | None
 
     #: Whether the last read had its pull request lookup refused for quota. The
     #: rows still stand — a refused lookup costs the pull request column, not
@@ -480,10 +519,18 @@ class InMemoryWorktreeSource:
         projects: list[Project] | None = None,
         worktrees: list[Worktree] | None = None,
         close: CloseWorktree | None = None,
+        force_close: CloseWorktree | None = None,
+        sync: SyncWorktree | None = None,
+        remove: RemoveWorktree | None = None,
+        env: EnvWorktree | None = None,
     ) -> None:
         self.projects = list(projects or [])
         self.worktrees = list(worktrees or [])
         self.close = close
+        self.force_close = force_close
+        self.sync = sync
+        self.remove = remove
+        self.env = env
         #: How many times the source has been read, so a test can check that a
         #: poll did *not* run. The real source's reads cost GitHub quota, and
         #: an unwanted one is invisible in the world it produces.
@@ -511,11 +558,20 @@ class InMemoryWorktreeSource:
 class ListAllWorktreeSource:
     """Projects and worktrees from :func:`maelstrom.list_all.build_list_all_data`.
 
-    ``close`` is how the server closes one. A source built without it serves
-    the world read-only, and a close is refused rather than half-done.
+    The operations are how the server mutates one. A source built without one
+    serves the world read-only for it, and that operation is refused rather
+    than half-done.
     """
 
-    def __init__(self, projects_dir: Path, close: CloseWorktree | None = None) -> None:
+    def __init__(
+        self,
+        projects_dir: Path,
+        close: CloseWorktree | None = None,
+        force_close: CloseWorktree | None = None,
+        sync: SyncWorktree | None = None,
+        remove: RemoveWorktree | None = None,
+        env: EnvWorktree | None = None,
+    ) -> None:
         self.projects_dir = projects_dir
         #: The last pull request seen, by project and then by branch, answering
         #: the branches a read did not ask about; see
@@ -526,6 +582,10 @@ class ListAllWorktreeSource:
         #: The rows still stand; the caller stands the next read off.
         self.rate_limited = False
         self.close = close
+        self.force_close = force_close
+        self.sync = sync
+        self.remove = remove
+        self.env = env
 
     async def read(
         self, active_branches: set[str] | None = None

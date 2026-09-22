@@ -166,6 +166,7 @@ class Orchestrator:
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
+        worktree_executor: Executor | None = None,
         task_poll: float = TASK_POLL_SECS,
         export_poll: float = EXPORT_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
@@ -193,6 +194,10 @@ class Orchestrator:
         self.exporter = exporter
         self.clock = clock
         self.executor = executor
+        #: Kept for a worktree operation that is not a sequence. The five that
+        #: are take the pool directly, because it is each blocking step that
+        #: needs a thread — see ``orchestrator_cli.build_orchestrator``.
+        self.worktree_executor = worktree_executor or executor
         self.state = WorldState()
         #: Every file an agent named, by the id that stands for it.
         self.files = FileRegistry()
@@ -453,11 +458,31 @@ class Orchestrator:
         converted to ``async`` keeps working through this one call site, and a
         source still blocking keeps its thread.
         """
-        if self.executor is None or inspect.iscoroutinefunction(fn):
+        return await self._run_on(self.executor, fn, *args)
+
+    async def _run_worktree(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run one worktree operation, which is a sequence of steps.
+
+        Deliberately not ``_run``: worktree work touches git, ports and the
+        process table, never the notebook, so it must not queue behind a task
+        read on the index's one thread — a fetch takes seconds.
+
+        The pool it runs on is handed to the sequence when the operation is
+        built, not applied here, because it is each blocking *step* that needs
+        a thread. The operation itself is a coroutine that awaits them. See
+        :mod:`maelstrom.worktree_steps` and ``orchestrator_cli``.
+        """
+        return await self._run_on(self.worktree_executor, fn, *args)
+
+    async def _run_on(
+        self, executor: Executor | None, fn: Callable[..., Any], *args: Any
+    ) -> Any:
+        """Run ``fn`` on ``executor``, or inline when it is async or there is none."""
+        if executor is None or inspect.iscoroutinefunction(fn):
             result = fn(*args)
         else:
             result = await asyncio.get_running_loop().run_in_executor(
-                self.executor, fn, *args
+                executor, fn, *args
             )
         return await result if inspect.isawaitable(result) else result
 
@@ -1255,6 +1280,10 @@ class Orchestrator:
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
             "worktree.close": self._close_worktree,
+            "worktree.forceClose": self._force_close_worktree,
+            "worktree.remove": self._remove_worktree,
+            "worktree.sync": self._sync_worktree,
+            "worktree.env": self._env_worktree,
             "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
@@ -1767,7 +1796,7 @@ class Orchestrator:
         # Validation proved the worktree is in the world, so the row is here.
         row = self.world["worktrees"][worktree_id]
         try:
-            await self._run(close, row["project"], row["nato"], row["path"])
+            await self._run_worktree(close, row["project"], row["nato"], row["path"])
         except CloseBlocked as exc:
             return _refused("invalid", str(exc))
         except Exception as exc:  # noqa: BLE001 — the client hears why
@@ -1778,6 +1807,120 @@ class Orchestrator:
             # ports, so the world is stale whichever way this ends.
             await self.refresh_worktrees()
             await self.refresh_agents()
+        return {"ok": True, "result": {}}
+
+    async def _force_close_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Close a worktree past its refusals.
+
+        The same teardown as a close, but it commits the work in progress
+        first, so nothing is lost. The user takes that decision behind a
+        confirm, which is why it is its own command.
+
+        It writes no reopen task: ``mael close --force`` creates one, and that
+        step lives in the CLI. A branch force-closed from the UI keeps its
+        commits and its pull request, but nothing points back at it.
+        """
+        force_close = self.worktrees.force_close
+        if force_close is None:
+            return _refused("invalid", "This server cannot close worktrees")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            await self._run_worktree(
+                force_close, row["project"], row["nato"], row["path"]
+            )
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not close worktree %s", worktree_id)
+            return _refused("invalid", f"Could not close the worktree: {exc}")
+        finally:
+            # A close that fails partway has still stopped agents and freed
+            # ports, so the world is stale whichever way this ends.
+            await self.refresh_worktrees()
+            await self.refresh_agents()
+        return {"ok": True, "result": {}}
+
+    async def _remove_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Remove a worktree outright.
+
+        A close parks the worktree for reuse; this deletes the checkout. It
+        tears down the same things on the way, so the agents are re-read too.
+        """
+        remove = self.worktrees.remove
+        if remove is None:
+            return _refused("invalid", "This server cannot remove worktrees")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            await self._run_worktree(remove, row["project"], row["nato"], row["path"])
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not remove worktree %s", worktree_id)
+            return _refused("invalid", f"Could not remove the worktree: {exc}")
+        finally:
+            # A remove that fails partway has still stopped agents and freed
+            # ports, so the world is stale whichever way this ends.
+            await self.refresh_worktrees()
+            await self.refresh_agents()
+        return {"ok": True, "result": {}}
+
+    async def _sync_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Rebase a worktree onto its base, in the mode the command names.
+
+        Validation proved the mode is one of the three, so it is passed on as
+        it stands. Only the worktrees are re-read: a sync starts and stops no
+        agent, it moves the branch.
+        """
+        sync = self.worktrees.sync
+        if sync is None:
+            return _refused("invalid", "This server cannot sync worktrees")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            await self._run_worktree(
+                sync, row["project"], row["nato"], row["path"], command["mode"]
+            )
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not sync worktree %s", worktree_id)
+            return _refused("invalid", f"Could not sync the worktree: {exc}")
+        finally:
+            # A sync that fails partway has still moved the branch, so the
+            # world is stale whichever way this ends.
+            await self.refresh_worktrees()
+        return {"ok": True, "result": {}}
+
+    async def _env_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start, stop or restart a worktree's environment.
+
+        Only the worktrees are re-read: an environment holds the services,
+        not the agents.
+        """
+        env = self.worktrees.env
+        if env is None:
+            return _refused("invalid", "This server cannot start or stop environments")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            await self._run_worktree(
+                env, row["project"], row["nato"], row["path"], command["action"]
+            )
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not change the environment of %s", worktree_id)
+            return _refused("invalid", f"Could not change the environment: {exc}")
+        finally:
+            # A change that fails partway has still started or stopped some
+            # services, so the world is stale whichever way this ends.
+            await self.refresh_worktrees()
         return {"ok": True, "result": {}}
 
     async def _refresh_worktrees_now(self, _command: dict[str, Any]) -> dict[str, Any]:

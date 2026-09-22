@@ -139,6 +139,8 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "dirtyFiles": 2,
         "localCommits": 1,
         "prNumber": 42,
+        "prCommits": 5,
+        "pushedCommits": None,
         "prUrl": "https://github.com/acme/northwind/pull/42",
         "prState": "ready",
         "prDraft": False,

@@ -132,6 +132,8 @@ def worktree_entity(project: str, row: dict[str, Any]) -> Worktree:
         "dirtyFiles": int(row.get("dirty_files") or 0),
         "localCommits": int(row.get("local_commits") or 0),
         "prNumber": row.get("pr_number"),
+        "prCommits": row.get("pr_commits"),
+        "pushedCommits": row.get("pushed_commits"),
         "prUrl": row.get("pr_url") or "",
         "prState": row.get("pr_state") or "",
         "prDraft": bool(row.get("pr_draft")),

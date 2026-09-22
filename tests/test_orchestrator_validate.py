@@ -726,3 +726,135 @@ def test_closing_main_is_refused_without_touching_git():
     assert "_main" in error["message"]
     # The reason, not only the name: it is the whole of what the user reads.
     assert "main checkout" in error["message"]
+
+
+# ---------------------------------------------------------------------------
+# the other worktree operations
+# ---------------------------------------------------------------------------
+
+
+def worktree_cmd(kind: str, worktree_id: str, **over) -> dict:
+    return {"type": kind, "worktreeId": worktree_id, **over}
+
+
+class TestForceClose:
+    """Force close refuses where close does: it is still a close."""
+
+    def test_forcing_an_open_worktree_is_allowed(self):
+        world = world_with(worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.forceClose", "northwind-alpha")
+        assert validate_command(world, cmd) is None
+
+    def test_forcing_main_is_refused_without_touching_git(self):
+        world = world_with(
+            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+        )
+        error = validate_command(world, worktree_cmd("worktree.forceClose", "_main"))
+        assert code(error) == "invalid"
+        assert "main checkout" in error["message"]
+
+    def test_forcing_a_closed_worktree_is_refused(self):
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        error = validate_command(
+            world, worktree_cmd("worktree.forceClose", "northwind-alpha")
+        )
+        assert code(error) == "invalid"
+        assert "closed already" in error["message"]
+
+    def test_forcing_a_worktree_the_world_does_not_hold_is_unknown_id(self):
+        error = validate_command(
+            empty_world(), worktree_cmd("worktree.forceClose", "northwind-zulu")
+        )
+        assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
+
+
+class TestRemove:
+    def test_removing_an_open_worktree_is_allowed(self):
+        world = world_with(worktrees=[make_worktree()])
+        assert (
+            validate_command(world, worktree_cmd("worktree.remove", "northwind-alpha"))
+            is None
+        )
+
+    def test_removing_a_closed_worktree_is_allowed(self):
+        """A closed worktree is parked, not gone. Deleting it is the point."""
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        assert (
+            validate_command(world, worktree_cmd("worktree.remove", "northwind-alpha"))
+            is None
+        )
+
+    def test_removing_main_is_refused_without_touching_git(self):
+        world = world_with(
+            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+        )
+        error = validate_command(world, worktree_cmd("worktree.remove", "_main"))
+        assert code(error) == "invalid"
+        assert "main checkout" in error["message"]
+
+    def test_removing_a_worktree_the_world_does_not_hold_is_unknown_id(self):
+        error = validate_command(
+            empty_world(), worktree_cmd("worktree.remove", "northwind-zulu")
+        )
+        assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
+
+
+class TestSync:
+    def test_syncing_an_open_worktree_is_allowed(self):
+        world = world_with(worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.sync", "northwind-alpha", mode="plain")
+        assert validate_command(world, cmd) is None
+
+    def test_syncing_a_closed_worktree_is_refused(self):
+        """A closed worktree holds no branch, so there is nothing to rebase."""
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        error = validate_command(
+            world, worktree_cmd("worktree.sync", "northwind-alpha", mode="plain")
+        )
+        assert code(error) == "invalid"
+        assert "closed" in error["message"]
+
+    def test_syncing_main_is_allowed(self):
+        """`_main` cannot close, but it rebases like any other checkout."""
+        world = world_with(
+            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+        )
+        cmd = worktree_cmd("worktree.sync", "_main", mode="plain")
+        assert validate_command(world, cmd) is None
+
+    def test_an_unknown_mode_is_refused(self):
+        world = world_with(worktrees=[make_worktree()])
+        error = validate_command(
+            world, worktree_cmd("worktree.sync", "northwind-alpha", mode="rewrite")
+        )
+        assert code(error) == "invalid"
+        assert "rewrite" in error["message"]
+
+
+class TestEnv:
+    def test_starting_an_environment_is_allowed(self):
+        world = world_with(worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.env", "northwind-alpha", action="start")
+        assert validate_command(world, cmd) is None
+
+    def test_an_environment_in_a_closed_worktree_is_refused(self):
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        error = validate_command(
+            world, worktree_cmd("worktree.env", "northwind-alpha", action="start")
+        )
+        assert code(error) == "invalid"
+        assert "closed" in error["message"]
+
+    def test_an_unknown_action_is_refused(self):
+        world = world_with(worktrees=[make_worktree()])
+        error = validate_command(
+            world, worktree_cmd("worktree.env", "northwind-alpha", action="bounce")
+        )
+        assert code(error) == "invalid"
+        assert "bounce" in error["message"]
+
+    def test_an_environment_on_a_worktree_the_world_lacks_is_unknown_id(self):
+        error = validate_command(
+            empty_world(), worktree_cmd("worktree.env", "northwind-zulu", action="stop")
+        )
+        assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}

@@ -42,6 +42,12 @@ class Worktree(TypedDict):
     dirtyFiles: int
     localCommits: int
     prNumber: int | None
+    #: Commits on the open pull request, or ``None`` with no PR.
+    prCommits: int | None
+    #: Commits pushed with no open pull request — what "remote branch commits"
+    #: means for a branch waiting on a new one. ``cli.pr_display`` reads both,
+    #: so the table and the chip agree on one reading.
+    pushedCommits: int | None
     prUrl: str
     #: A :data:`maelstrom.github_model.PrState`, or ``""`` with no PR.
     prState: str

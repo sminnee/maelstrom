@@ -111,6 +111,10 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
+    app.router.add_post("/api/worktrees/{id}/force-close", _force_close_worktree)
+    app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
+    app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
+    app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
     app.router.add_get("/api/linear/issues", _linear_issues)
@@ -552,6 +556,50 @@ async def _close_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.close", "worktreeId": worktree_id},
+    )
+
+
+async def _force_close_worktree(request: web.Request) -> web.StreamResponse:
+    """Close a worktree past its refusals. It commits and syncs, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.forceClose", "worktreeId": worktree_id},
+    )
+
+
+async def _remove_worktree(request: web.Request) -> web.StreamResponse:
+    """Delete a worktree. It tears the checkout down, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.remove", "worktreeId": worktree_id},
+    )
+
+
+async def _sync_worktree(request: web.Request) -> web.StreamResponse:
+    """Rebase a worktree. It fetches and pushes, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.sync",
+            "worktreeId": worktree_id,
+            "mode": body.get("mode", "autorepair"),
+        },
+    )
+
+
+async def _env_worktree(request: web.Request) -> web.StreamResponse:
+    """Start, stop or restart a worktree's environment. Services take time to come up."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.env",
+            "worktreeId": worktree_id,
+            "action": body.get("action", "start"),
+        },
     )
 
 
