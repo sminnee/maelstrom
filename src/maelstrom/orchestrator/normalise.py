@@ -932,6 +932,17 @@ class _Emitter:
                 self.document_status(
                     pending.document_id, "approved" if allow else "changes-requested"
                 )
+            if allow:
+                # Maelstrom's own marker, not the agent's. An approval
+                # interrupts the agent and clears its context before it says
+                # anything, so there is no turn in which it could write one.
+                # A denial reaches no stage: the agent goes back to planning.
+                self.milestone = Milestone(
+                    agent_id=self.ctx.agent_id,
+                    name="planned",
+                    at=self.event_ts or self.now,
+                    recognised=True,
+                )
         else:
             patch = {"decision": "allow" if allow else "deny"}
             if not allow:

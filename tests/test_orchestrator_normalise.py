@@ -1900,16 +1900,16 @@ def replay_milestone(text: str, **agent_over) -> tuple[Replayed, object]:
 
 
 def test_a_milestone_tag_is_reported_beside_the_events():
-    replayed, out = replay_milestone("<milestone>green</milestone>")
+    replayed, out = replay_milestone("<milestone>built</milestone>")
     assert out.milestone is not None
-    assert out.milestone.name == "green"
+    assert out.milestone.name == "built"
     assert out.milestone.at == NOW
     assert out.milestone.recognised is True
 
 
 def test_the_milestone_tag_is_cut_from_the_message_the_transcript_shows():
     """A milestone is a marker, not prose the reader sees."""
-    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>green</milestone>")
+    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>built</milestone>")
     [message] = items_of(replayed, "message")
     assert "<milestone>" not in message["markdown"]
     assert message["markdown"] == "Tests pass."
@@ -1925,21 +1925,21 @@ def test_an_unrecognised_milestone_name_is_kept_and_flagged():
 def test_the_last_milestone_in_a_message_wins():
     """Latest only, as a note is."""
     _, out = replay_milestone(
-        "<milestone>built</milestone>\n<milestone>green</milestone>"
+        "<milestone>built</milestone>\n<milestone>reviewed</milestone>"
     )
-    assert out.milestone.name == "green"
+    assert out.milestone.name == "reviewed"
 
 
 def test_a_milestone_inside_a_doc_content_body_stays_that_bodys_text():
     """The rule every other tag already follows."""
     replayed, out = replay_milestone(
         '<doc-content kind="other" title="Guide">\n'
-        "Write <milestone>green</milestone> when the tests pass.\n"
+        "Write <milestone>built</milestone> when the tests pass.\n"
         "</doc-content>"
     )
     assert out.milestone is None
     [doc] = documents_of(replayed)
-    assert "<milestone>green</milestone>" in doc["markdown"]
+    assert "<milestone>built</milestone>" in doc["markdown"]
 
 
 def test_a_message_with_no_milestone_reports_none():
@@ -1949,12 +1949,99 @@ def test_a_message_with_no_milestone_reports_none():
 
 def test_a_subagent_writes_no_milestone():
     """Same reason it mints no document: its tags stay as text."""
-    replayed, out = replay_milestone("<milestone>green</milestone>", parent="ag0")
+    replayed, out = replay_milestone("<milestone>built</milestone>", parent="ag0")
     assert out.milestone is None
     [message] = items_of(replayed, "message")
-    assert "<milestone>green</milestone>" in message["markdown"]
+    assert "<milestone>built</milestone>" in message["markdown"]
 
 
 def test_a_milestone_does_not_become_what_the_agent_last_said():
-    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>green</milestone>")
+    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>built</milestone>")
     assert agent_of(replayed)["lastMessage"] == "Tests pass."
+
+
+# -- the milestone Maelstrom writes when the user approves a plan --
+
+
+def replay_plan_decision(
+    *,
+    allow: bool,
+    tool: str = "ExitPlanMode",
+    request_id: str = "req-1",
+    answer_id: str = "req-1",
+    parent: str = "",
+) -> object:
+    """A request and the decision that answers it, for the normaliser's output.
+
+    Two events rather than one, because the decision is only recognised as a
+    plan's when its request is still pending. ``answer_id`` differs from
+    ``request_id`` to answer a request the normaliser never saw, and ``parent``
+    makes the agent a subagent — the gate reads the agent's own parent, not
+    anything on the event.
+    """
+    state = seed([make_agent(id="ag1", parent=parent, state="processing")])
+    ctx = context_for_agent("ag1")
+    request = {
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": tool,
+            "input": {"plan": "# The plan", "planFilePath": "/p.md"},
+            "tool_use_id": "toolu_1",
+        },
+    }
+    out = normalise_stream_event(state, ctx, request, NOW)
+    for event in out.events:
+        state = apply_event(state, event)
+    return normalise_stream_event(
+        state,
+        out.ctx,
+        {
+            "type": "control_response",
+            "response": {
+                "request_id": answer_id,
+                "response": {"behavior": "allow" if allow else "deny"},
+            },
+        },
+        NOW,
+    )
+
+
+def test_approving_a_plan_reports_the_planned_milestone():
+    """Maelstrom marks the stage itself: the agent is cleared right afterwards.
+
+    An agent cannot write the marker for a plan it just had approved, because
+    the approval interrupts it and clears its context before it says anything.
+    """
+    out = replay_plan_decision(allow=True)
+    assert out.milestone is not None
+    assert out.milestone.name == "planned"
+    assert out.milestone.at == NOW
+    assert out.milestone.recognised is True
+
+
+def test_denying_a_plan_reports_no_milestone():
+    """No stage was reached: the agent goes back to planning."""
+    assert replay_plan_decision(allow=False).milestone is None
+
+
+def test_approving_something_other_than_a_plan_reports_no_milestone():
+    out = replay_plan_decision(allow=True, tool="Bash")
+    assert out.milestone is None
+
+
+def test_a_decision_for_a_request_the_normaliser_never_saw_reports_no_milestone():
+    """`response` returns early with nothing pending, so no stage is invented."""
+    out = replay_plan_decision(allow=True, answer_id="req-unseen")
+    assert out.milestone is None
+
+
+def test_a_subagents_plan_approval_reports_no_milestone():
+    """`request` is gated on the top-level agent, so a subagent holds no pending.
+
+    A subagent plans within its parent's stage. Its approval is not a stage of
+    the session's own work.
+    """
+    out = replay_plan_decision(allow=True, parent="ag0")
+    assert out.milestone is None
