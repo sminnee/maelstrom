@@ -660,31 +660,91 @@ def test_both_note_patterns_are_still_in_step():
     assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags
 
 
-def test_both_milestone_patterns_are_still_in_step():
-    """The daemon strips the marker too, so it never stands as the last message."""
-    assert agent_model._MILESTONE_TAG.pattern == document_tags._MILESTONE_TAG.pattern
-    assert agent_model._MILESTONE_TAG.flags == document_tags._MILESTONE_TAG.flags
+def test_marker_syntax_never_shows_in_what_the_agent_last_said():
+    """Otherwise raw tag syntax shows in `mael agent list`.
 
-
-def test_a_milestone_is_cut_from_what_the_agent_last_said():
-    """Otherwise raw tag syntax shows in `mael agent list`."""
+    The name a milestone carries is left standing. It is a word rather than
+    syntax, and keeping it costs a stray word in a truncated column where
+    cutting it would need to know where every marker's body ends.
+    """
     state = _say(
         AgentState(agent_id="a1", cwd="/tmp/x"),
-        "Gates pass.\n\n<milestone>green</milestone>",
+        "Gates pass.\n\n<milestone>built</milestone>",
     )
-    assert state.last_message == "Gates pass."
+    assert state.last_message == "Gates pass.\n\nbuilt"
 
 
-def test_a_message_that_is_only_a_milestone_says_nothing():
-    """The cut empties the message, as a note-only message already does.
+def test_a_message_that_is_only_markers_says_what_they_held():
+    """Nothing is left to say once the syntax goes, bar the bodies.
 
-    The marker never survives as raw syntax, which is the point of the cut.
-    Whether an empty message should leave the standing one alone is a question
-    about ``<note>`` too, and this branch does not answer it.
+    A marker that carries no body leaves nothing at all, so a message of only
+    unpaired markers empties — which is what `<user-attention>` alone does.
     """
     state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), "Working on it.")
-    state = _say(state, "<milestone>built</milestone>")
+    state = _say(state, "<user-attention low>")
     assert state.last_message == ""
+
+
+def test_every_marker_is_scrubbed_whatever_its_name():
+    """The daemon reads no marker but `<note>`, so it knows none by name.
+
+    The orchestrator owns the marker vocabulary. A daemon that knew the names
+    would leak each one it had not been told about — and `<user-attention>`
+    opens every message an agent writes.
+    """
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "<user-attention high>\nRebase is clean.\n"
+        '<image src="docs/shot.png" alt="The dialog">\n'
+        '<doc-file kind="pr" filename=".drafts/pr.md" title="PR">',
+    )
+    assert state.last_message == "Rebase is clean."
+
+
+def test_prose_an_agent_wrapped_in_markup_is_kept():
+    """The scrub takes syntax, never words.
+
+    An agent writes HTML in a message — `<details>`, `<section>` — and a cut
+    that took a tag's body with it would delete the paragraphs between the
+    halves of a pair. No shape tells such a pair from `<doc-content>`, whose
+    body is arbitrary markdown, so the body is what stays.
+    """
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "Consider this:\n<section>\nBody text here\n</section>\nThat is the fix.",
+    )
+    assert "Body text here" in state.last_message
+    assert "<section>" not in state.last_message
+    assert "</section>" not in state.last_message
+
+
+def test_a_closing_tag_leaves_no_orphan():
+    """Both halves of a pair are syntax, so both go.
+
+    Cutting only what it recognised as an opening tag would leave a bare
+    `</outer>` standing — the raw syntax the scrub exists to remove.
+    """
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "<outer>\n<outer>x</outer>\n</outer>\ntail",
+    )
+    assert state.last_message == "x\n\ntail"
+
+
+def test_prose_that_looks_like_a_tag_is_left_alone():
+    """A cut bounded by arbitrary angle brackets would eat the agent's words."""
+    state = _say(
+        AgentState(agent_id="a1", cwd="/tmp/x"),
+        "The guard holds when a < b and the count is <= 3.",
+    )
+    assert state.last_message == "The guard holds when a < b and the count is <= 3."
+
+
+def test_a_fenced_code_block_keeps_its_markup():
+    """Prose about HTML is prose, not a marker the daemon should swallow."""
+    text = 'Fixed the template:\n\n```html\n<div class="row">hi</div>\n```'
+    state = _say(AgentState(agent_id="a1", cwd="/tmp/x"), text)
+    assert state.last_message == text
 
 
 def test_a_note_replaces_the_one_before_it():

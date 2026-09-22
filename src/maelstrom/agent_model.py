@@ -759,24 +759,50 @@ _ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
 #: readers cut the tag, and the daemon does not depend on the orchestrator to do
 #: it. ``test_both_readers_agree_on_the_note_tag`` keeps the two in step.
 _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
-#: Which stage of the work the agent has reached. The daemon does not record a
-#: milestone — the orchestrator owns the ledger — but it cuts the tag, or the
-#: raw syntax would stand as the agent's last message in ``mael agent list``.
-#: ``document_tags`` holds its own copy, as for the note above.
-_MILESTONE_TAG = re.compile(
-    rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
-)
+#: A marker's syntax: any lowercase tag, opening or closing, wherever it sits.
+#: The daemon reads nothing from a marker — the orchestrator owns the vocabulary
+#: and the ledger — but the syntax must not stand as the agent's last message in
+#: ``mael agent list``. Matching by shape is what keeps the two layers apart: a
+#: name list here would leak every marker the orchestrator gained afterwards, and
+#: ``<user-attention>`` opens every message an agent writes.
+_MARKER_TAG = re.compile(rf"</?[a-z][a-z0-9-]*\b{_ATTRIBUTES}>")
+#: A fenced code block, whose content is prose about code rather than a marker.
+#: Agents write HTML and XML in fences, and a scrub that reached inside one would
+#: strip the tags it was quoting.
+_FENCE = re.compile(r"^[ \t]*(```+|~~~+).*?^[ \t]*\1[ \t]*$", re.DOTALL | re.MULTILINE)
 
 
-def cut_milestone(text: str) -> str:
-    """``text`` with its milestone tags cut.
+def scrub_markers(text: str) -> str:
+    """``text`` with every marker's syntax gone and its words kept.
 
-    A marker is not speech. The daemon reads nothing from it, so only the cut
-    matters here.
+    A marker is not speech, but what a marker wraps may be. The syntax goes and
+    the text between the tags stays, so a `<milestone>` leaves the bare word it
+    named and a `<doc-content>` leaves its body.
+
+    Keeping the body is what makes this safe without a vocabulary. Cutting it
+    would need to know where each marker ends, and no shape tells a
+    `<doc-content>` — whose body is arbitrary markdown — from a `<section>` an
+    agent wrote as prose. Guessing there deletes the agent's own paragraphs,
+    where guessing here leaves a stray word in a column that is one line long
+    and truncated anyway.
+
+    Both halves of a pair go: cutting only what looked like an opening tag would
+    leave a bare closing tag standing, which is the syntax this removes.
+
+    A tag inside a fenced code block is left alone: the agent is quoting markup,
+    not marking a stage.
     """
-    if not _MILESTONE_TAG.search(text):
+    fences = [match.span() for match in _FENCE.finditer(text)]
+
+    def scrub(match: re.Match[str]) -> str:
+        if any(start <= match.start() < end for start, end in fences):
+            return match.group(0)
+        return ""
+
+    scrubbed = _MARKER_TAG.sub(scrub, text)
+    if scrubbed == text:
         return text
-    return re.sub(r"\n{3,}", "\n\n", _MILESTONE_TAG.sub("", text)).strip()
+    return re.sub(r"\n{3,}", "\n\n", scrubbed).strip()
 
 
 def read_note(text: str) -> tuple[str, str]:
@@ -890,11 +916,16 @@ def _with_last_message(
     The note is read before the message is capped. A cap applied first would cut
     a long message's closing ``</note>`` off, so the note would go unread and its
     opening tag would stay in ``last_message`` as raw syntax.
+
+    It is read before the markers are scrubbed, too: :func:`scrub_markers`
+    takes a note's tags like any other marker's, so scrubbing first would leave
+    the note's words standing in ``last_message`` as ordinary text.
     """
     said = _said(event, now)
     if said is None:
         return state
-    text, note = read_note(cut_milestone(said[0]))
+    read, note = read_note(said[0])
+    text = scrub_markers(read)
     if not note:
         return replace(
             state, last_message=text[:MESSAGE_CHARS], last_message_at=said[1]
