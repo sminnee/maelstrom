@@ -249,4 +249,43 @@ describe('a document an agent tagged in its own message', () => {
     // The item it raised is retired with it.
     await waitFor(() => expect(chipCount()).toBe(2));
   });
+
+  /*
+   * The DOM contract only. An inactive tab's close control is invisible until
+   * hovered, and the strip fades it rather than hiding it so that it stays in
+   * the focus order — but jsdom applies no CSS to focus or to the
+   * accessibility tree, so swapping `opacity: 0` for `visibility: hidden`
+   * leaves this test green. That guarantee is held in a browser, not here.
+   *
+   * What this does hold: the control exists on an inactive tab, carries a name
+   * that says which tab it closes, and closes that tab rather than another.
+   */
+  it('an inactive tab keeps a named, focusable close control, and it closes that tab', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addPlan(server);
+
+    clickNode('NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
+    clickNode('NORT-9');
+    await user.click(await within(expanded()).findByRole('link', { name: /Plan v1/ }));
+
+    const tabs = () => [...document.querySelectorAll('[role="tab"]')];
+    const inactive = tabs().find((t) => !t.hasAttribute('data-active'))!;
+    const key = inactive.getAttribute('data-tab-key');
+    const close = within(inactive as HTMLElement).getByRole('button', { name: /^Close/ });
+
+    // Named for the tab it closes, not for the strip: two crosses in a row
+    // that both read "Close" name neither. The id is what tells them apart.
+    const id = inactive.querySelector('[data-testid="tab-chip"]')?.textContent;
+    expect(close).toHaveAccessibleName(new RegExp(`^Close .*${id}$`));
+
+    close.focus();
+    expect(close).toHaveFocus();
+
+    await user.click(close);
+    await waitFor(() =>
+      expect(tabs().map((t) => t.getAttribute('data-tab-key'))).not.toContain(key),
+    );
+  });
 });
