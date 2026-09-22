@@ -642,7 +642,7 @@ tool call recedes; a shell command does not, because the operator put it there.
 ### Milestone bar
 
 The full-width rule the transcript draws where a stage of the work closed, holding the stage and
-what it cost: `green · 95k · $2.10`. It takes the compact rule's shape — a hairline with the words
+what it cost: `built · 95k · $2.10`. It takes the compact rule's shape — a hairline with the words
 sitting in it — and, unlike a compact, a hue: Clear Green at 40% for the rule and full strength
 for the stage name, with the figures left muted so the stage leads.
 

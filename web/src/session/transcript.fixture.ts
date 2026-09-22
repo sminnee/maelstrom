@@ -106,7 +106,7 @@ export const milestoneRun: TranscriptItem[] = [
   ran('Bash', { description: 'Run the new test', command: 'uv run pytest -k stale_head' }, 15),
   ran('Edit', { file_path: 'src/maelstrom/task_index.py' }, 16),
   say('Green. The reader now restamps only when the scan completed.', 18),
-  reached('green', 19, 95_000, 2.1),
+  reached('built', 19, 95_000, 2.1),
   say('Handing off to the deploy step, which the flow does not name.', 21),
   reached('deployed', 22, 8_300, 0.14, false),
 ];
