@@ -2,7 +2,7 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { useDocuments } from '../api/documents';
 import { driftLabel } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
-import { nodeTitle } from '../selectors/graph';
+import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -89,9 +89,4 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       <Handle type="source" position={Position.Right} className={styles.handle} />
     </div>
   );
-}
-
-/** The id line: a task's bare notebook id, or the head of a free agent's id. */
-function nodeIdLine(node: GraphNode): string {
-  return node.task ? node.task.notebookId : node.id.slice(0, 8);
 }

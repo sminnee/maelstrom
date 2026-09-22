@@ -12,7 +12,7 @@ import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
-import { isLive, nodeTitle } from '../selectors/graph';
+import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
@@ -128,7 +128,7 @@ export function NodeCardBody({
           <h2 className={styles.title}>{title}</h2>
           <div className={styles.idLine}>
             {node.showProject && task && <span className={styles.project}>{task.project}</span>}
-            <span className={styles.id}>{task ? task.notebookId : node.id.slice(0, 8)}</span>
+            <span className={styles.id}>{nodeIdLine(node)}</span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
           </div>
           {meta.length > 0 && (
