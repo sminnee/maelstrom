@@ -80,7 +80,7 @@ export function addPlan(server: FakeServer, status: Document['status'] = 'approv
     agentId: 'd9a4c7f1',
     taskId: 'NORT-9',
     kind: 'plan',
-    title: 'plan.md',
+    title: 'Plan',
     markdown: '# Migrate to Postgres 16\n\nCarefully.\n',
     version: 1,
     status,

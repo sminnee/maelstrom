@@ -12,9 +12,9 @@ describe('document tabs', () => {
     addPlan(server);
 
     clickNode('NORT-7');
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
     clickNode('NORT-9');
-    await user.click(await within(expanded()).findByRole('link', { name: /plan\.md v1/ }));
+    await user.click(await within(expanded()).findByRole('link', { name: /Plan v1/ }));
     const chips = () =>
       [...document.querySelectorAll('[role="tab"] [data-testid="tab-chip"]')].map(
         (c) => c.textContent,
@@ -44,7 +44,7 @@ describe('document tabs', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
     clickNode('NORT-9');
     expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute('data-expanded');
@@ -52,7 +52,7 @@ describe('document tabs', () => {
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
     expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute('data-focused');
-    await user.click(screen.getByRole('tab', { name: /plan\.md/ }));
+    await user.click(screen.getByRole('tab', { name: /Plan/ }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
   });
 
@@ -96,7 +96,7 @@ describe('review in a document tab', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
     const body = await screen.findByTestId('document-body');
     const text = [...body.querySelectorAll('li')].find((el) =>
       el.textContent?.includes('10,000 rows'),
@@ -126,7 +126,7 @@ describe('review in a document tab', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-7');
-    await user.click(within(expanded()).getByRole('link', { name: /plan\.md v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
     const tab = await screen.findByTestId('document-tab');
     expect(tab).toHaveTextContent('awaiting review');
     expect(within(tab).queryByRole('textbox', { name: 'Summary of requested changes' })).toBeNull();

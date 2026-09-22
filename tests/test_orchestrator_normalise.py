@@ -77,7 +77,7 @@ def make_document(**over) -> dict:
         "agentId": "agent-1",
         "taskId": "NORT-7",
         "kind": "plan",
-        "title": "plan.md",
+        "title": "Plan",
         "markdown": "# Plan\n\nDo the thing.\n",
         "version": 1,
         "status": "awaiting-review",
@@ -862,8 +862,12 @@ def test_a_tool_use_and_its_result_merge_into_one_item():
 
 
 def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document():
+    # The title is spelled out rather than left to `make_document`'s default.
+    # `previous_version` matches a stored plan on its title, so this seed is
+    # one half of the match: an independent literal says which title the
+    # production code has to look for.
     doc = make_document(
-        id="doc-1", agentId="ag1", version=1, status="changes-requested"
+        id="doc-1", agentId="ag1", version=1, status="changes-requested", title="Plan"
     )
     state = seed([make_agent(id="ag1", state="processing")], [doc])
     ctx = context_for_agent("ag1")

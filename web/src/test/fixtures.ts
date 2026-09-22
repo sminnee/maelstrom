@@ -94,7 +94,7 @@ export function makeDocument(over: Partial<Document> = {}): Document {
     agentId: 'agent-1',
     taskId: 'NORT-7',
     kind: 'plan',
-    title: 'plan.md',
+    title: 'Plan',
     markdown: '# Plan\n\nDo the thing.\n',
     version: 1,
     status: 'awaiting-review',

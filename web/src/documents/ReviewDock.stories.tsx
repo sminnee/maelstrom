@@ -64,7 +64,7 @@ function planDocument(status: Document['status']): Document {
     agentId: 'd9a4c7f1',
     taskId: 'NORT-9',
     kind: 'plan',
-    title: 'plan.md',
+    title: 'Plan',
     markdown: [
       '# Migrate to Postgres 16',
       '',
@@ -155,7 +155,7 @@ function Harness({
 }
 
 /**
- * A plan awaiting the agent's own review. Open NORT-9 and follow `plan.md`.
+ * A plan awaiting the agent's own review. Open NORT-9 and follow `Plan`.
  *
  * What to look at: the plan reads from its first line, the dock is one band at
  * the bottom carrying the amber rule and wash, and the whole band is one row on

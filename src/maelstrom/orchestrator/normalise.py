@@ -849,14 +849,14 @@ class _Emitter:
             wait_state = "awaiting-question"
         elif tool == PLAN_TOOL:
             plan = _str(inp.get("plan"))
-            previous = self.previous_version("plan", "plan.md")
+            previous = self.previous_version("plan", "Plan")
             document_id = previous["id"] if previous else self.new_id()
             doc: Document = {
                 "id": document_id,
                 "agentId": self.ctx.agent_id,
                 "taskId": self.agent_entity["taskId"],
                 "kind": "plan",
-                "title": "plan.md",
+                "title": "Plan",
                 "markdown": plan or self.ctx.last_assistant_text,
                 "version": (previous["version"] if previous else 0) + 1,
                 "status": "awaiting-review",

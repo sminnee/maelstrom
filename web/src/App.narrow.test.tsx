@@ -141,7 +141,7 @@ describe('the narrow layout', () => {
   it('gives the document the full width, with no comment margin beside it', async () => {
     await renderApp({ viewport: 'narrow' });
     await userEvent.click(screen.getByRole('button', { name: /Plan the order export/ }));
-    await userEvent.click(screen.getByRole('link', { name: /plan\.md/ }));
+    await userEvent.click(screen.getByRole('link', { name: /Plan/ }));
     expect(await screen.findByTestId('document-tab')).toBeInTheDocument();
     expect(screen.queryByTestId('comment-margin')).not.toBeInTheDocument();
   });
