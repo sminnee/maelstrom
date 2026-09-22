@@ -338,6 +338,10 @@ class AgentSpec:
     execute_model: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     prompt: str = ""
+    #: The plan file of this agent's last approved plan, or empty. Written at
+    #: approval, the only moment it is known. A recovery rebuilds the handover
+    #: from it, in preference to sending ``prompt`` again.
+    plan_file: str = ""
     status: str = SPEC_RUNNING
     exit_code: int | None = None
     pid: int | None = None
@@ -402,6 +406,7 @@ def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
         "execute_model": spec.execute_model,
         "env": dict(spec.env),
         "prompt": spec.prompt,
+        "plan_file": spec.plan_file,
         "status": spec.status,
         "exit_code": spec.exit_code,
         "pid": spec.pid,
@@ -427,6 +432,7 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         execute_model=data.get("execute_model"),
         env=dict(data.get("env") or {}),
         prompt=data.get("prompt", ""),
+        plan_file=data.get("plan_file") or "",
         status=data.get("status", SPEC_RUNNING),
         exit_code=data.get("exit_code"),
         pid=data.get("pid"),
