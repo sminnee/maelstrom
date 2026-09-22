@@ -70,7 +70,16 @@ _MILESTONE_TAG = re.compile(
 #: The stages the task-completion flow passes through, in order. A name outside
 #: this set is recorded as written and flagged, so a typo is visible rather than
 #: silently costing a snapshot.
-MILESTONES = ("planned", "built", "green", "reviewed", "presented", "shipped")
+#:
+#: Not the same list as the one ``shared/agent-prompt.md`` teaches: ``planned``
+#: is Maelstrom's, written when the user approves a plan. This set is the names
+#: the flow declares, where the prompt's is the names an agent may write.
+MILESTONES = ("planned", "built", "reviewed", "presented")
+
+#: The row that closes an agent's ledger, holding what it spent after its last
+#: stage. Not in :data:`MILESTONES`: it is Maelstrom's own, and the brackets are
+#: syntax no marker can carry, so an agent cannot write one.
+FINAL_STAGE = "<final>"
 
 
 @dataclass(frozen=True)

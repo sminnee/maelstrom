@@ -27,7 +27,6 @@ from maelstrom.agent_transport import (
     RecordingDaemonClient,
     SocketAsyncDaemonClient,
 )
-from maelstrom.orchestrator.document_tags import MILESTONES
 from maelstrom.state_db.migrate import open_state_db
 
 
@@ -1222,13 +1221,25 @@ def seed_ledger(tmp_path, *snapshots: dict) -> None:
         db.close()
 
 
-def snapshot(name: str, own: int, sub: int, cost: float, agent_id: str = "a1") -> dict:
-    """One milestone, as the server writes it."""
+def snapshot(
+    name: str,
+    own: int,
+    sub: int,
+    cost: float,
+    agent_id: str = "a1",
+    recognised: bool = True,
+) -> dict:
+    """One milestone, as the server writes it.
+
+    ``recognised`` is stated rather than looked up in :data:`MILESTONES`: a
+    test that recomputes the answer from the constant is asserting the
+    configuration back at itself.
+    """
     return {
         "agent_id": agent_id,
         "name": name,
         "at": "2026-09-21T10:00:00Z",
-        "recognised": name in MILESTONES,
+        "recognised": recognised,
         "own_tokens": own,
         "subagent_tokens": sub,
         "cost_usd": cost,
@@ -1244,7 +1255,7 @@ def test_cost_reports_each_stage_and_names_the_dollars_parent_only(
     seed_ledger(
         tmp_path,
         snapshot("planned", 10_000, 0, 0.5),
-        snapshot("green", 75_000, 30_000, 2.6),
+        snapshot("built", 75_000, 30_000, 2.6),
     )
 
     result = CliRunner().invoke(agent_cli.agent, ["cost"])
@@ -1256,7 +1267,7 @@ def test_cost_reports_each_stage_and_names_the_dollars_parent_only(
     assert "own requests only" in lines[0]
     assert lines[1].split() == agent_cli.COST_COLUMNS
     # Each stage's own spend, beside the total by then.
-    assert [line.split()[0] for line in lines[3:5]] == ["planned", "green"]
+    assert [line.split()[0] for line in lines[3:5]] == ["planned", "built"]
     assert lines[3].split()[1:] == ["10,000", "10,000", "0", "10,000", "0.5000"]
     assert lines[4].split()[1:] == ["95,000", "65,000", "30,000", "105,000", "2.1000"]
 
@@ -1265,7 +1276,7 @@ def test_cost_makes_no_daemon_call(tmp_path, monkeypatch):
     """It reads the ledger, which is what lets a stopped agent still report."""
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
     assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-    seed_ledger(tmp_path, snapshot("shipped", 40_000, 0, 1.0))
+    seed_ledger(tmp_path, snapshot("built", 40_000, 0, 1.0))
 
     result, client = run_cli(["cost", "a1"])
 
@@ -1277,12 +1288,29 @@ def test_cost_makes_no_daemon_call(tmp_path, monkeypatch):
 def test_cost_flags_a_stage_name_the_flow_does_not_declare(tmp_path, monkeypatch):
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
     assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-    seed_ledger(tmp_path, snapshot("deployed", 5_000, 0, 0.1))
+    seed_ledger(tmp_path, snapshot("deployed", 5_000, 0, 0.1, recognised=False))
 
     result = CliRunner().invoke(agent_cli.agent, ["cost"])
 
     assert result.exit_code == 0, result.output
     assert "deployed (?)" in result.output
+
+
+def test_cost_does_not_flag_the_row_that_closes_the_ledger(tmp_path, monkeypatch):
+    """`<final>` is Maelstrom's own, not a name an agent mistyped.
+
+    "(?)" says the agent wrote a word we do not know. The closing row is not
+    the agent's, so drawing it there would send a reader looking for a typo.
+    """
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+    seed_ledger(tmp_path, snapshot("<final>", 5_000, 0, 0.1))
+
+    result = CliRunner().invoke(agent_cli.agent, ["cost"])
+
+    assert result.exit_code == 0, result.output
+    assert "<final>" in result.output
+    assert "(?)" not in result.output
 
 
 def test_cost_says_so_when_nothing_is_recorded(tmp_path, monkeypatch):
@@ -1301,11 +1329,11 @@ def test_cost_json_carries_the_stage_deltas(tmp_path, monkeypatch):
     seed_ledger(
         tmp_path,
         snapshot("planned", 10_000, 0, 0.5),
-        snapshot("green", 75_000, 30_000, 2.6),
+        snapshot("built", 75_000, 30_000, 2.6),
     )
 
     result = CliRunner().invoke(agent_cli.agent, ["cost", "--json"])
 
     [agent] = json.loads(result.output)
     assert agent["total_tokens"] == 105_000
-    assert [s["name"] for s in agent["stages"]] == ["planned", "green"]
+    assert [s["name"] for s in agent["stages"]] == ["planned", "built"]

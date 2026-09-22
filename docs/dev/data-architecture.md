@@ -117,7 +117,8 @@ Store-as-truth cuts both ways, so `list` repairs the store in both directions:
   does not report as `awaiting-`, so a placeholder would cancel a live agent's open ask.
 
 The `agent_milestones` table is canonical too: a **milestone snapshot** is the only record of what
-an agent had spent at each stage, and no transcript can rebuild it. It carries no `fetched_at` and
+an agent had spent at each stage, and no transcript can rebuild it. The **closing row** an exit
+writes is one of these, so the ledger is whole on disk. It carries no `fetched_at` and
 nothing draws it, so a write to it is not news for a client.
 
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
