@@ -627,6 +627,21 @@ orchestrator UI.
 says when. A note answers what a last message only hints at, so the column stands beside it. See
 `CONTEXT.md`, **Note**.
 
+`<note>` is the one marker the daemon reads. It scrubs the syntax of the rest — `<doc-content>`,
+`<doc-file>`, `<image>`, `<milestone>`, `<user-attention>` — by shape, without knowing a single
+name: any lowercase tag, opening or closing, outside a fenced code block. The vocabulary belongs
+to the orchestrator, which owns the business model, so a name list here would leak every marker
+the orchestrator gained afterwards into `last_message`. The note is the sanctioned exception
+because `last_note` is a daemon row field, and reaching the orchestrator for a column the daemon
+renders itself would invert the layering it protects.
+
+The scrub takes the tags and keeps what they wrapped, so a `<milestone>` leaves the bare word it
+named and a `<doc-content>` leaves its body. Keeping the body is what makes a nameless scrub safe:
+cutting it would need to know where each marker ends, and no shape tells a `<doc-content>`, whose
+body is arbitrary markdown, from a `<section>` an agent wrote as prose. Guessing there deletes the
+agent's own paragraphs. The residue is a stray word in a column that is one line long and
+truncated anyway.
+
 ### Showing one agent
 
 `mael agent show <id>` prints one agent in full: what it last said, every option of a question with
