@@ -97,6 +97,7 @@ components:
   panel-tab:
     backgroundColor: '{colors.console-slate}'
     textColor: '{colors.readout}'
+    borderLeft: '2px solid {colors.phase-build}' # the phase in view; drained when inactive
     rounded: '0'
     padding: '0 8px'
     height: '32px'
@@ -140,7 +141,7 @@ so a task's position in its life is readable from hue alone.
 ### Primary
 
 - **Signal Blue** (`--accent`): interactive affordance and nothing else. Links, panel links,
-  the focus ring, the active tab underline, the running-command line, the text selection wash.
+  the focus ring, the running-command line, the text selection wash.
   If it is blue, it can be clicked or it has the operator's focus.
 
 ### Secondary
@@ -663,9 +664,42 @@ age: see **Node Card**.
 ### Panel Tabs
 
 A horizontally scrolling strip of square tabs on a raised ground, divided by hairlines, 32px
-minimum height. Inactive tabs are muted text; the active tab takes the field background, full
-text, and a 2px Signal Blue inset underline. Each tab carries a phase swatch, the qualified
-task id and a close glyph.
+minimum height, each tab as wide as what it holds. A tab leads with its identity: the qualified
+task id, mono at `--text-xs`, or a free agent's own id in the same slot.
+
+A session tab carries nothing else. The id alone says which session it is, and a real qualified
+id — `maelstrom/2026-09-22.1` — is long enough that a word beside it squeezes to a letter. Only
+a document adds a label, its own title, in the interface face at `--text-sm`. The id never
+truncates, by the Mono Means Literal Rule, so a long document title takes the ellipsis; neither
+ever wraps, because a wrapped tab costs the strip its height.
+
+The task's own title goes in the tab's native tooltip, which is the one place the strip has room
+for prose. The accessible name is pinned with `aria-label` to the same id and label the eye
+reads: a computed name would take the contents _and_ the close button's label, announcing
+"NORT-7 Close NORT-7".
+
+Phase runs down the tab's leading edge, at 2px. The Left Edge Rule governs which channel that
+edge carries, not how heavily: a tab is neither a node nor a card, and the node's 4px bar
+would outweigh a 32px strip. `data-phase` is set on the tab and inherited, so the edge reads
+`--phase` and no component looks a hue up.
+
+The active tab is ranked structurally rather than decorated. It takes the panel body's own
+ground, so it reads as continuous with what it is showing; its text goes to `--fg`, its id
+brightens with it, and its phase edge burns at full strength while every other tab's is
+drained to `--phase-dormant`. There is no underline and no second affordance: the strip is
+ranked by one channel. A tab hovers to `--bg-hover`.
+
+The focus ring is the global one and is never removed, but a tab has to redraw it on an inset
+layer. A tab's edges sit flush against its neighbours', so a ring outside the box is clipped,
+and one 2px inside lands exactly on the phase border — hiding the phase on the one tab the
+keyboard is on. Drawn inside the padding box, both channels read at once.
+
+The close control is a drawn glyph in the app's icon family — 12px, 1.2 stroke, round caps,
+beside `OpenInPanelIcon` and `ExternalLinkIcon`. It shows on hover and on the tab in view, and
+holds its place in the layout so no tab changes width under the pointer. It fades rather than
+hides: `visibility: hidden` takes an element out of the focus order, which would leave an
+inactive tab with no keyboard route to closing it. The strip is one tab stop; arrows move
+between tabs, and Tab reaches every close button in turn.
 
 ### Session header
 
@@ -795,18 +829,20 @@ show the states its agents happen to be in.
 
 Stories come in two shapes:
 
-| Shape     | Fixture                                                               | Use it for                             |
-| --------- | --------------------------------------------------------------------- | -------------------------------------- |
-| Component | `src/session/transcript.fixture.ts`, `src/canvas/taskNode.fixture.ts` | one component's states, drawn directly |
-| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts`                    | a surface reached by navigating        |
+| Shape     | Fixture                                                                                                 | Use it for                             |
+| --------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Component | `src/session/transcript.fixture.ts`, `src/canvas/taskNode.fixture.ts`, `src/panel/panelTabs.fixture.ts` | one component's states, drawn directly |
+| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts`                                                      | a surface reached by navigating        |
 
 The whole-app shape mounts the real `App` on the fake server, through the same `deps` injection
 `renderApp` uses in the suite. A story therefore runs the production tree rather than a stand-in
 that can drift from it. `Documents / Review dock` is the worked example.
 
 A component fixture that stands for a state builds it with the production reader, never by hand:
-`taskNode.fixture.ts` reads every node's progress through `progressOf`. A story that hand-rolled
-one could draw a state the code cannot produce, which is the one thing a fixture must not do.
+`taskNode.fixture.ts` reads every node's progress through `progressOf`, and `panelTabs.fixture.ts`
+supplies a world and a tab list so the strip reads every tab through `tabAttribution` itself. A
+story that hand-rolled one could draw a state the code cannot produce, which is the one thing a
+fixture must not do.
 
 The stories carry the states worth checking: prose against tool calls, a long ledger run, the
 truncation note, the narrow layout under the 30rem container query, a wide panel, every markdown
@@ -817,7 +853,10 @@ element in turn (heading, list, fence, table — the highest-risk case, since th
 control, quiet prose on the `--bg-sunken` ground inside an open `skill` row (point a contrast tool
 at this one in the light scheme — it is the 4.15:1 case `--fg-recessed` exists for), the three
 gap sizes end to end, and an answered question, a stale question and a real user turn side by
-side so the two washes can be compared directly.
+side so the two washes can be compared directly. For the tab strip: one tab, four phases side by
+side, a session beside its own plan, a free agent beside a task's, a tab whose entity has gone, a
+long label truncating, and four tabs at the panel's 320px minimum — where the label truncates
+away entirely and the ids alone tell four agents apart.
 
 Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
 schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story

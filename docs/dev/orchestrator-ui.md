@@ -261,9 +261,11 @@ desk says; a remove that arrives anyway is accepted and takes effect once the ag
 is removed from its own card too, under the label its task list row uses. That control is hidden
 rather than disabled, because the task list row remains as the other way off the desk.
 
-A node shows the bare notebook id, because its lane already names the project. A free agent
-shows the head of its agent id, having no notebook id. A panel tab shows the qualified id,
-because a tab exists to tell two projects' tasks apart.
+A node shows the bare notebook id, because its lane already names the project. A panel tab shows
+the qualified id, because a tab exists to tell two projects' tasks apart.
+
+An agent with no task shows its own agent id in that same slot, on the node and on the tab both —
+the **Failover id** rule, which `CONTEXT.md` defines.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
 review", never a raw agent state). The state strip also carries the task's notebook status, which
