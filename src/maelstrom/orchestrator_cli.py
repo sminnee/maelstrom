@@ -40,15 +40,24 @@ from .task_launch import LaunchBlocked
 from .task_store import GitFileStore
 from .task_table import SqliteTaskTable
 from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
-from .worktree_close import close_worktree_fully
-from .worktree_model import WorktreeError
+from .worktree_close import close_worktree_fully, remove_worktree_fully
+from .worktree_model import WorktreeError, get_worktree_folder_name
+from .worktree_ops import run_env, run_sync
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
+#: How many worktree operations may run at once. Sized so a fleet of worktrees
+#: overlaps rather than queues; the correctness rule is the steps' own scopes,
+#: held with a cross-process lock — see :mod:`maelstrom.worktree_steps`.
+WORKTREE_WORKERS = 4
+
 
 def build_orchestrator(
-    *, executor: Executor | None = None, db: StateDb | None = None
+    *,
+    executor: Executor | None = None,
+    worktree_executor: Executor | None = None,
+    db: StateDb | None = None,
 ) -> Orchestrator:
     """An orchestrator over the real notebook, ``list-all`` and agent host.
 
@@ -56,6 +65,8 @@ def build_orchestrator(
     so the orchestrator a worktree runs talks to that worktree's daemon.
     ``executor`` runs what still blocks; the task table does not, because it
     is the state database and binds to the loop's own thread.
+    ``worktree_executor`` runs the worktree operations, which touch git and the
+    process table and must not queue behind a task read.
 
     ``db`` is the state database, which now holds the tasks as well as the
     desk. It is never migrated here: an ordinary open refuses a database behind
@@ -89,21 +100,91 @@ def build_orchestrator(
             raise LaunchBlocked(str(exc)) from exc
 
     async def close_worktree(project: str, nato: str, path: str) -> None:
-        # Never forced: unmerged work is refused, and the model's own message
-        # is what the button shows. Forcing writes a wip commit and a reopen
-        # task, which is too much for one click — ``mael close --force`` does it.
+        # Not forced: unmerged work is refused, and the model's own message is
+        # what the button shows. Forcing is its own command, behind a confirm
+        # the UI owns — see ``force_close_worktree`` below.
         outcome = await close_worktree_fully(
-            project, nato, Path(path), projects_dir / project, force=False
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            force=False,
+            executor=worktree_executor,
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
+
+    async def force_close_worktree(project: str, nato: str, path: str) -> None:
+        # Forcing commits the work in progress and keeps the branch, so
+        # nothing is lost — but it is a decision, not a retry, so the UI asks
+        # first. Unlike ``mael close --force`` this writes no reopen task:
+        # that step lives in ``cmd_close``.
+        outcome = await close_worktree_fully(
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            force=True,
+            executor=worktree_executor,
+        )
+        if not outcome.close.success:
+            raise CloseBlocked(outcome.close.message)
+
+    async def remove_worktree(project: str, nato: str, path: str) -> None:
+        # Deletes the checkout rather than parking it. The teardown is the
+        # close's, so the daemon's agents stop before any pid is signalled.
+        # Not forced: a worktree holding uncommitted work is refused, and the
+        # files are named. The UI has no prompt of its own to fall back on.
+        outcome = await remove_worktree_fully(
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            get_worktree_folder_name(project, nato),
+            executor=worktree_executor,
+        )
+        if not outcome.close.success:
+            raise CloseBlocked(outcome.close.message)
+
+    async def sync_worktree(project: str, nato: str, path: str, mode: str) -> None:
+        # A sequence like the teardowns, so it takes the worktree scope: a
+        # rebase must not reach a checkout a close is already detaching.
+        ran = await run_sync(
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            mode,
+            executor=worktree_executor,
+        )
+        if not ran.ok:
+            raise CloseBlocked(ran.blocked or "The sync did not finish")
+
+    async def env_worktree(project: str, nato: str, path: str, action: str) -> None:
+        ran = await run_env(
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            action,
+            executor=worktree_executor,
+        )
+        if not ran.ok:
+            raise CloseBlocked(ran.blocked or "The environment did not change")
 
     tasks = NotebookTaskSource(
         table,
         lambda: [path.name for path in find_all_projects(projects_dir)],
         open_worktree=open_worktree,
     )
-    worktrees = ListAllWorktreeSource(projects_dir, close=close_worktree)
+    worktrees = ListAllWorktreeSource(
+        projects_dir,
+        close=close_worktree,
+        force_close=force_close_worktree,
+        remove=remove_worktree,
+        sync=sync_worktree,
+        env=env_worktree,
+    )
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
         CodexDaemonClient(CodexBridge()),
@@ -127,6 +208,7 @@ def build_orchestrator(
             executor=executor,
         ),
         executor=executor,
+        worktree_executor=worktree_executor,
     )
 
 
@@ -203,9 +285,24 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
     # the thread that opened it, so every blocking read must run on the same one.
     # The state database is bound the same way, but to the loop's own thread:
     # the desk never goes through the executor.
+    #
+    # The worktree pool is separate and wider. Worktree work touches git, ports
+    # and the process table, never the notebook, so it has no reason to queue
+    # behind a task read — and a fetch would stall one for seconds. Its size is
+    # for overlap, not for correctness: what must not run at once is named by
+    # the steps' own scopes and held with a cross-process lock, so reducing this
+    # to one would only make a fleet of worktrees as slow as a queue.
+    # See maelstrom.worktree_steps.
     try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            orchestrator = build_orchestrator(executor=executor, db=db)
+        with (
+            ThreadPoolExecutor(max_workers=1) as executor,
+            ThreadPoolExecutor(
+                max_workers=WORKTREE_WORKERS, thread_name_prefix="worktree"
+            ) as worktree_executor,
+        ):
+            orchestrator = build_orchestrator(
+                executor=executor, worktree_executor=worktree_executor, db=db
+            )
             asyncio.run(serve())
     finally:
         db.close()

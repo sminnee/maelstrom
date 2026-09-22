@@ -66,6 +66,37 @@ DRIVING_COMMANDS = (
     "agent.resume",
 )
 
+#: The commands that mutate one worktree. They share a validator because they
+#: share their preconditions: the world must hold the worktree, ``_main`` may
+#: not be torn down, and an operation on a branch needs a worktree still on one.
+WORKTREE_COMMANDS = (
+    "worktree.close",
+    "worktree.forceClose",
+    "worktree.remove",
+    "worktree.sync",
+    "worktree.env",
+)
+
+#: The commands that take a worktree away, which ``_main`` refuses. A sync or
+#: an environment on ``_main`` is ordinary work.
+TEARDOWN_COMMANDS = ("worktree.close", "worktree.forceClose", "worktree.remove")
+
+#: The commands needing a worktree that still holds a branch and a checkout. A
+#: remove is the exception: deleting a parked worktree is the point of it.
+NEEDS_OPEN_COMMANDS = (
+    "worktree.close",
+    "worktree.forceClose",
+    "worktree.sync",
+    "worktree.env",
+)
+
+#: The three settings ``mael sync`` has, which the one sync command chooses
+#: between. ``--abort`` is implied on ``plain`` and ``squash``.
+SYNC_MODES = ("plain", "autorepair", "squash")
+
+#: What an environment can be asked to do. ``restart`` is the other two in order.
+ENV_ACTIONS = ("start", "stop", "restart")
+
 #: Which kinds of wait each reply answers, by the transcript item that carries
 #: the request. Keyed on the item, not the agent's state: one state cannot
 #: describe several waits at once — see CONTEXT.md, "Wait kind".
@@ -172,6 +203,45 @@ def _reaches(world: World, starts: list[str], goal: str) -> bool:
         if task is not None:
             queue.extend(task["follows"])
     return False
+
+
+def _worktree_error(
+    world: World, kind: str, cmd: dict[str, Any]
+) -> dict[str, str] | None:
+    """Whether the world can take a worktree mutation.
+
+    Every refusal is made here rather than in the model, so the button is told
+    before any git, teardown or environment work runs.
+    """
+    worktree_id = cmd.get("worktreeId", "")
+    worktree = world["worktrees"].get(worktree_id)
+    if worktree is None:
+        return _err("unknown_id", f"No worktree {worktree_id}")
+
+    if kind in TEARDOWN_COMMANDS and not is_worktree_closable(worktree["nato"]):
+        return _err(
+            "invalid",
+            f"{worktree['nato']} holds the main checkout and cannot be closed",
+        )
+
+    if kind in NEEDS_OPEN_COMMANDS and worktree["isClosed"]:
+        # "closed already" for a close, because that is what the user asked
+        # for; the others simply have no checkout to work on.
+        if kind in ("worktree.close", "worktree.forceClose"):
+            return _err("invalid", f"Worktree {worktree_id} is closed already")
+        return _err("invalid", f"Worktree {worktree_id} is closed")
+
+    if kind == "worktree.sync":
+        mode = cmd.get("mode", "")
+        if mode not in SYNC_MODES:
+            return _err("invalid", f"Unknown sync mode: {mode}")
+
+    if kind == "worktree.env":
+        action = cmd.get("action", "")
+        if action not in ENV_ACTIONS:
+            return _err("invalid", f"Unknown environment action: {action}")
+
+    return None
 
 
 def validate_command(
@@ -335,20 +405,8 @@ def validate_command(
             return _err("invalid", f"Comment {comment_id} is resolved already")
         return None
 
-    if kind == "worktree.close":
-        worktree_id = cmd.get("worktreeId", "")
-        worktree = world["worktrees"].get(worktree_id)
-        if worktree is None:
-            return _err("unknown_id", f"No worktree {worktree_id}")
-        # Refused here, so the button is told before any sync or teardown runs.
-        if not is_worktree_closable(worktree["nato"]):
-            return _err(
-                "invalid",
-                f"{worktree['nato']} holds the main checkout and cannot be closed",
-            )
-        if worktree["isClosed"]:
-            return _err("invalid", f"Worktree {worktree_id} is closed already")
-        return None
+    if kind in WORKTREE_COMMANDS:
+        return _worktree_error(world, kind, cmd)
 
     if kind == "task.setStatus":
         task_id = cmd.get("taskId", "")

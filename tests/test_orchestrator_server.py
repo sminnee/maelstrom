@@ -5215,3 +5215,280 @@ def test_a_replayed_milestone_is_not_recorded_twice(harness):
     rows, items = run(scenario())
     assert rows == []
     assert items == []
+
+
+# ---------------------------------------------------------------------------
+# worktree.forceClose, worktree.remove, worktree.sync, worktree.env
+# ---------------------------------------------------------------------------
+
+
+def test_force_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
+    forced: list[str] = []
+
+    def force_close(project: str, nato: str, path: str) -> None:
+        forced.append(f"{project}/{nato}")
+        harness.worktrees.worktrees[0] = {
+            **harness.worktrees.worktrees[0],
+            "isClosed": True,
+            "branch": "",
+        }
+
+    harness.worktrees.force_close = force_close
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/force-close")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 200
+    assert forced == ["northwind/alpha"]
+    assert worktrees["worktrees"][0]["isClosed"] is True
+
+
+def test_a_refused_force_close_says_what_the_model_said(harness):
+    def force_close(project: str, nato: str, path: str) -> None:
+        raise CloseBlocked("Could not commit the work in progress")
+
+    harness.worktrees.force_close = force_close
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/force-close")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "work in progress" in reply.body["error"]["message"]
+
+
+def test_a_server_that_cannot_force_close_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/force-close")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot close worktrees" in reply.body["error"]["message"]
+
+
+def test_force_closing_main_is_refused(harness):
+    harness.worktrees.force_close = lambda p, n, path: None
+    harness.worktrees.worktrees.append(
+        {**harness.worktrees.worktrees[0], "id": "_main", "nato": "_main"}
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/worktrees/refresh")
+            return await api.post("/api/worktrees/_main/force-close")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "main checkout" in reply.body["error"]["message"]
+
+
+def test_removing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
+    removed: list[str] = []
+
+    def remove(project: str, nato: str, path: str) -> None:
+        removed.append(f"{project}/{nato}")
+        harness.worktrees.worktrees.clear()
+
+    harness.worktrees.remove = remove
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.delete("/api/worktrees/northwind-alpha")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 200
+    assert removed == ["northwind/alpha"]
+    assert worktrees["worktrees"] == []
+
+
+def test_a_refused_removal_says_what_the_model_said_and_changes_nothing(harness):
+    def remove(project: str, nato: str, path: str) -> None:
+        raise CloseBlocked("Could not remove 'alpha': git refused")
+
+    harness.worktrees.remove = remove
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.delete("/api/worktrees/northwind-alpha")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 400
+    assert "git refused" in reply.body["error"]["message"]
+    assert len(worktrees["worktrees"]) == 1
+
+
+def test_removing_a_worktree_the_world_does_not_hold_is_unknown_id(harness):
+    harness.worktrees.remove = lambda p, n, path: None
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.delete("/api/worktrees/northwind-zulu")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_a_server_that_cannot_remove_worktrees_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.delete("/api/worktrees/northwind-alpha")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot remove worktrees" in reply.body["error"]["message"]
+
+
+def test_syncing_a_worktree_passes_the_mode_and_refreshes_the_world(harness):
+    """One operation, three settings: the mode reaches the model verbatim."""
+    synced: list[tuple[str, str]] = []
+
+    def sync(project: str, nato: str, path: str, mode: str) -> None:
+        synced.append((nato, mode))
+
+    harness.worktrees.sync = sync
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            reply = await api.post(
+                "/api/worktrees/northwind-alpha/sync", {"mode": "squash"}
+            )
+            return reply, harness.worktrees.reads > settled
+
+    reply, reread = run(scenario())
+    assert reply.status == 200
+    assert synced == [("alpha", "squash")]
+    assert reread
+
+
+def test_a_sync_with_no_mode_autorepairs(harness):
+    """The default is the mode that resolves a conflict rather than refusing."""
+    synced: list[str] = []
+    harness.worktrees.sync = lambda p, n, path, mode: synced.append(mode)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/sync")
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert synced == ["autorepair"]
+
+
+def test_an_unknown_sync_mode_is_refused_before_the_model_runs(harness):
+    synced: list[str] = []
+    harness.worktrees.sync = lambda p, n, path, mode: synced.append(mode)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/sync", {"mode": "rewrite"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "rewrite" in reply.body["error"]["message"]
+    assert synced == []
+
+
+def test_a_refused_sync_says_what_the_model_said(harness):
+    def sync(project: str, nato: str, path: str, mode: str) -> None:
+        raise CloseBlocked("Rebase conflicted in 2 files")
+
+    harness.worktrees.sync = sync
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/sync", {"mode": "plain"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "conflicted in 2 files" in reply.body["error"]["message"]
+
+
+def test_a_server_that_cannot_sync_worktrees_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/sync", {"mode": "plain"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot sync worktrees" in reply.body["error"]["message"]
+
+
+def test_starting_an_environment_passes_the_action_and_refreshes_the_world(harness):
+    acted: list[tuple[str, str]] = []
+
+    def env(project: str, nato: str, path: str, action: str) -> None:
+        acted.append((nato, action))
+        harness.worktrees.worktrees[0] = {
+            **harness.worktrees.worktrees[0],
+            "appRunning": True,
+        }
+
+    harness.worktrees.env = env
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/worktrees/northwind-alpha/env", {"action": "start"}
+            )
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 200
+    assert acted == [("alpha", "start")]
+    assert worktrees["worktrees"][0]["appRunning"] is True
+
+
+def test_an_env_call_with_no_action_starts(harness):
+    acted: list[str] = []
+    harness.worktrees.env = lambda p, n, path, action: acted.append(action)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/env")
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert acted == ["start"]
+
+
+def test_an_unknown_env_action_is_refused_before_the_model_runs(harness):
+    acted: list[str] = []
+    harness.worktrees.env = lambda p, n, path, action: acted.append(action)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/env", {"action": "bounce"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "bounce" in reply.body["error"]["message"]
+    assert acted == []
+
+
+def test_a_server_that_cannot_change_environments_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/env", {"action": "stop"}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot start or stop environments" in reply.body["error"]["message"]
