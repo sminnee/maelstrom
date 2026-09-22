@@ -1,3 +1,4 @@
+/* Active rank is structural, not decorative — see DESIGN.md, "Panel Tabs". */
 .strip {
   display: flex;
   overflow-x: auto;
@@ -6,34 +7,86 @@
   min-height: 32px;
 }
 .tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  /* The leading edge carries phase. A tab is not a node or a card, so the
+     Left Edge Rule's 4px bar would overweight it at the strip's scale: the
+     same channel, on the same edge, at the strip's own weight. */
+  border-left: 2px solid var(--phase-dormant);
   border-right: 1px solid var(--border);
   cursor: pointer;
   white-space: nowrap;
+  min-width: 0;
+  color: var(--fg-faint);
+  font-size: var(--text-sm);
+  /* The id recedes from the label, and brightens with the tab. It is passed
+     down rather than set on the chip, because the state lives here: an
+     inactive tab's id must not hold one tone through every state. */
+  --tab-id-color: var(--fg-faint);
+}
+.tab:hover {
+  background: var(--bg-hover);
   color: var(--fg-muted);
-  font-size: 12px;
+}
+/* Redrawn inset: a ring at -2px erases the phase border — see DESIGN.md. */
+.tab:focus-visible {
+  outline: none;
+}
+.tab:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  pointer-events: none;
 }
 .tab[data-active] {
   color: var(--fg);
   background: var(--bg);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  /* The phase burns at full strength on the tab in view, and is drained on
+     the rest: one channel ranking the strip, not a second affordance. */
+  border-left-color: var(--phase);
+  --tab-id-color: var(--fg-muted);
 }
-.title {
-  max-width: 160px;
+.tab[data-active]:hover {
+  background: var(--bg);
+}
+/* Only the label truncates; the id never does (Mono Means Literal). */
+.label {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 200px;
 }
 .close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
   border: none;
   background: none;
-  padding: 0 2px;
+  padding: var(--space-1);
+  margin-right: calc(var(--space-1) * -1);
+  border-radius: var(--radius-sm);
   color: var(--fg-faint);
-  font-size: 14px;
-  line-height: 1;
+  /* It appears on hover and on the tab in view: a strip of crosses reads as
+     a row of controls rather than a row of tabs. It fades rather than hides,
+     because `visibility: hidden` takes an element out of the focus order —
+     which would leave an inactive tab with no keyboard route to closing it,
+     and make the `:focus-visible` rule below unreachable. It keeps its place
+     in the layout either way, so no tab changes width under the pointer. */
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+.tab:hover .close,
+.tab[data-active] .close,
+.close:focus-visible {
+  opacity: 1;
 }
 .close:hover {
+  background: var(--bg-hover);
   color: var(--fg);
 }
