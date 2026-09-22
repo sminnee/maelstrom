@@ -24,7 +24,7 @@ document::
 A fifth marks a stage of the work as reached, so a reader can say where the
 token spend went::
 
-    <milestone>green</milestone>
+    <milestone>built</milestone>
 
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
@@ -61,7 +61,8 @@ _IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
 #: by ``test_both_readers_agree_on_the_note_tag``.
 _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
 #: Which stage of the work the agent has just reached. No attributes are read;
-#: the body is the name.
+#: the body is the name. The daemon holds no copy of this pattern: it cuts every
+#: marker by shape, so only this module knows what a milestone is called.
 _MILESTONE_TAG = re.compile(
     rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
 )

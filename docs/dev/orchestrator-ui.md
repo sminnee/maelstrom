@@ -363,7 +363,7 @@ ctx`. The tool row deliberately carries no rule, because a run of them read as r
 holds where a rule falls on every call. A compact happens a handful of times in a session, and a
 boundary is the one thing a rule is for.
 
-A milestone takes the same rule, in `--ok`: `green · 95k · $2.10`. The figures are the stage's
+A milestone takes the same rule, in `--ok`: `built · 95k · $2.10`. The figures are the stage's
 own delta, and a name the flow does not declare keeps the compact register and gains `(?)`. See
 `web/DESIGN.md`, "Milestone bar".
 

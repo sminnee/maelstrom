@@ -522,7 +522,7 @@ describe('drift between the task file and the agent', () => {
 
       act(() => {
         server.world.milestones.c3e8f1b5!.push({
-          name: 'green',
+          name: 'reviewed',
           at: T(0),
           recognised: true,
           total_tokens: 48_000,
@@ -532,10 +532,10 @@ describe('drift between the task file and the agent', () => {
           cost_delta: 0.19,
         });
         server.append('c3e8f1b5' as Agent['id'], {
-          id: 'item-green' as TranscriptItem['id'],
+          id: 'item-reviewed' as TranscriptItem['id'],
           ts: T(0),
           type: 'milestone',
-          name: 'green',
+          name: 'reviewed',
           recognised: true,
           deltaTokens: 16_100,
           costDelta: 0.19,
@@ -543,7 +543,7 @@ describe('drift between the task file and the agent', () => {
       });
 
       await waitFor(() =>
-        expect(within(expanded()).getByTestId('milestone-band')).toHaveTextContent('green'),
+        expect(within(expanded()).getByTestId('milestone-band')).toHaveTextContent('reviewed'),
       );
     });
 

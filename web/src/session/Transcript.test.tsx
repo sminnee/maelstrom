@@ -75,7 +75,7 @@ describe('Transcript', () => {
             id: 'ms1',
             ts: '',
             type: 'milestone',
-            name: 'green',
+            name: 'built',
             recognised: true,
             deltaTokens: 95_000,
             costDelta: 2.1,
@@ -532,8 +532,8 @@ describe('the milestone bar', () => {
   it('says which stage closed and what that stage cost', () => {
     // The delta, never the running total: "which stage was expensive" is the
     // reading the ledger exists to give.
-    render(<Transcript items={[reached('green')]} truncatedBefore={false} />);
-    expect(screen.getByTestId('milestone')).toHaveTextContent('green · 95k · $2.10');
+    render(<Transcript items={[reached('built')]} truncatedBefore={false} />);
+    expect(screen.getByTestId('milestone')).toHaveTextContent('built · 95k · $2.10');
   });
 
   it('flags a name the flow does not declare, and does not light the rule for it', () => {
@@ -548,9 +548,9 @@ describe('the milestone bar', () => {
   it('says only the stage when the stage spent nothing', () => {
     // A stage reached twice deltas to zero against the row before it, which
     // is a real ledger state. `· 0k · $0.00` would read as a measurement.
-    const item = { ...reached('green'), deltaTokens: 0, costDelta: 0 };
+    const item = { ...reached('built'), deltaTokens: 0, costDelta: 0 };
     render(<Transcript items={[item]} truncatedBefore={false} />);
-    expect(screen.getByTestId('milestone')).toHaveTextContent(/^green$/);
+    expect(screen.getByTestId('milestone')).toHaveTextContent(/^built$/);
   });
 });
 

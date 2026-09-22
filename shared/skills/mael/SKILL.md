@@ -32,8 +32,8 @@ After green gates, run this unattended sequence:
 1. Commit the implementation.
 2. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
 3. Run `/code-review`. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
-4. Run `/present`.
-5. Push with `mael gh create-pr --squash`, then write `<milestone>shipped</milestone>`.
+4. Run `/present`, which writes `<milestone>presented</milestone>`.
+5. Push with `mael gh create-pr --squash`.
 6. Run `mael task status done`.
 7. Run `/watch-pr` until CI passes or times out.
 
