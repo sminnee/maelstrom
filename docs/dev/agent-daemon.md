@@ -751,6 +751,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `answer` | `id`; optional `request`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
 | `set-mode` | `id`, `mode` (`plan`, `normal` or `auto`) | `{"ok": true, "mode": "<mode>"}` |
+| `recover` | `id` | `{"ok": true, "cleared": true}`, plus `"warning"` when the record names neither a plan file nor a prompt |
 | `stop` | `id` | `{"ok": true}` |
 | `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
@@ -821,6 +822,10 @@ it read. A compact, by contrast, reports its own result — see "A compact". Wit
 a cleared agent keeps reporting its pre-clear size until it next speaks. The cumulative total is
 spend, so only the level moves.
 
+The approval also writes the plan file to the spawn record, as `plan_file`. That is the only
+moment it is known: it arrives on the review ask, which the allow answers and closes. `recover`
+reads it back later.
+
 A plan review naming no plan file is **denied** instead. The agent could not write its plan down,
 so `input` arrives bare and there is no `planFilePath`. The only copy is then a message
 `MESSAGE_CHARS` may have truncated. Handing a cleared context half a plan is worse than saying so:
@@ -867,6 +872,37 @@ default nudge. See "The resume rules".
 `start` and `resume` both report the spawn, not the run. A child that dies straight after
 spawning — a bad `--model`, an expired login, a `--resume` Claude will not accept — is reported
 `ok`, and the exit shows in the next `list`. `mael agent show` says why.
+
+### Recovering a poisoned context
+
+`mael agent recover <id>` clears an agent's context and sends it its work again.
+
+It is for an agent that answers but does no work. The model sometimes writes a tool call as text
+instead of calling the tool. Claude Code has no text-based tool-call parser, so nothing runs. It
+retries once, then ends the turn with a synthetic message saying the call could not be parsed.
+The agent lands on `idle` with the work untouched.
+
+The failure then feeds itself. The harness discards the first bad response, but the second stays
+in the transcript. Every later turn reads that malformed output as a worked example and repeats
+it. Plan approval concentrates it, because `/clear` leaves a context holding no successful tool
+call to copy instead.
+
+So recovery cannot be a prompt: the bad turn sits in the context a prompt would land in. Only
+discarding that context helps.
+
+Two writes, in the order the approval ends on and for the same reason:
+
+1. `/clear`;
+2. the turn that follows it, last, or the clear would discard it.
+
+That turn is the handover naming `plan_file` when the record has one, and the spawn record's
+`prompt` otherwise. An approved plan outranks the spawn prompt: it is the later and narrower
+instruction, and an agent that reached a plan has already done what the spawn prompt asks. A
+record holding neither is cleared all the same, and the reply carries a `warning` saying the
+agent now waits with nothing to do.
+
+The child keeps running throughout. Only its conversation is bad, so nothing is respawned and the
+session id survives, which is what keeps the task link intact.
 
 ### The guards
 

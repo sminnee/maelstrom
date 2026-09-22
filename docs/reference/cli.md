@@ -650,6 +650,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent attach ID` | Teleport into an agent as a terminal UI. Esc interrupts the turn; Shift-Tab changes the mode; Ctrl-C detaches. Needs a terminal. |
 | `mael agent interrupt ID` | Abandon the turn an agent is running, leaving the agent alive. Denies a pending wait first. |
 | `mael agent set-mode ID MODE` | Change a running agent's permission mode: `plan`, `normal` or `auto`. Takes effect on the running turn, and the spawn record keeps it. |
+| `mael agent recover ID` | Clear a poisoned context and send the agent its work again, for an agent that answers but does no work. Keeps the child and its session. |
 | `mael agent stop ID` | Stop an agent. No daemon start brings a stopped agent back, but its spawn record is kept, so `mael agent resume ID` still works. |
 | `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
 | `mael agent cost [ID]` | Show what each agent spent and which stage of its work spent it, from the milestone ledger. Reads the state database, not the daemon, so a stopped agent still reports. Per stage: the tokens it consumed, split own and subagent, and the running total. `$` covers the agent's own requests alone — a subagent's spend is reported in tokens, because there is no price table. With no ID, every agent. `--json` emits the report as JSON. |
@@ -676,6 +677,7 @@ mael agent tail --raw 1761dcf6 > events.jsonl   # record it as JSON
 mael agent attach 1761dcf6                      # teleport: the terminal UI
 mael agent interrupt 1761dcf6                   # abandon the turn, keep the agent
 mael agent set-mode 1761dcf6 auto               # done planning: let it work
+mael agent recover 1761dcf6                     # it replies but does nothing: clear and re-send its work
 mael agent stop 1761dcf6
 mael agent resume 1761dcf6                      # after a crash: same id, same conversation
 mael agent resume 1761dcf6 --text "rerun the failing test"
