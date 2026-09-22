@@ -137,6 +137,18 @@ Lineage expressed in a task's name. `PROJ-12.3` is a child of `PROJ-12`, and
 are separable on purpose: a scheduled run is named under its template yet has an empty parent,
 so each firing roots its own chain.
 
+**Qualified id**:
+A task id that names its project: `northwind/NORT-7`, against the bare `NORT-7`. A surface
+shows the qualified id when it must tell two projects' tasks apart — a panel tab — and the bare
+id when something else on screen already names the project, such as a node in its lane.
+
+**Failover id**:
+The rule that fills an id slot from the next source down. An agent with no task shows its own
+agent id where a task would show its id, in the same slot and the same register. The slot is
+one field, so a free agent's node and tab name themselves as plainly as a task's do, and
+nothing marks a free agent as lacking a task.
+_Avoid_: Fallback id, placeholder id
+
 **Actionable**:
 A task maelstrom may launch now: not `done`, not `cancelled`, not `blocked`, not a template,
 and every followed id is `done`.
