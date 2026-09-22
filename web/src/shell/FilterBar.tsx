@@ -22,9 +22,11 @@ export function FilterBar() {
   const view = useAppStore((s) => s.ui.view);
   const filters = useAppStore((s) => s.ui.filters);
   const listFilters = useAppStore((s) => s.ui.listFilters);
+  const worktreeFilters = useAppStore((s) => s.ui.worktreeFilters);
   const groupBy = useAppStore((s) => s.ui.groupBy);
   const setFilters = useAppStore((s) => s.setFilters);
   const setListFilters = useAppStore((s) => s.setListFilters);
+  const setWorktreeFilters = useAppStore((s) => s.setWorktreeFilters);
   const setGroupBy = useAppStore((s) => s.setGroupBy);
   const options = filterOptions(world, filters);
   const stale = filters.branch !== null && !options.branches.some((b) => b.key === filters.branch);
@@ -57,21 +59,35 @@ export function FilterBar() {
           ))}
         </select>
       </label>
-      <label className={styles.field}>
-        <span>Branch</span>
-        <select
-          value={filters.branch ?? ''}
-          onChange={(e) => setFilters({ branch: e.target.value || null })}
-        >
-          <option value="">all</option>
-          {options.branches.map((b) => (
-            <option key={b.key} value={b.key}>
-              {b.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {view === 'canvas' ? (
+      {/* Not on the worktrees view: the branch options are built from tasks,
+          so a worktree on a branch no task names would vanish from a table
+          that is meant to show every one of them. */}
+      {view !== 'worktrees' && (
+        <label className={styles.field}>
+          <span>Branch</span>
+          <select
+            value={filters.branch ?? ''}
+            onChange={(e) => setFilters({ branch: e.target.value || null })}
+          >
+            <option value="">all</option>
+            {options.branches.map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {view === 'worktrees' ? (
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            checked={worktreeFilters.showClosed}
+            onChange={() => setWorktreeFilters({ showClosed: !worktreeFilters.showClosed })}
+          />
+          <span>show closed</span>
+        </label>
+      ) : view === 'canvas' ? (
         <>
           <label className={styles.field}>
             <span>Agent status</span>

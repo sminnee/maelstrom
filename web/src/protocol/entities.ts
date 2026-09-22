@@ -45,6 +45,14 @@ export interface Worktree {
   dirtyFiles: number;
   localCommits: number;
   prNumber: number | null;
+  /** Commits on the open PR, or `null` when there is no PR. */
+  prCommits: number | null;
+  /**
+   * Commits pushed with no open PR, or `null` when a PR is open. A branch
+   * whose PR merged and which now waits on a new one reads its remote commits
+   * here.
+   */
+  pushedCommits: number | null;
   /** The PR's browse URL, or `''` when there is no PR or no browse URL for the repo. */
   prUrl: string;
   /** How close the PR is to merging, or `''` when there is no PR. */

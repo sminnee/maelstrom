@@ -4,6 +4,7 @@ import type { TranscriptState } from '../live/transcriptReducer';
 import type { AgentId, TaskId } from '../protocol/ids';
 import type { Filters, GroupBy } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
+import type { WorktreeFilters } from '../selectors/worktrees';
 import type { PanelTab, UiState, View } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
@@ -25,6 +26,7 @@ export interface AppStore {
   setGroupBy(groupBy: GroupBy): void;
   setFilters(patch: Partial<Filters>): void;
   setListFilters(patch: Partial<ListFilters>): void;
+  setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
   openTab(tab: PanelTab): void;
   activateTab(key: string): void;
   closeTab(key: string): void;
@@ -69,6 +71,8 @@ export const useAppStore = create<AppStore>()((set) => ({
   setFilters: (patch) => set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),
   setListFilters: (patch) =>
     set((s) => ({ ui: { ...s.ui, listFilters: { ...s.ui.listFilters, ...patch } } })),
+  setWorktreeFilters: (patch) =>
+    set((s) => ({ ui: { ...s.ui, worktreeFilters: { ...s.ui.worktreeFilters, ...patch } } })),
   openTab: (tab) =>
     set((s) => {
       const tabs = openOrFocusTab(s.ui.tabs, tab);

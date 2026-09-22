@@ -5,6 +5,7 @@ import { Panel } from '../panel/Panel';
 import { NewWork } from '../newwork/NewWork';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
+import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -42,7 +43,16 @@ function WideShell() {
         <ConnectionBanner hasData={status === 'ready'} />
         <HostBanner />
         <div className={styles.body}>
-          <main className={styles.canvas}>{view === 'canvas' ? <Canvas /> : <TaskList />}</main>
+          <main className={styles.canvas}>
+            {view === 'canvas' ? (
+              <Canvas />
+            ) : view === 'worktrees' ? (
+              <WorktreeTable />
+            ) : (
+              <TaskList />
+            )}
+          </main>
+          {/* Only the canvas has something to put beside it. */}
           {view === 'canvas' && <Panel />}
         </div>
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
