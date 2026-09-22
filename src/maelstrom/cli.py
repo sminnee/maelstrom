@@ -16,11 +16,7 @@ from .base_store import GitConfigBaseStore
 from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .context import load_global_config, resolve_context, validate_project_name
-from .env import (
-    get_env_status,
-    regenerate_and_restart_if_running,
-    stop_env,
-)
+from .env import regenerate_and_restart_if_running
 from .env_cli import (
     ensure_cmux_browser,
     make_store,
@@ -71,7 +67,6 @@ from .table import draw_table
 from .task_cli import _harness_options as _harness_flags
 from .task_cli import add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli
-from .util import error_text
 from .wiki_cli import wiki as wiki_cli
 from .worktree import (
     SyncResult,
@@ -88,7 +83,6 @@ from .worktree import (
     list_worktrees,
     rebase_worktree,
     rebase_worktree_with_autorepair,
-    remove_worktree_by_path,
     run_git,
     setup_worktree_for_branch,
     sync_worktree,
@@ -96,7 +90,7 @@ from .worktree import (
     tidy_branches,
     update_claude_local_md,
 )
-from .worktree_close import close_worktree_fully
+from .worktree_close import close_worktree_fully, remove_worktree_fully
 from .worktree_launcher import (
     AddContext,
     detect_add_context,
@@ -573,7 +567,7 @@ async def cmd_add(
     is_flag=True,
     help="Skip confirmation prompt for modified/untracked files",
 )
-def cmd_remove(targets, force):
+async def cmd_remove(targets, force):
     """Remove one or more worktrees."""
     errors = []
     for target in targets:
@@ -623,24 +617,23 @@ def cmd_remove(targets, force):
                 errors.append(target)
                 continue
 
-        # Stop running environment if any
-        project_name = ctx.project
-        assert project_name is not None
-        env_store = make_store()
-        env_status = get_env_status(env_store, project_name, worktree_name)
-        if env_status and any(s.alive for s in env_status):
-            click.echo(f"Stopping environment for '{worktree_name}'...")
-            for msg in stop_env(env_store, project_name, worktree_name):
-                click.echo(f"  {msg}")
-
-        click.echo(f"Removing worktree '{worktree_name}'...")
-        try:
-            remove_worktree_by_path(project_path, folder_name)
-            click.echo("Worktree removed successfully.")
-        except Exception as e:
-            click.echo(
-                f"Error removing worktree '{worktree_name}': {error_text(e)}", err=True
-            )
+        # In the model, so the orchestrator server runs the same removal, and
+        # so the teardown stops the daemon's agents before any pid is signalled.
+        #
+        # force: the prompt above already asked. The model refuses a dirty
+        # worktree for a caller that cannot ask — the server — so answering
+        # here is what makes the answer stick.
+        outcome = await remove_worktree_fully(
+            ctx.project,
+            worktree_name,
+            worktree_path,
+            project_path,
+            folder_name,
+            force=True,
+            announce=click.echo,
+        )
+        if not outcome.close.success:
+            click.echo(f"Error: {outcome.close.message}", err=True)
             errors.append(target)
 
     if errors:

@@ -544,8 +544,12 @@ class TestRemoveMultiTarget:
 
         with patch("maelstrom.cli.resolve_context") as mock_resolve:
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                with patch("maelstrom.cli.remove_worktree_by_path") as mock_remove:
-                    with patch("maelstrom.cli.get_env_status", return_value=None):
+                with patch(
+                    "maelstrom.worktree_close.remove_worktree_by_path"
+                ) as mock_remove:
+                    with patch(
+                        "maelstrom.worktree_close.get_env_status", return_value=None
+                    ):
                         # Mock resolve_context for two different worktrees
                         def make_ctx(worktree_name):
                             ctx = MagicMock()
@@ -568,6 +572,43 @@ class TestRemoveMultiTarget:
 
                         assert mock_remove.call_count == 2
 
+    def test_rm_stops_the_daemon_s_agents_before_any_pid_is_signalled(self):
+        """The removal runs the close's teardown, so it leaves no phantom agent.
+
+        Spelled by hand, `mael remove` stopped the environment and nothing
+        else: the pid sweep made the daemon record a deliberate stop as a
+        crash. See `agent_stop`.
+        """
+        runner = CliRunner()
+        project_path = Path("/tmp/claude/projects/myproject")
+        order = []
+
+        async def stop_agents(path):
+            order.append("daemon")
+            return []
+
+        with patch("maelstrom.cli.resolve_context") as mock_resolve:
+            ctx = MagicMock()
+            ctx.project = "myproject"
+            ctx.project_path = project_path
+            ctx.worktree = "alpha"
+            ctx.worktree_path = project_path / "myproject-alpha"
+            mock_resolve.return_value = ctx
+
+            with (
+                patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.stop_agents_in_worktree", stop_agents),
+                patch(
+                    "maelstrom.worktree_close.remove_worktree_by_path",
+                    side_effect=lambda *a: order.append("remove"),
+                ),
+                patch.object(Path, "exists", return_value=True),
+            ):
+                runner.invoke(cli, ["rm", "myproject.alpha"])
+
+        assert order == ["daemon", "remove"]
+
     def test_rm_continues_on_error(self):
         """Test that rm continues processing after an error."""
         runner = CliRunner()
@@ -589,8 +630,10 @@ class TestRemoveMultiTarget:
             ]
 
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                with patch("maelstrom.cli.remove_worktree_by_path"):
-                    with patch("maelstrom.cli.get_env_status", return_value=None):
+                with patch("maelstrom.worktree_close.remove_worktree_by_path"):
+                    with patch(
+                        "maelstrom.worktree_close.get_env_status", return_value=None
+                    ):
                         with patch.object(Path, "exists", return_value=True):
                             result = runner.invoke(cli, ["rm", "bad", "bravo"])
 
@@ -614,10 +657,13 @@ class TestRemoveMultiTarget:
             alive_service = MagicMock(alive=True)
             with (
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.cli.remove_worktree_by_path"),
-                patch("maelstrom.cli.get_env_status", return_value=[alive_service]),
+                patch("maelstrom.worktree_close.remove_worktree_by_path"),
                 patch(
-                    "maelstrom.cli.stop_env", return_value=["web: stopped"]
+                    "maelstrom.worktree_close.get_env_status",
+                    return_value=[alive_service],
+                ),
+                patch(
+                    "maelstrom.worktree_close.stop_env", return_value=["web: stopped"]
                 ) as mock_stop,
                 patch.object(Path, "exists", return_value=True),
             ):
@@ -641,9 +687,9 @@ class TestRemoveMultiTarget:
 
             with (
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.cli.remove_worktree_by_path"),
-                patch("maelstrom.cli.get_env_status", return_value=None),
-                patch("maelstrom.cli.stop_env") as mock_stop,
+                patch("maelstrom.worktree_close.remove_worktree_by_path"),
+                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("maelstrom.worktree_close.stop_env") as mock_stop,
                 patch.object(Path, "exists", return_value=True),
             ):
                 runner.invoke(cli, ["rm", "myproject.alpha"])
@@ -2236,7 +2282,7 @@ class TestWorktreeDomainErrorsAtTheCli:
             )
             stack.enter_context(
                 patch(
-                    "maelstrom.cli.remove_worktree_by_path",
+                    "maelstrom.worktree_close.remove_worktree_by_path",
                     side_effect=UnclosableWorktreeError(
                         "_main cannot be removed: it holds the main checkout"
                     ),

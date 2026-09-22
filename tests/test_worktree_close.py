@@ -1,16 +1,29 @@
-"""Tests for the shared close sequence behind ``mael close`` and the server.
+"""Tests for the teardown sequences behind ``mael close``, ``mael remove`` and
+the server.
 
-The seam is :func:`maelstrom.worktree_close.close_worktree_fully`: what it does,
-in what order, and what it reports. The CLI tests in ``tests/test_cli.py`` cover
-only what ``mael close`` prints on top of it.
+The seams are :func:`maelstrom.worktree_close.close_worktree_fully` and
+:func:`maelstrom.worktree_close.remove_worktree_fully`: what each does, in what
+order, and what it reports. The CLI tests in ``tests/test_cli.py`` cover only
+what the commands print on top of them.
 """
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from maelstrom.worktree import CloseResult
-from maelstrom.worktree_close import CloseSteps, close_worktree_fully
+from maelstrom.worktree_close import (
+    CloseSteps,
+    close_worktree_fully,
+    remove_worktree_fully,
+)
 from maelstrom.worktree_model import CopyBackResult
+
+# The real-git fixture, mirroring maelstrom's layout: a bare clone at
+# `<project>/.git` with `<project>-alpha` beside it.
+from tests.test_sync_flags import (  # noqa: F401
+    project_with_worktree,
+)
 
 WORKTREE_PATH = Path("/Users/dev/Projects/myproject/myproject-alpha")
 PROJECT_PATH = Path("/Users/dev/Projects/myproject")
@@ -42,6 +55,8 @@ def steps(**over) -> CloseSteps:
         copy_back=lambda project_path, path: CopyBackResult(),
         close=lambda path, force, discard: CloseResult(success=True, message="Closed"),
         close_workspace=lambda project, worktree: False,
+        remove=lambda project_path, folder: None,
+        dirty_files=lambda path: [],
     )
     return CloseSteps(**{**defaults, **over})
 
@@ -202,3 +217,158 @@ class TestWarnings:
             "myproject", "alpha", WORKTREE_PATH, None, steps=steps(copy_back=copy_back)
         )
         copy_back.assert_not_called()
+
+
+class TestRemove:
+    """``remove_worktree_fully`` is the close sequence with a different git step.
+
+    Written as a sequence rather than by hand, it gains the step ``cmd_remove``
+    never had: the daemon is asked to stop its agents before any pid is
+    signalled. Without it, every remove over a driven agent left a phantom
+    ``exited`` row — see ``agent_stop``.
+    """
+
+    async def _remove(self, **over):
+        return await remove_worktree_fully(
+            "myproject",
+            "alpha",
+            WORKTREE_PATH,
+            PROJECT_PATH,
+            "myproject-alpha",
+            steps=steps(**over),
+        )
+
+    async def test_the_daemon_is_asked_before_any_pid_is_signalled(self):
+        """The defect: a removed worktree must leave no phantom crashed agent."""
+        order: list[str] = []
+        result = await self._remove(
+            stop_agents=_recording_stop_agents(order),
+            live_sessions=lambda path: [MagicMock()],
+            stop_sessions=lambda sessions: order.append("pids") or ["sess: stopped"],
+            remove=lambda project_path, folder: order.append("remove"),
+        )
+        assert order == ["daemon", "pids", "remove"]
+        assert any("agent a1: stopped" in line for line in result.messages)
+
+    async def test_a_running_environment_is_stopped_first(self):
+        order: list[str] = []
+        await self._remove(
+            env_status=lambda p, w: [MagicMock(alive=True)],
+            stop_env=lambda p, w: order.append("stop_env") or ["web: stopped"],
+            remove=lambda project_path, folder: order.append("remove"),
+        )
+        assert order == ["stop_env", "remove"]
+
+    async def test_the_worktree_is_removed_by_its_folder_name(self):
+        seen: list[tuple[Path, str]] = []
+        result = await self._remove(
+            remove=lambda project_path, folder: seen.append((project_path, folder))
+        )
+        assert seen == [(PROJECT_PATH, "myproject-alpha")]
+        assert result.close.success
+
+    async def test_nothing_is_rescued_from_the_env(self):
+        """The worktree is being deleted, not parked: there is nowhere to go back to."""
+        copy_back = MagicMock(return_value=CopyBackResult())
+        await self._remove(copy_back=copy_back)
+        copy_back.assert_not_called()
+
+    async def test_dirty_files_are_refused_rather_than_destroyed(self):
+        """`git worktree remove --force` destroys uncommitted work.
+
+        The CLI has always listed the files and asked first. The server has no
+        prompt to fall back on, so the refusal is the model's — a caller that
+        means it passes `force`.
+        """
+        remove = MagicMock()
+        result = await self._remove(dirty_files=lambda path: ["src/a.py", "src/b.py"])
+        assert not result.close.success
+        assert "src/a.py" in result.close.message
+        remove.assert_not_called()
+
+    async def test_force_removes_a_dirty_worktree(self):
+        seen: list[str] = []
+        result = await remove_worktree_fully(
+            "myproject",
+            "alpha",
+            WORKTREE_PATH,
+            PROJECT_PATH,
+            "myproject-alpha",
+            force=True,
+            steps=steps(
+                dirty_files=lambda path: ["src/a.py"],
+                remove=lambda project_path, folder: seen.append(folder),
+            ),
+        )
+        assert result.close.success
+        assert seen == ["myproject-alpha"]
+
+    async def test_a_clean_worktree_needs_no_force(self):
+        seen: list[str] = []
+        result = await self._remove(
+            dirty_files=lambda path: [],
+            remove=lambda project_path, folder: seen.append(folder),
+        )
+        assert result.close.success
+        assert seen == ["myproject-alpha"]
+
+    async def test_a_failed_removal_is_reported_rather_than_raised(self):
+        def boom(project_path, folder):
+            raise OSError("git refused")
+
+        result = await self._remove(remove=boom)
+        assert not result.close.success
+        assert "git refused" in result.close.message
+
+    async def test_no_cmux_workspace_is_closed_when_the_removal_failed(self):
+        def boom(project_path, folder):
+            raise OSError("git refused")
+
+        close_workspace = MagicMock(return_value=True)
+        await self._remove(remove=boom, close_workspace=close_workspace)
+        close_workspace.assert_not_called()
+
+    async def test_the_cmux_workspace_is_closed_after_a_successful_removal(self):
+        result = await self._remove(close_workspace=lambda p, w: True)
+        assert any(
+            "Closed cmux workspace 'myproject-alpha'" in line
+            for line in result.messages
+        )
+
+
+class TestAgainstARealRepo:
+    """The close sequence driven with the real ``close_worktree``.
+
+    Every other test here stubs ``steps.close``, which is the collaborator the
+    whole refactor put a scope around — so a fault in that pairing is invisible
+    to them by construction. This one runs the real git algorithm inside the
+    real sequence, against the real project layout, which is the only place the
+    two meet.
+    """
+
+    async def test_a_close_finishes_rather_than_waiting_on_its_own_lock(
+        self, project_with_worktree
+    ):
+        """The git step must not hold a scope the algorithm it wraps re-takes.
+
+        ``close_worktree`` syncs, and ``rebase_worktree``'s fetch takes the repo
+        scope itself. ``flock`` is per open file description, so a second
+        acquire blocks against the first even in one thread: a sequence holding
+        the repo scope over the whole git step would wait out ``LOCK_TIMEOUT``
+        and then blame a peer process that does not exist.
+        """
+        project_path, worktree_path, _ = project_with_worktree
+
+        result = await asyncio.wait_for(
+            close_worktree_fully(
+                "test-repo",
+                "alpha",
+                worktree_path,
+                project_path,
+                steps=steps(close=CloseSteps().close),
+            ),
+            timeout=30,
+        )
+
+        assert result.close.success, result.close.message
+        assert "lock" not in result.close.message.lower()
