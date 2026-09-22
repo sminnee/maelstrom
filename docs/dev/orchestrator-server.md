@@ -312,6 +312,15 @@ snapshot and its first live one.
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
 
+Worktree operations run on a second, wider pool. They touch git, ports and the process table and
+never the notebook, so they have no reason to queue behind a task read — and a fetch would stall
+one for seconds.
+
+The pool is handed to each operation's sequence rather than applied at the call site: an operation
+is a coroutine that awaits its steps, and it is each blocking step that needs a thread. Its width
+is for overlap, not for correctness — what must not run at once is named by each step's own scope
+and held with a cross-process lock. See `docs/dev/worktree-steps.md`.
+
 `diff_kind` turns two readings of one table into upserts and removes. An unchanged entity yields
 nothing, so a poll that finds no change is silent.
 
@@ -592,14 +601,23 @@ Not built: the opencode harness, and the cmux placement the CLI does.
 both adapters, as `task_launch.py` does for a launch, because `env.py` already imports
 `worktree.py`.
 
-The server never forces. A worktree with unmerged commits or a dirty tree is refused, and the
-refusal carries the model's own message, so the UI reads what the command would have printed.
-`--force` writes a `wip: uncommitted changes` commit and a reopen task, which stays with the
-CLI. `_main` is refused by `validate.py`, before any git call runs.
+An ordinary close never forces. A worktree with unmerged commits or a dirty tree is refused, and
+the refusal carries the model's own message, so the UI reads what the command would have printed.
 
-The close blocks for tens of seconds, so it runs on the executor as a launch does. The refresh
-runs whichever way the close ends: one that fails partway has still stopped agents and freed
-ports.
+Forcing is its own command. It writes a `wip: uncommitted changes` commit and keeps the branch, so
+nothing is lost, but it is a decision rather than a retry — the UI asks before it sends. `_main` is
+refused by `validate.py` for every teardown, before any git call runs.
+
+Five operations share that shape: close, force close, remove, sync and env. Each is one optional
+callable on `WorktreeSource`, so a source built without one serves the world read-only for that
+operation rather than half-doing it. Each is a step sequence — close and remove in
+`worktree_close.py`, sync and env in `worktree_ops.py` — so each takes the worktree scope and
+cannot reach a checkout another operation is rewriting. `sync` takes a mode — `plain`, `autorepair` or `squash` —
+because it is one operation with the three settings `mael sync` has, not three operations. `env`
+takes an action, and `restart` is `stop` then `start` rather than a third code path.
+
+Each blocks for tens of seconds, so each runs on the worktree pool. The refresh runs whichever way
+the operation ends: a close that fails partway has still stopped agents and freed ports.
 
 ## Task ids on the wire
 
@@ -768,6 +786,10 @@ The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both r
 400 `invalid`.
 
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
+| `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
+| `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
+| `POST /api/worktrees/{id}/env` | `action` | `worktree.env` | `{}` |
+| `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`

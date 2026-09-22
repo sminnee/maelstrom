@@ -72,11 +72,27 @@ changes` rather than discarding it. `close --discard` removes dirty files but ke
 commits and ignored files.
 
 **Remove**:
-Delete the worktree folder and free its port allocation. The branch survives.
+Delete the worktree folder and free its port allocation. The branch survives. Remove runs the
+same teardown as close first — stop the environment, the agents and the sessions — so a removed
+worktree leaves nothing of its own running.
 
 **Closed**:
 The state that makes a worktree available for recycling: detached HEAD, no dirty files, and no
 commits ahead of `origin/main`.
+
+**Step**:
+One named unit of a worktree mutation, wrapping a model function and returning its lines. Close,
+remove and the server's operations are each a list of steps rather than a function spelled out
+per caller, so a step cannot go missing from one of them. See `docs/dev/worktree-steps.md`.
+_Avoid_: Stage, phase, action
+
+**Step scope**:
+What a step must hold alone while it runs: the repo, or one worktree. The repo scope covers the
+project's shared `.git`, which a fetch writes; the worktree scope covers one checkout's index and
+`HEAD`. Held with a cross-process lock, because a user running `mael sync` in a terminal is a peer
+writer. A step needing both takes repo first, always, so no two steps deadlock. Distinct from the
+squash **Scope** below, which is an extent rather than a lock.
+_Avoid_: Lock, mutex, critical section
 
 **Dirty file**:
 A file `git status` reports as changed in a worktree, staged or unstaged. `.env` is excluded,
@@ -550,7 +566,8 @@ branch's final state in one commit a reviewer reads whole.
 _Avoid_: Fold, flatten, uncommit (which resets the commit into the working tree)
 
 **Scope**:
-How much of a branch a squash or an uncommit takes in. The whole branch (`--remote`, the default),
+How much of a branch a squash or an uncommit takes in. Distinct from a **Step scope**, which is a
+lock rather than an extent. The whole branch (`--remote`, the default),
 or only the commits that were never pushed (`--local`). A re-review of a branch whose PR is open
 uses `--local`, so it reads the new work alone and the already-reviewed commits keep their own
 subjects.
