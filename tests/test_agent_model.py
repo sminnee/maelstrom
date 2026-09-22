@@ -12,7 +12,7 @@ so the request arrives bare and the plan is in a message instead.
 
 import base64
 import json
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -500,10 +500,19 @@ def test_spec_round_trips_through_plain_json():
         prompt="go",
         status="exited",
         exit_code=-9,
+        plan_file="/plans/p.md",
+        pid=4242,
+        started_at="2026-01-01T00:00:00Z",
+        last_status="idle",
+        stopped_at_shutdown=True,
     )
     # The record is the resume contract, so a field it drops is one a restarted
     # daemon would approve the plan without.
     assert spec_from_dict(spec_to_dict(spec)) == spec
+    # Every field set above, and checked by name: a round trip that leaves a
+    # new field at its default passes while the serialiser drops it, which is
+    # how `plan_file` first shipped unwritten.
+    assert set(spec_to_dict(spec)) == {f.name for f in fields(AgentSpec)}
 
 
 def test_spec_from_dict_fills_in_what_an_older_record_lacks():
