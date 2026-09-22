@@ -157,6 +157,10 @@ records those as stopped, not crashed, so a closed worktree leaves nothing in `m
 |---|---|
 | `-f`, `--force` | Skip the confirmation prompt for modified or untracked files. |
 
+`mael remove` runs the same teardown as `mael close` before it deletes the checkout: it stops the
+environment, asks the agent daemon to stop the agents running there, then signals any remaining
+`claude` process. A removed worktree therefore leaves nothing in `mael agent list --all` either.
+
 **`mael sync`**
 
 | Option | Description |

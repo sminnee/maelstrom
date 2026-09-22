@@ -150,15 +150,47 @@ running, so a task launched from the UI joins the desk as well.
 ## The canvas, the task list and the panel
 
 The canvas is where the user decides. The panel is where the user reads. The task list is where
-the user chooses what the canvas draws.
+the user chooses what the canvas draws. The worktree table is where the user manages the
+worktrees themselves.
 
 The canvas draws a node when it is on the desk, or it has a live agent. The liveness half is
 what makes running work always visible: an agent shows the moment it starts, before the server's
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar switches between Desk and Tasks. Project and branch apply to both views.
-Desk has Agent status and Group by controls. Tasks has status and text controls.
+the desk. The top bar switches between Desk, Tasks and Worktrees. Project applies to all three.
+Branch applies to Desk and Tasks only: its options are built from tasks, so a worktree on a branch
+no task names would silently vanish from a table meant to show every one of them. Desk has Agent
+status and Group by controls, Tasks has status and text controls, and Worktrees has "show closed".
+
+`View` is a union nothing switches on exhaustively, so widening it compiles clean. The three branch
+sites — `AppShell`, `MobileShell` and `FilterBar` — are edited by hand.
+
+### The worktree table
+
+`worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
+
+It is the only surface that shows a worktree nobody is working in. The canvas can group lanes by
+worktree, but a lane only draws what is on the desk, so an open worktree with no work was invisible
+and the whole worktree vocabulary — `mael sync`, `mael close`, `mael env` — reached no button at
+all. `selectors/worktrees.ts` reads the rows from the world, as `seedWorktreeLanes` does and for the
+same reason.
+
+The columns are worktree, branch, dirty, local, remote, PR, app and agents. "Remote" is `prCommits`
+once a pull request is open and `pushedCommits` before one is, which is what commits waiting on the
+remote means for a branch waiting on a new PR — `cli.pr_display` reads the same two fields, so the
+table and the terminal give one reading. "Agents" is the world's agent rows joined by `worktreeId`,
+minus subagents and exited rows; it is not `sessionCount`, which is a process sweep and counts a
+shell as readily as an agent.
+
+A closed worktree is listed only when "show closed" is ticked, and reads as parked. `_main` sorts
+first, because it holds the branch the others are cut from.
+
+Each row carries its operations. Sync, close and the environment control are plain buttons; force
+close and delete are `ui/ConfirmButton.tsx`, one question open at a time per row, because two
+destructive actions a click apart is how the wrong worktree gets deleted. `_main` is offered
+neither close nor delete — it holds the main checkout — but it still syncs. The environment control
+reads `appRunning`: Start when it is down, Stop and Restart when it is up.
 
 The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every

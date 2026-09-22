@@ -28,6 +28,9 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/data-architecture.md` — the five data patterns (canonical, cached, pass-through,
   pushed, progressive), the state database, and how to choose between them.
 - `docs/dev/tasks.md` — the task domain model: `parent` vs `follows`, dotted ids, session discovery.
+- `docs/dev/worktree-steps.md` — the steps a worktree mutation is made of: the shared step
+  vocabulary, the two ordering rules, the repo and worktree scopes, and why the git algorithms
+  stay whole.
 - `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
   stack tip, and why only `gh stack link` is used.
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
