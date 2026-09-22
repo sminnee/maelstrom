@@ -1,0 +1,66 @@
+.view {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+}
+.project + .project {
+  margin-top: 24px;
+}
+/* The project name, once, over its own table: a project column would repeat
+   the same word down every row of a group that is already grouped by it. */
+.heading {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+}
+.table th {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.table tbody tr:hover {
+  background: var(--bg-raised);
+}
+/* A closed worktree is listed only when asked for, and reads as parked. */
+.table tbody tr[data-closed='true'] {
+  color: var(--fg-faint);
+}
+.mono {
+  font-family: var(--mono);
+}
+.faint {
+  color: var(--fg-faint);
+}
+/* The buttons sit on one line and wrap together, so a narrow window stacks
+   them rather than stretching the column. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+.terminal {
+  margin: 0;
+  padding: 12px;
+  color: var(--fg-faint);
+}

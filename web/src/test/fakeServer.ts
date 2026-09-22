@@ -475,6 +475,10 @@ const WAIT_NAMES: Record<string, string> = {
 
 const waitName = (kind: string) => WAIT_NAMES[kind] ?? kind;
 
+/** The worktree command vocabularies, mirroring `orchestrator/validate.py`. */
+const SYNC_MODES: readonly string[] = ['plain', 'autorepair', 'squash'];
+const ENV_ACTIONS: readonly string[] = ['start', 'stop', 'restart'];
+
 /** How a wait reads in `waitingOn`, the way the normaliser summarises it. */
 function summaryOf(item: TranscriptItem): string {
   if (item.type === 'question') return item.questions[0]?.question ?? '';
@@ -947,6 +951,12 @@ function command(
     });
   }
 
+  // Before every `{id}` route below, or the id pattern swallows `refresh`.
+  if (pathname === '/api/worktrees/refresh' && method === 'POST') {
+    // A re-read of the host. Nothing in the fake world moves.
+    return ok({});
+  }
+
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/close$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);
@@ -969,6 +979,67 @@ function command(
       );
     }
     world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/force-close$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.nato === '_main') {
+      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
+    }
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed already`);
+    // No dirty-tree or unmerged-commit check: skipping them is what makes
+    // this a force close.
+    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)$/);
+  if (m && method === 'DELETE') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.nato === '_main') {
+      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
+    }
+    // A closed worktree is removable: deleting a parked one is the point.
+    delete world.worktrees[id];
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/sync$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    const mode = str('mode') ?? 'autorepair';
+    if (!SYNC_MODES.includes(mode)) {
+      return error(400, 'invalid', `Unknown sync mode: ${mode}`);
+    }
+    // A sync moves counts the fake does not model. The change still goes out,
+    // so a test can see the call landed.
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/env$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    const action = str('action') ?? 'start';
+    if (!ENV_ACTIONS.includes(action)) {
+      return error(400, 'invalid', `Unknown environment action: ${action}`);
+    }
+    world.worktrees[id] = { ...worktree, appRunning: action !== 'stop' };
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});
   }

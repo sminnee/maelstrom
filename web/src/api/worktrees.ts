@@ -39,3 +39,104 @@ export function useCloseWorktree() {
     },
   });
 }
+
+/**
+ * Close a worktree without the checks the ordinary close makes. It is its own
+ * call because the checks are the point of the other one: a dirty tree or an
+ * unmerged commit stops a close, and this is how a user says to close anyway.
+ * It tears down the same things, so it clears the same queries.
+ */
+export function useForceCloseWorktree() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/force-close`, undefined, {
+        timeoutMs: SLOW_CALL_TIMEOUT_MS,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
+      void queryClient.invalidateQueries({ queryKey: keys.attention() });
+      void queryClient.invalidateQueries({ queryKey: keys.desk() });
+    },
+  });
+}
+
+/**
+ * Remove a worktree: the folder and the record both go. It stops whatever is
+ * still there first, so it clears what a close clears.
+ */
+export function useRemoveWorktree() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+      api.delete(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}`, {
+        timeoutMs: SLOW_CALL_TIMEOUT_MS,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
+      void queryClient.invalidateQueries({ queryKey: keys.attention() });
+      void queryClient.invalidateQueries({ queryKey: keys.desk() });
+    },
+  });
+}
+
+/**
+ * Sync a worktree: the same `mael sync` runs, in one of its three modes. It
+ * rebases and pushes, so it takes the long timeout, but it starts and stops no
+ * agent — only the worktree's own counts move.
+ */
+export function useSyncWorktree() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId; mode: 'plain' | 'autorepair' | 'squash' }) =>
+      api.post(
+        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/sync`,
+        { mode: vars.mode },
+        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+    },
+  });
+}
+
+/**
+ * Start, stop or restart a worktree's dev environment. Only the worktree's own
+ * `appRunning` moves, so nothing else is cleared.
+ */
+export function useEnvWorktree() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId; action: 'start' | 'stop' | 'restart' }) =>
+      api.post(
+        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/env`,
+        { action: vars.action },
+        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+    },
+  });
+}
+
+/**
+ * Re-read the world from the host. Nothing changes but what the server knows,
+ * so only the worktrees are re-fetched.
+ */
+export function useRefreshWorktrees() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post('/api/worktrees/refresh', undefined, { timeoutMs: SLOW_CALL_TIMEOUT_MS }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+    },
+  });
+}

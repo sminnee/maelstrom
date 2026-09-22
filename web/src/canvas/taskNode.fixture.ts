@@ -85,6 +85,8 @@ function worktree(over: Partial<Worktree> = {}): Worktree {
     dirtyFiles: 0,
     localCommits: 0,
     prNumber: null,
+    prCommits: null,
+    pushedCommits: null,
     prUrl: '',
     prState: '',
     prDraft: false,

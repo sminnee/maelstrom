@@ -43,6 +43,8 @@ function worktree(
     dirtyFiles: 0,
     localCommits: 0,
     prNumber: null,
+    prCommits: null,
+    pushedCommits: null,
     prUrl: '',
     prState: '',
     prDraft: false,
@@ -218,7 +220,13 @@ export function seedWorld(): Seed {
       dirtyFiles: 3,
       sessionCount: 1,
     }),
-    worktree('maelstrom', 'bravo', { branch: 'feat/task-index', localCommits: 2, sessionCount: 1 }),
+    worktree('maelstrom', 'bravo', {
+      branch: 'feat/task-index',
+      localCommits: 2,
+      // Pushed with no PR open, so the row has a remote count and no PR count.
+      pushedCommits: 2,
+      sessionCount: 1,
+    }),
     worktree('maelstrom', 'charlie', { isClosed: true }),
     worktree('northwind', 'alpha', { branch: 'feat/orders', sessionCount: 1 }),
     worktree('northwind', 'bravo', { branch: 'feat/db-migrate', dirtyFiles: 7, sessionCount: 1 }),
@@ -228,6 +236,7 @@ export function seedWorld(): Seed {
       // card, where a short one would not exercise the meta line.
       branch: 'feat/rotate-auth-tokens-for-every-service',
       prNumber: 118,
+      prCommits: 4,
       prUrl: 'https://github.com/acme/northwind/pull/118',
       prState: 'ci-running',
       appUrl: 'http://localhost:4210',

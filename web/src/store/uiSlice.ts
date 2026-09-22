@@ -2,6 +2,8 @@ import type { Filters, GroupBy } from '../selectors/filters';
 import { noFilters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import { noListFilters } from '../selectors/taskList';
+import type { WorktreeFilters } from '../selectors/worktrees';
+import { noWorktreeFilters } from '../selectors/worktrees';
 import type { AgentId, DocumentId, TaskId } from '../protocol/ids';
 import type { Zone } from '../protocol/progress';
 import type { MobileScreen } from '../selectors/navStack';
@@ -11,8 +13,14 @@ export type PanelTab =
   | { key: string; kind: 'session'; agentId: AgentId }
   | { key: string; kind: 'document'; documentId: DocumentId };
 
-/** Which of the two main views is showing: the desk, or every task. */
-export type View = 'canvas' | 'list';
+/**
+ * Which main view is showing: the desk, every task, or every worktree.
+ *
+ * Nothing switches on this exhaustively, so widening it compiles clean —
+ * every branch site must be edited by hand. They are AppShell, MobileShell
+ * and FilterBar.
+ */
+export type View = 'canvas' | 'list' | 'worktrees';
 
 export interface UiState {
   view: View;
@@ -20,6 +28,8 @@ export interface UiState {
   filters: Filters;
   /** The task list's own filters. */
   listFilters: ListFilters;
+  /** The worktree table's own filters. */
+  worktreeFilters: WorktreeFilters;
   tabs: PanelTab[];
   activeTabKey: string | null;
   /** The one node grown into a card on the canvas, if any: a task or an agent. */
@@ -64,6 +74,7 @@ export function initialUiState(): UiState {
     groupBy: 'project',
     filters: noFilters(),
     listFilters: noListFilters(),
+    worktreeFilters: noWorktreeFilters(),
     tabs: [],
     activeTabKey: null,
     expandedNodeId: null,

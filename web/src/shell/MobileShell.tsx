@@ -8,6 +8,7 @@ import { nodeTitle } from '../selectors/graph';
 import type { MobileScreen } from '../selectors/navStack';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
+import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -33,7 +34,15 @@ export function MobileShell() {
       <TopBar />
       <ConnectionBanner hasData={status === 'ready'} />
       <main className={styles.body}>
-        {top ? <Screen screen={top} /> : view === 'canvas' ? <DeckList /> : <TaskList />}
+        {top ? (
+          <Screen screen={top} />
+        ) : view === 'canvas' ? (
+          <DeckList />
+        ) : view === 'worktrees' ? (
+          <WorktreeTable />
+        ) : (
+          <TaskList />
+        )}
       </main>
       {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
       {newWorkOpen && <NewWork />}

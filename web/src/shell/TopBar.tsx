@@ -10,6 +10,7 @@ import styles from './TopBar.module.css';
 const VIEWS: { view: View; label: string }[] = [
   { view: 'canvas', label: 'Desk' },
   { view: 'list', label: 'Tasks' },
+  { view: 'worktrees', label: 'Worktrees' },
 ];
 
 export function TopBar() {
