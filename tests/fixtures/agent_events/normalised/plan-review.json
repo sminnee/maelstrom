@@ -36,7 +36,7 @@
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "plan",
-        "title": "plan.md",
+        "title": "Plan",
         "markdown": "The plan file couldn't be written — writes to `/Users/sminnee/.claude/plans/` are blocked by the sandbox (`EPERM`), so the plan is here instead:\n\n**Context:** Create a `hello.txt` containing `hi` in the working directory. No such file exists; nothing depends on it.\n\n**Change:** Write `/private/tmp/claude-501/clean/hello.txt` with contents `hi` (single line, trailing newline).\n\n**Verification:** `cat /private/tmp/claude-501/clean/hello.txt` prints `hi`.",
         "version": 1,
         "status": "approved",

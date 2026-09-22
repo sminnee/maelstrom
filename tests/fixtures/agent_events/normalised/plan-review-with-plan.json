@@ -38,7 +38,7 @@
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "plan",
-        "title": "plan.md",
+        "title": "Plan",
         "markdown": "# Create hello.txt\n\n## Context\n\nThe user wants a file `hello.txt` in the working directory containing the text `hi`. There is no existing code or convention in `/private/tmp/claude/planprobe` that this needs to fit into — it is a standalone file creation.\n\n## Change\n\nCreate `/private/tmp/claude/planprobe/hello.txt` with the Write tool, containing:\n\n```\nhi\n```\n\nSingle line, trailing newline.\n\n## Verification\n\n```\ncat /private/tmp/claude/planprobe/hello.txt\n```\n\nExpect output `hi`.\n",
         "version": 1,
         "status": "awaiting-review",

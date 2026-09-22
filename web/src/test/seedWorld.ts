@@ -520,7 +520,7 @@ body rather than the query builder.
       agentId: 'a1f3c9e2',
       taskId: 'NORT-7',
       kind: 'plan',
-      title: 'plan.md',
+      title: 'Plan',
       markdown: NORT7_PLAN,
       version: 1,
       status: 'awaiting-review',
