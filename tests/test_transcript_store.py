@@ -16,12 +16,12 @@ from typing import NamedTuple
 import pytest
 
 from maelstrom.agent_model import KIND_CLI, KIND_MAEL, TranscriptMeta
+from maelstrom.claude_paths import sanitise_path_for_claude
 from maelstrom.transcript_store import (
     ClaudeTranscriptStore,
     InMemoryTranscriptStore,
     write_transcript,
 )
-from maelstrom.worktree_model import sanitise_path_for_claude
 
 CWD = Path("/w/alpha")
 OTHER = Path("/w/bravo")

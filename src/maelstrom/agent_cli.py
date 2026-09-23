@@ -66,7 +66,7 @@ from .agent_transport import (
 )
 from .agent_transport import client as daemon_client
 from .cli_async import AsyncGroup
-from .context import resolve_context
+from .context import get_maelstrom_dir, resolve_context
 from .env import format_uptime
 from .harness_model import resolve_execute_model
 from .notebook_root import NotebookRootUnset
@@ -275,7 +275,7 @@ def _kill_group():
 
 def _roots(every: bool) -> list[DaemonPaths]:
     if every:
-        return all_roots()
+        return all_roots(get_maelstrom_dir())
     return [daemon_paths()]
 
 
