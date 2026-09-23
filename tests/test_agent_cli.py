@@ -27,6 +27,7 @@ from maelstrom.agent_transport import (
     RecordingDaemonClient,
     SocketAsyncDaemonClient,
 )
+from maelstrom.notebook_root import NotebookRootUnset
 from maelstrom.state_db.migrate import open_state_db
 
 
@@ -445,10 +446,11 @@ def test_tail_says_how_many_earlier_events_the_daemon_dropped(monkeypatch):
 
 
 def stopped_row(**kw) -> dict:
+    """A stopped row as the daemon sends it: with no ``task``, which the CLI joins."""
     row = {
         "id": "s1",
+        "session": "sess-1",
         "age": "2h",
-        "task": "2026-09-04.2",
         "branch": "feat/x",
         "label": "Improve plan mode",
         "cwd": "/w/alpha",
@@ -458,6 +460,87 @@ def stopped_row(**kw) -> dict:
     }
     row.update(kw)
     return row
+
+
+class _TaskTable:
+    """A task table that finds ``tasks[session_id]`` and counts its opens."""
+
+    def __init__(self, tasks: dict[str, str]):
+        self._tasks = tasks
+
+    async def find_by_session_id(self, session_id: str):
+        task_id = self._tasks.get(session_id)
+        return SimpleNamespace(id=task_id) if task_id else None
+
+
+@pytest.fixture(autouse=True)
+def task_table(monkeypatch):
+    """The task table every listing joins against, with one task on ``sess-1``."""
+    opens = []
+
+    def open_table():
+        opens.append(1)
+        return _TaskTable({"sess-1": "2026-09-04.2"})
+
+    monkeypatch.setattr(agent_cli, "open_task_table", open_table)
+    return opens
+
+
+def test_the_stopped_listing_names_the_task_each_session_ran_for():
+    """The daemon knows no tasks, so the CLI joins them on the session id."""
+    result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
+    assert result.exit_code == 0
+    assert "2026-09-04.2" in result.output
+
+
+def test_the_stopped_json_carries_the_task_too():
+    result, _ = run_cli(
+        ["list", "--stopped", "--json"],
+        [{"agents": [stopped_row(), stopped_row(id="s2", session="sess-2")]}],
+    )
+    rows = json.loads(result.output)
+    assert [row["task"] for row in rows] == ["2026-09-04.2", ""]
+
+
+def test_a_listing_opens_the_task_table_once_not_once_per_session(task_table):
+    """~800 transcripts must not mean ~800 SQLite connections."""
+    rows = [stopped_row(id=f"s{i}", session=f"sess-{i}") for i in range(20)]
+    run_cli(["list", "--stopped", "--json"], [{"agents": rows}])
+    assert len(task_table) == 1
+
+
+def test_the_all_listing_joins_only_the_stopped_rows():
+    running = build_agent_row(replay("normal-turn.jsonl"))
+    result, _ = run_cli(
+        ["list", "--all", "--json"], [{"agents": [running, stopped_row()]}]
+    )
+    rows = json.loads(result.output)
+    assert "task" not in rows[0]
+    assert rows[1]["task"] == "2026-09-04.2"
+
+
+def test_an_unreadable_task_table_blanks_the_column_and_says_so(monkeypatch):
+    """A listing is worth more than its task column."""
+
+    def broken():
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(agent_cli, "open_task_table", broken)
+    result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
+    assert result.exit_code == 0
+    assert "Improve plan mode" in result.output
+    assert "disk gone" in result.output
+
+
+def test_no_notebook_root_fails_the_listing_rather_than_blank_it(monkeypatch):
+    """A blank column would hide a misconfigured root behind a listing that works."""
+
+    def unset():
+        raise NotebookRootUnset()
+
+    monkeypatch.setattr(agent_cli, "open_task_table", unset)
+    result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
+    assert result.exit_code != 0, result.output
 
 
 def test_stopped_asks_the_daemon_for_the_stopped_scope():

@@ -33,7 +33,6 @@ from .agent_model import (
     BACKLOG_END,
     MODES,
     SEQ_KEY,
-    STOPPED_COLUMNS,
     TRUNCATED,
     TS_KEY,
     build_start_payload,
@@ -70,11 +69,13 @@ from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import format_uptime
 from .harness_model import resolve_execute_model
+from .notebook_root import NotebookRootUnset
 from .session_discovery import ProcessTableUnavailable, list_claude_processes
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
 from .table import draw_table
+from .task_cli import open_task_table
 from .util import now_iso
 
 #: Columns ``mael agent list`` prints, in order.
@@ -506,6 +507,8 @@ async def cmd_list(
     if cwd:
         payload["cwd"] = cwd
     rows = (await _send(payload)).get("agents", [])
+    if payload.get("scope", SCOPE_RUNNING) != SCOPE_RUNNING:
+        rows = await _with_tasks(rows)
     if as_json:
         click.echo(json.dumps(rows, indent=2))
         return
@@ -514,6 +517,43 @@ async def cmd_list(
         click.echo(_NOTHING_FOUND[scope])
         return
     _draw_rows(rows, scope)
+
+
+async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``rows`` with the task each stopped session ran for, as ``task``.
+
+    The daemon knows no tasks, so the join is here. A stopped row is one with
+    no ``state``; a running row is left as it is. The table is opened once for
+    the whole listing: a per-session open would build a connection hundreds of
+    times.
+
+    A listing is worth more than its task column, so a table failure blanks the
+    column and says why on stderr. A missing notebook root fails the command:
+    a blank column would hide a misconfigured root behind a listing that works.
+    """
+    stopped = [row for row in rows if "state" not in row]
+    if not stopped:
+        return rows
+    tasks: dict[str, str] = {}
+    try:
+        table = open_task_table()
+        for row in stopped:
+            found = await table.find_by_session_id(row["session"])
+            tasks[row["session"]] = found.id if found else ""
+    except NotebookRootUnset as exc:
+        raise click.ClickException(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Warning: could not read the task table: {exc}", err=True)
+        tasks = {}
+    return [
+        row if "state" in row else {**row, "task": tasks.get(row["session"], "")}
+        for row in rows
+    ]
+
+
+#: The columns ``--stopped`` prints, in order. ``task`` is joined here, not
+#: sent by the daemon.
+STOPPED_COLUMNS = ["id", "age", "task", "branch", "label", "cwd"]
 
 
 #: What an empty listing says, per scope. Each names what was looked for, so a

@@ -65,7 +65,6 @@ from .agent_model import (
     DaemonIdentity,
     PendingRequest,
     SubagentState,
-    TranscriptMeta,
     apply_event,
     build_agent_argv,
     build_agent_detail,
@@ -100,14 +99,12 @@ from .harness_model import (
     resolve_execute_model,
     resolve_model_reference,
 )
-from .notebook_root import NotebookRootUnset
 from .session_discovery import (
     LiveSessionSet,
     ProcessInfo,
     ProcessTableUnavailable,
     list_claude_processes,
 )
-from .task_table import TaskTable
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
 from .worktree_model import has_claude_transcript
@@ -695,17 +692,6 @@ SCOPE_ALL = "all"
 SCOPES = (SCOPE_RUNNING, SCOPE_STOPPED, SCOPE_ALL)
 
 
-def _open_task_table() -> TaskTable:
-    """The task table, opened once per listing.
-
-    Imported where it is used: :func:`~maelstrom.task_cli.open_task_table` opens
-    a SQLite database, and a daemon never asked for a stopped listing must not.
-    """
-    from .task_cli import open_task_table
-
-    return open_task_table()
-
-
 #: One shared instance: it is stateless, and every restored agent wants the same.
 _DEAD_PROC: Any = _DeadProcess()
 
@@ -756,7 +742,6 @@ class AgentDaemon:
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         transcripts: TranscriptStore | None = None,
         live: LiveSessionSet | None = None,
-        open_task_table: Callable[[], TaskTable] = _open_task_table,
         clock: "Callable[[], str]" = now_iso,
         processes: Callable[[], Awaitable[list[ProcessInfo]]] = list_claude_processes,
         kill_group: Callable[[int, int], None] | None = None,
@@ -773,7 +758,6 @@ class AgentDaemon:
         self._kill_group = kill_group
         self._transcripts = transcripts
         self._live = live
-        self._open_task_table = open_task_table
         #: When an event was seen. Handed to every agent this daemon starts, so
         #: a test pins one clock rather than reaching into the agents it built.
         self.clock = clock
@@ -804,47 +788,17 @@ class AgentDaemon:
     async def stopped_rows(self, cwd: str | None) -> list[dict[str, Any]]:
         """Every session that can be resumed, optionally under ``cwd``.
 
-        The three sources are merged in the model layer: Claude's transcripts
-        say which sessions exist, the spawn records say how the daemon ran the
-        ones it started, and the task table names what each ran for. A session
-        that is still live is subtracted, because ``resume`` refuses one.
+        The two sources are merged in the model layer: Claude's transcripts
+        say which sessions exist, and the spawn records say how the daemon ran
+        the ones it started. A session that is still live is subtracted,
+        because ``resume`` refuses one.
         """
         cwds = [Path(cwd)] if cwd else None
         metas = self.transcripts.list(cwds)
         specs = _specs_by_session(self.specs.list())
         live = self._live if self._live is not None else LiveSessionSet()
         await live.sweep()
-        return build_stopped_rows(
-            metas, specs, await self._task_ids(metas), live, now=time.time()
-        )
-
-    async def _task_ids(self, metas: list[TranscriptMeta]) -> dict[str, str]:
-        """The task each session ran for, keyed by session id.
-
-        The table is opened once for the whole listing, as
-        ``session_cli.session_list`` does — a per-session open would build a
-        connection hundreds of times.
-
-        A listing is worth more than its task column, so a failure blanks the
-        column rather than failing the command. Logged once, because a silent
-        blank column gives a user nothing to debug.
-        """
-        try:
-            table = self._open_task_table()
-            rows: dict[str, str] = {}
-            for meta in metas:
-                found = await table.find_by_session_id(meta.session_id)
-                rows[meta.session_id] = found.id if found else ""
-            return rows
-        except NotebookRootUnset:
-            # Not a table failure: the daemon names no notebook at all. Blanking
-            # the column would hide a misconfigured root behind a listing that
-            # still succeeds, so this one says what is wrong every time.
-            log.exception("no notebook root; task column left blank")
-            raise
-        except Exception:  # noqa: BLE001
-            log.exception("could not read the task table; task column left blank")
-            return {}
+        return build_stopped_rows(metas, specs, live, now=time.time())
 
     # -- lifecycle --
 
