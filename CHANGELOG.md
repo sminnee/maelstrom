@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Resume a terminated or crashed agent from its node card.** Once an agent has exited, its node
+  card offers Resume in place of Terminate. Resume starts the agent again under its own id, with
+  its conversation, as `mael agent resume` does.
+
 - **Review collapses a branch into a commit rather than an unstaged tree, and can read only the
   new work.** `mael git squash-branch` collapses the branch into one commit and leaves it
   committed, so a stray `git reset --hard` cannot destroy the work and a parallel agent reading

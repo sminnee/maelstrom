@@ -298,6 +298,9 @@ A Stop button at the right of that group sends `agent.interrupt` — see `CONTEX
 agent's button is disabled, and its title sends the user to the ask, because an interrupt would
 deny that ask and the route's reply would not say so. An exited agent's title says it has gone.
 The node card's Terminate button is the other act: it sends `agent.stop`.
+Once the agent has exited, the node card offers Resume in its place. Resume sends
+`agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
+one.
 
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The

@@ -56,6 +56,7 @@ describe('App', () => {
     await waitFor(() =>
       expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeEnabled(),
     );
+    expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
@@ -87,6 +88,25 @@ describe('App', () => {
     expect(
       within(card).queryByRole('button', { name: 'Remove from desk' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('resumes a terminated agent from the card that terminated it', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(within(card).getByRole('button', { name: 'Terminate' }));
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument(),
+    );
+    expect(within(card).queryByRole('button', { name: 'Terminate' })).not.toBeInTheDocument();
+
+    await user.click(within(card).getByRole('button', { name: 'Resume' }));
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument(),
+    );
+    expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
   });
 
   it('reads the PR number and its state in the collapsed node identity', async () => {

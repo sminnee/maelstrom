@@ -955,5 +955,5 @@ the real app, and a global logging setup inside `build_app` would follow it into
 - A resume is a new life of the agent, so the host replays the new child's own output — Claude's
   replay of the conversation — into a transcript that already holds the last life's turns.
 - `stop` removes the agent from the host. The server marks it `exited(0)` on the ok reply.
-- `agent.resume` starts an exited agent again. No UI drives it yet, so a crashed agent is brought
-  back with `mael agent resume <id>`.
+- An agent that stopped before the server started is not in the world, so its node card offers no
+  Resume. `mael agent resume <id>` is the only way to bring it back.
