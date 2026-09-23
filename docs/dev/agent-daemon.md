@@ -42,14 +42,18 @@ Seven flags matter, and two of them are easy to miss:
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
-| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`, `<milestone>`. Omitted when the file is missing. |
+| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`, `<milestone>`. The client names the file in `start` or `resume`. Omitted when no file is named. |
 
 The markers are taught on the launch rather than in a general skill because only a driven agent
 has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to
 agents that cannot use it.
 
+The daemon does not know where maelstrom's `shared/` directory is, so the client names the file.
+`claude_integration.agent_prompt_file()` finds it. The spawn record keeps the file, so a restore
+respawns with it and no client is needed. A file that has gone by then is left off the argv.
+
 `shared/agent-prompt.md` holds the marker contract beside `claude-header.md`. It is named by path
-rather than inlined for two reasons: the argv appears in every `ps` line, and `session_discovery`
+rather than inlined for two reasons: the argv appears in every `ps` line, and `process_table`
 scans those command strings for the session id and the driven-agent flags. A path costs a few
 characters; the prose would cost a paragraph.
 
@@ -89,7 +93,7 @@ carrying `total_cost_usd`, `subtype` and a `usage` block.
 
 The two numbers on that event mean different things. `total_cost_usd` is the session's, so the
 row replaces it. `usage` is the turn's, so the row adds it: `tokens` on the agent row is the
-running sum, and `agent_model.tokens_of` is the one reader of the block. It counts cache reads
+running sum, and `agent_wire.tokens_of` is the one reader of the block. It counts cache reads
 and cache writes as well as input and output. Those are billed: a total without them
 under-reports a long session by most of its weight.
 
@@ -97,7 +101,7 @@ That sum says how much work the session has done, and it is not how full the con
 re-reads its whole prompt from cache on each request, so the same context is counted again every
 time and the total runs past any window. `context_tokens` is the occupancy figure, and it comes
 off `assistant` events instead, where `usage` sits under `message` and describes the one request
-that event answers. `agent_model.context_of` reads it, summing `input_tokens`,
+that event answers. `agent_wire.context_of` reads it, summing `input_tokens`,
 `cache_read_input_tokens` and `cache_creation_input_tokens` — `output_tokens` is out, being what
 the model wrote rather than what the prompt held. A `result`'s `usage` cannot answer this: it
 sums the turn's requests, so its cache counts exceed the context the agent holds. Each reading
@@ -313,7 +317,7 @@ fails the command.
 when it changes mode by itself — approving an `ExitPlanMode` leaves plan mode with nobody asking.
 Recorded in `tests/fixtures/agent_events/plan-review.jsonl`.
 
-maelstrom's three modes are `plan`, `normal` and `auto`. `WIRE_MODE` in `agent_model.py` maps
+maelstrom's three modes are `plan`, `normal` and `auto`. `WIRE_MODE` in `agent_wire.py` maps
 them to claude's words, and nothing else spells `default`.
 
 ### Sending a message
@@ -396,14 +400,25 @@ so what ran stays answerable afterwards. This is not a sandbox.
 `src/maelstrom/` follows the three layers in
 [architecture-patterns.md](architecture-patterns.md):
 
-- `agent_model.py` — the pure model. The `apply_event` reducer, the `build_agent_row` and
-  `build_agent_detail` renderers, the argv, and the reply builders. No I/O, no clock, no
+- `agent_wire.py` — the wire contract. Every name a client needs to build a request or read a
+  reply: the statuses and modes, the
+  stream markers, the `list` scopes, the request payloads, the reply builders, the token counts,
+  and the row and detail shapes as `TypedDict`s. No I/O, no clock, no subprocess.
+- `agent_model.py` — the daemon's pure model. The `apply_event` reducer, the `build_agent_row`
+  and `build_agent_detail` renderers, the argv, and the spawn record. No I/O, no clock, no
   subprocess.
-- `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: a `DaemonClient`
-  Protocol, the real `SocketDaemonClient`, and the `RecordingDaemonClient` fake. Auto-start lives
-  here too, because every command funnels through one connect.
+- `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: an `AsyncDaemonClient`
+  Protocol, the real `SocketAsyncDaemonClient`, and the `RecordingDaemonClient` fake.
 - `agent_server.py` — the daemon. Child processes, the control socket, and `AgentDaemon.handle`.
 - `agent_cli.py` — the thin CLI. It parses flags, sends one command, and prints the reply.
+- `agent_daemon_cli.py` — `mael agent daemon`: `serve`, `status`, `reconcile`, `gc` and `list`.
+  These read the daemon's records, so they live apart from the client.
+- `process_table.py`, `claude_paths.py`, `image.py` — leaves the daemon shares with the rest of
+  maelstrom: the `claude` process readers, Claude's transcript paths, and image sniffing.
+
+`tests/test_service_boundary.py` holds the split. The daemon's imports reach only its own
+modules, and no client reaches `agent_model` or `agent_server`, directly or through another
+module.
 
 `agent_model.py` holds no I/O at all, so replaying a transcript through `apply_event` gives the
 same state every time, with no subprocess and no socket. `tests/test_agent_model.py` does exactly
@@ -756,7 +771,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 
 | `cmd` | Request fields | Ok reply |
 |---|---|---|
-| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume` | `{"ok": true, "id": "<agent id>"}` |
+| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume`, `system_prompt_file` | `{"ok": true, "id": "<agent id>"}` |
 | `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
@@ -768,7 +783,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `set-mode` | `id`, `mode` (`plan`, `normal` or `auto`) | `{"ok": true, "mode": "<mode>"}` |
 | `recover` | `id` | `{"ok": true, "cleared": true}`, plus `"warning"` when the record names neither a plan file nor a prompt |
 | `stop` | `id` | `{"ok": true}` |
-| `resume` | `id`; optional `text` | `{"ok": true, "id": "<agent id>"}` |
+| `resume` | `id`; optional `text`, `system_prompt_file` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
 | `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `root`, `socket_path`, `spec_dir`, `started_at`, `agents` |
 | `shutdown` | none | `{"ok": true}`, then the daemon stops |
@@ -877,12 +892,17 @@ because nothing could resume it. A session still running is left out too. `cwd` 
 to one working directory, which is one transcript directory rather than all of them. The CLI
 resolves a worktree or a project to that path — the daemon knows nothing about either.
 
+A stopped row carries no `task`. The daemon knows no tasks, so `mael agent list` joins each
+stopped row to its task on the `session` id. It opens the task table once per listing. A table
+that will not open blanks the column with a warning; a missing notebook root fails the command.
+
 The default scope is unchanged on purpose. The orchestrator server infers an agent's exit from its
 id being absent from `list` (see [orchestrator-server.md](orchestrator-server.md)), so a stopped
 agent appearing there would sit on the canvas for ever.
 
 `resume` starts an exited agent again under its own id, and sends it one turn: `text`, or the
-default nudge. See "The resume rules".
+default nudge. See "The resume rules". A `system_prompt_file` in the request overrides the one on
+the record, so a resume uses the client's current file.
 
 `start` and `resume` both report the spawn, not the run. A child that dies straight after
 spawning — a bad `--model`, an expired login, a `--resume` Claude will not accept — is reported
@@ -1125,6 +1145,7 @@ writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding ex
 | `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable |
 | `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only. `set-mode` rewrites `permission_mode`, so a resume keeps the mode the agent was moved to |
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
+| `system_prompt_file` | The marker prompt the client named. A restore respawns with it, and no client is there to name it again |
 | `status` | `running`, `exited` or `stopped`. Only a `stopped` record is invisible to a default `list` |
 | `exit_code` | So `list` still reports the exit after a daemon restart |
 | `pid` | The child, while the record is `running`; `None` once it is known to be gone, so a dead record never names a pid the system has reused. How the next daemon tells a live child from a dead one |
