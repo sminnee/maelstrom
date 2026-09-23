@@ -239,6 +239,20 @@ describe('agent streams', () => {
       expect(store.state['ag1']!.items).toHaveLength(0);
     });
 
+    it('drops only its own stand-in, even after a replacement manager takes the store', () => {
+      const removeFirst = streams.sendLocal('ag1', 'hello');
+      streams.dispose();
+      const replacement = createAgentStreams({
+        store,
+        socketFactory: (url) => new FakeSocket(url),
+      });
+      replacement.sendLocal('ag1', 'hello');
+      const second = store.state['ag1']!.items[1];
+
+      removeFirst();
+      expect(store.state['ag1']!.items).toEqual([second]);
+    });
+
     it('is dropped once a matching append lands, and the append still moves the cursor', () => {
       streams.sendLocal('ag1', 'hello');
       sockets[0]!.receive({
