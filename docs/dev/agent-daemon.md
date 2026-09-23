@@ -71,8 +71,8 @@ after one turn, which is what a bare `claude -p` does.
 ## The event vocabulary
 
 Every shape below was recorded from a live agent on v2.1.252 and saved under
-`tests/fixtures/agent_events/`. `tests/test_agent_model.py` replays those transcripts through
-the state machine, so nothing here is designed from an assumed shape.
+`agent-daemon/fixtures/agent_events/`. `agent-daemon/tests/test_agent_model.py` replays those
+transcripts through the state machine, so nothing here is designed from an assumed shape.
 
 `mael agent tail --raw ID` records one. The rendered form of `tail` prints only what it has a
 line for, which leaves out every `system` event, so a recording uses `--raw`. The daemon's own
@@ -141,7 +141,7 @@ level and a compact is meant to drop it.
 ### A compact
 
 A finished compaction emits `system`/`compact_boundary`. It is the only event that says a compact
-finished, and `tests/fixtures/agent_events/compact.jsonl` records one:
+finished, and `agent-daemon/fixtures/agent_events/compact.jsonl` records one:
 
 ```json
 {"type": "system", "subtype": "compact_boundary",
@@ -282,12 +282,12 @@ The child answers it, then closes the turn:
 ```
 
 The turn ends `idle`, and the agent is still there to take the next message. Recorded in
-`tests/fixtures/agent_events/interrupt.jsonl`.
+`agent-daemon/fixtures/agent_events/interrupt.jsonl`.
 
 An interrupt does not answer a request the child is blocked on. So the daemon denies a pending
 wait first, with the reason `Interrupted by user`, and the child returns that denial as the tool
 result before the interrupt lands. Recorded in
-`tests/fixtures/agent_events/interrupt-while-waiting.jsonl`.
+`agent-daemon/fixtures/agent_events/interrupt-while-waiting.jsonl`.
 
 ### Changing the permission mode
 
@@ -315,7 +315,7 @@ fails the command.
 
 `system`/`status` is the only thing any surface reads the mode from. The child also sends one
 when it changes mode by itself — approving an `ExitPlanMode` leaves plan mode with nobody asking.
-Recorded in `tests/fixtures/agent_events/plan-review.jsonl`.
+Recorded in `agent-daemon/fixtures/agent_events/plan-review.jsonl`.
 
 maelstrom's three modes are `plan`, `normal` and `auto`. `WIRE_MODE` in `agent_wire.py` maps
 them to claude's words, and nothing else spells `default`.
@@ -397,32 +397,41 @@ so what ran stays answerable afterwards. This is not a sandbox.
 
 ## The layers
 
-`src/maelstrom/` follows the three layers in
-[architecture-patterns.md](architecture-patterns.md):
+The daemon spans three packages of the uv workspace: `mael_common`, `mael_agent` and
+`mael_daemon`. [architecture-patterns.md](architecture-patterns.md#the-packages) maps them, and
+each follows the three layers described there.
+
+In `mael_agent`:
 
 - `agent_wire.py` — the wire contract. Every name a client needs to build a request or read a
   reply: the statuses and modes, the
   stream markers, the `list` scopes, the request payloads, the reply builders, the token counts,
   and the row and detail shapes as `TypedDict`s. No I/O, no clock, no subprocess.
+- `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: an `AsyncDaemonClient`
+  Protocol, the real `SocketAsyncDaemonClient`, and the `RecordingDaemonClient` fake.
+
+In `mael_daemon`:
+
 - `agent_model.py` — the daemon's pure model. The `apply_event` reducer, the `build_agent_row`
   and `build_agent_detail` renderers, the argv, and the spawn record. No I/O, no clock, no
   subprocess.
-- `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: an `AsyncDaemonClient`
-  Protocol, the real `SocketAsyncDaemonClient`, and the `RecordingDaemonClient` fake.
 - `agent_server.py` — the daemon. Child processes, the control socket, and `AgentDaemon.handle`.
-- `agent_cli.py` — the thin CLI. It parses flags, sends one command, and prints the reply.
-- `agent_daemon_cli.py` — `mael agent daemon`: `serve`, `status`, `reconcile`, `gc` and `list`.
-  These read the daemon's records, so they live apart from the client.
-- `process_table.py`, `claude_paths.py`, `image.py` — leaves the daemon shares with the rest of
-  maelstrom: the `claude` process readers, Claude's transcript paths, and image sniffing.
+- `cli.py` — `mael-agent-daemon`: `serve`, `status`, `reconcile`, `gc` and `list`.
 
-`tests/test_service_boundary.py` holds the split. The daemon's imports reach only its own
-modules, and no client reaches `agent_model` or `agent_server`, directly or through another
-module.
+The client CLI is `src/maelstrom/agent_cli.py`. It parses flags, sends one command, and prints
+the reply.
+
+The daemon drives Claude Code agents only. The Codex harness is orchestrator code:
+`maelstrom/orchestrator/codex_bridge.py` and `codex_daemon.py`. The orchestrator builds a
+`CodexDaemonClient` as a second `AsyncDaemonClient`, beside the one for this daemon.
+
+Import-linter contracts hold the split; see
+[architecture-patterns.md](architecture-patterns.md#the-packages). The `mael` CLI meets the
+daemon only at the wire contract.
 
 `agent_model.py` holds no I/O at all, so replaying a transcript through `apply_event` gives the
-same state every time, with no subprocess and no socket. `tests/test_agent_model.py` does exactly
-that against the recorded fixtures.
+same state every time, with no subprocess and no socket. `agent-daemon/tests/test_agent_model.py`
+does exactly that against the recorded fixtures.
 
 The state comes from observed events, not from hook inference. So an interrupt is visible, rather
 than leaving a session stuck in `processing` until a timeout decides it is stale.
@@ -483,11 +492,14 @@ mael agent tail a1b2c3d4
 mael agent attach a1b2c3d4
 mael agent stop a1b2c3d4
 
-mael agent daemon status                              # which daemon is answering, and whose code
-mael agent daemon list                                # every record: pid, alive, held, mismatch
-mael agent daemon reconcile                           # what gc would do
-mael agent daemon gc                                  # kill strays and duplicates, write off crashes
+uv run mael-agent-daemon status                       # which daemon is answering, and whose code
+uv run mael-agent-daemon list                         # every record: pid, alive, held, mismatch
+uv run mael-agent-daemon reconcile                    # what gc would do
+uv run mael-agent-daemon gc                           # kill strays and duplicates, write off crashes
 ```
+
+`mael-agent-daemon` is not part of `mael`; see
+[cli.md](../reference/cli.md#the-agent-daemon).
 
 `mael agent list --json` emits the rows as JSON.
 
@@ -501,7 +513,7 @@ mael env start                       # this worktree's daemon
 mael self-env restart agent-daemon   # replace one holding stale code
 ```
 
-Both run `mael agent daemon serve` as a service, so a daemon's lifetime is its environment's, and
+Both run `mael-agent-daemon serve` as a service, so a daemon's lifetime is its environment's, and
 `mael env stop` takes the daemon and its agents with it. The service writes to
 `<root>/agent-daemon.log`.
 
@@ -551,7 +563,7 @@ Two error messages tell the two cases apart:
 | `ENOENT`, `ECONNREFUSED` | `No agent daemon on <root>` | No daemon holds this root |
 | `EPERM`, `EACCES` | `Cannot connect to the agent daemon socket at <path>: permission denied` | A daemon may hold this root, and something refused the connect |
 
-The split matters beyond the wording. `mael agent daemon gc` reads the `No agent daemon on`
+The split matters beyond the wording. `mael-agent-daemon gc` reads the `No agent daemon on`
 marker as "no daemon holds these agents", then falls back to the spawn records and kills the
 strays it finds. Under a denial that reasoning is wrong: the daemon still holds those agents. So
 a denial never carries the marker.
@@ -567,7 +579,7 @@ served by whatever code the daemon started with, which is usually `_main`'s. Tha
 bug that looked like the feature under development: a daemon running older code deleted a spawn
 record.
 
-`mael agent daemon status` answers it:
+`mael-agent-daemon status` answers it:
 
 ```
 root:     /Users/sminnee/.maelstrom
@@ -600,7 +612,7 @@ maelstrom's own `.maelstrom.yaml` declares it as an ordinary service:
 ```yaml
 services:
   agent-daemon:
-    command: uv run mael agent daemon serve
+    command: uv run mael-agent-daemon serve
 ```
 
 The root comes from the project root's `.env`, which each worktree's `.env` is substituted from:
@@ -1027,7 +1039,7 @@ that raised it.
 
 **Claude Code does not serialise the asks.** Two subagents can block at once, and so can two
 parallel calls an agent makes itself.
-`tests/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open together,
+`agent-daemon/fixtures/agent_events/subagent-permission-concurrent.jsonl` records two open together,
 each with its own `request_id` and `agent_id`. So `pending` is a map, on the agent and on each
 subagent, and one answer retires one ask.
 
@@ -1226,7 +1238,7 @@ cmux carries a long `--settings {…}` JSON before its `--session-id`.
 | `unknown` | A driven `claude` no running record here names | Reported. Killed only under `--all-roots`, when no root names it |
 
 A daemon start runs the gc before it resumes anything, so the resume finds no live child on any
-session it brings back. `mael agent daemon gc` runs it by hand: through the daemon when one
+session it brings back. `mael-agent-daemon gc` runs it by hand: through the daemon when one
 answers, which knows what it holds; otherwise the CLI reads the records and the table itself,
 which is the case it exists for — a daemon that died and left its children. `reconcile` prints
 the verdicts and touches nothing. `list` puts the same verdicts beside every record, so a

@@ -25,6 +25,30 @@ the store never imports the model. `tests/test_service_boundary.py` enforces the
 first half: no domain module reaches click or a `*_cli` module, even through a
 lazy import.
 
+## The packages
+
+The repository is a uv workspace. Each member is one package, and each package
+follows the three layers inside it:
+
+| Package | Directory | Holds |
+|---------|-----------|-------|
+| `mael_common` | `lib/common/` | Leaves with no domain knowledge: `shell`, `util`, `table`, `cli_async`, `process_table`, `claude_paths` and `image`. |
+| `mael_agent` | `lib/agent/` | The agent wire contract, the daemon transport and client, and the harness model. |
+| `mael_daemon` | `agent-daemon/` | The agent daemon, which drives Claude Code agents, and its `mael-agent-daemon` CLI. |
+| `maelstrom` | `src/maelstrom/` | Everything else: the domain, the orchestrator with its Codex harness, and the `mael` CLI. |
+
+`mael_agent` imports `mael_common`. `mael_daemon` and `maelstrom` import both.
+`maelstrom` never imports `mael_daemon`: it reaches the daemon over the socket.
+Only `mael_common.cli_async` in the two libraries imports click. Import-linter
+contracts in `pyproject.toml` enforce all of this, and `bin/lint` runs them as
+`lint-imports`. Tests are outside the contracts, so a root test may still build
+state through `mael_daemon.agent_model`.
+
+A member's `tests/` has no `__init__.py` and no `conftest.py`. Fixtures that
+every suite needs are in the repo-root `conftest.py`, which imports no package.
+Keep each test file's basename unique across the members, because pytest imports
+member tests by basename.
+
 ## The seven conventions
 
 ### 1. Three layers per feature
@@ -116,7 +140,7 @@ the group class of every integration. It turns an `IntegrationError` into
 `click.ClickException` with the same message.
 
 `str()` on a `KeyError` quotes its argument, so a CLI rendering a domain error
-takes the message from [`util.error_text`](../../src/maelstrom/util.py) rather
+takes the message from [`util.error_text`](../../lib/common/src/mael_common/util.py) rather
 than from `str(exc)`.
 
 This is the convention to converge on. Today the codebase is inconsistent and
@@ -153,7 +177,7 @@ The env subsystem is the worked example of this convention beyond `task`.
 [`env_store.py`](../../src/maelstrom/env_store.py) defines the
 [`EnvStore` Protocol](../../src/maelstrom/env_store.py), with an `InMemoryEnvStore`
 and a `JsonEnvStore` backend. `JsonEnvStore` writes to a temp file then renames it,
-via [`util.atomic_write_json`](../../src/maelstrom/util.py). `env.py` writes only
+via [`util.atomic_write_json`](../../lib/common/src/mael_common/util.py). `env.py` writes only
 through the store.
 
 Counter-example still to migrate: [`ports.py`](../../src/maelstrom/ports.py)
@@ -209,7 +233,7 @@ ones — it measures where the I/O is, not how much of it still blocks.
 
 So a converted function is one that shells out, or awaits something that does.
 
-**One loop per process.** [`cli_async.py`](../../src/maelstrom/cli_async.py)
+**One loop per process.** [`cli_async.py`](../../lib/common/src/mael_common/cli_async.py)
 holds `AsyncGroup`/`AsyncCommand`; a `mael` group built with it may have
 coroutine commands, and the loop is opened once around the invocation. A
 command converts by adding `async` and nothing else.

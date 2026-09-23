@@ -154,8 +154,8 @@ clean checkout of the branch you want to release:
 ```
 
 `bin/publish` does the whole release, in this order: rebase onto `origin/main`, run the three
-gates CI runs, write the new version to `pyproject.toml`, `src/maelstrom/__init__.py` and
-`uv.lock`, build, retitle the changelog's `Unreleased` section to the new version, commit,
+gates CI runs, write the new version to every workspace member's `pyproject.toml` and
+`__init__.py` (the root, `lib/common`, `lib/agent` and `agent-daemon`) and to `uv.lock`, build, retitle the changelog's `Unreleased` section to the new version, commit,
 upload to PyPI, then tag `vX.Y.Z` and push the commit and the tag.
 
 The order is deliberate. The rebase runs first so the commit that gets tagged is already in its

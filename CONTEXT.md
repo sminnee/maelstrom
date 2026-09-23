@@ -336,7 +336,7 @@ can start the agent again.
 One daemon per daemon root, and one root per machine by default — so normally one daemon holds
 every driven agent. An environment can declare its own on its own root, which is how a worktree
 tests a change to the agent protocol without driving the agents its `_main` holds.
-`mael agent daemon status` names the daemon answering: its root, its process id, its start time,
+`mael-agent-daemon status` names the daemon answering: its root, its process id, its start time,
 and the worktree its code came from.
 
 **Daemon root**:
@@ -356,7 +356,7 @@ _Avoid_: Protocol module, shared types
 
 **Stray**:
 A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
-died uncleanly; found by the next daemon start or by `mael agent daemon gc` through the pid in its
+died uncleanly; found by the next daemon start or by `mael-agent-daemon gc` through the pid in its
 spawn record, killed with its process group, and its record resumed once. Not an orphan: that
 word belongs to the Free agent's `_Avoid_` list and to `mael task reconcile`.
 _Avoid_: Orphan, zombie, leftover

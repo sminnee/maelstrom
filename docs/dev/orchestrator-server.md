@@ -40,7 +40,7 @@ carries and nothing maps between a dataclass and the wire.
 ## The normaliser and its goldens
 
 The Python normaliser is the one the wire carries. `tests/test_orchestrator_normalise.py`
-replays every recorded daemon stream under `tests/fixtures/agent_events/` into one seed agent
+replays every recorded daemon stream under `agent-daemon/fixtures/agent_events/` into one seed agent
 and holds the result to a golden under `normalised/`. That test owns the goldens:
 `UPDATE_GOLDEN=1 uv run pytest tests/test_orchestrator_normalise.py` re-records them, so a
 normaliser change is a deliberate re-record and never a silent drift.
@@ -460,12 +460,12 @@ a canvas full of exits. `GET /api/host` serves the entity; a `host` change notic
 
 **The server never starts the daemon.** It polls, and reports what it finds. A server that
 started one served its own worktree's code to every session on the machine: it noticed the
-everyday daemon was gone before anything else did, and `mael agent daemon serve` under `uv run`
+everyday daemon was gone before anything else did, and `mael-agent-daemon serve` under `uv run`
 resolved to that worktree's `.venv`. The banner is the whole response now, and
 `mael self-env start` is what brings the daemon back.
 
 Each agent row carries the child's `pid` while it is alive, so a client can name the process an
-agent is and `mael agent daemon list` can be read against the canvas.
+agent is and `mael-agent-daemon list` can be read against the canvas.
 
 An exited id that comes back live is the same agent again, not a new one: a resume keeps the
 agent id. The server clears the exit code, clears the attention item the exit raised, and attaches

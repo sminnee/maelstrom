@@ -637,11 +637,6 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 
 | Command | Description |
 |---|---|
-| `mael agent daemon serve` | Run the agent daemon in the foreground, on the root `MAEL_AGENT_ROOT` names. Exits 2 when that variable is unset. `mael env start` runs it as a service; you rarely run it by hand. |
-| `mael agent daemon status` | Print which daemon serves this environment's root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
-| `mael agent daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
-| `mael agent daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
-| `mael agent daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
 | `mael agent start [CWD]` | Start an agent in CWD (default `.`). Takes `--prompt`, `--mode`, `--model`, `--execute-model`, `--session-id`. |
 | `mael agent list` | Show every agent, what each waiting one waits on, and what each last said. A subagent follows its parent under a dotted id (`ID.1`), with `parent` and `description` columns. `--stopped` shows sessions that have stopped and can be resumed; `--all` shows both. `-w PROJECT.WORKTREE` and `--project NAME` narrow the stopped half of the listing, and imply `--stopped` on their own. `--json` emits rows as JSON. |
 | `mael agent show ID` | Show one agent in full: the last thing it said, every question option, the plan, and the command that answers the wait. On a parent it ends with a `Subagents:` table; on a dotted id it shows that subagent. `--json` emits the detail as JSON. |
@@ -688,10 +683,6 @@ mael agent resume 1761dcf6 --text "rerun the failing test"
 mael agent cost                                 # every agent: where its tokens went
 mael agent cost 1761dcf6                        # one agent, stage by stage
 mael agent register 1761dcf6 --task-id NORT-42  # adopt a live agent with no record
-mael agent daemon status                        # which daemon is serving, running whose code
-mael agent daemon list                          # every record: pid, alive, held, mismatch
-mael agent daemon reconcile                     # what gc would do
-mael agent daemon gc                            # after a daemon died: kill its strays
 ```
 
 Two commands start a daemon, and nothing else does:
@@ -702,7 +693,7 @@ mael env start                                  # this worktree's daemon
 mael self-env restart agent-daemon              # pick up code changed since it started
 ```
 
-Both run `mael agent daemon serve` as a service of an environment, so a daemon's lifetime is its
+Both run [`mael-agent-daemon serve`](#the-agent-daemon) as a service of an environment, so a daemon's lifetime is its
 environment's. No `mael agent` command, session launch or orchestrator poll starts one. A command
 that finds no daemon names the root it looked for and both of these commands.
 
@@ -714,7 +705,7 @@ root its environment does not own.
 Which daemon your shell reaches depends on the directory you stand in — see
 [dev-environments.md](../guide/dev-environments.md#an-agent-daemon-per-environment).
 
-A daemon holds the code it started with, so `mael agent daemon status` names the tree serving
+A daemon holds the code it started with, so `mael-agent-daemon status` names the tree serving
 you. See [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment).
 
 A crashed child shows as `exited(N)` in `mael agent list`, and `mael agent resume` brings it back
@@ -728,6 +719,31 @@ start it again. Both are needed, so the listing names only sessions the daemon s
 you started by hand in a terminal has no record, and `claude --resume` brings that one back.
 
 The listing subtracts the sessions that are still running, because a resume of one is refused.
+
+---
+
+## The agent daemon
+
+`mael-agent-daemon` runs the agent daemon and reads its records. It is a separate command, not a
+`mael` group: the published `mael` package does not include the daemon. Run it with `uv run`
+from a maelstrom checkout.
+
+| Command | Description |
+|---|---|
+| `mael-agent-daemon serve` | Run the agent daemon in the foreground, on the root `MAEL_AGENT_ROOT` names. Exits 2 when that variable is unset. `mael env start` runs it as a service; you rarely run it by hand. |
+| `mael-agent-daemon status` | Print which daemon serves this environment's root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
+| `mael-agent-daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
+| `mael-agent-daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
+| `mael-agent-daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
+
+```bash
+uv run mael-agent-daemon status                 # which daemon is serving, running whose code
+uv run mael-agent-daemon list                   # every record: pid, alive, held, mismatch
+uv run mael-agent-daemon reconcile              # what gc would do
+uv run mael-agent-daemon gc                     # after a daemon died: kill its strays
+```
+
+---
 
 ## Orchestrator
 

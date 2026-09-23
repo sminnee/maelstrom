@@ -16,6 +16,9 @@ unused test helper invisible.
 | Test       | `src/`, `tests/` | Nothing at all uses this | Fails the build |
 | Production | `src/` only      | Only tests reach this    | Prints only     |
 
+Each pass reads the `src/` and `tests/` of every workspace member: the root, `lib/common/`,
+`lib/agent/` and `agent-daemon/`. The test pass also reads the repo-root `conftest.py`.
+
 **Only the test pass fails the build.** A symbol neither `src/` nor `tests/` uses is dead by any
 reading. A symbol only tests reach is different: an in-memory store or a helper a test drives is a
 seam by design, and the pass cannot tell a seam from production code that lost its last caller.
@@ -119,7 +122,7 @@ release path covers vulture only.
 The `lint` job runs `bin/lint`, which includes vulture. The `web` job runs `bin/knip-check`.
 
 `.github/workflows/test.yml` decides which jobs run from the changed paths. That filter has one gap
-worth knowing. A change under `src/` runs the Python gates, and a change under `web/` runs the web
+worth knowing. A change under `src/`, `lib/` or `agent-daemon/` runs the Python gates, and a change under `web/` runs the web
 gates, so a change that strands code in the other language can pass. The filter names
 `orchestrator/protocol.py` on the web side for this reason: deleting a wire field there runs knip
 over the TypeScript that reads it. Other cross-language edits stay uncovered.

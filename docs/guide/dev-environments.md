@@ -195,7 +195,7 @@ the everyday ones. maelstrom declares the daemon as an ordinary service:
 ```yaml
 services:
   agent-daemon:
-    command: uv run mael agent daemon serve
+    command: uv run mael-agent-daemon serve
 ```
 
 The root comes from `MAEL_AGENT_ROOT` in the worktree's `.env`. Put it in the project root's
@@ -210,7 +210,7 @@ takes no `--root` flag, so it cannot be started on a root its environment does n
 
 ```bash
 mael env start                    # this worktree's services, the daemon among them
-uv run mael agent daemon status   # names the daemon on this worktree's root
+uv run mael-agent-daemon status   # names the daemon on this worktree's root
 mael env stop                     # takes the daemon and its agents with it
 ```
 
@@ -237,7 +237,7 @@ its root. With records and socket under one directory, two daemons cannot share 
 make them spawn, so one environment's daemon never starts a second `claude` on a session another
 holds.
 
-`mael agent daemon status` names the daemon answering and the tree its code came from, which is
+`uv run mael-agent-daemon status` names the daemon answering and the tree its code came from, which is
 the question a long-lived daemon makes worth asking. `mael self-env restart agent-daemon` replaces
 one holding stale code.
 
