@@ -33,10 +33,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mael_common.shell import run_cmd
+from mael_common.util import now_iso
+
 from . import branch_name
-from .shell import run_cmd
 from .task_store import tasks_root
-from .util import now_iso
 
 if TYPE_CHECKING:
     # Only needed for annotations, so keep these type-checking-only and

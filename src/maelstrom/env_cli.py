@@ -5,12 +5,13 @@ from pathlib import Path
 
 import click
 
+from mael_common.util import format_uptime
+
 from .cmux import mael_layout
 from .config import load_config_or_default
 from .context import ResolvedContext, resolve_context
 from .env import (
     EnvState,
-    format_uptime,
     get_env_status,
     get_log_files,
     get_shared_status,

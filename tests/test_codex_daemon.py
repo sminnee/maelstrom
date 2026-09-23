@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 
-from maelstrom.codex_daemon import CodexDaemonClient
+from maelstrom.orchestrator.codex_daemon import CodexDaemonClient
 
 
 class ScriptedBridge:

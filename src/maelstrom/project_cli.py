@@ -4,9 +4,10 @@ import json
 
 import click
 
+from mael_common.util import abbreviate_home
+
 from .context import load_global_config
 from .table_cli import draw_table
-from .util import abbreviate_home
 from .worktree import list_projects
 
 

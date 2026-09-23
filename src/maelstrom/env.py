@@ -11,16 +11,16 @@ import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
 from subprocess import DEVNULL, STDOUT, Popen
+
+from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
 
 from .config import (
     ServiceDef,
     load_config_or_default,
 )
-from .context import get_maelstrom_dir
 from .env_store import EnvStore
 from .services import (
     ENGINES,
@@ -30,7 +30,6 @@ from .services import (
     discover_container_ip,
 )
 from .session_discovery import LiveSession
-from .util import now_iso, sanitise_child_env
 from .worktree import read_env_file, regenerate_env_file, run_install_cmd
 
 # --- Dataclasses ---
@@ -1310,33 +1309,3 @@ def read_service_logs(
         lines = tail_log_file(log_path, n)
         result.extend((svc_name, line) for line in lines)
     return result
-
-
-def format_uptime(started_at: str) -> str:
-    """Format a human-readable uptime string from an ISO 8601 timestamp.
-
-    Examples: "5m", "2h 30m", "3d 5h".
-    """
-    start = datetime.fromisoformat(started_at)
-    now = datetime.now(timezone.utc)
-    delta = now - start
-    total_seconds = int(delta.total_seconds())
-
-    if total_seconds < 0:
-        return "0s"
-
-    days = total_seconds // 86400
-    hours = (total_seconds % 86400) // 3600
-    minutes = (total_seconds % 3600) // 60
-
-    if days > 0:
-        if hours > 0:
-            return f"{days}d {hours}h"
-        return f"{days}d"
-    if hours > 0:
-        if minutes > 0:
-            return f"{hours}h {minutes}m"
-        return f"{hours}h"
-    if minutes > 0:
-        return f"{minutes}m"
-    return f"{total_seconds}s"

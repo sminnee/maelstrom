@@ -13,7 +13,7 @@ Two backends are provided:
   the env unit-test suite for fast, deterministic tests.
 - :class:`JsonEnvStore` — maps keys to files under ``get_state_dir()`` and writes
   each value atomically (write-to-temp-then-``os.replace`` via
-  :func:`maelstrom.util.atomic_write_json`), so a crash mid-write can never leave
+  :func:`mael_common.util.atomic_write_json`), so a crash mid-write can never leave
   a truncated state file.
 
 Unlike :class:`~maelstrom.task_store.TaskStore` there is no ``transaction()``:
@@ -25,8 +25,7 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
-from .context import get_maelstrom_dir
-from .util import atomic_write_json
+from mael_common.util import atomic_write_json, get_maelstrom_dir
 
 
 def get_state_dir() -> Path:
@@ -100,7 +99,7 @@ class JsonEnvStore:
     The root defaults to :func:`get_state_dir` (``~/.maelstrom/envs``) and is
     resolved lazily so test isolation that redirects ``get_maelstrom_dir`` is
     honoured. Every :meth:`write` goes through
-    :func:`maelstrom.util.atomic_write_json`, so a crash mid-write can never leave
+    :func:`mael_common.util.atomic_write_json`, so a crash mid-write can never leave
     a truncated file; the ``indent=2, sort_keys=True`` defaults keep on-disk JSON
     byte-identical to the previous direct ``json.dump`` writes.
     """

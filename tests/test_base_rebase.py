@@ -112,7 +112,10 @@ def project_with_stack():
 
         maelstrom_dir = tmp / "maelstrom-home"
         maelstrom_dir.mkdir()
-        with patch("maelstrom.context.get_maelstrom_dir", return_value=maelstrom_dir):
+        with (
+            patch("maelstrom.context.get_maelstrom_dir", return_value=maelstrom_dir),
+            patch("maelstrom.ports.get_maelstrom_dir", return_value=maelstrom_dir),
+        ):
             yield project_path, worktrees["alpha"], worktrees["bravo"], remote_path
 
 
@@ -188,7 +191,7 @@ class TestDefaultBaseIsUnchanged:
                 seen.append(list(cmd))
             return real(cmd, *args, **kwargs)
 
-        with patch("maelstrom.shell.subprocess.run", side_effect=spy):
+        with patch("mael_common.shell.subprocess.run", side_effect=spy):
             result = rebase_worktree(parent, skip_fetch=True, squash=False)
 
         assert result.success is True
@@ -220,7 +223,7 @@ class TestDefaultBaseIsUnchanged:
                 seen.append(list(cmd))
             return real(cmd, *args, **kwargs)
 
-        with patch("maelstrom.shell.subprocess.run", side_effect=spy):
+        with patch("mael_common.shell.subprocess.run", side_effect=spy):
             rebase_worktree(parent, squash=False)
 
         assert seen, "expected a fetch"
@@ -472,7 +475,7 @@ class TestCollapse:
                 seen.append(list(cmd))
             return real(cmd, *args, **kwargs)
 
-        with patch("maelstrom.shell.subprocess.run", side_effect=spy):
+        with patch("mael_common.shell.subprocess.run", side_effect=spy):
             rebase_worktree(child, squash=False)
 
         assert any("--prune" in cmd for cmd in seen)

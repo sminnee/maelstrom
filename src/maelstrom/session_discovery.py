@@ -2,7 +2,7 @@
 
 The authoritative, fast signal is the live ``claude`` CLI processes themselves
 and their working directories. A running ``claude`` session's cwd *is* the
-worktree it was launched in. :mod:`maelstrom.process_table` reads the
+worktree it was launched in. :mod:`mael_common.process_table` reads the
 ``claude`` processes with their command lines, and one batched ``lsof -a -d
 cwd`` gives every live session's real worktree path in ~0.03s. The command line
 carries the ``--session-id`` ``mael`` launched it with, the durable link back
@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path, PurePath
 
-from .process_table import (
+from mael_common.process_table import (
     ProcessTableUnavailable,
     command_of,
     cwds_for_pids,
@@ -87,7 +87,7 @@ class LiveSession:
 async def all_live_sessions() -> list[LiveSession]:
     """Every running Claude CLI session, its cwd, and its session-id.
 
-    Read from :mod:`maelstrom.process_table`: the ``claude`` processes and
+    Read from :mod:`mael_common.process_table`: the ``claude`` processes and
     their command lines, then one batched ``lsof`` for their cwds. Only a
     process whose executable is ``claude`` counts, the test ``pgrep -x claude``
     makes, so a helper that merely carries a driven agent's flags is not a

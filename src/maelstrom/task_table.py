@@ -29,10 +29,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
+from mael_common.util import now_iso
+
 from . import task_export as export
 from .state_db.db import StateDb, Txn
 from .task import Task, session_id_for, task_key
-from .util import now_iso
 
 #: The table this store writes, as declared in
 #: :data:`maelstrom.state_db.migrate.TABLES`.

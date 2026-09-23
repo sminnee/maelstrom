@@ -17,8 +17,7 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
 
-from ..agent_store import InMemoryMilestoneStore, MilestoneStore
-from ..agent_wire import (
+from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     BACKLOG_END,
@@ -27,6 +26,9 @@ from ..agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
+from mael_common.util import now_iso
+
+from ..agent_store import InMemoryMilestoneStore, MilestoneStore
 from ..branch_name import lead_with_number
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..github_model import RateLimited
@@ -36,7 +38,6 @@ from ..task import mode_for_command
 from ..task import permission_mode_for as model_permission_mode
 from ..task_export import TaskExporter
 from ..task_launch import LaunchBlocked
-from ..util import now_iso
 from . import desk as desk_model
 from . import linear_source
 from .daemon_bridge import AsyncDaemonClient

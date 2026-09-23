@@ -3,7 +3,8 @@
 import json
 from typing import Any, Protocol
 
-from .harness_model import HARNESS_CLAUDE
+from mael_agent.harness_model import HARNESS_CLAUDE
+
 from .state_db.db import StateDb
 
 #: The statuses an Agent record carries. ``running`` from the start until

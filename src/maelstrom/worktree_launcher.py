@@ -30,13 +30,9 @@ from pathlib import Path
 
 import click
 
-from .agent_transport import client as daemon_client
-from .agent_wire import build_start_payload
-from .cmux import mael_layout
-from .cmux.client import current_client, ensure_cmux_running
-from .cmux.model import TerminalTab
-from .config import load_config_or_default
-from .harness_model import (
+from mael_agent.agent_transport import client as daemon_client
+from mael_agent.agent_wire import build_start_payload
+from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     HARNESS_CODEX,
     HARNESS_OPENCODE,
@@ -44,8 +40,7 @@ from .harness_model import (
     TRANSPORT_DAEMON,
     resolve_model_reference,
 )
-from .shared_dir import agent_prompt_file
-from .shell import (
+from mael_common.shell import (
     Command,
     Pipeline,
     ShellExpr,
@@ -53,6 +48,12 @@ from .shell import (
     describe,
     run_cmd,
 )
+
+from .cmux import mael_layout
+from .cmux.client import current_client, ensure_cmux_running
+from .cmux.model import TerminalTab
+from .config import load_config_or_default
+from .shared_dir import agent_prompt_file
 
 
 class AddContext(StrEnum):

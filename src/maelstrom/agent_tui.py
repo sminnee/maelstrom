@@ -29,7 +29,14 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Markdown, SelectionList, Static
 
-from .agent_transport import AsyncDaemonClient
+from mael_agent.agent_transport import AsyncDaemonClient
+from mael_agent.agent_wire import (
+    AGENT_EXITED,
+    INTERRUPTIBLE,
+    RECENT_LIMIT,
+    next_mode,
+)
+
 from .agent_view import (
     AttachView,
     agent_status,
@@ -43,12 +50,6 @@ from .agent_view import (
     tool_call_title,
     transcript_items,
     turn_result_line,
-)
-from .agent_wire import (
-    AGENT_EXITED,
-    INTERRUPTIBLE,
-    RECENT_LIMIT,
-    next_mode,
 )
 from .orchestrator.protocol import TranscriptItem
 

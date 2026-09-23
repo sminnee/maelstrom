@@ -15,7 +15,8 @@ comes out, and invalid input raises ``ValueError``. The IO adapter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .claude_paths import sanitise_path_for_claude
+from mael_common.claude_paths import sanitise_path_for_claude
+
 from .worktree_model import WORKTREE_NAMES
 
 

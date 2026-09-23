@@ -8,8 +8,8 @@ it.
 
 import pytest
 
+from mael_common.image import MAX_BYTES
 from maelstrom import attachments
-from maelstrom.image import MAX_BYTES
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 NOT_AN_IMAGE = b"just some text, not an image at all"

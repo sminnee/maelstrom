@@ -24,7 +24,8 @@ from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .agent_stop import stop_agents_in_worktree
+from mael_agent.agent_stop import stop_agents_in_worktree
+
 from .cmux import mael_layout
 from .env import ServiceStatus, get_env_status, stop_env, stop_sessions
 from .env_store import JsonEnvStore

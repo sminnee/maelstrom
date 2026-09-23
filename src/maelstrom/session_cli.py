@@ -13,8 +13,9 @@ from pathlib import Path
 
 import click
 
+from mael_common.cli_async import AsyncGroup
+
 from . import session_discovery
-from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import stop_sessions
 from .table_cli import draw_table

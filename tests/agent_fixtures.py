@@ -9,10 +9,10 @@ suites that replay these fixtures read them through here.
 import json
 from pathlib import Path
 
-from maelstrom.agent_model import _stamp
-from maelstrom.agent_wire import TS_KEY
+from mael_agent.agent_wire import TS_KEY
+from mael_daemon.agent_model import _stamp
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
+FIXTURES = Path(__file__).parents[1] / "agent-daemon" / "fixtures" / "agent_events"
 
 #: What the daemon's clock read when it first saw an event with no clock of its
 #: own. Later than the ``NOW`` the tests replay at, which stands for the moment

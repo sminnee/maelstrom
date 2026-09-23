@@ -11,16 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from .util import harden_path
+from mael_common.util import get_maelstrom_dir, harden_path
 
-GLOBAL_CONFIG_DIR = ".maelstrom"
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
-
-
-def get_maelstrom_dir() -> Path:
-    """Return the path to ~/.maelstrom/ directory."""
-    return Path.home() / GLOBAL_CONFIG_DIR
 
 
 @dataclass
@@ -149,7 +143,7 @@ def harden_global_config() -> list[str]:
     Tightens both the new-location ``~/.maelstrom/config.yaml`` (plus its parent
     dir) and the legacy ``~/.maelstrom.yaml``; the legacy file lives directly
     under ``$HOME``, whose mode we must never touch. Best-effort and narrow-only
-    (see :func:`maelstrom.util.harden_path`): existing tighter perms are left
+    (see :func:`mael_common.util.harden_path`): existing tighter perms are left
     alone, and any ``OSError`` is swallowed so the caller never crashes.
 
     Returns:

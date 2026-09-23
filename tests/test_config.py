@@ -559,11 +559,11 @@ class TestAgentDaemonService:
             "  MAEL_AGENT_ROOT: ${HOME}/.maelstrom/daemons/${WORKTREE}\n"
             "services:\n"
             "  agent-daemon:\n"
-            "    command: uv run mael agent daemon serve\n"
+            "    command: uv run mael-agent-daemon serve\n"
         )
         config = load_config(tmp_path)
         daemon = next(s for s in config.services if s.name == "agent-daemon")
-        assert daemon.command == "uv run mael agent daemon serve"
+        assert daemon.command == "uv run mael-agent-daemon serve"
         # No ports: the socket is a path, not an allocation.
         assert daemon.ports == []
         # Not optional: an environment without its daemon has no agent host.

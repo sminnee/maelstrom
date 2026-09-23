@@ -1,7 +1,6 @@
 """Global test fixtures for maelstrom test suite."""
 
 import os
-import socket
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -10,30 +9,6 @@ import pytest
 
 from maelstrom.cmux.client import RecordingCmuxClient
 from maelstrom.cmux.model import CmuxLayout
-
-
-def _can_bind_a_unix_socket() -> bool:
-    """Whether this process may ``bind()`` at all.
-
-    Probed rather than sniffed for, so it stays right whatever the sandbox is.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                probe.bind(str(Path(tmp) / "probe.sock"))
-        except OSError:
-            return False
-    return True
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip the tests that need a ``bind()`` when this process may not."""
-    if _can_bind_a_unix_socket():
-        return
-    skip = pytest.mark.skip(reason="the sandbox denies bind() on a Unix socket")
-    for item in items:
-        if "binds_socket" in item.keywords:
-            item.add_marker(skip)
 
 
 @pytest.fixture
@@ -130,17 +105,6 @@ def _block_real_cmux():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_agent_paths(monkeypatch, tmp_path):
-    """Keep every test off a real daemon root.
-
-    Every command reads ``MAEL_AGENT_ROOT``, and a developer's shell sets it to
-    a live root. An unpinned test would read the real spawn records and see
-    whatever agents run on the machine.
-    """
-    monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "maelstrom"))
-
-
-@pytest.fixture(autouse=True)
 def _isolate_notebook_root(monkeypatch, tmp_path):
     """Keep every test off the developer's real task notebook.
 
@@ -164,19 +128,6 @@ def _isolate_notebook_root(monkeypatch, tmp_path):
 def _mark_test_commands_production(monkeypatch):
     """Keep command-output tests free of the non-production warning."""
     monkeypatch.setenv("MAEL_PRODUCTION", "1")
-
-
-@pytest.fixture(autouse=True)
-def _pin_harness_env(monkeypatch):
-    """Keep the outer shell's harness out of the tests.
-
-    ``resolve_harness`` detects the harness from ``CLAUDECODE`` /
-    ``OPENCODE_TERMINAL``, so running pytest inside a Claude Code or OpenCode
-    session would otherwise flip every default-launch test to that harness.
-    Tests for the detection itself patch the env explicitly.
-    """
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    monkeypatch.delenv("OPENCODE_TERMINAL", raising=False)
 
 
 @pytest.fixture(autouse=True)

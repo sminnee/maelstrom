@@ -11,23 +11,25 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import admin_cli, agent_cli, agent_transport
-from maelstrom.agent_model import (
+from mael_agent import agent_transport
+from mael_agent.agent_stop import stop_agents_in_worktree
+from mael_agent.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
+from mael_agent.agent_wire import AGENT_EXITED
+from mael_daemon.agent_model import (
     apply_event,
     build_agent_detail,
     build_agent_row,
     build_subagent_detail,
     build_subagent_rows,
 )
-from maelstrom.agent_server import Agent, AgentDaemon
-from maelstrom.agent_stop import stop_agents_in_worktree
+from mael_daemon.agent_server import Agent, AgentDaemon
+from maelstrom import admin_cli, agent_cli
 from maelstrom.agent_store import SqliteAgentStore, SqliteMilestoneStore
-from maelstrom.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
-from maelstrom.agent_wire import AGENT_EXITED
 from maelstrom.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE, NotebookRootUnset
 from maelstrom.state_db.migrate import open_state_db
 
 from .agent_cli_support import drive, unreachable
+from .agent_fixtures import FIXTURES
 
 
 class _TaskTable:
@@ -69,12 +71,9 @@ def prompt_file(monkeypatch, tmp_path):
     return path
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
-
-
 def replay(name: str, stop_before_control: bool = False):
     """Feed one fixture through the reducer and return the final state."""
-    from maelstrom.agent_model import AgentState
+    from mael_daemon.agent_model import AgentState
 
     state = AgentState(agent_id="a1", cwd="/tmp/x")
     for line in (FIXTURES / name).read_text().splitlines():
@@ -430,7 +429,7 @@ def test_tail_reports_an_unknown_agent():
 
 def test_tail_follow_ends_when_the_agent_has_exited():
     """``-f`` on a dead agent must return, because the stream says it ended."""
-    from maelstrom.agent_model import mark_exited
+    from mael_daemon.agent_model import mark_exited
 
     with _serving(mark_exited(replay("normal-turn.jsonl"), 0)):
         result = CliRunner().invoke(agent_cli.agent, ["tail", "-f", "a1"])
@@ -460,7 +459,7 @@ def test_resume_of_a_running_agent_exits_non_zero():
 
 def test_tail_says_how_many_earlier_events_the_daemon_dropped(monkeypatch):
     """A ring that rolled is reported as a line, not as a silent hole in history."""
-    from maelstrom import agent_model
+    from mael_daemon import agent_model
 
     monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
     state = replay("normal-turn.jsonl")
@@ -793,7 +792,7 @@ class TestResolveRootHasNoFallback:
     """
 
     def test_an_unset_root_raises(self, monkeypatch):
-        from maelstrom.agent_transport import RootUnset, require_root
+        from mael_agent.agent_transport import RootUnset, require_root
 
         monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
         with pytest.raises(RootUnset):
@@ -802,7 +801,7 @@ class TestResolveRootHasNoFallback:
     def test_a_tilde_expands(self, monkeypatch):
         """The value is written by hand in `.env`, so `~` reaches it. An
         unexpanded `~` makes a directory named `~` in the current directory."""
-        from maelstrom.agent_transport import require_root
+        from mael_agent.agent_transport import require_root
 
         monkeypatch.setenv("HOME", "/home/tester")
         monkeypatch.setenv("MAEL_AGENT_ROOT", "~/.maelstrom/daemons/bravo")
@@ -827,7 +826,7 @@ def test_an_unreachable_daemon_is_named_with_the_command_that_starts_one(
 class TestTailRaw:
     """`mael agent tail --raw`: the child's stream as JSON, one event per line.
 
-    The recorder for `tests/fixtures/agent_events/`. The rendered form drops
+    The recorder for `agent-daemon/fixtures/agent_events/`. The rendered form drops
     every event `_render` has no line for -- `system`/`task_*` above all --
     which is exactly what a fixture needs, so `--raw` prints the events
     themselves. The daemon's own `mael_*` markers are not the child's, so

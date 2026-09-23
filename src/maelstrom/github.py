@@ -26,6 +26,8 @@ import time
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from mael_common.shell import run_cmd, run_cmd_async
+
 from .base_store import GitConfigBaseStore
 from .github_model import (
     PASSING_STATES,
@@ -56,7 +58,6 @@ from .github_model import (
     stack_chain,
 )
 from .project_scaffold import scaffold_files
-from .shell import run_cmd, run_cmd_async
 from .worktree import (
     get_current_branch,
     run_git,

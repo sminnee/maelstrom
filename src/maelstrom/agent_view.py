@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any
 
-from .agent_wire import (
+from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     BACKLOG_END,
@@ -33,6 +33,7 @@ from .agent_wire import (
     TokenUsage,
     usage_of,
 )
+
 from .orchestrator.normalise import NormaliseContext, normalise_stream_event
 from .orchestrator.normalise import mark_exited as normalise_exited
 from .orchestrator.protocol import (

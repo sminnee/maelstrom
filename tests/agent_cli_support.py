@@ -5,8 +5,8 @@ from pathlib import Path
 from click import Group
 from click.testing import CliRunner, Result
 
-from maelstrom import agent_transport
-from maelstrom.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
+from mael_agent import agent_transport
+from mael_agent.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
 
 
 def unreachable(root) -> dict:

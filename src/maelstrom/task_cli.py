@@ -13,18 +13,7 @@ from pathlib import Path
 
 import click
 
-from . import session_discovery, task_actions
-from . import task as model  # noqa: F401  (module, used as `model.*`)
-
-# Second binding of the same module, for the few functions that take a `model`
-# *parameter* (the `--model` flag / task field) and would otherwise shadow the
-# alias above. Same module object — not a re-export.
-from . import task as task_model
-from .claude_paths import has_claude_transcript
-from .cli_async import AsyncGroup
-from .cmux.client import ensure_cmux_running
-from .context import resolve_context, resolve_project
-from .harness_model import (
+from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
@@ -32,7 +21,20 @@ from .harness_model import (
     resolve_model_reference,
     resolve_transport,
 )
-from .shell import exec_cmd
+from mael_common.claude_paths import has_claude_transcript
+from mael_common.cli_async import AsyncGroup
+from mael_common.shell import exec_cmd
+from mael_common.util import read_content_file
+
+from . import session_discovery, task_actions
+from . import task as model  # noqa: F401  (module, used as `model.*`)
+
+# Second binding of the same module, for the few functions that take a `model`
+# *parameter* (the `--model` flag / task field) and would otherwise shadow the
+# alias above. Same module object — not a re-export.
+from . import task as task_model
+from .cmux.client import ensure_cmux_running
+from .context import resolve_context, resolve_project
 from .state_db.db import StateDb
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
@@ -40,7 +42,6 @@ from .state_db.types import StateDbError
 from .table_cli import draw_table
 from .task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from .task_table import SqliteTaskTable
-from .util import read_content_file
 from .worktree import (
     get_current_branch,
     list_worktrees,
@@ -168,7 +169,7 @@ _CHECKED = False
 def _read_content_file(content_file: str | None) -> str:
     """Read the ``--content-file`` argument, converting a missing path to a CLI error.
 
-    The reading itself lives in :func:`maelstrom.util.read_content_file`, shared
+    The reading itself lives in :func:`mael_common.util.read_content_file`, shared
     with ``mael wiki update``; this wrapper is the CLI-layer error conversion.
     """
     try:

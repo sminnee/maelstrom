@@ -6,8 +6,9 @@ from pathlib import Path
 
 import click
 
+from mael_common.shell import run_cmd
+
 from .context import resolve_context
-from .shell import run_cmd
 from .worktree import (
     SyncResult,
     get_commits_ahead,

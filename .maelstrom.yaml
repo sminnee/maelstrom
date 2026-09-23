@@ -30,7 +30,7 @@ services:
   # other is `mael self-env start`, which is this same service on `_main`.
   # Nothing else starts one. See docs/dev/agent-daemon.md.
   agent-daemon:
-    command: uv run mael agent daemon serve
+    command: uv run mael-agent-daemon serve
 
   # The component workbench. Optional, because it serves no part of the running
   # app: it draws the web components against fixtures so the panel's visual

@@ -17,8 +17,9 @@ via ``git add -A``.
 
 from pathlib import Path
 
+from mael_common.image import MAX_BYTES, image_extension, is_image
+
 from . import task_store
-from .image import MAX_BYTES, image_extension, is_image
 
 
 def _bare_name(value: str, what: str) -> str:
