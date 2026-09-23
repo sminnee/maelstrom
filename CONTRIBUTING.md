@@ -23,7 +23,7 @@ skills and hooks in place if you want to use maelstrom on itself.
 ```bash
 uv run pytest --ignore=tests/e2e   # unit tests
 uv run pytest tests/e2e/ -v        # end-to-end tests
-bin/lint                           # ruff lint, ruff format check, pyright, vulture
+bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture
 ```
 
 These are the three Python gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the
@@ -33,7 +33,7 @@ satisfied. During development `uv run pytest -m 'not slow'` skips the slow tests
 loop, but run the full set before you push.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
-`uv run ruff format src/ tests/` to apply it.
+`uv run ruff format src tests lib agent-daemon conftest.py` to apply it.
 
 A change under `web/` runs its own gates, which CI keeps in a separate job:
 

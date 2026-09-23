@@ -113,9 +113,9 @@ Reconcile corrects three mismatches:
 
 ### `Cannot connect to the agent daemon socket … permission denied`
 
-A sandbox refused the connect, and the agent daemon is probably running. Confirm it with
-`mael agent daemon status` outside the sandbox, then run `mael admin install`. See "A sandbox
-can deny the socket" in `docs/dev/agent-daemon.md`.
+A sandbox refused the connect, and the agent daemon is probably running. Confirm it outside the
+sandbox: run `uv run mael-agent-daemon status` from a maelstrom checkout. Then run
+`mael admin install`. See "A sandbox can deny the socket" in `docs/dev/agent-daemon.md`.
 
 ---
 

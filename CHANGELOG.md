@@ -63,6 +63,11 @@ release while that section is empty, and retitles it to the version it is releas
   you like while building and `wip:` is fine. Present runs once per task and never during Land;
   fixups belong to Land, on a branch that already carries story commits.
 
+- **The agent daemon has its own command, `mael-agent-daemon`.** The published `mael` package
+  does not include the daemon, so run it from a maelstrom checkout with
+  `uv run mael-agent-daemon`. The `agent-daemon` service in `.maelstrom.yaml` runs
+  `uv run mael-agent-daemon serve`.
+
 ### Fixed
 
 - **Terminate and Resume on a node card no longer get stuck.** Terminating an agent the daemon
@@ -182,7 +187,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **A denied socket connect no longer reads as an absent daemon.** Where a sandbox refuses the
   connect, `mael agent` names the denial and the socket path. It used to say "No agent daemon
-  on \<root>" and tell you to start a daemon that was already running. `mael agent daemon gc`
+  on \<root>" and tell you to start a daemon that was already running. `mael-agent-daemon gc`
   now stops on a denial instead of killing the agents that daemon holds.
 
 - **An image in a message is a thumbnail.** Every picture the orchestrator UI shows, including one
@@ -203,7 +208,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **One owner per daemon root: the environment whose `.env` names it.** `mael self-env start`
   runs the everyday daemon on `~/.maelstrom/daemons/_main`, and `mael env start` runs a
-  worktree's own. Both run `mael agent daemon serve` as an ordinary service, so a daemon's
+  worktree's own. Both run `uv run mael-agent-daemon serve` as an ordinary service, so a daemon's
   lifetime is its environment's, and `mael self-env restart agent-daemon` is how one picks up new
   code. `MAEL_AGENT_ROOT` has no default: `serve` exits 2 without it, and every other
   `mael agent` command says which root it looked for. `mael self-update` puts the everyday root
@@ -212,11 +217,7 @@ release while that section is empty, and retitles it to the version it is releas
   that runs it. **To upgrade:** add `MAEL_AGENT_ROOT` to the project root's `.env`, run
   `mael self-env reset` and `mael env reset`, then
   `mael self-env start`. Agents held by the old daemon on `~/.maelstrom` are not migrated —
-  `mael agent daemon gc --all-roots` clears what they leave behind.
-
-- **`mael agent daemon` is a command group.** Running one in the foreground is now
-  `mael agent daemon serve`. The bare command prints help and exits non-zero. Anything scripted
-  against the old spelling needs the `serve`.
+  `uv run mael-agent-daemon gc --all-roots` clears what they leave behind.
 
 ### Added
 
@@ -238,14 +239,14 @@ release while that section is empty, and retitles it to the version it is releas
   no shutdown recorded is written off as `exited`. Each record names its child's pid, its start
   time and what it was doing at the last shutdown; an agent that was idle comes back without the
   resume nudge. Every child runs in its own process group, and stopping one takes its hooks, MCP
-  servers and tool shells with it. `mael agent daemon list` shows every record with its pid,
-  whether that pid is alive and whether the daemon holds it; `mael agent daemon reconcile` says
-  what `gc` would do; `mael agent daemon gc` does it, with `--all-roots` to clear what no daemon
+  servers and tool shells with it. `mael-agent-daemon list` shows every record with its pid,
+  whether that pid is alive and whether the daemon holds it; `mael-agent-daemon reconcile` says
+  what `gc` would do; `mael-agent-daemon gc` does it, with `--all-roots` to clear what no daemon
   root claims. A stopped restored agent no longer crashes the handler, a resume keeps the
   record's opening prompt, and a daemon that misses its start deadline is sent SIGTERM so it stops
   the agents it already restored.
 
-- **The daemon says which code it is running.** `mael agent daemon status` names the daemon
+- **The daemon says which code it is running.** `mael-agent-daemon status` names the daemon
   serving a socket: its process id, version, spawn-record directory, start time, agent count, and
   the worktree its code was imported from. A daemon holds the modules it imported at start, so a
   command from one worktree is often served by another worktree's daemon — which has produced a
@@ -254,7 +255,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **Every environment runs its own agent daemon.** A worktree that runs orchestrator/web to test
   a change to the agent protocol should not drive the agents another environment holds. Declare
-  an `agent-daemon` service in `.maelstrom.yaml` running `mael agent daemon serve`, and put
+  an `agent-daemon` service in `.maelstrom.yaml` running `uv run mael-agent-daemon serve`, and put
   `MAEL_AGENT_ROOT=~/.maelstrom/daemons/${WORKTREE}` in the project root's `.env`, which every
   worktree's `.env` is substituted from. `mael env start` gives that environment a daemon of its
   own, and `mael env stop` takes it and its agents away again.
@@ -267,10 +268,6 @@ release while that section is empty, and retitles it to the version it is releas
   on the machine then ran: a worktree's orchestrator replaced the everyday daemon with that
   worktree's test code four times in a row, and restarted it within one poll of a deliberate
   `kill -9`. A missing daemon is now an error naming the root and the two commands that start one.
-
-- **`mael agent daemon start`, `stop` and `restart`.** The environment manager owns a daemon's
-  lifetime. Use `mael self-env start|stop|restart` for the everyday daemon and `mael env …` for a
-  worktree's; `mael self-env restart agent-daemon` replaces `mael agent daemon restart`.
 
 - **`--root` on every daemon verb and on `mael orchestrator serve`.** The root comes from
   `MAEL_AGENT_ROOT` alone, so a daemon cannot be started on a root its environment does not own.

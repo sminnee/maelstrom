@@ -115,7 +115,7 @@ in both schemes on the same day.
 - `docs/dev/orchestrator-server.md` — the server behind it and the wire protocol.
 - `web/src/fake-backend/` — a running simulation of the world, usable for design work without
   a live server. `pnpm dev` runs against it on port 5173.
-- `tests/fixtures/agent_events/` — recorded stream-json from real agents.
+- `agent-daemon/fixtures/agent_events/` — recorded stream-json from real agents.
 
 There are no users beyond the author, no testimonials, no benchmarks, no pricing and no
 public launch. Future work must not invent them.

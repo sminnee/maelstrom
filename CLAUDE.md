@@ -15,7 +15,8 @@ uv run pytest tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=maelstrom      # Run with coverage
 uv run python -m maelstrom         # Run the module
-bin/lint                           # ruff lint, ruff format check, pyright, vulture (gate before commit)
+uv run mael-agent-daemon status     # Which agent daemon answers, and whose code it runs
+bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture (gate before commit)
 bin/knip-check                     # dead code in web/
 ```
 
