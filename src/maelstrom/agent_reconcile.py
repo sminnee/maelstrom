@@ -17,7 +17,7 @@ reused, and reads as the child having died. See "Strays and gc" in
 from dataclasses import dataclass, replace
 
 from .agent_model import SPEC_EXITED, SPEC_RUNNING, SPEC_STOPPED, AgentSpec
-from .session_discovery import ProcessInfo, is_driven, session_id_in
+from .process_table import ProcessInfo, is_driven, session_id_in
 
 #: A record's child, alive and held by this daemon. Nothing to do.
 OWNED = "owned"

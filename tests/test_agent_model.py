@@ -64,7 +64,6 @@ from maelstrom.agent_model import (
     user_message,
 )
 from maelstrom.orchestrator import document_tags
-from maelstrom.session_discovery import LiveSession, LiveSessionSet
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 
@@ -1250,13 +1249,11 @@ def test_a_stopped_row_reports_how_long_ago_the_session_last_wrote():
 
 def test_stopped_rows_drop_a_session_that_is_still_live():
     """Two children on one transcript fight, and ``resume`` refuses one for it."""
-    live = LiveSessionSet(
-        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="s1")]
-    )
     rows = build_stopped_rows(
         [_meta(session_id="s1"), _meta(session_id="s2")],
         _specs("s1", "s2"),
-        live,
+        {"s1"},
+        set(),
         now=1_000.0,
     )
     assert [row["id"] for row in rows] == ["s2"]
@@ -1264,10 +1261,9 @@ def test_stopped_rows_drop_a_session_that_is_still_live():
 
 def test_stopped_rows_keep_a_session_that_only_shares_a_worktree():
     """One PR per parent means siblings share a worktree; that is not the same session."""
-    live = LiveSessionSet(
-        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id="other")]
+    rows = build_stopped_rows(
+        [_meta(session_id="s1")], _specs("s1"), {"other"}, set(), now=1_000.0
     )
-    rows = build_stopped_rows([_meta(session_id="s1")], _specs("s1"), live, now=1_000.0)
     assert [row["id"] for row in rows] == ["s1"]
 
 
@@ -1277,13 +1273,11 @@ def test_stopped_rows_drop_a_hand_started_session_running_in_the_same_cwd():
     Its transcript is on disk all the same. Without this it would be offered for
     resume while its own process is still writing to it.
     """
-    live = LiveSessionSet(
-        sessions=[LiveSession(pid=1, cwd=Path("/w/alpha"), session_id=None)]
-    )
     rows = build_stopped_rows(
         [_meta(session_id="s1"), _meta(session_id="s2", cwd=Path("/w/bravo"))],
         _specs("s1", "s2"),
-        live,
+        set(),
+        {Path("/w/alpha")},
         now=1_000.0,
     )
     assert [row["id"] for row in rows] == ["s2"]
@@ -1301,7 +1295,8 @@ def test_stopped_rows_merge_a_record_and_a_transcript_for_one_session():
     rows = build_stopped_rows(
         [_meta(session_id="s1")],
         {"s1": spec},
-        LiveSessionSet(sessions=[]),
+        set(),
+        set(),
         now=1_000.0,
     )
     assert len(rows) == 1
@@ -1316,7 +1311,8 @@ def test_stopped_rows_are_newest_first():
             _meta(session_id="new", modified_at=9.0),
         ],
         _specs("old", "new"),
-        LiveSessionSet(sessions=[]),
+        set(),
+        set(),
         now=10.0,
     )
     assert [row["id"] for row in rows] == ["new", "old"]
@@ -1332,7 +1328,8 @@ def test_stopped_rows_drop_a_session_with_no_record():
     rows = build_stopped_rows(
         [_meta(session_id="kept"), _meta(session_id="orphan")],
         _specs("kept"),
-        LiveSessionSet(sessions=[]),
+        set(),
+        set(),
         now=1_000.0,
     )
     assert [row["id"] for row in rows] == ["kept"]

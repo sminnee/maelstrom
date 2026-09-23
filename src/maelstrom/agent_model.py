@@ -15,15 +15,12 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .agent_transport import ROOT_ENV
 from .claude_integration import get_shared_dir
 from .harness_model import HARNESS_TYPE_ENV, TRANSPORT_DAEMON
 from .util import sanitise_child_env
-
-if TYPE_CHECKING:  # a runtime import would pull a module that shells out to `pgrep`
-    from .session_discovery import LiveSessionSet
 
 #: Tools whose ``can_use_tool`` request is a question rather than a permission ask.
 QUESTION_TOOL = "AskUserQuestion"
@@ -1727,7 +1724,8 @@ STOPPED_LABEL_CHARS = 80
 def build_stopped_rows(
     metas: list[TranscriptMeta],
     specs: dict[str, AgentSpec],
-    live: "LiveSessionSet",
+    live_ids: set[str],
+    id_free_cwds: set[Path],
     *,
     now: float,
 ) -> list[dict[str, Any]]:
@@ -1740,19 +1738,20 @@ def build_stopped_rows(
     mode and env from the record, so a transcript alone cannot be resumed —
     listing one offers a resume that can only fail.
 
-    A session still running is subtracted, on two keys. Its session id is the
-    precise one, but a ``claude`` started by hand reports none — for those the
-    working directory is all there is, so a transcript is dropped when a live
-    session with no id runs in the same place.
+    A session still running is subtracted, on two keys. ``live_ids`` holds the
+    session ids of the live ``claude`` processes, which is the precise key. A
+    ``claude`` started by hand reports none, so for those the working directory
+    is all there is: ``id_free_cwds`` holds where each one runs, and a
+    transcript in one of them is dropped.
     """
-    id_free_cwds = {s.cwd.resolve() for s in live.sessions if not s.session_id}
+    resolved_cwds = {cwd.resolve() for cwd in id_free_cwds}
     rows = [
         build_stopped_row(meta, spec, now=now)
         for meta in metas
         for spec in [specs.get(meta.session_id)]
         if spec is not None
-        and live.for_session_id(meta.session_id) is None
-        and meta.cwd.resolve() not in id_free_cwds
+        and meta.session_id not in live_ids
+        and meta.cwd.resolve() not in resolved_cwds
     ]
     return sorted(rows, key=lambda row: row["modified_at"], reverse=True)
 

@@ -45,11 +45,7 @@ from maelstrom.agent_spec_store import (
     JsonAgentSpecStore,
 )
 from maelstrom.agent_transport import DaemonPaths
-from maelstrom.session_discovery import (
-    LiveSessionSet,
-    ProcessInfo,
-    ProcessTableUnavailable,
-)
+from maelstrom.process_table import ProcessInfo, ProcessTableUnavailable
 from maelstrom.transcript_store import InMemoryTranscriptStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -799,12 +795,22 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     return daemon, specs
 
 
-def _stopped_daemon(metas, *, live=None, records=True):
+def _stopped_daemon(metas, *, processes=(), cwds=None, records=True):
     """A daemon whose stopped listing reads injected transcripts, not the disk.
 
     Each transcript gets a spawn record by default, because only a session with
     one is listed. ``records=False`` leaves them off, to test that.
+    ``processes`` is the process table and ``cwds`` maps a pid to its cwd.
     """
+
+    async def table():
+        if isinstance(processes, Exception):
+            raise processes
+        return list(processes)
+
+    async def cwds_of(pids):
+        return {pid: Path(cwd) for pid, cwd in (cwds or {}).items() if pid in pids}
+
     transcripts = InMemoryTranscriptStore()
     specs = InMemoryAgentSpecStore()
     for meta in metas:
@@ -822,7 +828,8 @@ def _stopped_daemon(metas, *, live=None, records=True):
         specs=specs,
         has_transcript=lambda path, sid: True,
         transcripts=transcripts,
-        live=LiveSessionSet(sessions=live or []),
+        processes=table,
+        cwds=cwds_of,
     ), specs
 
 
@@ -847,6 +854,39 @@ def test_the_all_scope_lists_the_running_agents_and_the_stopped_ones():
     # A running row is keyed by agent id; a stopped one names its session too.
     assert {row["id"] for row in rows if "state" in row} == {running}
     assert {row["session"] for row in rows if "state" not in row} == {"s1"}
+
+
+def test_the_stopped_scope_subtracts_what_the_process_table_shows_live():
+    """By session id where the argv carries one, else by the cwd it runs in.
+
+    ``s4`` shares a worktree with the live ``sid``, as siblings under one PR do.
+    Only an id-free process's cwd subtracts, so ``s4`` stays.
+    """
+    sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    daemon, _ = _stopped_daemon(
+        [
+            _meta(sid, cwd="/w/alpha"),
+            _meta("s2", cwd="/w/bravo"),
+            _meta("s3", cwd="/w/charlie", modified_at=2.0),
+            _meta("s4", cwd="/w/alpha"),
+        ],
+        processes=[
+            ProcessInfo(1, 1, f"claude --session-id {sid}"),
+            ProcessInfo(2, 2, "claude"),
+        ],
+        cwds={1: "/w/alpha", 2: "/w/bravo"},
+    )
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert [row["session"] for row in rows] == ["s3", "s4"]
+
+
+def test_a_closed_process_table_lists_every_stopped_session():
+    """The sandbox refuses ``ps``; a listing is still worth having."""
+    daemon, _ = _stopped_daemon(
+        [_meta("s1")], processes=ProcessTableUnavailable("pgrep exited 3")
+    )
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert [row["session"] for row in rows] == ["s1"]
 
 
 def test_an_unknown_scope_is_refused_rather_than_silently_read_as_running():
