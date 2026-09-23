@@ -49,7 +49,7 @@ has an orchestrator to read one. A skill that loads everywhere would teach the v
 agents that cannot use it.
 
 The daemon does not know where maelstrom's `shared/` directory is, so the client names the file.
-`claude_integration.agent_prompt_file()` finds it. The spawn record keeps the file, so a restore
+`shared_dir.agent_prompt_file()` finds it. The spawn record keeps the file, so a restore
 respawns with it and no client is needed. A file that has gone by then is left off the argv.
 
 `shared/agent-prompt.md` holds the marker contract beside `claude-header.md`. It is named by path
