@@ -1674,11 +1674,6 @@ def build_subagent_rows(state: AgentState) -> list[dict[str, Any]]:
     return [build_subagent_row(state, dotted) for dotted in state.subagents]
 
 
-#: Columns a stopped row carries, in the order ``mael agent list --stopped``
-#: prints them.
-STOPPED_COLUMNS = ["id", "age", "task", "branch", "label", "cwd"]
-
-
 def age_of(seconds: float) -> str:
     """``seconds`` as the one short unit a table cell holds.
 
@@ -1698,7 +1693,6 @@ def age_of(seconds: float) -> str:
 def build_stopped_row(
     meta: TranscriptMeta,
     spec: AgentSpec,
-    task_id: str,
     *,
     now: float,
 ) -> dict[str, Any]:
@@ -1717,7 +1711,6 @@ def build_stopped_row(
         "id": spec.agent_id,
         "session": meta.session_id,
         "age": age_of(max(now - meta.modified_at, 0.0)),
-        "task": task_id,
         "branch": meta.branch,
         "label": _one_line(meta.label, STOPPED_LABEL_CHARS),
         "cwd": str(meta.cwd),
@@ -1734,15 +1727,14 @@ STOPPED_LABEL_CHARS = 80
 def build_stopped_rows(
     metas: list[TranscriptMeta],
     specs: dict[str, AgentSpec],
-    tasks: dict[str, str],
     live: "LiveSessionSet",
     *,
     now: float,
 ) -> list[dict[str, Any]]:
     """Every session that can be resumed, newest first.
 
-    ``specs`` and ``tasks`` are keyed by session id, so a record and a
-    transcript for one session merge into one row.
+    ``specs`` is keyed by session id, so a record and a transcript for one
+    session merge into one row.
 
     A session with no record is dropped. ``_resume`` reads the model, permission
     mode and env from the record, so a transcript alone cannot be resumed —
@@ -1755,7 +1747,7 @@ def build_stopped_rows(
     """
     id_free_cwds = {s.cwd.resolve() for s in live.sessions if not s.session_id}
     rows = [
-        build_stopped_row(meta, spec, tasks.get(meta.session_id, ""), now=now)
+        build_stopped_row(meta, spec, now=now)
         for meta in metas
         for spec in [specs.get(meta.session_id)]
         if spec is not None

@@ -50,7 +50,6 @@ from maelstrom.session_discovery import (
     ProcessInfo,
     ProcessTableUnavailable,
 )
-from maelstrom.task import Task
 from maelstrom.transcript_store import InMemoryTranscriptStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -800,22 +799,7 @@ def _daemon_with_specs(*, has_transcript: bool = True):
     return daemon, specs
 
 
-class _FakeTaskTable:
-    """A task table that counts how many times the listing opened it."""
-
-    opened = 0
-
-    def __init__(self, tasks: dict[str, str]):
-        self._tasks = tasks
-
-    async def find_by_session_id(self, session_id: str):
-        task_id = self._tasks.get(session_id)
-        return (
-            Task(id=task_id, title="", project="p", status="done") if task_id else None
-        )
-
-
-def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
+def _stopped_daemon(metas, *, live=None, records=True):
     """A daemon whose stopped listing reads injected transcripts, not the disk.
 
     Each transcript gets a spawn record by default, because only a session with
@@ -834,21 +818,12 @@ def _stopped_daemon(metas, *, live=None, tasks=None, records=True):
                     status=SPEC_STOPPED,
                 )
             )
-    opens = []
-
-    def open_table():
-        opens.append(1)
-        return _FakeTaskTable(tasks or {})
-
-    daemon = AgentDaemon(
+    return AgentDaemon(
         specs=specs,
         has_transcript=lambda path, sid: True,
         transcripts=transcripts,
         live=LiveSessionSet(sessions=live or []),
-        open_task_table=open_table,
-    )
-    daemon._test_opens = opens
-    return daemon, specs
+    ), specs
 
 
 def _meta(session_id="s1", cwd="/tmp/x", **kw):
@@ -2861,19 +2836,6 @@ def test_the_record_fallback_refuses_to_resume_a_record_still_running():
     reply = asyncio.run(_handle(daemon, {"cmd": "resume", "id": "a1"}))
     assert reply["error"] == "agent a1 is running"
     assert daemon.agents == {}
-
-
-def test_a_listing_opens_the_task_table_once_not_once_per_session():
-    """~800 transcripts must not mean ~800 SQLite connections.
-
-    Each open builds a connection before its one-row SELECT, which is what
-    `session_cli` avoids by opening the table once for the whole listing.
-    """
-    metas = [_meta(f"s{i}", cwd="/tmp/x") for i in range(20)]
-    daemon, _ = _stopped_daemon(metas)
-    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
-    assert len(rows) == 20
-    assert len(daemon._test_opens) == 1
 
 
 def test_the_listing_prefers_a_stopped_record_over_an_exited_one():
