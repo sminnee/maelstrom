@@ -65,6 +65,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **Terminate and Resume on a node card no longer get stuck.** Terminating an agent the daemon
+  has already lost now shows it exited, where before every click failed. A resumed agent goes
+  live at once and stays live, where before its card kept offering a Resume the daemon refused.
+
 - **`mael env start` repairs a half-started environment instead of refusing it.** It starts
   what is declared and not running, and leaves running services alone, so a second start is
   harmless and a service whose process died comes back. Starting a service that is already

@@ -2137,15 +2137,22 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
     assert [e["id"] for e in run(scenario())["desk"]] == ["task:askastro/ASK-1"]
 
 
-def test_resume_reaches_the_host_for_an_exited_agent(harness):
+def test_resume_reaches_the_host_and_brings_the_agent_back_at_once(harness_factory):
+    """The card goes live on the reply, not at the next poll."""
+    harness = harness_factory(agent_poll=30.0)
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
         async with harness.client() as api:
-            return await api.post("/api/agents/ag1/resume")
+            before = await api.get_json("/api/agents/ag1")
+            reply = await api.post("/api/agents/ag1/resume")
+            return before, reply, await api.get_json("/api/agents/ag1")
 
-    assert run(scenario()).status == 200
+    before, reply, agent = run(scenario())
+    assert before["state"] == "exited"
+    assert reply.status == 200
     assert {"cmd": "resume", "id": "ag1"} in harness.daemon.calls
+    assert agent["state"] == "idle"
 
 
 def test_resume_of_an_agent_that_is_running_is_refused(harness):
@@ -2162,7 +2169,7 @@ def test_resume_of_an_agent_that_is_running_is_refused(harness):
 
 
 def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
-    """The host is the authority: it may know of a child the world does not."""
+    """The host is the authority: its record may name a child it has lost."""
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
     harness.daemon.replies["resume"] = [{"error": "agent ag1 is running"}]
 

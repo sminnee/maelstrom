@@ -1508,9 +1508,9 @@ class Orchestrator:
     async def _resume_agent(self, command: dict[str, Any]) -> dict[str, Any]:
         """Ask the host to start an exited agent again, under its own id.
 
-        The world changes when the next reconcile sees the row live again, so
-        nothing is synthesised here — unlike the reply commands, the host's own
-        ``list`` is the evidence the agent is back.
+        Nothing is synthesised, unlike the reply commands: the host's own
+        ``list`` is the evidence the agent is back. The world reconciles against
+        it at once, as a launch does.
         """
         payload: dict[str, Any] = {"cmd": "resume", "id": command["agentId"]}
         text = str(command.get("text", "")).strip()
@@ -1519,6 +1519,7 @@ class Orchestrator:
         refused = await self._ask_host(payload)
         if refused:
             return refused
+        await self.refresh_agents()
         return {"ok": True, "result": {}}
 
     async def _launch(self, command: dict[str, Any]) -> dict[str, Any]:

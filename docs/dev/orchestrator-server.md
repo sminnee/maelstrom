@@ -472,6 +472,13 @@ agent id. The server clears the exit code, clears the attention item the exit ra
 a second time. The re-attached backlog is relayed with the ids it already had, so a client that
 holds those items applies nothing new.
 
+A stop the host refuses with `no such agent` still ends the record, and the router answers ok: the
+agent is gone, which is what the stop asked for. The record stays revivable, because a daemon at
+another root may still hold the agent. A resume the host accepts puts the agent back in the
+router's live set, and the server refreshes the world at once, so the card goes live on the reply.
+A resume the host refuses as `is running` succeeds when the host's `list` names the agent live:
+the router takes it back in.
+
 What an agent waits on is not stored. Both the host and the server derive it by running the same
 function over the same events: a `control_request` opens the wait, and a `control_response`, a
 `control_cancel_request` or a `result` ends it. The host reads those events with no stream in
