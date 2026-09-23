@@ -21,7 +21,9 @@ Each feature is split into three files with one responsibility each:
 | **CLI** | `*_cli.py` | Thin adapter: parse args → call one model function → render. The *only* layer that prints or converts errors to exit codes. | [`task_cli.py`](../../src/maelstrom/task_cli.py) |
 
 Dependencies point one way: CLI → model → store. The model never imports the CLI;
-the store never imports the model.
+the store never imports the model. `tests/test_service_boundary.py` enforces the
+first half: no domain module reaches click or a `*_cli` module, even through a
+lazy import.
 
 ## The seven conventions
 
@@ -38,6 +40,14 @@ example:
 - [`task.py`](../../src/maelstrom/task.py) — the pure model.
 - [`task_cli.py`](../../src/maelstrom/task_cli.py) — the thin CLI.
 
+The service integrations follow the same split. Each of
+[`integrations/`](../../src/maelstrom/integrations/)`linear.py`, `sentry.py`,
+`slack.py` and `uptimerobot.py` holds the API client, the reusable operations
+and the pure formatters. Its `*_cli.py` twin holds the click group and the
+commands, and reaches the model as `from . import linear`. Some commands still
+build their own queries in the CLI module, for example `mael linear release`
+and `mael sentry list-issues`.
+
 ### 2. No I/O or printing in model code
 
 `subprocess` and `click.echo` live only in the CLI/adapter layer. Model functions
@@ -45,6 +55,11 @@ take their inputs as arguments (including the injected store) and return data or
 raise — they don't read the environment, shell out, or print. Because the model
 only touches the injected store, it can be exercised against an `InMemoryStore`
 with no git and no filesystem (see the task unit tests).
+
+A model that must report while it runs takes a line callback instead of
+printing: `warn: Callable[[str], None]` in
+[`task_actions.py`](../../src/maelstrom/task_actions.py), `announce` in the
+worktree steps. The CLI passes a stderr echo. The orchestrator passes a logger.
 
 > Sanctioned exceptions are rare, obvious, and documented — they are not licence
 > for general I/O in the model:
@@ -91,6 +106,14 @@ CLI catches the family by name rather than listing every subclass.
 [`worktree_model.py`](../../src/maelstrom/worktree_model.py) has `WorktreeError`
 over `UnclosableWorktreeError`, `WorktreeNamesExhaustedError` and
 `WorktreeSetupError`.
+[`integrations/errors.py`](../../src/maelstrom/integrations/errors.py) has
+`IntegrationError` over `IntegrationHTTPError`.
+
+A family can have one conversion point instead of a catch in every command.
+`IntegrationGroup` in
+[`integrations/group_cli.py`](../../src/maelstrom/integrations/group_cli.py) is
+the group class of every integration. It turns an `IntegrationError` into
+`click.ClickException` with the same message.
 
 `str()` on a `KeyError` quotes its argument, so a CLI rendering a domain error
 takes the message from [`util.error_text`](../../src/maelstrom/util.py) rather
@@ -99,7 +122,6 @@ than from `str(exc)`.
 This is the convention to converge on. Today the codebase is inconsistent and
 these are the things to fix as each module is refactored:
 
-- integrations raise `click.ClickException` directly from non-CLI code,
 - `env.py` and `github.py` raise bare `RuntimeError`,
 - `cli.py` raises `SystemExit` / `click.UsageError` inline.
 
