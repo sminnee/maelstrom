@@ -2,11 +2,11 @@
 
 The authoritative, fast signal is the live ``claude`` CLI processes themselves
 and their working directories. A running ``claude`` session's cwd *is* the
-worktree it was launched in, so one ``pgrep -x claude`` plus one batched
-``lsof -a -d cwd`` gives every live session's real worktree path in ~0.03s. A
-third batched call — ``ps -o command=`` — reads each process's command line so
-we can recover the ``--session-id`` ``mael`` launched it with, the durable link
-back to the task.
+worktree it was launched in. :mod:`maelstrom.process_table` reads the
+``claude`` processes with their command lines, and one batched ``lsof -a -d
+cwd`` gives every live session's real worktree path in ~0.03s. The command line
+carries the ``--session-id`` ``mael`` launched it with, the durable link back
+to the task.
 
 This deliberately does **not** consult transcript files to decide liveness,
 and a session registry was tried and removed:
@@ -34,21 +34,17 @@ off that shared list — each session attributing itself to a worktree via
 """
 
 import asyncio
-import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path, PurePath
 
-from .shell import run_cmd_async
-
-# ``mael`` launches ``claude --session-id <uuid>``, and continues an existing
-# session with ``claude --resume <uuid>``; recover that uuid from either.
-# Matches a canonical uuid, so a bare ``claude`` with no flag — or a
-# ``--resume`` with no id, which opens a picker — simply yields ``None``.
-_SESSION_ID_RE = re.compile(
-    r"--(?:session-id|resume)[=\s]+"
-    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+from .process_table import (
+    ProcessTableUnavailable,
+    command_of,
+    cwds_for_pids,
+    list_claude_processes,
+    session_id_in,
 )
 
 
@@ -91,29 +87,29 @@ class LiveSession:
 async def all_live_sessions() -> list[LiveSession]:
     """Every running Claude CLI session, its cwd, and its session-id.
 
-    1. ``pgrep -x claude`` → the pids of the real CLI. ``-x`` matches the exact
-       command name, so ``bun`` MCP-channel helpers and ``Code Helper`` are
-       excluded — only the CLI itself.
-    2. ``lsof -a -d cwd -p <pids> -F pn`` → one call returning each pid's cwd as
-       ``-F`` records (``p<pid>`` / ``n<path>``). A pid whose cwd can't be read
-       is skipped.
-    3. ``ps -o pid=,command= -p <pids>`` → one call returning each pid's command
-       line, from which we parse the ``--session-id`` uuid. A process without
-       the flag (a bare ``claude``) just yields ``session_id=None``.
+    Read from :mod:`maelstrom.process_table`: the ``claude`` processes and
+    their command lines, then one batched ``lsof`` for their cwds. Only a
+    process whose executable is ``claude`` counts, the test ``pgrep -x claude``
+    makes, so a helper that merely carries a driven agent's flags is not a
+    session. A process without ``--session-id`` or ``--resume <uuid>`` (a bare
+    ``claude``) yields ``session_id=None``, and one whose cwd cannot be read is
+    skipped.
 
-    All three external calls tolerate a missing binary or non-zero exit and yield
-    an empty result rather than raising, so a box with no ``claude`` running (or
-    without ``pgrep``/``lsof``/``ps``) reports ``[]`` — and a missing ``ps`` only
-    costs the session-ids, not the sweep.
+    A process table that cannot be read at all reads as no sessions, as it does
+    for the daemon's stopped listing: a caller asking "is anything live?"
+    gets "no" rather than a crash.
     """
-    pids = await _claude_pids()
-    if not pids:
+    try:
+        processes = await list_claude_processes()
+    except ProcessTableUnavailable:
         return []
-    sessions = await _cwds_for_pids(pids)
-    session_ids = await _session_ids_for_pids(pids)
-    for s in sessions:
-        s.session_id = session_ids.get(s.pid)
-    return sessions
+    commands = {p.pid: p.command for p in processes if _is_claude_command(p.command)}
+    if not commands:
+        return []
+    return [
+        LiveSession(pid=pid, cwd=cwd, session_id=session_id_in(commands[pid]))
+        for pid, cwd in (await cwds_for_pids(list(commands))).items()
+    ]
 
 
 async def session_for_pid(pid: int) -> LiveSession | None:
@@ -131,94 +127,13 @@ async def session_for_pid(pid: int) -> LiveSession | None:
     so a mistyped pid must not reach an unrelated process, and a missing cwd
     would otherwise be reported as the caller's own.
     """
-    command = (await _commands_for_pids([pid])).get(pid)
+    command = await command_of(pid)
     if command is None or not _is_claude_command(command):
         return None
-    sessions = await _cwds_for_pids([pid])
-    found = next((s for s in sessions if s.pid == pid), None)
-    if found is None:
+    cwd = (await cwds_for_pids([pid])).get(pid)
+    if cwd is None:
         return None
-    match = _SESSION_ID_RE.search(command)
-    found.session_id = match.group(1) if match else None
-    return found
-
-
-async def _claude_pids() -> list[int]:
-    """Pids of the running ``claude`` CLI, via ``pgrep -x claude``.
-
-    ``check=False`` because ``pgrep`` exits 1 when nothing matches — that is a
-    normal "no sessions" result, not an error. A missing ``pgrep`` binary or any
-    other failure also yields ``[]``.
-    """
-    try:
-        result = await run_cmd_async(["pgrep", "-x", "claude"], quiet=True, check=False)
-    except (OSError, ValueError):
-        return []
-    pids: list[int] = []
-    for line in result.stdout.split():
-        try:
-            pids.append(int(line))
-        except ValueError:
-            continue
-    return pids
-
-
-async def _cwds_for_pids(pids: list[int]) -> list[LiveSession]:
-    """Resolve each pid's cwd with one batched ``lsof -a -d cwd``.
-
-    ``-F pn`` prints machine-readable records: ``p<pid>`` starts a process
-    block, ``n<path>`` gives its cwd. We pair them into :class:`LiveSession`s,
-    skipping any pid ``lsof`` reports without a readable cwd. ``check=False``
-    because ``lsof`` exits non-zero when some pids have already gone.
-    """
-    args = ["lsof", "-a", "-d", "cwd", "-p", ",".join(str(p) for p in pids), "-F", "pn"]
-    try:
-        result = await run_cmd_async(args, quiet=True, check=False)
-    except (OSError, ValueError):
-        return []
-    sessions: list[LiveSession] = []
-    pid: int | None = None
-    for line in result.stdout.splitlines():
-        if not line:
-            continue
-        tag, value = line[0], line[1:]
-        if tag == "p":
-            try:
-                pid = int(value)
-            except ValueError:
-                pid = None
-        elif tag == "n" and pid is not None:
-            sessions.append(LiveSession(pid=pid, cwd=Path(value)))
-            pid = None
-    return sessions
-
-
-async def _commands_for_pids(pids: list[int]) -> dict[int, str]:
-    """Map ``pid -> command line`` with one batched ``ps``.
-
-    ``ps -ww -o pid=,command= -p <pids>`` gives one ``<pid> <cmd…>`` line per
-    live pid. ``-ww`` prints the command line at unlimited width, so a flag late
-    in the args is never clipped by column truncation. A pid that has already
-    gone is absent from the map. ``check=False`` because ``ps`` exits non-zero
-    when some pids have gone; a missing ``ps`` binary yields an empty map.
-    """
-    args = ["ps", "-ww", "-o", "pid=,command=", "-p", ",".join(str(p) for p in pids)]
-    try:
-        result = await run_cmd_async(args, quiet=True, check=False)
-    except (OSError, ValueError):
-        return {}
-    mapping: dict[int, str] = {}
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        head, _, rest = line.partition(" ")
-        try:
-            pid = int(head)
-        except ValueError:
-            continue
-        mapping[pid] = rest
-    return mapping
+    return LiveSession(pid=pid, cwd=cwd, session_id=session_id_in(command))
 
 
 def _is_claude_command(command: str) -> bool:
@@ -231,131 +146,6 @@ def _is_claude_command(command: str) -> bool:
     """
     head = command.split(maxsplit=1)[0] if command.strip() else ""
     return PurePath(head).name == "claude"
-
-
-async def _session_ids_for_pids(pids: list[int]) -> dict[int, str]:
-    """Map ``pid -> session-id``, read from each pid's command line.
-
-    The id comes from the ``--session-id`` flag the launcher passes. A pid whose
-    line lacks the flag is simply absent from the map (→ ``session_id=None``);
-    a bare ``claude`` the user started carries no id.
-    """
-    mapping: dict[int, str] = {}
-    for pid, command in (await _commands_for_pids(pids)).items():
-        m = _SESSION_ID_RE.search(command)
-        if m:
-            mapping[pid] = m.group(1)
-    return mapping
-
-
-# --- the process table, for the agent daemon's reconcile -------------------
-
-
-@dataclass(frozen=True)
-class ProcessInfo:
-    """One process from the table: its pid, its process group, and its argv.
-
-    ``command`` is the full command line at unlimited width. A child launched
-    from cmux carries a long ``--settings {…}`` JSON in its argv, so a clipped
-    line would hide the ``--session-id`` that comes after it.
-    """
-
-    pid: int
-    pgid: int
-    command: str
-
-
-class ProcessTableUnavailable(RuntimeError):
-    """``ps`` or ``pgrep`` could not read the process table at all.
-
-    Distinct from "no matching process": inside an agent sandbox both tools
-    fail outright, and a reconcile that read that as "every child is dead"
-    would rewrite every record as crashed.
-    """
-
-
-def session_id_in(command: str) -> str | None:
-    """The ``--session-id`` or ``--resume`` uuid in ``command``, or ``None``."""
-    match = _SESSION_ID_RE.search(command)
-    return match.group(1) if match else None
-
-
-#: The two flags only a daemon-driven ``claude`` carries. Together they are
-#: the mark of a driven agent; an interactive session has neither.
-_DRIVEN_FLAGS = ("--input-format stream-json", "--permission-prompt-tool stdio")
-
-
-def is_driven(command: str) -> bool:
-    """Whether ``command`` is a daemon-driven ``claude``, from its argv."""
-    return all(flag in command for flag in _DRIVEN_FLAGS)
-
-
-async def list_claude_processes() -> list[ProcessInfo]:
-    """Every ``claude`` process on the machine, with its group and its argv.
-
-    The union of ``pgrep -x claude`` (the CLI by name) and
-    ``pgrep -f -- '--permission-prompt-tool stdio'`` (a driven agent by its
-    flag, whatever the executable is called), then one ``ps -ww`` for the
-    group ids and the full command lines.
-
-    Raises:
-        ProcessTableUnavailable: If ``pgrep`` or ``ps`` failed for any reason
-            other than "nothing matched". ``pgrep`` exits 1 for no match and
-            something else when it cannot read the table; ``ps`` exits 1 when
-            some of the pids have already gone, which is a normal race, and
-            cannot run at all where the table is closed.
-    """
-    pids: set[int] = set()
-    for argv in (
-        ["pgrep", "-x", "claude"],
-        ["pgrep", "-f", "--", "--permission-prompt-tool stdio"],
-    ):
-        try:
-            result = await run_cmd_async(argv, quiet=True, check=False)
-        except (OSError, ValueError) as exc:
-            raise ProcessTableUnavailable(f"pgrep failed: {exc}") from exc
-        if result.returncode not in (0, 1):
-            raise ProcessTableUnavailable(
-                f"pgrep exited {result.returncode}: {result.stderr.strip()}"
-            )
-        for token in result.stdout.split():
-            try:
-                pids.add(int(token))
-            except ValueError:
-                continue
-    if not pids:
-        return []
-    args = ["ps", "-ww", "-o", "pid=,pgid=,command=", "-p", ",".join(map(str, pids))]
-    try:
-        result = await run_cmd_async(args, quiet=True, check=False)
-    except (OSError, ValueError) as exc:
-        raise ProcessTableUnavailable(f"ps failed: {exc}") from exc
-    if result.returncode not in (0, 1):
-        raise ProcessTableUnavailable(
-            f"ps exited {result.returncode}: {result.stderr.strip()}"
-        )
-    return parse_process_table(result.stdout)
-
-
-def parse_process_table(text: str) -> list[ProcessInfo]:
-    """``ps -o pid=,pgid=,command=`` output as :class:`ProcessInfo` rows.
-
-    A line that does not start with two integers is not a process and is
-    skipped.
-    """
-    rows: list[ProcessInfo] = []
-    for line in text.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) < 2:
-            continue
-        try:
-            pid, pgid = int(parts[0]), int(parts[1])
-        except ValueError:
-            continue
-        rows.append(
-            ProcessInfo(pid=pid, pgid=pgid, command=parts[2] if len(parts) > 2 else "")
-        )
-    return rows
 
 
 def _sweep_blocking() -> list[LiveSession]:

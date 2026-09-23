@@ -99,11 +99,12 @@ from .harness_model import (
     resolve_execute_model,
     resolve_model_reference,
 )
-from .session_discovery import (
-    LiveSessionSet,
+from .process_table import (
     ProcessInfo,
     ProcessTableUnavailable,
+    cwds_for_pids,
     list_claude_processes,
+    session_id_in,
 )
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
@@ -741,9 +742,9 @@ class AgentDaemon:
         *,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         transcripts: TranscriptStore | None = None,
-        live: LiveSessionSet | None = None,
         clock: "Callable[[], str]" = now_iso,
         processes: Callable[[], Awaitable[list[ProcessInfo]]] = list_claude_processes,
+        cwds: Callable[[list[int]], Awaitable[dict[int, Path]]] = cwds_for_pids,
         kill_group: Callable[[int, int], None] | None = None,
     ):
         #: The one directory this daemon owns; see ``DaemonPaths``.
@@ -751,13 +752,15 @@ class AgentDaemon:
         self.socket_path = str(self.paths.socket)
         self.specs = specs or JsonAgentSpecStore(self.paths.spec_dir)
         self.has_transcript = has_transcript
-        #: Reads the process table for `gc`; a test hands in a literal list.
+        #: Reads the process table for `gc` and the stopped listing; a test
+        #: hands in a literal list.
         self._processes = processes
+        #: Each pid's cwd, for the live sessions that carry no session id.
+        self._cwds = cwds
         #: The group kill `gc` uses. ``None`` means the module seam, looked up
         #: at call time so a test that patches it reaches this too.
         self._kill_group = kill_group
         self._transcripts = transcripts
-        self._live = live
         #: When an event was seen. Handed to every agent this daemon starts, so
         #: a test pins one clock rather than reaching into the agents it built.
         self.clock = clock
@@ -796,9 +799,29 @@ class AgentDaemon:
         cwds = [Path(cwd)] if cwd else None
         metas = self.transcripts.list(cwds)
         specs = _specs_by_session(self.specs.list())
-        live = self._live if self._live is not None else LiveSessionSet()
-        await live.sweep()
-        return build_stopped_rows(metas, specs, live, now=time.time())
+        live_ids, id_free_cwds = await self._live_sessions()
+        return build_stopped_rows(metas, specs, live_ids, id_free_cwds, now=time.time())
+
+    async def _live_sessions(self) -> tuple[set[str], set[Path]]:
+        """The session ids of the live ``claude`` processes, and the cwds of
+        the live ones that carry no id.
+
+        A closed process table reads as "nothing live": the listing is still
+        worth having, and a session it wrongly offers is refused by ``resume``.
+        """
+        try:
+            processes = await self._processes()
+        except ProcessTableUnavailable:
+            return set(), set()
+        live_ids: set[str] = set()
+        id_free: list[int] = []
+        for process in processes:
+            if session_id := session_id_in(process.command):
+                live_ids.add(session_id)
+            else:
+                id_free.append(process.pid)
+        cwds = await self._cwds(id_free) if id_free else {}
+        return live_ids, set(cwds.values())
 
     # -- lifecycle --
 

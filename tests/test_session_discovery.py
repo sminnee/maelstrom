@@ -1,207 +1,128 @@
 """Tests for maelstrom.session_discovery: live claude processes → cwd → worktree.
 
-Liveness is the set of running ``claude`` CLI processes and their cwds, obtained
-via one ``pgrep -x claude`` plus one batched ``lsof -a -d cwd``. Tests fake those
-two external calls by monkeypatching :func:`maelstrom.session_discovery.run_cmd`
-rather than spawning real processes, and stub ``list_worktrees`` for the
-worktree-prefix tiebreak.
+Liveness is read from :mod:`maelstrom.process_table`. These tests fake that
+module's three readers at ``session_discovery``'s import of them, rather than
+the shell: how ``ps`` and ``lsof`` output parses is ``test_process_table``'s
+concern.
 """
 
 import asyncio
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from maelstrom import session_discovery
+from maelstrom.process_table import ProcessInfo, ProcessTableUnavailable
 
 
-def _completed(stdout: str) -> subprocess.CompletedProcess:
-    """A CompletedProcess carrying ``stdout`` (the only field callers read)."""
-    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+def fake_table(monkeypatch, commands: dict[int, str], cwds: dict[int, str]):
+    """A process table of ``pid -> command``, where ``lsof`` can read ``cwds``.
 
-
-def _async_returning(fn):
-    """Wrap a synchronous stub so it can stand in for ``run_cmd_async``."""
-
-    async def run(cmd, *args, **kwargs):
-        return fn(cmd, **kwargs)
-
-    return run
-
-
-def _fake_run_cmd(pgrep_out: str, lsof_out: str, ps_out: str = ""):
-    """A ``run_cmd`` stand-in that answers pgrep, lsof, and ps from fixed output.
-
-    Dispatches on the argv's first token so a single stub serves all three calls
-    ``all_live_sessions`` makes. ``ps_out`` defaults to empty (no session-ids),
-    which keeps the pre-session-id tests unchanged.
+    Every reader ``session_discovery`` uses answers from the same two maps, so
+    a test states the machine once.
     """
 
-    async def run(cmd, *args, **kwargs):
-        if cmd[0] == "pgrep":
-            return _completed(pgrep_out)
-        if cmd[0] == "lsof":
-            return _completed(lsof_out)
-        if cmd[0] == "ps":
-            return _completed(ps_out)
-        raise AssertionError(f"unexpected command: {cmd}")
+    async def processes():
+        return [ProcessInfo(pid, pid, command) for pid, command in commands.items()]
 
-    return run
+    async def cwds_for(pids):
+        return {pid: Path(cwds[pid]) for pid in pids if pid in cwds}
 
+    async def command_of(pid):
+        return commands.get(pid)
 
-def _ps_records(pairs: list[tuple[int, str]]) -> str:
-    """Render ``(pid, command-line)`` pairs as ``ps -o pid=,command=`` output."""
-    return "\n".join(f"  {pid} {cmd}" for pid, cmd in pairs) + "\n"
+    monkeypatch.setattr(session_discovery, "list_claude_processes", processes)
+    monkeypatch.setattr(session_discovery, "cwds_for_pids", cwds_for)
+    monkeypatch.setattr(session_discovery, "command_of", command_of)
 
 
-def _lsof_records(pairs: list[tuple[int, str]]) -> str:
-    """Render ``(pid, cwd)`` pairs as ``lsof -F pn`` output."""
-    lines = []
-    for pid, cwd in pairs:
-        lines.append(f"p{pid}")
-        lines.append(f"n{cwd}")
-    return "\n".join(lines) + "\n"
+SID_A = "97894d02-f335-5ea3-9d9f-050330a4902b"
+SID_B = "94063899-7207-57ac-9629-4cc8d130667f"
+
+
+def sweep():
+    return asyncio.run(session_discovery.all_live_sessions())
 
 
 class TestAllLiveSessions:
     def test_empty_when_no_claude(self, monkeypatch):
-        # pgrep exits 1 / prints nothing when nothing matches.
-        monkeypatch.setattr(session_discovery, "run_cmd_async", _fake_run_cmd("", ""))
-        assert asyncio.run(session_discovery.all_live_sessions()) == []
+        fake_table(monkeypatch, {}, {})
+        assert sweep() == []
 
-    def test_parses_pid_and_cwd(self, monkeypatch):
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "42\n99\n", _lsof_records([(42, "/w/alpha"), (99, "/w/echo")])
-            ),
+    def test_pairs_each_pid_with_its_cwd(self, monkeypatch):
+        fake_table(
+            monkeypatch,
+            {42: "claude", 99: "claude"},
+            {42: "/w/alpha", 99: "/w/echo"},
         )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions == [
+        assert sweep() == [
             session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha")),
             session_discovery.LiveSession(pid=99, cwd=Path("/w/echo")),
         ]
 
     def test_skips_pid_without_cwd(self, monkeypatch):
-        # lsof reports pid 42's cwd but not pid 99's.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd("42\n99\n", _lsof_records([(42, "/w/alpha")])),
+        fake_table(monkeypatch, {42: "claude", 99: "claude"}, {42: "/w/alpha"})
+        assert sweep() == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
+
+    def test_a_closed_process_table_reads_as_no_sessions(self, monkeypatch):
+        """The sandbox refuses ``ps``; "is anything live?" gets "no", not a crash."""
+
+        async def closed():
+            raise ProcessTableUnavailable("pgrep exited 3")
+
+        monkeypatch.setattr(session_discovery, "list_claude_processes", closed)
+        assert sweep() == []
+
+    def test_only_a_claude_executable_is_a_session(self, monkeypatch):
+        """The table also holds processes that carry a driven agent's flags.
+
+        A wrapper whose executable is not ``claude`` is not a session, which is
+        the test ``pgrep -x claude`` makes.
+        """
+        fake_table(
+            monkeypatch,
+            {
+                42: "/opt/homebrew/bin/claude --session-id " + SID_A,
+                43: "node wrapper.js --permission-prompt-tool stdio",
+            },
+            {42: "/w/alpha", 43: "/w/alpha"},
         )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
+        assert [s.pid for s in sweep()] == [42]
 
-    def test_pgrep_missing_binary_is_empty(self, monkeypatch):
-        async def raise_oserror(cmd, *a, **k):
-            raise OSError("pgrep not found")
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", raise_oserror)
-        assert asyncio.run(session_discovery.all_live_sessions()) == []
-
-    def test_lsof_missing_binary_is_empty(self, monkeypatch):
-        async def run(cmd, *a, **k):
-            if cmd[0] == "pgrep":
-                return _completed("42\n")
-            raise OSError("lsof not found")
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", run)
-        assert asyncio.run(session_discovery.all_live_sessions()) == []
-
-    def test_ignores_non_numeric_pgrep_lines(self, monkeypatch):
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd("garbage\n42\n", _lsof_records([(42, "/w/alpha")])),
+    def test_captures_session_id_from_the_command(self, monkeypatch):
+        fake_table(
+            monkeypatch,
+            {47519: f"claude --session-id {SID_A} --foo bar"},
+            {47519: "/w/delta"},
         )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
-
-    def test_captures_session_id_from_ps(self, monkeypatch):
-        sid = "97894d02-f335-5ea3-9d9f-050330a4902b"
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "47519\n",
-                _lsof_records([(47519, "/w/delta")]),
-                _ps_records([(47519, f"claude --session-id {sid} --foo bar")]),
-            ),
-        )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions == [
+        assert sweep() == [
             session_discovery.LiveSession(
-                pid=47519, cwd=Path("/w/delta"), session_id=sid
+                pid=47519, cwd=Path("/w/delta"), session_id=SID_A
             )
         ]
 
     def test_captures_session_id_from_a_resumed_session(self, monkeypatch):
         # A resumed session carries `--resume <uuid>`, not `--session-id`. Miss
         # it and the run-guard lets a second launch of the same task through.
-        sid = "97894d02-f335-5ea3-9d9f-050330a4902b"
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "47519\n",
-                _lsof_records([(47519, "/w/delta")]),
-                _ps_records([(47519, f"claude -p --resume {sid} --verbose")]),
-            ),
+        fake_table(
+            monkeypatch,
+            {47519: f"claude -p --resume {SID_A} --verbose"},
+            {47519: "/w/delta"},
         )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions[0].session_id == sid
+        assert sweep()[0].session_id == SID_A
 
     def test_session_id_none_when_flag_absent(self, monkeypatch):
         # A bare `claude` launched outside mael has no --session-id.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "42\n",
-                _lsof_records([(42, "/w/alpha")]),
-                _ps_records([(42, "claude --resume")]),
-            ),
-        )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions[0].session_id is None
-
-    def test_session_id_missing_ps_is_none(self, monkeypatch):
-        # A box without `ps` still sweeps; only the session-ids are lost.
-        async def run(cmd, *a, **k):
-            if cmd[0] == "pgrep":
-                return _completed("42\n")
-            if cmd[0] == "lsof":
-                return _completed(_lsof_records([(42, "/w/alpha")]))
-            raise OSError("ps not found")
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", run)
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        assert sessions == [session_discovery.LiveSession(pid=42, cwd=Path("/w/alpha"))]
+        fake_table(monkeypatch, {42: "claude --resume"}, {42: "/w/alpha"})
+        assert sweep()[0].session_id is None
 
     def test_session_id_matched_per_pid(self, monkeypatch):
-        # Two live sessions, each with its own --session-id; ps lines may arrive
-        # in any order, so matching is by pid, not position.
-        a = "97894d02-f335-5ea3-9d9f-050330a4902b"
-        b = "94063899-7207-57ac-9629-4cc8d130667f"
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "42\n99\n",
-                _lsof_records([(42, "/w/alpha"), (99, "/w/echo")]),
-                _ps_records(
-                    [
-                        (99, f"claude --session-id {b}"),
-                        (42, f"claude --session-id {a}"),
-                    ]
-                ),
-            ),
+        fake_table(
+            monkeypatch,
+            {99: f"claude --session-id {SID_B}", 42: f"claude --session-id {SID_A}"},
+            {42: "/w/alpha", 99: "/w/echo"},
         )
-        sessions = asyncio.run(session_discovery.all_live_sessions())
-        by_pid = {s.pid: s.session_id for s in sessions}
-        assert by_pid == {42: a, 99: b}
+        assert {s.pid: s.session_id for s in sweep()} == {42: SID_A, 99: SID_B}
 
 
 def _make_worktree(root: Path, name: str, *, bare: bool = False) -> Path:
@@ -461,206 +382,47 @@ class TestSessionForPid:
         "/opt/homebrew/bin/claude --session-id 1111abcd-0000-0000-0000-000000000000"
     )
 
-    def test_reads_cwd_and_session_id_from_the_process(self, monkeypatch):
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "", _lsof_records([(42, "/w/alpha")]), _ps_records([(42, self._CLAUDE)])
-            ),
+    def _for(self, monkeypatch, command, cwd="/w/alpha"):
+        fake_table(
+            monkeypatch,
+            {42: command} if command is not None else {},
+            {42: cwd} if cwd is not None else {},
         )
-        sess = asyncio.run(session_discovery.session_for_pid(42))
-        assert sess is not None
-        assert sess.pid == 42
-        assert sess.cwd == Path("/w/alpha")
-        assert sess.session_id == "1111abcd-0000-0000-0000-000000000000"
+        return asyncio.run(session_discovery.session_for_pid(42))
+
+    def test_reads_cwd_and_session_id_from_the_process(self, monkeypatch):
+        sess = self._for(monkeypatch, self._CLAUDE)
+        assert sess == session_discovery.LiveSession(
+            pid=42,
+            cwd=Path("/w/alpha"),
+            session_id="1111abcd-0000-0000-0000-000000000000",
+        )
 
     def test_resolves_a_claude_started_without_a_session_id(self, monkeypatch):
         # A bare `claude` carries no --session-id. It is still a session.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "",
-                _lsof_records([(42, "/w/alpha")]),
-                _ps_records([(42, "/opt/homebrew/bin/claude")]),
-            ),
-        )
-        sess = asyncio.run(session_discovery.session_for_pid(42))
+        sess = self._for(monkeypatch, "/opt/homebrew/bin/claude")
         assert sess is not None
         assert sess.session_id is None
 
     def test_none_when_the_pid_is_not_a_claude(self, monkeypatch):
         # Ending a session signals the pid, so a pid that is not a claude must
         # not resolve — a typo would otherwise SIGTERM an unrelated process.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "",
-                _lsof_records([(42, "/w/alpha")]),
-                _ps_records([(42, "/usr/local/bin/postgres -D /data")]),
-            ),
-        )
-        assert asyncio.run(session_discovery.session_for_pid(42)) is None
+        assert self._for(monkeypatch, "/usr/local/bin/postgres -D /data") is None
 
     def test_none_when_the_process_is_gone(self, monkeypatch):
-        # `ps` reports nothing for a pid that has already exited.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd("", "", ""),
-        )
-        assert asyncio.run(session_discovery.session_for_pid(42)) is None
+        assert self._for(monkeypatch, None) is None
 
     def test_none_when_the_cwd_cannot_be_read(self, monkeypatch):
         # Without a cwd there is no project or worktree to report, and the
         # caller's own cwd must never stand in for the session's.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd("", "", _ps_records([(42, self._CLAUDE)])),
-        )
-        assert asyncio.run(session_discovery.session_for_pid(42)) is None
+        assert self._for(monkeypatch, self._CLAUDE, cwd=None) is None
 
     def test_a_claude_named_by_a_path_still_resolves(self, monkeypatch):
         # The command is a path, so match the executable name, not the whole line.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "",
-                _lsof_records([(42, "/w/alpha")]),
-                _ps_records([(42, "/Users/me/.local/bin/claude --resume x")]),
-            ),
+        assert (
+            self._for(monkeypatch, "/Users/me/.local/bin/claude --resume x") is not None
         )
-        assert asyncio.run(session_discovery.session_for_pid(42)) is not None
 
     def test_a_command_merely_mentioning_claude_does_not_resolve(self, monkeypatch):
         # `mael` itself has "claude" all over its argv; only the executable counts.
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _fake_run_cmd(
-                "",
-                _lsof_records([(42, "/w/alpha")]),
-                _ps_records([(42, "python -m maelstrom session end claude")]),
-            ),
-        )
-        assert asyncio.run(session_discovery.session_for_pid(42)) is None
-
-
-# --- the process table, for the daemon's reconcile ---------------------------
-
-
-class TestProcessTable:
-    DRIVEN = (
-        "claude -p --input-format stream-json --output-format stream-json "
-        '--verbose --permission-prompt-tool stdio --settings {"a": 1} '
-        "--resume 0f8fad5b-d9cb-469f-a165-70867728950e"
-    )
-
-    def test_session_id_in_reads_both_flags(self):
-        sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
-        assert session_discovery.session_id_in(f"claude --session-id {sid}") == sid
-        assert session_discovery.session_id_in(f"claude --resume {sid}") == sid
-        assert session_discovery.session_id_in("claude --resume") is None
-
-    def test_is_driven_needs_both_daemon_flags(self):
-        assert session_discovery.is_driven(self.DRIVEN)
-        assert not session_discovery.is_driven("claude --session-id x")
-        assert not session_discovery.is_driven(
-            "claude -p --input-format stream-json --output-format stream-json"
-        )
-
-    def test_parse_process_table_reads_pid_pgid_and_the_whole_command(self):
-        rows = session_discovery.parse_process_table(
-            f"  101   101 {self.DRIVEN}\n  202    50 claude\ngarbage line\n"
-        )
-        assert rows == [
-            session_discovery.ProcessInfo(101, 101, self.DRIVEN),
-            session_discovery.ProcessInfo(202, 50, "claude"),
-        ]
-
-    def test_list_unions_both_pgrep_sweeps_and_reads_ps_at_full_width(
-        self, monkeypatch
-    ):
-        calls: list[list[str]] = []
-
-        async def fake_run(cmd, **kwargs):
-            calls.append(list(cmd))
-            if cmd[0] == "pgrep" and cmd[1] == "-x":
-                return subprocess.CompletedProcess(cmd, 0, stdout="101\n", stderr="")
-            if cmd[0] == "pgrep":
-                return subprocess.CompletedProcess(
-                    cmd, 0, stdout="101\n202\n", stderr=""
-                )
-            return subprocess.CompletedProcess(
-                cmd,
-                0,
-                stdout=f"101 101 {self.DRIVEN}\n202 202 node claude\n",
-                stderr="",
-            )
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", fake_run)
-        rows = asyncio.run(session_discovery.list_claude_processes())
-        assert [r.pid for r in rows] == [101, 202]
-        ps = calls[-1]
-        assert ps[:2] == ["ps", "-ww"]
-        assert sorted(ps[-1].split(",")) == ["101", "202"]
-
-    def test_no_match_is_an_empty_table_not_an_error(self, monkeypatch):
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _async_returning(
-                lambda cmd, **kw: subprocess.CompletedProcess(
-                    cmd, 1, stdout="", stderr=""
-                )
-            ),
-        )
-        assert asyncio.run(session_discovery.list_claude_processes()) == []
-
-    def test_a_closed_process_table_raises_rather_than_reading_as_empty(
-        self, monkeypatch
-    ):
-        """Inside an agent sandbox `pgrep` exits 3 and `ps` will not run.
-
-        Read as "no processes", a reconcile would write every record off as
-        crashed. So the reader says it could not look.
-        """
-        monkeypatch.setattr(
-            session_discovery,
-            "run_cmd_async",
-            _async_returning(
-                lambda cmd, **kw: subprocess.CompletedProcess(
-                    cmd, 3, stdout="", stderr="pgrep: Cannot get process list"
-                )
-            ),
-        )
-        with pytest.raises(session_discovery.ProcessTableUnavailable):
-            asyncio.run(session_discovery.list_claude_processes())
-
-        async def ps_refused(cmd, **kw):
-            if cmd[0] == "pgrep":
-                return subprocess.CompletedProcess(cmd, 0, stdout="101\n", stderr="")
-            raise OSError("operation not permitted: ps")
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", ps_refused)
-        with pytest.raises(session_discovery.ProcessTableUnavailable):
-            asyncio.run(session_discovery.list_claude_processes())
-
-    def test_ps_exit_1_means_some_pids_have_gone_not_a_closed_table(self, monkeypatch):
-        async def some_gone(cmd, **kw):
-            if cmd[0] == "pgrep":
-                return subprocess.CompletedProcess(
-                    cmd, 0, stdout="101\n202\n", stderr=""
-                )
-            return subprocess.CompletedProcess(
-                cmd, 1, stdout=f"101 101 {self.DRIVEN}\n", stderr=""
-            )
-
-        monkeypatch.setattr(session_discovery, "run_cmd_async", some_gone)
-        assert [
-            r.pid for r in asyncio.run(session_discovery.list_claude_processes())
-        ] == [101]
+        assert self._for(monkeypatch, "python -m maelstrom session end claude") is None

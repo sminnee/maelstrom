@@ -889,7 +889,7 @@ def _local_root(monkeypatch, records, processes):
     from maelstrom.agent_model import AgentSpec
     from maelstrom.agent_spec_store import JsonAgentSpecStore
     from maelstrom.agent_transport import daemon_paths
-    from maelstrom.session_discovery import ProcessInfo
+    from maelstrom.process_table import ProcessInfo
 
     store = JsonAgentSpecStore(daemon_paths().spec_dir)
     for agent_id, pid, status in records:
@@ -972,7 +972,7 @@ def test_list_marks_held_from_the_daemons_own_listing():
 
 
 def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
-    from maelstrom.session_discovery import ProcessTableUnavailable
+    from maelstrom.process_table import ProcessTableUnavailable
 
     async def unreadable():
         raise ProcessTableUnavailable("pgrep exited 3")

@@ -16,7 +16,7 @@ from maelstrom.agent_reconcile import (
     UNKNOWN,
     reconcile,
 )
-from maelstrom.session_discovery import ProcessInfo
+from maelstrom.process_table import ProcessInfo
 
 S1 = "11111111-1111-1111-1111-111111111111"
 S2 = "22222222-2222-2222-2222-222222222222"

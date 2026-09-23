@@ -70,7 +70,7 @@ from .context import resolve_context
 from .env import format_uptime
 from .harness_model import resolve_execute_model
 from .notebook_root import NotebookRootUnset
-from .session_discovery import ProcessTableUnavailable, list_claude_processes
+from .process_table import ProcessTableUnavailable, list_claude_processes
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
