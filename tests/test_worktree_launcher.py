@@ -142,13 +142,23 @@ class TestAddLauncher:
     @pytest.mark.asyncio
     async def test_daemon_receives_the_claude_model_alias(self, tmp_path):
         client = RecordingDaemonClient(replies=[{"id": "agent-1"}])
-        with patch("maelstrom.worktree_launcher.daemon_client", return_value=client):
+        prompt = tmp_path / "agent-prompt.md"
+        with (
+            patch("maelstrom.worktree_launcher.daemon_client", return_value=client),
+            patch("maelstrom.worktree_launcher.agent_prompt_file", return_value=prompt),
+        ):
             assert (
                 await start_agent_in_worktree(tmp_path, model="claude:sonnet")
                 == "agent-1"
             )
         assert client.calls == [
-            {"cmd": "start", "cwd": str(tmp_path), "model": "sonnet", "resume": False}
+            {
+                "cmd": "start",
+                "cwd": str(tmp_path),
+                "model": "sonnet",
+                "resume": False,
+                "system_prompt_file": str(prompt),
+            }
         ]
 
     @pytest.mark.asyncio

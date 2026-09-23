@@ -7,8 +7,10 @@ finds and leaves the rest alone.
 import json
 from pathlib import Path
 
+from maelstrom import claude_integration
 from maelstrom.claude_integration import (
     SANDBOX_EXCLUSIONS,
+    agent_prompt_file,
     install_sandbox_exclusions,
     remove_session_channel,
     remove_session_hooks,
@@ -175,3 +177,20 @@ class TestRemoveSessionChannel:
 
     def test_a_missing_file_is_a_noop(self, tmp_path):
         assert remove_session_channel(tmp_path / "nope.json") == []
+
+
+def test_the_agent_prompt_file_teaches_the_markers_the_orchestrator_reads():
+    """Only a driven agent has an orchestrator, so its launch names this file."""
+    prompt = agent_prompt_file()
+    assert prompt is not None
+    assert prompt.read_text().startswith("You run under the maelstrom agent daemon.")
+
+
+def test_no_shared_dir_means_no_agent_prompt_file(monkeypatch):
+    """A missing prompt costs a note; a refused launch costs the session."""
+
+    def gone():
+        raise FileNotFoundError("shared")
+
+    monkeypatch.setattr(claude_integration, "get_shared_dir", gone)
+    assert agent_prompt_file() is None

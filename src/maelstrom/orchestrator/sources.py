@@ -23,6 +23,7 @@ from .. import task as model
 from .. import task_actions
 from ..agent_model import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
+from ..claude_integration import agent_prompt_file
 from ..claude_paths import has_claude_transcript
 from ..github_model import PrStatus, RateLimited, pr_from_row
 from ..harness_model import resolve_execute_model
@@ -401,6 +402,7 @@ class NotebookTaskSource:
             env=plan.env,
             # A task that has run before already owns its session id.
             resume=self.has_transcript(setup.path, plan.session_id),
+            system_prompt_file=agent_prompt_file(),
         )
         return LaunchRequest(task.project, task.id, task.status, payload)
 

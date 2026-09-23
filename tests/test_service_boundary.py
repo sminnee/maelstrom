@@ -126,7 +126,6 @@ CLIENTS = sorted(
 )
 
 
-@pytest.mark.xfail(strict=True, reason="the boundary is drawn step by step")
 def test_the_daemon_reaches_only_its_own_modules():
     closure = _closure(f"{PACKAGE}.agent_server")
     strays = sorted(set(closure) - DAEMON_ALLOWED)

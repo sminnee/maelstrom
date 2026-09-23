@@ -955,6 +955,89 @@ def test_start_writes_a_record_with_a_session_id_it_minted():
     assert spec.session_id  # minted, because the caller gave none
 
 
+@pytest.fixture
+def prompt_file(tmp_path):
+    """A system prompt file that exists, as a client would name one."""
+    path = tmp_path / "agent-prompt.md"
+    path.write_text("You run under the maelstrom agent daemon.")
+    return str(path)
+
+
+def _argv_prompt(spawn) -> str | None:
+    """The ``--append-system-prompt-file`` the spawn named, or ``None``."""
+    argv = list(spawn.call_args.args)
+    flag = "--append-system-prompt-file"
+    return argv[argv.index(flag) + 1] if flag in argv else None
+
+
+def test_start_names_the_system_prompt_file_and_records_it(prompt_file):
+    """The daemon knows no shared dir: the client names the file."""
+    daemon, specs = _daemon_with_specs()
+    spawn = _spawning(
+        daemon,
+        [{"cmd": "start", "cwd": "/tmp/x", "system_prompt_file": prompt_file}],
+    )
+    assert _argv_prompt(spawn) == prompt_file
+    (spec,) = specs.list()
+    assert spec.system_prompt_file == prompt_file
+
+
+def test_start_without_a_system_prompt_file_spawns_without_the_flag():
+    """A missing prompt costs the markers, not the session."""
+    daemon, specs = _daemon_with_specs()
+    spawn = _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x"}])
+    assert _argv_prompt(spawn) is None
+    (spec,) = specs.list()
+    assert spec.system_prompt_file == ""
+
+
+def test_a_resume_keeps_the_recorded_system_prompt_file(prompt_file):
+    """An internal respawn has no client to ask, so the record carries it."""
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            system_prompt_file=prompt_file,
+        )
+    )
+    spawn = _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+    assert _argv_prompt(spawn) == prompt_file
+
+
+def test_a_recorded_system_prompt_file_that_is_gone_is_left_off(tmp_path):
+    """Its worktree closed after the record was written; the child still starts."""
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            system_prompt_file=str(tmp_path / "closed" / "agent-prompt.md"),
+        )
+    )
+    spawn = _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+    assert _argv_prompt(spawn) is None
+    assert "a1" in daemon.agents
+
+
+def test_a_resume_takes_the_system_prompt_file_a_client_sends(prompt_file):
+    """A record written before the field existed has none; the client's wins."""
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="sid-1", status="stopped")
+    )
+    spawn = _spawning(
+        daemon,
+        [{"cmd": "resume", "id": "a1", "system_prompt_file": prompt_file}],
+    )
+    assert _argv_prompt(spawn) == prompt_file
+    assert specs.read("a1").system_prompt_file == prompt_file
+
+
 def test_start_keeps_the_session_id_the_caller_pinned():
     daemon, specs = _daemon_with_specs()
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "session": "sid-1"}])

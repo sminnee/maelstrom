@@ -32,6 +32,7 @@ import click
 
 from .agent_model import build_start_payload
 from .agent_transport import client as daemon_client
+from .claude_integration import agent_prompt_file
 from .cmux import mael_layout
 from .cmux.client import current_client, ensure_cmux_running
 from .cmux.model import TerminalTab
@@ -121,6 +122,7 @@ async def start_agent_in_worktree(
         # and nothing spends it until then.
         execute_model=execute_model,
         prompt=prompt,
+        system_prompt_file=agent_prompt_file(),
     )
     reply = await daemon_client().request(payload)
     error = reply.get("error")

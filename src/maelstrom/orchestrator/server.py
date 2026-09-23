@@ -19,9 +19,17 @@ from typing import Any
 
 import click
 
-from ..agent_model import AGENT_DETAIL, AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
+from ..agent_model import (
+    AGENT_DETAIL,
+    AGENT_EXITED,
+    BACKLOG_END,
+    SEQ_KEY,
+    TRUNCATED,
+    build_start_payload,
+)
 from ..agent_store import InMemoryMilestoneStore, MilestoneStore
 from ..branch_name import lead_with_number
+from ..claude_integration import agent_prompt_file
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..github_model import RateLimited
 from ..task import mode_for_command
@@ -1516,6 +1524,10 @@ class Orchestrator:
         text = str(command.get("text", "")).strip()
         if text:
             payload["text"] = text
+        # The daemon knows no shared dir, and a record older than the field has
+        # none of its own.
+        if (prompt_file := agent_prompt_file()) is not None:
+            payload["system_prompt_file"] = str(prompt_file)
         refused = await self._ask_host(payload)
         if refused:
             return refused
@@ -1691,15 +1703,14 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001 — the client hears why
             log.exception("could not open a worktree for a free agent")
             return _refused("invalid", f"Could not open the worktree: {exc}")
-        payload: dict[str, Any] = {
-            "cmd": "start",
-            "cwd": str(setup.path),
-            "prompt": command["prompt"],
-            "mode": model_permission_mode(command.get("mode", "")),
-            "model": command.get("model") or None,
-            "execute_model": command.get("executeModel") or None,
-            "resume": False,
-        }
+        payload = build_start_payload(
+            setup.path,
+            prompt=command["prompt"],
+            permission_mode=model_permission_mode(command.get("mode", "")),
+            model=command.get("model") or None,
+            execute_model=command.get("executeModel") or None,
+            system_prompt_file=agent_prompt_file(),
+        )
         reply = await self.daemon.request(payload)
         agent_id = reply.get("id") if "error" not in reply else None
         if not agent_id:

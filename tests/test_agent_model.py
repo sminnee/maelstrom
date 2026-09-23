@@ -398,22 +398,17 @@ def test_argv_carries_the_flags_the_pipe_needs():
     assert "--replay-user-messages" in argv
 
 
-def test_argv_teaches_the_child_the_markers_the_orchestrator_reads():
-    """Only a driven agent has an orchestrator, so the launch teaches them.
-
-    By file, not inline: the argv rides every ``ps`` line, and
-    ``session_discovery`` scans those strings for the session id.
-    """
-    argv = build_agent_argv()
-    named = argv[argv.index("--append-system-prompt-file") + 1]
-    assert (
-        Path(named).read_text().startswith("You run under the maelstrom agent daemon.")
+def test_argv_names_the_system_prompt_file_it_is_given():
+    """By file, not inline: the argv rides every ``ps`` line, and the process
+    table is scanned for the session id in those strings."""
+    argv = build_agent_argv(system_prompt_file="/shared/agent-prompt.md")
+    assert argv[argv.index("--append-system-prompt-file") + 1] == (
+        "/shared/agent-prompt.md"
     )
 
 
-def test_argv_still_starts_an_agent_when_the_prompt_file_is_gone(monkeypatch):
+def test_argv_without_a_system_prompt_file_omits_the_flag():
     """A missing prompt costs a note; a refused launch costs the session."""
-    monkeypatch.setattr(agent_model, "agent_prompt_file", lambda: None)
     assert "--append-system-prompt-file" not in build_agent_argv()
 
 
@@ -504,6 +499,7 @@ def test_spec_round_trips_through_plain_json():
         started_at="2026-01-01T00:00:00Z",
         last_status="idle",
         stopped_at_shutdown=True,
+        system_prompt_file="/shared/agent-prompt.md",
     )
     # The record is the resume contract, so a field it drops is one a restarted
     # daemon would approve the plan without.
