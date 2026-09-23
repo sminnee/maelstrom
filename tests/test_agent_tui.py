@@ -8,16 +8,15 @@ the way the daemon would.
 import asyncio
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-from maelstrom.agent_tui import AttachApp
-from maelstrom.agent_wire import (
+from mael_agent.agent_wire import (
     AGENT_EXITED,
     BACKLOG_END,
 )
+from maelstrom.agent_tui import AttachApp
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
+from .agent_fixtures import FIXTURES
 
 NOW = "2026-01-01T00:00:00Z"
 

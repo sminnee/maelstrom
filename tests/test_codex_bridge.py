@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import maelstrom.codex_bridge as codex_bridge
-from maelstrom.codex_bridge import (
+import maelstrom.orchestrator.codex_bridge as codex_bridge
+from maelstrom.orchestrator.codex_bridge import (
     CodexBridge,
     CodexIncompatible,
     CodexUnavailable,

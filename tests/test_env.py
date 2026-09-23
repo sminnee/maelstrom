@@ -20,7 +20,6 @@ from maelstrom.env import (
     build_service_env,
     cleanup_stale_env,
     cleanup_stale_shared,
-    format_uptime,
     get_env_status,
     get_log_files,
     get_services,
@@ -1466,73 +1465,6 @@ class TestStopAllEnvs:
         results = stop_all_envs(store)
         assert results == []
         mock_stop.assert_not_called()
-
-
-class TestFormatUptime:
-    """Tests for format_uptime function."""
-
-    @patch("maelstrom.env.datetime")
-    def test_seconds(self, mock_dt):
-        """Shows seconds for very short uptime."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 45, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "45s"
-
-    @patch("maelstrom.env.datetime")
-    def test_minutes(self, mock_dt):
-        """Shows minutes for short uptime."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 5, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "5m"
-
-    @patch("maelstrom.env.datetime")
-    def test_hours_and_minutes(self, mock_dt):
-        """Shows hours and minutes."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 30, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h 30m"
-
-    @patch("maelstrom.env.datetime")
-    def test_days_and_hours(self, mock_dt):
-        """Shows days and hours."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 4, 5, 0, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d 5h"
-
-    @patch("maelstrom.env.datetime")
-    def test_days_only(self, mock_dt):
-        """Shows just days when hours are zero."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 4, 0, 0, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d"
-
-    @patch("maelstrom.env.datetime")
-    def test_hours_only(self, mock_dt):
-        """Shows just hours when minutes are zero."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 0, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h"
-
-    @patch("maelstrom.env.datetime")
-    def test_zero_seconds(self, mock_dt):
-        """Shows 0s for no elapsed time."""
-        from datetime import datetime, timezone
-
-        mock_dt.fromisoformat = datetime.fromisoformat
-        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        assert format_uptime("2025-01-01T00:00:00+00:00") == "0s"
 
 
 class TestGetLogFiles:

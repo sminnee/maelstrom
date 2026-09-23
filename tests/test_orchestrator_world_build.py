@@ -1,12 +1,16 @@
 """Building wire entities from the notebook, ``list-all`` rows and agent rows."""
 
 import json
-from pathlib import Path
 
 import pytest
 
+from mael_daemon.agent_model import (
+    AgentState,
+    apply_event,
+    build_agent_row,
+    mark_exited,
+)
 from maelstrom import task as model
-from maelstrom.agent_model import AgentState, apply_event, build_agent_row, mark_exited
 from maelstrom.orchestrator.world_build import (
     agent_entity,
     diff_kind,
@@ -20,8 +24,7 @@ from maelstrom.orchestrator.world_build import (
     worktree_entity,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
-
+from .agent_fixtures import FIXTURES
 
 TASK_MD = """---
 id: NORT-7.2
@@ -353,7 +356,7 @@ def test_agent_entity_of_a_top_level_row_has_no_parent():
 
 
 def test_agent_entity_of_a_subagent_row_names_its_parent_and_description():
-    from maelstrom.agent_model import build_subagent_rows
+    from mael_daemon.agent_model import build_subagent_rows
 
     [row] = build_subagent_rows(replay("subagent-turn.jsonl"))
     entity = agent_entity(row, task_id="NORT-7", project="northwind", worktree_id="w")

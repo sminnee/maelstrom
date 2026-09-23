@@ -1,7 +1,7 @@
 """Raw stream-json from the agent host, as the events the web UI wants.
 
 A port of ``web/src/protocol/normalise.ts``. The state machine follows
-:func:`maelstrom.agent_model.apply_event`: a pending request outranks assistant
+:func:`mael_daemon.agent_model.apply_event`: a pending request outranks assistant
 output, a ``control_response`` for the pending request ends the wait, a
 ``result`` ends the turn idle. No clock, and the one read it does — the file a
 ``<doc-file>`` tag names — is injected, so a test decides what it sees.
@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_wire import (
+from mael_agent.agent_wire import (
     PLAN_TOOL,
     QUESTION_TOOL,
     TS_KEY,
@@ -23,6 +23,7 @@ from ..agent_wire import (
     from_wire_mode,
     tokens_of,
 )
+
 from ..attachments import markdown_ref
 from ..task import parse_draft
 from .document_tags import (

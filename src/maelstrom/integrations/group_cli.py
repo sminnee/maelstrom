@@ -4,7 +4,8 @@ from typing import Any
 
 import click
 
-from ..cli_async import AsyncGroup
+from mael_common.cli_async import AsyncGroup
+
 from .errors import IntegrationError
 
 

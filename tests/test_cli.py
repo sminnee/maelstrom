@@ -1966,6 +1966,7 @@ class TestMvProjectIntegration:
             patch("maelstrom.context.load_global_config", return_value=config),
             patch("maelstrom.cli.load_global_config", return_value=config),
             patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
+            patch("maelstrom.ports.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             # The task table lives in the state database, and the store's own
             # root resolves beside it. Both hang off the notebook root, so one
@@ -2105,6 +2106,9 @@ class TestMvProjectIntegration:
         with (
             patch(
                 "maelstrom.context.get_maelstrom_dir", return_value=home / ".maelstrom"
+            ),
+            patch(
+                "maelstrom.ports.get_maelstrom_dir", return_value=home / ".maelstrom"
             ),
             patch("maelstrom.context.load_global_config", return_value=config),
             patch("pathlib.Path.home", return_value=home),
@@ -2309,12 +2313,15 @@ class TestMainExitCodes:
         wrong" indistinguishable from "the command failed"."""
         from maelstrom.cli import main
 
-        assert main(["agent", "daemon", "serve", "--nonexistent"]) == 2
+        assert main(["--nonexistent"]) == 2
 
-    def test_an_unknown_command_exits_two(self):
+    def test_an_unknown_command_exits_two(self, capsys):
+        """The daemon's commands are the `mael-agent-daemon` script, not a
+        `mael agent` group."""
         from maelstrom.cli import main
 
-        assert main(["agent", "daemon", "definitely-not-a-command"]) == 2
+        assert main(["agent", "daemon", "status"]) == 2
+        assert "No such command 'daemon'" in capsys.readouterr().err
 
     def test_a_missing_daemon_root_is_an_error_not_a_traceback(
         self, monkeypatch, capsys

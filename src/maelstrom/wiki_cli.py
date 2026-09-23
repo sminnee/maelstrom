@@ -6,10 +6,11 @@ model function from :mod:`maelstrom.wiki`, and renders the result.
 
 import click
 
+from mael_common.util import read_content_file
+
 from . import wiki as model
 from .table_cli import draw_table
 from .task_store import GitFileStore
-from .util import read_content_file
 
 
 def _store() -> GitFileStore:

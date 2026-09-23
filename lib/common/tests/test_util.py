@@ -1,0 +1,315 @@
+"""Tests for the leaf utilities in mael_common.util."""
+
+import json
+import os
+import re
+import stat
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from mael_common.util import (
+    abbreviate_home,
+    atomic_write_json,
+    error_text,
+    format_uptime,
+    harden_path,
+    locked_file,
+    now_iso,
+    sanitise_child_env,
+)
+
+
+def _mode(path) -> int:
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
+class TestAbbreviateHome:
+    def test_a_path_under_home_starts_with_a_tilde(self):
+        assert (
+            abbreviate_home(Path("/Users/x/Projects/alpha"), Path("/Users/x"))
+            == "~/Projects/alpha"
+        )
+
+    def test_a_path_outside_home_is_unchanged(self):
+        assert abbreviate_home(Path("/opt/tools"), Path("/Users/x")) == "/opt/tools"
+
+    def test_home_itself_renders_as_a_bare_tilde(self):
+        assert abbreviate_home(Path("/Users/x"), Path("/Users/x")) == "~"
+
+    def test_home_defaults_to_the_real_home_directory(self):
+        assert abbreviate_home(Path.home() / "Projects") == "~/Projects"
+
+
+class TestNowIso:
+    def test_returns_utc_iso_with_offset(self):
+        result = now_iso()
+        # datetime.now(timezone.utc).isoformat() always ends in +00:00
+        assert result.endswith("+00:00")
+        # Parseable ISO 8601 with date + time components
+        assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", result)
+
+
+class TestAtomicWriteJson:
+    def test_writes_content_and_roundtrips(self, tmp_path):
+        path = tmp_path / "state.json"
+        data = {"b": 2, "a": 1}
+        atomic_write_json(path, data)
+        assert json.loads(path.read_text()) == data
+
+    def test_defaults_indent_and_sort_keys(self, tmp_path):
+        path = tmp_path / "state.json"
+        atomic_write_json(path, {"b": 2, "a": 1})
+        # sort_keys=True -> a before b; indent=2 -> newlines present
+        text = path.read_text()
+        assert text == json.dumps({"a": 1, "b": 2}, indent=2, sort_keys=True)
+
+    def test_no_temp_file_left_behind(self, tmp_path):
+        path = tmp_path / "state.json"
+        atomic_write_json(path, {"x": 1})
+        leftovers = list(tmp_path.glob("*.tmp"))
+        assert leftovers == []
+
+    def test_creates_parent_dirs(self, tmp_path):
+        path = tmp_path / "nested" / "deep" / "state.json"
+        atomic_write_json(path, {"ok": True})
+        assert json.loads(path.read_text()) == {"ok": True}
+
+
+class TestHardenPath:
+    def test_tightens_loose_file_and_returns_true(self, tmp_path):
+        path = tmp_path / "secret"
+        path.write_text("x")
+        os.chmod(path, 0o644)
+        assert harden_path(path, 0o600) is True
+        assert _mode(path) == 0o600
+
+    def test_noop_when_already_tight_returns_false(self, tmp_path):
+        path = tmp_path / "secret"
+        path.write_text("x")
+        os.chmod(path, 0o600)
+        assert harden_path(path, 0o600) is False
+        assert _mode(path) == 0o600
+
+    def test_never_widens_a_tighter_file(self, tmp_path):
+        path = tmp_path / "secret"
+        path.write_text("x")
+        os.chmod(path, 0o400)  # tighter than 0o600
+        assert harden_path(path, 0o600) is False
+        assert _mode(path) == 0o400
+
+    def test_tightens_loose_dir(self, tmp_path):
+        d = tmp_path / "d"
+        d.mkdir()
+        os.chmod(d, 0o755)
+        assert harden_path(d, 0o700) is True
+        assert _mode(d) == 0o700
+
+
+class TestLockedFile:
+    """Tests for the locked_file transaction context manager."""
+
+    def test_writes_buffered_text_on_clean_exit(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        with locked_file(path) as txn:
+            assert txn.text == "A=1\n"
+            txn.text = "A=1\nB=2\n"
+        assert path.read_text() == "A=1\nB=2\n"
+
+    def test_no_write_when_unchanged(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        with locked_file(path) as txn:
+            _ = txn.text  # read but do not modify
+        assert path.read_text() == "A=1\n"
+
+    def test_no_write_on_exception(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+
+        class Boom(Exception):
+            pass
+
+        with pytest.raises(Boom):
+            with locked_file(path) as txn:
+                txn.text = "A=1\nB=2\n"
+                raise Boom()
+        # Buffered change not flushed; lock released so a re-acquire succeeds.
+        assert path.read_text() == "A=1\n"
+        with locked_file(path) as txn:
+            assert txn.text == "A=1\n"
+
+    def test_creates_missing_file(self, tmp_path):
+        path = tmp_path / "new.env"
+        with locked_file(path) as txn:
+            assert txn.text == ""
+            txn.text = "X=1\n"
+        assert path.read_text() == "X=1\n"
+
+    def test_missing_file_without_create_raises(self, tmp_path):
+        path = tmp_path / "absent.env"
+        with pytest.raises(FileNotFoundError):
+            with locked_file(path, create=False):
+                pass
+
+    def test_second_acquisition_times_out_while_held(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        # Hold the lock via a raw fd, then assert locked_file gives up.
+        import fcntl as _fcntl
+
+        held = open(path, "a+")
+        _fcntl.flock(held, _fcntl.LOCK_EX)
+        try:
+            with pytest.raises(TimeoutError):
+                with locked_file(path, timeout=0.3):
+                    pass
+        finally:
+            _fcntl.flock(held, _fcntl.LOCK_UN)
+            held.close()
+
+    # --- permission guarantees ---
+
+    def test_new_file_created_at_0o600(self, tmp_path):
+        path = tmp_path / "new.env"
+        with locked_file(path) as txn:
+            txn.text = "SECRET=1\n"
+        assert _mode(path) == 0o600
+
+    def test_parent_dir_tightened_to_0o700_on_create(self, tmp_path):
+        d = tmp_path / "sub"
+        d.mkdir(mode=0o755)
+        os.chmod(d, 0o755)
+        path = d / "new.env"
+        with locked_file(path) as txn:
+            txn.text = "SECRET=1\n"
+        assert _mode(d) == 0o700
+
+    def test_existing_loose_file_tightened_on_noop_exit(self, tmp_path):
+        path = tmp_path / "f.env"
+        path.write_text("A=1\n")
+        os.chmod(path, 0o644)
+        with locked_file(path) as txn:
+            _ = txn.text  # no modification
+        assert _mode(path) == 0o600
+        # Content preserved.
+        assert path.read_text() == "A=1\n"
+
+    def test_custom_mode_respected(self, tmp_path):
+        path = tmp_path / "f.env"
+        with locked_file(path, mode=0o640) as txn:
+            txn.text = "A=1\n"
+        assert _mode(path) == 0o640
+
+
+class TestErrorText:
+    """The message a domain error carries, without KeyError's quotes."""
+
+    def test_a_key_error_loses_its_quotes(self):
+        """`str(KeyError("no such thing"))` is `"'no such thing'"`."""
+        assert error_text(KeyError("No worktree found for branch: x")) == (
+            "No worktree found for branch: x"
+        )
+
+    def test_any_other_error_reads_as_str(self):
+        assert error_text(ValueError("bad input")) == "bad input"
+
+    def test_a_bare_key_error_does_not_raise(self):
+        """A KeyError with no args must still yield something printable."""
+        assert error_text(KeyError()) == ""
+
+    def test_a_non_string_key_error_arg_is_rendered(self):
+        assert error_text(KeyError(42)) == "42"
+
+
+class TestSanitiseChildEnv:
+    """`mael` lives in `_main/.venv/bin`, so a child inherits `_main`'s venv."""
+
+    def test_drops_the_inherited_virtualenv(self):
+        env = sanitise_child_env({"VIRTUAL_ENV": "/p/_main/.venv", "HOME": "/Users/x"})
+        assert "VIRTUAL_ENV" not in env
+        assert env["HOME"] == "/Users/x"
+
+    def test_leaves_path_alone(self):
+        # PATH is deliberately untouched: a child that resolves `mael` or `uv`
+        # through it must keep finding the same binary.
+        path = "/p/_main/.venv/bin:/usr/bin"
+        env = sanitise_child_env({"VIRTUAL_ENV": "/p/_main/.venv", "PATH": path})
+        assert env["PATH"] == path
+
+    def test_does_not_mutate_the_caller_s_environment(self):
+        base = {"VIRTUAL_ENV": "/p/_main/.venv"}
+        sanitise_child_env(base)
+        assert base == {"VIRTUAL_ENV": "/p/_main/.venv"}
+
+    def test_an_environment_without_one_is_unchanged(self):
+        assert sanitise_child_env({"HOME": "/Users/x"}) == {"HOME": "/Users/x"}
+
+
+class TestFormatUptime:
+    """Tests for format_uptime function."""
+
+    @patch("mael_common.util.datetime")
+    def test_seconds(self, mock_dt):
+        """Shows seconds for very short uptime."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 45, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "45s"
+
+    @patch("mael_common.util.datetime")
+    def test_minutes(self, mock_dt):
+        """Shows minutes for short uptime."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 5, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "5m"
+
+    @patch("mael_common.util.datetime")
+    def test_hours_and_minutes(self, mock_dt):
+        """Shows hours and minutes."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 30, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h 30m"
+
+    @patch("mael_common.util.datetime")
+    def test_days_and_hours(self, mock_dt):
+        """Shows days and hours."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 4, 5, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d 5h"
+
+    @patch("mael_common.util.datetime")
+    def test_days_only(self, mock_dt):
+        """Shows just days when hours are zero."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 4, 0, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "3d"
+
+    @patch("mael_common.util.datetime")
+    def test_hours_only(self, mock_dt):
+        """Shows just hours when minutes are zero."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 2, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "2h"
+
+    @patch("mael_common.util.datetime")
+    def test_zero_seconds(self, mock_dt):
+        """Shows 0s for no elapsed time."""
+        from datetime import datetime, timezone
+
+        mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.now.return_value = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert format_uptime("2025-01-01T00:00:00+00:00") == "0s"

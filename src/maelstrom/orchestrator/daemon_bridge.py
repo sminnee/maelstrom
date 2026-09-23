@@ -5,7 +5,7 @@ one reply, plus ``attach``, a long-lived stream. The server is a client of it
 the way ``mael agent tail -f`` is, and never imports the daemon's internals.
 See ``docs/dev/agent-daemon.md``, "The control socket protocol".
 
-Storage layer, mirroring :mod:`maelstrom.agent_transport`: a Protocol, the real
+Storage layer, mirroring :mod:`mael_agent.agent_transport`: a Protocol, the real
 socket client, and a scripted fake that records calls.
 """
 
@@ -15,15 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from ..agent_store import (
-    AGENT_ENDED,
-    AGENT_RUNNING,
-    AgentStore,
-    new_agent_record,
-    register_agent,
-)
-from ..agent_transport import AsyncDaemonClient, attach_command
-from ..agent_wire import (
+from mael_agent.agent_transport import AsyncDaemonClient, attach_command
+from mael_agent.agent_wire import (
     AGENT_DETAIL,
     BACKLOG_END,
     SEQ_KEY,
@@ -35,8 +28,20 @@ from ..agent_wire import (
     reply_for_approval,
     reply_for_denial,
 )
-from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
-from ..util import now_iso
+from mael_agent.harness_model import (
+    HARNESS_CLAUDE,
+    HARNESS_CODEX,
+    resolve_model_reference,
+)
+from mael_common.util import now_iso
+
+from ..agent_store import (
+    AGENT_ENDED,
+    AGENT_RUNNING,
+    AgentStore,
+    new_agent_record,
+    register_agent,
+)
 
 DaemonClient = AsyncDaemonClient
 
@@ -593,7 +598,7 @@ class ScriptedAsyncDaemonClient:
         """The reply the host would echo onto the stream for ``payload``.
 
         The reply shapes are the daemon's own
-        (:mod:`maelstrom.agent_wire`), built against the request the agent is
+        (:mod:`mael_agent.agent_wire`), built against the request the agent is
         waiting on. ``None`` for a command that echoes nothing.
         """
         agent_id = str(payload.get("id", ""))

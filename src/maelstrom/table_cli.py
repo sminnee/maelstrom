@@ -2,7 +2,7 @@
 
 import click
 
-from .table import format_table
+from mael_common.table import format_table
 
 
 def draw_table(rows: list[dict[str, str]], columns: list[str]) -> None:

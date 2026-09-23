@@ -16,10 +16,11 @@ from pathlib import Path
 
 import click
 
+from mael_agent.agent_transport import SocketAsyncDaemonClient, daemon_paths
+from maelstrom.orchestrator.codex_bridge import CodexBridge
+from maelstrom.orchestrator.codex_daemon import CodexDaemonClient
+
 from .agent_store import SqliteAgentStore, SqliteMilestoneStore
-from .agent_transport import SocketAsyncDaemonClient, daemon_paths
-from .codex_bridge import CodexBridge
-from .codex_daemon import CodexDaemonClient
 from .context import load_global_config
 from .desk_store import SqliteDeskStore
 from .notebook_root import NotebookRootUnset

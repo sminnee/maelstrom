@@ -1,12 +1,12 @@
 """``mael agent`` — start, watch, answer and teleport into daemon-driven agents.
 
-The thin client of :mod:`maelstrom.agent_server`, speaking only the wire
-contract in :mod:`maelstrom.agent_wire`. Every command is one NDJSON
+The thin client of :mod:`mael_daemon.agent_server`, speaking only the wire
+contract in :mod:`mael_agent.agent_wire`. Every command is one NDJSON
 round-trip to the daemon's control socket, so this module holds no state and
 does no agent logic: it parses flags, sends a command, and prints the reply.
 The daemon builds each row; this module draws it, and joins each stopped row
-to its task. ``mael agent daemon`` is in
-:mod:`maelstrom.agent_daemon_cli`.
+to its task. The daemon's own commands are ``mael-agent-daemon``, a separate
+CLI root.
 
 No command starts a daemon. The environment manager does: `mael self-env
 start` runs the everyday daemon and `mael env start` runs this worktree's.
@@ -23,13 +23,11 @@ from typing import Any
 
 import click
 
-from .agent_cost import AgentCost, Stage, build_cost_report
-from .agent_store import SqliteAgentStore, SqliteMilestoneStore, register_agent
-from .agent_transport import (
+from mael_agent.agent_transport import (
     SocketAsyncDaemonClient,
 )
-from .agent_transport import client as daemon_client
-from .agent_wire import (
+from mael_agent.agent_transport import client as daemon_client
+from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     AWAITING_PERMISSION,
@@ -46,9 +44,13 @@ from .agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
-from .cli_async import AsyncGroup
+from mael_agent.harness_model import resolve_execute_model
+from mael_common.cli_async import AsyncGroup
+from mael_common.util import now_iso
+
+from .agent_cost import AgentCost, Stage, build_cost_report
+from .agent_store import SqliteAgentStore, SqliteMilestoneStore, register_agent
 from .context import resolve_context
-from .harness_model import resolve_execute_model
 from .notebook_root import NotebookRootUnset
 from .shared_dir import agent_prompt_file
 from .state_db.migrate import open_state_db
@@ -56,7 +58,6 @@ from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
 from .table_cli import draw_table
 from .task_cli import open_task_table
-from .util import now_iso
 
 #: Columns ``mael agent list`` prints, in order.
 LIST_COLUMNS = [
@@ -201,8 +202,8 @@ async def cmd_list(
 def _is_stopped(row: dict[str, Any]) -> bool:
     """Whether ``row`` is a stopped session rather than a running agent.
 
-    A :class:`~maelstrom.agent_wire.StoppedRow` carries no ``state``, and an
-    :class:`~maelstrom.agent_wire.AgentRow` always does. ``--all`` mixes the two.
+    A :class:`~mael_agent.agent_wire.StoppedRow` carries no ``state``, and an
+    :class:`~mael_agent.agent_wire.AgentRow` always does. ``--all`` mixes the two.
     """
     return "state" not in row
 

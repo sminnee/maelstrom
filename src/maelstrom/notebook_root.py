@@ -6,7 +6,7 @@ comes from ``MAEL_NOTEBOOK_ROOT``, which each environment writes into its own
 write to, rather than someone else's.
 
 Its own module rather than :mod:`maelstrom.context`, because
-:func:`~maelstrom.context.get_maelstrom_dir` must keep its unconditional
+:func:`~mael_common.util.get_maelstrom_dir` must keep its unconditional
 meaning for everything else under ``~/.maelstrom`` — ports, logs, ``envs/``,
 ``config.yaml`` and ``daemons/``. Refusing there would break ``mael env start``
 in every worktree, which is far wider than the hazard.
@@ -14,7 +14,7 @@ in every worktree, which is far wider than the hazard.
 The hazard is narrow and real. ``mael`` runs ``_main``'s code and ``uv run
 mael`` runs the current worktree's, but both wrote to the one notebook, so a
 command run to *test* a feature *performed* it: a planning agent testing ``task
-promote`` planned a real task. :mod:`maelstrom.agent_transport` met the same
+promote`` planned a real task. :mod:`mael_agent.agent_transport` met the same
 problem for the daemon and answered it the same way.
 """
 

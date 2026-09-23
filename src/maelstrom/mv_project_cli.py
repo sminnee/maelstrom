@@ -18,11 +18,13 @@ from pathlib import Path
 
 import click
 
+from mael_common.claude_paths import has_claude_transcript
+from mael_common.cli_async import AsyncCommand
+from mael_common.util import abbreviate_home, get_maelstrom_dir, locked_file
+
 from . import task as task_model
 from .claude_integration import read_json
-from .claude_paths import has_claude_transcript
-from .cli_async import AsyncCommand
-from .context import get_maelstrom_dir, load_global_config, validate_project_name
+from .context import load_global_config, validate_project_name
 from .env import (
     load_env_state,
     load_shared_state,
@@ -35,7 +37,6 @@ from .mv_project import DirMove, MovePlan, build_move_plan, rekey_claude_json
 from .ports import rename_project_allocations
 from .session_discovery import LiveSession, all_live_sessions
 from .task_cli import open_task_table
-from .util import abbreviate_home, locked_file
 from .worktree import (
     list_worktrees,
     run_git,

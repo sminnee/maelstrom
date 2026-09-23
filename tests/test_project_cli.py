@@ -77,7 +77,7 @@ class TestProjectListCommand:
         with patch("maelstrom.project_cli.load_global_config") as mock_config:
             mock_config.return_value = MagicMock(projects_dir=home / "Projects")
             with patch("maelstrom.project_cli.list_projects", return_value=projects):
-                with patch("maelstrom.util.Path.home", return_value=home):
+                with patch("mael_common.util.Path.home", return_value=home):
                     return runner.invoke(cli, args)
 
     def test_the_table_lists_every_project_with_home_abbreviated(self):

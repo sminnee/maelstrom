@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from maelstrom.agent_transport import RecordingDaemonClient
-from maelstrom.shell import Command, Pipeline, describe, exec_cmd
+from mael_agent.agent_transport import RecordingDaemonClient
+from mael_common.shell import Command, Pipeline, describe, exec_cmd
 from maelstrom.worktree_launcher import (
     AddContext,
     build_claude_command,
@@ -593,7 +593,7 @@ class TestExecCmd:
     """Tests for ``exec_cmd`` — the old exec_claude.
 
     Lives here because the launcher is the primary caller; ``exec_cmd`` itself
-    lives in the ``shell`` subsystem, so patching targets ``maelstrom.shell.os``.
+    lives in the ``shell`` subsystem, so patching targets ``mael_common.shell.os``.
     """
 
     # ``os.execvp`` never returns in reality; mocked it does, so it's given a
@@ -604,8 +604,8 @@ class TestExecCmd:
     def test_argv_execs_directly_no_chdir(self):
         # A plain argv execs directly (no sh hop); cwd=None means no chdir.
         with (
-            patch("maelstrom.shell.os.chdir") as mock_chdir,
-            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+            patch("mael_common.shell.os.chdir") as mock_chdir,
+            patch("mael_common.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
         ):
             with pytest.raises(SystemExit):
                 exec_cmd(["claude"], cwd=None)
@@ -616,9 +616,9 @@ class TestExecCmd:
         with TemporaryDirectory() as tmpdir:
             worktree_path = Path(tmpdir)
             with (
-                patch("maelstrom.shell.os.chdir") as mock_chdir,
+                patch("mael_common.shell.os.chdir") as mock_chdir,
                 patch(
-                    "maelstrom.shell.os.execvp", side_effect=self._STOP
+                    "mael_common.shell.os.execvp", side_effect=self._STOP
                 ) as mock_execvp,
             ):
                 with pytest.raises(SystemExit):
@@ -628,9 +628,9 @@ class TestExecCmd:
 
     def test_env_updates_environ(self):
         with (
-            patch("maelstrom.shell.os.chdir"),
-            patch("maelstrom.shell.os.execvp", side_effect=self._STOP),
-            patch.dict("maelstrom.shell.os.environ", {}, clear=True),
+            patch("mael_common.shell.os.chdir"),
+            patch("mael_common.shell.os.execvp", side_effect=self._STOP),
+            patch.dict("mael_common.shell.os.environ", {}, clear=True),
         ):
             with pytest.raises(SystemExit):
                 exec_cmd(["claude"], cwd=None, env={"MAEL_TASK_ID": "x"})
@@ -640,8 +640,8 @@ class TestExecCmd:
         # A Command (not a bare argv) goes through ``sh -c "exec ..."`` so the
         # shell replaces itself and nothing lingers.
         with (
-            patch("maelstrom.shell.os.chdir"),
-            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+            patch("mael_common.shell.os.chdir"),
+            patch("mael_common.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
         ):
             with pytest.raises(SystemExit):
                 exec_cmd(Command(["claude"]), cwd=None)
@@ -652,8 +652,8 @@ class TestExecCmd:
         # replaced while stdin/stdout stay inherited (stdout = TTY → interactive).
         expr = build_task_launch_line("p", "t1", "plan", env={"MAEL_TASK_ID": "t1"})
         with (
-            patch("maelstrom.shell.os.chdir"),
-            patch("maelstrom.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
+            patch("mael_common.shell.os.chdir"),
+            patch("mael_common.shell.os.execvp", side_effect=self._STOP) as mock_execvp,
         ):
             with pytest.raises(SystemExit):
                 exec_cmd(expr, cwd=None)
@@ -789,7 +789,7 @@ class TestLaunchAgentInWorktree:
 
     async def _launch(self, client, **kwargs):
         with (
-            patch("maelstrom.agent_transport.client_factory", lambda **_: client),
+            patch("mael_agent.agent_transport.client_factory", lambda **_: client),
             patch("maelstrom.worktree_launcher.ensure_cmux_running", return_value=True),
             patch(
                 "maelstrom.worktree_launcher.open_claude_workspace",
@@ -849,7 +849,7 @@ class TestLaunchAgentInWorktree:
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
         with (
             patch(
-                "maelstrom.agent_transport.client_factory",
+                "mael_agent.agent_transport.client_factory",
                 lambda **_: (order.append("start"), client)[1],
             ),
             patch(
@@ -870,7 +870,7 @@ class TestLaunchAgentInWorktree:
     async def test_cmux_down_returns_false_and_places_nothing(self):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
         with (
-            patch("maelstrom.agent_transport.client_factory", lambda **_: client),
+            patch("mael_agent.agent_transport.client_factory", lambda **_: client),
             patch(
                 "maelstrom.worktree_launcher.ensure_cmux_running", return_value=False
             ),
@@ -896,7 +896,7 @@ class TestLaunchAgentInWorktree:
     async def test_a_missing_daemon_names_the_command_that_starts_one(self, capsys):
         """A launch is where a missing daemon is met most often, and nothing
         starts one any more. The reason has to be actionable."""
-        from maelstrom.agent_transport import DaemonPaths, unreachable_message
+        from mael_agent.agent_transport import DaemonPaths, unreachable_message
 
         message = unreachable_message(DaemonPaths(Path("/root/x")))
         client = RecordingDaemonClient(replies=[{"error": message}])
@@ -980,7 +980,7 @@ class TestLaunchClaudeInWorktree:
                 side_effect=lambda: calls.append("cmux") or True,
             ),
             patch(
-                "maelstrom.agent_transport.client_factory",
+                "mael_agent.agent_transport.client_factory",
                 lambda **_: RecordingDaemonClient(replies=[{"error": "no daemon"}]),
             ),
             patch("maelstrom.worktree_launcher.open_claude_workspace") as mock_open,

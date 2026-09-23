@@ -132,7 +132,10 @@ def project_with_worktree():
 
         maelstrom_dir = tmp / "maelstrom-home"
         maelstrom_dir.mkdir()
-        with patch("maelstrom.context.get_maelstrom_dir", return_value=maelstrom_dir):
+        with (
+            patch("maelstrom.context.get_maelstrom_dir", return_value=maelstrom_dir),
+            patch("maelstrom.ports.get_maelstrom_dir", return_value=maelstrom_dir),
+        ):
             yield project_path, worktree_path, remote_path
 
 

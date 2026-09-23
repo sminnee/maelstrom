@@ -1,6 +1,6 @@
 """Tests for maelstrom.session_discovery: live claude processes → cwd → worktree.
 
-Liveness is read from :mod:`maelstrom.process_table`. These tests fake that
+Liveness is read from :mod:`mael_common.process_table`. These tests fake that
 module's three readers at ``session_discovery``'s import of them, rather than
 the shell: how ``ps`` and ``lsof`` output parses is ``test_process_table``'s
 concern.
@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from mael_common.process_table import ProcessInfo, ProcessTableUnavailable
 from maelstrom import session_discovery
-from maelstrom.process_table import ProcessInfo, ProcessTableUnavailable
 
 
 def fake_table(monkeypatch, commands: dict[int, str], cwds: dict[int, str]):

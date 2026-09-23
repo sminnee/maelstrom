@@ -133,7 +133,7 @@ def scope_lock(
     another worktree's tooling. This follows ``task_store.py`` and
     ``agent_server.py``, which lock the same way.
 
-    Deliberately not :func:`maelstrom.util.locked_file`: that is a read/rewrite
+    Deliberately not :func:`mael_common.util.locked_file`: that is a read/rewrite
     transaction over a file's contents. Nothing is stored here — the file is
     only somewhere to put the lock.
 

@@ -108,6 +108,7 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     monkeypatch.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
     monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("maelstrom.ports.get_maelstrom_dir", fake_get_dir)
     # The state database, the desk and the task export all hang off the
     # notebook root, so a test that opens any of them would otherwise write
     # into the developer's live notebook.
@@ -138,6 +139,7 @@ def isolated_maelstrom_module(tmp_path_factory):
     mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
     mp.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("maelstrom.ports.get_maelstrom_dir", fake_get_dir)
     mp.setenv("MAEL_NOTEBOOK_ROOT", str(maelstrom_dir))
     mp.setattr(
         "maelstrom.context.load_global_config",

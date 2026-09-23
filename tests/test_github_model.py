@@ -895,9 +895,8 @@ class TestTheModelStaysPure:
     test again.
     """
 
-    # Both spellings: this package imports its siblings relatively, so the AST
-    # yields ".shell", never "maelstrom.shell".
-    BANNED = {"subprocess", "click", ".shell", "maelstrom.shell"}
+    # `shell` is in `mael_common`, so the one spelling is the absolute one.
+    BANNED = {"subprocess", "click", "mael_common.shell"}
 
     @staticmethod
     def _imported_modules(path):

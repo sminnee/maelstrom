@@ -32,7 +32,7 @@ import platform
 import subprocess
 from pathlib import Path
 
-from .shell import mael_path
+from mael_common.shell import mael_path
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
 

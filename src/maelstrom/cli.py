@@ -8,13 +8,19 @@ from pathlib import Path
 
 import click
 
+from mael_agent.agent_transport import ROOT_ENV, RootUnset
+from mael_agent.harness_model import (
+    HARNESS_CLAUDE,
+    TRANSPORT_DAEMON,
+    resolve_execute_model,
+    resolve_model_reference,
+)
+from mael_common.cli_async import AsyncGroup
+
 from . import __version__, session_discovery
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
-from .agent_daemon_cli import cmd_daemon
-from .agent_transport import ROOT_ENV, RootUnset
 from .base_store import GitConfigBaseStore
-from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running, resolve_socket_path
 from .context import load_global_config, resolve_context, validate_project_name
 from .env import regenerate_and_restart_if_running
@@ -41,12 +47,6 @@ from .github_model import (
     RateLimited,
     is_open_pr,
     pr_from_row,
-)
-from .harness_model import (
-    HARNESS_CLAUDE,
-    TRANSPORT_DAEMON,
-    resolve_execute_model,
-    resolve_model_reference,
 )
 from .integrations.linear_cli import linear_group
 from .integrations.sentry_cli import sentry_group
@@ -1788,7 +1788,6 @@ cli.add_command(cmd_admin)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 cli.add_command(cmd_self_env)
-agent_cli.add_command(cmd_daemon)
 cli.add_command(agent_cli)
 cli.add_command(orchestrator_cli)
 

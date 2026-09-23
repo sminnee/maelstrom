@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The Python dead-code gate. Vulture runs twice: the production pass reads src/
 # alone and only reports, the test pass reads src/ and tests/ and fails the
-# build. See docs/dev/dead-code.md for why, and for what to do with a finding.
+# build. Each workspace member adds its own src/ and tests/ to both. See
+# docs/dev/dead-code.md for why, and for what to do with a finding.
 #
 # Run this rather than vulture directly. [tool.vulture] configures the
 # production pass alone; the test pass is the flags below. Keep the two in
@@ -30,5 +31,9 @@ uv run vulture \
   --min-confidence=60 \
   --ignore-decorators='@click.*,@*.command,@*.group,@*.result_callback,@property,@dataclass,@staticmethod,@classmethod,@overload,@routes.*,@pytest.*' \
   --ignore-names='compose,on_*,action_*,BINDINGS,CSS,list_commands,get_command,command_class,group_class,InMemory*,test_*,pytest_*,mock_*' \
-  src tests .vulture_whitelist.py
+  src tests \
+  lib/common/src lib/common/tests \
+  lib/agent/src lib/agent/tests \
+  agent-daemon/src agent-daemon/tests \
+  conftest.py .vulture_whitelist.py
 echo "No dead code."

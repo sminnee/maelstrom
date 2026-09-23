@@ -7,7 +7,7 @@ itself a leaf, so ``worktree`` can call it without pulling in the launcher layer
 import subprocess
 from pathlib import Path
 
-from .shell import run_cmd
+from mael_common.shell import run_cmd
 
 _REPAIR_TIMEOUT = 600  # seconds; a conflict resolution is not a long job
 

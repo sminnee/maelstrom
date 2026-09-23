@@ -3,7 +3,11 @@
 import json
 from pathlib import Path
 
-from maelstrom.agent_model import (
+from mael_agent.agent_wire import (
+    AGENT_EXITED,
+    BACKLOG_END,
+)
+from mael_daemon.agent_model import (
     AgentState,
     apply_event,
 )
@@ -20,12 +24,11 @@ from maelstrom.agent_view import (
     transcript_items,
     turn_result_line,
 )
-from maelstrom.agent_wire import (
-    AGENT_EXITED,
-    BACKLOG_END,
-)
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
+from .agent_fixtures import FIXTURES
+
+#: The tool-card golden stays beside the web goldens, which read it too.
+GOLDEN = Path(__file__).parent / "fixtures" / "agent_events" / "tool-cards.json"
 
 NOW = "2026-01-01T00:00:00Z"
 
@@ -175,7 +178,7 @@ def test_plan_markdown_comes_from_the_request_or_falls_back_to_the_last_message(
 
 def test_truncation_comes_from_the_daemons_marker_not_from_a_count():
     """The daemon says what it dropped; a full window on its own says nothing."""
-    from maelstrom.agent_wire import (
+    from mael_agent.agent_wire import (
         RECENT_LIMIT,
         TRUNCATED,
     )
@@ -294,7 +297,7 @@ def test_an_exit_marker_after_an_exit_is_not_a_lost_connection():
 
 def test_a_user_turn_starts_the_work():
     """A message to the agent is the start of a turn, whoever sent it."""
-    from maelstrom.agent_wire import user_message
+    from mael_agent.agent_wire import user_message
 
     view = replay("normal-turn.jsonl")
     assert agent_status(view) == "idle"
@@ -322,7 +325,7 @@ def test_tool_cards_match_the_typescript_reference():
     Nothing else ties the two together, so the golden is what catches a
     one-sided change. `UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it.
     """
-    golden = json.loads((FIXTURES / "tool-cards.json").read_text())
+    golden = json.loads(GOLDEN.read_text())
     for row in golden:
         item = {"type": "tool_call", "tool": row["tool"], "input": row["input"]}
         assert classify_tool_call(item) == row["kind"], row["tool"]

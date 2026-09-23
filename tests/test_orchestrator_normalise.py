@@ -14,7 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from mael_daemon import agent_model
 from maelstrom import task as task_model
+from maelstrom.orchestrator import document_tags
 from maelstrom.orchestrator.document_tags import read_worktree_file
 from maelstrom.orchestrator.file_registry import FileRegistry
 from maelstrom.orchestrator.normalise import (
@@ -33,10 +35,9 @@ from maelstrom.orchestrator.protocol import (
     state_with,
 )
 
-from .agent_fixtures import RECEIVED, read_stamped_fixture
+from .agent_fixtures import FIXTURES, RECEIVED, read_stamped_fixture
 
-FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
-GOLDEN = FIXTURES / "normalised"
+GOLDEN = Path(__file__).parent / "fixtures" / "agent_events" / "normalised"
 NOW = "2026-09-01T00:00:00Z"
 
 
@@ -279,6 +280,8 @@ def items_of(replayed: Replayed, kind: str) -> list[dict]:
 
 
 FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
+# An empty glob would turn every golden test into a skip, not a failure.
+assert FIXTURE_NAMES, f"no recordings under {FIXTURES}"
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
@@ -2049,3 +2052,15 @@ def test_a_subagents_plan_approval_reports_no_milestone():
     """
     out = replay_plan_decision(allow=True, parent="ag0")
     assert out.milestone is None
+
+
+def test_both_note_patterns_are_still_in_step():
+    """Each reader holds its own copy, so neither depends on the other.
+
+    The patterns only: what each reader *does* with a match differs on purpose.
+    `read_tags` skips a `<note>` inside a `<doc-content>` body, where this
+    module's `read_note` has no spans to skip and takes the last match. Only the
+    tag's spelling is shared, and duplicated text drifts silently.
+    """
+    assert agent_model._NOTE_TAG.pattern == document_tags._NOTE_TAG.pattern
+    assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags

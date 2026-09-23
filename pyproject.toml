@@ -28,7 +28,15 @@ dev = [
     "ruff>=0.15,<0.17",
     "pyright>=1.1",
     "vulture>=2.14,<3",
+    "import-linter>=2.1",
 ]
+
+# The workspace members. A dependency group, not `[project].dependencies`: the
+# wheel bundles mael_common and mael_agent through hatch `packages`, and a
+# listed member would reach PyPI as a requirement nothing there satisfies.
+# `default-groups` makes every `uv sync` install them editable all the same.
+[dependency-groups]
+members = ["mael-common", "mael-agent", "mael-agent-daemon"]
 
 [project.urls]
 Repository = "https://github.com/sminnee/maelstrom"
@@ -41,12 +49,28 @@ sminnee-maelstrom = "maelstrom.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The daemon is left out: the published `mael` CLI does not run one. Build it
+# on its own with `uv build --package mael-agent-daemon`.
 [tool.hatch.build.targets.wheel]
-packages = ["src/maelstrom"]
+packages = ["src/maelstrom", "lib/common/src/mael_common", "lib/agent/src/mael_agent"]
+# An editable install puts these on the path. `mael self-update` installs the
+# root alone as an editable uv tool, with no workspace members beside it, so
+# the bundled packages must be reachable from the root's own install.
+dev-mode-dirs = ["src", "lib/common/src", "lib/agent/src"]
+
+[tool.uv]
+default-groups = ["members"]
+
+[tool.uv.workspace]
+members = ["lib/common", "lib/agent", "agent-daemon"]
+
+[tool.uv.sources]
+mael-common = { workspace = true }
+mael-agent = { workspace = true }
+mael-agent-daemon = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "lib/common/tests", "lib/agent/tests", "agent-daemon/tests"]
 # Async tests are plain `async def`, with no per-test decorator: an awaiting
 # test is the normal case now, not the exception.
 asyncio_mode = "auto"
@@ -61,7 +85,7 @@ markers = [
 ]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "lib/common/src", "lib/agent/src", "agent-daemon/src"]
 exclude = [".vulture_whitelist.py"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
@@ -72,6 +96,8 @@ reportDuplicateImport = true
 reportMissingTypeStubs = false
 
 [tool.ruff]
+# Every workspace member's package is first-party, so isort groups them together.
+src = ["src", "lib/common/src", "lib/agent/src", "agent-daemon/src"]
 # The vulture whitelist is a list of bare names, not a program. Every line is
 # an undefined name by design, so ruff and pyright must both skip it.
 extend-exclude = [".vulture_whitelist.py"]
@@ -89,7 +115,13 @@ select = ["E4", "E7", "E9", "F", "I"]
 # Configures the production pass alone. Run the gate through bin/vulture-check,
 # never bare — the test pass needs the flags that script adds.
 # See docs/dev/dead-code.md.
-paths = ["src", ".vulture_whitelist.py"]
+paths = [
+    "src",
+    "lib/common/src",
+    "lib/agent/src",
+    "agent-daemon/src",
+    ".vulture_whitelist.py",
+]
 min_confidence = 60
 
 # A framework holds the reference to these, so no call site exists to find.

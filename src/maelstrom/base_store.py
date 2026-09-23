@@ -31,7 +31,8 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from .shell import run_cmd
+from mael_common.shell import run_cmd
+
 from .worktree_model import MAIN_BRANCH, BaseRef
 
 # The config keys. Written camelCase for readability in ``.git/config``; git
