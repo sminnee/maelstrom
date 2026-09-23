@@ -1,8 +1,9 @@
-"""The agent daemon and its clients meet only at the wire contract.
+"""Import boundaries: the daemon meets its clients only at the wire contract,
+and no domain module reaches click or a CLI module.
 
 A static walk over ``src/maelstrom``: every ``import`` at any depth, including
-function-local and ``TYPE_CHECKING`` ones, counts. A lazy import still ties the
-daemon to the module it names, and a later file move breaks on it all the same.
+function-local and ``TYPE_CHECKING`` ones, counts. A lazy import still ties a
+module to the module it names, and a later file move breaks on it all the same.
 """
 
 import ast
@@ -77,6 +78,24 @@ def _imports_in(source: str, name: str, is_package: bool) -> set[str]:
     return found
 
 
+def _foreign(name: str) -> set[str]:
+    """The top-level names of the non-package imports of ``name``, at any depth."""
+    return _foreign_in(MODULES[name].read_text())
+
+
+def _foreign_in(source: str) -> set[str]:
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            names = [node.module]
+        else:
+            continue
+        found |= {n.split(".")[0] for n in names} - {PACKAGE}
+    return found
+
+
 def _closure(root: str) -> dict[str, str | None]:
     """Every module ``root`` reaches, mapped to the module that imported it."""
     seen: dict[str, str | None] = {root: None}
@@ -144,6 +163,36 @@ def test_no_client_reaches_the_daemon_internals():
     assert not chains, "\n".join(chains)
 
 
+def _is_domain(name: str) -> bool:
+    short = name.removeprefix(f"{PACKAGE}.")
+    if short.endswith("_cli") or short == "worktree_launcher":
+        return False
+    return short.startswith(("task", "worktree", "github", "env", "state_db")) or (
+        short.startswith("integrations.")
+        or short in ("list_all", "orchestrator.protocol", "orchestrator.normalise")
+    )
+
+
+#: The domain modules: none may reach click or a CLI module.
+DOMAIN = sorted(n for n in MODULES if _is_domain(n))
+
+
+def _is_cli(name: str) -> bool:
+    return (
+        name in _qualified("cli", "cli_async")
+        or name.endswith("_cli")
+        or "click" in _foreign(name)
+    )
+
+
+def test_the_domain_reaches_no_cli():
+    chains = []
+    for module in DOMAIN:
+        closure = _closure(module)
+        chains += [_chain(closure, m) for m in sorted(closure) if _is_cli(m)]
+    assert not chains, "\n".join(chains)
+
+
 # --- the walker itself: a bug here passes the closure tests vacuously -------
 
 
@@ -178,3 +227,31 @@ def test_a_sibling_import_resolves_inside_the_package():
 def test_an_absolute_import_counts_and_a_foreign_one_does_not():
     source = "import json\nfrom maelstrom.agent_wire import IDLE\n"
     assert _walk(source) == {f"{PACKAGE}.agent_wire"}
+
+
+def test_the_foreign_walk_sees_a_function_local_import():
+    source = (
+        "def f():\n    import click\nfrom maelstrom.util import x\nfrom . import y\n"
+    )
+    assert _foreign_in(source) == {"click"}
+
+
+def test_the_domain_holds_the_named_modules():
+    assert set(DOMAIN) >= _qualified(
+        "task",
+        "task_actions",
+        "worktree",
+        "list_all",
+        "integrations.linear",
+        "orchestrator.protocol",
+        "state_db",
+    )
+    assert not set(DOMAIN) & _qualified("task_cli", "worktree_launcher")
+
+
+def test_the_cli_test_names_the_cli_modules():
+    assert all(
+        _is_cli(m)
+        for m in _qualified("cli", "cli_async", "task_cli", "integrations.group_cli")
+    )
+    assert not any(_is_cli(m) for m in _qualified("task", "integrations.linear"))
