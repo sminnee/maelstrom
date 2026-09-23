@@ -42,8 +42,13 @@ def _resolve(name: str) -> str | None:
 
 def _imports(name: str) -> set[str]:
     """Every in-package module ``name`` imports, at any depth."""
-    tree = ast.parse(MODULES[name].read_text())
-    package = name if _is_package(name) else name.rpartition(".")[0]
+    return _imports_in(MODULES[name].read_text(), name, _is_package(name))
+
+
+def _imports_in(source: str, name: str, is_package: bool) -> set[str]:
+    """Every in-package module ``source`` imports, read as module ``name``."""
+    tree = ast.parse(source)
+    package = name if is_package else name.rpartition(".")[0]
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -118,9 +123,10 @@ DAEMON_ALLOWED = _qualified(
 
 DAEMON_ONLY = _qualified("agent_model", "agent_server")
 
+#: Every module but the daemon's own is a client, bar the two that wire the
+#: daemon's CLI group in.
 CLIENTS = sorted(
-    _qualified("agent_cli", "agent_view", "agent_tui")
-    | {name for name in MODULES if name.startswith(f"{PACKAGE}.orchestrator.")}
+    set(MODULES) - DAEMON_ALLOWED - _qualified("agent_daemon_cli", "cli", "__main__")
 )
 
 
@@ -138,6 +144,37 @@ def test_no_client_reaches_the_daemon_internals():
     assert not chains, "\n".join(chains)
 
 
+# --- the walker itself: a bug here passes the closure tests vacuously -------
+
+
+def _walk(source: str, name: str = f"{PACKAGE}.orchestrator.server") -> set[str]:
+    return _imports_in(source, name, is_package=False)
+
+
 def test_the_walk_sees_a_function_local_import():
-    """The walker's own seam: a lazy import is still an import."""
-    assert f"{PACKAGE}.agent_tui" in _imports(f"{PACKAGE}.agent_cli")
+    source = "def f():\n    from ..agent_model import AgentState\n"
+    assert _walk(source) == {f"{PACKAGE}.agent_model"}
+
+
+def test_the_walk_sees_a_type_checking_import():
+    source = "if TYPE_CHECKING:\n    from ..agent_server import AgentDaemon\n"
+    assert _walk(source) == {f"{PACKAGE}.agent_server"}
+
+
+def test_a_bare_relative_import_names_the_submodule():
+    """``from .. import agent_model`` imports the module, not the package."""
+    assert _walk("from .. import agent_model, __version__\n") == {
+        f"{PACKAGE}.agent_model",
+        PACKAGE,
+    }
+
+
+def test_a_sibling_import_resolves_inside_the_package():
+    assert _walk("from .daemon_bridge import DaemonRouter\n") == {
+        f"{PACKAGE}.orchestrator.daemon_bridge"
+    }
+
+
+def test_an_absolute_import_counts_and_a_foreign_one_does_not():
+    source = "import json\nfrom maelstrom.agent_wire import IDLE\n"
+    assert _walk(source) == {f"{PACKAGE}.agent_wire"}
