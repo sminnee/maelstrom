@@ -1,23 +1,15 @@
 """Linear task management integration for maelstrom."""
 
 import re
-import subprocess
-import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import click
-
-from ..cli_async import AsyncGroup
 from ..config import load_config_or_default
 from ..context import resolve_context
-
-# Imported at module scope (not lazily, like the rest of ``task_cli`` here)
-# because ``block_task_options`` is applied as a decorator at import time.
-# ``task_cli`` does not import this module, so there is no cycle.
-from ..task_cli import block_task_options
 from ._auth import resolve_secret
 from ._http import request_bytes, request_json
+from .errors import IntegrationError
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
 
@@ -37,13 +29,13 @@ def get_linear_api_key() -> str:
     3. linear.api_key in ~/.maelstrom/config.yaml
 
     Raises:
-        click.ClickException: If the key is not found.
+        IntegrationError: If the key is not found.
     """
     key = resolve_secret("LINEAR_API_KEY", config_attr="linear_api_key")
     if key:
         return key
 
-    raise click.ClickException(
+    raise IntegrationError(
         "LINEAR_API_KEY not found. Set it via:\n"
         "  - Environment variable: export LINEAR_API_KEY=lin_api_xxx\n"
         "  - Project .env file: LINEAR_API_KEY=lin_api_xxx\n"
@@ -71,7 +63,7 @@ def get_team_id() -> str:
 
     # Fetch available teams to show in error message
     teams_info = _fetch_teams_for_error()
-    raise click.ClickException(
+    raise IntegrationError(
         f"linear.team_id not configured. Add to .maelstrom.yaml:\n"
         f"  linear:\n"
         f'    team_id: "<team-uuid>"\n\n'
@@ -113,7 +105,7 @@ def graphql_request(query: str, variables: dict | None = None) -> dict:
         The response data.
 
     Raises:
-        click.ClickException: On API errors.
+        IntegrationError: On API errors.
     """
     api_key = get_linear_api_key()
 
@@ -128,7 +120,7 @@ def graphql_request(query: str, variables: dict | None = None) -> dict:
         json_body=payload,
     )
     if "errors" in result:
-        raise click.ClickException(f"GraphQL errors: {result['errors']}")
+        raise IntegrationError(f"GraphQL errors: {result['errors']}")
     return result["data"]
 
 
@@ -159,7 +151,7 @@ def graphql_paginated(
         All nodes across every page.
 
     Raises:
-        click.ClickException: If the page cap is hit with pages still pending.
+        IntegrationError: If the page cap is hit with pages still pending.
     """
     nodes: list[dict] = []
     cursor: str | None = None
@@ -178,7 +170,7 @@ def graphql_paginated(
             return nodes
         cursor = page_info.get("endCursor")
 
-    raise click.ClickException(
+    raise IntegrationError(
         f"Pagination exceeded {max_pages} pages fetching '{connection}' "
         f"({len(nodes)} nodes so far) — aborting."
     )
@@ -217,7 +209,7 @@ def get_issue(issue_id: str) -> dict:
         Issue data dictionary.
 
     Raises:
-        click.ClickException: If issue not found.
+        IntegrationError: If issue not found.
     """
     query = """
     query GetIssue($id: String!) {
@@ -283,7 +275,7 @@ def get_issue(issue_id: str) -> dict:
     """
     result = graphql_request(query, {"id": issue_id})
     if not result.get("issue"):
-        raise click.ClickException(f"Issue {issue_id} not found")
+        raise IntegrationError(f"Issue {issue_id} not found")
     return result["issue"]
 
 
@@ -334,7 +326,7 @@ def update_issue(issue_id: str, **kwargs) -> None:
         **kwargs: Fields to update (stateId, labelIds, description, etc.).
 
     Raises:
-        click.ClickException: If update fails.
+        IntegrationError: If update fails.
     """
     mutation = """
     mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
@@ -345,7 +337,7 @@ def update_issue(issue_id: str, **kwargs) -> None:
     """
     result = graphql_request(mutation, {"id": issue_id, "input": kwargs})
     if not result["issueUpdate"]["success"]:
-        raise click.ClickException("Failed to update issue")
+        raise IntegrationError("Failed to update issue")
 
 
 def create_issue(
@@ -370,7 +362,7 @@ def create_issue(
         Created issue data with id, identifier, and title.
 
     Raises:
-        click.ClickException: If creation fails.
+        IntegrationError: If creation fails.
     """
     team_id = get_team_id()
     mutation = """
@@ -402,7 +394,7 @@ def create_issue(
 
     result = graphql_request(mutation, {"input": input_data})
     if not result["issueCreate"]["success"]:
-        raise click.ClickException("Failed to create issue")
+        raise IntegrationError("Failed to create issue")
     return result["issueCreate"]["issue"]
 
 
@@ -417,7 +409,7 @@ def create_comment(issue_id: str, body: str) -> dict:
         Created comment data with id.
 
     Raises:
-        click.ClickException: If creation fails.
+        IntegrationError: If creation fails.
     """
     mutation = """
     mutation CreateComment($input: CommentCreateInput!) {
@@ -436,7 +428,7 @@ def create_comment(issue_id: str, body: str) -> dict:
 
     result = graphql_request(mutation, {"input": input_data})
     if not result["commentCreate"]["success"]:
-        raise click.ClickException("Failed to create comment")
+        raise IntegrationError("Failed to create comment")
     return result["commentCreate"]["comment"]
 
 
@@ -542,15 +534,6 @@ def get_workspace_labels() -> list[str]:
     ]
 
 
-# --- Click Commands ---
-
-
-@click.group("linear", cls=AsyncGroup)
-def linear():
-    """Linear task management commands."""
-    pass
-
-
 def fetch_cycle_issues(team_id: str, status: str | None = None) -> list[dict]:
     """The team's issues for its current cycle, or its active ones with no cycle.
 
@@ -632,65 +615,9 @@ def fetch_cycle_issues(team_id: str, status: str | None = None) -> list[dict]:
     return graphql_paginated(query, variables, connection="issues")
 
 
-@linear.command("list-tasks")
-@click.option("--status", default=None, help="Filter by status name (partial match)")
-def cmd_list_tasks(status):
-    """List tasks in the current cycle, or all active tasks if no cycle."""
-    team_id = get_team_id()
-    cycle = get_current_cycle()
-    issues = fetch_cycle_issues(team_id, status)
-    header = (
-        f"# Tasks in Cycle {cycle['number']}: {cycle['name']}\n"
-        if cycle
-        else "# Active Tasks (no active cycle)\n"
-    )
-
-    click.echo(header)
-
-    if not issues:
-        click.echo("No tasks found.")
-        return
-
-    # Group by parent
-    parent_issues = [i for i in issues if not i.get("parent")]
-    child_issues = [i for i in issues if i.get("parent")]
-
-    for issue in parent_issues:
-        issue_status = issue["state"]["name"]
-        click.echo(f"- **{issue['identifier']}**: {issue['title']} [{issue_status}]")
-
-        # Find children of this issue
-        children = [
-            c
-            for c in child_issues
-            if c.get("parent", {}).get("identifier") == issue["identifier"]
-        ]
-        for child in children:
-            child_status = child["state"]["name"]
-            click.echo(
-                f"  - **{child['identifier']}**: {child['title']} [{child_status}]"
-            )
-
-    # Any orphan children (parent not in current cycle)
-    shown_children = {
-        c["identifier"]
-        for c in child_issues
-        if any(
-            c.get("parent", {}).get("identifier") == p["identifier"]
-            for p in parent_issues
-        )
-    }
-    orphans = [c for c in child_issues if c["identifier"] not in shown_children]
-    for child in orphans:
-        child_status = child["state"]["name"]
-        parent_id = child.get("parent", {}).get("identifier", "?")
-        click.echo(
-            f"- **{child['identifier']}**: {child['title']} [{child_status}] "
-            f"(parent: {parent_id})"
-        )
-
-
-def localize_description_images(identifier: str, project: str, description: str) -> str:
+def localize_description_images(
+    identifier: str, project: str, description: str, *, warn: Callable[[str], None]
+) -> str:
     """Download ``uploads.linear.app`` images and rewrite refs to a portable token.
 
     Scans ``description`` for ``![alt](https://uploads.linear.app/...)`` refs.
@@ -703,9 +630,9 @@ def localize_description_images(identifier: str, project: str, description: str)
     The image files are left untracked on disk — the caller's subsequent
     ``add_task`` commit sweeps them in via ``git add -A``.
 
-    A single failed download (network, 404, revoked key) is logged to stderr and
-    that one ref is left as the original URL, so one bad image never aborts the
-    whole plan. Alt text is preserved. A description with no matching images is
+    A single failed download (an HTTP error such as a 404 or a revoked key)
+    goes to ``warn`` and that one ref is left as the original URL, so one bad
+    image never aborts the whole plan. Alt text is preserved. A description with no matching images is
     returned unchanged and writes nothing.
     """
     from ..attachments import markdown_ref, save_attachment
@@ -724,11 +651,10 @@ def localize_description_images(identifier: str, project: str, description: str)
         alt = match.group(1)
         try:
             data = request_bytes(url, headers={"Authorization": get_linear_api_key()})
-        except click.ClickException as e:
-            click.echo(
-                f"warning: could not download image {url}: {e.message}; "
-                "leaving the original URL in the brief",
-                err=True,
+        except IntegrationError as e:
+            warn(
+                f"warning: could not download image {url}: {e}; "
+                "leaving the original URL in the brief"
             )
             continue
 
@@ -744,10 +670,9 @@ def localize_description_images(identifier: str, project: str, description: str)
             # An SVG, an oversized image, or an HTML error body served with
             # HTTP 200. Treated like a failed download: one bad image must not
             # abort the whole plan.
-            click.echo(
+            warn(
                 f"warning: could not store image {url}: {e}; "
-                "leaving the original URL in the brief",
-                err=True,
+                "leaving the original URL in the brief"
             )
             continue
 
@@ -762,7 +687,11 @@ def localize_description_images(identifier: str, project: str, description: str)
 
 
 def build_plan_task(
-    issue_id: str, project: str, *, branch: str | None = None
+    issue_id: str,
+    project: str,
+    *,
+    branch: str | None = None,
+    warn: Callable[[str], None],
 ) -> dict[str, Any]:
     """The task fields that plan ``issue_id``, without creating the task.
 
@@ -774,6 +703,7 @@ def build_plan_task(
     ``branch`` names the branch rather than generating one. Generation shells
     out to ``claude -p``, so a caller that has already inferred a branch — the
     orchestrator does — passes it here and spares the second model call.
+    ``warn`` takes the line for each image that could not be localized.
     """
     from .. import branch_name
 
@@ -782,7 +712,9 @@ def build_plan_task(
     title = issue.get("title") or ""
     description = issue.get("description") or ""
 
-    description = localize_description_images(identifier, project, description)
+    description = localize_description_images(
+        identifier, project, description, warn=warn
+    )
 
     # The meaningful title/description live on the *issue*, not on the "Plan
     # NORT-123" task, so the descriptive branch is computed from them. The bare
@@ -814,694 +746,32 @@ def build_plan_task(
     }
 
 
-@linear.command("plan")
-@click.argument("issue_id")
-@click.option("--project", default=None, help="Project name (default: from cwd).")
-@block_task_options(distinguish_unset=True)
-@click.option(
-    "--run/--no-run",
-    default=True,
-    help="Launch the planning session immediately (default: run; --no-run creates only).",
-)
-@click.option(
-    "--here",
-    is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
-)
-async def cmd_plan(
-    issue_id: str,
-    project: str | None,
-    command: str | None,
-    mode: str | None,
-    model: str | None,
-    base: str | None,
-    execute_model: str | None,
-    branch: str | None,
-    parent: str | None,
-    pre_action: str | None,
-    post_action: str | None,
-    priority: str | None,
-    follows: tuple[str, ...],
-    follow_ends: tuple[str, ...],
-    run: bool,
-    here: bool,
-) -> None:
-    """Seed a notebook planning task from a Linear issue.
-
-    Thin wrapper over ``mael task add``: fetches the issue brief and creates a
-    ``plan-task`` task whose content is the brief, parented under
-    ``linear.<identifier>``. Runs by default — the planning session launches
-    immediately; pass ``--no-run`` to create the task without launching. All
-    worktree/launch behaviour comes from the shared ``task add`` path — this
-    command adds only the brief fetch and argument assembly.
-
-    Every block-settable field is exposed via the shared ``block_task_options``
-    decorator, so this command's vocabulary can't drift from ``task add``'s. The
-    planning-specific values (``plan-task``/``normal`` mode/``opus``/the
-    ``linear.<ID>`` parent/``linear.planned``) are *defaults* the matching flag
-    overrides; only ``title`` stays fixed at ``Plan <identifier>``. The options
-    default to ``None`` (``distinguish_unset``) rather than ``''``, so passing an
-    explicit empty value — ``--post-action ''`` — clears the field instead of
-    falling back to the planning default, matching ``task add``'s semantics.
-    """
-    from .. import task_cli
-
-    # add_task re-resolves internally; passing the resolved name is idempotent.
-    resolved_project = task_cli._resolve_project(project)
-    planned = build_plan_task(issue_id, resolved_project, branch=branch)
-
-    await task_cli.add_task(
-        title=planned["title"],
-        project=resolved_project,
-        command=planned["command"] if command is None else command,
-        mode=planned["mode"] if mode is None else mode,
-        model=planned["model"] if model is None else model,
-        base=base or "",
-        execute_model=execute_model or "",
-        parent=planned["parent"] if parent is None else parent,
-        branch=planned["branch"],
-        pre_action=pre_action or "",
-        post_action=planned["post_action"] if post_action is None else post_action,
-        priority=priority,
-        follows=follows,
-        follow_ends=follow_ends,
-        content=planned["content"],
-        run=run,
-        here=here,
-    )
-
-
-@linear.command("read-task")
-@click.argument("issue_id")
-def cmd_read_task(issue_id):
-    """Read task details as markdown."""
-    issue = get_issue(issue_id)
-
-    click.echo(f"# {issue['identifier']}: {issue['title']}\n")
-    click.echo(f"**Status**: {issue['state']['name']}")
-
-    if issue.get("parent"):
-        parent = issue["parent"]
-        click.echo(f"**Parent**: {parent['identifier']} - {parent['title']}")
-
-    if issue.get("cycle"):
-        click.echo(f"**Cycle**: {issue['cycle']['number']} - {issue['cycle']['name']}")
-
-    labels = [label["name"] for label in issue.get("labels", {}).get("nodes", [])]
-    if labels:
-        click.echo(f"**Labels**: {', '.join(labels)}")
-
-    click.echo()
-
-    if issue.get("description"):
-        click.echo("## Description\n")
-        click.echo(issue["description"])
-        click.echo()
-
-    children = issue.get("children", {}).get("nodes", [])
-    if children:
-        click.echo("## Subtasks\n")
-        for child in children:
-            child_status = child["state"]["name"]
-            checkbox = (
-                "x" if child["state"]["type"] in ["completed", "canceled"] else " "
-            )
-            click.echo(
-                f"- [{checkbox}] **{child['identifier']}**: {child['title']} "
-                f"[{child_status}]"
-            )
-        click.echo()
-
-    comments = issue.get("comments", {}).get("nodes", [])
-    if comments:
-        click.echo("## Comments\n")
-        for comment in comments:
-            user = comment.get("user", {})
-            author = user.get("displayName") or user.get("name") or "Unknown"
-            created_at = comment.get("createdAt", "")[:10]
-            body = comment.get("body", "")
-            click.echo(f"**{author}** ({created_at}):")
-            click.echo(body)
-            click.echo()
-
-    attachments = issue.get("attachments", {}).get("nodes", [])
-    sentry_issue_ids: list[str] = []
-    if attachments:
-        click.echo("## Attachments\n")
-        for attachment in attachments:
-            title = attachment.get("title") or "Unnamed"
-            url = attachment.get("url", "")
-            source_type = attachment.get("sourceType", "")
-            # Detect Sentry links and collect issue IDs
-            if "sentry.io" in url or source_type == "sentry":
-                click.echo(f"- [{title}]({url}) (Sentry)")
-                # Extract issue ID from URL like https://org.sentry.io/issues/123/
-                match = re.search(r"/issues/(\d+)", url)
-                if match:
-                    sentry_issue_ids.append(match.group(1))
-            else:
-                click.echo(f"- [{title}]({url})")
-        click.echo()
-
-    # Fetch and display Sentry issue details
-    for sentry_id in sentry_issue_ids:
-        click.echo(f"## Sentry Issue {sentry_id}\n")
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "maelstrom", "sentry", "get-issue", sentry_id],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                click.echo(result.stdout)
-            else:
-                click.echo(f"Failed to fetch Sentry issue: {result.stderr}")
-        except subprocess.TimeoutExpired:
-            click.echo("Timeout fetching Sentry issue details")
-        except Exception as e:
-            click.echo(f"Error fetching Sentry issue: {e}")
-        click.echo()
-
-
-@linear.command("start-task")
-@click.argument("issue_id")
-def cmd_start_task(issue_id):
-    """Start a task: set to In Progress and add workspace label."""
-    issue = get_issue(issue_id)
-    workspace_label = detect_workspace_label()
-
-    # Get state and label IDs
-    states = get_workflow_states()
-    labels_map = get_labels()
-
-    if "In Progress" not in states:
-        raise click.ClickException("'In Progress' state not found")
-
-    # Build new label list: keep non-workspace labels, add current workspace + product
-    workspace_labels = get_workspace_labels()
-    product_label = get_product_label()
-    current_labels = [
-        label["name"] for label in issue.get("labels", {}).get("nodes", [])
-    ]
-    new_labels = [label for label in current_labels if label not in workspace_labels]
-    if workspace_label:
-        new_labels.append(workspace_label)
-    if product_label and product_label not in new_labels:
-        new_labels.append(product_label)
-
-    # Convert to IDs
-    label_ids = [
-        labels_map[label_name] for label_name in new_labels if label_name in labels_map
-    ]
-
-    # Update the issue
-    update_issue(
-        issue["id"],
-        stateId=states["In Progress"],
-        labelIds=label_ids,
-    )
-
-    click.echo(f"Started task {issue['identifier']}: {issue['title']}")
-    click.echo("- Status: In Progress")
-    if workspace_label:
-        click.echo(f"- Workspace: {workspace_label}")
-
-    # Also update parent if this is a subtask
-    if issue.get("parent"):
-        parent = get_issue(issue["parent"]["id"])
-        parent_labels = [
-            label["name"] for label in parent.get("labels", {}).get("nodes", [])
-        ]
-        parent_new_labels = [
-            label for label in parent_labels if label not in workspace_labels
-        ]
-        if workspace_label:
-            parent_new_labels.append(workspace_label)
-        if product_label and product_label not in parent_new_labels:
-            parent_new_labels.append(product_label)
-        parent_label_ids = [
-            labels_map[label] for label in parent_new_labels if label in labels_map
-        ]
-
-        # Only promote parent to In Progress from early states
-        early_states = {"Todo", "Planned", "Backlog"}
-        update_kwargs: dict[str, Any] = {"labelIds": parent_label_ids}
-        if parent["state"]["name"] in early_states:
-            update_kwargs["stateId"] = states["In Progress"]
-
-        update_issue(parent["id"], **update_kwargs)
-        click.echo(f"\nAlso updated parent {parent['identifier']}:")
-        if parent["state"]["name"] in early_states:
-            click.echo("- Status: In Progress")
-        if workspace_label:
-            click.echo(f"- Workspace: {workspace_label}")
-
-
 # The three logical statuses the task workflow uses, mapped to their Linear
 # workflow-state names. ``done`` maps to ``Unreleased`` (completed work waiting
 # on a release), not the literal ``Done`` state. This is the single canonical
 # status-transition command; there is deliberately no special subtask handling.
-_STATUS_STATES = {
+STATUS_STATES = {
     "planned": "Planned",
     "in-progress": "In Progress",
     "done": "Unreleased",
 }
 
 
-def set_issue_status(issue_id: str, status: str) -> None:
+def set_issue_status(issue_id: str, status: str) -> str:
     """Set a Linear issue to one of planned|in-progress|done. Raises on failure.
 
     The reusable core shared by ``mael linear set-status`` and the task
     lifecycle actions. ``done`` maps to the ``Unreleased`` workflow state.
-    Raises ``RuntimeError`` if the target state is missing from the workflow;
-    a no-op (already in the target state) just echoes and returns.
+    Raises ``IntegrationError`` if the target state is missing from the
+    workflow. Returns the one-line result, a no-op included.
     """
-    state_name = _STATUS_STATES[status]
+    state_name = STATUS_STATES[status]
     issue = get_issue(issue_id)
     states = get_workflow_states()
     if state_name not in states:
-        raise RuntimeError(f"'{state_name}' state not found in workflow.")
+        raise IntegrationError(f"'{state_name}' state not found in workflow.")
     current = issue["state"]["name"]
     if current == state_name:
-        click.echo(f"{issue['identifier']} already {state_name}.")
-        return
+        return f"{issue['identifier']} already {state_name}."
     update_issue(issue["id"], stateId=states[state_name])
-    click.echo(f"{issue['identifier']}: {current} -> {state_name}")
-
-
-@linear.command("set-status")
-@click.argument("issue_id")
-@click.argument("status", type=click.Choice(list(_STATUS_STATES)))
-def cmd_set_status(issue_id, status):
-    """Set a Linear issue's status: planned, in-progress, or done.
-
-    The canonical status-transition command. ``done`` maps to the ``Unreleased``
-    workflow state (promote to ``Done`` later with ``mael linear release``).
-    Applies to the issue as-is — no special subtask/parent handling.
-    """
-    try:
-        set_issue_status(issue_id, status)
-    except RuntimeError as e:
-        raise click.ClickException(str(e))
-
-
-@linear.command("create-subtask")
-@click.argument("parent_id")
-@click.argument("title")
-@click.argument("description", default="", required=False)
-def cmd_create_subtask(parent_id, title, description):
-    """Create a subtask on a parent issue."""
-    parent = get_issue(parent_id)
-
-    cycle_id = parent.get("cycle", {}).get("id") if parent.get("cycle") else None
-
-    new_issue = create_issue(
-        title=title,
-        parent_id=parent["id"],
-        description=description or "",
-        cycle_id=cycle_id,
-    )
-
-    click.echo(f"Created subtask {new_issue['identifier']}: {new_issue['title']}")
-    click.echo(f"- Parent: {parent['identifier']}")
-    if cycle_id:
-        click.echo(f"- Cycle: {parent['cycle']['number']} - {parent['cycle']['name']}")
-
-    # Add product label to parent if configured
-    labels_map = get_labels()
-    parent_labels = [
-        label["name"] for label in parent.get("labels", {}).get("nodes", [])
-    ]
-    parent_label_ids = ensure_product_label(parent["id"], labels_map, parent_labels)
-    if parent_label_ids:
-        update_issue(parent["id"], labelIds=parent_label_ids)
-        click.echo(f"Added product label to parent: {get_product_label()}")
-
-    # Transition parent to Planned if currently Todo
-    if parent["state"]["name"] == "Todo":
-        states = get_workflow_states()
-        if "Planned" in states:
-            update_issue(parent["id"], stateId=states["Planned"])
-            click.echo(f"Updated parent {parent['identifier']} status: Todo -> Planned")
-
-
-@linear.command("create-task")
-@click.argument("title")
-@click.argument("description", default="", required=False)
-def cmd_create_task(title: str, description: str) -> None:
-    """Create a new task in the project backlog."""
-    states = get_workflow_states()
-    if "Backlog" not in states:
-        raise click.ClickException("Backlog state not found in workflow states")
-
-    state_id = states["Backlog"]
-    label_ids: list[str] | None = None
-    product_label = get_product_label()
-
-    if product_label:
-        labels_map = get_labels()
-        if product_label in labels_map:
-            label_ids = [labels_map[product_label]]
-
-    new_issue = create_issue(
-        title=title,
-        description=description,
-        state_id=state_id,
-        label_ids=label_ids,
-    )
-
-    click.echo(f"Created task {new_issue['identifier']}: {new_issue['title']}")
-    click.echo("- Status: Backlog")
-    if product_label and label_ids:
-        click.echo(f"- Label: {product_label}")
-
-
-@linear.command("write-plan")
-@click.argument("issue_id")
-@click.argument("plan_file", type=click.Path(exists=True))
-def cmd_write_plan(issue_id, plan_file):
-    """Write an implementation plan to a Linear task's description.
-
-    Reads a markdown plan file and stores it in the issue description between
-    '# Implementation Plan' and '(end of plan)' markers. Updates status to
-    'Planned' if currently 'Todo'.
-    """
-    plan_path = Path(plan_file)
-    plan_content = plan_path.read_text().strip()
-    if not plan_content:
-        raise click.ClickException("Plan file is empty")
-
-    issue = get_issue(issue_id)
-    description = issue.get("description") or ""
-
-    # Build the plan section with markers and surrounding HRs for visual separation
-    plan_section = (
-        f"---\n\n# Implementation Plan\n\n{plan_content}\n\n(end of plan)\n\n---"
-    )
-
-    # Replace existing plan or append
-    start_marker = "# Implementation Plan"
-    end_marker = "(end of plan)"
-    start_idx = description.find(start_marker)
-    end_idx = description.find(end_marker)
-
-    if start_idx != -1 and end_idx != -1:
-        # Expand range to include surrounding HRs and whitespace
-        replace_start = start_idx
-        replace_end = end_idx + len(end_marker)
-        # Look backwards for a preceding HR
-        prefix = description[:replace_start].rstrip()
-        if prefix.endswith("---"):
-            replace_start = len(prefix) - 3
-        # Look forwards for a trailing HR
-        suffix = description[replace_end:].lstrip()
-        if suffix.startswith("---"):
-            replace_end = len(description) - len(suffix) + 3
-        new_description = (
-            description[:replace_start].rstrip()
-            + "\n\n"
-            + plan_section
-            + "\n\n"
-            + description[replace_end:].lstrip()
-        )
-    elif start_idx != -1:
-        # Malformed - has start but no end, replace from start onward
-        new_description = description[:start_idx].rstrip() + "\n\n" + plan_section
-    else:
-        new_description = description.rstrip() + "\n\n" + plan_section
-
-    update_issue(issue["id"], description=new_description)
-    click.echo(f"Wrote implementation plan to {issue['identifier']}: {issue['title']}")
-
-    # Add product label if configured
-    labels_map = get_labels()
-    current_labels = [
-        label["name"] for label in issue.get("labels", {}).get("nodes", [])
-    ]
-    product_label_ids = ensure_product_label(issue["id"], labels_map, current_labels)
-    if product_label_ids:
-        update_issue(issue["id"], labelIds=product_label_ids)
-        click.echo(f"Added product label: {get_product_label()}")
-
-        # Also add to parent if this is a subtask
-        if issue.get("parent"):
-            parent = get_issue(issue["parent"]["id"])
-            parent_labels = [
-                label["name"] for label in parent.get("labels", {}).get("nodes", [])
-            ]
-            parent_label_ids = ensure_product_label(
-                parent["id"], labels_map, parent_labels
-            )
-            if parent_label_ids:
-                update_issue(parent["id"], labelIds=parent_label_ids)
-
-    # Update status to Planned if currently Todo
-    if issue["state"]["name"] == "Todo":
-        states = get_workflow_states()
-        if "Planned" in states:
-            update_issue(issue["id"], stateId=states["Planned"])
-            click.echo("Updated status: Todo -> Planned")
-        else:
-            click.echo(
-                "Warning: 'Planned' state not found in workflow. Status not updated.",
-                err=True,
-            )
-
-
-@linear.command("read-plan")
-@click.argument("issue_id")
-def cmd_read_plan(issue_id):
-    """Read the implementation plan from a Linear task's description.
-
-    Extracts content between '# Implementation Plan' and '(end of plan)'
-    markers in the issue description.
-    """
-    issue = get_issue(issue_id)
-    description = issue.get("description") or ""
-
-    start_marker = "# Implementation Plan"
-    end_marker = "(end of plan)"
-    start_idx = description.find(start_marker)
-    end_idx = description.find(end_marker)
-
-    if start_idx == -1:
-        raise click.ClickException(
-            f"No implementation plan found on {issue['identifier']}. "
-            f"Use 'mael linear write-plan' to add one."
-        )
-
-    # Extract content between markers (excluding the markers themselves)
-    content_start = start_idx + len(start_marker)
-    if end_idx != -1:
-        plan_content = description[content_start:end_idx].strip()
-    else:
-        plan_content = description[content_start:].strip()
-
-    click.echo(plan_content)
-
-
-@linear.command("edit-plan")
-@click.argument("issue_id")
-@click.argument("old_arg")
-@click.argument("new_arg")
-@click.option(
-    "-s",
-    "--string",
-    is_flag=True,
-    help="Treat arguments as literal strings instead of file paths.",
-)
-def cmd_edit_plan(issue_id, old_arg, new_arg, string):
-    """Search/replace within the plan section of a Linear issue description.
-
-    In default (file-based) mode, OLD_ARG and NEW_ARG are file paths containing
-    the search and replace text. With -s/--string, they are literal strings.
-    """
-    if string:
-        old_string = old_arg
-        new_string = new_arg
-    else:
-        old_path = Path(old_arg)
-        new_path = Path(new_arg)
-        if not old_path.exists():
-            raise click.ClickException(f"File not found: {old_arg}")
-        if not new_path.exists():
-            raise click.ClickException(f"File not found: {new_arg}")
-        old_string = old_path.read_text()
-        new_string = new_path.read_text()
-
-    if not old_string:
-        raise click.ClickException("Search string is empty")
-
-    issue = get_issue(issue_id)
-    description = issue.get("description") or ""
-
-    start_marker = "# Implementation Plan"
-    end_marker = "(end of plan)"
-    start_idx = description.find(start_marker)
-    end_idx = description.find(end_marker)
-
-    if start_idx == -1:
-        raise click.ClickException(
-            f"No implementation plan found on {issue['identifier']}. "
-            f"Use 'mael linear write-plan' to add one."
-        )
-
-    # Extract plan section
-    if end_idx != -1:
-        plan_section = description[start_idx : end_idx + len(end_marker)]
-    else:
-        plan_section = description[start_idx:]
-
-    # Verify exactly one match
-    count = plan_section.count(old_string)
-    if count == 0:
-        raise click.ClickException("Search string not found in plan section")
-    if count > 1:
-        raise click.ClickException(
-            f"Search string found {count} times in plan section (must be unique)"
-        )
-
-    # Replace within plan section and reconstruct
-    new_plan_section = plan_section.replace(old_string, new_string, 1)
-    new_description = (
-        description[:start_idx]
-        + new_plan_section
-        + description[start_idx + len(plan_section) :]
-    )
-
-    update_issue(issue["id"], description=new_description)
-    click.echo(f"Updated plan on {issue['identifier']}: {issue['title']}")
-
-
-@linear.command("add-comment")
-@click.argument("issue_id")
-@click.argument("comment_file", type=click.Path(exists=True))
-def cmd_add_comment(issue_id, comment_file):
-    """Add a comment to a Linear issue from a markdown file.
-
-    Reads markdown content from the file and creates a comment on the issue.
-    """
-    comment_path = Path(comment_file)
-    body = comment_path.read_text().strip()
-    if not body:
-        raise click.ClickException("Comment file is empty")
-
-    issue = get_issue(issue_id)
-    create_comment(issue["id"], body)
-    click.echo(f"Added comment to {issue['identifier']}: {issue['title']}")
-
-
-@linear.command("release")
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="List the tasks that would be released without changing anything.",
-)
-def cmd_release(dry_run):
-    """Promote all 'Unreleased' tasks with the product label to 'Done'.
-
-    Finds all issues with status "Unreleased" that have the configured product label,
-    and transitions them to "Done". Requires linear.product_label to be configured.
-    """
-    product_label = get_product_label()
-    if not product_label:
-        raise click.ClickException(
-            "linear.product_label not configured. Add to .maelstrom.yaml:\n"
-            "  linear:\n"
-            '    product_label: "YourProduct"'
-        )
-
-    team_id = get_team_id()
-    states = get_workflow_states()
-
-    if "Unreleased" not in states:
-        raise click.ClickException("'Unreleased' state not found in workflow")
-    if "Done" not in states:
-        raise click.ClickException("'Done' state not found in workflow")
-
-    # Query for issues with "Unreleased" status and the product label. Paginated:
-    # without `first:` Linear caps the result at 50, which would silently release
-    # only part of a large backlog.
-    query = """
-    query GetUnreleasedIssues(
-        $teamId: ID!
-        $stateName: String!
-        $labelName: String!
-        $first: Int
-        $after: String
-    ) {
-        issues(
-            filter: {
-                team: { id: { eq: $teamId } }
-                state: { name: { eq: $stateName } }
-                labels: { name: { eq: $labelName } }
-            }
-            first: $first
-            after: $after
-        ) {
-            nodes {
-                id
-                identifier
-                title
-            }
-            pageInfo {
-                hasNextPage
-                endCursor
-            }
-        }
-    }
-    """
-    issues = graphql_paginated(
-        query,
-        {
-            "teamId": team_id,
-            "stateName": "Unreleased",
-            "labelName": product_label,
-        },
-        connection="issues",
-    )
-
-    if not issues:
-        click.echo(f"No unreleased tasks found with label '{product_label}'.")
-        return
-
-    if dry_run:
-        click.echo(f"Would release {len(issues)} task(s):\n")
-        for issue in issues:
-            click.echo(f"- {issue['identifier']}: {issue['title']} -> Done")
-        click.echo("\nDry run — no tasks changed.")
-        return
-
-    done_state_id = states["Done"]
-    click.echo(f"Releasing {len(issues)} task(s):\n")
-
-    # A single bad ticket must not strand the rest half-released: report and
-    # carry on, then exit non-zero at the end so the failure is still visible.
-    failures: list[str] = []
-    for issue in issues:
-        try:
-            update_issue(issue["id"], stateId=done_state_id)
-        except Exception as exc:
-            # Deliberately broad: update_issue raises ClickException for a
-            # `success: false` response, but a transport error or a malformed
-            # payload surfaces as OSError/KeyError. Letting those escape would
-            # abort mid-run — exactly what this block exists to prevent.
-            reason = (
-                exc.format_message()
-                if isinstance(exc, click.ClickException)
-                else str(exc) or exc.__class__.__name__
-            )
-            failures.append(issue["identifier"])
-            click.echo(
-                f"- {issue['identifier']}: {issue['title']} -> FAILED ({reason})"
-            )
-            continue
-        click.echo(f"- {issue['identifier']}: {issue['title']} -> Done")
-
-    released = len(issues) - len(failures)
-    click.echo(f"\nReleased {released} task(s).")
-    if failures:
-        raise click.ClickException(
-            f"{len(failures)} task(s) failed to release: {', '.join(failures)}"
-        )
+    return f"{issue['identifier']}: {current} -> {state_name}"

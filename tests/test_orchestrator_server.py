@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiohttp
-import click
 import pytest
 
 from maelstrom import task as model
@@ -25,7 +24,7 @@ from maelstrom.agent_wire import (
     reply_for_approval,
 )
 from maelstrom.branch_name import TaskNames
-from maelstrom.claude_integration import agent_prompt_file
+from maelstrom.integrations.errors import IntegrationError
 from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.protocol import HostUsage
@@ -37,6 +36,7 @@ from maelstrom.orchestrator.sources import (
     NotebookTaskSource,
 )
 from maelstrom.orchestrator.world_build import split_task_key
+from maelstrom.shared_dir import agent_prompt_file
 from maelstrom.worktree import WorktreeSetup
 
 from .agent_fixtures import read_stamped_fixture
@@ -3481,7 +3481,7 @@ def test_linear_plan_refuses_a_project_with_no_linear_team(harness, linear):
 
 def test_linear_plan_relays_why_linear_refused(harness, monkeypatch):
     def boom(_project, _issue_id):
-        raise click.ClickException("LINEAR_API_KEY not set")
+        raise IntegrationError("LINEAR_API_KEY not set")
 
     monkeypatch.setattr(linear_source, "plan_fields", boom)
 

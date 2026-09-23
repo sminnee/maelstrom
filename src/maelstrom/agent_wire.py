@@ -312,7 +312,7 @@ def build_start_payload(
     ``claude``, so they inherit it.
 
     ``system_prompt_file`` is the file that teaches the child the markers.
-    Callers pass :func:`~maelstrom.claude_integration.agent_prompt_file`.
+    Callers pass :func:`~maelstrom.shared_dir.agent_prompt_file`.
     """
     # `resume` is always sent: False means "claim a fresh session", which is a
     # decision, not an omission. Every other falsy field means "the caller did

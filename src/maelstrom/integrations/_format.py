@@ -8,7 +8,7 @@ to remove the ``uptimerobot → sentry`` cross-import. Bodies are unchanged.
 import re
 from datetime import UTC, datetime
 
-import click
+from .errors import IntegrationError
 
 
 def parse_since(since: str) -> int:
@@ -18,7 +18,7 @@ def parse_since(since: str) -> int:
     """
     match = re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", since)
     if not match:
-        raise click.ClickException(
+        raise IntegrationError(
             f"Invalid --since value '{since}'. Use forms like '30m', '24h', '7d'."
         )
     value = int(match.group(1))

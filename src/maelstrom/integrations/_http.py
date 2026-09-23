@@ -2,8 +2,7 @@
 
 Covers the three request shapes the integrations need — a JSON body, a
 form-encoded body, and query params — behind one function. On an HTTP error it
-raises ``click.ClickException`` with the exact ``HTTP Error <code>: <body>``
-message the integrations used before, so observable behavior is unchanged.
+raises ``IntegrationHTTPError``, whose message is ``HTTP Error <code>: <body>``.
 """
 
 import json
@@ -12,7 +11,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-import click
+from .errors import IntegrationHTTPError
 
 
 def _read_bytes(
@@ -33,7 +32,7 @@ def _read_bytes(
     urlencoded onto the URL.
 
     Raises:
-        click.ClickException: On an HTTP error, with the response body inlined.
+        IntegrationHTTPError: On an HTTP error, with the response body inlined.
     """
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
@@ -53,7 +52,7 @@ def _read_bytes(
             return response.read()
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
-        raise click.ClickException(f"HTTP Error {e.code}: {error_body}")
+        raise IntegrationHTTPError(e.code, error_body) from e
 
 
 def _read_response(
@@ -72,7 +71,7 @@ def _read_response(
     semantics.
 
     Raises:
-        click.ClickException: On an HTTP error, with the response body inlined.
+        IntegrationHTTPError: On an HTTP error, with the response body inlined.
     """
     return _read_bytes(
         url,
@@ -98,7 +97,7 @@ def request_json(
     See :func:`_read_response` for the body/params semantics.
 
     Raises:
-        click.ClickException: On an HTTP error, with the response body inlined.
+        IntegrationHTTPError: On an HTTP error, with the response body inlined.
     """
     body = _read_response(
         url,
@@ -127,7 +126,7 @@ def request_text(
     literal string ``ok``).
 
     Raises:
-        click.ClickException: On an HTTP error, with the response body inlined.
+        IntegrationHTTPError: On an HTTP error, with the response body inlined.
     """
     return _read_response(
         url,
@@ -151,7 +150,7 @@ def request_bytes(
     (e.g. downloading an image) that must not be mangled into text.
 
     Raises:
-        click.ClickException: On an HTTP error, with the response body inlined.
+        IntegrationHTTPError: On an HTTP error, with the response body inlined.
     """
     return _read_bytes(
         url,

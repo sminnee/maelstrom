@@ -7,14 +7,14 @@ finds and leaves the rest alone.
 import json
 from pathlib import Path
 
-from maelstrom import claude_integration
+from maelstrom import shared_dir
 from maelstrom.claude_integration import (
     SANDBOX_EXCLUSIONS,
-    agent_prompt_file,
     install_sandbox_exclusions,
     remove_session_channel,
     remove_session_hooks,
 )
+from maelstrom.shared_dir import agent_prompt_file
 
 
 def _settings(tmp_path: Path, data: dict) -> Path:
@@ -192,5 +192,5 @@ def test_no_shared_dir_means_no_agent_prompt_file(monkeypatch):
     def gone():
         raise FileNotFoundError("shared")
 
-    monkeypatch.setattr(claude_integration, "get_shared_dir", gone)
+    monkeypatch.setattr(shared_dir, "get_shared_dir", gone)
     assert agent_prompt_file() is None

@@ -3,12 +3,13 @@
 import json
 from unittest.mock import Mock, patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
 from maelstrom.context import GlobalConfig
-from maelstrom.integrations.slack import resolve_webhook, slack
+from maelstrom.integrations.errors import IntegrationError
+from maelstrom.integrations.slack import resolve_webhook
+from maelstrom.integrations.slack_cli import slack_group as slack
 
 
 def _config(**webhooks: str) -> GlobalConfig:
@@ -60,7 +61,7 @@ class TestResolveWebhook:
     @patch("maelstrom.integrations.slack.load_global_config")
     def test_unknown_channel_lists_available(self, mock_cfg):
         mock_cfg.return_value = _config(weekly="https://a", alerts="https://b")
-        with pytest.raises(click.ClickException) as exc:
+        with pytest.raises(IntegrationError) as exc:
             resolve_webhook("nope")
         assert "weekly" in str(exc.value)
         assert "alerts" in str(exc.value)
@@ -68,7 +69,7 @@ class TestResolveWebhook:
     @patch("maelstrom.integrations.slack.load_global_config")
     def test_empty_config_raises(self, mock_cfg):
         mock_cfg.return_value = _config()
-        with pytest.raises(click.ClickException, match="No Slack webhooks configured"):
+        with pytest.raises(IntegrationError, match="No Slack webhooks configured"):
             resolve_webhook(None)
 
 
@@ -150,7 +151,7 @@ class TestPostCommand:
         tty_stream.isatty.return_value = True
 
         with patch(
-            "maelstrom.integrations.slack.click.get_text_stream",
+            "maelstrom.integrations.slack_cli.click.get_text_stream",
             return_value=tty_stream,
         ):
             result = CliRunner().invoke(slack, ["post", "hello"])
@@ -165,8 +166,8 @@ class TestPostCommand:
 
         result = CliRunner().invoke(slack, ["post", "--channel", "nope", "hi"])
 
-        assert result.exit_code != 0
-        assert "Unknown Slack channel" in result.output
+        assert result.exit_code == 1
+        assert "Error: Unknown Slack channel 'nope'" in result.output
 
 
 class TestPostMessageHttp:

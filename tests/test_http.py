@@ -3,10 +3,10 @@
 import urllib.error
 from unittest.mock import patch
 
-import click
 import pytest
 
 from maelstrom.integrations._http import request_bytes
+from maelstrom.integrations.errors import IntegrationHTTPError
 
 
 class TestRequestBytes:
@@ -24,7 +24,7 @@ class TestRequestBytes:
         assert req.get_header("Authorization") == "lin_x"
 
     @patch("maelstrom.integrations._http.urllib.request.urlopen")
-    def test_http_error_raises_click_exception(self, mock_urlopen):
+    def test_http_error_raises_integration_http_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib.error.HTTPError(
             url="https://uploads.linear.app/abc",
             code=401,
@@ -33,7 +33,8 @@ class TestRequestBytes:
             fp=None,
         )
 
-        with pytest.raises(click.ClickException) as exc:
+        with pytest.raises(IntegrationHTTPError) as exc:
             request_bytes("https://uploads.linear.app/abc")
 
-        assert "HTTP Error 401" in str(exc.value)
+        assert exc.value.code == 401
+        assert str(exc.value).startswith("HTTP Error 401: ")

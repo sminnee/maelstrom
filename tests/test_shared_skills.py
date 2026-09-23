@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from maelstrom.claude_integration import get_shared_dir
+from maelstrom.shared_dir import get_shared_dir
 
 
 def _frontmatter(skill_file: Path) -> dict:

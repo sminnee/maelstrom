@@ -3,21 +3,22 @@
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
 from maelstrom import task as model
 from maelstrom import task_cli
 from maelstrom.integrations import linear as linear_mod
+from maelstrom.integrations import linear_cli
+from maelstrom.integrations.errors import IntegrationError, IntegrationHTTPError
 from maelstrom.integrations.linear import (
     build_plan_task,
     create_comment,
     fetch_cycle_issues,
     graphql_paginated,
-    linear,
     localize_description_images,
 )
+from maelstrom.integrations.linear_cli import linear_group as linear
 from maelstrom.task_table import InMemoryTaskTable
 
 
@@ -43,7 +44,13 @@ class TestCmdPlan:
     # Branch generation is forced down the deterministic fallback by the
     # conftest autouse fixture (the ``claude`` CLI is blocked in tests).
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
+    @pytest.fixture(autouse=True)
+    def _project(self, monkeypatch):
+        """Resolve an unnamed project to ``p`` rather than from the cwd."""
+        monkeypatch.setattr(
+            linear_cli, "resolve_project", lambda project: project or "p"
+        )
+
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
@@ -69,7 +76,6 @@ class TestCmdPlan:
         # fallback, since the model call is forced to fail): number-led desc.
         assert kwargs["branch"] == "feat/99-do-thing"
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_run_forwards_run_flag(self, mock_get, mock_add):
@@ -83,7 +89,6 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is True
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_no_run_forwards_run_flag(self, mock_get, mock_add):
@@ -97,7 +102,6 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is False
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_defaults_to_opus(self, mock_get, mock_add):
@@ -112,7 +116,6 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["model"] == "opus"
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_defaults_to_normal_mode(self, mock_get, mock_add):
@@ -127,7 +130,6 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["mode"] == "normal"
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_explicit_mode_overrides_default(self, mock_get, mock_add):
@@ -140,7 +142,6 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["mode"] == "plan"
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_flags_override_the_planning_defaults(self, mock_get, mock_add):
@@ -176,7 +177,6 @@ class TestCmdPlan:
         assert kwargs["parent"] == "custom"
         assert kwargs["post_action"] == "sentry.resolved"
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_empty_value_clears_rather_than_defaults(self, mock_get, mock_add):
@@ -195,7 +195,6 @@ class TestCmdPlan:
         assert kwargs["post_action"] == ""
         assert kwargs["command"] == ""
 
-    @patch("maelstrom.task_cli._resolve_project", lambda project: project or "p")
     @patch("maelstrom.task_cli.add_task")
     @patch("maelstrom.integrations.linear.get_issue")
     def test_plan_explicit_branch_skips_generation(
@@ -251,9 +250,6 @@ class TestCmdPlan:
 
         monkeypatch.setattr(task_cli, "_table", _table)
         monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
-        monkeypatch.setattr(
-            task_cli, "_resolve_project", lambda project: project or "p"
-        )
         runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["plan", "NORT-123", "--no-run"])
         assert result.exit_code == 0, result.output
@@ -283,9 +279,6 @@ class TestCmdPlan:
 
         monkeypatch.setattr(task_cli, "_table", _table)
         monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
-        monkeypatch.setattr(
-            task_cli, "_resolve_project", lambda project: project or "p"
-        )
         runner = ThreadedCliRunner()
         result = runner.invoke(
             linear, ["plan", "NORT-123", "--no-run", "--execute-model", "sonnet"]
@@ -383,6 +376,10 @@ class TestFetchCycleIssues:
         assert mock_paginated.call_args.args[1]["status"] == "progress"
 
 
+# ``warn=pytest.fail`` asserts that nothing warns: ``pytest.fail`` raises a
+# ``BaseException``, which no ``except IntegrationError`` swallows.
+
+
 class TestBuildPlanTask:
     """The task fields ``mael linear plan`` creates, without creating them."""
 
@@ -393,7 +390,7 @@ class TestBuildPlanTask:
             "title": "Do the thing",
             "description": "Some details.",
         }
-        fields = build_plan_task("ME-99", "p")
+        fields = build_plan_task("ME-99", "p", warn=pytest.fail)
 
         assert fields["title"] == "Plan ME-99"
         assert fields["command"] == "plan-task"
@@ -413,7 +410,7 @@ class TestBuildPlanTask:
         }
         # The caller already named a branch -- the orchestrator infers its own
         # rather than shelling out to generate one.
-        fields = build_plan_task("ME-99", "p", branch="feat/99-given")
+        fields = build_plan_task("ME-99", "p", branch="feat/99-given", warn=pytest.fail)
         assert fields["branch"] == "feat/99-given"
 
 
@@ -434,7 +431,9 @@ class TestLocalizeDescriptionImages:
         with patch.object(
             linear_mod, "request_bytes", return_value=PNG_BYTES
         ) as mock_req:
-            result = localize_description_images("NORT-1", "proj", desc)
+            result = localize_description_images(
+                "NORT-1", "proj", desc, warn=pytest.fail
+            )
 
         mock_req.assert_called_once()
         assert mock_req.call_args.kwargs["headers"] == {"Authorization": "lin_key"}
@@ -457,7 +456,9 @@ class TestLocalizeDescriptionImages:
         desc = "Just text, no images here."
 
         with patch.object(linear_mod, "request_bytes") as mock_req:
-            result = localize_description_images("NORT-1", "proj", desc)
+            result = localize_description_images(
+                "NORT-1", "proj", desc, warn=pytest.fail
+            )
 
         assert result == desc
         mock_req.assert_not_called()
@@ -468,15 +469,22 @@ class TestLocalizeDescriptionImages:
         url = "https://uploads.linear.app/7b3f/deadbeef"
         desc = f"![x]({url})"
 
+        warnings: list[str] = []
         with patch.object(
             linear_mod,
             "request_bytes",
-            side_effect=click.ClickException("HTTP Error 404: gone"),
+            side_effect=IntegrationHTTPError(404, "gone"),
         ):
-            result = localize_description_images("NORT-1", "proj", desc)
+            result = localize_description_images(
+                "NORT-1", "proj", desc, warn=warnings.append
+            )
 
         # No raise; original ref untouched; nothing written.
         assert result == desc
+        assert warnings == [
+            f"warning: could not download image {url}: HTTP Error 404: gone; "
+            "leaving the original URL in the brief"
+        ]
         assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
 
     def test_duplicate_url_downloaded_once(self, tmp_path, monkeypatch):
@@ -487,7 +495,9 @@ class TestLocalizeDescriptionImages:
         with patch.object(
             linear_mod, "request_bytes", return_value=PNG_BYTES
         ) as mock_req:
-            result = localize_description_images("NORT-1", "proj", desc)
+            result = localize_description_images(
+                "NORT-1", "proj", desc, warn=pytest.fail
+            )
 
         # One download, one file, both refs rewritten to the same token.
         assert mock_req.call_count == 1
@@ -506,12 +516,17 @@ class TestLocalizeDescriptionImages:
         url = "https://uploads.linear.app/7b3f/not-an-image"
         desc = f"Before\n\n![diagram.svg]({url})\n\nAfter"
 
+        warnings: list[str] = []
         with patch.object(
             linear_mod, "request_bytes", return_value=b"<svg>not a raster image</svg>"
         ):
-            result = localize_description_images("NORT-1", "proj", desc)
+            result = localize_description_images(
+                "NORT-1", "proj", desc, warn=warnings.append
+            )
 
         assert result == desc
+        assert len(warnings) == 1
+        assert warnings[0].startswith(f"warning: could not store image {url}: ")
         assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
 
 
@@ -542,7 +557,7 @@ class TestCreateComment:
 
     @patch("maelstrom.integrations.linear.graphql_request")
     def test_create_comment_failure(self, mock_graphql):
-        """Test comment creation failure raises ClickException."""
+        """Test comment creation failure raises IntegrationError."""
         mock_graphql.return_value = {
             "commentCreate": {
                 "success": False,
@@ -550,7 +565,7 @@ class TestCreateComment:
             }
         }
 
-        with pytest.raises(click.ClickException, match="Failed to create comment"):
+        with pytest.raises(IntegrationError, match="Failed to create comment"):
             create_comment("issue-456", "Some comment")
 
     @patch("maelstrom.integrations.linear.graphql_request")
@@ -731,8 +746,9 @@ class TestCmdSetStatus:
         runner = ThreadedCliRunner()
         result = runner.invoke(linear, ["set-status", "PROJ-7", "done"])
 
-        assert result.exit_code != 0
-        assert "not found in workflow" in result.output
+        # The group turns the model's IntegrationError into a CLI error.
+        assert result.exit_code == 1
+        assert "Error: 'Unreleased' state not found in workflow." in result.output
 
 
 SAMPLE_DESCRIPTION_WITH_PLAN = (
@@ -955,7 +971,7 @@ class TestGraphqlPaginated:
         # A server that never clears hasNextPage must not spin forever.
         mock_graphql.return_value = _page([{"id": "a"}], has_next=True, cursor="c")
 
-        with pytest.raises(click.ClickException, match="exceeded 3 pages"):
+        with pytest.raises(IntegrationError, match="exceeded 3 pages"):
             graphql_paginated("query {}", connection="issues", max_pages=3)
 
         assert mock_graphql.call_count == 3
@@ -1065,7 +1081,7 @@ class TestCmdRelease:
         )
         mock_update.side_effect = [
             None,
-            click.ClickException("Failed to update issue"),
+            IntegrationError("Failed to update issue"),
             None,
         ]
 
@@ -1087,7 +1103,7 @@ class TestCmdRelease:
     def test_release_continues_past_transport_errors(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
-        # A network/transport error is not a ClickException, but it must still
+        # A network/transport error is not an IntegrationError, but it must still
         # not abort the run and strand the remaining tickets.
         mock_label.return_value = "askastro"
         mock_team.return_value = "team-1"

@@ -2,17 +2,17 @@
 
 from unittest.mock import patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
+from maelstrom.integrations.errors import IntegrationError
 from maelstrom.integrations.uptimerobot import (
     api_request,
     format_duration,
     format_log_type,
     format_status,
-    uptimerobot,
 )
+from maelstrom.integrations.uptimerobot_cli import uptimerobot_group as uptimerobot
 
 
 class TestFormatStatus:
@@ -87,7 +87,7 @@ class TestApiRequest:
             b'"message":"api_key is invalid"}}'
         )
 
-        with pytest.raises(click.ClickException, match="api_key is invalid"):
+        with pytest.raises(IntegrationError, match="api_key is invalid"):
             api_request("/getMonitors")
 
 
@@ -138,7 +138,7 @@ class TestStatusCommand:
         assert "99.99%" in result.output
         assert "99.70%" in result.output
 
-    @patch("maelstrom.integrations.uptimerobot.format_relative_time")
+    @patch("maelstrom.integrations.uptimerobot_cli.format_relative_time")
     @patch(
         "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=["111"],
@@ -231,17 +231,19 @@ class TestStatusCommand:
     )
     @patch("maelstrom.integrations.uptimerobot.api_request")
     def test_status_handles_api_fail(self, mock_api, _mock_monitors):
-        mock_api.side_effect = click.ClickException("UptimeRobot API error: bad key")
+        mock_api.side_effect = IntegrationError("UptimeRobot API error: bad key")
 
         runner = CliRunner()
         result = runner.invoke(uptimerobot, ["status"])
 
-        assert result.exit_code != 0
-        assert "bad key" in result.output
+        assert result.exit_code == 1
+        assert "Error: UptimeRobot API error: bad key" in result.output
 
 
 class TestOutagesCommand:
-    @patch("maelstrom.integrations.uptimerobot.time.time", return_value=2_000_000_000)
+    @patch(
+        "maelstrom.integrations.uptimerobot_cli.time.time", return_value=2_000_000_000
+    )
     @patch(
         "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=["111"],
