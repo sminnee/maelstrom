@@ -19,15 +19,16 @@ from typing import Any
 
 import click
 
-from ..agent_model import (
+from ..agent_store import InMemoryMilestoneStore, MilestoneStore
+from ..agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     BACKLOG_END,
     SEQ_KEY,
     TRUNCATED,
+    build_resume_payload,
     build_start_payload,
 )
-from ..agent_store import InMemoryMilestoneStore, MilestoneStore
 from ..branch_name import lead_with_number
 from ..claude_integration import agent_prompt_file
 from ..desk_store import DeskStore, InMemoryDeskStore
@@ -1520,14 +1521,11 @@ class Orchestrator:
         ``list`` is the evidence the agent is back. The world reconciles against
         it at once, as a launch does.
         """
-        payload: dict[str, Any] = {"cmd": "resume", "id": command["agentId"]}
-        text = str(command.get("text", "")).strip()
-        if text:
-            payload["text"] = text
-        # The daemon knows no shared dir, and a record older than the field has
-        # none of its own.
-        if (prompt_file := agent_prompt_file()) is not None:
-            payload["system_prompt_file"] = str(prompt_file)
+        payload = build_resume_payload(
+            command["agentId"],
+            text=str(command.get("text", "")).strip(),
+            system_prompt_file=agent_prompt_file(),
+        )
         refused = await self._ask_host(payload)
         if refused:
             return refused

@@ -30,8 +30,8 @@ from pathlib import Path
 
 import click
 
-from .agent_model import build_start_payload
 from .agent_transport import client as daemon_client
+from .agent_wire import build_start_payload
 from .claude_integration import agent_prompt_file
 from .cmux import mael_layout
 from .cmux.client import current_client, ensure_cmux_running

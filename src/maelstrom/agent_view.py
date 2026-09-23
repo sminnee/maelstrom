@@ -15,7 +15,7 @@ the two ``mael_*`` stream markers, and whether the stream ended because the
 agent did or because the connection went.
 
 It also keeps its own token total, split by kind for the footer. The agent row
-carries a session total too, summed by ``agent_model.tokens_of``; this one is
+carries a session total too, summed by ``agent_wire.tokens_of``; this one is
 per attach, and both read the same fields so the two can never disagree.
 """
 
@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any
 
-from .agent_model import (
+from .agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     BACKLOG_END,

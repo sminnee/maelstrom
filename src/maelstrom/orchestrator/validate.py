@@ -8,7 +8,7 @@ the web tests, so a rule added here belongs there too.
 
 from typing import Any
 
-from ..agent_model import MODES as AGENT_MODES
+from ..agent_wire import MODES as AGENT_MODES
 from ..harness_model import resolve_execute_model
 from ..worktree_model import is_worktree_closable
 from .desk import split_desk_id

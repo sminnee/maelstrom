@@ -11,8 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from maelstrom.agent_model import AGENT_EXITED, BACKLOG_END
 from maelstrom.agent_tui import AttachApp
+from maelstrom.agent_wire import (
+    AGENT_EXITED,
+    BACKLOG_END,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 

@@ -18,26 +18,15 @@ import pytest
 
 from maelstrom import agent_server
 from maelstrom.agent_model import (
-    AGENT_DETAIL,
-    AGENT_EXITED,
-    AWAITING_PERMISSION,
-    AWAITING_PLAN_REVIEW,
-    AWAITING_QUESTION,
-    BACKLOG_END,
     DEFAULT_RESUME_PROMPT,
-    EXITED,
     INTERRUPTED_REASON,
     LOST_ASK_RESUME_PROMPT,
-    PROCESSING,
     SPEC_EXITED,
     SPEC_STOPPED,
-    TRUNCATED,
-    TS_KEY,
     AgentSpec,
     TranscriptMeta,
     apply_event,
     mark_exited,
-    user_message,
 )
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_spec_store import (
@@ -45,6 +34,19 @@ from maelstrom.agent_spec_store import (
     JsonAgentSpecStore,
 )
 from maelstrom.agent_transport import DaemonPaths
+from maelstrom.agent_wire import (
+    AGENT_DETAIL,
+    AGENT_EXITED,
+    AWAITING_PERMISSION,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
+    BACKLOG_END,
+    EXITED,
+    PROCESSING,
+    TRUNCATED,
+    TS_KEY,
+    user_message,
+)
 from maelstrom.process_table import ProcessInfo, ProcessTableUnavailable
 from maelstrom.transcript_store import InMemoryTranscriptStore
 
@@ -437,7 +439,7 @@ def test_a_watcher_is_told_when_the_agent_exits():
     """The attach stream ends with the exit marker, not with a silent hang."""
     from unittest.mock import AsyncMock
 
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     proc = MagicMock()
     proc.pid = 4242
@@ -705,7 +707,7 @@ def test_the_child_runs_in_its_own_process_group():
 
 
 def test_attaching_to_an_exited_agent_ends_after_the_backlog():
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     daemon = AgentDaemon()
     agent = _stub_agent()
@@ -2620,7 +2622,7 @@ def _attach_briefly(daemon: AgentDaemon, agent_id: str, **cursor) -> list[dict]:
 
 
 def test_the_backlog_carries_a_seq_per_event_and_ends_with_the_epoch_and_seq():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon = AgentDaemon()
     agent = _stub_agent()
@@ -2637,7 +2639,7 @@ def test_the_backlog_carries_a_seq_per_event_and_ends_with_the_epoch_and_seq():
 
 
 def test_a_cursor_from_this_life_replays_only_what_came_after_it():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon = AgentDaemon()
     agent = _stub_agent()
@@ -2650,7 +2652,7 @@ def test_a_cursor_from_this_life_replays_only_what_came_after_it():
 
 
 def test_a_cursor_from_another_life_is_ignored_and_the_whole_window_replays():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon = AgentDaemon()
     agent = _stub_agent()
@@ -2664,7 +2666,7 @@ def test_a_cursor_from_another_life_is_ignored_and_the_whole_window_replays():
 def test_a_cursor_the_ring_has_rolled_past_gets_a_truncated_marker_first(monkeypatch):
     """The client asked from seq 1; the ring starts later, so it is told how much is gone."""
     from maelstrom import agent_model
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     monkeypatch.setattr(agent_model, "RECENT_LIMIT", 3)
     daemon = AgentDaemon()
@@ -2694,7 +2696,7 @@ def test_a_fresh_attach_to_a_rolled_ring_says_how_many_are_gone(monkeypatch):
 
 
 def test_two_watchers_on_one_agent_both_receive_a_recorded_event():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon = AgentDaemon()
     agent = _stub_agent()
@@ -2723,7 +2725,7 @@ def test_two_watchers_on_one_agent_both_receive_a_recorded_event():
 def test_a_watcher_that_falls_a_queue_behind_is_told_what_it_lost_once(monkeypatch):
     """The overflow used to drop the oldest silently. Now the seq jump is marked."""
     from maelstrom import agent_server
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     monkeypatch.setattr(agent_server, "WATCHER_QUEUE_LIMIT", 2)
     daemon = AgentDaemon()
@@ -3089,7 +3091,7 @@ def test_a_typo_against_a_subagent_is_an_unknown_command_not_a_refusal():
 
 
 def test_a_parent_attach_never_sees_a_subagents_event():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon, agent = _agent_with_subagent()
     writer = _recording_writer()
@@ -3111,7 +3113,7 @@ def test_a_parent_attach_never_sees_a_subagents_event():
 
 
 def test_attach_to_a_subagent_opens_with_its_detail_and_replays_its_ring():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon, agent = _agent_with_subagent()
     frames = _attach_briefly(daemon, "a1.1")
@@ -3125,7 +3127,7 @@ def test_attach_to_a_subagent_opens_with_its_detail_and_replays_its_ring():
 
 
 def test_a_cursor_on_a_subagent_replays_only_what_is_newer():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon, agent = _agent_with_subagent()
     frames = _attach_briefly(daemon, "a1.1", from_seq=1, epoch=agent.epoch)
@@ -3134,7 +3136,7 @@ def test_a_cursor_on_a_subagent_replays_only_what_is_newer():
 
 
 def test_a_subagent_attach_follows_its_live_events():
-    from maelstrom.agent_model import SEQ_KEY
+    from maelstrom.agent_wire import SEQ_KEY
 
     daemon, agent = _agent_with_subagent()
     writer = _recording_writer()
@@ -3155,7 +3157,7 @@ def test_a_subagent_attach_follows_its_live_events():
 
 
 def test_the_notification_ends_the_subagents_stream_and_only_that_one():
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     daemon, agent = _agent_with_subagent()
     parent, child = _recording_writer(), _recording_writer()
@@ -3177,7 +3179,7 @@ def test_the_notification_ends_the_subagents_stream_and_only_that_one():
 
 
 def test_a_failed_subagent_ends_its_stream_with_exit_one():
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     daemon, agent = _agent_with_subagent()
     child = _recording_writer()
@@ -3193,7 +3195,7 @@ def test_a_failed_subagent_ends_its_stream_with_exit_one():
 
 
 def test_attaching_to_an_ended_subagent_ends_after_the_backlog():
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     daemon, agent = _agent_with_subagent()
     agent.record(_notification("t1"))
@@ -3204,7 +3206,7 @@ def test_attaching_to_an_ended_subagent_ends_after_the_backlog():
 
 
 def test_a_parent_exit_reaches_the_subagents_watchers_too():
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     proc = MagicMock()
     proc.pid = 4242

@@ -13,7 +13,6 @@ from click.testing import CliRunner
 
 from maelstrom import admin_cli, agent_cli, agent_transport
 from maelstrom.agent_model import (
-    AGENT_EXITED,
     apply_event,
     build_agent_detail,
     build_agent_row,
@@ -27,6 +26,7 @@ from maelstrom.agent_transport import (
     RecordingDaemonClient,
     SocketAsyncDaemonClient,
 )
+from maelstrom.agent_wire import AGENT_EXITED
 from maelstrom.notebook_root import NotebookRootUnset
 from maelstrom.state_db.migrate import open_state_db
 

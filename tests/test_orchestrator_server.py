@@ -18,11 +18,14 @@ import pytest
 from maelstrom import task as model
 from maelstrom.agent_model import (
     AgentState,
-    PendingRequest,
     build_agent_row,
+)
+from maelstrom.agent_wire import (
+    PendingRequest,
     reply_for_approval,
 )
 from maelstrom.branch_name import TaskNames
+from maelstrom.claude_integration import agent_prompt_file
 from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
 from maelstrom.orchestrator.protocol import HostUsage
@@ -454,7 +457,7 @@ def test_a_backlog_the_host_says_it_cut_is_marked_truncated(harness):
 
 def test_a_backlog_the_size_of_the_hosts_window_is_not_truncated_on_its_own(harness):
     """Only the host's marker says events are gone; a full window alone does not."""
-    from maelstrom.agent_model import RECENT_LIMIT
+    from maelstrom.agent_wire import RECENT_LIMIT
 
     events = read_fixture("normal-turn.jsonl")
     padding = [{"type": "rate_limit_event"}] * (RECENT_LIMIT - len(events))
@@ -609,7 +612,7 @@ def test_a_live_turn_lands_on_the_socket_and_in_the_agent_row(harness):
 
 
 def test_the_exit_marker_marks_the_agent_exited_and_raises_attention(harness):
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     harness.daemon.rows["ag1"] = agent_row()
 
@@ -2152,9 +2155,12 @@ def test_resume_reaches_the_host_and_brings_the_agent_back_at_once(harness_facto
     assert before["state"] == "exited"
     assert reply.status == 200
     (sent,) = [call for call in harness.daemon.calls if call.get("cmd") == "resume"]
-    assert sent["id"] == "ag1"
     # The daemon knows no shared dir, so the client names the prompt file.
-    assert sent["system_prompt_file"].endswith("agent-prompt.md")
+    assert sent == {
+        "cmd": "resume",
+        "id": "ag1",
+        "system_prompt_file": str(agent_prompt_file()),
+    }
     assert agent["state"] == "idle"
 
 
@@ -2791,7 +2797,7 @@ def test_a_re_attach_after_a_dropped_stream_asks_for_what_it_missed(harness):
 
 
 def test_events_dropped_mid_stream_show_as_a_gap_item(harness):
-    from maelstrom.agent_model import TRUNCATED
+    from maelstrom.agent_wire import TRUNCATED
 
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.backlog["ag1"] = read_fixture("normal-turn.jsonl")
@@ -2813,7 +2819,7 @@ def test_events_dropped_mid_stream_show_as_a_gap_item(harness):
 
 def test_a_wait_whose_answer_fell_in_a_gap_is_closed_by_the_next_reconcile(harness):
     """The world says waiting; the host's row says not. The gap ate the answer."""
-    from maelstrom.agent_model import TRUNCATED
+    from maelstrom.agent_wire import TRUNCATED
 
     waiting_on(harness, "permission-request.jsonl")
 
@@ -5642,7 +5648,7 @@ def test_an_exit_records_what_was_spent_after_the_last_stage(harness):
     Without a closing row that spend is invisible: the deltas would no longer
     sum to the total, and the report's question is where the burn went.
     """
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
 
@@ -5681,7 +5687,7 @@ def test_an_exit_that_spent_nothing_since_the_last_stage_closes_no_row(harness):
     An empty row would report a stage that cost nothing, which is the same
     false reading a replayed marker would give.
     """
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     harness.daemon.rows["ag1"] = agent_row(cost="1.0000", tokens=10_000)
 
@@ -5709,7 +5715,7 @@ def test_an_agent_that_reached_no_stage_still_closes_its_ledger(harness):
 
     Measured from zero, so the one row carries the lot.
     """
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     harness.daemon.rows["ag1"] = agent_row(cost="0.4000", tokens=5_000)
 
@@ -5739,7 +5745,7 @@ def test_the_ledger_closes_only_after_the_exit_is_applied(harness):
     and would flake. This asserts the world already reports the agent exited
     by the time the row is written, which is the property the window needs.
     """
-    from maelstrom.agent_model import AGENT_EXITED
+    from maelstrom.agent_wire import AGENT_EXITED
 
     harness.daemon.rows["ag1"] = agent_row(cost="0.4000", tokens=5_000)
     seen: list[str] = []

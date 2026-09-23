@@ -11,22 +11,10 @@ socket client, and a scripted fake that records calls.
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from ..agent_model import (
-    AGENT_DETAIL,
-    BACKLOG_END,
-    SEQ_KEY,
-    TRUNCATED,
-    AgentState,
-    PendingRequest,
-    build_agent_detail,
-    reply_for_answers,
-    reply_for_approval,
-    reply_for_denial,
-)
 from ..agent_store import (
     AGENT_ENDED,
     AGENT_RUNNING,
@@ -35,6 +23,18 @@ from ..agent_store import (
     register_agent,
 )
 from ..agent_transport import AsyncDaemonClient, attach_command
+from ..agent_wire import (
+    AGENT_DETAIL,
+    BACKLOG_END,
+    SEQ_KEY,
+    TRUNCATED,
+    AgentDetail,
+    PendingRequest,
+    detail_frame,
+    reply_for_answers,
+    reply_for_approval,
+    reply_for_denial,
+)
 from ..harness_model import HARNESS_CLAUDE, HARNESS_CODEX, resolve_model_reference
 from ..util import now_iso
 
@@ -578,28 +578,22 @@ class ScriptedAsyncDaemonClient:
         for queue in self._queues.get(agent_id, []):
             queue.put_nowait(_END)
 
-    def _detail(self, agent_id: str) -> dict[str, Any]:
-        """The opening frame the real host builds from its own ``AgentState``.
+    def _detail(self, agent_id: str) -> AgentDetail:
+        """The opening frame the real host would build for this agent.
 
-        Built from the same ``PendingRequest`` the echo uses, through the
-        daemon's own :func:`build_agent_detail`, so the fake cannot describe a
-        wait in a shape the host would not.
+        Built from the same ``PendingRequest`` the echo uses, through the wire
+        contract's own :func:`detail_frame`. So the fake cannot describe a wait
+        in a shape the host would not.
         """
-        state = AgentState(agent_id=agent_id, cwd=self.rows[agent_id].get("cwd", ""))
-        pending = self.pending.get(agent_id)
-        if pending is not None:
-            state = replace(
-                state,
-                own_pending={pending.request_id: pending},
-                status=pending.wait_kind,
-            )
-        return build_agent_detail(state)
+        return detail_frame(
+            agent_id, self.rows[agent_id].get("cwd", ""), self.pending.get(agent_id)
+        )
 
     def _echo_for(self, payload: dict[str, Any], command: str) -> dict[str, Any] | None:
         """The reply the host would echo onto the stream for ``payload``.
 
         The reply shapes are the daemon's own
-        (:mod:`maelstrom.agent_model`), built against the request the agent is
+        (:mod:`maelstrom.agent_wire`), built against the request the agent is
         waiting on. ``None`` for a command that echoes nothing.
         """
         agent_id = str(payload.get("id", ""))
