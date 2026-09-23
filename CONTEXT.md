@@ -185,8 +185,8 @@ A session whose `claude` process is currently running, established from the runn
 themselves rather than from any file. Only a live session stops a task from being re-run.
 
 **Stopped session**:
-A session the daemon started whose `claude` process has ended, and which `mael agent resume` can
-bring back. A stopped session keeps its spawn record, which is what a resume reads, and its
+A session the daemon started whose `claude` process has ended, and which `mael agent resume` or
+the node card's Resume can bring back. A stopped session keeps its spawn record, which is what a resume reads, and its
 transcript, which says what it was doing. A session started by hand has no record and is not a
 stopped session. `mael agent list --stopped` lists them.
 _Avoid_: Closed session (a closed worktree is a different thing), ended session, dead session

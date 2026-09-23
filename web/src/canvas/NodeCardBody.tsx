@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useStop } from '../api/agents';
+import { useResume, useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
 import { useMilestones } from '../api/milestones';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
@@ -60,6 +60,7 @@ export function NodeCardBody({
   const milestones = useMilestones(node.agent?.id ?? null);
   const launch = useLaunch();
   const stop = useStop();
+  const resume = useResume();
   const setStatus = useSetStatus();
   const removeFromDesk = useRemoveFromDesk();
   const editTask = useAppStore((s) => s.setEditingTask);
@@ -310,6 +311,15 @@ export function NodeCardBody({
                the turn — see CONTEXT.md, "Interrupt". */
             <AppButton variant="quiet" onClick={() => stop.mutateAsync({ agentId: agent.id })}>
               Terminate
+            </AppButton>
+          )}
+          {agent && !isLive(agent) && (
+            <AppButton
+              variant="quiet"
+              processingChildren="Resuming"
+              onClick={() => resume.mutateAsync({ agentId: agent.id })}
+            >
+              Resume
             </AppButton>
           )}
         </div>
