@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from maelstrom.config import ServiceDef
+from .config import ServiceDef
 
 
 @dataclass(frozen=True)

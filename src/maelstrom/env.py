@@ -16,22 +16,22 @@ from pathlib import Path
 from string import Template
 from subprocess import DEVNULL, STDOUT, Popen
 
-from maelstrom.config import (
+from .config import (
     ServiceDef,
     load_config_or_default,
 )
-from maelstrom.context import get_maelstrom_dir
-from maelstrom.env_store import EnvStore
-from maelstrom.services import (
+from .context import get_maelstrom_dir
+from .env_store import EnvStore
+from .services import (
     ENGINES,
     build_command_service,
     build_container_run,
     container_name,
     discover_container_ip,
 )
-from maelstrom.session_discovery import LiveSession
-from maelstrom.util import now_iso, sanitise_child_env
-from maelstrom.worktree import read_env_file, regenerate_env_file, run_install_cmd
+from .session_discovery import LiveSession
+from .util import now_iso, sanitise_child_env
+from .worktree import read_env_file, regenerate_env_file, run_install_cmd
 
 # --- Dataclasses ---
 
