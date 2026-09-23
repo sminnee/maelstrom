@@ -62,9 +62,9 @@ from .notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
 from .orchestrator_cli import orchestrator as orchestrator_cli
 from .ports import get_app_url
 from .project_cli import project as project_cli
-from .schedule_launchd import schedule_group
+from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
-from .table import draw_table
+from .table_cli import draw_table
 from .task_cli import _harness_options as _harness_flags
 from .task_cli import add_task, resolve_harness_or_fail
 from .task_cli import task as task_cli

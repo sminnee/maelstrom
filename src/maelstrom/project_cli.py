@@ -5,7 +5,7 @@ import json
 import click
 
 from .context import load_global_config
-from .table import draw_table
+from .table_cli import draw_table
 from .util import abbreviate_home
 from .worktree import list_projects
 

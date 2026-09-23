@@ -12,6 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from maelstrom import schedule_launchd as sl
+from maelstrom.schedule_cli import schedule_group
 
 
 @pytest.fixture
@@ -174,9 +175,7 @@ class TestMarker:
 
     def test_install_rejects_wake_at_option(self, home, darwin, launchctl):
         """``--wake-at`` is gone: Click rejects it as an unknown option."""
-        result = CliRunner().invoke(
-            sl.schedule_group, ["install", "--wake-at", "09:00"]
-        )
+        result = CliRunner().invoke(schedule_group, ["install", "--wake-at", "09:00"])
         assert result.exit_code == 2
         assert "no such option" in result.output.lower()
 

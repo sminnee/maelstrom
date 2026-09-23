@@ -26,7 +26,7 @@ from .env import (
 )
 from .env_store import JsonEnvStore
 from .ports import get_app_url, wait_for_port
-from .table import draw_table
+from .table_cli import draw_table
 from .worktree import (
     copy_back_new_env_vars,
     update_claude_local_md,
