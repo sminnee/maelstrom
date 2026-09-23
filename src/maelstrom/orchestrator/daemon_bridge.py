@@ -363,7 +363,8 @@ class ScriptedAsyncDaemonClient:
     stream and ``end_stream`` closes it, so a test can play a fixture as the
     host would. ``replies`` scripts answers per command, consumed in order;
     with none left, ``list`` answers from ``rows``, ``start`` adds a row,
-    ``stop`` drops one, and every other command answers ``{"ok": True}``.
+    ``stop`` drops one, ``resume`` brings one back live, and every other
+    command answers ``{"ok": True}``.
 
     Like the real host, it echoes the ``control_response`` it writes to the
     child onto every attached stream, so a client learns of a reply the same
@@ -397,6 +398,9 @@ class ScriptedAsyncDaemonClient:
     truncated: dict[str, int] = field(default_factory=dict)
     #: Per agent, the epoch its backlog marker carries.
     epochs: dict[str, str] = field(default_factory=dict)
+    #: Rows a ``stop`` dropped, which a ``resume`` brings back, as the host's
+    #: spawn records do.
+    _stopped: dict[str, dict[str, Any]] = field(default_factory=dict)
     _queues: dict[str, list[asyncio.Queue[Any]]] = field(default_factory=dict)
     _seqs: dict[str, int] = field(default_factory=dict)
 
@@ -433,7 +437,18 @@ class ScriptedAsyncDaemonClient:
             }
             return {"ok": True, "id": agent_id}
         if command == "stop":
-            self.rows.pop(payload.get("id", ""), None)
+            if row := self.rows.pop(payload.get("id", ""), None):
+                self._stopped[row["id"]] = {**row, "state": "exited(0)"}
+        if command == "resume":
+            agent_id = str(payload.get("id", ""))
+            row = self.rows.get(agent_id) or self._stopped.get(agent_id)
+            if row is None:
+                return {"error": f"no such agent: {agent_id}"}
+            if not str(row.get("state", "")).startswith("exited"):
+                return {"error": f"agent {agent_id} is running"}
+            self._stopped.pop(agent_id, None)
+            self.rows[agent_id] = {**row, "state": "idle"}
+            return {"ok": True, "id": agent_id}
         return {"ok": True}
 
     async def attach(
