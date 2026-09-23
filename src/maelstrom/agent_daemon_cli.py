@@ -37,7 +37,7 @@ from .cli_async import AsyncGroup
 from .context import get_maelstrom_dir
 from .env import format_uptime
 from .process_table import ProcessTableUnavailable, list_claude_processes
-from .table import draw_table
+from .table import format_table
 
 
 def _daemon_at(paths: DaemonPaths) -> AsyncDaemonClient:
@@ -313,7 +313,7 @@ async def cmd_daemon_list(all_roots: bool, as_json: bool) -> None:
         click.echo("No spawn records.")
         return
     columns = (["root"] if all_roots else []) + DAEMON_LIST_COLUMNS
-    draw_table(rows, columns)
+    click.echo(format_table(rows, columns))
 
 
 def _started(stamp: str) -> str:

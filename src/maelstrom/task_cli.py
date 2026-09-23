@@ -37,7 +37,7 @@ from .state_db.db import StateDb
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
-from .table import draw_table
+from .table_cli import draw_table
 from .task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from .task_table import SqliteTaskTable
 from .util import read_content_file

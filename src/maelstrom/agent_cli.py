@@ -54,7 +54,7 @@ from .notebook_root import NotebookRootUnset
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
-from .table import draw_table
+from .table_cli import draw_table
 from .task_cli import open_task_table
 from .util import now_iso
 

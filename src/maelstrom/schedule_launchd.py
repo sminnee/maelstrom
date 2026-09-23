@@ -32,8 +32,6 @@ import platform
 import subprocess
 from pathlib import Path
 
-import click
-
 from .shell import mael_path
 
 LABEL = "nz.tangerinelabs.maelstrom.schedule"
@@ -314,41 +312,3 @@ def status_lines() -> list[str]:
     else:
         out.append("Log tail: (empty)")
     return out
-
-
-# --- thin install/uninstall CLI (the `mael schedule` group) ---
-
-
-@click.group("schedule")
-def schedule_group() -> None:
-    """Install/uninstall the background scheduled-task launchd agent (macOS)."""
-
-
-@schedule_group.command("install")
-def schedule_install() -> None:
-    """Opt this machine in: write the marker and load the launchd agent."""
-    install_marker()
-    for msg in ensure_schedule_agent():
-        click.echo(msg)
-
-
-@schedule_group.command("uninstall")
-def schedule_uninstall() -> None:
-    """Opt this machine out: remove the marker and tear the agent down.
-
-    Also clears a repeating ``pmset`` wake left by an older ``--wake-at``
-    install. That step needs ``sudo``, and prompts only on a machine that has
-    such a wake.
-    """
-    uninstall_marker()
-    for msg in ensure_schedule_agent():
-        click.echo(msg)
-    for msg in clear_leftover_wake():
-        click.echo(msg)
-
-
-@schedule_group.command("status")
-def schedule_status() -> None:
-    """Report agent state (marker, plist, loaded job, log tail)."""
-    for msg in status_lines():
-        click.echo(msg)

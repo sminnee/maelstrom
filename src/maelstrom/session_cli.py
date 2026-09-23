@@ -17,7 +17,7 @@ from . import session_discovery
 from .cli_async import AsyncGroup
 from .context import resolve_context
 from .env import stop_sessions
-from .table import draw_table
+from .table_cli import draw_table
 from .task_cli import open_task_table
 from .task_table import SqliteTaskTable
 
