@@ -347,6 +347,13 @@ root too: the environment whose `.env` names it. `mael self-env start` runs the 
 on `~/.maelstrom/daemons/_main`, `mael env start` runs a worktree's, and nothing else starts one.
 _Avoid_: Socket directory, spec dir, daemon home
 
+**Wire contract**:
+What an agent daemon client sends and reads back: the request payloads, the replies to an ask,
+the stream markers, and the shapes of a row and a detail. `agent_wire.py` holds all of it. A
+client imports the wire contract and never the daemon's model, so the daemon can change how it
+holds agents without changing a client.
+_Avoid_: Protocol module, shared types
+
 **Stray**:
 A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
 died uncleanly; found by the next daemon start or by `mael agent daemon gc` through the pid in its
@@ -367,7 +374,7 @@ in teleport, by the mode chip in the orchestrator UI, or by the daemon when a pl
 approved. An approved plan moves the agent to `auto` and clears its context: the plan is settled,
 so carrying it out does not need approving edit by edit, and the handover is the whole brief.
 The three words are the same ones a task carries, so one word means one thing.
-Claude spells `normal` as `default` on the pipe; nothing outside `agent_model.py` uses that word.
+Claude spells `normal` as `default` on the pipe; nothing outside `agent_wire.py` uses that word.
 The mode is read off the agent's own event stream, never from what was asked for, so no surface
 can show a mode the agent refused.
 _Avoid_: Permission level, autonomy, trust level
