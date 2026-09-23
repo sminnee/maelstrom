@@ -14,6 +14,7 @@ takes either, so neither kind needs help from the caller.
 """
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,8 @@ from .world_build import (
     task_key,
     worktree_entity,
 )
+
+log = logging.getLogger(__name__)
 
 #: Opens a worktree on a branch: ``(project, branch, base) -> WorktreeSetup``.
 #: ``base`` is what seeds the branch's stored base the first time; ``""`` leaves
@@ -510,7 +513,9 @@ class NotebookTaskSource:
         return [task_key(project, task_id) for task_id in created]
 
     async def _move(self, project: str, task_id: str, status: str) -> None:
-        await task_actions.move_with_actions(self.table, project, task_id, status)
+        await task_actions.move_with_actions(
+            self.table, project, task_id, status, warn=log.warning
+        )
 
 
 class InMemoryWorktreeSource:

@@ -23,7 +23,7 @@ from . import task as task_model
 from .claude_paths import has_claude_transcript
 from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running
-from .context import resolve_context
+from .context import resolve_context, resolve_project
 from .harness_model import (
     HARNESS_CLAUDE,
     TRANSPORT_CLI,
@@ -254,7 +254,7 @@ async def _run_task(
             assert session_id is not None  # set above on the claude path
             resume = has_claude_transcript(Path.cwd(), session_id)
         await task_actions.move_with_actions(
-            table, project, task.id, model.STATUS_IN_PROGRESS
+            table, project, task.id, model.STATUS_IN_PROGRESS, warn=_warn
         )  # write BEFORE launch; fires pre_action
         suffix = " (resuming)" if resume else ""
         if plan.execute_model:
@@ -325,7 +325,7 @@ async def _run_task(
         assert session_id is not None  # set above on the claude path
         resume = has_claude_transcript(result.path, session_id)
     await task_actions.move_with_actions(
-        table, project, task.id, model.STATUS_IN_PROGRESS
+        table, project, task.id, model.STATUS_IN_PROGRESS, warn=_warn
     )  # write BEFORE launch; fires pre_action
     suffix = " (resuming)" if resume else ""
     click.echo(f"Running {task.id} on {branch}{suffix}")
@@ -352,18 +352,16 @@ async def _run_task(
         # store write itself raises, the run aborts loudly (leaving the task
         # in-progress) rather than silently — an acceptable failure mode, since
         # a raised store error is already fatal.
-        await task_actions.move_with_actions(table, project, task.id, model.STATUS_TODO)
+        await task_actions.move_with_actions(
+            table, project, task.id, model.STATUS_TODO, warn=_warn
+        )
         # The launcher already named the reason.
         click.echo(f"Left {task.id} TODO (re-fires next run)", err=True)
 
 
-def _resolve_project(project: str | None) -> str:
-    """Return the project name, defaulting to the cwd's project."""
-    if project:
-        return project
-    ctx = resolve_context(None, require_project=True)
-    assert ctx.project is not None  # require_project guarantees this
-    return ctx.project
+def _warn(line: str) -> None:
+    """Report a lifecycle action's line on stderr."""
+    click.echo(line, err=True)
 
 
 def _resolve_task_id(id: str | None) -> str:
@@ -735,7 +733,7 @@ async def add_task(
     ``content`` of ``None`` means "unspecified" (so a duplicate keeps the
     source's content); pass ``""`` to deliberately blank it.
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     parent = _default_parent(parent)
 
@@ -908,7 +906,7 @@ async def task_promote(
         raise click.ClickException(f"Draft file not found: {file}")
     except ValueError as e:
         raise click.ClickException(f"{file}: {e}")
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     effective_parent = _default_parent(parent if parent is not None else draft.parent)
     resolved = list(follows)
@@ -971,7 +969,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
         raise click.ClickException(str(e))
     for w in warnings:
         click.echo(f"warning: {w}", err=True)
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     created = await model.load_many(
         table,
@@ -1046,7 +1044,7 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
 
         projects = find_all_projects(load_global_config().projects_dir)
         return [p.name for p in projects]
-    return [_resolve_project(project)]
+    return [resolve_project(project)]
 
 
 async def _fire_due_templates(
@@ -1171,7 +1169,7 @@ async def task_list(
     constrains the folder scanned, so e.g. ``--status done`` without ``--all``
     naturally shows nothing.
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     tasks = await model.list_tasks(table, project=proj, status=status, parent=parent)
     if not tasks:
@@ -1277,7 +1275,7 @@ async def task_next(
     global next task. With ``--branch``, restricts strictly to that branch (no
     fallback).
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     if branch is not None:
         effective_branch, fallback = branch, False
@@ -1322,7 +1320,7 @@ async def task_run(
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
     resolved = resolve_harness_or_fail(cli, daemon, here=here)
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         t = await model.load(table, proj, id)
@@ -1413,7 +1411,7 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
     session whose task was *deleted* mid-run is no longer surfaced as an orphan;
     every existing task's session is still reconciled.
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     session_task_ids = await _live_sessions_by_task(table, proj)
     # A stale in-progress task that left a transcript ran (stopped = finished →
@@ -1471,7 +1469,9 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
 
     for r in fixable:
         try:
-            await task_actions.move_with_actions(table, proj, r.task_id, r.fix_status)
+            await task_actions.move_with_actions(
+                table, proj, r.task_id, r.fix_status, warn=_warn
+            )
         except KeyError:
             click.echo(f"  skipped {r.task_id}: task no longer exists", err=True)
             continue
@@ -1483,7 +1483,7 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_show(id: str, project: str | None) -> None:
     """Show a summary of a task."""
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         t = await model.load(table, proj, id)
@@ -1531,7 +1531,7 @@ async def task_get_status(id: str | None, project: str | None) -> None:
     can embed it without parsing.
     """
     task_id = _resolve_task_id(id)
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         t = await model.load(table, proj, task_id)
@@ -1554,7 +1554,7 @@ async def task_current(project: str | None) -> None:
     status: str | None = None
     if task_id:
         try:
-            found = await model.load(await _table(), _resolve_project(project), task_id)
+            found = await model.load(await _table(), resolve_project(project), task_id)
             status = found.status
         except Exception:
             # Every lookup failure is the same answer here: nothing to show. The
@@ -1574,7 +1574,7 @@ async def task_read(id: str, project: str | None) -> None:
     The notebook is a table, so this re-renders rather than reading a file —
     the same text ``mael task edit`` opens and the export writes.
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         t = await model.load(table, proj, id)
@@ -1588,7 +1588,7 @@ async def task_read(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_prompt(id: str, project: str | None) -> None:
     """Print the initial Claude prompt for a task (for ``... | claude``)."""
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     try:
         task = await model.load(await _table(), proj, id)  # raises if not found
     except KeyError:
@@ -1602,7 +1602,7 @@ async def task_prompt(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_log(id: str, msg: str, project: str | None) -> None:
     """Append a line to a task's log."""
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         await model.append_log(table, proj, id, msg)
@@ -1656,7 +1656,7 @@ async def task_update(
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
     """
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     content = _read_content_file(content_file) if content_file is not None else None
 
@@ -1726,7 +1726,7 @@ async def task_update(
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_edit(id: str, project: str | None) -> None:
     """Open the task in $EDITOR (vi); write it back if changed."""
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         _task, changed = await model.edit_in_editor(table, proj, id)
@@ -1742,7 +1742,7 @@ async def task_edit(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_rm(id: str, project: str | None) -> None:
     """Delete a task and strip it from any dependents' follows lists."""
-    proj = _resolve_project(project)
+    proj = resolve_project(project)
     table = await _table()
     try:
         await model.delete(table, proj, id)
@@ -1762,10 +1762,12 @@ def _status_command(name: str, status: str, help_text: str):
     @click.option("--project", default=None, help="Project name (default: from cwd).")
     async def _cmd(id: str | None, project: str | None) -> None:
         task_id = _resolve_task_id(id)
-        proj = _resolve_project(project)
+        proj = resolve_project(project)
         table = await _table()
         try:
-            await task_actions.move_with_actions(table, proj, task_id, status)
+            await task_actions.move_with_actions(
+                table, proj, task_id, status, warn=_warn
+            )
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
         click.echo(f"{task_id} -> {status}")
