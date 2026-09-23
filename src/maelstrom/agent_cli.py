@@ -46,11 +46,11 @@ from .agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
-from .claude_integration import agent_prompt_file
 from .cli_async import AsyncGroup
 from .context import resolve_context
 from .harness_model import resolve_execute_model
 from .notebook_root import NotebookRootUnset
+from .shared_dir import agent_prompt_file
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError

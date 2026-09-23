@@ -386,3 +386,12 @@ def resolve_context(
         project=project,
         worktree=worktree,
     )
+
+
+def resolve_project(project: str | None) -> str:
+    """Return the project name, defaulting to the cwd's project."""
+    if project:
+        return project
+    ctx = resolve_context(None, require_project=True)
+    assert ctx.project is not None  # require_project guarantees this
+    return ctx.project

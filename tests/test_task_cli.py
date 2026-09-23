@@ -16,7 +16,7 @@ from click.testing import CliRunner
 
 from maelstrom import session_discovery, task_cli
 from maelstrom import task as model
-from maelstrom.integrations.linear import cmd_plan
+from maelstrom.integrations.linear_cli import cmd_plan
 from maelstrom.shell import describe
 from maelstrom.task_table import InMemoryTaskTable
 from maelstrom.worktree import SyncResult, WorktreeSetup

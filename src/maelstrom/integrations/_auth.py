@@ -6,7 +6,7 @@ environment variable → ``.env`` file walked upward from the cwd (continuing pa
 ``.env`` files are parsed with the shared ``parse_env_text`` so values match the
 rest of the codebase. This module parameterizes that chain. It returns
 ``None`` when nothing is found — converting a missing key into a user-facing
-``click.ClickException`` is the caller's job, so the help text stays per-service.
+``IntegrationError`` is the caller's job, so the help text stays per-service.
 """
 
 import os

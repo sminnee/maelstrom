@@ -17,8 +17,6 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
 
-import click
-
 from ..agent_store import InMemoryMilestoneStore, MilestoneStore
 from ..agent_wire import (
     AGENT_DETAIL,
@@ -30,9 +28,10 @@ from ..agent_wire import (
     build_start_payload,
 )
 from ..branch_name import lead_with_number
-from ..claude_integration import agent_prompt_file
 from ..desk_store import DeskStore, InMemoryDeskStore
 from ..github_model import RateLimited
+from ..integrations.errors import IntegrationError
+from ..shared_dir import agent_prompt_file
 from ..task import mode_for_command
 from ..task import permission_mode_for as model_permission_mode
 from ..task_export import TaskExporter
@@ -1630,9 +1629,9 @@ class Orchestrator:
             return {"ok": False, "error": error}
         try:
             issues = await self._run(linear_source.cycle_issues, project)
-        except click.ClickException as exc:
+        except IntegrationError as exc:
             # A missing key or an unreachable API: say what Linear said.
-            return _refused("invalid", exc.format_message())
+            return _refused("invalid", str(exc))
         except Exception as exc:  # noqa: BLE001 — the client hears why
             log.exception("could not read %s's Linear issues", project)
             return _refused("invalid", f"Could not reach Linear: {exc}")
@@ -1663,10 +1662,10 @@ class Orchestrator:
         try:
             fields = await self._run(linear_source.plan_fields, project, issue_id)
             names = await self._run(self.tasks.infer, fields["content"])
-        except click.ClickException as exc:
+        except IntegrationError as exc:
             # A missing key or an unreachable API is the user's to fix, so they
             # are told what Linear said rather than shown a 500.
-            return _refused("invalid", exc.format_message())
+            return _refused("invalid", str(exc))
         except Exception as exc:  # noqa: BLE001 — the client hears why
             log.exception("could not plan %s", issue_id)
             return _refused("invalid", f"Could not read {issue_id}: {exc}")

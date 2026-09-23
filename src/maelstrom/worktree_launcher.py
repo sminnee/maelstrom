@@ -32,7 +32,6 @@ import click
 
 from .agent_transport import client as daemon_client
 from .agent_wire import build_start_payload
-from .claude_integration import agent_prompt_file
 from .cmux import mael_layout
 from .cmux.client import current_client, ensure_cmux_running
 from .cmux.model import TerminalTab
@@ -45,6 +44,7 @@ from .harness_model import (
     TRANSPORT_DAEMON,
     resolve_model_reference,
 )
+from .shared_dir import agent_prompt_file
 from .shell import (
     Command,
     Pipeline,

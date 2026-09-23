@@ -48,10 +48,10 @@ from .harness_model import (
     resolve_execute_model,
     resolve_model_reference,
 )
-from .integrations.linear import linear
-from .integrations.sentry import sentry
-from .integrations.slack import slack
-from .integrations.uptimerobot import uptimerobot
+from .integrations.linear_cli import linear_group
+from .integrations.sentry_cli import sentry_group
+from .integrations.slack_cli import slack_group
+from .integrations.uptimerobot_cli import uptimerobot_group
 from .list_all import (
     build_list_all_data,
     resolve_pr,
@@ -1774,10 +1774,10 @@ cli.add_command(cmux_cli)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(gh_cli)
-cli.add_command(linear)
-cli.add_command(sentry)
-cli.add_command(slack)
-cli.add_command(uptimerobot)
+cli.add_command(linear_group)
+cli.add_command(sentry_group)
+cli.add_command(slack_group)
+cli.add_command(uptimerobot_group)
 cli.add_command(session_cli)
 cli.add_command(task_cli)
 cli.add_command(wiki_cli)

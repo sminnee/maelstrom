@@ -2,12 +2,12 @@
 
 from unittest.mock import patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
 from maelstrom.integrations._format import parse_since
-from maelstrom.integrations.sentry import sentry
+from maelstrom.integrations.errors import IntegrationError, IntegrationHTTPError
+from maelstrom.integrations.sentry_cli import sentry_group as sentry
 
 
 class TestParseSince:
@@ -18,11 +18,33 @@ class TestParseSince:
         assert parse_since("45s") == 45
 
     def test_bad_input_raises(self):
-        with pytest.raises(click.ClickException, match="Invalid --since"):
+        with pytest.raises(IntegrationError, match="Invalid --since"):
             parse_since("bogus")
 
 
 class TestListIssuesCommand:
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
+    def test_bad_since_is_a_cli_error(self, _mock_config):
+        result = CliRunner().invoke(sentry, ["list-issues", "--since", "bogus"])
+
+        assert result.exit_code == 1
+        assert "Error: Invalid --since value 'bogus'" in result.output
+
+    @patch(
+        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+    )
+    @patch(
+        "maelstrom.integrations.sentry.api_request",
+        side_effect=IntegrationHTTPError(403, "forbidden"),
+    )
+    def test_an_http_error_is_a_cli_error(self, _mock_api, _mock_config):
+        result = CliRunner().invoke(sentry, ["list-issues"])
+
+        assert result.exit_code == 1
+        assert "Error: HTTP Error 403: forbidden" in result.output
+
     @patch(
         "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
     )
