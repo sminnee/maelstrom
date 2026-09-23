@@ -838,6 +838,7 @@ class AgentDaemon:
         env: dict[str, str] | None = None,
         resume: bool = False,
         record_prompt: str | None = None,
+        system_prompt_file: str = "",
     ) -> str:
         """Spawn an agent in ``cwd`` and return its id.
 
@@ -858,6 +859,11 @@ class AgentDaemon:
         prompt, when that differs from ``prompt``: a resume sends the nudge but
         must keep the original, or a record that never got its first turn can
         never be started fresh again.
+
+        ``system_prompt_file`` is the client's; the record keeps it. A file that is gone by
+        spawn time — its worktree closed since the record was written — is
+        left off the argv: a missing prompt costs the markers, where a child
+        that will not start costs the session.
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         session_id = session_id or str(uuid.uuid4())
@@ -875,16 +881,25 @@ class AgentDaemon:
             execute_model=execute_model or None,
             env=dict(env or {}),
             prompt=prompt if record_prompt is None else record_prompt,
+            system_prompt_file=system_prompt_file,
             status=SPEC_RUNNING,
         )
         # Written before the spawn, not after: a daemon killed between the two
         # would otherwise leave a running child no record can find.
         self.specs.write(spec)
+        if system_prompt_file and not Path(system_prompt_file).is_file():
+            log.warning(
+                "agent %s: no system prompt file at %s; spawning without it",
+                agent_id,
+                system_prompt_file,
+            )
+            system_prompt_file = ""
         argv = build_agent_argv(
             permission_mode=permission_mode,
             session_id=session_id,
             model=ref.alias,
             resume=resume,
+            system_prompt_file=system_prompt_file or None,
         )
         # stderr joins stdout so a child that dies early — a bad --model, an
         # expired login — leaves its reason in the event buffer. pump() skips
@@ -973,7 +988,9 @@ class AgentDaemon:
 
         return record
 
-    async def _resume(self, spec: AgentSpec, text: str | None) -> str:
+    async def _resume(
+        self, spec: AgentSpec, text: str | None, system_prompt_file: str = ""
+    ) -> str:
         """Start ``spec``'s agent again, under its own id.
 
         A child that never got its opening prompt wrote no transcript, so it is
@@ -986,6 +1003,8 @@ class AgentDaemon:
         the send would have written exactly that, and ``--session-id`` on an id
         Claude already knows is refused — so the agent would be unrecoverable
         rather than awkward.
+
+        A ``system_prompt_file`` the client sends overrides the record's.
         """
         replay = self.has_transcript(Path(spec.cwd), spec.session_id)
         if text:
@@ -1009,6 +1028,7 @@ class AgentDaemon:
             env=spec.env or None,
             resume=replay,
             record_prompt=spec.prompt,
+            system_prompt_file=system_prompt_file or spec.system_prompt_file,
         )
 
     async def _gc(self, *, resume_strays: bool) -> Reconciliation:
@@ -1096,6 +1116,7 @@ class AgentDaemon:
                     session_id=payload.get("session"),
                     env=payload.get("env") or None,
                     resume=bool(payload.get("resume", False)),
+                    system_prompt_file=payload.get("system_prompt_file") or "",
                 )
             except (OSError, ValueError) as exc:
                 # Without this the exception escapes `handle`, the connection
@@ -1179,7 +1200,11 @@ class AgentDaemon:
                     # refusal as the in-memory path, for the same reason.
                     return {"error": f"agent {spec.agent_id} is running"}
                 try:
-                    await self._resume(spec, payload.get("text") or None)
+                    await self._resume(
+                        spec,
+                        payload.get("text") or None,
+                        payload.get("system_prompt_file") or "",
+                    )
                 except OSError as exc:
                     return {"error": f"could not start claude: {exc}"}
                 return {"ok": True, "id": spec.agent_id}
@@ -1195,7 +1220,11 @@ class AgentDaemon:
                 # in memory, so "no such agent" would contradict `list`.
                 return {"error": f"agent {agent.state.agent_id} has no spawn record"}
             try:
-                await self._resume(spec, payload.get("text") or None)
+                await self._resume(
+                    spec,
+                    payload.get("text") or None,
+                    payload.get("system_prompt_file") or "",
+                )
             except OSError as exc:
                 return {"error": f"could not start claude: {exc}"}
             return {"ok": True, "id": agent.state.agent_id}

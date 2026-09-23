@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 from .agent_transport import ROOT_ENV
-from .claude_integration import get_shared_dir
 from .harness_model import HARNESS_TYPE_ENV, TRANSPORT_DAEMON
 from .util import sanitise_child_env
 
@@ -83,26 +82,13 @@ def next_mode(mode: str) -> str:
     return MODES[(MODES.index(mode) + 1) % len(MODES)]
 
 
-def agent_prompt_file() -> Path | None:
-    """The file teaching a driven agent the markers, or ``None`` if it is gone.
-
-    Shipped beside the shared skills, as ``claude-header.md`` is. An installed
-    tree that has lost it still launches agents: the markers go untaught, which
-    costs a note, where a hard failure would cost the whole session.
-    """
-    try:
-        prompt = get_shared_dir() / "agent-prompt.md"
-    except FileNotFoundError:
-        return None
-    return prompt if prompt.exists() else None
-
-
 def build_agent_argv(
     permission_mode: str | None = None,
     session_id: str | None = None,
     *,
     model: str | None = None,
     resume: bool = False,
+    system_prompt_file: str | None = None,
 ) -> list[str]:
     """The ``claude`` argv for a daemon-driven agent.
 
@@ -133,14 +119,9 @@ def build_agent_argv(
     session ``claude`` already has on disk instead of claiming a new id. The
     same switch ``worktree_launcher.build_claude_command`` makes for a pane.
 
-    ``--append-system-prompt-file`` teaches the child the markers the
-    orchestrator reads. It is taught here rather than in a skill because only a
-    driven agent has an orchestrator to read one, and a general skill would
-    teach the vocabulary to agents that cannot use it. The file is named rather
-    than inlined so the prompt does not ride every ``ps`` line: an argv carries
-    a path, and ``session_discovery`` scans these command strings for the
-    session id. It is omitted when the file cannot be found, because a missing
-    prompt is worth less than a child that will not start.
+    ``system_prompt_file`` becomes ``--append-system-prompt-file``, the
+    client's marker prompt; omitted when empty. See "The mechanism" in
+    ``docs/dev/agent-daemon.md`` for why it is a flag and a path.
 
     ``permission_mode`` is maelstrom's word. ``normal`` is the absence of the
     flag rather than a value it takes, so it emits nothing: ``claude`` refuses
@@ -159,8 +140,8 @@ def build_agent_argv(
         "--forward-subagent-text",
         "--replay-user-messages",
     ]
-    if (prompt := agent_prompt_file()) is not None:
-        argv += ["--append-system-prompt-file", str(prompt)]
+    if system_prompt_file:
+        argv += ["--append-system-prompt-file", system_prompt_file]
     if permission_mode and permission_mode != NORMAL:
         argv += ["--permission-mode", permission_mode]
     if model:
@@ -339,6 +320,10 @@ class AgentSpec:
     #: approval, the only moment it is known. A recovery rebuilds the handover
     #: from it, in preference to sending ``prompt`` again.
     plan_file: str = ""
+    #: The ``--append-system-prompt-file`` the client named, or empty. Kept so
+    #: an internal respawn — a restore, or a stray the gc resumes — teaches the
+    #: child the same markers with no client to ask.
+    system_prompt_file: str = ""
     status: str = SPEC_RUNNING
     exit_code: int | None = None
     pid: int | None = None
@@ -357,6 +342,7 @@ def build_start_payload(
     model: str | None = None,
     execute_model: str | None = None,
     prompt: str = "",
+    system_prompt_file: Path | None = None,
 ) -> dict[str, Any]:
     """The daemon's ``start`` command for a launch. Pure.
 
@@ -368,6 +354,9 @@ def build_start_payload(
     ``env`` carries ``MAEL_TASK_ID``, which is what keeps the ``session-end``
     hook closing the task: Claude Code fires hooks as children of the driven
     ``claude``, so they inherit it.
+
+    ``system_prompt_file`` is the file that teaches the child the markers.
+    Callers pass :func:`~maelstrom.claude_integration.agent_prompt_file`.
     """
     # `resume` is always sent: False means "claim a fresh session", which is a
     # decision, not an omission. Every other falsy field means "the caller did
@@ -389,6 +378,8 @@ def build_start_payload(
         payload["session"] = session_id
     if env:
         payload["env"] = dict(env)
+    if system_prompt_file:
+        payload["system_prompt_file"] = str(system_prompt_file)
     return payload
 
 
@@ -404,6 +395,7 @@ def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
         "env": dict(spec.env),
         "prompt": spec.prompt,
         "plan_file": spec.plan_file,
+        "system_prompt_file": spec.system_prompt_file,
         "status": spec.status,
         "exit_code": spec.exit_code,
         "pid": spec.pid,
@@ -430,6 +422,7 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
         env=dict(data.get("env") or {}),
         prompt=data.get("prompt", ""),
         plan_file=data.get("plan_file") or "",
+        system_prompt_file=data.get("system_prompt_file") or "",
         status=data.get("status", SPEC_RUNNING),
         exit_code=data.get("exit_code"),
         pid=data.get("pid"),

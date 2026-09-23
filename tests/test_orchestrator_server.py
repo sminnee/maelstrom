@@ -2151,7 +2151,10 @@ def test_resume_reaches_the_host_and_brings_the_agent_back_at_once(harness_facto
     before, reply, agent = run(scenario())
     assert before["state"] == "exited"
     assert reply.status == 200
-    assert {"cmd": "resume", "id": "ag1"} in harness.daemon.calls
+    (sent,) = [call for call in harness.daemon.calls if call.get("cmd") == "resume"]
+    assert sent["id"] == "ag1"
+    # The daemon knows no shared dir, so the client names the prompt file.
+    assert sent["system_prompt_file"].endswith("agent-prompt.md")
     assert agent["state"] == "idle"
 
 
@@ -3642,6 +3645,7 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
     assert start["cwd"] == WORKTREE_PATH
     assert start["prompt"] == "Read the logs and tell me what broke."
     assert start["model"] == "claude-opus-5"
+    assert start["system_prompt_file"].endswith("agent-prompt.md")
     # No task session pinned, no task env exported: a free agent.
     assert "session" not in start
     assert "env" not in start

@@ -65,6 +65,7 @@ from .agent_transport import (
     require_root,
 )
 from .agent_transport import client as daemon_client
+from .claude_integration import agent_prompt_file
 from .cli_async import AsyncGroup
 from .context import get_maelstrom_dir, resolve_context
 from .env import format_uptime
@@ -460,6 +461,7 @@ async def cmd_start(
             model=model,
             execute_model=execute_model,
             session_id=session_id,
+            system_prompt_file=agent_prompt_file(),
         )
     )
     click.echo(reply["id"])
@@ -861,7 +863,10 @@ async def cmd_resume(agent_id: str, text: str) -> None:
     survives a crashed child, a crashed daemon or a reboot. Without ``--text``
     the agent is told its process ended and to carry on from where it was.
     """
-    await _send({"cmd": "resume", "id": agent_id, "text": text})
+    payload: dict[str, Any] = {"cmd": "resume", "id": agent_id, "text": text}
+    if (prompt_file := agent_prompt_file()) is not None:
+        payload["system_prompt_file"] = str(prompt_file)
+    await _send(payload)
 
 
 @agent.command("attach")

@@ -115,6 +115,21 @@ def test_start_sends_the_cwd_and_the_prompt():
     assert Path(sent["cwd"]).is_absolute()
 
 
+def test_start_names_the_system_prompt_file(monkeypatch, tmp_path):
+    prompt = tmp_path / "agent-prompt.md"
+    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: prompt)
+    _, client = run_cli(["start", "."], [{"id": "a1"}])
+    assert client.calls[0]["system_prompt_file"] == str(prompt)
+
+
+def test_resume_names_the_system_prompt_file(monkeypatch, tmp_path):
+    """A record written before the daemon kept the file still resumes with it."""
+    prompt = tmp_path / "agent-prompt.md"
+    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: prompt)
+    _, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
+    assert client.calls[0]["system_prompt_file"] == str(prompt)
+
+
 def test_start_forwards_a_session_id():
     """A pinned session id is what makes a driven agent resumable."""
     _, client = run_cli(["start", ".", "--session-id", "dead-beef"], [{"id": "a1"}])
@@ -415,7 +430,8 @@ def test_tail_follow_ends_when_the_agent_has_exited():
 def test_resume_sends_the_agent_id():
     result, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
     assert result.exit_code == 0
-    assert client.calls == [{"cmd": "resume", "id": "a1", "text": ""}]
+    assert client.calls[0]["cmd"] == "resume"
+    assert client.calls[0]["id"] == "a1"
 
 
 def test_resume_passes_the_text_the_user_gave():
