@@ -29,7 +29,14 @@ from datetime import date
 from pathlib import Path
 
 PYPROJECT = Path("pyproject.toml")
-INIT = Path("src/maelstrom/__init__.py")
+#: Every package's version, as (pyproject, __init__) pairs. The root is first
+#: and is the one read; the workspace members move with it in lockstep.
+VERSIONED = [
+    (PYPROJECT, Path("src/maelstrom/__init__.py")),
+    (Path("lib/common/pyproject.toml"), Path("lib/common/src/mael_common/__init__.py")),
+    (Path("lib/agent/pyproject.toml"), Path("lib/agent/src/mael_agent/__init__.py")),
+    (Path("agent-daemon/pyproject.toml"), Path("agent-daemon/src/mael_daemon/__init__.py")),
+]
 LOCK = Path("uv.lock")
 CHANGELOG = Path("CHANGELOG.md")
 
@@ -66,21 +73,22 @@ def bump(version: str, part: str) -> str:
 def write_version(old: str, new: str) -> None:
     """Write the new version to every file that records it.
 
-    ``uv.lock`` records the project's own version alongside pyproject.toml and
-    the package ``__init__``, so three files have to move together. They are
-    written here rather than at the call sites because every path that writes a
-    version -- the bump, the dry-run revert, and the failed-upload rollback --
-    has to keep all three in step, and a lock that disagrees with the package
-    it locks is wrong however it got that way.
+    ``uv.lock`` records each package's version alongside its pyproject.toml and
+    its ``__init__``, so every one of those files has to move together. They
+    are written here rather than at the call sites because every path that
+    writes a version -- the bump, the dry-run revert, and the failed-upload
+    rollback -- has to keep them all in step, and a lock that disagrees with the
+    package it locks is wrong however it got that way.
     """
-    PYPROJECT.write_text(
-        PYPROJECT.read_text(encoding="utf-8").replace(f'version = "{old}"', f'version = "{new}"', 1),
-        encoding="utf-8",
-    )
-    INIT.write_text(
-        INIT.read_text(encoding="utf-8").replace(f'__version__ = "{old}"', f'__version__ = "{new}"', 1),
-        encoding="utf-8",
-    )
+    for pyproject, init in VERSIONED:
+        pyproject.write_text(
+            pyproject.read_text(encoding="utf-8").replace(f'version = "{old}"', f'version = "{new}"', 1),
+            encoding="utf-8",
+        )
+        init.write_text(
+            init.read_text(encoding="utf-8").replace(f'__version__ = "{old}"', f'__version__ = "{new}"', 1),
+            encoding="utf-8",
+        )
     run("uv", "lock")
 
 
@@ -184,7 +192,8 @@ def main() -> int:
         return 0
 
     retitle_unreleased(new, date.today().isoformat())
-    run("git", "add", str(PYPROJECT), str(INIT), str(LOCK), str(CHANGELOG))
+    versioned = [str(path) for pair in VERSIONED for path in pair]
+    run("git", "add", *versioned, str(LOCK), str(CHANGELOG))
     run("git", "commit", "-m", f"chore: release v{new}")
 
     # From here the commit exists but nothing is public yet. If the upload
