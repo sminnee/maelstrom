@@ -9,8 +9,6 @@ import ast
 from collections import deque
 from pathlib import Path
 
-import pytest
-
 SRC = Path(__file__).resolve().parent.parent / "src"
 PACKAGE = "maelstrom"
 
@@ -132,7 +130,6 @@ def test_the_daemon_reaches_only_its_own_modules():
     assert not strays, "\n".join(_chain(closure, s) for s in strays)
 
 
-@pytest.mark.xfail(strict=True, reason="the boundary is drawn step by step")
 def test_no_client_reaches_the_daemon_internals():
     chains = []
     for client in CLIENTS:

@@ -22,26 +22,51 @@ from maelstrom.agent_model import (
 from maelstrom.agent_server import Agent, AgentDaemon
 from maelstrom.agent_stop import stop_agents_in_worktree
 from maelstrom.agent_store import SqliteAgentStore, SqliteMilestoneStore
-from maelstrom.agent_transport import (
-    RecordingDaemonClient,
-    SocketAsyncDaemonClient,
-)
+from maelstrom.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
 from maelstrom.agent_wire import AGENT_EXITED
-from maelstrom.notebook_root import NotebookRootUnset
+from maelstrom.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE, NotebookRootUnset
 from maelstrom.state_db.migrate import open_state_db
 
+from .agent_cli_support import drive, unreachable
 
-def _unreachable(root) -> dict:
-    """The reply a client gets when nothing is listening on `root`'s socket.
 
-    Built by the transport rather than written out here: these fakes stand in
-    for a real connect failure, and a hand-written copy stops matching the
-    moment the reply grows a field.
+class _TaskTable:
+    """A task table that finds ``tasks[session_id]`` and counts its opens."""
+
+    def __init__(self, tasks: dict[str, str]):
+        self._tasks = tasks
+
+    async def find_by_session_id(self, session_id: str):
+        task_id = self._tasks.get(session_id)
+        return SimpleNamespace(id=task_id) if task_id else None
+
+
+@pytest.fixture(autouse=True)
+def task_table(monkeypatch):
+    """The task table every listing joins against, with one task on ``sess-1``.
+
+    Autouse: a stopped listing opens the real notebook otherwise.
     """
-    socket_path = str(agent_transport.DaemonPaths(Path(root)).socket)
-    return agent_transport.connect_failure(
-        socket_path, FileNotFoundError(2, "No such file")
-    )
+    opens = []
+
+    def open_table():
+        opens.append(1)
+        return _TaskTable({"sess-1": "2026-09-04.2"})
+
+    monkeypatch.setattr(agent_cli, "open_task_table", open_table)
+    return opens
+
+
+@pytest.fixture(autouse=True)
+def prompt_file(monkeypatch, tmp_path):
+    """The system prompt file every start and resume names.
+
+    Autouse: the real one lives in this checkout's ``shared/``, and a payload
+    assertion should not depend on where the tests run.
+    """
+    path = tmp_path / "agent-prompt.md"
+    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: path)
+    return path
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -68,23 +93,12 @@ def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
     ``resolve`` stands in for ``resolve_context``, which reads the real config
     and walks the real filesystem.
     """
-    client = RecordingDaemonClient(replies=list(replies or []))
-
-    def factory(**kwargs):
-        # Record what the command asked for, so a test can assert the socket it
-        # routed to and whether it would have started a daemon.
-        for key, value in kwargs.items():
-            setattr(client, key, value)
-        return client
-
-    agent_transport.client_factory = factory
     original = agent_cli.resolve_context
     if resolve is not None:
         agent_cli.resolve_context = resolve
     try:
-        return CliRunner().invoke(agent_cli.agent, argv), client
+        return drive(agent_cli.agent, argv, replies)
     finally:
-        agent_transport.client_factory = SocketAsyncDaemonClient
         agent_cli.resolve_context = original
 
 
@@ -115,19 +129,16 @@ def test_start_sends_the_cwd_and_the_prompt():
     assert Path(sent["cwd"]).is_absolute()
 
 
-def test_start_names_the_system_prompt_file(monkeypatch, tmp_path):
-    prompt = tmp_path / "agent-prompt.md"
-    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: prompt)
+def test_start_names_the_system_prompt_file(prompt_file):
     _, client = run_cli(["start", "."], [{"id": "a1"}])
-    assert client.calls[0]["system_prompt_file"] == str(prompt)
+    assert client.calls[0]["system_prompt_file"] == str(prompt_file)
 
 
-def test_resume_names_the_system_prompt_file(monkeypatch, tmp_path):
-    """A record written before the daemon kept the file still resumes with it."""
-    prompt = tmp_path / "agent-prompt.md"
-    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: prompt)
-    _, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
-    assert client.calls[0]["system_prompt_file"] == str(prompt)
+def test_no_prompt_file_leaves_the_key_off(monkeypatch):
+    """A tree that lost the file still launches; the daemon omits the flag."""
+    monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: None)
+    _, client = run_cli(["start", "."], [{"id": "a1"}])
+    assert "system_prompt_file" not in client.calls[0]
 
 
 def test_start_forwards_a_session_id():
@@ -225,7 +236,7 @@ def test_register_refuses_an_agent_id_the_daemon_does_not_list(tmp_path, monkeyp
 
 
 def test_register_reports_an_unreachable_daemon():
-    result, client = run_cli(["register", "a1"], [_unreachable("/x")])
+    result, client = run_cli(["register", "a1"], [unreachable("/x")])
     assert result.exit_code == 1
     assert "Error:" in result.output
 
@@ -427,11 +438,13 @@ def test_tail_follow_ends_when_the_agent_has_exited():
     assert "Hello there, friend" in result.output
 
 
-def test_resume_sends_the_agent_id():
+def test_resume_sends_the_agent_id(prompt_file):
     result, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
     assert result.exit_code == 0
-    assert client.calls[0]["cmd"] == "resume"
-    assert client.calls[0]["id"] == "a1"
+    # The prompt file rides along: the record may predate the daemon keeping one.
+    assert client.calls == [
+        {"cmd": "resume", "id": "a1", "system_prompt_file": str(prompt_file)}
+    ]
 
 
 def test_resume_passes_the_text_the_user_gave():
@@ -478,30 +491,6 @@ def stopped_row(**kw) -> dict:
     return row
 
 
-class _TaskTable:
-    """A task table that finds ``tasks[session_id]`` and counts its opens."""
-
-    def __init__(self, tasks: dict[str, str]):
-        self._tasks = tasks
-
-    async def find_by_session_id(self, session_id: str):
-        task_id = self._tasks.get(session_id)
-        return SimpleNamespace(id=task_id) if task_id else None
-
-
-@pytest.fixture(autouse=True)
-def task_table(monkeypatch):
-    """The task table every listing joins against, with one task on ``sess-1``."""
-    opens = []
-
-    def open_table():
-        opens.append(1)
-        return _TaskTable({"sess-1": "2026-09-04.2"})
-
-    monkeypatch.setattr(agent_cli, "open_task_table", open_table)
-    return opens
-
-
 def test_the_stopped_listing_names_the_task_each_session_ran_for():
     """The daemon knows no tasks, so the CLI joins them on the session id."""
     result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
@@ -546,6 +535,8 @@ def test_an_unreadable_task_table_blanks_the_column_and_says_so(monkeypatch):
     assert result.exit_code == 0
     assert "Improve plan mode" in result.output
     assert "disk gone" in result.output
+    result, _ = run_cli(["list", "--stopped", "--json"], [{"agents": [stopped_row()]}])
+    assert json.loads(result.stdout)[0]["task"] == ""
 
 
 def test_no_notebook_root_fails_the_listing_rather_than_blank_it(monkeypatch):
@@ -556,7 +547,9 @@ def test_no_notebook_root_fails_the_listing_rather_than_blank_it(monkeypatch):
 
     monkeypatch.setattr(agent_cli, "open_task_table", unset)
     result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
-    assert result.exit_code != 0, result.output
+    assert result.exit_code == 1, result.output
+    assert NOTEBOOK_ROOT_UNSET_MESSAGE in result.output
+    assert "Improve plan mode" not in result.output
 
 
 def test_stopped_asks_the_daemon_for_the_stopped_scope():
@@ -779,7 +772,7 @@ class TestStopAgentsInWorktree:
     async def test_an_unreachable_daemon_is_silent(self):
         # The close must not fail because the daemon is down; the pid sweep
         # that follows still tears the session down.
-        messages, client = await self._stop([_unreachable("/x")])
+        messages, client = await self._stop([unreachable("/x")])
         assert messages == []
 
     async def test_a_refused_stop_is_reported_not_raised(self):
@@ -788,334 +781,6 @@ class TestStopAgentsInWorktree:
             [{"agents": rows}, {"error": "agent a1 has exited"}]
         )
         assert messages == ["agent a1: agent a1 has exited"]
-
-
-def test_daemon_status_names_the_serving_code():
-    """The command that answers "which copy is serving me?".
-
-    The source tree and the start time are the fields that identify a stale
-    daemon, so both have to reach the output.
-    """
-    result, client = run_cli(
-        ["daemon", "status"],
-        replies=[
-            {
-                "daemon": {
-                    "pid": 4242,
-                    "version": "0.1.2",
-                    "executable": "/tree/.venv/bin/python3",
-                    "source_tree": "/Users/x/Projects/maelstrom/_main",
-                    "root": "/Users/x/.maelstrom",
-                    "socket_path": "/Users/x/.maelstrom/agent-daemon.sock",
-                    "spec_dir": "/Users/x/.maelstrom/agents",
-                    "started_at": "2026-09-05T02:44:16+00:00",
-                    "agents": 5,
-                }
-            }
-        ],
-    )
-    assert result.exit_code == 0
-    assert client.calls == [{"cmd": "ping"}]
-    assert "4242" in result.output
-    assert "/Users/x/Projects/maelstrom/_main" in result.output
-    assert "5" in result.output
-
-
-def test_the_bare_daemon_command_does_not_serve():
-    """`daemon` used to run one in the foreground; it must not now."""
-    result, _ = run_cli(["daemon"])
-    assert result.exit_code != 0
-
-
-def test_daemon_status_explains_a_daemon_too_old_to_answer():
-    """A pre-`ping` daemon answers "no such agent", which reads as a bug here.
-
-    `daemon status` is the command you run to diagnose a stale daemon, so it
-    is the last place that should report the stale daemon's confusion verbatim.
-    """
-    result, _ = run_cli(["daemon", "status"], replies=[{"error": "no such agent: "}])
-    assert result.exit_code == 1
-    assert "older than this code" in result.output
-    # Names a command that exists: `mael agent daemon restart` is gone, and the
-    # environment manager owns the daemon's lifetime.
-    assert "mael self-env restart agent-daemon" in result.output
-
-
-def test_daemon_status_renders_a_timestamp_without_a_zone():
-    """A stamp with no zone must not traceback.
-
-    `status` is the command you run when a daemon is old or foreign, so it has
-    to survive a record it did not write.
-    """
-    result, _ = run_cli(
-        ["daemon", "status"],
-        replies=[{"daemon": {"pid": 1, "started_at": "2026-09-05T14:47:00"}}],
-    )
-    assert result.exit_code == 0
-    # Read as UTC and rendered in local time, so the date depends on the zone.
-    # What matters is that it renders an age at all rather than raising.
-    assert "ago)" in result.output
-
-
-# --- gc, list and reconcile: the records against the process table -----------
-
-_S1 = "11111111-1111-1111-1111-111111111111"
-_DRIVEN = (
-    "claude -p --input-format stream-json --output-format stream-json --verbose "
-    "--permission-prompt-tool stdio --resume "
-)
-
-
-def _verdict(kind, agent_id="a1", pid=100, reason=""):
-    return {
-        "kind": kind,
-        "session_id": _S1,
-        "agent_id": agent_id,
-        "pid": pid,
-        "pgid": pid,
-        "reason": reason,
-    }
-
-
-def test_reconcile_asks_a_running_daemon_and_prints_its_verdicts():
-    result, client = run_cli(
-        ["daemon", "reconcile"],
-        replies=[
-            {"verdicts": [_verdict("stray"), _verdict("duplicate", pid=200)]},
-            {"agents": []},
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert [c["cmd"] for c in client.calls] == ["reconcile", "list"]
-    assert "stray" in result.output and "200" in result.output
-
-
-def test_gc_asks_a_running_daemon_and_reports_what_it_killed():
-    result, client = run_cli(
-        ["daemon", "gc"],
-        replies=[{"verdicts": [_verdict("stray")], "killed": [100]}, {"agents": []}],
-    )
-    assert result.exit_code == 0, result.output
-    assert client.calls[0] == {"cmd": "gc"}
-    assert "killed groups: 100" in result.output
-
-
-def _local_root(monkeypatch, records, processes):
-    """No daemon: the command reads the records and the table itself."""
-    from maelstrom.agent_model import AgentSpec
-    from maelstrom.agent_spec_store import JsonAgentSpecStore
-    from maelstrom.agent_transport import daemon_paths
-    from maelstrom.process_table import ProcessInfo
-
-    store = JsonAgentSpecStore(daemon_paths().spec_dir)
-    for agent_id, pid, status in records:
-        store.write(
-            AgentSpec(
-                agent_id=agent_id, cwd="/w", session_id=_S1, pid=pid, status=status
-            )
-        )
-    table = [ProcessInfo(pid, pid, f"{_DRIVEN}{_S1}") for pid in processes]
-
-    async def _table():
-        return list(table)
-
-    monkeypatch.setattr(agent_cli, "list_claude_processes", _table)
-    signals: list[tuple[int, int]] = []
-    monkeypatch.setattr(
-        "maelstrom.agent_server.kill_group",
-        lambda pgid, sig: signals.append((pgid, sig)),
-    )
-    monkeypatch.setattr("maelstrom.agent_server._group_alive", lambda pgid: False)
-    return store, signals
-
-
-def test_gc_with_no_daemon_kills_the_strays_and_leaves_their_records_running(
-    monkeypatch,
-):
-    """The case `gc` exists for: `kill -9` took the daemon and left its children."""
-    store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [100, 200])
-    result, client = run_cli(
-        ["daemon", "gc"],
-        replies=[_unreachable("/x")],
-    )
-    assert result.exit_code == 0, result.output
-    assert [s[0] for s in signals] == [100, 200]
-    assert store.read("a1").status == "running"
-    assert "stray" in result.output and "duplicate" in result.output
-
-
-def test_reconcile_with_no_daemon_touches_nothing(monkeypatch):
-    store, signals = _local_root(monkeypatch, [("a1", 100, "running")], [])
-    result, _ = run_cli(
-        ["daemon", "reconcile", "--json"],
-        replies=[_unreachable("/x")],
-    )
-    assert result.exit_code == 0, result.output
-    body = json.loads(result.output)
-    assert body["reachable"] is False
-    assert [v["kind"] for v in body["verdicts"]] == ["crashed"]
-    assert signals == []
-    assert store.read("a1").status == "running"  # a dry run writes nothing
-
-
-def test_list_shows_each_record_with_its_pid_liveness_and_holder(monkeypatch):
-    store, _ = _local_root(
-        monkeypatch, [("a1", 100, "running"), ("a2", None, "exited")], [100, 200]
-    )
-    result, _ = run_cli(
-        ["daemon", "list", "--json"],
-        replies=[_unreachable("/x")],
-    )
-    assert result.exit_code == 0, result.output
-    rows = {row["id"]: row for row in json.loads(result.output)}
-    assert rows["a1"]["pid"] == "100"
-    assert rows["a1"]["alive"] == "yes"
-    assert rows["a1"]["held"] == "no"
-    assert rows["a1"]["mismatch"] == "stray, 1 duplicate"
-    assert rows["a2"]["pid"] == ""
-    assert rows["a2"]["alive"] == ""
-
-
-def test_list_marks_held_from_the_daemons_own_listing():
-    result, _ = run_cli(
-        ["daemon", "list", "--json"],
-        replies=[{"verdicts": [_verdict("owned")]}, {"agents": [{"id": "a1"}]}],
-    )
-    # No record on disk under the isolated root, so the only row is none —
-    # the verdict alone does not make a row; the record does.
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == []
-
-
-def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
-    from maelstrom.process_table import ProcessTableUnavailable
-
-    async def unreadable():
-        raise ProcessTableUnavailable("pgrep exited 3")
-
-    monkeypatch.setattr(agent_cli, "list_claude_processes", unreadable)
-    result, _ = run_cli(
-        ["daemon", "gc"],
-        replies=[_unreachable("/x")],
-    )
-    assert result.exit_code != 0
-    assert "process table" in result.output
-
-
-def test_all_roots_kills_only_a_process_unknown_to_every_root(monkeypatch, tmp_path):
-    """One root does not kill what it cannot place; every root together may."""
-    from maelstrom.agent_transport import DaemonPaths
-
-    roots = [DaemonPaths(tmp_path / "a"), DaemonPaths(tmp_path / "b")]
-    monkeypatch.setattr(agent_cli, "all_roots", lambda base: roots)
-    signals: list[tuple[int, int]] = []
-    monkeypatch.setattr(
-        "maelstrom.agent_server.kill_group",
-        lambda pgid, sig: signals.append((pgid, sig)),
-    )
-    monkeypatch.setattr("maelstrom.agent_server._group_alive", lambda pgid: False)
-    # Root a owns pid 100 and knows nothing of 300; root b knows neither.
-    result, client = run_cli(
-        ["daemon", "gc", "--all-roots"],
-        replies=[
-            {
-                "verdicts": [_verdict("owned", pid=100), _verdict("unknown", "", 300)],
-                "killed": [],
-            },
-            {"agents": [{"id": "a1"}]},
-            {
-                "verdicts": [
-                    _verdict("unknown", "", 100),
-                    _verdict("unknown", "", 300),
-                ],
-                "killed": [],
-            },
-            {"agents": []},
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert [s[0] for s in signals] == [300]
-    assert str(tmp_path / "a") in result.output and str(tmp_path / "b") in result.output
-
-
-# --- the daemon root comes from the environment ------------------------------
-
-
-class TestServeRequiresARoot:
-    """`serve` runs only on a root its environment names.
-
-    A daemon on the wrong root is the failure this prevents. It served a
-    worktree's test code as the everyday daemon for four restarts, because the
-    root came from a flag that the starting command chose. The environment
-    manager now writes the root into `.env`, and `serve` reads it there.
-    """
-
-    def test_serve_without_a_root_exits_two_and_names_the_commands(self, monkeypatch):
-        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
-        result, _ = run_cli(["daemon", "serve"])
-        assert result.exit_code == 2
-        assert "MAEL_AGENT_ROOT is not set" in result.output
-        assert "mael self-env start" in result.output
-        assert "mael env start" in result.output
-
-    def test_serve_without_a_root_builds_no_daemon(self, monkeypatch):
-        """Exiting is not enough: a daemon constructed on a guessed root would
-        create that directory before the error reached anyone."""
-        monkeypatch.delenv("MAEL_AGENT_ROOT", raising=False)
-        built = []
-        monkeypatch.setattr(
-            agent_cli, "AgentDaemon", lambda *a, **k: built.append(a) or object()
-        )
-        result, _ = run_cli(["daemon", "serve"])
-        assert result.exit_code == 2
-        assert built == []
-
-    def test_serve_builds_the_daemon_on_the_environments_root(
-        self, monkeypatch, tmp_path
-    ):
-        root = tmp_path / "chosen"
-        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
-        built = []
-
-        class _Daemon:
-            def __init__(self, *args, **kwargs):
-                built.append(args[0] if args else kwargs.get("root"))
-
-            async def serve(self):
-                return None
-
-        monkeypatch.setattr(agent_cli, "AgentDaemon", _Daemon)
-        result, _ = run_cli(["daemon", "serve"])
-        assert result.exit_code == 0, result.output
-        assert built == [root]
-
-    def test_serve_takes_no_root_flag(self, tmp_path):
-        """A flag is what let the wrong root be chosen, so there is no flag."""
-        result, _ = run_cli(["daemon", "serve", "--root", str(tmp_path)])
-        assert result.exit_code == 2
-        assert "no such option" in result.output.lower()
-
-
-class TestReadOnlyVerbsReadTheEnvironment:
-    """`status`, `list`, `gc` and `reconcile` follow their own environment."""
-
-    @pytest.mark.parametrize("verb", ["status", "list", "gc", "reconcile"])
-    def test_the_verb_takes_no_root_flag(self, verb, tmp_path):
-        result, _ = run_cli(["daemon", verb, "--root", str(tmp_path)])
-        assert result.exit_code == 2
-        assert "no such option" in result.output.lower()
-
-    def test_status_asks_the_daemon_on_the_environments_root(
-        self, monkeypatch, tmp_path
-    ):
-        root = tmp_path / "chosen"
-        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
-        result, client = run_cli(
-            ["daemon", "status"],
-            replies=[{"daemon": {"pid": 1, "root": str(root), "agents": 0}}],
-        )
-        assert result.exit_code == 0, result.output
-        assert client.socket_path == str(root / "agent-daemon.sock")
 
 
 class TestResolveRootHasNoFallback:
@@ -1144,76 +809,19 @@ class TestResolveRootHasNoFallback:
         assert require_root() == Path("/home/tester/.maelstrom/daemons/bravo")
 
 
-class TestOnlyTheEnvironmentManagerStartsADaemon:
-    """`daemon start|stop|restart` are gone.
-
-    Seven things used to bring a daemon into being, so no one owned any root.
-    Two do now: `mael self-env start` for the everyday daemon, and
-    `mael env start` for a worktree's. Both run `serve` as a service, so the
-    daemon's lifetime is its environment's.
-    """
-
-    @pytest.mark.parametrize("verb", ["start", "stop", "restart"])
-    def test_the_verb_is_not_a_command(self, verb):
-        result, _ = run_cli(["daemon", verb])
-        assert result.exit_code == 2
-        assert "no such command" in result.output.lower()
-
-    def test_the_group_names_the_environment_manager(self):
-        result, _ = run_cli(["daemon", "--help"])
-        assert "self-env" in result.output
-        assert "env start" in result.output
-
-
-class TestAnUnreachableDaemonIsReported:
-    """A missing daemon names the root and the command that starts one.
-
-    Distinguishing "no daemon" from "a daemon that answered badly" is what
-    lets `gc` fall back to reading the records itself, and lets `status` tell
-    a stale daemon apart from an absent one. Both match on the message, so the
-    message is behaviour.
-    """
-
-    def test_a_command_exits_one_and_prints_the_message(self, tmp_path, monkeypatch):
-        root = tmp_path / "chosen"
-        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
-        result, _ = run_cli(
-            ["list"],
-            replies=[_unreachable(root)],
-        )
-        assert result.exit_code == 1
-        assert f"No agent daemon on {root}" in result.output
-        assert "mael self-env start" in result.output
-
-    def test_status_reports_an_absent_daemon_rather_than_a_stale_one(
-        self, tmp_path, monkeypatch
-    ):
-        """`status` calls a daemon that cannot answer `ping` stale. An absent
-        one must not be described that way."""
-        root = tmp_path / "chosen"
-        monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
-        result, _ = run_cli(
-            ["daemon", "status"],
-            replies=[_unreachable(root)],
-        )
-        assert result.exit_code == 1
-        assert f"No agent daemon on {root}" in result.output
-        assert "older than this code" not in result.output
-
-    def test_gc_falls_back_to_the_records_when_no_daemon_answers(
-        self, tmp_path, monkeypatch
-    ):
-        """The case `gc` exists for: a daemon that died leaving children."""
-
-        async def _empty():
-            return []
-
-        monkeypatch.setattr(agent_cli, "list_claude_processes", _empty, raising=False)
-        result, _ = run_cli(
-            ["daemon", "gc"],
-            replies=[_unreachable(tmp_path)],
-        )
-        assert result.exit_code == 0, result.output
+def test_an_unreachable_daemon_is_named_with_the_command_that_starts_one(
+    tmp_path, monkeypatch
+):
+    """The message is behaviour: `gc` and `status` match on it."""
+    root = tmp_path / "chosen"
+    monkeypatch.setenv("MAEL_AGENT_ROOT", str(root))
+    result, _ = run_cli(
+        ["list"],
+        replies=[unreachable(root)],
+    )
+    assert result.exit_code == 1
+    assert f"No agent daemon on {root}" in result.output
+    assert "mael self-env start" in result.output
 
 
 class TestTailRaw:
