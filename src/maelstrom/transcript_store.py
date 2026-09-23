@@ -12,7 +12,7 @@ injected.
 
 Two things keep the read affordable. :func:`read_head` reads only the head of
 each file, and a ``cwds`` filter computes each slug forward with
-:func:`~maelstrom.worktree_model.sanitise_path_for_claude` rather than trying
+:func:`~maelstrom.claude_paths.sanitise_path_for_claude` rather than trying
 to reverse a slug back into a path — the slug replaces both ``/`` and ``.``
 with ``-``, so that direction is lossy.
 """
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .agent_model import DRIVEN_ENTRYPOINT, KIND_CLI, KIND_MAEL, TranscriptMeta
-from .worktree_model import sanitise_path_for_claude
+from .claude_paths import get_transcript_root, sanitise_path_for_claude
 
 #: How far into a transcript the head read goes before it gives up.
 #:
@@ -33,11 +33,6 @@ from .worktree_model import sanitise_path_for_claude
 #: clears that on every transcript measured, and reading all ~800 of them
 #: head-only takes about a third of a second.
 HEAD_LINES = 40
-
-
-def get_transcript_root() -> Path:
-    """Where Claude Code keeps its per-project session transcripts."""
-    return Path.home() / ".claude" / "projects"
 
 
 class TranscriptStore(Protocol):

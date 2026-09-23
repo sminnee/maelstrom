@@ -20,6 +20,7 @@ from . import task as model  # noqa: F401  (module, used as `model.*`)
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from . import task as task_model
+from .claude_paths import has_claude_transcript
 from .cli_async import AsyncGroup
 from .cmux.client import ensure_cmux_running
 from .context import resolve_context
@@ -49,7 +50,7 @@ from .worktree_launcher import (
     build_task_launch_line,
     launch_claude_in_worktree,
 )
-from .worktree_model import WorktreeError, has_claude_transcript
+from .worktree_model import WorktreeError
 
 
 def resolve_harness_or_fail(

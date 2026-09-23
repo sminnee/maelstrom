@@ -93,12 +93,13 @@ from .agent_model import (
 from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
 from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
-from .attachments import MAX_BYTES, image_extension, is_image
+from .claude_paths import has_claude_transcript
 from .harness_model import (
     HARNESS_CLAUDE,
     resolve_execute_model,
     resolve_model_reference,
 )
+from .image import MAX_BYTES, image_extension, is_image
 from .process_table import (
     ProcessInfo,
     ProcessTableUnavailable,
@@ -108,7 +109,6 @@ from .process_table import (
 )
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 from .util import now_iso
-from .worktree_model import has_claude_transcript
 
 log = logging.getLogger(__name__)
 

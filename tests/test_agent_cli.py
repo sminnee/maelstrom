@@ -991,7 +991,7 @@ def test_all_roots_kills_only_a_process_unknown_to_every_root(monkeypatch, tmp_p
     from maelstrom.agent_transport import DaemonPaths
 
     roots = [DaemonPaths(tmp_path / "a"), DaemonPaths(tmp_path / "b")]
-    monkeypatch.setattr(agent_cli, "all_roots", lambda: roots)
+    monkeypatch.setattr(agent_cli, "all_roots", lambda base: roots)
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         "maelstrom.agent_server.kill_group",

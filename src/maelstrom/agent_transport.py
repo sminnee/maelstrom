@@ -24,8 +24,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from .context import get_maelstrom_dir
-
 #: Names the daemon root. The one variable that moves every daemon path at once.
 ROOT_ENV = "MAEL_AGENT_ROOT"
 
@@ -124,15 +122,16 @@ def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
     return DaemonPaths(Path(root).expanduser() if root is not None else require_root())
 
 
-def all_roots(base: Path | None = None) -> list[DaemonPaths]:
+def all_roots(base: Path) -> list[DaemonPaths]:
     """Every daemon root on this machine: ``base`` itself, plus each under ``daemons``.
 
     An environment's daemon lives under ``<base>/daemons/<worktree>``, which is
     where maelstrom's own ``.maelstrom.yaml`` puts it. ``base`` itself is
     listed because the everyday daemon used to live there, and its records
     outlive the move. A root set by hand anywhere else cannot be reached.
+
+    ``base`` is the caller's: the transport knows no maelstrom directory.
     """
-    base = base if base is not None else get_maelstrom_dir()
     roots = [DaemonPaths(base)]
     daemons = base / "daemons"
     if daemons.is_dir():

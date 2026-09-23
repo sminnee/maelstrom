@@ -9,10 +9,9 @@ it.
 import pytest
 
 from maelstrom import attachments
+from maelstrom.image import MAX_BYTES
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
-JPG = b"\xff\xd8\xff\x00fakejpgdata"
-GIF = b"GIF89a\x00fakegifdata"
 NOT_AN_IMAGE = b"just some text, not an image at all"
 
 
@@ -22,37 +21,6 @@ def tasks(tmp_path, monkeypatch):
     root = tmp_path / "tasks"
     monkeypatch.setattr("maelstrom.task_store.tasks_root", lambda: root)
     return root
-
-
-class TestImageExtension:
-    """The extension comes from the bytes, then the name, then nothing."""
-
-    @pytest.mark.parametrize(
-        "data,expected",
-        [
-            (PNG, ".png"),
-            (JPG, ".jpg"),
-            (GIF, ".gif"),
-            (b"RIFF\x00\x00\x00\x00WEBP", ".webp"),
-        ],
-    )
-    def test_sniffs_magic_bytes(self, data, expected):
-        # The name says otherwise on purpose: the bytes win.
-        assert attachments.image_extension("shot.txt", data) == expected
-
-    def test_falls_back_to_the_name(self):
-        assert attachments.image_extension("diagram.svg", NOT_AN_IMAGE) == ".svg"
-
-    def test_falls_back_to_bin(self):
-        assert attachments.image_extension("", NOT_AN_IMAGE) == ".bin"
-
-
-class TestIsImage:
-    def test_accepts_a_known_format(self):
-        assert attachments.is_image(PNG)
-
-    def test_refuses_anything_else(self):
-        assert not attachments.is_image(NOT_AN_IMAGE)
 
 
 class TestSaveAttachment:
@@ -122,7 +90,7 @@ class TestSizeAndFormatGuards:
     """One paste must not be able to fill the notebook repo."""
 
     def test_refuses_bytes_over_the_cap(self, tasks):
-        too_big = PNG + b"\x00" * attachments.MAX_BYTES
+        too_big = PNG + b"\x00" * MAX_BYTES
 
         with pytest.raises(ValueError, match="too large"):
             attachments.save_attachment("proj", "t1", too_big, name="shot.png")

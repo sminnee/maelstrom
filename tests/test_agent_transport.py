@@ -253,3 +253,17 @@ class TestTheReplyCarriesTheKind:
         reply = asyncio.run(run())
         assert reply["error"] == "no such agent: a1"
         assert "kind" not in reply
+
+
+def test_every_root_is_the_base_and_each_daemon_under_it(tmp_path):
+    """An environment's daemon lives under ``<base>/daemons/<worktree>``."""
+    from maelstrom.agent_transport import DaemonPaths, all_roots
+
+    (tmp_path / "daemons" / "bravo").mkdir(parents=True)
+    (tmp_path / "daemons" / "alpha").mkdir()
+    (tmp_path / "daemons" / "stray.log").write_text("")
+    assert all_roots(tmp_path) == [
+        DaemonPaths(tmp_path),
+        DaemonPaths(tmp_path / "daemons" / "alpha"),
+        DaemonPaths(tmp_path / "daemons" / "bravo"),
+    ]

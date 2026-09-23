@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .base_store import BaseStore, GitConfigBaseStore
 from .claude_integration import get_shared_dir
+from .claude_paths import sanitise_path_for_claude
 from .config import (
     load_config_or_default,
     service_port_names,
@@ -74,7 +75,6 @@ from .worktree_model import (
     render_managed_section,
     resolve_stack_tip,
     resolve_template_lines,
-    sanitise_path_for_claude,
     substitute_vars,
     validate_base,
     worktree_num,

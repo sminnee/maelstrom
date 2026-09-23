@@ -20,6 +20,7 @@ import click
 
 from . import task as task_model
 from .claude_integration import read_json
+from .claude_paths import has_claude_transcript
 from .cli_async import AsyncCommand
 from .context import get_maelstrom_dir, load_global_config, validate_project_name
 from .env import (
@@ -41,7 +42,7 @@ from .worktree import (
     setup_claude_memory_symlink,
     update_claude_local_md,
 )
-from .worktree_model import extract_worktree_name_from_folder, has_claude_transcript
+from .worktree_model import extract_worktree_name_from_folder
 
 
 def _claude_json_path(home: Path) -> Path:

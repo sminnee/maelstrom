@@ -23,6 +23,7 @@ from .. import task as model
 from .. import task_actions
 from ..agent_model import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
+from ..claude_paths import has_claude_transcript
 from ..github_model import PrStatus, RateLimited, pr_from_row
 from ..harness_model import resolve_execute_model
 from ..list_all import build_list_all_data
@@ -30,7 +31,6 @@ from ..session_discovery import LiveSessionSet
 from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
 from ..task_table import TaskTable
 from ..worktree import WorktreeSetup
-from ..worktree_model import has_claude_transcript
 from .protocol import Project, Task, Worktree
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
