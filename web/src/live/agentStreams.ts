@@ -48,6 +48,13 @@ export const CLOSE_LAGGING = 4409;
 
 const MAX_RECONNECT_MS = 30_000;
 
+/**
+ * Numbers each stand-in bubble. Not `crypto.randomUUID`: a page served over plain HTTP
+ * is not a secure context, and there the browser withholds it. Module-level, because a
+ * replacement manager takes over a store that can still hold the last one's stand-ins.
+ */
+let localSeq = 0;
+
 type Opening =
   | { type: 'transcript.snapshot'; seq: number; items: TranscriptItem[]; truncatedBefore: boolean }
   | { type: 'transcript.replay'; seq: number; frames: TranscriptFrame[] };
@@ -205,7 +212,7 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       };
     },
     sendLocal(agentId, markdown) {
-      const id = `local-${crypto.randomUUID()}`;
+      const id = `local-${++localSeq}`;
       const item: MessageItem = {
         id,
         ts: new Date().toISOString(),

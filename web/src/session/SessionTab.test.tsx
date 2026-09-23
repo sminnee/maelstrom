@@ -631,6 +631,28 @@ describe('sending a message', () => {
     // The failed send keeps the text held, so the reader can retry.
     expect(input).toHaveValue('Rebase onto main');
   });
+
+  it('sends over plain HTTP, where the browser withholds `crypto.randomUUID`', async () => {
+    const own = Object.getOwnPropertyDescriptor(crypto, 'randomUUID');
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    try {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      await openTaskSession(user);
+      await settleOnSeed();
+
+      await user.type(screen.getByLabelText('Message to agent'), 'Rebase onto main');
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+
+      await waitFor(() => {
+        const said = server.requests.find((r) => r.path.endsWith('/say'));
+        expect(said?.body).toMatchObject({ text: 'Rebase onto main' });
+      });
+    } finally {
+      if (own) Object.defineProperty(crypto, 'randomUUID', own);
+      else delete (crypto as { randomUUID?: unknown }).randomUUID;
+    }
+  });
 });
 
 describe('the stop button', () => {
