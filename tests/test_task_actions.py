@@ -3,7 +3,8 @@
 The provider runners (``linear.set_issue_status`` / ``sentry.resolve_issue``)
 are monkeypatched, so nothing touches the network. ``run_action`` is the unit
 under test for ref-resolution + warn-on-failure; ``move_with_actions`` is
-exercised for destination-keyed firing.
+exercised for destination-keyed firing. Every line an action reports reaches
+the caller's ``warn``, collected here in a list.
 """
 
 import pytest
@@ -46,45 +47,63 @@ class TestRunAction:
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(
-            linear, "set_issue_status", lambda i, s: calls.append((i, s))
+            linear, "set_issue_status", _recorder(calls, "NORT-12: Todo -> Unreleased")
         )
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
-        task_actions.run_action(t, "linear.done")
+        lines: list[str] = []
+        task_actions.run_action(t, "linear.done", warn=lines.append)
         assert calls == [("NORT-12", "done")]
+        assert lines == [
+            "NORT-12: Todo -> Unreleased",
+            "action linear.done -> NORT-12 (task x)",
+        ]
 
     def test_sentry_resolve_calls_resolve_issue(self, monkeypatch):
         calls = []
         from maelstrom.integrations import sentry
 
-        monkeypatch.setattr(sentry, "resolve_issue", lambda i: calls.append(i))
+        monkeypatch.setattr(
+            sentry,
+            "resolve_issue",
+            _recorder(calls, "Resolved: Boom\nStatus: resolved"),
+        )
         t = Task(id="sentry.abc123", title="t", project="p")
-        task_actions.run_action(t, "sentry.resolve")
-        assert calls == ["abc123"]
+        lines: list[str] = []
+        task_actions.run_action(t, "sentry.resolve", warn=lines.append)
+        assert calls == [("abc123",)]
+        assert lines == [
+            "Resolved: Boom\nStatus: resolved",
+            "action sentry.resolve -> abc123 (task sentry.abc123)",
+        ]
 
-    def test_empty_code_is_noop(self, monkeypatch, capsys):
+    def test_empty_code_is_noop(self, monkeypatch):
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
-        task_actions.run_action(t, "")
-        assert capsys.readouterr().err == ""
+        lines: list[str] = []
+        task_actions.run_action(t, "", warn=lines.append)
+        assert lines == []
 
-    def test_unknown_code_warns_and_runs_nothing(self, capsys):
+    def test_unknown_code_warns_and_runs_nothing(self):
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
-        task_actions.run_action(t, "linear.bogus")
-        err = capsys.readouterr().err
-        assert "unknown task action" in err
-        assert "linear.bogus" in err
+        lines: list[str] = []
+        task_actions.run_action(t, "linear.bogus", warn=lines.append)
+        assert lines == ["warning: unknown task action 'linear.bogus' on x"]
 
-    def test_no_matching_ref_warns(self, monkeypatch, capsys):
+    def test_no_matching_ref_warns(self, monkeypatch):
         from maelstrom.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         t = Task(id="2026-06-16.1", title="t", project="p", parent="2026-06-16.2")
-        task_actions.run_action(t, "linear.done")
-        assert "no matching" in capsys.readouterr().err
+        lines: list[str] = []
+        task_actions.run_action(t, "linear.done", warn=lines.append)
+        assert lines == [
+            "warning: action 'linear.done' on 2026-06-16.1: no matching "
+            "linear./sentry. ref in id or parent"
+        ]
 
-    def test_runner_raising_is_swallowed_with_warning(self, monkeypatch, capsys):
+    def test_runner_raising_is_swallowed_with_warning(self, monkeypatch):
         from maelstrom.integrations import linear
 
         def boom(issue_id, status):
@@ -92,11 +111,10 @@ class TestRunAction:
 
         monkeypatch.setattr(linear, "set_issue_status", boom)
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
+        lines: list[str] = []
         # Must not raise.
-        task_actions.run_action(t, "linear.done")
-        err = capsys.readouterr().err
-        assert "failed" in err
-        assert "api exploded" in err
+        task_actions.run_action(t, "linear.done", warn=lines.append)
+        assert lines == ["warning: action 'linear.done' on x failed: api exploded"]
 
 
 # --- move_with_actions: destination-keyed firing ---
@@ -112,24 +130,24 @@ class TestMoveWithActions:
         calls = []
         from maelstrom.integrations import linear
 
-        monkeypatch.setattr(
-            linear, "set_issue_status", lambda i, s: calls.append((i, s))
-        )
+        monkeypatch.setattr(linear, "set_issue_status", _recorder(calls))
         t = await self._seed(store, parent="linear.NORT-12", post_action="linear.done")
-        await task_actions.move_with_actions(store, "p", t.id, model.STATUS_DONE)
+        await task_actions.move_with_actions(
+            store, "p", t.id, model.STATUS_DONE, warn=[].append
+        )
         assert calls == [("NORT-12", "done")]
 
     async def test_move_to_in_progress_fires_pre_action(self, monkeypatch, store):
         calls = []
         from maelstrom.integrations import linear
 
-        monkeypatch.setattr(
-            linear, "set_issue_status", lambda i, s: calls.append((i, s))
-        )
+        monkeypatch.setattr(linear, "set_issue_status", _recorder(calls))
         t = await self._seed(
             store, parent="linear.NORT-12", pre_action="linear.in-progress"
         )
-        await task_actions.move_with_actions(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        await task_actions.move_with_actions(
+            store, "p", t.id, model.STATUS_IN_PROGRESS, warn=[].append
+        )
         assert calls == [("NORT-12", "in-progress")]
 
     @pytest.mark.parametrize(
@@ -148,14 +166,25 @@ class TestMoveWithActions:
             post_action="linear.done",
         )
         await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
-        await task_actions.move_with_actions(store, "p", t.id, status)  # must not raise
+        # Must not raise.
+        await task_actions.move_with_actions(store, "p", t.id, status, warn=[].append)
 
     async def test_returns_moved_task(self, monkeypatch, store):
         t = await self._seed(store)
         moved = await task_actions.move_with_actions(
-            store, "p", t.id, model.STATUS_DONE
+            store, "p", t.id, model.STATUS_DONE, warn=[].append
         )
         assert moved.status == model.STATUS_DONE
+
+
+def _recorder(calls, result="NORT-12: Todo -> Done"):
+    """A runner fake that records its arguments and returns ``result``."""
+
+    def _f(*args):
+        calls.append(args)
+        return result
+
+    return _f
 
 
 def _fail(msg):

@@ -8,31 +8,31 @@ resolved from the task's own id or its immediate parent.
 
 This is the single place that knows action codes → command functions and how to
 resolve the target ref, keeping ``session_cli`` / ``task_cli`` thin. Actions
-never block a transition: :func:`run_action` swallows every failure and warns
-loudly to stderr (no matching ref, API error, unknown code).
+never block a transition: :func:`run_action` swallows every failure and passes
+a warning line to the caller's ``warn`` (no matching ref, API error, unknown
+code).
 """
 
 import re
-
-import click
+from collections.abc import Callable
 
 _LINEAR_REF = re.compile(r"^linear\.([A-Z][A-Z0-9]*-\d+)$")
 _SENTRY_REF = re.compile(r"^sentry\.(.+)$")
 
 
 def _linear_set_status(status: str):
-    def run(ref_id: str) -> None:
-        from maelstrom.integrations import linear
+    def run(ref_id: str) -> str:
+        from .integrations import linear
 
-        linear.set_issue_status(ref_id, status)
+        return linear.set_issue_status(ref_id, status)
 
     return run
 
 
-def _sentry_resolve(ref_id: str) -> None:
-    from maelstrom.integrations import sentry
+def _sentry_resolve(ref_id: str) -> str:
+    from .integrations import sentry
 
-    sentry.resolve_issue(ref_id)
+    return sentry.resolve_issue(ref_id)
 
 
 # Action code -> (provider-ref regex, runner). The regex both selects which ref
@@ -61,33 +61,33 @@ def resolve_ref(task, regex: re.Pattern) -> str | None:
     return None
 
 
-def run_action(task, code: str) -> None:
-    """Run lifecycle action ``code`` for ``task``. Never raises — warns to stderr.
+def run_action(task, code: str, *, warn: Callable[[str], None]) -> None:
+    """Run lifecycle action ``code`` for ``task``. Never raises — calls ``warn``.
 
     A falsy ``code`` (no action configured) is a clean no-op. An unknown code, a
     task with no matching ``linear.``/``sentry.`` ref, or a runner that raises
-    all warn loudly to stderr and run nothing further.
+    all pass a warning to ``warn`` and run nothing further. A runner that
+    succeeds passes its result and a success line to ``warn`` too.
     """
     if not code:
         return
     entry = _ACTIONS.get(code)
     if entry is None:
-        click.echo(f"warning: unknown task action {code!r} on {task.id}", err=True)
+        warn(f"warning: unknown task action {code!r} on {task.id}")
         return
     regex, runner = entry
     ref = resolve_ref(task, regex)
     if ref is None:
-        click.echo(
+        warn(
             f"warning: action {code!r} on {task.id}: no matching "
-            f"linear./sentry. ref in id or parent",
-            err=True,
+            f"linear./sentry. ref in id or parent"
         )
         return
     try:
-        runner(ref)
-        click.echo(f"action {code} -> {ref} (task {task.id})", err=True)
+        warn(runner(ref))
+        warn(f"action {code} -> {ref} (task {task.id})")
     except Exception as e:
-        click.echo(f"warning: action {code!r} on {task.id} failed: {e}", err=True)
+        warn(f"warning: action {code!r} on {task.id} failed: {e}")
 
 
 # Destination status -> which task field selects the action to fire. Firing keys
@@ -100,7 +100,9 @@ _ACTION_FOR_STATUS = {
 }
 
 
-async def move_with_actions(table, project, id, new_status, *, now=None):
+async def move_with_actions(
+    table, project, id, new_status, *, warn: Callable[[str], None], now=None
+):
     """``model.move``, then fire the task's pre/post action for this destination.
 
     The single chokepoint for status transitions that may fire lifecycle
@@ -110,10 +112,10 @@ async def move_with_actions(table, project, id, new_status, *, now=None):
     destination status. Returns the moved Task; action failures never block the
     move (:func:`run_action` swallows + warns).
     """
-    from maelstrom import task as model
+    from . import task as model
 
     moved = await model.move(table, project, id, new_status, now=now)
     field = _ACTION_FOR_STATUS.get(new_status)
     if field:
-        run_action(moved, getattr(moved, field))
+        run_action(moved, getattr(moved, field), warn=warn)
     return moved

@@ -1,7 +1,7 @@
 """Tests for the ``mael task`` CLI, against an InMemoryStore.
 
 The CLI is exercised via Click's ``CliRunner``. ``task_cli._store`` is patched
-to return a shared :class:`InMemoryStore` and ``_resolve_project`` to a fixed
+to return a shared :class:`InMemoryStore` and ``resolve_project`` to a fixed
 project, so no git or cwd resolution happens.
 """
 
@@ -38,7 +38,7 @@ def store(store, monkeypatch) -> InMemoryTaskTable:
 
     monkeypatch.setattr(task_cli, "_table", _table)
     monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
-    monkeypatch.setattr(task_cli, "_resolve_project", lambda project: project or "p")
+    monkeypatch.setattr(task_cli, "resolve_project", lambda project: project or "p")
     return store
 
 
@@ -340,9 +340,12 @@ class TestStatusFiresActions:
         from maelstrom.integrations import linear
 
         calls = []
-        monkeypatch.setattr(
-            linear, "set_issue_status", lambda i, s: calls.append((i, s))
-        )
+
+        def set_issue_status(issue_id, status):
+            calls.append((issue_id, status))
+            return f"{issue_id}: Todo -> {status}"
+
+        monkeypatch.setattr(linear, "set_issue_status", set_issue_status)
         new_id = runner.invoke(
             task_cli.task,
             [
@@ -357,6 +360,9 @@ class TestStatusFiresActions:
         result = runner.invoke(task_cli.task, ["status", "done", new_id])
         assert result.exit_code == 0, result.output
         assert calls == [("NORT-12", "done")]
+        # The provider's result line is reported on stderr, beside the action line.
+        assert "NORT-12: Todo -> done" in result.stderr
+        assert "NORT-12: Todo -> done" not in result.stdout
 
 
 class TestStatusDoneFollowerHint:
@@ -2134,12 +2140,12 @@ class TestCurrent:
 
     def test_outside_a_project_dir_prints_nothing(self, runner, store, monkeypatch):
         # A prompt runs from anywhere, including outside any project, where
-        # _resolve_project raises. The store fixture stubs that call out, so
+        # resolve_project raises. The store fixture stubs that call out, so
         # override it to get the real failure back.
         def _boom(project):
             raise ValueError("Could not determine project.")
 
-        monkeypatch.setattr(task_cli, "_resolve_project", _boom)
+        monkeypatch.setattr(task_cli, "resolve_project", _boom)
         monkeypatch.setenv("MAEL_TASK_ID", "2026-06-11.3")
         result = runner.invoke(task_cli.task, ["current"])
         assert result.exit_code == 0, result.output
