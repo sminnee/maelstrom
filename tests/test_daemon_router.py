@@ -521,6 +521,135 @@ def test_stop_ends_the_record_rather_than_deleting_it() -> None:
     assert rows["a1"]["ended_at"]
 
 
+def test_stopping_an_agent_the_daemon_no_longer_holds_ends_its_record() -> None:
+    """The agent is gone, so the stop has done its job."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.replies["stop"] = [{"error": "no such agent: ag1"}]
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        reply = await router.request({"cmd": "stop", "id": "ag1"})
+        return reply, agents.rows["ag1"]
+
+    reply, record = asyncio.run(scenario())
+
+    assert reply == {"ok": True}
+    # Revivable: nothing was stopped, so a daemon at another root that still
+    # holds the agent may bring it back.
+    assert record == stored_agent(status="ended", ended_at=STAMP, swept=True)
+
+
+def test_a_resumed_agent_is_listed_again_after_a_stop() -> None:
+    """An explicit resume may undo a stop, where a mere sighting may not."""
+    stored = stored_agent(task_id="t-1")
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1")
+        agents = Agents(rows={"ag1": dict(stored)})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        await router.request({"cmd": "stop", "id": "ag1"})
+        reply = await router.request({"cmd": "resume", "id": "ag1"})
+        listed = await router.request({"cmd": "list"})
+        return reply, listed, agents.rows["ag1"]
+
+    reply, listed, record = asyncio.run(scenario())
+
+    assert reply == {"ok": True, "id": "ag1"}
+    assert [row["id"] for row in listed["agents"]] == ["ag1"]
+    # Revived onto its own record: the task and the real start survive.
+    assert record == {**stored, "swept": False}
+
+
+def test_resuming_an_agent_the_daemon_already_runs_registers_it() -> None:
+    """The daemon holds a live agent the table wrote off: take it back in."""
+    ended = stored_agent(status="ended", ended_at=LONG_AGO, swept=False)
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1")
+        agents = Agents(rows={"ag1": dict(ended)})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        reply = await router.request({"cmd": "resume", "id": "ag1"})
+        listed = await router.request({"cmd": "list"})
+        return reply, listed, agents.rows["ag1"]
+
+    reply, listed, record = asyncio.run(scenario())
+
+    assert reply == {"ok": True, "id": "ag1"}
+    assert [row["id"] for row in listed["agents"]] == ["ag1"]
+    assert record == {**ended, "status": "running", "ended_at": ""}
+
+
+def test_resuming_an_agent_with_no_record_writes_one_from_its_row() -> None:
+    """`mael agent resume` reaches the daemon without the router, so no record."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", state="exited(0)", cwd="/elsewhere")
+        agents = Agents()
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        await router.request({"cmd": "resume", "id": "ag1"})
+        return agents.rows["ag1"]
+
+    record = asyncio.run(scenario())
+
+    assert record["cwd"] == "/elsewhere"
+    assert record["task_session_id"] == "s1"
+    assert record["status"] == "running"
+
+
+def test_a_running_refusal_for_an_agent_the_daemon_does_not_list_passes() -> None:
+    """A lost child still `running` in the daemon's record is not a live agent."""
+    ended = stored_agent(status="ended", ended_at=LONG_AGO, swept=False)
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.replies["resume"] = [{"error": "agent ag1 is running"}]
+        agents = Agents(rows={"ag1": dict(ended)})
+        router = DaemonRouter(
+            claude, ScriptedAsyncDaemonClient(), agents, clock=lambda: STAMP
+        )
+        reply = await router.request({"cmd": "resume", "id": "ag1"})
+        return reply, agents.rows["ag1"]
+
+    reply, record = asyncio.run(scenario())
+
+    assert reply == {"error": "agent ag1 is running"}
+    assert record == ended
+
+
+def test_a_stopped_codex_agents_resume_goes_to_the_codex_daemon() -> None:
+    """Routed by the stored record, since a stop drops it from the live set."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        codex = ScriptedAsyncDaemonClient(next_start_id="thread-1")
+        # What the real Codex adapter answers: it cannot resume.
+        codex.replies["resume"] = [
+            {"ok": False, "error": "Codex does not support 'resume'."}
+        ]
+        router = DaemonRouter(claude, codex, Agents(), clock=lambda: STAMP)
+        await router.request({"cmd": "start", "cwd": "/worktree", "model": "codex:sol"})
+        await router.request({"cmd": "stop", "id": "thread-1"})
+        reply = await router.request({"cmd": "resume", "id": "thread-1"})
+        return reply, claude.calls
+
+    reply, claude_calls = asyncio.run(scenario())
+
+    assert reply == {"ok": False, "error": "Codex does not support 'resume'."}
+    assert claude_calls == []
+
+
 def test_a_started_record_opens_at_running_with_a_start_time() -> None:
     async def scenario():
         claude = ScriptedAsyncDaemonClient(next_start_id="a1")

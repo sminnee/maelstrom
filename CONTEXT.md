@@ -246,13 +246,13 @@ _Avoid_: Claimed, imported, registered.
 
 **Swept**:
 Retired because several consecutive `list` calls did not name the agent, rather than because a
-`stop` ended it. The record says which, because only a swept one may be **revived**.
+`stop` ended it. The record says which, because a `list` revives only a swept one.
 _Avoid_: Reaped, culled, timed out.
 
 **Revived**:
 An Agent record that read `ended` and is set back to `running`, because its agent turned out to be
-alive. Keeps the task and the start the agent really had, which a fresh adoption would lose. Only
-a **swept** record is revived; a stop is settled.
+alive. Keeps the task and the start the agent really had, which a fresh adoption would lose. A
+`list` revives only a **swept** record; a stop is settled until the user resumes the agent.
 _Avoid_: Restored, resurrected, reopened.
 
 **Driven agent**:

@@ -135,7 +135,9 @@ class DaemonRouter:
             return {"agents": rows, "usage": claude.get("usage")}
         await self._restore()
         try:
-            client, harness = self._client_for(payload)
+            client, harness = self._client_for(
+                payload, await self._harness_of(str(payload.get("id", "")))
+            )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         reply = await client.request(payload)
@@ -162,9 +164,79 @@ class DaemonRouter:
             if agent := self._agents.get(agent_id):
                 agent["mode"] = str(payload.get("mode") or agent["mode"])
                 await self.agents.save(agent)
-        if command == "stop" and reply.get("ok"):
-            await self._end(str(payload.get("id", "")))
+        agent_id = str(payload.get("id", ""))
+        error = str(reply.get("error") or "")
+        if command == "stop":
+            if "no such agent" in error:
+                # The agent is gone, so the stop has done its job. A refusal
+                # here would leave the record `running`, restored live on every
+                # poll and refused again on every Terminate. Nothing was
+                # stopped, though: a daemon at another root may still hold the
+                # agent, so a later `list` that names it may revive it.
+                await self._end(agent_id, revivable=True)
+                reply = {"ok": True}
+            elif reply.get("ok"):
+                await self._end(agent_id)
+        if command == "resume":
+            if reply.get("ok"):
+                row = await self._live_row(client, agent_id)
+                await self._register(agent_id, harness, row)
+            elif error.endswith("is running") and (
+                row := await self._live_row(client, agent_id)
+            ):
+                # The daemon holds a live agent the table wrote off. Take it
+                # back in rather than offer a Resume the daemon always refuses.
+                await self._register(agent_id, harness, row)
+                reply = {"ok": True, "id": agent_id}
         return reply
+
+    async def _live_row(
+        self, client: DaemonClient, agent_id: str
+    ) -> dict[str, Any] | None:
+        """The row ``client``'s daemon lists for ``agent_id``, if it is live."""
+        reply = await client.request({"cmd": "list"})
+        return next(
+            (
+                row
+                for row in reply.get("agents", [])
+                if isinstance(row, dict)
+                and row.get("id") == agent_id
+                and not str(row.get("state", "")).startswith("exited")
+            ),
+            None,
+        )
+
+    async def _register(
+        self, agent_id: str, harness: str, row: dict[str, Any] | None = None
+    ) -> None:
+        """Put a live agent in the live set, reviving its record or writing one.
+
+        With no record, ``row`` — its daemon ``list`` entry, or nothing — is all
+        there is to go on.
+        """
+        self._harnesses[agent_id] = harness
+        self._misses.pop(agent_id, None)
+        stored = await self.agents.read(agent_id)
+        if stored is not None:
+            agent = {
+                **stored,
+                "status": AGENT_RUNNING,
+                "ended_at": "",
+                "swept": False,
+            }
+            self._agents[agent_id] = agent
+            await self.agents.save(agent)
+            return
+        self._agents[agent_id] = await register_agent(
+            self.agents,
+            agent_id,
+            row or {},
+            # Unknown here. `link_agent` resolves the task by session-id
+            # reverse-lookup, so nothing reads this yet.
+            task_id="",
+            harness=harness,
+            started_at=self.clock(),
+        )
 
     async def _adopt(self, agent_id: str, row: dict[str, Any]) -> None:
         """Take a live agent into the live set, writing a record if it has none.
@@ -181,30 +253,8 @@ class DaemonRouter:
             # undo it.
             return
         last_seen = self._last_seen.get(agent_id)
-        harness = last_seen[0] if last_seen else HARNESS_CLAUDE
-        self._harnesses[agent_id] = harness
-        if stored is not None:
-            # Demonstrably alive, so the sweep wrote the record off by mistake —
-            # it did that to six live agents on this machine. Revived onto its
-            # own row, which keeps the task and the start the agent really had.
-            agent = {
-                **stored,
-                "status": AGENT_RUNNING,
-                "ended_at": "",
-                "swept": False,
-            }
-            self._agents[agent_id] = agent
-            await self.agents.save(agent)
-            return
-        self._agents[agent_id] = await register_agent(
-            self.agents,
-            agent_id,
-            row,
-            # Unknown at adoption. `link_agent` resolves the task by session-id
-            # reverse-lookup, so nothing reads this yet.
-            task_id="",
-            harness=harness,
-            started_at=self.clock(),
+        await self._register(
+            agent_id, last_seen[0] if last_seen else HARNESS_CLAUDE, row
         )
 
     def _is_retiring(self, agent_id: str, agent: dict[str, Any]) -> bool:
@@ -222,8 +272,8 @@ class DaemonRouter:
         it. It drops out of the live set instead, so `list` stops reporting it.
 
         ``revivable`` marks a record the sweep wrote off rather than one the
-        user stopped. Only the first may come back: a ``stop`` is settled, and a
-        daemon that still reports the row must not undo it.
+        user stopped. A ``list`` revives only the first: a daemon that still
+        reports a stopped row must not undo the stop. An explicit resume may.
         """
         self._harnesses.pop(agent_id, None)
         # The miss count and the last-seen row go with the record: an id adopted
@@ -253,7 +303,20 @@ class DaemonRouter:
         )
         return client.attach(agent_id, from_seq, epoch)
 
-    def _client_for(self, payload: dict[str, Any]) -> tuple[DaemonClient, str]:
+    async def _harness_of(self, agent_id: str) -> str:
+        """The harness that holds ``agent_id``, from the live set or its record.
+
+        The record is the fallback for an agent outside the live set: a stopped
+        Codex agent's resume must still reach the Codex daemon.
+        """
+        if agent_id in self._harnesses:
+            return self._harnesses[agent_id]
+        stored = await self.agents.read(agent_id) if agent_id else None
+        return str((stored or {}).get("harness") or HARNESS_CLAUDE)
+
+    def _client_for(
+        self, payload: dict[str, Any], harness: str
+    ) -> tuple[DaemonClient, str]:
         if payload.get("cmd") == "start":
             model = str(payload.get("model") or "")
             harness = resolve_model_reference(model).harness
@@ -262,7 +325,6 @@ class DaemonRouter:
             if harness == HARNESS_CLAUDE:
                 return self.claude, harness
             raise ValueError(f"The {harness} daemon is not available.")
-        harness = self._harnesses.get(str(payload.get("id", "")), HARNESS_CLAUDE)
         return (
             (self.codex, harness)
             if harness == HARNESS_CODEX
