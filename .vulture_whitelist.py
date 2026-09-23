@@ -100,3 +100,11 @@ cost_delta  # unused variable (src/maelstrom/agent_cost.py:35)
 cost_is_parent_only  # unused variable (src/maelstrom/agent_cost.py:49)
 cost_usd  # unused variable (src/maelstrom/agent_cost.py:48)
 own_tokens  # unused variable (src/maelstrom/agent_cost.py:44)
+
+# The daemon's detail shape (src/maelstrom/agent_wire.py PendingFields).
+# `pending_fields` writes every key, and a client reads it off the wire JSON
+# through a subscript vulture does not count as a use.
+waiting_kind  # unused variable (src/maelstrom/agent_wire.py PendingFields)
+waiting_tool  # unused variable (src/maelstrom/agent_wire.py PendingFields)
+waiting_input  # unused variable (src/maelstrom/agent_wire.py PendingFields)
+waiting_subagent  # unused variable (src/maelstrom/agent_wire.py PendingFields)

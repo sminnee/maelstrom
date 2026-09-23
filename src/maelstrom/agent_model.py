@@ -10,76 +10,34 @@ and saved as ``tests/fixtures/agent_events/``. ``docs/dev/agent-daemon.md`` docu
 protocol; read it before changing a shape.
 """
 
-import base64
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from .agent_transport import ROOT_ENV
+from .agent_wire import (
+    EXITED,
+    IDLE,
+    NORMAL,
+    PROCESSING,
+    RECENT_LIMIT,
+    SEQ_KEY,
+    TS_KEY,
+    AgentDetail,
+    AgentRow,
+    PendingRequest,
+    StoppedRow,
+    TokenUsage,
+    context_of,
+    from_wire_mode,
+    pending_fields,
+    tokens_of,
+    usage_of,
+)
 from .harness_model import HARNESS_TYPE_ENV, TRANSPORT_DAEMON
 from .util import sanitise_child_env
-
-#: Tools whose ``can_use_tool`` request is a question rather than a permission ask.
-QUESTION_TOOL = "AskUserQuestion"
-PLAN_TOOL = "ExitPlanMode"
-
-# The states an agent can be in. Every one is observed from an event rather
-# than inferred, so there is no staleness fudge here and an interrupt is visible.
-IDLE = "idle"
-PROCESSING = "processing"
-AWAITING_PERMISSION = "awaiting-permission"
-AWAITING_QUESTION = "awaiting-question"
-AWAITING_PLAN_REVIEW = "awaiting-plan-review"
-#: Terminal: the child process is gone. An exited agent answers nothing.
-EXITED = "exited"
-
-#: States in which the agent is blocked on a person. Narrower than
-#: ``INTERRUPTIBLE``, which also covers a turn the agent is running itself.
-WAITING = (
-    AWAITING_PERMISSION,
-    AWAITING_QUESTION,
-    AWAITING_PLAN_REVIEW,
-)
-
-#: States in which the agent still owes a reply, so a turn exists to interrupt.
-INTERRUPTIBLE = (
-    PROCESSING,
-    AWAITING_PERMISSION,
-    AWAITING_QUESTION,
-    AWAITING_PLAN_REVIEW,
-)
-
-#: The permission modes an agent can run in, in the order a cycle visits them.
-MODES = ("plan", "auto", "normal")
-
-#: The mode an approved plan puts an agent into -- see `Permission mode` in
-#: CONTEXT.md.
-AUTO = "auto"
-
-#: The one mode whose maelstrom word is not claude's: no flag at spawn, and
-#: ``default`` on the pipe. Nothing outside this module spells ``default``.
-NORMAL = "normal"
-WIRE_MODE = {NORMAL: "default"}
-_MAELSTROM_MODE = {wire: mael for mael, wire in WIRE_MODE.items()}
-
-
-def to_wire_mode(mode: str) -> str:
-    """``mode`` as the word ``claude`` uses on the pipe."""
-    return WIRE_MODE.get(mode, mode)
-
-
-def from_wire_mode(mode: str) -> str:
-    """``mode`` as read off an event, in maelstrom's own words."""
-    return _MAELSTROM_MODE.get(mode, mode)
-
-
-def next_mode(mode: str) -> str:
-    """The mode after ``mode`` in the cycle. An unknown mode starts it over."""
-    if mode not in MODES:
-        return MODES[0]
-    return MODES[(MODES.index(mode) + 1) % len(MODES)]
 
 
 def build_agent_argv(
@@ -332,57 +290,6 @@ class AgentSpec:
     stopped_at_shutdown: bool = False
 
 
-def build_start_payload(
-    worktree_path: Path,
-    *,
-    permission_mode: str | None = None,
-    env: dict[str, str] | None = None,
-    session_id: str | None = None,
-    resume: bool = False,
-    model: str | None = None,
-    execute_model: str | None = None,
-    prompt: str = "",
-    system_prompt_file: Path | None = None,
-) -> dict[str, Any]:
-    """The daemon's ``start`` command for a launch. Pure.
-
-    The same wire shape ``orchestrator/sources.py`` sends for a task launch, so
-    both callers speak one protocol. Falsy fields are dropped: a taskless
-    ``mael add`` sends nothing but the cwd, so the agent draws as a freeAgent
-    node.
-
-    ``env`` carries ``MAEL_TASK_ID``, which is what keeps the ``session-end``
-    hook closing the task: Claude Code fires hooks as children of the driven
-    ``claude``, so they inherit it.
-
-    ``system_prompt_file`` is the file that teaches the child the markers.
-    Callers pass :func:`~maelstrom.claude_integration.agent_prompt_file`.
-    """
-    # `resume` is always sent: False means "claim a fresh session", which is a
-    # decision, not an omission. Every other falsy field means "the caller did
-    # not say", so the daemon's own default applies.
-    payload: dict[str, Any] = {
-        "cmd": "start",
-        "cwd": str(worktree_path),
-        "resume": resume,
-    }
-    if prompt:
-        payload["prompt"] = prompt
-    if permission_mode:
-        payload["mode"] = permission_mode
-    if model:
-        payload["model"] = model
-    if execute_model:
-        payload["execute_model"] = execute_model
-    if session_id:
-        payload["session"] = session_id
-    if env:
-        payload["env"] = dict(env)
-    if system_prompt_file:
-        payload["system_prompt_file"] = str(system_prompt_file)
-    return payload
-
-
 def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
     """``spec`` as the plain JSON the store writes."""
     return {
@@ -469,61 +376,6 @@ class TranscriptMeta:
     lines_read: int = field(default=0, compare=False)
 
 
-@dataclass(frozen=True)
-class PendingRequest:
-    """One ``can_use_tool`` request the agent is blocked on.
-
-    ``request_id`` is what the reply must echo back; the agent stays blocked
-    until a ``control_response`` carrying it arrives.
-    """
-
-    request_id: str
-    tool_name: str
-    input: dict[str, Any]
-    description: str = ""
-    #: The dotted id of the subagent whose tool call this is, else ``""`` for
-    #: the agent's own. The wait belongs to the agent either way — the child
-    #: blocks on one request at a time, whoever raised it — but a user deciding
-    #: wants to know which stream to read.
-    subagent: str = ""
-
-    @property
-    def questions(self) -> list[str]:
-        """The question texts of an ``AskUserQuestion``, else empty.
-
-        The text doubles as the key an answer is filed under, so this is both
-        what to show a user and what :func:`reply_for_answer` writes back.
-        """
-        if self.tool_name != QUESTION_TOOL:
-            return []
-        return [
-            q["question"]
-            for q in self.input.get("questions", [])
-            if isinstance(q, dict) and "question" in q
-        ]
-
-    @property
-    def wait_kind(self) -> str:
-        """Which of the three waiting states this request puts the agent in.
-
-        The tool name decides. A question and a plan review also carry
-        ``requires_user_interaction``, but that flag adds nothing the tool name
-        does not already say, so nothing reads it.
-        """
-        if self.tool_name == QUESTION_TOOL:
-            return AWAITING_QUESTION
-        if self.tool_name == PLAN_TOOL:
-            return AWAITING_PLAN_REVIEW
-        return AWAITING_PERMISSION
-
-    @property
-    def summary(self) -> str:
-        """One line naming what the agent is waiting on."""
-        if self.tool_name == QUESTION_TOOL:
-            return self.questions[0] if self.questions else self.tool_name
-        return self.description or self.tool_name
-
-
 #: The states a subagent passes through. ``running`` until its notification,
 #: then whatever the notification said. A parented event after the end puts it
 #: back to ``running``.
@@ -536,51 +388,6 @@ SUB_STATUSES = (SUB_RUNNING, SUB_COMPLETED, SUB_FAILED, SUB_STOPPED)
 #: The task kind a ``task_started`` must carry to open a subagent. A background
 #: shell is a task too, keyed by its ``Bash`` call, and is not one.
 AGENT_TASK_TYPE = "local_agent"
-
-
-@dataclass(frozen=True)
-class TokenUsage:
-    """Tokens some run consumed, split the four ways a ``usage`` block reports.
-
-    The daemon's state and the attach footer share the split, so the two can
-    never disagree about what a turn held.
-    """
-
-    input: int = 0
-    output: int = 0
-    cache_read: int = 0
-    cache_creation: int = 0
-
-    @property
-    def total(self) -> int:
-        return self.input + self.output + self.cache_read + self.cache_creation
-
-    def __add__(self, other: "TokenUsage") -> "TokenUsage":
-        return TokenUsage(
-            input=self.input + other.input,
-            output=self.output + other.output,
-            cache_read=self.cache_read + other.cache_read,
-            cache_creation=self.cache_creation + other.cache_creation,
-        )
-
-    def __sub__(self, other: "TokenUsage") -> "TokenUsage":
-        """What was spent between two readings. Never negative: a reset reads 0."""
-        return TokenUsage(
-            input=max(self.input - other.input, 0),
-            output=max(self.output - other.output, 0),
-            cache_read=max(self.cache_read - other.cache_read, 0),
-            cache_creation=max(self.cache_creation - other.cache_creation, 0),
-        )
-
-    def as_row(self) -> dict[str, int]:
-        """This figure as a row reports it: the four counts and their total."""
-        return {
-            "input": self.input,
-            "output": self.output,
-            "cache_read": self.cache_read,
-            "cache_creation": self.cache_creation,
-            "total": self.total,
-        }
 
 
 @dataclass(frozen=True)
@@ -726,9 +533,6 @@ class AgentState:
     subagent_tasks: dict[str, str] = field(default_factory=dict)
 
 
-#: How many events to keep per agent for ``attach`` to render on connect.
-RECENT_LIMIT = 200
-
 #: How many subagents to keep per agent. See :func:`_make_room`.
 SUBAGENT_LIMIT = 50
 
@@ -810,38 +614,6 @@ def read_note(text: str) -> tuple[str, str]:
     if not note:
         return text, ""
     return re.sub(r"\n{3,}", "\n\n", _NOTE_TAG.sub("", text)).strip(), note
-
-
-#: Event type the daemon writes once the replayed backlog has all been sent.
-#: ``mael agent tail`` without ``-f`` stops there. A marker rather than an idle
-#: timeout, because a timeout would race a slow agent and flake. Carries the
-#: agent's ``epoch`` and the ``seq`` the replay reached, so a client can come
-#: back with a cursor.
-BACKLOG_END = "mael_backlog_end"
-
-#: Event type the daemon writes when events a client should have seen are
-#: gone: before the replay, when the ring rolled past the client's cursor, or
-#: mid-stream, when the client's queue overflowed. Carries ``dropped``.
-TRUNCATED = "mael_truncated"
-
-#: The key the daemon stamps every recorded event with: its position in the
-#: agent's stream, from 1, per life. In the ``mael_`` namespace so a consumer
-#: that dispatches on ``type`` never sees it as an event.
-SEQ_KEY = "mael_seq"
-
-#: The key the daemon stamps every recorded event with: when it happened, as
-#: an ISO 8601 string. In the ``mael_`` namespace for the same reason as
-#: :data:`SEQ_KEY`. Empty when the daemon was given no clock.
-TS_KEY = "mael_ts"
-
-#: Event type the daemon writes to every attached client once the agent's
-#: process has gone, carrying ``exit_code``. The last event of an attach
-#: stream, so a client knows the agent ended it, not a dropped connection.
-AGENT_EXITED = "mael_agent_exited"
-
-#: Event type of an attach stream's opening frame, carrying
-#: :func:`build_agent_detail` under ``agent``.
-AGENT_DETAIL = "mael_agent_detail"
 
 
 def _message_texts(event: dict[str, Any]) -> list[str]:
@@ -1122,83 +894,6 @@ def apply_event(
         )
 
     return state
-
-
-#: The four counts on a ``result``'s ``usage`` that make up a turn's size.
-#: See ``docs/dev/agent-daemon.md``, "A turn", for why cache counts are in.
-USAGE_FIELDS = (
-    "input_tokens",
-    "output_tokens",
-    "cache_read_input_tokens",
-    "cache_creation_input_tokens",
-)
-
-
-def usage_of(usage: Any) -> TokenUsage:
-    """One ``usage`` block, split the four ways. A missing block reads as zero.
-
-    The field names come from :data:`USAGE_FIELDS`, so this split and the
-    total :func:`tokens_of` reports can never name different fields.
-    """
-    if not isinstance(usage, dict):
-        return TokenUsage()
-    read = {name: _count(usage.get(name)) for name in USAGE_FIELDS}
-    return TokenUsage(
-        input=read["input_tokens"],
-        output=read["output_tokens"],
-        cache_read=read["cache_read_input_tokens"],
-        cache_creation=read["cache_creation_input_tokens"],
-    )
-
-
-def _count(value: Any) -> int:
-    """``value`` when it is a count, else 0. A bool is not a count."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
-def tokens_of(event: dict[str, Any]) -> int:
-    """How many tokens the turn ``event`` reports, or 0 when it reports none.
-
-    The one reader of a ``result``'s ``usage``, shared by the daemon's state
-    and ``agent_view``'s per-attach total, so the two can never disagree about
-    what a turn cost.
-    """
-    return _sum_usage(event.get("usage"), USAGE_FIELDS)
-
-
-#: The three counts on an ``assistant``'s ``usage`` that make up the prompt.
-#: ``output_tokens`` is out: it is what the model wrote, not what the prompt
-#: holds. See ``docs/dev/agent-daemon.md``, "A turn".
-CONTEXT_FIELDS = (
-    "input_tokens",
-    "cache_read_input_tokens",
-    "cache_creation_input_tokens",
-)
-
-
-def context_of(event: dict[str, Any]) -> int:
-    """How large ``event``'s prompt was, or 0 when it reports no usage.
-
-    Reads an ``assistant`` event, where ``usage`` sits under ``message`` and
-    describes the one request that event answers — the context the agent held
-    at that moment. A ``result``'s ``usage`` cannot answer this: it sums the
-    turn's requests, so its cache counts run past the window the agent has.
-    """
-    message = event.get("message")
-    usage = message.get("usage") if isinstance(message, dict) else None
-    return _sum_usage(usage, CONTEXT_FIELDS)
-
-
-def _sum_usage(usage: Any, field_names: tuple[str, ...]) -> int:
-    """``field_names`` off a ``usage`` block, summed, skipping what is not a count.
-
-    A missing or malformed count is 0, never an error: a size is worth showing
-    approximately, and no stream event is worth a crash. A renamed field
-    upstream therefore reads low rather than raising.
-    """
-    if not isinstance(usage, dict):
-        return 0
-    return sum(_count(usage.get(field_name)) for field_name in field_names)
 
 
 def subagent_of(state: AgentState, event: dict[str, Any]) -> str:
@@ -1539,7 +1234,7 @@ def freshest_usage(states: Iterable[AgentState]) -> dict[str, Any] | None:
     }
 
 
-def build_agent_row(state: AgentState, spawn_session: str = "") -> dict[str, Any]:
+def build_agent_row(state: AgentState, spawn_session: str = "") -> AgentRow:
     """Everything ``mael agent list`` shows about one agent, as a flat dict.
 
     Every key is always present; a field with nothing to report is an empty
@@ -1614,7 +1309,7 @@ def _subagent_message(sub: SubagentState) -> str:
     return sub.last_message
 
 
-def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
+def build_subagent_row(state: AgentState, dotted: str) -> AgentRow:
     """One subagent of ``state``, in the shape of :func:`build_agent_row`.
 
     ``parent`` names the agent whose stream it came from — always the top-level
@@ -1659,7 +1354,7 @@ def build_subagent_row(state: AgentState, dotted: str) -> dict[str, Any]:
     }
 
 
-def build_subagent_rows(state: AgentState) -> list[dict[str, Any]]:
+def build_subagent_rows(state: AgentState) -> list[AgentRow]:
     """Every subagent of ``state`` as a row, oldest first."""
     return [build_subagent_row(state, dotted) for dotted in state.subagents]
 
@@ -1685,7 +1380,7 @@ def build_stopped_row(
     spec: AgentSpec,
     *,
     now: float,
-) -> dict[str, Any]:
+) -> StoppedRow:
     """One resumable session, as ``mael agent list --stopped`` shows it.
 
     ``id`` is the agent id, which is what ``mael agent resume`` takes.
@@ -1721,7 +1416,7 @@ def build_stopped_rows(
     id_free_cwds: set[Path],
     *,
     now: float,
-) -> list[dict[str, Any]]:
+) -> list[StoppedRow]:
     """Every session that can be resumed, newest first.
 
     ``specs`` is keyed by session id, so a record and a transcript for one
@@ -1749,7 +1444,7 @@ def build_stopped_rows(
     return sorted(rows, key=lambda row: row["modified_at"], reverse=True)
 
 
-def build_agent_detail(state: AgentState, spawn_session: str = "") -> dict[str, Any]:
+def build_agent_detail(state: AgentState, spawn_session: str = "") -> AgentDetail:
     """Everything ``mael agent show`` reports about one agent.
 
     A superset of :func:`build_agent_row`: the row is spread in, so the two
@@ -1772,23 +1467,15 @@ def build_agent_detail(state: AgentState, spawn_session: str = "") -> dict[str, 
     parent is where a user learns the dotted ids ``attach`` and ``tail`` take.
     """
     pending = _oldest(open_asks(state))
-    plan, plan_file = plan_from_pending(pending, state.last_message)
     return {
         **build_agent_row(state, spawn_session),
         "message": state.last_message,
-        "request_id": pending.request_id if pending else "",
-        "waiting_kind": pending.wait_kind if pending else "",
-        "waiting_tool": pending.tool_name if pending else "",
-        "waiting_input": dict(pending.input) if pending else {},
-        "waiting_subagent": pending.subagent if pending else "",
-        "questions": _question_details(pending),
-        "plan": plan,
-        "plan_file": plan_file,
+        **pending_fields(pending, state.last_message),
         "subagents": build_subagent_rows(state),
     }
 
 
-def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
+def build_subagent_detail(state: AgentState, dotted: str) -> AgentDetail:
     """Everything ``mael agent show`` reports about one subagent.
 
     Its row, plus ``message``: the summary in full once it has ended, else the
@@ -1798,43 +1485,14 @@ def build_subagent_detail(state: AgentState, dotted: str) -> dict[str, Any]:
     """
     sub = state.subagents[dotted]
     pending = _oldest(sub.pending)
-    plan, plan_file = plan_from_pending(pending, sub.last_message)
     return {
         **build_subagent_row(state, dotted),
         "message": _subagent_message(sub),
-        "request_id": pending.request_id if pending else "",
-        "waiting_kind": pending.wait_kind if pending else "",
-        "waiting_tool": pending.tool_name if pending else "",
-        "waiting_input": dict(pending.input) if pending else {},
+        **pending_fields(pending, sub.last_message),
         # The asker is this subagent, so its detail names no other.
         "waiting_subagent": "",
-        "questions": _question_details(pending),
-        "plan": plan,
-        "plan_file": plan_file,
         "subagents": [],
     }
-
-
-def plan_from_pending(
-    pending: PendingRequest | None, last_message: str
-) -> tuple[str, str]:
-    """The plan under review and the file holding it, else two empty strings.
-
-    ``ExitPlanMode`` carries the plan in its own ``input``, under ``plan``, with
-    ``planFilePath`` naming the file the agent wrote it to. Read it from there.
-
-    The fallback covers an agent that could not write its plan file: the write is
-    denied, ``input`` arrives empty, and the agent puts the plan in an ordinary
-    message instead. Recorded in ``plan-review.jsonl``, where a sandbox refused
-    the write. Then the last message is the best available text, and there is no
-    file to name.
-    """
-    if pending is None or pending.wait_kind != AWAITING_PLAN_REVIEW:
-        return "", ""
-    plan = pending.input.get("plan") or ""
-    if plan:
-        return plan, pending.input.get("planFilePath") or ""
-    return last_message, ""
 
 
 def build_plan_handover_prompt(plan_file: str) -> str:
@@ -1857,32 +1515,6 @@ def build_plan_handover_prompt(plan_file: str) -> str:
         "your context, so the plan file is the whole brief. Re-read any file it "
         "names before you change it."
     )
-
-
-def _question_details(pending: PendingRequest | None) -> list[dict[str, Any]]:
-    """Each question of an ``AskUserQuestion``, with its options, else empty."""
-    if pending is None or pending.tool_name != QUESTION_TOOL:
-        return []
-    details = []
-    for question in pending.input.get("questions", []):
-        if not isinstance(question, dict):
-            continue
-        details.append(
-            {
-                "question": question.get("question", ""),
-                "header": question.get("header", ""),
-                "multi_select": bool(question.get("multiSelect")),
-                "options": [
-                    {
-                        "label": option.get("label", ""),
-                        "description": option.get("description", ""),
-                    }
-                    for option in question.get("options", [])
-                    if isinstance(option, dict)
-                ],
-            }
-        )
-    return details
 
 
 # --- messages written back to the child ------------------------------------
@@ -1939,48 +1571,6 @@ def _string_turn(text: str) -> dict[str, Any]:
     return {"type": "user", "message": {"role": "user", "content": text}}
 
 
-def user_message(
-    text: str, images: Sequence[tuple[str, bytes]] | None = None
-) -> dict[str, Any]:
-    """A user turn, the way the stream-json input format wants it.
-
-    This is the only way text reaches the agent — the initial prompt and every
-    later follow-up are the same shape.
-
-    ``images`` are ``(media_type, data)`` pairs sent as base64 image blocks
-    ahead of the text, which is what the child accepts and what makes the model
-    see the image on this turn rather than after reading a file. An image with
-    no words is a message in its own right, so the text block is dropped when
-    the text is empty and an image is present.
-    """
-    content: list[dict[str, Any]] = [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode(),
-            },
-        }
-        for media_type, data in images or ()
-    ]
-    if text or not content:
-        content.append({"type": "text", "text": text})
-    return {"type": "user", "message": {"role": "user", "content": content}}
-
-
-def _control_response(request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """The ``control_response`` envelope every reply shares."""
-    return {
-        "type": "control_response",
-        "response": {
-            "subtype": "success",
-            "request_id": request_id,
-            "response": payload,
-        },
-    }
-
-
 #: What an interrupted tool call is told, and what the turn's error says.
 INTERRUPTED_REASON = "Interrupted by user"
 
@@ -2003,92 +1593,3 @@ NO_PLAN_FILE_REASON = (
 #: What a subagent's orphaned ask is denied with. Its subagent ended while it
 #: was open, so nothing can approve it and the caller has to be told.
 ENDED_REASON = "The subagent that asked has ended"
-
-
-def interrupt_request(request_id: str) -> dict[str, Any]:
-    """Ask the child to abandon the turn it is running.
-
-    Unlike every other message here this is a request the host makes of the
-    child, not a reply to one, so it carries its own ``request_id`` for the
-    child's ``control_response`` to echo. The child then closes the turn with
-    an error-subtype ``result``.
-
-    An interrupt does not answer a pending ``can_use_tool``. Deny that first.
-    """
-    return {
-        "type": "control_request",
-        "request_id": request_id,
-        "request": {"subtype": "interrupt"},
-    }
-
-
-def set_mode_request(request_id: str, mode: str) -> dict[str, Any]:
-    """Ask the child to run the rest of the session in ``mode``.
-
-    A host-originated request, like :func:`interrupt_request`, so it carries its
-    own ``request_id``. Unlike an interrupt the reply matters: the child refuses
-    a mode it does not know.
-
-    ``mode`` is maelstrom's word; the wire gets claude's.
-    """
-    return {
-        "type": "control_request",
-        "request_id": request_id,
-        "request": {"subtype": "set_permission_mode", "mode": to_wire_mode(mode)},
-    }
-
-
-def reply_for_approval(pending: PendingRequest) -> dict[str, Any]:
-    """Allow the pending call, with its input unchanged.
-
-    ``updatedInput`` is not optional: the CLI runs the tool with whatever it
-    carries, so echoing the original input is what "approve as proposed" means.
-    """
-    return _control_response(
-        pending.request_id, {"behavior": "allow", "updatedInput": pending.input}
-    )
-
-
-def reply_for_denial(pending: PendingRequest, reason: str = "") -> dict[str, Any]:
-    """Deny the pending call. ``reason`` reaches the agent as the tool result."""
-    return _control_response(
-        pending.request_id,
-        {"behavior": "deny", "message": reason or "Denied by mael agent"},
-    )
-
-
-def reply_for_answers(
-    pending: PendingRequest, answers: dict[str, str]
-) -> dict[str, Any]:
-    """Answer an ``AskUserQuestion`` with one answer per question.
-
-    An answer is not a separate message — it rides back on the same allow, in
-    ``updatedInput['answers']``, keyed by each question's own text. Allowing
-    the call without that key is what "the user did not answer the questions"
-    means to the agent, so a bare :func:`reply_for_approval` would look like an
-    answer and silently be none.
-
-    The orchestrator UI answers every question at once this way;
-    :func:`reply_for_answer` is the one-choice-for-all form the CLI uses.
-
-    Raises:
-        ValueError: If ``answers`` is empty — the agent reads an empty map as
-            no answer at all, so sending it would resolve the wait wrongly.
-    """
-    if not answers:
-        raise ValueError("no answers given")
-    payload = dict(pending.input)
-    payload["answers"] = dict(answers)
-    return _control_response(
-        pending.request_id, {"behavior": "allow", "updatedInput": payload}
-    )
-
-
-def reply_for_answer(pending: PendingRequest, choice: str) -> dict[str, Any]:
-    """Answer an ``AskUserQuestion`` with ``choice``.
-
-    A ``choice`` applies to every question asked. Multi-question prompts are
-    rare; :func:`reply_for_answers` is the per-question form.
-    """
-    answers = {question: choice for question in pending.questions}
-    return reply_for_answers(pending, answers)

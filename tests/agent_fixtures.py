@@ -9,7 +9,8 @@ suites that replay these fixtures read them through here.
 import json
 from pathlib import Path
 
-from maelstrom.agent_model import TS_KEY, _stamp
+from maelstrom.agent_model import _stamp
+from maelstrom.agent_wire import TS_KEY
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
 

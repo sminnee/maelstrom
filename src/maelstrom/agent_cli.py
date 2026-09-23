@@ -24,19 +24,6 @@ from typing import Any
 import click
 
 from .agent_cost import AgentCost, Stage, build_cost_report
-from .agent_model import (
-    AGENT_DETAIL,
-    AGENT_EXITED,
-    AWAITING_PERMISSION,
-    AWAITING_PLAN_REVIEW,
-    AWAITING_QUESTION,
-    BACKLOG_END,
-    MODES,
-    SEQ_KEY,
-    TRUNCATED,
-    TS_KEY,
-    build_start_payload,
-)
 from .agent_reconcile import (
     DAEMON_LIST_COLUMNS,
     UNKNOWN,
@@ -65,6 +52,19 @@ from .agent_transport import (
     require_root,
 )
 from .agent_transport import client as daemon_client
+from .agent_wire import (
+    AGENT_DETAIL,
+    AGENT_EXITED,
+    AWAITING_PERMISSION,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
+    BACKLOG_END,
+    MODES,
+    SEQ_KEY,
+    TRUNCATED,
+    TS_KEY,
+    build_start_payload,
+)
 from .claude_integration import agent_prompt_file
 from .cli_async import AsyncGroup
 from .context import get_maelstrom_dir, resolve_context

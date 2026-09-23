@@ -5,8 +5,11 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .agent_model import AGENT_DETAIL, BACKLOG_END
 from .agent_transport import AsyncDaemonClient
+from .agent_wire import (
+    AGENT_DETAIL,
+    BACKLOG_END,
+)
 from .harness_model import (
     HARNESS_CODEX,
     ModelReference,

@@ -10,7 +10,6 @@ plan. ``plan-review.jsonl`` is an agent whose plan-file write a sandbox refused,
 so the request arrives bare and the plan is in a message instead.
 """
 
-import base64
 import json
 from dataclasses import fields, replace
 from pathlib import Path
@@ -19,24 +18,17 @@ import pytest
 
 from maelstrom import agent_model
 from maelstrom.agent_model import (
-    AWAITING_PERMISSION,
-    EXITED,
-    IDLE,
     MESSAGE_CHARS,
     MESSAGE_SUMMARY_CHARS,
     NOTE_CHARS,
-    PROCESSING,
-    SEQ_KEY,
     SPEC_STOPPED,
     SUB_COMPLETED,
     SUB_FAILED,
     SUB_RUNNING,
     SUB_STOPPED,
     SUBAGENT_LIMIT,
-    TS_KEY,
     AgentSpec,
     AgentState,
-    PendingRequest,
     TranscriptMeta,
     UsageWindow,
     apply_event,
@@ -45,23 +37,25 @@ from maelstrom.agent_model import (
     build_agent_env,
     build_agent_row,
     build_plan_handover_prompt,
-    build_start_payload,
     build_stopped_row,
     build_stopped_rows,
     build_subagent_detail,
     build_subagent_rows,
-    interrupt_request,
     mark_exited,
-    reply_for_answer,
-    reply_for_answers,
-    reply_for_approval,
-    reply_for_denial,
-    set_mode_request,
     shell_input_message,
     shell_output_message,
     spec_from_dict,
     spec_to_dict,
-    user_message,
+)
+from maelstrom.agent_wire import (
+    AWAITING_PERMISSION,
+    EXITED,
+    IDLE,
+    PROCESSING,
+    SEQ_KEY,
+    TS_KEY,
+    PendingRequest,
+    detail_frame,
 )
 from maelstrom.orchestrator import document_tags
 
@@ -293,90 +287,6 @@ def test_a_dead_agent_is_not_left_looking_like_it_waits():
 def test_an_exited_row_reports_the_exit_code():
     state = mark_exited(AgentState(agent_id="a1", cwd="/tmp/x"), 137)
     assert build_agent_row(state)["state"] == "exited(137)"
-
-
-# --- replies the daemon writes back ----------------------------------------
-
-
-def test_reply_for_answer_puts_the_choice_in_updated_input():
-    """The agent reads answers from ``updatedInput['answers']``, keyed by question."""
-    state = replay("question-unanswered.jsonl", stop_before_control=True)
-    reply = reply_for_answer(only_pending(state), "Green")
-    payload = reply["response"]["response"]
-    assert payload["behavior"] == "allow"
-    assert payload["updatedInput"]["answers"] == {
-        "Which colour do you prefer?": "Green"
-    }
-    assert reply["response"]["request_id"] == only_pending(state).request_id
-
-
-def test_reply_for_approval_allows_with_the_input_unchanged():
-    state = replay("permission-request.jsonl", stop_before_control=True)
-    reply = reply_for_approval(only_pending(state))
-    payload = reply["response"]["response"]
-    assert payload["behavior"] == "allow"
-    assert payload["updatedInput"] == only_pending(state).input
-
-
-def test_reply_for_denial_carries_the_reason():
-    state = replay("permission-request.jsonl", stop_before_control=True)
-    reply = reply_for_denial(only_pending(state), "not on a public network")
-    payload = reply["response"]["response"]
-    assert payload["behavior"] == "deny"
-    assert payload["message"] == "not on a public network"
-
-
-def test_user_message_is_a_stream_json_user_turn():
-    msg = user_message("also update the README")
-    assert msg["type"] == "user"
-    assert msg["message"]["role"] == "user"
-    assert msg["message"]["content"] == [
-        {"type": "text", "text": "also update the README"}
-    ]
-
-
-def test_user_message_puts_images_before_the_text():
-    """The order a live agent accepts.
-
-    Verified against ``claude -p --input-format stream-json`` on v2.1.261: an
-    image block ahead of the text block is read as an image the model can see.
-    """
-    msg = user_message("what is wrong here?", images=[("image/png", b"\x89PNG!")])
-
-    assert msg["message"]["content"] == [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": base64.b64encode(b"\x89PNG!").decode(),
-            },
-        },
-        {"type": "text", "text": "what is wrong here?"},
-    ]
-
-
-def test_user_message_carries_an_image_with_no_words():
-    """A screenshot on its own is a message. The text block is dropped."""
-    msg = user_message("", images=[("image/png", b"\x89PNG!")])
-
-    assert msg["message"]["content"] == [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": base64.b64encode(b"\x89PNG!").decode(),
-            },
-        }
-    ]
-
-
-def test_user_message_with_no_images_is_unchanged():
-    """The no-image call stays byte-identical: every launch goes through it."""
-    plain = user_message("hello")
-    assert user_message("hello", images=None) == plain
-    assert user_message("hello", images=[]) == plain
 
 
 # --- argv ------------------------------------------------------------------
@@ -899,25 +809,31 @@ def test_detail_of_an_idle_agent_still_has_every_key():
     assert keys == set(build_agent_detail(replay("plan-review.jsonl")))
 
 
-def test_reply_for_answers_files_each_answer_under_its_question():
-    """The orchestrator UI answers every question at once, each by its text."""
-    state = replay("question-unanswered.jsonl", stop_before_control=True)
-    answers = {"Which colour do you prefer?": "Blue"}
-    reply = reply_for_answers(only_pending(state), answers)
-    payload = reply["response"]["response"]
-    assert payload["behavior"] == "allow"
-    assert payload["updatedInput"]["answers"] == answers
-    assert (
-        payload["updatedInput"]["questions"] == only_pending(state).input["questions"]
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        None,
+        "permission-request.jsonl",
+        "question-unanswered.jsonl",
+        "plan-review-with-plan.jsonl",
+    ],
+)
+def test_the_wire_detail_frame_matches_the_daemons_detail(fixture):
+    """A stand-in host builds its frame with ``detail_frame``; it must not drift.
+
+    The same agent, holding one recorded ask or none, through both builders.
+    """
+    pending = (
+        only_pending(replay(fixture, stop_before_control=True)) if fixture else None
     )
-
-
-def test_interrupt_request_is_a_control_request_with_the_interrupt_subtype():
-    """Interrupt is a host->child control_request, not a user message."""
-    request = interrupt_request("req-7")
-    assert request["type"] == "control_request"
-    assert request["request_id"] == "req-7"
-    assert request["request"] == {"subtype": "interrupt"}
+    state = AgentState(agent_id="a1", cwd="/w/alpha")
+    if pending is not None:
+        state = replace(
+            state,
+            own_pending={pending.request_id: pending},
+            status=pending.wait_kind,
+        )
+    assert detail_frame("a1", "/w/alpha", pending) == build_agent_detail(state)
 
 
 def test_an_interrupted_turn_ends_idle():
@@ -1093,15 +1009,6 @@ def test_argv_omits_the_flag_for_normal():
         "--permission-mode",
         "plan",
     ]
-
-
-def test_set_mode_request_asks_the_child_to_change_mode():
-    request = set_mode_request("r1", "normal")
-    assert request == {
-        "type": "control_request",
-        "request_id": "r1",
-        "request": {"subtype": "set_permission_mode", "mode": "default"},
-    }
 
 
 # --- the usage windows, read off the stream --------------------------------
@@ -1678,55 +1585,6 @@ def test_a_subagents_detail_is_its_row_plus_its_message_in_full():
     assert "\n" in detail["message"]
     assert detail["subagents"] == []
     assert set(detail) == set(build_agent_detail(state))
-
-
-class TestBuildStartPayload:
-    """The ``start`` command the daemon is sent, held to an exact shape.
-
-    It must match the payload ``orchestrator/sources.py`` sends for a task
-    launch — one wire shape for both callers, not two.
-    """
-
-    def test_task_launch_carries_every_field(self):
-        assert build_start_payload(
-            Path("/wt/alpha"),
-            permission_mode="auto",
-            env={"MAEL_TASK_ID": "t1", "MAEL_TASK_PARENT": "t1"},
-            session_id="sess-1",
-            resume=True,
-            model="opus",
-            prompt="do the thing",
-        ) == {
-            "cmd": "start",
-            "cwd": "/wt/alpha",
-            "prompt": "do the thing",
-            "mode": "auto",
-            "model": "opus",
-            "session": "sess-1",
-            "env": {"MAEL_TASK_ID": "t1", "MAEL_TASK_PARENT": "t1"},
-            "resume": True,
-        }
-
-    def test_taskless_launch_is_just_the_cwd(self):
-        # `mael add` / `mael open`: no prompt, no session id, no env. The agent
-        # draws as a freeAgent node in the orchestrator UI.
-        assert build_start_payload(Path("/wt/alpha")) == {
-            "cmd": "start",
-            "cwd": "/wt/alpha",
-            "resume": False,
-        }
-
-    def test_empty_env_and_falsy_model_are_omitted(self):
-        # A falsy model means "inherit the user's default"; an empty env dict
-        # would be noise on the wire.
-        assert build_start_payload(
-            Path("/wt/alpha"), prompt="hi", model="", env={}
-        ) == {"cmd": "start", "cwd": "/wt/alpha", "prompt": "hi", "resume": False}
-
-    def test_resume_is_always_sent(self):
-        # `resume` is the one falsy field that carries meaning: False says
-        # "claim a fresh session", not "the caller did not say".
-        assert build_start_payload(Path("/wt/alpha"))["resume"] is False
 
 
 # --- a shell command -------------------------------------------------------

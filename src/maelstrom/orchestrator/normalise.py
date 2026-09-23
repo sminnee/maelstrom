@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..agent_model import (
+from ..agent_wire import (
     PLAN_TOOL,
     QUESTION_TOOL,
     TS_KEY,

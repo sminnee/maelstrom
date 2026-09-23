@@ -21,7 +21,7 @@ from typing import Any, Protocol
 
 from .. import task as model
 from .. import task_actions
-from ..agent_model import build_start_payload
+from ..agent_wire import build_start_payload
 from ..branch_name import TaskNames, infer_task_names
 from ..claude_integration import agent_prompt_file
 from ..claude_paths import has_claude_transcript

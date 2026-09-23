@@ -34,36 +34,22 @@ from typing import Any, Awaitable, Callable
 
 from . import __version__, shell
 from .agent_model import (
-    AGENT_DETAIL,
-    AGENT_EXITED,
-    AUTO,
-    AWAITING_PLAN_REVIEW,
-    AWAITING_QUESTION,
-    BACKLOG_END,
     CLEAR_COMMAND,
     DEFAULT_RESUME_PROMPT,
     ENDED_REASON,
-    EXITED,
-    IDLE,
     INTERRUPTED_REASON,
-    INTERRUPTIBLE,
     LOST_ASK_RESUME_PROMPT,
     MESSAGE_CHARS,
     MODEL_COMMAND,
-    MODES,
     NO_PLAN_FILE_REASON,
-    SEQ_KEY,
     SPEC_EXITED,
     SPEC_RUNNING,
     SPEC_STOPPED,
     SUB_COMPLETED,
     SUB_RUNNING,
-    TRUNCATED,
-    WAITING,
     AgentSpec,
     AgentState,
     DaemonIdentity,
-    PendingRequest,
     SubagentState,
     apply_event,
     build_agent_argv,
@@ -76,23 +62,45 @@ from .agent_model import (
     build_subagent_detail,
     build_subagent_rows,
     freshest_usage,
-    interrupt_request,
     mark_exited,
     open_asks,
+    shell_input_message,
+    shell_output_message,
+    subagent_of,
+)
+from .agent_reconcile import Reconciliation, reconcile
+from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
+from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
+from .agent_wire import (
+    AGENT_DETAIL,
+    AGENT_EXITED,
+    AUTO,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
+    BACKLOG_END,
+    EXITED,
+    IDLE,
+    INTERRUPTIBLE,
+    MODES,
+    SCOPE_ALL,
+    SCOPE_RUNNING,
+    SCOPE_STOPPED,
+    SCOPES,
+    SEQ_KEY,
+    TRUNCATED,
+    WAITING,
+    AgentDetail,
+    PendingRequest,
+    StoppedRow,
+    interrupt_request,
     plan_from_pending,
     reply_for_answer,
     reply_for_answers,
     reply_for_approval,
     reply_for_denial,
     set_mode_request,
-    shell_input_message,
-    shell_output_message,
-    subagent_of,
     user_message,
 )
-from .agent_reconcile import Reconciliation, reconcile
-from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
-from .agent_transport import STREAM_LIMIT, DaemonPaths, daemon_paths
 from .claude_paths import has_claude_transcript
 from .harness_model import (
     HARNESS_CLAUDE,
@@ -685,14 +693,6 @@ DRIVING_COMMANDS = (
     "recover",
 )
 
-#: What ``list`` may be asked for. ``running`` is the default and is what the
-#: orchestrator reads: live and exited-this-daemon agents, and nothing else.
-SCOPE_RUNNING = "running"
-SCOPE_STOPPED = "stopped"
-SCOPE_ALL = "all"
-SCOPES = (SCOPE_RUNNING, SCOPE_STOPPED, SCOPE_ALL)
-
-
 #: One shared instance: it is stateless, and every restored agent wants the same.
 _DEAD_PROC: Any = _DeadProcess()
 
@@ -788,7 +788,7 @@ class AgentDaemon:
             self._transcripts = ClaudeTranscriptStore()
         return self._transcripts
 
-    async def stopped_rows(self, cwd: str | None) -> list[dict[str, Any]]:
+    async def stopped_rows(self, cwd: str | None) -> list[StoppedRow]:
         """Every session that can be resumed, optionally under ``cwd``.
 
         The two sources are merged in the model layer: Claude's transcripts
@@ -1783,7 +1783,7 @@ class AgentDaemon:
     ) -> None:
         """Stream one agent's events to a client until it disconnects.
 
-        Opens with an :data:`~maelstrom.agent_model.AGENT_DETAIL` frame holding
+        Opens with an :data:`~maelstrom.agent_wire.AGENT_DETAIL` frame holding
         :func:`~maelstrom.agent_model.build_agent_detail`. The host knows what
         the agent is waiting on, so it says so, rather than leaving a client to
         infer it from the replayed events. That is what makes a wait answerable
@@ -1794,8 +1794,8 @@ class AgentDaemon:
         back with the cursor it left at gets only what it missed. A cursor from
         another life of the agent — ``epoch`` not this one's — means nothing
         here, so the replay starts from the beginning. When the ring has rolled
-        past the cursor, a :data:`~maelstrom.agent_model.TRUNCATED` marker says
-        how many events are gone. A :data:`~maelstrom.agent_model.BACKLOG_END`
+        past the cursor, a :data:`~maelstrom.agent_wire.TRUNCATED` marker says
+        how many events are gone. A :data:`~maelstrom.agent_wire.BACKLOG_END`
         marker closes the replay with the epoch and the seq it reached, so
         ``mael agent tail`` knows where history stops and a client knows what
         to come back with.
@@ -1805,7 +1805,7 @@ class AgentDaemon:
         client that fell a whole queue behind is told, not left with a gap it
         cannot see.
 
-        The stream ends with an :data:`~maelstrom.agent_model.AGENT_EXITED`
+        The stream ends with an :data:`~maelstrom.agent_wire.AGENT_EXITED`
         marker when the agent's process goes — at once, for an agent that has
         already gone — so a follower returns instead of waiting forever.
 
@@ -1873,7 +1873,7 @@ class AgentDaemon:
 
 def _stream_of(
     state: AgentState, dotted: str, spawn_session: str = ""
-) -> tuple[dict[str, Any], tuple[dict[str, Any], ...], int, bool, int | None]:
+) -> tuple[AgentDetail, tuple[dict[str, Any], ...], int, bool, int | None]:
     """What an attach to ``dotted`` (or the agent, for ``""``) replays.
 
     The detail frame, the ring, the seq the ring reached, whether the stream

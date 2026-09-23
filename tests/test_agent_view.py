@@ -3,7 +3,10 @@
 import json
 from pathlib import Path
 
-from maelstrom.agent_model import AGENT_EXITED, BACKLOG_END, AgentState, apply_event
+from maelstrom.agent_model import (
+    AgentState,
+    apply_event,
+)
 from maelstrom.agent_view import (
     agent_status,
     apply_stream_event,
@@ -16,6 +19,10 @@ from maelstrom.agent_view import (
     tool_call_title,
     transcript_items,
     turn_result_line,
+)
+from maelstrom.agent_wire import (
+    AGENT_EXITED,
+    BACKLOG_END,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_events"
@@ -168,7 +175,10 @@ def test_plan_markdown_comes_from_the_request_or_falls_back_to_the_last_message(
 
 def test_truncation_comes_from_the_daemons_marker_not_from_a_count():
     """The daemon says what it dropped; a full window on its own says nothing."""
-    from maelstrom.agent_model import RECENT_LIMIT, TRUNCATED
+    from maelstrom.agent_wire import (
+        RECENT_LIMIT,
+        TRUNCATED,
+    )
 
     view = initial_view("a1")
     noise = {"type": "rate_limit_event"}
@@ -284,7 +294,7 @@ def test_an_exit_marker_after_an_exit_is_not_a_lost_connection():
 
 def test_a_user_turn_starts_the_work():
     """A message to the agent is the start of a turn, whoever sent it."""
-    from maelstrom.agent_model import user_message
+    from maelstrom.agent_wire import user_message
 
     view = replay("normal-turn.jsonl")
     assert agent_status(view) == "idle"
