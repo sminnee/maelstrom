@@ -1,10 +1,12 @@
 """``mael agent`` — start, watch, answer and teleport into daemon-driven agents.
 
-The thin CLI over :mod:`maelstrom.agent_server`. Every command is one NDJSON
+The thin client of :mod:`maelstrom.agent_server`, speaking only the wire
+contract in :mod:`maelstrom.agent_wire`. Every command is one NDJSON
 round-trip to the daemon's control socket, so this module holds no state and
 does no agent logic: it parses flags, sends a command, and prints the reply.
-Rendering goes through ``build_agent_row`` in the model layer, the way
-``session_cli`` renders a live ``claude`` process.
+The daemon builds each row; this module draws it, and joins each stopped row
+to its task. ``mael agent daemon`` is in
+:mod:`maelstrom.agent_daemon_cli`.
 
 No command starts a daemon. The environment manager does: `mael self-env
 start` runs the everyday daemon and `mael env start` runs this worktree's.
@@ -16,40 +18,15 @@ import asyncio
 import json
 import shlex
 import sys
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import click
 
 from .agent_cost import AgentCost, Stage, build_cost_report
-from .agent_reconcile import (
-    DAEMON_LIST_COLUMNS,
-    UNKNOWN,
-    Verdict,
-    build_daemon_list_rows,
-    reconcile,
-)
-from .agent_server import (
-    SCOPE_ALL,
-    SCOPE_RUNNING,
-    SCOPE_STOPPED,
-    AgentDaemon,
-    apply_reconciliation,
-    kill_groups,
-)
-from .agent_spec_store import JsonAgentSpecStore
 from .agent_store import SqliteAgentStore, SqliteMilestoneStore, register_agent
 from .agent_transport import (
-    KIND_UNREACHABLE,
-    AsyncDaemonClient,
-    DaemonPaths,
-    RootUnset,
     SocketAsyncDaemonClient,
-    all_roots,
-    daemon_paths,
-    require_root,
 )
 from .agent_transport import client as daemon_client
 from .agent_wire import (
@@ -60,18 +37,20 @@ from .agent_wire import (
     AWAITING_QUESTION,
     BACKLOG_END,
     MODES,
+    SCOPE_ALL,
+    SCOPE_RUNNING,
+    SCOPE_STOPPED,
     SEQ_KEY,
     TRUNCATED,
     TS_KEY,
+    build_resume_payload,
     build_start_payload,
 )
 from .claude_integration import agent_prompt_file
 from .cli_async import AsyncGroup
-from .context import get_maelstrom_dir, resolve_context
-from .env import format_uptime
+from .context import resolve_context
 from .harness_model import resolve_execute_model
 from .notebook_root import NotebookRootUnset
-from .process_table import ProcessTableUnavailable, list_claude_processes
 from .state_db.migrate import open_state_db
 from .state_db.paths import get_state_db_path
 from .state_db.types import StateDbError
@@ -99,24 +78,13 @@ LIST_COLUMNS = [
 SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
-def _daemon_at(paths: DaemonPaths | None) -> AsyncDaemonClient:
-    """A client for one daemon root, or for this environment's when given none.
-
-    Goes through ``client_factory`` either way, so a test fake still
-    intercepts a command that names a root. The fake takes the socket path
-    and ignores it, having no socket to reach.
-    """
-    socket_path = str(paths.socket) if paths is not None else None
-    return daemon_client(socket_path=socket_path)
-
-
 async def _send(payload: dict[str, Any]) -> dict[str, Any]:
     """Send one command, printing the daemon's error and exiting on failure.
 
     A ``warning`` is not a failure: the command did what was asked, and
     something alongside it did not. It prints and the command still succeeds.
     """
-    reply = await _daemon_at(None).request(payload)
+    reply = await daemon_client().request(payload)
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
@@ -128,297 +96,6 @@ async def _send(payload: dict[str, Any]) -> dict[str, Any]:
 @click.group(cls=AsyncGroup)
 def agent() -> None:
     """Drive Claude agents over a stream-json pipe."""
-
-
-@agent.group("daemon")
-def cmd_daemon() -> None:
-    """Inspect the agent daemon, and run one as a service.
-
-    The environment manager owns a daemon's lifetime: `mael self-env start`
-    runs the everyday daemon, and `mael env start` runs this worktree's. Both
-    run `serve` as a service, so `mael self-env restart agent-daemon` is how a
-    daemon picks up new code.
-
-    `status` says which daemon is answering and whose code it runs, which is
-    the question a long-lived daemon makes worth asking.
-    """
-
-
-@cmd_daemon.command("serve")
-async def cmd_daemon_serve() -> None:
-    """Run the agent daemon in the foreground, on the root this environment names.
-
-    The root comes from ``MAEL_AGENT_ROOT`` and from nowhere else. There is no
-    flag: a flag is what let a worktree's daemon be started on the everyday
-    root, where it served that worktree's test code to every session on the
-    machine.
-    """
-    try:
-        root = require_root()
-    except RootUnset as exc:
-        raise click.UsageError(str(exc)) from exc
-    daemon = AgentDaemon(root)
-    try:
-        # Ctrl-C is not caught here: asyncio re-raises it from the loop, which
-        # `cli_async` owns and ends cleanly on. See its `_run`.
-        await daemon.serve()
-    except RuntimeError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
-
-
-@cmd_daemon.command("status")
-async def cmd_daemon_status() -> None:
-    """Say which daemon is serving this root, and what code it runs.
-
-    One root can be served by a daemon spawned from any worktree, and it
-    holds the modules it imported at start. So the source tree and the start
-    time are the two fields worth reading here.
-    """
-    paths = daemon_paths()
-    # No skew warning: the serving tree is what this command was asked for, so
-    # it belongs in the `source` row rather than in a warning printed
-    # immediately above it.
-    reply = await _daemon_at(paths).request({"cmd": "ping"})
-    if "error" in reply:
-        # A daemon predating `ping` falls through to the agent lookup and
-        # answers "no such agent", which reads here as a fault in this command
-        # rather than in the daemon it is asking. Say what it means instead.
-        error = reply["error"]
-        if reply.get("kind"):
-            click.echo(f"Error: {error}", err=True)
-        else:
-            click.echo(
-                "Error: the daemon on "
-                f"{paths.root} is older than this "
-                "code: it does not answer `ping`.\n"
-                "       Run `mael self-env restart agent-daemon` to serve from "
-                "this tree.",
-                err=True,
-            )
-        sys.exit(1)
-    identity = reply["daemon"]
-    rows = [
-        ("root", identity.get("root", "")),
-        ("socket", identity.get("socket_path", "")),
-        ("pid", str(identity.get("pid", ""))),
-        ("version", identity.get("version", "")),
-        ("source", identity.get("source_tree", "")),
-        ("specs", identity.get("spec_dir", "")),
-        ("started", _started(identity.get("started_at", ""))),
-        ("agents", str(identity.get("agents", 0))),
-    ]
-    width = max(len(label) for label, _ in rows) + 1
-    for label, value in rows:
-        click.echo(f"{label + ':':<{width + 1}} {value}")
-
-
-#: The two flags `gc`, `list` and `reconcile` share.
-all_roots_option = click.option(
-    "--all-roots",
-    is_flag=True,
-    help="Every daemon root on this machine, not only the resolved one.",
-)
-json_option = click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
-
-
-@dataclass
-class _RootReport:
-    """One root's reconcile: its verdicts, what was killed, and who holds what."""
-
-    paths: DaemonPaths
-    verdicts: list[Verdict]
-    killed: list[int]
-    held: set[str]
-    reachable: bool
-
-
-async def _reconcile_root(paths: DaemonPaths, *, act: bool) -> _RootReport:
-    """Reconcile one root, through its daemon when one answers, else locally.
-
-    The daemon knows which agents it holds, so its verdict is the better one.
-    With no daemon there is nothing held, and the CLI reads the records and
-    the process table itself — which is the case `gc` exists for: a daemon
-    that died and left its children behind.
-
-    Raises:
-        click.ClickException: If the process table cannot be read, or the
-            daemon answered something other than "no daemon here".
-    """
-    client = _daemon_at(paths)
-    reply = await client.request({"cmd": "gc" if act else "reconcile"})
-    if "error" not in reply:
-        rows = (await client.request({"cmd": "list"})).get("agents", [])
-        held = {row["id"] for row in rows if not row.get("parent")}
-        verdicts = [Verdict(**v) for v in reply.get("verdicts", [])]
-        return _RootReport(paths, verdicts, list(reply.get("killed", [])), held, True)
-    # Only an absent daemon licenses the spec-file fallback below. A denial
-    # means a daemon is probably still holding these agents, so killing the
-    # strays it reports would kill live ones.
-    if reply.get("kind") != KIND_UNREACHABLE:
-        raise click.ClickException(reply["error"])
-    specs = JsonAgentSpecStore(paths.spec_dir)
-    try:
-        processes = await list_claude_processes()
-    except ProcessTableUnavailable as exc:
-        raise click.ClickException(f"the process table is unavailable: {exc}") from exc
-    result = reconcile(specs.list(), processes, set(), resume_strays=False)
-    killed = apply_reconciliation(result, specs, _kill_group()) if act else []
-    return _RootReport(paths, list(result.verdicts), killed, set(), False)
-
-
-def _kill_group():
-    """The group kill, read at call time so a test's patch of the seam reaches it."""
-    from . import agent_server
-
-    return agent_server.kill_group
-
-
-def _roots(every: bool) -> list[DaemonPaths]:
-    if every:
-        return all_roots(get_maelstrom_dir())
-    return [daemon_paths()]
-
-
-async def _reports(every: bool, *, act: bool) -> list[_RootReport]:
-    """Reconcile the chosen roots. With every root, a process unknown to all of
-    them has no owner anywhere and is killed too, when acting."""
-    reports = [await _reconcile_root(paths, act=act) for paths in _roots(every)]
-    if every and act:
-        orphans = _unknown_everywhere(reports)
-        if orphans:
-            killed = kill_groups(sorted(orphans), _kill_group())
-            reports[0].killed += killed
-    return reports
-
-
-def _unknown_everywhere(reports: list[_RootReport]) -> set[int]:
-    """Group ids of driven processes no root's records claim.
-
-    A process one root owns is `owned` or `stray` there and `unknown` to the
-    rest, so only a pid that is `unknown` in every report is nobody's.
-    """
-    claimed: set[int] = set()
-    unknown: dict[int, int] = {}
-    for report in reports:
-        for v in report.verdicts:
-            if v.pid is None:
-                continue
-            if v.kind == UNKNOWN:
-                unknown[v.pid] = v.pgid if v.pgid is not None else v.pid
-            else:
-                claimed.add(v.pid)
-    return {pgid for pid, pgid in unknown.items() if pid not in claimed}
-
-
-def _print_verdicts(reports: list[_RootReport], *, acted: bool) -> None:
-    for report in reports:
-        if len(reports) > 1:
-            where = "daemon up" if report.reachable else "no daemon"
-            click.echo(f"{report.paths.root} ({where}):")
-        if not report.verdicts:
-            click.echo("  nothing to reconcile")
-        for v in report.verdicts:
-            who = v.agent_id or v.session_id or "?"
-            pid = f" pid {v.pid}" if v.pid is not None else ""
-            reason = f" — {v.reason}" if v.reason else ""
-            click.echo(f"  {v.kind:<11} {who}{pid}{reason}")
-        if acted:
-            if report.killed:
-                click.echo(f"  killed groups: {', '.join(map(str, report.killed))}")
-            else:
-                click.echo("  killed nothing")
-
-
-def _emit_json(reports: list[_RootReport], acted: bool) -> None:
-    out = [
-        {
-            "root": str(r.paths.root),
-            "reachable": r.reachable,
-            "verdicts": [asdict(v) for v in r.verdicts],
-            **({"killed": r.killed} if acted else {}),
-        }
-        for r in reports
-    ]
-    click.echo(json.dumps(out if len(out) > 1 else out[0], indent=2))
-
-
-@cmd_daemon.command("reconcile")
-@all_roots_option
-@json_option
-async def cmd_daemon_reconcile(all_roots: bool, as_json: bool) -> None:
-    """Say what `gc` would do, doing nothing.
-
-    Each spawn record against the process table: owned, stray, duplicate,
-    resumable, crashed or superseded, and any driven `claude` no record here
-    names. Asks the daemon when one answers, else reads the records and the
-    table itself.
-    """
-    reports = await _reports(all_roots, act=False)
-    if as_json:
-        _emit_json(reports, acted=False)
-        return
-    _print_verdicts(reports, acted=False)
-
-
-@cmd_daemon.command("gc")
-@all_roots_option
-@json_option
-async def cmd_daemon_gc(all_roots: bool, as_json: bool) -> None:
-    """Kill the strays and duplicates, and write off the crashed records.
-
-    Never resumes: a stray's record stays `running`, so the next daemon start
-    brings the agent back exactly once. Under `--all-roots`, a driven `claude`
-    no root's records name is killed too; from one root it is only reported,
-    because it may belong to another.
-    """
-    reports = await _reports(all_roots, act=True)
-    if as_json:
-        _emit_json(reports, acted=True)
-        return
-    _print_verdicts(reports, acted=True)
-
-
-@cmd_daemon.command("list")
-@all_roots_option
-@json_option
-async def cmd_daemon_list(all_roots: bool, as_json: bool) -> None:
-    """Every spawn record, with its pid, whether that pid is alive, and whether
-    the daemon holds it — so a mismatch is read off the table, not inferred.
-    """
-    reports = await _reports(all_roots, act=False)
-    rows: list[dict[str, str]] = []
-    for report in reports:
-        records = JsonAgentSpecStore(report.paths.spec_dir).list()
-        for row in build_daemon_list_rows(records, report.verdicts, report.held):
-            rows.append({"root": str(report.paths.root), **row} if all_roots else row)
-    if as_json:
-        click.echo(json.dumps(rows, indent=2))
-        return
-    if not rows:
-        click.echo("No spawn records.")
-        return
-    columns = (["root"] if all_roots else []) + DAEMON_LIST_COLUMNS
-    draw_table(rows, columns)
-
-
-def _started(stamp: str) -> str:
-    """``<local time> (<age> ago)``, or the raw stamp when it will not parse.
-
-    The age is the useful half: a daemon started days ago is the one holding
-    stale code. ``format_uptime`` is the same renderer ``mael env status``
-    uses, so an age reads the same everywhere.
-    """
-    if not stamp:
-        return ""
-    try:
-        started = datetime.fromisoformat(stamp)
-    except ValueError:
-        return stamp
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    local = started.astimezone().strftime("%Y-%m-%d %H:%M")
-    return f"{local} ({format_uptime(started.isoformat())} ago)"
 
 
 @agent.command("start")
@@ -521,11 +198,20 @@ async def cmd_list(
     _draw_rows(rows, scope)
 
 
+def _is_stopped(row: dict[str, Any]) -> bool:
+    """Whether ``row`` is a stopped session rather than a running agent.
+
+    A :class:`~maelstrom.agent_wire.StoppedRow` carries no ``state``, and an
+    :class:`~maelstrom.agent_wire.AgentRow` always does. ``--all`` mixes the two.
+    """
+    return "state" not in row
+
+
 async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """``rows`` with the task each stopped session ran for, as ``task``.
 
-    The daemon knows no tasks, so the join is here. A stopped row is one with
-    no ``state``; a running row is left as it is. The table is opened once for
+    The daemon knows no tasks, so the join is here. A running row is left as
+    it is. The table is opened once for
     the whole listing: a per-session open would build a connection hundreds of
     times.
 
@@ -533,7 +219,7 @@ async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     column and says why on stderr. A missing notebook root fails the command:
     a blank column would hide a misconfigured root behind a listing that works.
     """
-    stopped = [row for row in rows if "state" not in row]
+    stopped = [row for row in rows if _is_stopped(row)]
     if not stopped:
         return rows
     tasks: dict[str, str] = {}
@@ -548,13 +234,12 @@ async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         click.echo(f"Warning: could not read the task table: {exc}", err=True)
         tasks = {}
     return [
-        row if "state" in row else {**row, "task": tasks.get(row["session"], "")}
+        {**row, "task": tasks.get(row["session"], "")} if _is_stopped(row) else row
         for row in rows
     ]
 
 
-#: The columns ``--stopped`` prints, in order. ``task`` is joined here, not
-#: sent by the daemon.
+#: The columns ``--stopped`` prints, in order.
 STOPPED_COLUMNS = ["id", "age", "task", "branch", "label", "cwd"]
 
 
@@ -579,8 +264,8 @@ def _draw_rows(rows: list[dict[str, Any]], scope: str) -> None:
         columns = STOPPED_COLUMNS if scope == SCOPE_STOPPED else LIST_COLUMNS
         draw_table(rows, columns)
         return
-    running = [row for row in rows if "state" in row]
-    stopped = [row for row in rows if "state" not in row]
+    running = [row for row in rows if not _is_stopped(row)]
+    stopped = [row for row in rows if _is_stopped(row)]
     if running:
         draw_table(running, LIST_COLUMNS)
     if stopped:
@@ -825,7 +510,7 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
     reaches, so the harness is always ``claude`` — see
     :func:`maelstrom.agent_store.register_agent`.
     """
-    reply = await _daemon_at(None).request({"cmd": "list"})
+    reply = await daemon_client().request({"cmd": "list"})
     if "error" in reply:
         click.echo(f"Error: {reply['error']}", err=True)
         sys.exit(1)
@@ -863,10 +548,11 @@ async def cmd_resume(agent_id: str, text: str) -> None:
     survives a crashed child, a crashed daemon or a reboot. Without ``--text``
     the agent is told its process ended and to carry on from where it was.
     """
-    payload: dict[str, Any] = {"cmd": "resume", "id": agent_id, "text": text}
-    if (prompt_file := agent_prompt_file()) is not None:
-        payload["system_prompt_file"] = str(prompt_file)
-    await _send(payload)
+    await _send(
+        build_resume_payload(
+            agent_id, text=text, system_prompt_file=agent_prompt_file()
+        )
+    )
 
 
 @agent.command("attach")
@@ -1002,7 +688,7 @@ COST_COLUMNS = ["stage", "tokens", "own", "subagent", "total", "cost"]
 
 @agent.command("cost")
 @click.argument("agent_id", default="")
-@json_option
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
 async def cmd_cost(agent_id: str, as_json: bool) -> None:
     """Show what each agent spent, and which stage of its work spent it.
 

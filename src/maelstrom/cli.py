@@ -11,6 +11,7 @@ import click
 from . import __version__, session_discovery
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
+from .agent_daemon_cli import cmd_daemon
 from .agent_transport import ROOT_ENV, RootUnset
 from .base_store import GitConfigBaseStore
 from .cli_async import AsyncGroup
@@ -1787,6 +1788,7 @@ cli.add_command(cmd_admin)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 cli.add_command(cmd_self_env)
+agent_cli.add_command(cmd_daemon)
 cli.add_command(agent_cli)
 cli.add_command(orchestrator_cli)
 
