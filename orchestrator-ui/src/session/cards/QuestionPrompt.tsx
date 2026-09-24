@@ -211,7 +211,7 @@ function ReadOnly({ item, answered }: { item: QuestionItem; answered: boolean })
   return answered ? <Answered item={item} /> : <Stale item={item} />;
 }
 
-/** A settled question takes the operator's wash, not the `.prompt` chassis — see `web/DESIGN.md`, § Components, "Question". */
+/** A settled question takes the operator's wash, not the `.prompt` chassis — see `orchestrator-ui/DESIGN.md`, § Components, "Question". */
 function Answered({ item }: { item: QuestionItem }) {
   return (
     <div className={styles.settled} data-testid="question-answered">

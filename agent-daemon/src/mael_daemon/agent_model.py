@@ -1365,7 +1365,7 @@ def age_of(seconds: float) -> str:
 
     Rounds down, so "2h" means at least two hours. Anything under a minute is
     "now" — a listing of stopped sessions never needs second precision. ``ago``
-    in ``web/src/protocol/time.ts`` is this rule for the UI, which says "<1m"
+    in ``orchestrator-ui/src/protocol/time.ts`` is this rule for the UI, which says "<1m"
     rather than "now".
     """
     if seconds < 60:

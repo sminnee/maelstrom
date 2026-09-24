@@ -87,7 +87,7 @@
 }
 /*
  * The query reads `.document`, the nearest container, so the band follows the
- * panel's dragged width rather than the viewport's — see `web/DESIGN.md`,
+ * panel's dragged width rather than the viewport's — see `orchestrator-ui/DESIGN.md`,
  * "Review Dock". 30rem measures `.document`'s content box, so the band itself
  * has `.dock`'s gutters less than that when the rule flips.
  */
@@ -98,7 +98,7 @@
     justify-content: flex-end;
   }
 }
-/* Docked, the prompt stops being a card — see `web/DESIGN.md`, "Review Dock". */
+/* Docked, the prompt stops being a card — see `orchestrator-ui/DESIGN.md`, "Review Dock". */
 .decision[data-variant='dock'][data-binary] > div:not(.docked) {
   flex: 1;
   min-width: 0;
@@ -113,7 +113,7 @@
 .decision[data-variant='dock'][data-binary] [data-role='prompt-head'] {
   display: none;
 }
-/* The dock drops the tool input — see `web/DESIGN.md`, "Review Dock". */
+/* The dock drops the tool input — see `orchestrator-ui/DESIGN.md`, "Review Dock". */
 .decision[data-variant='dock'][data-binary] [data-role='prompt-detail'] {
   display: none;
 }

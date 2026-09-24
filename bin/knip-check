@@ -6,7 +6,7 @@
 # CI calls this script rather than repeating the commands, so the two cannot
 # drift.
 set -euo pipefail
-cd "$(dirname "$0")/../web"
+cd "$(dirname "$0")/../orchestrator-ui"
 
 echo "== knip: production pass (report only) =="
 echo "Reached from tests but not from the app. Read it; it does not fail the build."

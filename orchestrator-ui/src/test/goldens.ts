@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TranscriptItem } from '../protocol/transcript';
 
-// vitest runs from web/; the goldens the Python normaliser owns live in the domain library.
+// vitest runs from orchestrator-ui/; the goldens the Python normaliser owns live in the domain library.
 const GOLDEN = resolve(process.cwd(), '../lib/domain/fixtures/normalised');
 
 interface Golden {

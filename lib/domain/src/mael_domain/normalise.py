@@ -1,6 +1,6 @@
 """Raw stream-json from the agent host, as the events the web UI wants.
 
-A port of ``web/src/protocol/normalise.ts``. The state machine follows
+A port of ``orchestrator-ui/src/protocol/normalise.ts``. The state machine follows
 :func:`mael_daemon.agent_model.apply_event`: a pending request outranks assistant
 output, a ``control_response`` for the pending request ends the wait, a
 ``result`` ends the turn idle. No clock, and the one read it does — the file a

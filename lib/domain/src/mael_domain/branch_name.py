@@ -245,7 +245,7 @@ def generate_branch_name(
 #: model invents falls back to ``""``.
 #:
 #: Deliberately narrower than the web app's ``KNOWN_COMMANDS``
-#: (``web/src/protocol/phase.ts``): ``shape`` names no skill file, ``watch-pr``
+#: (``orchestrator-ui/src/protocol/phase.ts``): ``shape`` names no skill file, ``watch-pr``
 #: needs a pushed PR, and every ``impeccable`` command needs a target. None
 #: suits a task the user has only just described.
 KNOWN_COMMANDS = ("plan-task", "plan-next-step")

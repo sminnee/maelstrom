@@ -16,7 +16,7 @@
      padding either side is already off the number the query sees. */
   container-type: inline-size;
 }
-/* The head truncates rather than wraps — see web/DESIGN.md, "Session header". */
+/* The head truncates rather than wraps — see orchestrator-ui/DESIGN.md, "Session header". */
 .headLine {
   display: flex;
   gap: 8px;

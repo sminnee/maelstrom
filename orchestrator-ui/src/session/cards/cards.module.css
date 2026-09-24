@@ -175,7 +175,7 @@
  * A settled question is a structured user message — the operator's voice, so
  * it shares the user turn's wash rather than the amber `.prompt` chassis. The
  * question is a caption; the answer is on its own line at the reading rank.
- * See `web/DESIGN.md`, § Components, "Question".
+ * See `orchestrator-ui/DESIGN.md`, § Components, "Question".
  */
 .settledQuestion {
   font-size: var(--text-xs);

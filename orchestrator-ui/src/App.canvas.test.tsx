@@ -348,7 +348,7 @@ describe('App', () => {
 
     // jsdom applies no `text-overflow`, so this passes on the old CSS too: it
     // guards that every field reaches the line, not that the line wraps. The
-    // browser check is in web/DESIGN.md, "Node Card".
+    // browser check is in orchestrator-ui/DESIGN.md, "Node Card".
     expect(within(card).getByTestId('node-meta')).toHaveTextContent(
       'feat/rotate-auth-tokens-for-every-service · delta · claude:opus · normal · $0.66',
     );

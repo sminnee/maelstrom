@@ -264,7 +264,7 @@ def test_an_items_time_is_when_its_event_happened_not_when_it_was_replayed():
 
 def test_an_attention_item_is_raised_and_cleared_at_its_events_own_time():
     """The same rule as a transcript item: the source event's own stamp, not
-    the reattach clock. `web/src/selectors/attention.ts` sorts by ``raisedAt``,
+    the reattach clock. `orchestrator-ui/src/selectors/attention.ts` sorts by ``raisedAt``,
     so a reattach that restamped every item would lose the true order."""
     state = replay("permission-request.jsonl")
     [item] = list(state["world"]["attention"].values())

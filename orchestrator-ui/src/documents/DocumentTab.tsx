@@ -127,7 +127,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         )}
       </div>
       {/* One dock, below the document, whoever is waiting. An agent's own wait
-          answers the agent, never the document — see `web/DESIGN.md`, "Review
+          answers the agent, never the document — see `orchestrator-ui/DESIGN.md`, "Review
           Dock", and `orchestrator-server.md`, "Commands". */}
       <div className={styles.dock} data-waiting={waiting || undefined} data-testid="review-dock">
         {waiting ? (
