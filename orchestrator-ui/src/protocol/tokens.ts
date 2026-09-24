@@ -1,7 +1,7 @@
 /**
  * How full an agent's context is, in the one short unit a header holds.
  *
- * The same rounding as `_tokens` in `src/maelstrom/agent_view.py`, which writes
+ * The same rounding as `_tokens` in `cli/src/mael_cli/agent_view.py`, which writes
  * the TUI footer, so one agent's size reads the same way on both surfaces. The
  * quantity differs: the footer still reports the session's cumulative total.
  * Rounds down, so "148k ctx" means at least 148,000.

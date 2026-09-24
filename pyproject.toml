@@ -1,19 +1,16 @@
+# The workspace root, not a member: it builds no package.
+# See docs/dev/architecture-patterns.md.
 [project]
-name = "sminnee-maelstrom"
+name = "maelstrom-workspace"
 version = "0.1.2"
-description = "Parallel development environment manager using git worktrees"
-readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-authors = [
-    { name = "Sam Minnee" }
-]
 dependencies = [
-    "pyyaml>=6.0",
-    "click>=8.0",
-    "markdown-to-mrkdwn>=0.3",
-    "textual>=8.2.8,<9",
-    "pydantic>=2.13.5",
+    "sminnee-maelstrom",
+    "mael-common",
+    "mael-agent",
+    "mael-domain",
+    "mael-agent-daemon",
+    "mael-orchestrator",
 ]
 
 # The one dev list. CI installs it with `uv sync --extra dev`, so anything a
@@ -30,50 +27,12 @@ dev = [
     "import-linter>=2.1",
 ]
 
-# The workspace members. A dependency group, not `[project].dependencies`: the
-# wheel bundles the lib/ packages through hatch `packages`, and a
-# listed member would reach PyPI as a requirement nothing there satisfies.
-# `default-groups` makes every `uv sync` install them editable all the same.
-[dependency-groups]
-members = [
-    "mael-common",
-    "mael-agent",
-    "mael-domain",
-    "mael-agent-daemon",
-    "mael-orchestrator",
-]
-
-[project.urls]
-Repository = "https://github.com/sminnee/maelstrom"
-
-[project.scripts]
-mael = "maelstrom.cli:main"
-sminnee-maelstrom = "maelstrom.cli:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-# The services are left out: the published `mael` CLI runs neither the daemon
-# nor the orchestrator server. Build each on its own with
-# `uv build --package mael-agent-daemon` or `uv build --package mael-orchestrator`.
-[tool.hatch.build.targets.wheel]
-packages = [
-    "src/maelstrom",
-    "lib/common/src/mael_common",
-    "lib/agent/src/mael_agent",
-    "lib/domain/src/mael_domain",
-]
-# An editable install puts these on the path. `mael self-update` installs the
-# root alone as an editable uv tool, with no workspace members beside it, so
-# the bundled packages must be reachable from the root's own install.
-dev-mode-dirs = ["src", "lib/common/src", "lib/agent/src", "lib/domain/src"]
-
 [tool.uv]
-default-groups = ["members"]
+package = false
 
 [tool.uv.workspace]
 members = [
+    "cli",
     "lib/common",
     "lib/agent",
     "lib/domain",
@@ -82,6 +41,7 @@ members = [
 ]
 
 [tool.uv.sources]
+sminnee-maelstrom = { workspace = true }
 mael-common = { workspace = true }
 mael-agent = { workspace = true }
 mael-domain = { workspace = true }
@@ -90,14 +50,14 @@ mael-orchestrator = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
-    "tests",
+    "cli/tests",
     "lib/common/tests",
     "lib/agent/tests",
     "lib/domain/tests",
     "agent-daemon/tests",
     "orchestrator-api/tests",
 ]
-# The domain suites' support modules. `tests/` imports them too, so they must
+# The domain suites' support modules. `cli/tests/` imports them too, so they must
 # be on the path whichever suite pytest collects first.
 pythonpath = ["lib/domain/tests"]
 # Async tests are plain `async def`, with no per-test decorator: an awaiting
@@ -115,7 +75,7 @@ markers = [
 
 [tool.pyright]
 include = [
-    "src",
+    "cli/src",
     "lib/common/src",
     "lib/agent/src",
     "lib/domain/src",
@@ -134,7 +94,7 @@ reportMissingTypeStubs = false
 [tool.ruff]
 # Every workspace member's package is first-party, so isort groups them together.
 src = [
-    "src",
+    "cli/src",
     "lib/common/src",
     "lib/agent/src",
     "lib/domain/src",
@@ -153,7 +113,7 @@ select = ["E4", "E7", "E9", "F", "I"]
 # never bare — the test pass needs the flags that script adds.
 # See docs/dev/dead-code.md.
 paths = [
-    "src",
+    "cli/src",
     "lib/common/src",
     "lib/agent/src",
     "lib/domain/src",
@@ -208,7 +168,7 @@ ignore_names = [
 
 # The dependency graph between the packages: mael_agent imports mael_common;
 # mael_domain imports both; mael_daemon imports mael_agent and mael_common;
-# mael_orchestrator and maelstrom import the three libraries. Nothing imports
+# mael_orchestrator and mael_cli import the three libraries. Nothing imports
 # either service, mael_daemon or mael_orchestrator.
 # Run by `bin/lint` as `lint-imports`. See docs/dev/architecture-patterns.md.
 [tool.importlinter]
@@ -218,7 +178,7 @@ root_packages = [
     "mael_domain",
     "mael_daemon",
     "mael_orchestrator",
-    "maelstrom",
+    "mael_cli",
 ]
 # So a contract can name click, which is not one of the packages above.
 include_external_packages = true
@@ -232,37 +192,37 @@ forbidden_modules = [
     "mael_domain",
     "mael_daemon",
     "mael_orchestrator",
-    "maelstrom",
+    "mael_cli",
 ]
 
 [[tool.importlinter.contracts]]
 name = "mael_agent imports only mael_common"
 type = "forbidden"
 source_modules = ["mael_agent"]
-forbidden_modules = ["mael_domain", "mael_daemon", "mael_orchestrator", "maelstrom"]
+forbidden_modules = ["mael_domain", "mael_daemon", "mael_orchestrator", "mael_cli"]
 
 [[tool.importlinter.contracts]]
 name = "mael_domain imports only mael_agent and mael_common"
 type = "forbidden"
 source_modules = ["mael_domain"]
-forbidden_modules = ["mael_daemon", "mael_orchestrator", "maelstrom"]
+forbidden_modules = ["mael_daemon", "mael_orchestrator", "mael_cli"]
 
 [[tool.importlinter.contracts]]
-name = "The daemon imports neither the domain nor the maelstrom CLI"
+name = "The daemon imports neither the domain nor the mael CLI"
 type = "forbidden"
 source_modules = ["mael_daemon"]
-forbidden_modules = ["mael_domain", "mael_orchestrator", "maelstrom"]
+forbidden_modules = ["mael_domain", "mael_orchestrator", "mael_cli"]
 
 [[tool.importlinter.contracts]]
-name = "The orchestrator server imports neither the daemon nor the maelstrom CLI"
+name = "The orchestrator server imports neither the daemon nor the mael CLI"
 type = "forbidden"
 source_modules = ["mael_orchestrator"]
-forbidden_modules = ["mael_daemon", "maelstrom"]
+forbidden_modules = ["mael_daemon", "mael_cli"]
 
 [[tool.importlinter.contracts]]
-name = "The maelstrom CLI meets the services only on the wire"
+name = "The mael CLI meets the services only on the wire"
 type = "forbidden"
-source_modules = ["maelstrom"]
+source_modules = ["mael_cli"]
 forbidden_modules = ["mael_daemon", "mael_orchestrator"]
 
 # The domain is click-free, so the CLI and the orchestrator server can share it.

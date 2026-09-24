@@ -34,7 +34,7 @@ jobs:
              [ -n "$changed" ]; then
             echo "Changed files:"
             echo "$changed"
-            if ! echo "$changed" | grep -Eq '^(src/|tests/|lib/|agent-daemon/|orchestrator-api/|orchestrator-ui/fixtures/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(cli/|lib/|agent-daemon/|orchestrator-api/|orchestrator-ui/fixtures/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
               code=false
             fi
             if ! echo "$changed" | grep -Eq '^(orchestrator-ui/|bin/|lib/domain/src/mael_domain/(protocol|normalise)\.py$|lib/domain/fixtures/normalised/|\.github/workflows/test\.yml$)'; then
@@ -65,7 +65,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests
-        run: uv run pytest --ignore=tests/e2e
+        run: uv run pytest -m 'not e2e'
 
   lint:
     needs: changes
@@ -103,7 +103,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run e2e tests
-        run: uv run pytest tests/e2e/ -v
+        run: uv run pytest -m e2e -v
 
   web:
     needs: changes

@@ -1,6 +1,6 @@
-"""Fixtures the domain suites share with the ``maelstrom`` suite.
+"""Fixtures the domain suites share with the CLI's suite.
 
-``lib/domain/tests/conftest.py`` and ``tests/conftest.py`` both import them by
+``lib/domain/tests/conftest.py`` and ``cli/tests/conftest.py`` both import them by
 name. ``pythonpath`` in ``pyproject.toml`` puts this directory on the path, so
 either suite can import it whichever one pytest collects first.
 """

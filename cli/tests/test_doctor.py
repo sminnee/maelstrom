@@ -1,0 +1,694 @@
+"""Tests for mael doctor functionality."""
+
+import subprocess
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import pytest
+from git_helpers import create_commit, run_git, setup_git_repo
+
+from mael_cli.doctor import CheckStatus, _check_port_allocations, run_doctor
+from mael_domain.ports import load_port_allocations, record_port_allocation
+from mael_domain.worktree import WorktreeInfo, update_local_main
+
+
+def _create_project_repo(default_branch="main"):
+    """Create a maelstrom-style project repo with remote. Returns (tmpdir, project_path)."""
+    tmpdir = TemporaryDirectory()
+    tmp = Path(tmpdir.name)
+
+    # Create source repo
+    source_path = tmp / "source"
+    source_path.mkdir()
+    setup_git_repo(source_path)
+    create_commit(source_path, "README.md", "# Test", "Initial commit")
+    run_git(source_path, "branch", "-M", default_branch)
+
+    # Clone as bare to create remote
+    remote_path = tmp / "remote.git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(source_path), str(remote_path)],
+        check=True,
+        capture_output=True,
+    )
+
+    # Create project directory with bare clone structure
+    project_path = tmp / "test-repo"
+    project_path.mkdir()
+    git_dir = project_path / ".git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+        check=True,
+        capture_output=True,
+    )
+
+    # Configure like add_project does (core.bare stays true from bare clone)
+    run_git(
+        project_path,
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    )
+    run_git(project_path, "config", "user.email", "test@test.com")
+    run_git(project_path, "config", "user.name", "Test")
+    run_git(project_path, "fetch", "origin")
+
+    # Detach HEAD (like add_project does)
+    head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
+    run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
+
+    # The default branch lives in _main, like add_project does
+    run_git(
+        project_path, "worktree", "add", str(project_path / "_main"), default_branch
+    )
+    run_git(
+        project_path,
+        "branch",
+        "--set-upstream-to",
+        f"origin/{default_branch}",
+        default_branch,
+    )
+
+    # Create .mael marker
+    (project_path / ".mael").touch()
+
+    return tmpdir, project_path
+
+
+class TestUpdateLocalMain:
+    """Tests for update_local_main()."""
+
+    def test_fast_forwards_when_behind(self):
+        """Local main is fast-forwarded when origin/main is ahead."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # Get current main SHA
+            old_sha = run_git(project_path, "rev-parse", "main").stdout.strip()
+
+            # Add a commit to the remote source, then fetch
+            source_path = Path(tmpdir.name) / "source"
+            create_commit(source_path, "new.txt", "new content", "New commit")
+            # Push to bare remote
+            remote_path = Path(tmpdir.name) / "remote.git"
+            run_git(source_path, "push", str(remote_path), "main")
+
+            # Fetch into project
+            run_git(project_path, "fetch", "origin")
+
+            # Verify local main is behind
+            local_sha = run_git(project_path, "rev-parse", "main").stdout.strip()
+            origin_sha = run_git(
+                project_path, "rev-parse", "origin/main"
+            ).stdout.strip()
+            assert local_sha == old_sha
+            assert origin_sha != old_sha
+
+            # update_local_main should fast-forward
+            result = update_local_main(project_path)
+            assert result.status == "updated"
+
+            # Verify local main now matches origin/main
+            new_local_sha = run_git(project_path, "rev-parse", "main").stdout.strip()
+            assert new_local_sha == origin_sha
+
+    def test_warns_when_ahead(self):
+        """Returns warning when local main is ahead of origin/main."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # main is checked out in _main; commit there to get ahead of origin
+            wt_path = project_path / "_main"
+            create_commit(wt_path, "local.txt", "local", "Local commit")
+
+            # Detach the worktree so main isn't checked out
+            run_git(wt_path, "checkout", "--detach", "HEAD")
+
+            result = update_local_main(project_path)
+            assert result.status == "warning"
+            assert "ahead" in result.message
+
+    def test_skips_when_already_in_sync(self):
+        """Skips when local main equals origin/main."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = update_local_main(project_path)
+            assert result.status == "skipped"
+
+    def test_fast_forwards_when_main_checked_out(self):
+        """Fast-forwards main via merge when checked out in a worktree."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # main is checked out in _main
+            wt_path = project_path / "_main"
+
+            # Push a new commit to remote so local is behind
+            source_path = Path(tmpdir.name) / "source"
+            create_commit(source_path, "new.txt", "new", "New commit")
+            remote_path = Path(tmpdir.name) / "remote.git"
+            run_git(source_path, "push", str(remote_path), "main")
+            run_git(project_path, "fetch", "origin")
+
+            # Get origin/main sha before update
+            origin_sha = run_git(
+                project_path, "rev-parse", "refs/remotes/origin/main"
+            ).stdout.strip()
+
+            result = update_local_main(project_path)
+            assert result.status == "updated"
+            assert "Fast-forwarded" in result.message
+
+            # Verify the ref was actually updated
+            local_sha = run_git(
+                project_path, "rev-parse", "refs/heads/main"
+            ).stdout.strip()
+            assert local_sha == origin_sha
+
+            # Clean up
+            run_git(project_path, "worktree", "remove", str(wt_path))
+
+
+class TestDoctor:
+    """Tests for run_doctor()."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self, tmp_path, monkeypatch):
+        """Point ~ at a scratch dir so the secret-perms check never reads or
+        chmods the developer's real ~/.maelstrom during the suite."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def test_healthy_project(self):
+        """All checks pass on a healthy project."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = run_doctor(project_path)
+            assert result.issues_found == 0
+            assert all(c.status == CheckStatus.OK for c in result.checks)
+
+    def test_every_result_carries_its_check_name(self):
+        """Callers select a result by name, so no result may go unnamed."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            names = [c.name for c in result.checks]
+            assert all(names)
+            assert len(set(names)) == len(names)
+            assert "main_upstream" in names
+
+    def test_fixes_wrong_core_bare(self):
+        """Fixes core.bare when set to false instead of true."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # Break core.bare
+            run_git(project_path, "config", "core.bare", "false")
+
+            result = run_doctor(project_path)
+
+            core_bare_check = [c for c in result.checks if "core.bare" in c.message][0]
+            assert core_bare_check.status == CheckStatus.FIXED
+
+    def test_warns_when_main_is_in_a_nato_worktree(self):
+        """A project predating _main holds main in a workspace that cannot be used."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # Undo the _main layout and put main in alpha, as older projects did.
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+            alpha = project_path / "test-repo-alpha"
+            run_git(project_path, "worktree", "add", str(alpha), "main")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+            assert "worktree add" in check.message
+
+    def test_warns_when_there_is_no_main_worktree(self):
+        """No _main at all is also worth flagging."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "No _main" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+
+    def test_warns_when_main_worktree_is_detached(self):
+        """A detached _main is not a main checkout, whatever the folder is called."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path / "_main", "checkout", "--detach", "HEAD")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "does not hold main" in c.message][0]
+            assert check.status == CheckStatus.WARNING
+
+    def test_main_in_a_nato_worktree_is_told_to_free_it_first(self):
+        """git refuses `worktree add main` while another worktree holds it."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "worktree", "remove", str(project_path / "_main"))
+            alpha = project_path / "test-repo-alpha"
+            run_git(project_path, "worktree", "add", str(alpha), "main")
+
+            result = run_doctor(project_path)
+
+            check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
+            assert "checkout --detach" in check.message
+
+    def test_stops_early_without_mael_marker(self):
+        """Stops checking if .mael marker is missing."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            (project_path / ".mael").unlink()
+
+            result = run_doctor(project_path)
+            assert len(result.checks) == 1
+            assert result.checks[0].status == CheckStatus.ERROR
+            assert ".mael" in result.checks[0].message
+
+    @staticmethod
+    def _upstream_check(result):
+        """The main-upstream check, selected by name rather than by message."""
+        checks = [c for c in result.checks if c.name == "main_upstream"]
+        assert len(checks) == 1, f"expected 1 main_upstream check, got {checks}"
+        return checks[0]
+
+    @staticmethod
+    def _upstream_config(project_path):
+        return (
+            run_git(
+                project_path, "config", "--get", "branch.main.remote"
+            ).stdout.strip(),
+            run_git(
+                project_path, "config", "--get", "branch.main.merge"
+            ).stdout.strip(),
+        )
+
+    def test_sets_the_main_upstream_when_unset(self):
+        """A bare clone writes no branch.main.*, so main tracks nothing."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.main.remote")
+            run_git(project_path, "config", "--unset", "branch.main.merge")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "main had no upstream → set to origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
+
+    def test_names_the_upstream_it_repointed(self):
+        """A main tracking elsewhere is repointed, and the report says so."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "branch.main.remote", "upstream")
+            run_git(project_path, "config", "branch.main.merge", "refs/heads/trunk")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "main tracked upstream/trunk → set to origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
+
+    def test_reports_an_error_when_origin_main_is_missing(self):
+        """--set-upstream-to cannot run without the ref. _check_origin_main
+        already names that cause, so this check does not repeat it."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.main.remote")
+            run_git(project_path, "config", "--unset", "branch.main.merge")
+            run_git(project_path, "update-ref", "-d", "refs/remotes/origin/main")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.ERROR
+
+    def test_sets_the_upstream_on_a_non_main_default_branch(self):
+        """8 of ~50 local projects default to develop, master or 6, not main."""
+        tmpdir, project_path = _create_project_repo(default_branch="develop")
+        with tmpdir:
+            run_git(project_path, "config", "--unset", "branch.develop.remote")
+            run_git(project_path, "config", "--unset", "branch.develop.merge")
+
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.FIXED
+            assert check.message == "develop had no upstream → set to origin/develop"
+            remote = run_git(project_path, "config", "--get", "branch.develop.remote")
+            merge = run_git(project_path, "config", "--get", "branch.develop.merge")
+            assert remote.stdout.strip() == "origin"
+            assert merge.stdout.strip() == "refs/heads/develop"
+
+    def test_a_non_main_default_branch_project_is_healthy(self):
+        """A develop-default project must not report spurious issues."""
+        tmpdir, project_path = _create_project_repo(default_branch="develop")
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            assert result.issues_found == 0, [
+                (c.name, c.message) for c in result.checks if c.status != CheckStatus.OK
+            ]
+
+    def test_leaves_a_configured_main_upstream_alone(self):
+        """Already tracking origin/main: report OK, rewrite nothing."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            result = run_doctor(project_path)
+
+            check = self._upstream_check(result)
+            assert check.status == CheckStatus.OK
+            assert check.message == "main upstream is origin/main"
+            assert self._upstream_config(project_path) == ("origin", "refs/heads/main")
+
+    def test_warns_local_main_ahead(self):
+        """Warns when local main is ahead of origin/main."""
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            # main is checked out in _main; commit there, then detach
+            wt_path = project_path / "_main"
+            create_commit(wt_path, "local.txt", "local", "Local commit")
+            run_git(wt_path, "checkout", "--detach", "HEAD")
+
+            result = run_doctor(project_path)
+
+            main_check = [c for c in result.checks if "ahead" in c.message]
+            assert len(main_check) == 1
+            assert main_check[0].status == CheckStatus.WARNING
+
+
+class TestCheckEditableInstall:
+    """The shared editable install must point into `_main`.
+
+    A `.pth` repointed at a worktree makes every bare `mael` on the machine run
+    that worktree's in-progress code, which surfaces as a syntax error from a
+    file the user was not editing.
+    """
+
+    def _setup(self, tmp_path, target=None):
+        """A project with `_main/.venv`, whose `.pth` names *target*."""
+        project_path = tmp_path / "proj"
+        site = project_path / "_main" / ".venv" / "lib" / "python3.13" / "site-packages"
+        site.mkdir(parents=True)
+        if target is not None:
+            (site / "_editable_impl_proj.pth").write_text(f"{target}\n")
+        return project_path
+
+    def test_ok_when_it_points_into_main(self, tmp_path):
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, tmp_path / "proj" / "_main" / "src")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_warns_when_it_points_at_a_worktree(self, tmp_path):
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, tmp_path / "proj" / "proj-lima" / "src")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.WARNING
+        # Name the wrong target, so the reader sees which worktree captured it.
+        assert "proj-lima" in result.message
+        # And the repair, so they can act without reading the source.
+        assert "uv sync" in result.message
+
+    def test_ok_when_there_is_no_venv(self, tmp_path):
+        """Not every project is installed this way."""
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_ok_when_the_venv_holds_no_editable_install(self, tmp_path):
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, target=None)
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
+
+class TestCheckSecretFilePerms:
+    """Tests for the _check_secret_file_perms doctor check."""
+
+    @staticmethod
+    def _mode(path) -> int:
+        import os
+        import stat
+
+        return stat.S_IMODE(os.stat(path).st_mode)
+
+    def _setup(self, tmp_path, monkeypatch):
+        """Wire up a fake home + a single worktree under project_path."""
+        from types import SimpleNamespace
+
+        import mael_cli.doctor as doctor
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mael_dir = tmp_path / ".maelstrom"
+        mael_dir.mkdir()
+        config = mael_dir / "config.yaml"
+        config.write_text("linear:\n  api_key: secret\n")
+        allocations = mael_dir / "port_allocations.json"
+        allocations.write_text("{}\n")
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        wt_path = project_path / "proj-bravo"
+        wt_path.mkdir()
+        env_file = wt_path / ".env"
+        env_file.write_text("PORT_BASE=300\n")
+
+        # Stub enumeration: project root + one worktree.
+        worktrees = [
+            SimpleNamespace(path=project_path),
+            SimpleNamespace(path=wt_path),
+        ]
+        monkeypatch.setattr(doctor, "list_worktrees", lambda _p: worktrees)
+        return project_path, mael_dir, config, allocations, env_file
+
+    def test_ok_when_all_tight(self, tmp_path, monkeypatch):
+        import os
+
+        from mael_cli.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(config, 0o600)
+        os.chmod(allocations, 0o600)
+        os.chmod(env_file, 0o600)
+
+        result = _check_secret_file_perms(project_path)
+        assert result.status == CheckStatus.OK
+
+    def test_fixes_loose_files_and_names_them(self, tmp_path, monkeypatch):
+        import os
+
+        from mael_cli.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(allocations, 0o600)
+        os.chmod(config, 0o644)
+        os.chmod(env_file, 0o644)
+
+        result = _check_secret_file_perms(project_path)
+
+        assert result.status == CheckStatus.FIXED
+        assert "config.yaml" in result.message
+        assert "bravo/.env" in result.message
+        # Files actually tightened.
+        assert self._mode(config) == 0o600
+        assert self._mode(env_file) == 0o600
+
+    def test_tightens_a_loose_spawn_record(self, tmp_path, monkeypatch):
+        """A record holds the env its agent was started with, allowlist-free."""
+        import os
+
+        from mael_cli.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(config, 0o600)
+        os.chmod(allocations, 0o600)
+        os.chmod(env_file, 0o600)
+        agents = mael_dir / "agents"
+        agents.mkdir()
+        record = agents / "a1.json"
+        record.write_text("{}")
+        os.chmod(record, 0o644)
+
+        result = _check_secret_file_perms(project_path)
+
+        assert result.status == CheckStatus.FIXED
+        assert "agents/a1.json" in result.message
+        assert self._mode(record) == 0o600
+
+    def test_rerun_after_fix_reports_ok(self, tmp_path, monkeypatch):
+        import os
+
+        from mael_cli.doctor import _check_secret_file_perms
+
+        project_path, mael_dir, config, allocations, env_file = self._setup(
+            tmp_path, monkeypatch
+        )
+        os.chmod(mael_dir, 0o700)
+        os.chmod(allocations, 0o600)
+        os.chmod(config, 0o600)
+        os.chmod(env_file, 0o644)
+
+        assert _check_secret_file_perms(project_path).status == CheckStatus.FIXED
+        assert _check_secret_file_perms(project_path).status == CheckStatus.OK
+
+
+class TestCheckPortAllocations:
+    """Orphan pruning must keep `_main`'s reserved allocation and `_shared`."""
+
+    def _run(self, tmp_path, monkeypatch, allocations, folders):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_path = tmp_path / "Projects" / "myproject"
+        project_path.mkdir(parents=True)
+
+        for name, base in allocations.items():
+            record_port_allocation(project_path, name, base)
+
+        monkeypatch.setattr(
+            "mael_cli.doctor.list_worktrees",
+            lambda _p: [
+                WorktreeInfo(path=project_path / f, branch="main", commit="abc")
+                for f in folders
+            ],
+        )
+
+        result = _check_port_allocations(project_path)
+        remaining = load_port_allocations()[str(project_path.resolve())]
+        return result, remaining
+
+    def test_keeps_the_reserved_main_allocation(self, tmp_path, monkeypatch):
+        """`_main` is a real worktree, so its base is never an orphan."""
+        result, remaining = self._run(
+            tmp_path,
+            monkeypatch,
+            {"_main": 277, "alpha": 300},
+            ["_main", "myproject-alpha"],
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["_main"] == 277
+
+    def test_keeps_the_shared_allocation(self, tmp_path, monkeypatch):
+        """`_shared` is not a worktree at all, and is exempt by name."""
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"_shared": 400, "alpha": 300}, ["myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["_shared"] == 400
+
+    def test_ignores_the_project_root_itself(self, tmp_path, monkeypatch):
+        """git lists the project root; it is not a worktree and prunes nothing."""
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"alpha": 300}, [".", "myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.OK
+        assert remaining["alpha"] == 300
+
+    def test_prunes_an_allocation_with_no_worktree(self, tmp_path, monkeypatch):
+        result, remaining = self._run(
+            tmp_path, monkeypatch, {"alpha": 300, "bravo": 301}, ["myproject-alpha"]
+        )
+
+        assert result.status == CheckStatus.FIXED
+        assert "bravo" in result.message
+        assert "bravo" not in remaining
+
+
+class TestCheckChecksReadable:
+    """Whether this repo's CI state can be read at all.
+
+    `statusCheckRollup` needs the `checks=read` token permission, which GitHub
+    no longer offers in the fine-grained PAT UI. The Actions API answers the
+    same question and can be granted, so a repo that refuses both is the only
+    one whose pull requests can never show a CI state — and it should say so
+    rather than leaving every chip reading "checks not readable" unexplained.
+    """
+
+    @staticmethod
+    def _run(
+        monkeypatch,
+        *,
+        returncode=0,
+        remote="https://github.com/acme/repo.git",
+        stderr="",
+        raises=None,
+    ):
+        from mael_cli import doctor
+
+        def _run_cmd(cmd, cwd=None, quiet=False, check=True, **kwargs):
+            if cmd[:2] == ["git", "remote"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=remote, stderr="")
+            if raises is not None:
+                raise raises
+            return subprocess.CompletedProcess(
+                cmd, returncode, stdout="", stderr=stderr
+            )
+
+        monkeypatch.setattr(doctor, "run_cmd", _run_cmd)
+        return doctor._check_checks_readable(Path("/proj"))
+
+    def test_ok_when_the_runs_can_be_read(self, monkeypatch):
+        assert self._run(monkeypatch, returncode=0).status == CheckStatus.OK
+
+    def test_warns_when_neither_source_can_be_read(self, monkeypatch):
+        result = self._run(monkeypatch, returncode=1)
+        assert result.status == CheckStatus.WARNING
+        # Name the permission, so the reader can act without reading the source.
+        assert "Actions" in result.message
+
+    def test_says_nothing_about_a_repo_github_does_not_host(self, monkeypatch):
+        """A self-hosted or local repo has no checks to read here. Telling its
+        owner to fix a GitHub token would be advice about the wrong system."""
+        result = self._run(monkeypatch, returncode=1, remote="git@git.acme.internal:x")
+        assert result.status == CheckStatus.OK
+
+    def test_a_machine_without_gh_does_not_lose_the_rest_of_the_run(self, monkeypatch):
+        """`gh` is optional everywhere else. Raised from here it aborts the
+        whole command, so every check after this one is lost — and doctor is
+        what a user runs when something is already wrong."""
+        result = self._run(monkeypatch, raises=FileNotFoundError(2, "no gh", "gh"))
+        assert result.status == CheckStatus.OK
+        assert "gh" in result.message
+
+    def test_a_read_that_never_answers_does_not_hang_the_run(self, monkeypatch):
+        """Waiting forever on a captive portal leaves doctor printing nothing.
+        A timeout is not a refused permission, so it must not advise one."""
+        result = self._run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 5.0))
+        assert result.status == CheckStatus.OK
+
+    def test_a_read_that_could_not_reach_github_does_not_blame_the_token(
+        self, monkeypatch
+    ):
+        """Offline is the case a diagnostic most needs to get right. Telling a
+        user to grant a permission they may already hold is worse than silence.
+        """
+        result = self._run(
+            monkeypatch, returncode=1, stderr="dial tcp: lookup api.github.com"
+        )
+        assert result.status == CheckStatus.OK
+        assert "reach" in result.message
