@@ -131,7 +131,9 @@ what happens next. A handler that returns a promise puts the button in `processi
 busy, with a spinner. A rejection puts it in `error`: it reads "Failed", the message is its
 `title`, and a click retries. It is ready again after three seconds. So a refusal shows on the
 button that asked, and no view keeps an error of its own. The status picker
-(`ui/StatusPicker.tsx`) is the one control that is not a button; it shows its own refusal. The
+(`ui/StatusPicker.tsx`) is the one row control that is not a button; it shows its own refusal.
+The task list's bulk bar also keeps its own error: a run over many rows can partly fail, and
+"Failed" on one button cannot say which rows or why. The
 comment and review controls call their mutations, get the server's 501, and read
 "Not implemented yet".
 
@@ -213,6 +215,15 @@ carries Prev/Next, which step to the adjacent task in the list's own filtered, s
 disabled at either end. Both go through the same unsaved-changes guard as the ×, Escape and the
 backdrop. The editor renders from `AppShell`, above both views, and its open task lives in the
 store, so the canvas can open the same editor later.
+
+Each row also has a checkbox, and the header has one that ticks every listed row. When a row is
+ticked, a bar above the table offers three bulk actions: set a status, add to the desk, and
+dismiss. The server has no batch route, so `tasklist/BulkActions.tsx` calls the per-task routes
+one at a time: each status write re-reads the notebook, and parallel re-reads race. A row already
+in the target state sends nothing. A refused row does not stop the others. The bar then shows
+the failed count and the first reason, and keeps only the refused rows ticked. The ticked set is
+local state in `TaskList`, and holds listed rows only: a row the filter hides is unticked, so the
+bar never acts on a row the user cannot see.
 
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
