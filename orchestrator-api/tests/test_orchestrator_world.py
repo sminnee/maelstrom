@@ -2,7 +2,7 @@
 
 import pytest
 
-from maelstrom.orchestrator.world import WorldState
+from mael_orchestrator.world import WorldState
 
 
 def upsert(task_id: str, status: str = "todo") -> dict:

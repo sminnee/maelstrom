@@ -1,4 +1,4 @@
-"""``mael orchestrator serve``, with the server itself patched out."""
+"""``mael-orchestrator serve``, with the server itself patched out."""
 
 import asyncio
 import logging
@@ -12,17 +12,17 @@ from click.testing import CliRunner
 
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.types import SchemaTooOldError
-from maelstrom.cli import cli
-from maelstrom.orchestrator_cli import (
+from mael_orchestrator.cli import (
     DEFAULT_HOST,
     DEFAULT_LOG_LEVEL,
     DEFAULT_PORT,
+    cli,
     run_server,
 )
 
 
 @pytest.fixture
-def state_db(tmp_path, monkeypatch):
+def migrated_notebook(tmp_path, monkeypatch):
     """A migrated state database under tmp_path, so no test touches the real one.
 
     ``run_server`` opens one and checks it, which without this would read the
@@ -35,17 +35,17 @@ def state_db(tmp_path, monkeypatch):
 
 
 def test_serve_passes_its_flags_to_the_server():
-    with patch("maelstrom.orchestrator_cli.run_server") as run_server:
+    with patch("mael_orchestrator.cli.run_server") as run_server:
         result = CliRunner().invoke(
-            cli, ["orchestrator", "serve", "--host", "0.0.0.0", "--port", "9000"]
+            cli, ["serve", "--host", "0.0.0.0", "--port", "9000"]
         )
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with("0.0.0.0", 9000, DEFAULT_LOG_LEVEL)
 
 
 def test_serve_defaults_to_localhost_and_the_default_port():
-    with patch("maelstrom.orchestrator_cli.run_server") as run_server:
-        result = CliRunner().invoke(cli, ["orchestrator", "serve"])
+    with patch("mael_orchestrator.cli.run_server") as run_server:
+        result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with(DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL)
 
@@ -53,16 +53,16 @@ def test_serve_defaults_to_localhost_and_the_default_port():
 def test_serve_takes_no_root_flag():
     """The server talks to the daemon its own environment names. A flag here
     pointed the everyday orchestrator at a worktree's daemon, and back."""
-    result = CliRunner().invoke(cli, ["orchestrator", "serve", "--root", "/tmp/a"])
+    result = CliRunner().invoke(cli, ["serve", "--root", "/tmp/a"])
     assert result.exit_code == 2
     assert "no such option" in result.output.lower()
 
 
 def test_a_bind_failure_is_an_error_not_a_traceback():
     with patch(
-        "maelstrom.orchestrator_cli.run_server", side_effect=OSError("address in use")
+        "mael_orchestrator.cli.run_server", side_effect=OSError("address in use")
     ):
-        result = CliRunner().invoke(cli, ["orchestrator", "serve"])
+        result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 1
     assert "address in use" in result.output
 
@@ -80,11 +80,11 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
 
     from mael_domain.desk_store import SqliteDeskStore
     from mael_domain.worktree import WorktreeSetup
-    from maelstrom.orchestrator.sources import (
+    from mael_orchestrator.cli import build_orchestrator
+    from mael_orchestrator.sources import (
         ListAllWorktreeSource,
         NotebookTaskSource,
     )
-    from maelstrom.orchestrator_cli import build_orchestrator
 
     projects_dir = tmp_path / "Projects"
     (projects_dir / "northwind").mkdir(parents=True)
@@ -96,13 +96,13 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
     with (
         patch(
-            "maelstrom.orchestrator_cli.load_global_config",
+            "mael_orchestrator.cli.load_global_config",
             return_value=SimpleNamespace(projects_dir=projects_dir),
         ),
-        patch("maelstrom.orchestrator_cli.SqliteTaskTable") as table,
-        patch("maelstrom.orchestrator_cli.open_state_db"),
+        patch("mael_orchestrator.cli.SqliteTaskTable") as table,
+        patch("mael_orchestrator.cli.open_state_db"),
         patch(
-            "maelstrom.orchestrator_cli.setup_worktree_for_branch", return_value=setup
+            "mael_orchestrator.cli.setup_worktree_for_branch", return_value=setup
         ) as open_wt,
     ):
         orchestrator = build_orchestrator()
@@ -127,7 +127,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert open_wt.call_args.kwargs["base"] == "feat/base"
 
 
-def test_serve_sets_up_logging_with_timestamps_before_it_serves(state_db):
+@pytest.mark.usefixtures("migrated_notebook")
+def test_serve_sets_up_logging_with_timestamps_before_it_serves():
     """The log must name when and how bad, or a crash leaves nothing to read.
 
     Without configuration every ``log.exception`` goes to the root logger's
@@ -135,8 +136,8 @@ def test_serve_sets_up_logging_with_timestamps_before_it_serves(state_db):
     dropped.
     """
     with (
-        patch("maelstrom.orchestrator_cli.serve_app"),
-        patch("maelstrom.orchestrator_cli.build_orchestrator"),
+        patch("mael_orchestrator.cli.serve_app"),
+        patch("mael_orchestrator.cli.build_orchestrator"),
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT, log_level="INFO")
     root = logging.getLogger()
@@ -153,7 +154,8 @@ def test_serve_sets_up_logging_with_timestamps_before_it_serves(state_db):
     assert re.search(r"\d{4}-\d{2}-\d{2}", line), line
 
 
-def test_an_exception_that_escapes_a_task_is_logged(capsys, state_db):
+@pytest.mark.usefixtures("migrated_notebook")
+def test_an_exception_that_escapes_a_task_is_logged(capsys):
     """A task that dies with nobody awaiting it must still say so."""
     captured = {}
 
@@ -161,9 +163,9 @@ def test_an_exception_that_escapes_a_task_is_logged(capsys, state_db):
         captured["handler"] = asyncio.get_running_loop().get_exception_handler()
 
     with (
-        patch("maelstrom.orchestrator_cli.build_orchestrator"),
-        patch("maelstrom.orchestrator_cli.build_app"),
-        patch("maelstrom.orchestrator_cli.serve_app", new=scenario),
+        patch("mael_orchestrator.cli.build_orchestrator"),
+        patch("mael_orchestrator.cli.build_app"),
+        patch("mael_orchestrator.cli.serve_app", new=scenario),
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT)
 
@@ -178,7 +180,8 @@ def test_an_exception_that_escapes_a_task_is_logged(capsys, state_db):
     assert "task blew up" in capsys.readouterr().err
 
 
-def test_a_sigterm_shuts_the_server_down_cleanly(state_db):
+@pytest.mark.usefixtures("migrated_notebook")
+def test_a_sigterm_shuts_the_server_down_cleanly():
     """A supervised restart sends SIGTERM, not Ctrl-C.
 
     Without a handler the default terminates the process outright, so
@@ -201,9 +204,9 @@ def test_a_sigterm_shuts_the_server_down_cleanly(state_db):
             raise
 
     with (
-        patch("maelstrom.orchestrator_cli.build_orchestrator"),
-        patch("maelstrom.orchestrator_cli.build_app"),
-        patch("maelstrom.orchestrator_cli.serve_app", new=scenario),
+        patch("mael_orchestrator.cli.build_orchestrator"),
+        patch("mael_orchestrator.cli.build_app"),
+        patch("mael_orchestrator.cli.serve_app", new=scenario),
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT)
 
@@ -219,9 +222,9 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
     with (
-        patch("maelstrom.orchestrator_cli.build_orchestrator"),
-        patch("maelstrom.orchestrator_cli.build_app"),
-        patch("maelstrom.orchestrator_cli.serve_app"),
+        patch("mael_orchestrator.cli.build_orchestrator"),
+        patch("mael_orchestrator.cli.build_app"),
+        patch("mael_orchestrator.cli.serve_app"),
         pytest.raises(SchemaTooOldError) as exc,
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT)
@@ -232,12 +235,23 @@ def test_serve_reports_a_refused_state_database_as_an_error(tmp_path, monkeypatc
     """The refusal reaches the user as one line, not as a traceback."""
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
     with patch(
-        "maelstrom.orchestrator_cli.run_server",
+        "mael_orchestrator.cli.run_server",
         side_effect=SchemaTooOldError("run `mael admin migrate`"),
     ):
-        result = CliRunner().invoke(cli, ["orchestrator", "serve"])
+        result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 1
     assert "mael admin migrate" in result.output
+
+
+@pytest.mark.usefixtures("migrated_notebook")
+def test_serve_reports_a_missing_daemon_root_as_an_error(monkeypatch):
+    """The root has no fallback, so its absence must name the fix, not end in a
+    traceback."""
+    monkeypatch.delenv("MAEL_AGENT_ROOT")
+    with patch("mael_orchestrator.cli.serve_app"):
+        result = CliRunner().invoke(cli, ["serve"])
+    assert result.exit_code == 1
+    assert "MAEL_AGENT_ROOT is not set" in result.output
 
 
 def test_a_maelstrom_dir_that_does_not_exist_is_created(tmp_path, monkeypatch):
@@ -250,9 +264,9 @@ def test_a_maelstrom_dir_that_does_not_exist_is_created(tmp_path, monkeypatch):
     home = tmp_path / "never-used"
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home))
     with (
-        patch("maelstrom.orchestrator_cli.build_orchestrator"),
-        patch("maelstrom.orchestrator_cli.build_app"),
-        patch("maelstrom.orchestrator_cli.serve_app"),
+        patch("mael_orchestrator.cli.build_orchestrator"),
+        patch("mael_orchestrator.cli.build_app"),
+        patch("mael_orchestrator.cli.serve_app"),
         pytest.raises(SchemaTooOldError),
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT)

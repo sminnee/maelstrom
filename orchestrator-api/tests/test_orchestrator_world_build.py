@@ -12,7 +12,7 @@ from mael_daemon.agent_model import (
     mark_exited,
 )
 from mael_domain import task as model
-from maelstrom.orchestrator.world_build import (
+from mael_orchestrator.world_build import (
     agent_entity,
     diff_kind,
     link_agent,
@@ -85,7 +85,7 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
 
 
 def test_a_wrapped_log_line_continues_its_entry_and_prose_steps_stay_open():
-    from maelstrom.orchestrator.world_build import parse_log, parse_steps
+    from mael_orchestrator.world_build import parse_log, parse_steps
 
     assert parse_log(
         "- 2026-09-01T10:00:00 started the\n  long job\n- 2026-09-01T11:00:00 done"

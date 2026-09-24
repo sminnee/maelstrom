@@ -9,7 +9,7 @@ Both are one step. A sync is one git algorithm, whole — see
 ``docs/dev/worktree-steps.md``. A restart is two, because it is stop then start
 rather than a third code path.
 
-They live here rather than as closures in ``orchestrator_cli.py`` so they can
+They live here rather than as closures in ``mael_orchestrator.cli`` so they can
 be driven directly: the mode dispatch and the restart ordering are decisions,
 and a decision no test can reach is a decision nothing holds.
 """

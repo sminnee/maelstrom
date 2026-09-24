@@ -1,6 +1,6 @@
 """``TranscriptLog``: one agent's transcript, its seq, and the ring behind a resume."""
 
-from maelstrom.orchestrator.transcript_log import TranscriptLog
+from mael_orchestrator.transcript_log import TranscriptLog
 
 
 def append(item_id: str, **fields) -> dict:

@@ -268,7 +268,7 @@ class WorktreeSource(Protocol):
     either.
 
     ``active_branches`` names the branches worth a pull request lookup; see
-    :func:`maelstrom.orchestrator.desk.active_branches`. ``None`` asks about
+    :func:`mael_orchestrator.desk.active_branches`. ``None`` asks about
     all of them.
     """
 
@@ -425,7 +425,7 @@ class NotebookTaskSource:
     async def update(self, task_id: str, fields: dict[str, Any]) -> None:
         """Write a task's fields.
 
-        Only the keys in :data:`~maelstrom.orchestrator.validate.EDITABLE` are
+        Only the keys in :data:`~mael_orchestrator.validate.EDITABLE` are
         written, so a client cannot reach a field the wire does not offer.
         """
         project, notebook_id = split_task_key(task_id)
@@ -459,7 +459,7 @@ class NotebookTaskSource:
     ) -> str:
         """Write a new task and return its wire id.
 
-        Only the keys in :data:`~maelstrom.orchestrator.validate.CREATABLE` are
+        Only the keys in :data:`~mael_orchestrator.validate.CREATABLE` are
         taken from ``fields``, which is ``EDITABLE`` without ``follows``: a new
         task is wired after it exists, never by the create body. ``branch`` is
         one of them, so an explicit branch skips ``model.create``'s own

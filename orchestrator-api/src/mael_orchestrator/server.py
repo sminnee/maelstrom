@@ -1,10 +1,10 @@
 """The orchestrator server: the world, its sources, and the clients watching it.
 
 The service layer, and the only asyncio orchestration in the package. It owns
-the :class:`~maelstrom.orchestrator.world.WorldState`, polls the task and
+the :class:`~mael_orchestrator.world.WorldState`, polls the task and
 worktree sources, keeps one attach stream per agent against the agent host,
 answers commands, and tells the notice and transcript hubs what changed.
-:mod:`~maelstrom.orchestrator.routes` puts it on the network; what the routes
+:mod:`~mael_orchestrator.routes` puts it on the network; what the routes
 serve is documented in ``docs/dev/orchestrator-server.md``.
 """
 
@@ -221,7 +221,7 @@ class Orchestrator:
         self.executor = executor
         #: Kept for a worktree operation that is not a sequence. The five that
         #: are take the pool directly, because it is each blocking step that
-        #: needs a thread — see ``orchestrator_cli.build_orchestrator``.
+        #: needs a thread — see ``cli.build_orchestrator``.
         self.worktree_executor = worktree_executor or executor
         self.state = WorldState()
         #: Every file an agent named, by the id that stands for it.
@@ -495,7 +495,7 @@ class Orchestrator:
         The pool it runs on is handed to the sequence when the operation is
         built, not applied here, because it is each blocking *step* that needs
         a thread. The operation itself is a coroutine that awaits them. See
-        :mod:`mael_domain.worktree_steps` and ``orchestrator_cli``.
+        :mod:`mael_domain.worktree_steps` and ``mael_orchestrator.cli``.
         """
         return await self._run_on(self.worktree_executor, fn, *args)
 

@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from maelstrom import __version__
+from mael_orchestrator import __version__
 
 MINIMUM_CODEX_VERSION = (0, 154, 0)
 MINIMUM_CODEX_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_CODEX_VERSION)

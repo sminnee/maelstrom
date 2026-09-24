@@ -2,7 +2,7 @@
 
 The codes mirror the agent host's own refusals, so a command is refused the
 same way whether the server or the fake backend answers it, and before the
-host is touched. ``web/src/test/fakeServer.ts`` refuses the same commands for
+host is touched. ``orchestrator-ui/src/test/fakeServer.ts`` refuses the same commands for
 the web tests, so a rule added here belongs there too.
 """
 

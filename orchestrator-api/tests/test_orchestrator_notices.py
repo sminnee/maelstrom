@@ -1,6 +1,6 @@
 """``notices_for``: which change notices a batch of server events amounts to."""
 
-from maelstrom.orchestrator.notices import merge_notices, notices_for
+from mael_orchestrator.notices import merge_notices, notices_for
 
 
 def upsert(kind: str, entity_id: str, **fields) -> dict:

@@ -20,7 +20,7 @@ services:
   # firewall, as `web/vite.config.ts` says of its own bind.
   orchestrator:
     ports: [ORCHESTRATOR]
-    command: uv run mael orchestrator serve --host 0.0.0.0 --port ${ORCHESTRATOR_PORT}
+    command: uv run mael-orchestrator serve --host 0.0.0.0 --port ${ORCHESTRATOR_PORT}
 
   # The agent daemon of this environment. Its root comes from MAEL_AGENT_ROOT
   # in the worktree's `.env`, substituted per worktree from the project root's

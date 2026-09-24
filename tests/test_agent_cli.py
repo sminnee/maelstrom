@@ -14,7 +14,11 @@ from click.testing import CliRunner
 
 from mael_agent import agent_transport
 from mael_agent.agent_stop import stop_agents_in_worktree
-from mael_agent.agent_transport import RecordingDaemonClient, SocketAsyncDaemonClient
+from mael_agent.agent_transport import (
+    RecordingDaemonClient,
+    ScriptedAsyncDaemonClient,
+    SocketAsyncDaemonClient,
+)
 from mael_agent.agent_wire import AGENT_EXITED
 from mael_daemon.agent_model import (
     apply_event,
@@ -835,8 +839,6 @@ class TestTailRaw:
 
     def run_tail(self, monkeypatch, argv, backlog, agent_id="a1"):
         """Drive `tail` over the scripted async client, and return its output."""
-        from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
-
         client = ScriptedAsyncDaemonClient(
             rows={agent_id: build_agent_row(replay("normal-turn.jsonl"))},
             backlog={agent_id: list(backlog)},
@@ -882,8 +884,6 @@ class TestTailRaw:
 
     def test_the_exit_marker_does_not_break_the_json(self, monkeypatch):
         """The exit notice is prose, so a recording must not carry it."""
-        from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
-
         client = ScriptedAsyncDaemonClient(
             rows={"a1": build_agent_row(replay("normal-turn.jsonl"))},
             backlog={"a1": [{"type": "result", "subtype": "success"}]},

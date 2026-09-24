@@ -68,7 +68,7 @@ sevenDay  # unused variable (lib/domain/src/mael_domain/protocol.py:265)
 # that a constructor fills and only a caller reads back.
 is_dirty  # unused variable (lib/domain/src/mael_domain/worktree.py WorktreeStatus)
 head_ref  # unused variable (lib/domain/src/mael_domain/github_model.py PullRequest)
-truncatedBefore  # unused variable (src/maelstrom/orchestrator/transcript_log.py)
+truncatedBefore  # unused variable (orchestrator-api/src/mael_orchestrator/transcript_log.py)
 
 # sqlite3 reads this attribute off the connection to shape its rows.
 _.row_factory  # unused attribute (lib/domain/src/mael_domain/state_db/db.py)
