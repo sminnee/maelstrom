@@ -1654,6 +1654,17 @@ class AgentDaemon:
         # Before listening, so the first client to connect sees the restored
         # agents rather than an empty list it would read as "nothing running".
         await self.restore()
+        # `mael env stop` sends SIGTERM to the process group, and Python's
+        # default disposition would kill the daemon outright: the teardown
+        # below would not run, so the socket would stay and each record would
+        # land `running` or `exited` by a race. Both signals take the same path
+        # the `shutdown` command does. Before the bind: `start_unix_server`
+        # yields once the socket file exists, so a client that waits for the
+        # file can signal before a later handler is in place.
+        loop = asyncio.get_running_loop()
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with suppress(NotImplementedError):
+                loop.add_signal_handler(signum, self.stopping.set)
         server = await asyncio.start_unix_server(
             self._on_client, str(path), limit=STREAM_LIMIT
         )
@@ -1664,15 +1675,6 @@ class AgentDaemon:
         # `mkdir` from gone. The spawn records set their own modes likewise.
         os.chmod(path, 0o600)
         os.chmod(self.paths.root, 0o700)
-        # `mael env stop` sends SIGTERM to the process group, and Python's
-        # default disposition would kill the daemon outright: the teardown
-        # below would not run, so the socket would stay and each record would
-        # land `running` or `exited` by a race. Both signals take the same path
-        # the `shutdown` command does.
-        loop = asyncio.get_running_loop()
-        for signum in (signal.SIGTERM, signal.SIGINT):
-            with suppress(NotImplementedError):
-                loop.add_signal_handler(signum, self.stopping.set)
         # After the bind, never before. The old line printed on the way in, so
         # the log said "Listening" for a daemon that then lost the socket and
         # died. It names the tree too: the log is where you find out which code
