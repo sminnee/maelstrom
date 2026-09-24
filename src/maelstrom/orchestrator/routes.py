@@ -16,9 +16,10 @@ from typing import Any
 
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
-from ..agent_cost import build_cost_report, empty_cost_report
+from mael_domain.agent_cost import build_cost_report, empty_cost_report
+from mael_domain.protocol import HOST_ID, document_row, task_row
+
 from .hubs import Lagging
-from .protocol import HOST_ID, document_row, task_row
 from .server import Orchestrator
 
 log = logging.getLogger(__name__)
@@ -407,7 +408,7 @@ async def _upload_attachment(request: web.Request) -> web.Response:
     later reads from disk, while ``url`` points at this server and is the only
     one a browser can fetch.
     """
-    from ..attachments import markdown_ref, save_attachment
+    from mael_domain.attachments import markdown_ref, save_attachment
 
     try:
         reader = await request.multipart()
@@ -458,7 +459,7 @@ async def _upload_attachment(request: web.Request) -> web.Response:
 
 async def _serve_attachment(request: web.Request) -> web.StreamResponse:
     """Serve one stored attachment back, so the browser can show it."""
-    from ..attachments import resolve_attachment
+    from mael_domain.attachments import resolve_attachment
 
     try:
         found = resolve_attachment(

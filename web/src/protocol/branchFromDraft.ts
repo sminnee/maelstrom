@@ -6,7 +6,7 @@
  * notebook with a title and a branch rather than depending on the user typing
  * them.
  *
- * Both mirror the *deterministic* half of `src/maelstrom/branch_name.py` —
+ * Both mirror the *deterministic* half of `lib/domain/src/mael_domain/branch_name.py` —
  * `_first_line` and `slugify` — never the model's half. It is the same shape the
  * notebook itself falls back to when the `claude` CLI is missing.
  *

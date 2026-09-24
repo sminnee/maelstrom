@@ -23,18 +23,23 @@ from typing import Any, Protocol
 from mael_agent.agent_wire import build_start_payload
 from mael_agent.harness_model import resolve_execute_model
 from mael_common.claude_paths import has_claude_transcript
+from mael_domain import task as model
+from mael_domain import task_actions
+from mael_domain.branch_name import TaskNames, infer_task_names
+from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
+from mael_domain.list_all import build_list_all_data
+from mael_domain.protocol import Project, Task, Worktree
+from mael_domain.session_discovery import LiveSessionSet
+from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.task_launch import (
+    LaunchBlocked,
+    check_not_live,
+    check_synced,
+    plan_launch,
+)
+from mael_domain.task_table import TaskTable
+from mael_domain.worktree import WorktreeSetup
 
-from .. import task as model
-from .. import task_actions
-from ..branch_name import TaskNames, infer_task_names
-from ..github_model import PrStatus, RateLimited, pr_from_row
-from ..list_all import build_list_all_data
-from ..session_discovery import LiveSessionSet
-from ..shared_dir import agent_prompt_file
-from ..task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
-from ..task_table import TaskTable
-from ..worktree import WorktreeSetup
-from .protocol import Project, Task, Worktree
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
     project_entity,
@@ -125,7 +130,7 @@ class TaskReading:
     """What moved in the notebook since some revision, as the wire holds it.
 
     The wire-side counterpart of
-    :class:`~maelstrom.task_table.TaskChanges`: entities rather than model
+    :class:`~mael_domain.task_table.TaskChanges`: entities rather than model
     tasks, and wire ids rather than row ids.
 
     ``removed`` is carried in its own right because absence cannot be read as
@@ -301,7 +306,7 @@ class WorktreeSource(Protocol):
 
 
 class NotebookTaskSource:
-    """Tasks read from a :class:`~maelstrom.task_store.TaskStore` through the model.
+    """Tasks read from a :class:`~mael_domain.task_store.TaskStore` through the model.
 
     Works over an ``InMemoryStore`` in tests and a ``GitFileStore`` in
     production; only the injected collaborators differ. ``projects`` names the
@@ -564,7 +569,7 @@ class InMemoryWorktreeSource:
 
 
 class ListAllWorktreeSource:
-    """Projects and worktrees from :func:`maelstrom.list_all.build_list_all_data`.
+    """Projects and worktrees from :func:`mael_domain.list_all.build_list_all_data`.
 
     The operations are how the server mutates one. A source built without one
     serves the world read-only for it, and that operation is refused rather
@@ -583,7 +588,7 @@ class ListAllWorktreeSource:
         self.projects_dir = projects_dir
         #: The last pull request seen, by project and then by branch, answering
         #: the branches a read did not ask about; see
-        #: :func:`maelstrom.list_all.resolve_pr`. Keyed by project because
+        #: :func:`mael_domain.list_all.resolve_pr`. Keyed by project because
         #: branch names are not unique across them.
         self._pr_cache: dict[str, dict[str, PrStatus]] = {}
         #: Whether the last read had its pull request lookup refused for quota.

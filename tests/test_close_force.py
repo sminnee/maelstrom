@@ -6,8 +6,8 @@ in-progress sync rather than leaving a half-finished rebase. Nothing is discarde
 uncommitted changes are committed as ``wip: uncommitted changes`` first — and the
 branch + PR are always preserved so the work can be reopened later.
 
-Worktree-level tests reuse the real-git fixtures from ``tests/test_sync_flags.py``
-(``project_with_worktree`` and friends); CLI tests drive ``cmd_close`` through
+Worktree-level tests use the real-git ``project_with_worktree`` fixture from ``domain_fixtures``
+and helpers from ``tests/test_sync_flags.py``; CLI tests drive ``cmd_close`` through
 ``CliRunner`` with ``close_worktree`` + ``add_task`` mocked.
 """
 
@@ -17,24 +17,23 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+from git_helpers import create_commit, run_git
 
-from maelstrom.cli import cli
-from maelstrom.ports import get_port_allocation, record_port_allocation
-from maelstrom.worktree import (
+from mael_domain.ports import get_port_allocation, record_port_allocation
+from mael_domain.worktree import (
     CloseResult,
     close_worktree,
     setup_worktree_for_branch,
     sync_worktree,
 )
-from tests.git_helpers import create_commit, run_git
+from maelstrom.cli import cli
 
 # Reuse the real-git fixture + helpers from the sync-flags suite.
-from tests.test_sync_flags import (  # noqa: F401  (project_with_worktree is a fixture)
+from tests.test_sync_flags import (
     _current_head,
     _current_head_of_ref,
     _is_detached,
     _rebase_in_progress,
-    project_with_worktree,
 )
 
 
@@ -221,7 +220,7 @@ class TestCloseDiscard:
         sync_worktree(worktree_path)
         assert _rebase_in_progress(worktree_path)
 
-        with patch("maelstrom.worktree.sync_worktree") as sync:
+        with patch("mael_domain.worktree.sync_worktree") as sync:
             result = close_worktree(worktree_path, discard=True)
 
         sync.assert_not_called()
@@ -290,10 +289,12 @@ class TestCloseForceCli:
         env_store = MagicMock()
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
-            patch("maelstrom.worktree_close.close_worktree", return_value=close_result),
+            patch(
+                "mael_domain.worktree_close.close_worktree", return_value=close_result
+            ),
             patch("maelstrom.cli.make_store", return_value=env_store),
-            patch("maelstrom.worktree_close.get_env_status", return_value=[]),
-            patch("maelstrom.worktree_close.mael_layout") as mock_layout,
+            patch("mael_domain.worktree_close.get_env_status", return_value=[]),
+            patch("mael_domain.worktree_close.mael_layout") as mock_layout,
             patch("maelstrom.cli.add_task") as mock_add_task,
         ):
             mock_layout.close_workspace.return_value = False
@@ -353,11 +354,11 @@ class TestCloseForceCli:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.close_worktree", return_value=close_result
+                "mael_domain.worktree_close.close_worktree", return_value=close_result
             ) as mock_close,
             patch("maelstrom.cli.make_store", return_value=MagicMock()),
-            patch("maelstrom.worktree_close.get_env_status", return_value=[]),
-            patch("maelstrom.worktree_close.mael_layout") as mock_layout,
+            patch("mael_domain.worktree_close.get_env_status", return_value=[]),
+            patch("mael_domain.worktree_close.mael_layout") as mock_layout,
             patch("maelstrom.cli.add_task"),
         ):
             mock_layout.close_workspace.return_value = False

@@ -17,13 +17,29 @@ from pathlib import Path
 import click
 
 from mael_agent.agent_transport import SocketAsyncDaemonClient, daemon_paths
+from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
+from mael_domain.context import load_global_config
+from mael_domain.desk_store import SqliteDeskStore
+from mael_domain.notebook_root import NotebookRootUnset
+from mael_domain.state_db.db import StateDb
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
+from mael_domain.state_db.types import StateDbError
+from mael_domain.task_export import SqliteExportQueue, TaskExporter
+from mael_domain.task_launch import LaunchBlocked
+from mael_domain.task_store import GitFileStore
+from mael_domain.task_table import SqliteTaskTable
+from mael_domain.worktree import (
+    WorktreeSetup,
+    find_all_projects,
+    setup_worktree_for_branch,
+)
+from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
+from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
+from mael_domain.worktree_ops import run_env, run_sync
 from maelstrom.orchestrator.codex_bridge import CodexBridge
 from maelstrom.orchestrator.codex_daemon import CodexDaemonClient
 
-from .agent_store import SqliteAgentStore, SqliteMilestoneStore
-from .context import load_global_config
-from .desk_store import SqliteDeskStore
-from .notebook_root import NotebookRootUnset
 from .orchestrator.daemon_bridge import DaemonRouter
 from .orchestrator.routes import build_app, serve_app
 from .orchestrator.server import Orchestrator
@@ -32,25 +48,13 @@ from .orchestrator.sources import (
     ListAllWorktreeSource,
     NotebookTaskSource,
 )
-from .state_db.db import StateDb
-from .state_db.migrate import open_state_db
-from .state_db.paths import get_notebook_path, get_state_db_path
-from .state_db.types import StateDbError
-from .task_export import SqliteExportQueue, TaskExporter
-from .task_launch import LaunchBlocked
-from .task_store import GitFileStore
-from .task_table import SqliteTaskTable
-from .worktree import WorktreeSetup, find_all_projects, setup_worktree_for_branch
-from .worktree_close import close_worktree_fully, remove_worktree_fully
-from .worktree_model import WorktreeError, get_worktree_folder_name
-from .worktree_ops import run_env, run_sync
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 #: How many worktree operations may run at once. Sized so a fleet of worktrees
 #: overlaps rather than queues; the correctness rule is the steps' own scopes,
-#: held with a cross-process lock — see :mod:`maelstrom.worktree_steps`.
+#: held with a cross-process lock — see :mod:`mael_domain.worktree_steps`.
 WORKTREE_WORKERS = 4
 
 
@@ -293,7 +297,7 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
     # for overlap, not for correctness: what must not run at once is named by
     # the steps' own scopes and held with a cross-process lock, so reducing this
     # to one would only make a fleet of worktrees as slow as a queue.
-    # See maelstrom.worktree_steps.
+    # See mael_domain.worktree_steps.
     try:
         with (
             ThreadPoolExecutor(max_workers=1) as executor,

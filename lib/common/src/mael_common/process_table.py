@@ -3,7 +3,7 @@
 A leaf: it shells ``pgrep``, ``ps`` and ``lsof`` and knows nothing of worktrees
 or tasks. It is the one reader of the table. The agent daemon reads it to
 reconcile its records and to subtract live sessions from the stopped listing;
-:mod:`maelstrom.session_discovery` builds its worktree answers on top of it.
+:mod:`mael_domain.session_discovery` builds its worktree answers on top of it.
 """
 
 import re

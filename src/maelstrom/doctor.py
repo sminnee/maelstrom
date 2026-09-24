@@ -7,19 +7,15 @@ from pathlib import Path
 
 from mael_common.shell import run_cmd
 from mael_common.util import get_maelstrom_dir, harden_path
-
-from .context import (
-    GLOBAL_CONFIG_FILENAME,
-    GLOBAL_CONFIG_FILENAME_LEGACY,
+from mael_domain.context import GLOBAL_CONFIG_FILENAME, GLOBAL_CONFIG_FILENAME_LEGACY
+from mael_domain.github import run_states_argv
+from mael_domain.ports import (
+    ALLOCATIONS_FILENAME,
+    load_port_allocations,
+    remove_port_allocation,
 )
-from .github import run_states_argv
-from .ports import ALLOCATIONS_FILENAME, load_port_allocations, remove_port_allocation
-from .worktree import (
-    list_worktrees,
-    run_git,
-    update_local_main,
-)
-from .worktree_model import (
+from mael_domain.worktree import list_worktrees, run_git, update_local_main
+from mael_domain.worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
     MAIN_BRANCH,

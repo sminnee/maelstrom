@@ -1,16 +1,16 @@
 """Thin CLI for the development-pattern wiki: ``mael wiki ...``.
 
-Each command builds a :class:`~maelstrom.task_store.GitFileStore`, calls a single
-model function from :mod:`maelstrom.wiki`, and renders the result.
+Each command builds a :class:`~mael_domain.task_store.GitFileStore`, calls a single
+model function from :mod:`mael_domain.wiki`, and renders the result.
 """
 
 import click
 
 from mael_common.util import read_content_file
+from mael_domain import wiki as model
+from mael_domain.task_store import GitFileStore
 
-from . import wiki as model
 from .table_cli import draw_table
-from .task_store import GitFileStore
 
 
 def _store() -> GitFileStore:

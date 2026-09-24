@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { branchFromDraft, titleFromDraft } from './branchFromDraft';
 
 // Every expected value here came from running `_first_line` and `slugify` in
-// `src/maelstrom/branch_name.py`, not from reading them.
+// `lib/domain/src/mael_domain/branch_name.py`, not from reading them.
 describe('naming a task from its prose alone', () => {
   it('takes the title from the draft first line', () => {
     expect(titleFromDraft('The export drops a row\n\nIt happens on the last page.')).toBe(

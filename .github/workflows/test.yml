@@ -37,7 +37,7 @@ jobs:
             if ! echo "$changed" | grep -Eq '^(src/|tests/|lib/|agent-daemon/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
               code=false
             fi
-            if ! echo "$changed" | grep -Eq '^(web/|bin/|src/maelstrom/orchestrator/protocol\.py$|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(web/|bin/|lib/domain/src/mael_domain/(protocol|normalise)\.py$|lib/domain/fixtures/normalised/|\.github/workflows/test\.yml$)'; then
               web=false
             fi
           else

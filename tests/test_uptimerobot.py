@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.integrations.errors import IntegrationError
-from maelstrom.integrations.uptimerobot import (
+from mael_domain.integrations.errors import IntegrationError
+from mael_domain.integrations.uptimerobot import (
     api_request,
     format_duration,
     format_log_type,
@@ -62,10 +62,10 @@ class TestFormatDuration:
 
 class TestApiRequest:
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_api_key",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_api_key",
         return_value="u1-test",
     )
-    @patch("maelstrom.integrations._http.urllib.request.urlopen")
+    @patch("mael_domain.integrations._http.urllib.request.urlopen")
     def test_success_returns_payload(self, mock_urlopen, _mock_key):
         mock_urlopen.return_value.__enter__.return_value.read.return_value = (
             b'{"stat":"ok","monitors":[]}'
@@ -77,10 +77,10 @@ class TestApiRequest:
         mock_urlopen.assert_called_once()
 
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_api_key",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_api_key",
         return_value="u1-test",
     )
-    @patch("maelstrom.integrations._http.urllib.request.urlopen")
+    @patch("mael_domain.integrations._http.urllib.request.urlopen")
     def test_fail_raises_click_exception(self, mock_urlopen, _mock_key):
         mock_urlopen.return_value.__enter__.return_value.read.return_value = (
             b'{"stat":"fail","error":{"type":"invalid_parameter",'
@@ -93,10 +93,10 @@ class TestApiRequest:
 
 class TestStatusCommand:
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=["111", "222"],
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_status_uses_configured_monitors(self, mock_api, _mock_monitors):
         mock_api.return_value = {
             "stat": "ok",
@@ -140,10 +140,10 @@ class TestStatusCommand:
 
     @patch("maelstrom.integrations.uptimerobot_cli.format_relative_time")
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=["111"],
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_status_prefers_log_timestamp_over_last_event_datetime(
         self, mock_api, _mock_monitors, mock_relative
     ):
@@ -176,10 +176,10 @@ class TestStatusCommand:
         assert "2023" not in passed_iso  # stale_last_event would be 2023
 
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=[111, 222],
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_status_accepts_int_monitor_ids(self, mock_api, _mock_monitors):
         mock_api.return_value = {
             "stat": "ok",
@@ -201,9 +201,10 @@ class TestStatusCommand:
         assert sent_body["monitors"] == "111-222"
 
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors", return_value=None
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
+        return_value=None,
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_status_falls_back_to_all_account(self, mock_api, _mock_monitors):
         mock_api.return_value = {
             "stat": "ok",
@@ -227,9 +228,10 @@ class TestStatusCommand:
         assert "monitors" not in sent_body
 
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors", return_value=None
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
+        return_value=None,
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_status_handles_api_fail(self, mock_api, _mock_monitors):
         mock_api.side_effect = IntegrationError("UptimeRobot API error: bad key")
 
@@ -245,10 +247,10 @@ class TestOutagesCommand:
         "maelstrom.integrations.uptimerobot_cli.time.time", return_value=2_000_000_000
     )
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors",
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
         return_value=["111"],
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_outages_filters_to_down_within_window(
         self, mock_api, _mock_monitors, _mock_time
     ):
@@ -295,9 +297,10 @@ class TestOutagesCommand:
         assert "ancient" not in result.output
 
     @patch(
-        "maelstrom.integrations.uptimerobot.get_uptimerobot_monitors", return_value=None
+        "mael_domain.integrations.uptimerobot.get_uptimerobot_monitors",
+        return_value=None,
     )
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_outages_empty_window(self, mock_api, _mock_monitors):
         mock_api.return_value = {
             "stat": "ok",
@@ -320,7 +323,7 @@ class TestOutagesCommand:
 
 
 class TestMonitorsCommand:
-    @patch("maelstrom.integrations.uptimerobot.api_request")
+    @patch("mael_domain.integrations.uptimerobot.api_request")
     def test_monitors_lists_all(self, mock_api):
         mock_api.return_value = {
             "stat": "ok",

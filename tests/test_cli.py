@@ -13,16 +13,16 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.cli import cli, pr_display
-from maelstrom.github_model import PrState, PrStatus, PullRequestNotMergeable
-from maelstrom.list_all import resolve_pr
-from maelstrom.project_scaffold import scaffold_files
-from maelstrom.worktree import SyncResult, WorktreeInfo, WorktreeSetup
-from maelstrom.worktree_model import (
+from mael_domain.github_model import PrState, PrStatus, PullRequestNotMergeable
+from mael_domain.list_all import resolve_pr
+from mael_domain.project_scaffold import scaffold_files
+from mael_domain.worktree import SyncResult, WorktreeInfo, WorktreeSetup
+from mael_domain.worktree_model import (
     CopyBackResult,
     UnclosableWorktreeError,
     WorktreeNamesExhaustedError,
 )
+from maelstrom.cli import cli, pr_display
 
 
 async def _async_none(*args, **kwargs):
@@ -60,7 +60,7 @@ class TestNonProductionWarning:
         monkeypatch.delenv("MAEL_PRODUCTION")
         with (
             patch("maelstrom.cli.load_global_config") as config,
-            patch("maelstrom.list_all.find_all_projects", return_value=[]),
+            patch("mael_domain.list_all.find_all_projects", return_value=[]),
         ):
             config.return_value = MagicMock(projects_dir=Path("/tmp/projects"))
             result = CliRunner().invoke(cli, ["--json", "list-all"])
@@ -142,27 +142,27 @@ class TestResolvePr:
 
     def test_a_hit_in_the_batch_needs_no_further_call(self):
         batch = {"feat/x": _pr(42, commits=5)}
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr(batch, Path("/p"), "feat/x")) == _pr(
                 42, commits=5
             )
         per_branch.assert_not_called()
 
     def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
             assert (
                 asyncio.run(resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x")) is None
             )
         per_branch.assert_not_called()
 
     def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr({}, Path("/p"), "feat/x")) is None
         per_branch.assert_not_called()
 
     def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
         with patch(
-            "maelstrom.list_all.get_pr_for_branch",
+            "mael_domain.list_all.get_pr_for_branch",
             return_value=_pr(7, commits=3),
         ) as per_branch:
             assert asyncio.run(resolve_pr(None, Path("/p"), "feat/x")) == _pr(
@@ -172,7 +172,7 @@ class TestResolvePr:
 
     def test_a_detached_worktree_is_never_looked_up(self):
         """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("maelstrom.list_all.get_pr_for_branch") as per_branch:
+        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
             assert asyncio.run(resolve_pr(None, Path("/p"), None)) is None
         per_branch.assert_not_called()
 
@@ -202,25 +202,29 @@ class TestResolvePr:
             )
             with (
                 patch(
-                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                    "mael_domain.list_all.find_all_projects",
+                    return_value=[project_path],
                 ),
                 patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
-                ),
-                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
-                patch(
-                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
                 ),
                 patch(
-                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
+                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
                 ),
                 patch(
-                    "maelstrom.list_all.get_open_prs",
+                    "mael_domain.list_all.get_worktree_dirty_files_async",
+                    return_value=[],
+                ),
+                patch(
+                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch(
+                    "mael_domain.list_all.get_open_prs",
                     return_value={"feat/test": _pr(99, commits=7)},
                 ),
-                patch("maelstrom.list_all.get_pr_for_branch", side_effect=boom),
+                patch("mael_domain.list_all.get_pr_for_branch", side_effect=boom),
                 patch(
-                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    "mael_domain.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
                 ),
             ):
@@ -252,21 +256,25 @@ class TestResolvePr:
             )
             with (
                 patch(
-                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                    "mael_domain.list_all.find_all_projects",
+                    return_value=[project_path],
                 ),
                 patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=[detached]
-                ),
-                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
-                patch(
-                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                    "mael_domain.list_all.list_worktrees_async", return_value=[detached]
                 ),
                 patch(
-                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
+                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
                 ),
-                patch("maelstrom.list_all.get_open_prs") as batch,
                 patch(
-                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    "mael_domain.list_all.get_worktree_dirty_files_async",
+                    return_value=[],
+                ),
+                patch(
+                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch("mael_domain.list_all.get_open_prs") as batch,
+                patch(
+                    "mael_domain.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
                 ),
             ):
@@ -295,24 +303,28 @@ class TestResolvePr:
             )
             with (
                 patch(
-                    "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                    "mael_domain.list_all.find_all_projects",
+                    return_value=[project_path],
                 ),
                 patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=worktrees
-                ),
-                patch("maelstrom.list_all.closed_worktrees_async", return_value=set()),
-                patch(
-                    "maelstrom.list_all.get_worktree_dirty_files_async", return_value=[]
+                    "mael_domain.list_all.list_worktrees_async", return_value=worktrees
                 ),
                 patch(
-                    "maelstrom.list_all.get_local_only_commits_async", return_value=0
-                ),
-                patch("maelstrom.list_all.get_open_prs", return_value={}) as batch,
-                patch(
-                    "maelstrom.list_all.get_pushed_commit_count_async", return_value=0
+                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
                 ),
                 patch(
-                    "maelstrom.session_discovery.LiveSessionSet.count_for",
+                    "mael_domain.list_all.get_worktree_dirty_files_async",
+                    return_value=[],
+                ),
+                patch(
+                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
+                ),
+                patch("mael_domain.list_all.get_open_prs", return_value={}) as batch,
+                patch(
+                    "mael_domain.list_all.get_pushed_commit_count_async", return_value=0
+                ),
+                patch(
+                    "mael_domain.session_discovery.LiveSessionSet.count_for",
                     return_value=0,
                 ),
             ):
@@ -347,7 +359,7 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.list_all.find_all_projects", return_value=[]):
+            with patch("mael_domain.list_all.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["--json", "list-all"])
                 assert result.exit_code == 0
                 data = json.loads(result.output)
@@ -372,28 +384,29 @@ class TestListAllJson:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with patch(
-                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                "mael_domain.list_all.find_all_projects", return_value=[project_path]
             ):
                 with patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
                 ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees_async", return_value=set()
+                        "mael_domain.list_all.closed_worktrees_async",
+                        return_value=set(),
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files_async",
+                            "mael_domain.list_all.get_worktree_dirty_files_async",
                             return_value=["file.txt"],
                         ):
                             with patch(
-                                "maelstrom.list_all.get_local_only_commits_async",
+                                "mael_domain.list_all.get_local_only_commits_async",
                                 return_value=2,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch",
+                                    "mael_domain.list_all.get_pr_for_branch",
                                     return_value=_pr(42, commits=5),
                                 ):
                                     with patch(
-                                        "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                        "mael_domain.session_discovery.LiveSessionSet.count_for",
                                         return_value=1,
                                     ):
                                         result = runner.invoke(
@@ -439,32 +452,33 @@ class TestListAllJson:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with patch(
-                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                "mael_domain.list_all.find_all_projects", return_value=[project_path]
             ):
                 with patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
                 ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees_async", return_value=set()
+                        "mael_domain.list_all.closed_worktrees_async",
+                        return_value=set(),
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files_async",
+                            "mael_domain.list_all.get_worktree_dirty_files_async",
                             return_value=[],
                         ):
                             with patch(
-                                "maelstrom.list_all.get_local_only_commits_async",
+                                "mael_domain.list_all.get_local_only_commits_async",
                                 return_value=0,
                             ):
                                 with patch(
-                                    "maelstrom.list_all.get_pr_for_branch",
+                                    "mael_domain.list_all.get_pr_for_branch",
                                     return_value=None,
                                 ):
                                     with patch(
-                                        "maelstrom.list_all.get_pushed_commit_count_async",
+                                        "mael_domain.list_all.get_pushed_commit_count_async",
                                         return_value=0,
                                     ):
                                         with patch(
-                                            "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                            "mael_domain.session_discovery.LiveSessionSet.count_for",
                                             return_value=3,
                                         ):
                                             result = runner.invoke(
@@ -493,21 +507,21 @@ class TestListAllJson:
                 projects_dir=Path("/tmp/claude/projects")
             )
             with patch(
-                "maelstrom.list_all.find_all_projects", return_value=[project_path]
+                "mael_domain.list_all.find_all_projects", return_value=[project_path]
             ):
                 with patch(
-                    "maelstrom.list_all.list_worktrees_async", return_value=[mock_wt]
+                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
                 ):
                     with patch(
-                        "maelstrom.list_all.closed_worktrees_async",
+                        "mael_domain.list_all.closed_worktrees_async",
                         return_value={wt_path},
                     ):
                         with patch(
-                            "maelstrom.list_all.get_worktree_dirty_files_async",
+                            "mael_domain.list_all.get_worktree_dirty_files_async",
                             return_value=[],
                         ):
                             with patch(
-                                "maelstrom.session_discovery.LiveSessionSet.count_for",
+                                "mael_domain.session_discovery.LiveSessionSet.count_for",
                                 return_value=0,
                             ):
                                 result = runner.invoke(cli, ["--json", "list-all"])
@@ -528,7 +542,7 @@ class TestListAllJson:
             mock_config.return_value = MagicMock(
                 projects_dir=Path("/tmp/claude/projects")
             )
-            with patch("maelstrom.list_all.find_all_projects", return_value=[]):
+            with patch("mael_domain.list_all.find_all_projects", return_value=[]):
                 result = runner.invoke(cli, ["list-all"])
                 assert result.exit_code == 0
                 assert "No projects found." in result.output
@@ -545,10 +559,10 @@ class TestRemoveMultiTarget:
         with patch("maelstrom.cli.resolve_context") as mock_resolve:
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
                 with patch(
-                    "maelstrom.worktree_close.remove_worktree_by_path"
+                    "mael_domain.worktree_close.remove_worktree_by_path"
                 ) as mock_remove:
                     with patch(
-                        "maelstrom.worktree_close.get_env_status", return_value=None
+                        "mael_domain.worktree_close.get_env_status", return_value=None
                     ):
                         # Mock resolve_context for two different worktrees
                         def make_ctx(worktree_name):
@@ -597,10 +611,12 @@ class TestRemoveMultiTarget:
 
             with (
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
-                patch("maelstrom.worktree_close.stop_agents_in_worktree", stop_agents),
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
                 patch(
-                    "maelstrom.worktree_close.remove_worktree_by_path",
+                    "mael_domain.worktree_close.stop_agents_in_worktree", stop_agents
+                ),
+                patch(
+                    "mael_domain.worktree_close.remove_worktree_by_path",
                     side_effect=lambda *a: order.append("remove"),
                 ),
                 patch.object(Path, "exists", return_value=True),
@@ -630,9 +646,9 @@ class TestRemoveMultiTarget:
             ]
 
             with patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]):
-                with patch("maelstrom.worktree_close.remove_worktree_by_path"):
+                with patch("mael_domain.worktree_close.remove_worktree_by_path"):
                     with patch(
-                        "maelstrom.worktree_close.get_env_status", return_value=None
+                        "mael_domain.worktree_close.get_env_status", return_value=None
                     ):
                         with patch.object(Path, "exists", return_value=True):
                             result = runner.invoke(cli, ["rm", "bad", "bravo"])
@@ -657,13 +673,13 @@ class TestRemoveMultiTarget:
             alive_service = MagicMock(alive=True)
             with (
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.worktree_close.remove_worktree_by_path"),
+                patch("mael_domain.worktree_close.remove_worktree_by_path"),
                 patch(
-                    "maelstrom.worktree_close.get_env_status",
+                    "mael_domain.worktree_close.get_env_status",
                     return_value=[alive_service],
                 ),
                 patch(
-                    "maelstrom.worktree_close.stop_env", return_value=["web: stopped"]
+                    "mael_domain.worktree_close.stop_env", return_value=["web: stopped"]
                 ) as mock_stop,
                 patch.object(Path, "exists", return_value=True),
             ):
@@ -687,9 +703,9 @@ class TestRemoveMultiTarget:
 
             with (
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[]),
-                patch("maelstrom.worktree_close.remove_worktree_by_path"),
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
-                patch("maelstrom.worktree_close.stop_env") as mock_stop,
+                patch("mael_domain.worktree_close.remove_worktree_by_path"),
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
+                patch("mael_domain.worktree_close.stop_env") as mock_stop,
                 patch.object(Path, "exists", return_value=True),
             ):
                 runner.invoke(cli, ["rm", "myproject.alpha"])
@@ -714,11 +730,11 @@ class TestCloseMultiTarget:
 
             with (
                 patch(
-                    "maelstrom.worktree_close.copy_back_new_env_vars",
+                    "mael_domain.worktree_close.copy_back_new_env_vars",
                     return_value=CopyBackResult(),
                 ),
-                patch("maelstrom.worktree_close.close_worktree") as mock_close,
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("mael_domain.worktree_close.close_worktree") as mock_close,
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 runner.invoke(cli, ["close"])
@@ -748,11 +764,11 @@ class TestCloseMultiTarget:
 
             with (
                 patch(
-                    "maelstrom.worktree_close.copy_back_new_env_vars",
+                    "mael_domain.worktree_close.copy_back_new_env_vars",
                     return_value=CopyBackResult(),
                 ),
-                patch("maelstrom.worktree_close.close_worktree") as mock_close,
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("mael_domain.worktree_close.close_worktree") as mock_close,
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "alpha", "bravo"])
@@ -784,8 +800,8 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             with (
-                patch("maelstrom.worktree_close.close_worktree") as mock_close,
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("mael_domain.worktree_close.close_worktree") as mock_close,
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -820,8 +836,8 @@ class TestCloseMultiTarget:
             mock_resolve.return_value = mock_ctx
 
             with (
-                patch("maelstrom.worktree_close.close_worktree") as mock_close,
-                patch("maelstrom.worktree_close.get_env_status", return_value=None),
+                patch("mael_domain.worktree_close.close_worktree") as mock_close,
+                patch("mael_domain.worktree_close.get_env_status", return_value=None),
             ):
                 mock_close.return_value = MagicMock(success=True, message="Closed")
                 result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -857,12 +873,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.copy_back_new_env_vars",
+                "mael_domain.worktree_close.copy_back_new_env_vars",
                 return_value=CopyBackResult(),
             ),
-            patch("maelstrom.worktree_close.get_env_status", return_value=None),
+            patch("mael_domain.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.worktree_close.close_worktree") as mock_close,
+            patch("mael_domain.worktree_close.close_worktree") as mock_close,
         ):
             mock_wait.return_value = MagicMock(number=42)
             mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -880,12 +896,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.copy_back_new_env_vars",
+                "mael_domain.worktree_close.copy_back_new_env_vars",
                 return_value=CopyBackResult(),
             ),
-            patch("maelstrom.worktree_close.get_env_status", return_value=None),
+            patch("mael_domain.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.worktree_close.close_worktree") as mock_close,
+            patch("mael_domain.worktree_close.close_worktree") as mock_close,
         ):
             mock_wait.return_value = MagicMock(number=1)
             mock_close.return_value = MagicMock(success=True, message="Closed")
@@ -913,15 +929,15 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.copy_back_new_env_vars",
+                "mael_domain.worktree_close.copy_back_new_env_vars",
                 return_value=CopyBackResult(),
             ),
-            patch("maelstrom.worktree_close.get_env_status", return_value=None),
+            patch("mael_domain.worktree_close.get_env_status", return_value=None),
             patch(
                 "maelstrom.cli.wait_for_merge",
                 side_effect=PullRequestNotMergeable("PR #7 was closed without merging"),
             ),
-            patch("maelstrom.worktree_close.close_worktree") as mock_close,
+            patch("mael_domain.worktree_close.close_worktree") as mock_close,
         ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
@@ -936,15 +952,15 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.copy_back_new_env_vars",
+                "mael_domain.worktree_close.copy_back_new_env_vars",
                 return_value=CopyBackResult(),
             ),
-            patch("maelstrom.worktree_close.get_env_status", return_value=None),
+            patch("mael_domain.worktree_close.get_env_status", return_value=None),
             patch(
                 "maelstrom.cli.wait_for_merge",
                 side_effect=TimeoutError("Timed out after 3600s"),
             ),
-            patch("maelstrom.worktree_close.close_worktree") as mock_close,
+            patch("mael_domain.worktree_close.close_worktree") as mock_close,
         ):
             result = runner.invoke(cli, ["close", "myproject.alpha", "--wait"])
 
@@ -959,12 +975,12 @@ class TestCloseWait:
         with (
             patch("maelstrom.cli.resolve_context", return_value=self._ctx()),
             patch(
-                "maelstrom.worktree_close.copy_back_new_env_vars",
+                "mael_domain.worktree_close.copy_back_new_env_vars",
                 return_value=CopyBackResult(),
             ),
-            patch("maelstrom.worktree_close.get_env_status", return_value=None),
+            patch("mael_domain.worktree_close.get_env_status", return_value=None),
             patch("maelstrom.cli.wait_for_merge") as mock_wait,
-            patch("maelstrom.worktree_close.close_worktree") as mock_close,
+            patch("mael_domain.worktree_close.close_worktree") as mock_close,
         ):
             mock_close.return_value = MagicMock(success=True, message="Closed")
             result = runner.invoke(cli, ["close", "myproject.alpha"])
@@ -1064,40 +1080,40 @@ class TestCmdAddRecycle:
         # The recycle collaborators now run inside worktree.setup_worktree_for_branch.
         stack.enter_context(
             patch(
-                "maelstrom.worktree.find_worktree_by_branch",
+                "mael_domain.worktree.find_worktree_by_branch",
                 return_value=None,
             )
         )
         stack.enter_context(
-            patch("maelstrom.worktree.find_closed_worktree", return_value=closed_wt)
+            patch("mael_domain.worktree.find_closed_worktree", return_value=closed_wt)
         )
         stack.enter_context(
-            patch("maelstrom.worktree.recycle_worktree", return_value=worktree_path)
+            patch("mael_domain.worktree.recycle_worktree", return_value=worktree_path)
         )
         stack.enter_context(
             patch(
-                "maelstrom.worktree.extract_worktree_name_from_folder",
+                "mael_domain.worktree.extract_worktree_name_from_folder",
                 return_value="bravo",
             )
         )
-        stack.enter_context(patch("maelstrom.worktree.reclaim_or_allocate_ports"))
-        stack.enter_context(patch("maelstrom.worktree.setup_claude_memory_symlink"))
+        stack.enter_context(patch("mael_domain.worktree.reclaim_or_allocate_ports"))
+        stack.enter_context(patch("mael_domain.worktree.setup_claude_memory_symlink"))
         stack.enter_context(
-            patch("maelstrom.worktree.update_claude_local_md", return_value=False)
+            patch("mael_domain.worktree.update_claude_local_md", return_value=False)
         )
-        stack.enter_context(patch("maelstrom.worktree.run_install_cmd"))
+        stack.enter_context(patch("mael_domain.worktree.run_install_cmd"))
         # An opened worktree is rebased before finalize; these mocks have no real
         # git. A reused worktree takes the no-push variant, a new one the pushing
         # variant, so both are stubbed.
         stack.enter_context(
             patch(
-                "maelstrom.worktree.sync_worktree_with_autorepair",
+                "mael_domain.worktree.sync_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
         stack.enter_context(
             patch(
-                "maelstrom.worktree.rebase_worktree_with_autorepair",
+                "mael_domain.worktree.rebase_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
@@ -1206,13 +1222,13 @@ class TestCmdAddExistingBranch:
         # from the worktree namespace.
         stack.enter_context(
             patch(
-                "maelstrom.worktree.find_worktree_by_branch",
+                "mael_domain.worktree.find_worktree_by_branch",
                 return_value=worktree_path if existing else None,
             )
         )
         stack.enter_context(
             patch(
-                "maelstrom.worktree.extract_worktree_name_from_folder",
+                "mael_domain.worktree.extract_worktree_name_from_folder",
                 return_value="bravo",
             )
         )
@@ -1221,32 +1237,34 @@ class TestCmdAddExistingBranch:
         # variant, so both are stubbed.
         stack.enter_context(
             patch(
-                "maelstrom.worktree.sync_worktree_with_autorepair",
+                "mael_domain.worktree.sync_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
         stack.enter_context(
             patch(
-                "maelstrom.worktree.rebase_worktree_with_autorepair",
+                "mael_domain.worktree.rebase_worktree_with_autorepair",
                 return_value=_sync_result(),
             )
         )
 
         mocks = {
             "create_worktree": stack.enter_context(
-                patch("maelstrom.worktree.create_worktree", return_value=worktree_path)
+                patch(
+                    "mael_domain.worktree.create_worktree", return_value=worktree_path
+                )
             ),
             "run_install_cmd": stack.enter_context(
-                patch("maelstrom.worktree.run_install_cmd")
+                patch("mael_domain.worktree.run_install_cmd")
             ),
             "launch_add_in_worktree": stack.enter_context(
                 patch("maelstrom.cli.launch_add_in_worktree")
             ),
             "find_closed_worktree": stack.enter_context(
-                patch("maelstrom.worktree.find_closed_worktree", return_value=None)
+                patch("mael_domain.worktree.find_closed_worktree", return_value=None)
             ),
             "update_claude_local_md": stack.enter_context(
-                patch("maelstrom.worktree.update_claude_local_md", return_value=False)
+                patch("mael_domain.worktree.update_claude_local_md", return_value=False)
             ),
         }
         return worktree_path, mocks
@@ -1498,7 +1516,7 @@ class TestCmdSyncAutorepair:
                 )
             )
             stack.enter_context(patch("maelstrom.cli.run_git"))
-            stack.enter_context(patch("maelstrom.worktree.update_local_main"))
+            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
             plain = stack.enter_context(patch("maelstrom.cli.sync_worktree"))
             repair = stack.enter_context(
                 patch(
@@ -1532,7 +1550,7 @@ class TestCmdSyncAutorepair:
                 )
             )
             stack.enter_context(patch("maelstrom.cli.run_git"))
-            stack.enter_context(patch("maelstrom.worktree.update_local_main"))
+            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
             plain = stack.enter_context(
                 patch(
                     "maelstrom.cli.sync_worktree",
@@ -1569,7 +1587,7 @@ class TestCmdSyncAutorepair:
             # test_sync_flags, and this asserts only that the line gets out.
             stack.enter_context(
                 patch(
-                    "maelstrom.worktree.sync_worktree",
+                    "mael_domain.worktree.sync_worktree",
                     return_value=_failed_sync(
                         "Rebase hit conflicts", had_conflicts=True
                     ),
@@ -1577,17 +1595,17 @@ class TestCmdSyncAutorepair:
             )
             stack.enter_context(
                 patch(
-                    "maelstrom.worktree.rebase_in_progress",
+                    "mael_domain.worktree.rebase_in_progress",
                     return_value=True,
                 )
             )
             stack.enter_context(
                 patch(
-                    "maelstrom.worktree.run_resolve_rebase_session",
+                    "mael_domain.worktree.run_resolve_rebase_session",
                     side_effect=OSError("claude: not found"),
                 )
             )
-            stack.enter_context(patch("maelstrom.worktree._abort_rebase"))
+            stack.enter_context(patch("mael_domain.worktree._abort_rebase"))
             result = CliRunner().invoke(cli, ["sync", "--autorepair"])
 
         assert "Starting autorepair" in result.output
@@ -1774,7 +1792,7 @@ class TestCreateProjectIntegration:
         config = MagicMock(projects_dir=projects, open_command="code")
         with (
             patch("maelstrom.cli.load_global_config", return_value=config),
-            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("mael_domain.context.load_global_config", return_value=config),
             patch("maelstrom.cli.create_project_repo", return_value=str(upstream)),
             patch("maelstrom.cli.detect_add_context", return_value="regular"),
             patch("maelstrom.cli.launch_add_in_worktree", side_effect=fake_launch),
@@ -1953,7 +1971,7 @@ class TestMvProjectIntegration:
         # install, and an unmigrated database is its own (tested) refusal.
         import asyncio
 
-        from maelstrom.state_db.migrate import open_state_db
+        from mael_domain.state_db.migrate import open_state_db
 
         db = open_state_db(mael_dir / "state.db")
         try:
@@ -1963,10 +1981,10 @@ class TestMvProjectIntegration:
 
         with (
             patch("maelstrom.mv_project_cli.load_global_config", return_value=config),
-            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("mael_domain.context.load_global_config", return_value=config),
             patch("maelstrom.cli.load_global_config", return_value=config),
-            patch("maelstrom.context.get_maelstrom_dir", return_value=mael_dir),
-            patch("maelstrom.ports.get_maelstrom_dir", return_value=mael_dir),
+            patch("mael_domain.context.get_maelstrom_dir", return_value=mael_dir),
+            patch("mael_domain.ports.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             # The task table lives in the state database, and the store's own
             # root resolves beside it. Both hang off the notebook root, so one
@@ -2035,9 +2053,9 @@ class TestMvProjectIntegration:
         """The row re-keys to the new project, and nothing is left under the old."""
         import asyncio
 
-        from maelstrom.state_db.migrate import open_state_db
-        from maelstrom.task import Task
-        from maelstrom.task_table import SqliteTaskTable
+        from mael_domain.state_db.migrate import open_state_db
+        from mael_domain.task import Task
+        from mael_domain.task_table import SqliteTaskTable
 
         projects, _ = self._build(tmp_path)
         home = tmp_path / "home"
@@ -2105,12 +2123,13 @@ class TestMvProjectIntegration:
         config = MagicMock(projects_dir=projects, open_command="code")
         with (
             patch(
-                "maelstrom.context.get_maelstrom_dir", return_value=home / ".maelstrom"
+                "mael_domain.context.get_maelstrom_dir",
+                return_value=home / ".maelstrom",
             ),
             patch(
-                "maelstrom.ports.get_maelstrom_dir", return_value=home / ".maelstrom"
+                "mael_domain.ports.get_maelstrom_dir", return_value=home / ".maelstrom"
             ),
-            patch("maelstrom.context.load_global_config", return_value=config),
+            patch("mael_domain.context.load_global_config", return_value=config),
             patch("pathlib.Path.home", return_value=home),
         ):
             doctor_result = run_doctor(projects / "new")
@@ -2282,11 +2301,11 @@ class TestWorktreeDomainErrorsAtTheCli:
                 patch("maelstrom.cli.get_worktree_dirty_files", return_value=[])
             )
             stack.enter_context(
-                patch("maelstrom.worktree_close.get_env_status", return_value=None)
+                patch("mael_domain.worktree_close.get_env_status", return_value=None)
             )
             stack.enter_context(
                 patch(
-                    "maelstrom.worktree_close.remove_worktree_by_path",
+                    "mael_domain.worktree_close.remove_worktree_by_path",
                     side_effect=UnclosableWorktreeError(
                         "_main cannot be removed: it holds the main checkout"
                     ),

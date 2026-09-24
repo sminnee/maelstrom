@@ -6,11 +6,10 @@ from pathlib import Path
 import click
 
 from mael_common.util import format_uptime
-
-from .cmux import mael_layout
-from .config import load_config_or_default
-from .context import ResolvedContext, resolve_context
-from .env import (
+from mael_domain.cmux import mael_layout
+from mael_domain.config import load_config_or_default
+from mael_domain.context import ResolvedContext, resolve_context
+from mael_domain.env import (
     EnvState,
     get_env_status,
     get_log_files,
@@ -25,17 +24,12 @@ from .env import (
     stop_all_envs,
     stop_env,
 )
-from .env_store import JsonEnvStore
-from .ports import get_app_url, wait_for_port
+from mael_domain.env_store import JsonEnvStore
+from mael_domain.ports import get_app_url, wait_for_port
+from mael_domain.worktree import copy_back_new_env_vars, update_claude_local_md
+from mael_domain.worktree_model import CopyBackResult, get_worktree_folder_name
+
 from .table_cli import draw_table
-from .worktree import (
-    copy_back_new_env_vars,
-    update_claude_local_md,
-)
-from .worktree_model import (
-    CopyBackResult,
-    get_worktree_folder_name,
-)
 
 
 def make_store() -> JsonEnvStore:

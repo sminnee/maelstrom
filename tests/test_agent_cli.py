@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from agent_fixtures import FIXTURES
 from click.testing import CliRunner
 
 from mael_agent import agent_transport
@@ -23,13 +24,12 @@ from mael_daemon.agent_model import (
     build_subagent_rows,
 )
 from mael_daemon.agent_server import Agent, AgentDaemon
+from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
+from mael_domain.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE, NotebookRootUnset
+from mael_domain.state_db.migrate import open_state_db
 from maelstrom import admin_cli, agent_cli
-from maelstrom.agent_store import SqliteAgentStore, SqliteMilestoneStore
-from maelstrom.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE, NotebookRootUnset
-from maelstrom.state_db.migrate import open_state_db
 
 from .agent_cli_support import drive, unreachable
-from .agent_fixtures import FIXTURES
 
 
 class _TaskTable:

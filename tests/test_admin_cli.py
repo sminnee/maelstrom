@@ -9,20 +9,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import task as task_model
+from mael_domain import task as task_model
+from mael_domain.env import EnvState
+from mael_domain.state_db import migrate as state_db_migrate
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.migrations.desk import DESK
+from mael_domain.state_db.types import Migration
+from mael_domain.task_export import SqliteExportQueue
+from mael_domain.task_table import SqliteTaskTable
 from maelstrom.admin_cli import (
     cmd_export_queue,
     cmd_migrate,
     cmd_self_update,
     resolve_install_root,
 )
-from maelstrom.env import EnvState
-from maelstrom.state_db import migrate as state_db_migrate
-from maelstrom.state_db.migrate import open_state_db
-from maelstrom.state_db.migrations.desk import DESK
-from maelstrom.state_db.types import Migration
-from maelstrom.task_export import SqliteExportQueue
-from maelstrom.task_table import SqliteTaskTable
 
 
 def _ok(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -144,7 +144,7 @@ class TestSelfEnv:
     def _invoke(self, args, projects_dir):
         from maelstrom.cli import cli
 
-        with patch("maelstrom.context.load_global_config") as mock_global:
+        with patch("mael_domain.context.load_global_config") as mock_global:
             mock_global.return_value = MagicMock(projects_dir=projects_dir)
             return CliRunner().invoke(cli, args)
 

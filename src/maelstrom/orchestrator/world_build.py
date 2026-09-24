@@ -1,7 +1,7 @@
 """Wire entities from the notebook, ``list-all`` rows and agent-host rows.
 
 Pure builders and one differ. Each ``*_entity`` function takes what the source
-already produces — a :class:`~maelstrom.task.Task`, a ``list-all`` worktree
+already produces — a :class:`~mael_domain.task.Task`, a ``list-all`` worktree
 row, a ``build_agent_row`` dict — and returns the entity the wire carries.
 :func:`diff_kind` turns two readings of one table into the upserts and removes
 that take a client from the first to the second.
@@ -11,9 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from .. import task as model
-from ..worktree_model import get_worktree_folder_name
-from .protocol import (
+from mael_domain import task as model
+from mael_domain.protocol import (
     Agent,
     HostUsage,
     Project,
@@ -24,6 +23,7 @@ from .protocol import (
     UsageWindow,
     Worktree,
 )
+from mael_domain.worktree_model import get_worktree_folder_name
 
 _STEP_RE = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s*(.*)$")
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")

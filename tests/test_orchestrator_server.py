@@ -13,6 +13,7 @@ from pathlib import Path
 
 import aiohttp
 import pytest
+from agent_fixtures import read_stamped_fixture
 
 from mael_agent.agent_wire import (
     PendingRequest,
@@ -22,12 +23,14 @@ from mael_daemon.agent_model import (
     AgentState,
     build_agent_row,
 )
-from maelstrom import task as model
-from maelstrom.branch_name import TaskNames
-from maelstrom.integrations.errors import IntegrationError
+from mael_domain import task as model
+from mael_domain.branch_name import TaskNames
+from mael_domain.integrations.errors import IntegrationError
+from mael_domain.protocol import HostUsage
+from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.worktree import WorktreeSetup
 from maelstrom.orchestrator import linear_source, server
 from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
-from maelstrom.orchestrator.protocol import HostUsage
 from maelstrom.orchestrator.routes import SOCKETS, build_app, serving
 from maelstrom.orchestrator.server import Orchestrator
 from maelstrom.orchestrator.sources import (
@@ -36,10 +39,6 @@ from maelstrom.orchestrator.sources import (
     NotebookTaskSource,
 )
 from maelstrom.orchestrator.world_build import split_task_key
-from maelstrom.shared_dir import agent_prompt_file
-from maelstrom.worktree import WorktreeSetup
-
-from .agent_fixtures import read_stamped_fixture
 
 NOW = "2026-09-01T00:00:00Z"
 PROJECT = "northwind"
@@ -1429,7 +1428,7 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
 
 
 def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
-    from maelstrom.worktree import SyncResult
+    from mael_domain.worktree import SyncResult
 
     harness = Harness(store)
     harness.add_task("NORT-7")
@@ -2034,7 +2033,7 @@ def test_an_agent_already_exited_when_it_is_adopted_does_not_join_the_desk(harne
 
 def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
     """A restart rebuilds the agents, so an entry naming none can never draw."""
-    from maelstrom.desk_store import InMemoryDeskStore
+    from mael_domain.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
     run(
@@ -2060,7 +2059,7 @@ def test_a_free_agent_entry_the_host_has_forgotten_is_dropped_at_load(store):
 
 def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
     """The load merges onto the world, so the join that ran first is not lost."""
-    from maelstrom.desk_store import InMemoryDeskStore
+    from mael_domain.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
     run(
@@ -2084,7 +2083,7 @@ def test_an_agent_adopted_at_start_keeps_its_entry_through_the_load(store):
 
 
 def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
-    from maelstrom.desk_store import InMemoryDeskStore
+    from mael_domain.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
     run(desk.save({"agent:ag1": {"id": "agent:ag1", "addedAt": NOW}}))
@@ -2099,7 +2098,7 @@ def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
 
 
 def test_the_desk_survives_a_restart(store):
-    from maelstrom.desk_store import InMemoryDeskStore
+    from mael_domain.desk_store import InMemoryDeskStore
 
     desk = InMemoryDeskStore()
 
@@ -3733,7 +3732,7 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 def images(tmp_path, monkeypatch):
     """Point the task repo at a temp dir, so uploads write nowhere real."""
     root = tmp_path / "tasks"
-    monkeypatch.setattr("maelstrom.task_store.tasks_root", lambda: root)
+    monkeypatch.setattr("mael_domain.task_store.tasks_root", lambda: root)
     return root
 
 
@@ -3985,7 +3984,7 @@ def notebook_harness(tmp_path):
     really rolls back, which :class:`InMemoryTaskTable` gives them. Only the
     drafts have to be real files, because the approve reads them off disk.
     """
-    from maelstrom.task_table import InMemoryTaskTable
+    from mael_domain.task_table import InMemoryTaskTable
 
     worktree = tmp_path / "northwind-alpha"
     worktree.mkdir()
@@ -4855,8 +4854,8 @@ def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):
 
 def test_the_desk_survives_a_restart_on_the_state_database(store, tmp_path):
     """The PoC, end to end: the desk is a table and a restart reads it back."""
-    from maelstrom.desk_store import SqliteDeskStore
-    from maelstrom.state_db.migrate import open_state_db
+    from mael_domain.desk_store import SqliteDeskStore
+    from mael_domain.state_db.migrate import open_state_db
 
     db = open_state_db(tmp_path / "state.db")
     run(db.migrate())

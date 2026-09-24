@@ -10,6 +10,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.types import SchemaTooOldError
 from maelstrom.cli import cli
 from maelstrom.orchestrator_cli import (
     DEFAULT_HOST,
@@ -17,8 +19,6 @@ from maelstrom.orchestrator_cli import (
     DEFAULT_PORT,
     run_server,
 )
-from maelstrom.state_db.migrate import open_state_db
-from maelstrom.state_db.types import SchemaTooOldError
 
 
 @pytest.fixture
@@ -78,13 +78,13 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from maelstrom.desk_store import SqliteDeskStore
+    from mael_domain.desk_store import SqliteDeskStore
+    from mael_domain.worktree import WorktreeSetup
     from maelstrom.orchestrator.sources import (
         ListAllWorktreeSource,
         NotebookTaskSource,
     )
     from maelstrom.orchestrator_cli import build_orchestrator
-    from maelstrom.worktree import WorktreeSetup
 
     projects_dir = tmp_path / "Projects"
     (projects_dir / "northwind").mkdir(parents=True)

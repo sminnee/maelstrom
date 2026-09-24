@@ -7,9 +7,9 @@ from pathlib import Path
 
 import click
 
-from .cmux import mael_layout
-from .context import resolve_context
-from .github import (
+from mael_domain.cmux import mael_layout
+from mael_domain.context import resolve_context
+from mael_domain.github import (
     create_pr,
     download_artifact,
     get_check_logs_truncated,
@@ -20,7 +20,8 @@ from .github import (
     wait_for_checks,
     wait_for_review,
 )
-from .github_model import GitHubError, NoPullRequest, SyncFailed
+from mael_domain.github_model import GitHubError, NoPullRequest, SyncFailed
+
 from .orchestrator_notify import tell_orchestrator
 
 

@@ -16,24 +16,24 @@ from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
+from git_helpers import create_commit, history_refs, run_git, three_commits
 
-from maelstrom import worktree as worktree_module
-from maelstrom.base_store import InMemoryBaseStore
-from maelstrom.cli import cli
-from maelstrom.worktree import (
+from mael_domain import worktree as worktree_module
+from mael_domain.base_store import InMemoryBaseStore
+from mael_domain.worktree import (
     delete_branch,
     get_commits_ahead,
     get_worktree_dirty_files,
     rebase_in_progress,
     uncommit_branch,
 )
-from maelstrom.worktree_model import (
+from mael_domain.worktree_model import (
     BaseRef,
     UncommitResult,
     WorktreeError,
     history_ref,
 )
-from tests.git_helpers import create_commit, history_refs, run_git, three_commits
+from maelstrom.cli import cli
 
 
 class TestUncommitCollapsesTheBranch:

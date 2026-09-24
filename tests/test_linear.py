@@ -6,20 +6,20 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import task as model
-from maelstrom import task_cli
-from maelstrom.integrations import linear as linear_mod
-from maelstrom.integrations import linear_cli
-from maelstrom.integrations.errors import IntegrationError, IntegrationHTTPError
-from maelstrom.integrations.linear import (
+from mael_domain import task as model
+from mael_domain.integrations import linear as linear_mod
+from mael_domain.integrations.errors import IntegrationError, IntegrationHTTPError
+from mael_domain.integrations.linear import (
     build_plan_task,
     create_comment,
     fetch_cycle_issues,
     graphql_paginated,
     localize_description_images,
 )
+from mael_domain.task_table import InMemoryTaskTable
+from maelstrom import task_cli
+from maelstrom.integrations import linear_cli
 from maelstrom.integrations.linear_cli import linear_group as linear
-from maelstrom.task_table import InMemoryTaskTable
 
 
 class ThreadedCliRunner(CliRunner):
@@ -52,7 +52,7 @@ class TestCmdPlan:
         )
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -77,7 +77,7 @@ class TestCmdPlan:
         assert kwargs["branch"] == "feat/99-do-thing"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_run_forwards_run_flag(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -90,7 +90,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["run"] is True
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_no_run_forwards_run_flag(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -103,7 +103,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["run"] is False
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_defaults_to_opus(self, mock_get, mock_add):
         # Planning is pinned to Opus: the plan is the leverage point, so the
         # created plan-task session runs there regardless of the user's default.
@@ -117,7 +117,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["model"] == "opus"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_defaults_to_normal_mode(self, mock_get, mock_add):
         # The planning session writes draft task files in normal permission
         # mode; the skill prompt, not plan mode, forbids code edits.
@@ -131,7 +131,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["mode"] == "normal"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_explicit_mode_overrides_default(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -143,7 +143,7 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["mode"] == "plan"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_flags_override_the_planning_defaults(self, mock_get, mock_add):
         # Every hardcoded planning value is now a *default* the matching flag
         # overrides — the point of applying the shared decorator here.
@@ -178,7 +178,7 @@ class TestCmdPlan:
         assert kwargs["post_action"] == "sentry.resolved"
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_empty_value_clears_rather_than_defaults(self, mock_get, mock_add):
         # distinguish_unset: an explicit '' must mean "empty", matching
         # `task add`, not silently fall back to the planning default.
@@ -196,7 +196,7 @@ class TestCmdPlan:
         assert kwargs["command"] == ""
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_explicit_branch_skips_generation(
         self, mock_get, mock_add, monkeypatch
     ):
@@ -209,7 +209,7 @@ class TestCmdPlan:
         }
         calls = []
         monkeypatch.setattr(
-            "maelstrom.branch_name.generate_branch_name",
+            "mael_domain.branch_name.generate_branch_name",
             lambda *a, **k: calls.append(a) or "generated",
         )
         result = ThreadedCliRunner().invoke(
@@ -220,7 +220,7 @@ class TestCmdPlan:
         assert calls == []
 
     @patch("maelstrom.task_cli.add_task")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_plan_forwards_project(self, mock_get, mock_add):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -232,7 +232,7 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["project"] == "myproj"
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     async def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
         """End-to-end: ``plan`` computes a descriptive branch from the issue
         title + bare number and persists it on the created task. With the model
@@ -259,7 +259,7 @@ class TestCmdPlan:
         assert created[0].parent == "linear.NORT-123"
         assert created[0].branch == "feat/123-do-thing"
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     async def test_plan_persists_the_execute_model(self, mock_get, monkeypatch):
         """The flag must reach the task, not merely exist.
 
@@ -295,8 +295,8 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 class TestFetchCycleIssues:
     """The rows behind ``mael linear list-tasks`` and the orchestrator's picker."""
 
-    @patch("maelstrom.integrations.linear.get_current_cycle")
-    @patch("maelstrom.integrations.linear.graphql_paginated")
+    @patch("mael_domain.integrations.linear.get_current_cycle")
+    @patch("mael_domain.integrations.linear.graphql_paginated")
     def test_returns_the_current_cycle_s_issues(self, mock_paginated, mock_cycle):
         mock_cycle.return_value = {"id": "c1", "name": "Sprint 4", "number": 4}
         mock_paginated.return_value = [
@@ -323,8 +323,8 @@ class TestFetchCycleIssues:
         assert variables["teamId"] == "team-1"
         assert variables["cycleId"] == "c1"
 
-    @patch("maelstrom.integrations.linear.get_current_cycle", return_value=None)
-    @patch("maelstrom.integrations.linear.graphql_paginated")
+    @patch("mael_domain.integrations.linear.get_current_cycle", return_value=None)
+    @patch("mael_domain.integrations.linear.graphql_paginated")
     def test_falls_back_to_active_issues_with_no_cycle(self, mock_paginated, _cycle):
         mock_paginated.return_value = []
         assert fetch_cycle_issues("team-1") == []
@@ -333,8 +333,8 @@ class TestFetchCycleIssues:
         assert "cycle" not in query
         assert "nin" in query
 
-    @patch("maelstrom.integrations.linear.get_current_cycle")
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_current_cycle")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_declares_every_variable_it_passes(self, mock_request, mock_cycle):
         """`graphql_paginated` adds `first`/`after`, which the query must declare.
 
@@ -352,7 +352,7 @@ class TestFetchCycleIssues:
             for name in variables:
                 assert f"${name}:" in query, f"{name} is passed but not declared"
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_asks_for_the_cycle_of_the_team_it_was_given(self, mock_request):
         """The team is the argument's, never the ambient cwd's.
 
@@ -367,8 +367,8 @@ class TestFetchCycleIssues:
         asked = [call.args[1]["teamId"] for call in mock_request.call_args_list]
         assert asked == ["team-1", "team-1"]
 
-    @patch("maelstrom.integrations.linear.get_current_cycle")
-    @patch("maelstrom.integrations.linear.graphql_paginated")
+    @patch("mael_domain.integrations.linear.get_current_cycle")
+    @patch("mael_domain.integrations.linear.graphql_paginated")
     def test_filters_by_status_when_asked(self, mock_paginated, mock_cycle):
         mock_cycle.return_value = {"id": "c1", "name": "S", "number": 1}
         mock_paginated.return_value = []
@@ -383,7 +383,7 @@ class TestFetchCycleIssues:
 class TestBuildPlanTask:
     """The task fields ``mael linear plan`` creates, without creating them."""
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_returns_the_fields_cmd_plan_would_pass(self, mock_get):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -401,7 +401,7 @@ class TestBuildPlanTask:
         assert fields["content"] == "# ME-99: Do the thing\n\nSome details."
         assert fields["branch"] == "feat/99-do-thing"
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_an_explicit_branch_skips_generation(self, mock_get):
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -419,7 +419,7 @@ class TestLocalizeDescriptionImages:
 
     def _patch_root(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
-            "maelstrom.task_store.tasks_root", lambda: tmp_path / "tasks"
+            "mael_domain.task_store.tasks_root", lambda: tmp_path / "tasks"
         )
         monkeypatch.setattr(linear_mod, "get_linear_api_key", lambda: "lin_key")
 
@@ -533,7 +533,7 @@ class TestLocalizeDescriptionImages:
 class TestCreateComment:
     """Tests for create_comment function."""
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_create_comment_success(self, mock_graphql):
         """Test successful comment creation."""
         mock_graphql.return_value = {
@@ -555,7 +555,7 @@ class TestCreateComment:
             }
         }
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_create_comment_failure(self, mock_graphql):
         """Test comment creation failure raises IntegrationError."""
         mock_graphql.return_value = {
@@ -568,7 +568,7 @@ class TestCreateComment:
         with pytest.raises(IntegrationError, match="Failed to create comment"):
             create_comment("issue-456", "Some comment")
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_create_comment_sends_correct_mutation(self, mock_graphql):
         """Test that the correct GraphQL mutation is sent."""
         mock_graphql.return_value = {
@@ -588,10 +588,10 @@ class TestCreateComment:
 class TestCmdCreateTask:
     """Tests for cmd_create_task command."""
 
-    @patch("maelstrom.integrations.linear.get_product_label")
-    @patch("maelstrom.integrations.linear.get_labels")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.create_issue")
+    @patch("mael_domain.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.get_labels")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.create_issue")
     def test_create_task_with_product_label(
         self, mock_create, mock_states, mock_labels, mock_product_label
     ):
@@ -620,9 +620,9 @@ class TestCmdCreateTask:
             label_ids=["label-1"],
         )
 
-    @patch("maelstrom.integrations.linear.get_product_label")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.create_issue")
+    @patch("mael_domain.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.create_issue")
     def test_create_task_no_product_label(
         self, mock_create, mock_states, mock_product_label
     ):
@@ -648,7 +648,7 @@ class TestCmdCreateTask:
             label_ids=None,
         )
 
-    @patch("maelstrom.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
     def test_create_task_no_backlog_state(self, mock_states):
         """Test error when Backlog state is not found."""
         mock_states.return_value = {"Todo": "state-2", "Done": "state-3"}
@@ -663,9 +663,9 @@ class TestCmdCreateTask:
 class TestCmdSetStatus:
     """Tests for cmd_set_status command."""
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_set_status_planned(self, mock_get, mock_states, mock_update):
         mock_get.return_value = {
             "id": "issue-1",
@@ -681,9 +681,9 @@ class TestCmdSetStatus:
         assert "Todo -> Planned" in result.output
         mock_update.assert_called_once_with("issue-1", stateId="s-planned")
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_set_status_done_maps_to_unreleased(
         self, mock_get, mock_states, mock_update
     ):
@@ -707,9 +707,9 @@ class TestCmdSetStatus:
         assert "In Review -> Unreleased" in result.output
         mock_update.assert_called_once_with("issue-1", stateId="s-unrel")
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_set_status_noop_when_already(self, mock_get, mock_states, mock_update):
         mock_get.return_value = {
             "id": "issue-1",
@@ -733,8 +733,8 @@ class TestCmdSetStatus:
         assert result.exit_code != 0
         assert "Invalid value" in result.output
 
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_set_status_missing_workflow_state_errors(self, mock_get, mock_states):
         mock_get.return_value = {
             "id": "issue-1",
@@ -771,8 +771,8 @@ SAMPLE_DESCRIPTION_WITH_PLAN = (
 class TestCmdEditPlan:
     """Tests for cmd_edit_plan command."""
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_string_mode_success(self, mock_get, mock_update):
         """Test successful edit with string mode."""
         mock_get.return_value = {
@@ -801,8 +801,8 @@ class TestCmdEditPlan:
         assert "## Completed Iteration: Build the API" in new_desc
         assert "Built endpoints with validation." in new_desc
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_file_mode_success(self, mock_get, mock_update, tmp_path):
         """Test successful edit with file-based mode."""
         mock_get.return_value = {
@@ -830,7 +830,7 @@ class TestCmdEditPlan:
         new_desc = mock_update.call_args[1]["description"]
         assert "## Completed Iteration: Build the API" in new_desc
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_old_string_not_found(self, mock_get):
         """Test error when search string is not found in plan."""
         mock_get.return_value = {
@@ -849,7 +849,7 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_ambiguous_match(self, mock_get):
         """Test error when search string matches multiple times in plan."""
         desc_with_dups = "# Implementation Plan\n\n- item\n- item\n\n(end of plan)"
@@ -869,7 +869,7 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "2 times" in result.output
 
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_no_plan(self, mock_get):
         """Test error when issue has no plan."""
         mock_get.return_value = {
@@ -888,8 +888,8 @@ class TestCmdEditPlan:
         assert result.exit_code != 0
         assert "No implementation plan found" in result.output
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.get_issue")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.get_issue")
     def test_edit_plan_scoped_to_plan_section(self, mock_get, mock_update):
         """Test that edit only affects plan section, not text outside it."""
         mock_get.return_value = {
@@ -936,7 +936,7 @@ def _page(nodes, *, has_next=False, cursor=None):
 class TestGraphqlPaginated:
     """Tests for the graphql_paginated helper."""
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_single_page(self, mock_graphql):
         mock_graphql.return_value = _page([{"id": "a"}, {"id": "b"}])
 
@@ -950,7 +950,7 @@ class TestGraphqlPaginated:
         assert sent["first"] == 100
         assert sent["after"] is None
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_multi_page_follows_cursor(self, mock_graphql):
         mock_graphql.side_effect = [
             _page([{"id": "a"}], has_next=True, cursor="cur-1"),
@@ -966,7 +966,7 @@ class TestGraphqlPaginated:
         assert afters == [None, "cur-1", "cur-2"]
         assert mock_graphql.call_args_list[0][0][1]["first"] == 1
 
-    @patch("maelstrom.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.graphql_request")
     def test_page_cap_aborts(self, mock_graphql):
         # A server that never clears hasNextPage must not spin forever.
         mock_graphql.return_value = _page([{"id": "a"}], has_next=True, cursor="c")
@@ -982,11 +982,11 @@ class TestCmdRelease:
 
     STATES = {"Unreleased": "s-unrel", "Done": "s-done"}
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.graphql_request")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_paginates_all_pages(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
@@ -1016,11 +1016,11 @@ class TestCmdRelease:
         assert mock_graphql.call_args_list[1][0][1]["after"] == "cur-1"
         mock_update.assert_any_call("i-100", stateId="s-done")
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.graphql_request")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_no_issues(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
@@ -1036,11 +1036,11 @@ class TestCmdRelease:
         assert "No unreleased tasks found with label 'askastro'." in result.output
         mock_update.assert_not_called()
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.graphql_request")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_dry_run_mutates_nothing(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
@@ -1060,11 +1060,11 @@ class TestCmdRelease:
         assert "no tasks changed" in result.output
         mock_update.assert_not_called()
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.graphql_request")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_continues_past_failures(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
@@ -1095,11 +1095,11 @@ class TestCmdRelease:
         assert "Released 2 task(s)." in result.output
         assert "1 task(s) failed to release: PROJ-2" in result.output
 
-    @patch("maelstrom.integrations.linear.update_issue")
-    @patch("maelstrom.integrations.linear.graphql_request")
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.update_issue")
+    @patch("mael_domain.integrations.linear.graphql_request")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_continues_past_transport_errors(
         self, mock_label, mock_team, mock_states, mock_graphql, mock_update
     ):
@@ -1125,9 +1125,9 @@ class TestCmdRelease:
         assert "PROJ-2: Task 2 -> Done" in result.output
         assert "1 task(s) failed to release: PROJ-1" in result.output
 
-    @patch("maelstrom.integrations.linear.get_workflow_states")
-    @patch("maelstrom.integrations.linear.get_team_id")
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.get_workflow_states")
+    @patch("mael_domain.integrations.linear.get_team_id")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_missing_workflow_state_errors(
         self, mock_label, mock_team, mock_states
     ):
@@ -1141,7 +1141,7 @@ class TestCmdRelease:
         assert result.exit_code != 0
         assert "'Unreleased' state not found in workflow" in result.output
 
-    @patch("maelstrom.integrations.linear.get_product_label")
+    @patch("mael_domain.integrations.linear.get_product_label")
     def test_release_missing_product_label_errors(self, mock_label):
         mock_label.return_value = None
 

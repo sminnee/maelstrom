@@ -1,7 +1,7 @@
 """The spawn-record store, through both backends.
 
 The records that let a daemon restart bring its agents back. Shaped like
-``tests/test_env_store.py``: the same assertions run against the in-memory and
+``lib/domain/tests/test_env_store.py``: the same assertions run against the in-memory and
 the JSON backend, because the Protocol is the contract, not the file layout.
 """
 

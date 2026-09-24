@@ -10,10 +10,10 @@ from typing import Any
 
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
+from mael_domain.protocol import World
+from mael_domain.worktree_model import is_worktree_closable
 
-from ..worktree_model import is_worktree_closable
 from .desk import split_desk_id
-from .protocol import World
 from .world_build import split_task_key
 
 #: The six folders a task can sit in. A move names one of these.
@@ -48,7 +48,7 @@ WIRE_RENAMES = {"executeModel": "execute_model"}
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
 
-#: The notebook's four priorities, from :data:`maelstrom.task.PRIORITIES`.
+#: The notebook's four priorities, from :data:`mael_domain.task.PRIORITIES`.
 PRIORITIES = ("critical", "high", "medium", "low")
 
 #: The commands that drive one agent: write to it, end it, or bring it back.

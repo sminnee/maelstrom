@@ -16,60 +16,27 @@ from mael_agent.harness_model import (
     resolve_model_reference,
 )
 from mael_common.cli_async import AsyncGroup
-
-from . import __version__, session_discovery
-from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
-from .agent_cli import agent as agent_cli
-from .base_store import GitConfigBaseStore
-from .cmux.client import ensure_cmux_running, resolve_socket_path
-from .context import load_global_config, resolve_context, validate_project_name
-from .env import regenerate_and_restart_if_running
-from .env_cli import (
-    ensure_cmux_browser,
-    make_store,
-    print_copy_back_result,
-    print_service_status,
+from mael_domain import session_discovery
+from mael_domain.base_store import GitConfigBaseStore
+from mael_domain.cmux.client import ensure_cmux_running, resolve_socket_path
+from mael_domain.context import (
+    load_global_config,
+    resolve_context,
+    validate_project_name,
 )
-from .env_cli import (
-    env as env_cli,
-)
-from .git_cli import git as git_cli
-from .git_cli import print_rebase_conflict_help
-from .github import (
-    create_project_repo,
-    get_open_prs,
-    wait_for_merge,
-)
-from .github_cli import gh as gh_cli
-from .github_model import (
+from mael_domain.env import regenerate_and_restart_if_running
+from mael_domain.github import create_project_repo, get_open_prs, wait_for_merge
+from mael_domain.github_model import (
     GitHubError,
     PrStatus,
     RateLimited,
     is_open_pr,
     pr_from_row,
 )
-from .integrations.linear_cli import linear_group
-from .integrations.sentry_cli import sentry_group
-from .integrations.slack_cli import slack_group
-from .integrations.uptimerobot_cli import uptimerobot_group
-from .list_all import (
-    build_list_all_data,
-    resolve_pr,
-    session_display,
-)
-from .mv_project_cli import cmd_mv_project
-from .notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
-from .orchestrator_cli import orchestrator as orchestrator_cli
-from .ports import get_app_url
-from .project_cli import project as project_cli
-from .schedule_cli import schedule_group
-from .session_cli import session as session_cli
-from .table_cli import draw_table
-from .task_cli import _harness_options as _harness_flags
-from .task_cli import add_task, resolve_harness_or_fail
-from .task_cli import task as task_cli
-from .wiki_cli import wiki as wiki_cli
-from .worktree import (
+from mael_domain.list_all import build_list_all_data, resolve_pr, session_display
+from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
+from mael_domain.ports import get_app_url
+from mael_domain.worktree import (
     SyncResult,
     add_project,
     check_base_exists,
@@ -91,16 +58,8 @@ from .worktree import (
     tidy_branches,
     update_claude_local_md,
 )
-from .worktree_close import close_worktree_fully, remove_worktree_fully
-from .worktree_launcher import (
-    AddContext,
-    detect_add_context,
-    has_install_command,
-    launch_add_in_worktree,
-    open_worktree,
-    start_install_async,
-)
-from .worktree_model import (
+from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
+from mael_domain.worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
     BaseRef,
@@ -110,6 +69,44 @@ from .worktree_model import (
     get_worktree_folder_name,
     order_by_stack,
     validate_base,
+)
+from maelstrom import __version__
+
+from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
+from .agent_cli import agent as agent_cli
+from .env_cli import (
+    ensure_cmux_browser,
+    make_store,
+    print_copy_back_result,
+    print_service_status,
+)
+from .env_cli import (
+    env as env_cli,
+)
+from .git_cli import git as git_cli
+from .git_cli import print_rebase_conflict_help
+from .github_cli import gh as gh_cli
+from .integrations.linear_cli import linear_group
+from .integrations.sentry_cli import sentry_group
+from .integrations.slack_cli import slack_group
+from .integrations.uptimerobot_cli import uptimerobot_group
+from .mv_project_cli import cmd_mv_project
+from .orchestrator_cli import orchestrator as orchestrator_cli
+from .project_cli import project as project_cli
+from .schedule_cli import schedule_group
+from .session_cli import session as session_cli
+from .table_cli import draw_table
+from .task_cli import _harness_options as _harness_flags
+from .task_cli import add_task, resolve_harness_or_fail
+from .task_cli import task as task_cli
+from .wiki_cli import wiki as wiki_cli
+from .worktree_launcher import (
+    AddContext,
+    detect_add_context,
+    has_install_command,
+    launch_add_in_worktree,
+    open_worktree,
+    start_install_async,
 )
 
 # The branch `mael create-project` opens its first worktree on, so a new project
@@ -1532,7 +1529,7 @@ def cmd_sync_all(project, autorepair):
         raise click.ClickException(f"Failed to fetch from origin: {e}")
 
     # Fast-forward local main to match origin/main
-    from .worktree import update_local_main
+    from mael_domain.worktree import update_local_main
 
     main_result = update_local_main(project_path)
     if main_result.status == "updated":

@@ -11,7 +11,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import TypedDict
 
-from .protocol import ServerEvent, TranscriptItem
+from mael_domain.protocol import ServerEvent, TranscriptItem
 
 #: How many frames a transcript keeps for ``replay_from``.
 TRANSCRIPT_RING = 2000

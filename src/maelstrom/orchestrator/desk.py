@@ -1,6 +1,6 @@
 """The desk: what the canvas draws, as tasks and free agents.
 
-Pure table maths over the desk table :mod:`maelstrom.desk_store` keeps. Every
+Pure table maths over the desk table :mod:`mael_domain.desk_store` keeps. Every
 function returns a new table and never changes the one it is given, so the
 server decides when a change is published and saved.
 """
@@ -8,7 +8,8 @@ server decides when a change is published and saved.
 from collections.abc import Container, Iterable, Mapping
 from typing import Any, Literal, cast
 
-from .protocol import DeskEntry
+from mael_domain.protocol import DeskEntry
+
 from .world_build import split_task_key
 
 #: The desk as the world holds it, keyed by desk id.

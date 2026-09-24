@@ -8,8 +8,8 @@ import subprocess
 
 import pytest
 
-from maelstrom.ports import get_port_allocation, load_port_allocations
-from maelstrom.worktree import (
+from mael_domain.ports import get_port_allocation, load_port_allocations
+from mael_domain.worktree import (
     close_worktree,
     create_worktree,
     list_worktrees,
@@ -18,7 +18,7 @@ from maelstrom.worktree import (
     remove_worktree_by_path,
     sync_worktree,
 )
-from maelstrom.worktree_model import get_worktree_folder_name
+from mael_domain.worktree_model import get_worktree_folder_name
 
 from .conftest import create_commit, run_git
 

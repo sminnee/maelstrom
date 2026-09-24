@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from git_helpers import create_commit, run_git, setup_git_repo
 
-from maelstrom.context import GlobalConfig
-from maelstrom.worktree import add_project
-from maelstrom.worktree_model import get_worktree_folder_name
-from tests.git_helpers import create_commit, run_git, setup_git_repo
+from mael_domain.context import GlobalConfig
+from mael_domain.worktree import add_project
+from mael_domain.worktree_model import get_worktree_folder_name
 
 # --- Helpers ---
 
@@ -35,7 +35,7 @@ def assert_process_dead(pid, timeout=5.0):
     After SIGKILL, child processes become zombies until reaped.
     This helper polls with os.waitpid to reap them.
     """
-    from maelstrom.env import is_service_alive
+    from mael_domain.env import is_service_alive
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -105,17 +105,17 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     def fake_get_dir():
         return maelstrom_dir
 
-    monkeypatch.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("maelstrom.ports.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("mael_domain.context.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("mael_domain.env.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("mael_domain.env_store.get_maelstrom_dir", fake_get_dir)
+    monkeypatch.setattr("mael_domain.ports.get_maelstrom_dir", fake_get_dir)
     # The state database, the desk and the task export all hang off the
     # notebook root, so a test that opens any of them would otherwise write
     # into the developer's live notebook.
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(maelstrom_dir))
 
     monkeypatch.setattr(
-        "maelstrom.context.load_global_config",
+        "mael_domain.context.load_global_config",
         lambda: GlobalConfig(projects_dir=projects_dir),
     )
 
@@ -136,13 +136,13 @@ def isolated_maelstrom_module(tmp_path_factory):
     def fake_get_dir():
         return maelstrom_dir
 
-    mp.setattr("maelstrom.context.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("maelstrom.env.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("maelstrom.env_store.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("maelstrom.ports.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("mael_domain.context.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("mael_domain.env.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("mael_domain.env_store.get_maelstrom_dir", fake_get_dir)
+    mp.setattr("mael_domain.ports.get_maelstrom_dir", fake_get_dir)
     mp.setenv("MAEL_NOTEBOOK_ROOT", str(maelstrom_dir))
     mp.setattr(
-        "maelstrom.context.load_global_config",
+        "mael_domain.context.load_global_config",
         lambda: GlobalConfig(projects_dir=projects_dir),
     )
 

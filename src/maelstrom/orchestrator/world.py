@@ -1,13 +1,19 @@
 """The world the orchestrator server holds, and the one way it changes.
 
 The world is only ever reached by applying events through
-:func:`~maelstrom.orchestrator.protocol.apply_event`; nothing mutates it
+:func:`~mael_domain.protocol.apply_event`; nothing mutates it
 directly. What the events amount to travels to clients as change notices
 (:mod:`.notices`) and transcript frames (:mod:`.transcript_log`), never as
 the events themselves.
 """
 
-from .protocol import ClientState, ServerEvent, World, apply_event, initial_client_state
+from mael_domain.protocol import (
+    ClientState,
+    ServerEvent,
+    World,
+    apply_event,
+    initial_client_state,
+)
 
 
 class WorldState:

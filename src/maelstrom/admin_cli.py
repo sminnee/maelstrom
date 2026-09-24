@@ -11,18 +11,18 @@ from mael_agent.agent_transport import ROOT_ENV
 from mael_common.cli_async import AsyncGroup
 from mael_common.shell import mael_path
 from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
+from mael_domain.context import harden_global_config
+from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.paths import get_state_db_path
+from mael_domain.state_db.types import StateDbError
+from mael_domain.task import task_key
+from mael_domain.task_export import Queued, SqliteExportQueue
+from mael_domain.task_table import TABLE as TASKS_TABLE
+from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 
 from .claude_integration import install_claude_integration
-from .context import harden_global_config
 from .env_cli import env
-from .notebook_root import NOTEBOOK_ROOT_ENV
-from .state_db.migrate import open_state_db
-from .state_db.paths import get_state_db_path
-from .state_db.types import StateDbError
-from .task import task_key
-from .task_export import Queued, SqliteExportQueue
-from .task_table import TABLE as TASKS_TABLE
-from .worktree_model import MAIN_WORKTREE_FOLDER
 
 
 @click.command("install")

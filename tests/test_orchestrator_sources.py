@@ -12,11 +12,11 @@ reads those rows alone. Both backends answer it, so both are tested.
 
 import pytest
 
-from maelstrom import task as model
+from mael_domain import task as model
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.task_launch import LaunchBlocked
+from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
 from maelstrom.orchestrator.sources import NotebookTaskSource
-from maelstrom.state_db.migrate import open_state_db
-from maelstrom.task_launch import LaunchBlocked
-from maelstrom.task_table import InMemoryTaskTable, SqliteTaskTable
 
 PROJECT = "northwind"
 
@@ -188,8 +188,8 @@ def test_a_row_id_is_already_the_wire_id_for_a_task():
     notice if either one changed its separator — the removals would simply stop
     matching, and deleted tasks would linger on the canvas.
     """
+    from mael_domain.task_table import row_id
     from maelstrom.orchestrator.world_build import task_key
-    from maelstrom.task_table import row_id
 
     assert row_id("northwind", "NORT-7") == task_key("northwind", "NORT-7")
 
@@ -370,10 +370,10 @@ async def test_a_forced_refresh_still_reads_the_whole_notebook(table, monkeypatc
 
 def an_exporting_orchestrator(table, root, **options):
     """An orchestrator that drains its export queue to ``root``."""
+    from mael_domain.task_export import SqliteExportQueue, TaskExporter
+    from mael_domain.task_store import GitFileStore
     from maelstrom.orchestrator.server import Orchestrator
     from maelstrom.orchestrator.sources import InMemoryWorktreeSource
-    from maelstrom.task_export import SqliteExportQueue, TaskExporter
-    from maelstrom.task_store import GitFileStore
 
     exporter = TaskExporter(
         SqliteExportQueue(table._db), table, GitFileStore(root=root)

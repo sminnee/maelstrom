@@ -9,16 +9,16 @@ import signal
 
 import pytest
 
-from maelstrom.env import (
+from mael_domain.env import (
     is_service_alive,
     load_env_state,
     load_shared_state,
     start_env,
     stop_env,
 )
+from mael_domain.env_store import JsonEnvStore
+from mael_domain.worktree import read_env_file, regenerate_env_file
 from maelstrom.env_cli import env
-from maelstrom.env_store import JsonEnvStore
-from maelstrom.worktree import read_env_file, regenerate_env_file
 
 from .conftest import assert_process_dead, wait_for, write_procfile
 

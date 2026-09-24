@@ -8,10 +8,11 @@ from typing import Any
 
 import click
 
+from mael_domain.context import resolve_project
+from mael_domain.integrations import linear
+
 from .. import task_cli
-from ..context import resolve_project
 from ..task_cli import block_task_options
-from . import linear
 from .group_cli import IntegrationGroup
 
 

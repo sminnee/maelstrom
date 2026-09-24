@@ -4,8 +4,13 @@ from typing import Any
 
 import click
 
-from . import sentry
-from ._format import format_datetime, format_relative_time, parse_since
+from mael_domain.integrations import sentry
+from mael_domain.integrations._format import (
+    format_datetime,
+    format_relative_time,
+    parse_since,
+)
+
 from .group_cli import IntegrationGroup
 
 

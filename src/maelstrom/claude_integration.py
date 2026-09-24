@@ -5,7 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .shared_dir import get_shared_dir
+from mael_domain.shared_dir import get_shared_dir
 
 
 def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:

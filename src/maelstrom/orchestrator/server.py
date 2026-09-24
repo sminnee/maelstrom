@@ -27,25 +27,14 @@ from mael_agent.agent_wire import (
     build_start_payload,
 )
 from mael_common.util import now_iso
-
-from ..agent_store import InMemoryMilestoneStore, MilestoneStore
-from ..branch_name import lead_with_number
-from ..desk_store import DeskStore, InMemoryDeskStore
-from ..github_model import RateLimited
-from ..integrations.errors import IntegrationError
-from ..shared_dir import agent_prompt_file
-from ..task import mode_for_command
-from ..task import permission_mode_for as model_permission_mode
-from ..task_export import TaskExporter
-from ..task_launch import LaunchBlocked
-from . import desk as desk_model
-from . import linear_source
-from .daemon_bridge import AsyncDaemonClient
-from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
-from .document_tags import FINAL_STAGE
-from .file_registry import FileRegistry
-from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
-from .normalise import (
+from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
+from mael_domain.branch_name import lead_with_number
+from mael_domain.desk_store import DeskStore, InMemoryDeskStore
+from mael_domain.document_tags import FINAL_STAGE
+from mael_domain.file_registry import FileRegistry
+from mael_domain.github_model import RateLimited
+from mael_domain.integrations.errors import IntegrationError
+from mael_domain.normalise import (
     Milestone,
     NormaliseContext,
     Normalised,
@@ -57,8 +46,7 @@ from .normalise import (
     normalise_stream_event,
     revive_agent,
 )
-from .notices import notices_for
-from .protocol import (
+from mael_domain.protocol import (
     HOST_ID,
     Agent,
     Document,
@@ -68,6 +56,18 @@ from .protocol import (
     TranscriptItem,
     World,
 )
+from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.task import mode_for_command
+from mael_domain.task import permission_mode_for as model_permission_mode
+from mael_domain.task_export import TaskExporter
+from mael_domain.task_launch import LaunchBlocked
+
+from . import desk as desk_model
+from . import linear_source
+from .daemon_bridge import AsyncDaemonClient
+from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
+from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
+from .notices import notices_for
 from .sources import CloseBlocked, TaskSource, WorktreeSource
 from .transcript_log import (
     TRANSCRIPT_RING,
@@ -495,7 +495,7 @@ class Orchestrator:
         The pool it runs on is handed to the sequence when the operation is
         built, not applied here, because it is each blocking *step* that needs
         a thread. The operation itself is a coroutine that awaits them. See
-        :mod:`maelstrom.worktree_steps` and ``orchestrator_cli``.
+        :mod:`mael_domain.worktree_steps` and ``orchestrator_cli``.
         """
         return await self._run_on(self.worktree_executor, fn, *args)
 
@@ -651,7 +651,7 @@ class Orchestrator:
         charged by node count and the budget refills hourly, so asking about
         every branch in every project is what spends it. A branch left out
         keeps the pull request the last read saw; see
-        :func:`maelstrom.list_all.resolve_pr`.
+        :func:`mael_domain.list_all.resolve_pr`.
         """
         if self._worktree_read.locked():
             return
@@ -2068,7 +2068,7 @@ def _attachment_paths(attachments: Any) -> list[dict[str, str]]:
     host can read, so anything that is not an attachment URL this server
     serves is dropped rather than forwarded.
     """
-    from ..attachments import resolve_attachment
+    from mael_domain.attachments import resolve_attachment
 
     resolved: list[dict[str, str]] = []
     for item in attachments or ():

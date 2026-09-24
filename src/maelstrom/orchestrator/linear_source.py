@@ -12,10 +12,10 @@ rather than an unpicking.
 import logging
 from typing import Any
 
-from ..config import linear_team_id
-from ..context import load_global_config
-from ..integrations.linear import build_plan_task, fetch_cycle_issues
-from ..worktree import list_worktrees
+from mael_domain.config import linear_team_id
+from mael_domain.context import load_global_config
+from mael_domain.integrations.linear import build_plan_task, fetch_cycle_issues
+from mael_domain.worktree import list_worktrees
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def plan_fields(
     """The task fields that plan ``issue_id`` — what ``mael linear plan`` writes.
 
     ``branch`` names the branch rather than generating one — see
-    :func:`maelstrom.integrations.linear.build_plan_task`. An image that could
+    :func:`mael_domain.integrations.linear.build_plan_task`. An image that could
     not be localized goes to the log.
     """
     return build_plan_task(issue_id, project, branch=branch, warn=log.warning)

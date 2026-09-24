@@ -5,8 +5,7 @@ from typing import Any
 import click
 
 from mael_common.cli_async import AsyncGroup
-
-from .errors import IntegrationError
+from mael_domain.integrations.errors import IntegrationError
 
 
 class IntegrationGroup(AsyncGroup):

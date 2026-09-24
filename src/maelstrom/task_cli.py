@@ -1,7 +1,7 @@
 """Thin CLI for the task notebook: ``mael task ...``.
 
-Each command builds a :class:`~maelstrom.task_store.GitFileStore`, calls a single
-model function from :mod:`maelstrom.task`, and renders the result. All logic
+Each command builds a :class:`~mael_domain.task_store.GitFileStore`, calls a single
+model function from :mod:`mael_domain.task`, and renders the result. All logic
 lives in the model; this layer only parses arguments and prints.
 """
 
@@ -25,33 +25,38 @@ from mael_common.claude_paths import has_claude_transcript
 from mael_common.cli_async import AsyncGroup
 from mael_common.shell import exec_cmd
 from mael_common.util import read_content_file
-
-from . import session_discovery, task_actions
-from . import task as model  # noqa: F401  (module, used as `model.*`)
+from mael_domain import session_discovery, task_actions
+from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 
 # Second binding of the same module, for the few functions that take a `model`
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
-from . import task as task_model
-from .cmux.client import ensure_cmux_running
-from .context import resolve_context, resolve_project
-from .state_db.db import StateDb
-from .state_db.migrate import open_state_db
-from .state_db.paths import get_state_db_path
-from .state_db.types import StateDbError
-from .table_cli import draw_table
-from .task_launch import LaunchBlocked, check_not_live, check_synced, plan_launch
-from .task_table import SqliteTaskTable
-from .worktree import (
+from mael_domain import task as task_model
+from mael_domain.cmux.client import ensure_cmux_running
+from mael_domain.context import resolve_context, resolve_project
+from mael_domain.state_db.db import StateDb
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.paths import get_state_db_path
+from mael_domain.state_db.types import StateDbError
+from mael_domain.task_launch import (
+    LaunchBlocked,
+    check_not_live,
+    check_synced,
+    plan_launch,
+)
+from mael_domain.task_table import SqliteTaskTable
+from mael_domain.worktree import (
     get_current_branch,
     list_worktrees,
     setup_worktree_for_branch,
 )
+from mael_domain.worktree_model import WorktreeError
+
+from .table_cli import draw_table
 from .worktree_launcher import (
     build_task_launch_line,
     launch_claude_in_worktree,
 )
-from .worktree_model import WorktreeError
 
 
 def resolve_harness_or_fail(
@@ -1040,8 +1045,8 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
     entry point); otherwise it's the single ``-p`` project or the cwd's.
     """
     if all_projects:
-        from .context import load_global_config
-        from .worktree import find_all_projects
+        from mael_domain.context import load_global_config
+        from mael_domain.worktree import find_all_projects
 
         projects = find_all_projects(load_global_config().projects_dir)
         return [p.name for p in projects]
@@ -1064,7 +1069,7 @@ async def _fire_due_templates(
     making each firing's follow-ups grandchildren of the template rather than
     piling onto the template's own chain. See docs/dev/tasks.md.
     """
-    from . import schedule as sched
+    from mael_domain import schedule as sched
 
     created: list[model.Task] = []
     for tmpl, date in await sched.due_templates(table, project, now=now):
@@ -1234,7 +1239,7 @@ def _next_fire_display(task: "model.Task") -> str:
     """Render a template's next scheduled fire for the listing, or ''."""
     if not task.schedule:
         return ""
-    from . import schedule as sched
+    from mael_domain import schedule as sched
 
     try:
         nxt = sched.next_fire(task.schedule, datetime.now().astimezone())

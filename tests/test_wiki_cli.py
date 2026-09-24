@@ -7,9 +7,9 @@ return a shared :class:`InMemoryStore`, so no git happens.
 import pytest
 from click.testing import CliRunner
 
-from maelstrom import wiki as model
+from mael_domain import wiki as model
+from mael_domain.task_store import InMemoryStore
 from maelstrom import wiki_cli
-from maelstrom.task_store import InMemoryStore
 
 PAGE = """---
 description: How to publish a package to PyPI
@@ -25,7 +25,7 @@ def store(monkeypatch) -> InMemoryStore:
 
     Built here rather than taken from ``conftest``: the shared ``store``
     fixture is the task *table* now, and the wiki is the one subsystem still
-    on :class:`~maelstrom.task_store.GitFileStore`.
+    on :class:`~mael_domain.task_store.GitFileStore`.
     """
     wiki_store = InMemoryStore()
     monkeypatch.setattr(wiki_cli, "_store", lambda: wiki_store)

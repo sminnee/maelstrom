@@ -6,7 +6,7 @@ import { keys } from './keys';
 /**
  * One stage an agent reached, and what that stage cost.
  *
- * Snake case because the route serves `maelstrom.agent_cost.Stage` whole —
+ * Snake case because the route serves `mael_domain.agent_cost.Stage` whole —
  * the same report `mael agent cost` prints. Renaming the fields on the way
  * through would give the page and the terminal two vocabularies for one
  * reading.

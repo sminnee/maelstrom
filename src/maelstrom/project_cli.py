@@ -5,10 +5,10 @@ import json
 import click
 
 from mael_common.util import abbreviate_home
+from mael_domain.context import load_global_config
+from mael_domain.worktree import list_projects
 
-from .context import load_global_config
 from .table_cli import draw_table
-from .worktree import list_projects
 
 
 @click.group("project")

@@ -15,7 +15,7 @@ import logging
 import urllib.request
 from pathlib import Path
 
-from .worktree import read_env_file
+from mael_domain.worktree import read_env_file
 
 log = logging.getLogger(__name__)
 
