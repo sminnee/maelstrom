@@ -1,16 +1,16 @@
 # The orchestrator UI
 
-A web app that shows every agent as a node on one canvas and captures the user's checkpoints in
-the tool. It lives under `web/`. It reads the world from the orchestrator server's REST routes,
-hears what changed on one change-notice stream, and follows each open agent's transcript on a
-socket of its own.
+A web app that shows every agent as a node on one canvas and captures the user's checkpoints in the
+tool. It lives under `orchestrator-ui/`. It reads the world from the orchestrator server's REST
+routes, hears what changed on one change-notice stream, and follows each open agent's transcript on
+a socket of its own.
 
 The guiding metaphor is a real-time strategy game. Everything running is on one canvas, and a
 unit that needs orders shows it on the canvas itself.
 
 ## The layers
 
-`web/src` is four layers. Each one imports only from the layers below it.
+`orchestrator-ui/src` is four layers. Each one imports only from the layers below it.
 
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
@@ -245,9 +245,9 @@ ended a turn. The block is still dated from the last message, never the note, be
 drives the silent-agent colouring and silence means the agent said nothing. An agent that noted
 once would otherwise look alive for ever.
 
-Under the status band the card shows the stage the agent last reached, its cost, and how long ago
-it closed. The latest stage only, and nothing when the agent has reached none. See `web/DESIGN.md`,
-"Node Card".
+Under the status band the card shows the stage the agent last reached, its cost, and how long ago it
+closed. The latest stage only, and nothing when the agent has reached none. See
+`orchestrator-ui/DESIGN.md`, "Node Card".
 
 The band reads `GET /api/agents/{id}/milestones`, not the transcript's bars. A restarted server
 keeps the ledger and drops the transcript, and the host's window rolls the older bars away in a
@@ -385,7 +385,7 @@ boundary is the one thing a rule is for.
 
 A milestone takes the same rule, in `--ok`: `built · 95k · $2.10`. The figures are the stage's
 own delta, and a name the flow does not declare keeps the compact register and gains `(?)`. See
-`web/DESIGN.md`, "Milestone bar".
+`orchestrator-ui/DESIGN.md`, "Milestone bar".
 
 Two turns the harness injects follow that rule. The summary it writes to carry the conversation on
 folds under "carried over", the way a loaded skill body does: it runs to thousands of characters,
@@ -428,7 +428,7 @@ agent carries on with it. The expanded node and the document tab render the same
 `DecisionCard`, so the two agree. A `variant` prop says which surface it draws on: `block` is the
 card, where the decision is read and the context rail is inline and open; `dock` is the band
 under a document, where the context becomes a control and the prompt loses its own border. See
-`web/DESIGN.md`, "Review Dock".
+`orchestrator-ui/DESIGN.md`, "Review Dock".
 
 A prompt reads one of three ways: open, answered, or stale — see `CONTEXT.md`, "Stale prompt". The
 transcript keeps a stale prompt, showing what was asked and reading "no longer pending", with no
@@ -757,13 +757,13 @@ their own site.
 
 The app draws one of two layouts, chosen by viewport width. At 840px and wider it is the
 main-monitor tool this document describes: the canvas or the task list, with the panel beside it.
-Below 840px it is the deck list, one screen at a time. `web/DESIGN.md` says why the break sits
-there.
+Below 840px it is the deck list, one screen at a time. `orchestrator-ui/DESIGN.md` says why the
+break sits there.
 
-`layout/useLayoutMode.ts` makes the choice. The decision is read in TypeScript rather than only in
-a media query, because `web/vite.config.ts` sets `css: false` — a media query is invisible to the
-suite, and a hook the components branch on is a decision the app-boundary tests can assert. The
-CSS carries cosmetic sizing only. `renderApp({ viewport: 'narrow' })` renders the narrow layout,
+`layout/useLayoutMode.ts` makes the choice. The decision is read in TypeScript rather than only in a
+media query, because `orchestrator-ui/vite.config.ts` sets `css: false` — a media query is invisible
+to the suite, and a hook the components branch on is a decision the app-boundary tests can assert.
+The CSS carries cosmetic sizing only. `renderApp({ viewport: 'narrow' })` renders the narrow layout,
 and `test/setup.ts` stubs `matchMedia` from one settable width.
 
 `AppShell` branches first, so the narrow layout mounts no `ReactFlowProvider`, no canvas and no
@@ -796,9 +796,9 @@ a soft keyboard sends no other key; the Send button sends.
 mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
 mael env start                  # this worktree's own copy, on its floating ports
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE port
-cd web && pnpm dev              # the web app alone, on port 5173, against localhost:8765
-cd web && pnpm test             # vitest, jsdom
-cd web && pnpm lint && pnpm typecheck && pnpm build
+cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
+cd orchestrator-ui && pnpm test # vitest, jsdom
+cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
 bin/knip-check                  # dead code, both passes
 ```
 
@@ -817,9 +817,10 @@ Under maelstrom the `web` service always points at the `orchestrator` service, s
 worktree whose `.env` is missing a port a service needs — `ORCHESTRATOR_PORT`, or `LADLE_PORT` on
 a worktree opened before the workbench existed — needs `mael env reset` once to add it.
 
-The dev server proxies `/api` to the orchestrator, WebSockets included. `ORCHESTRATOR_URL` names
-it — see [environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy
-behind it: serving `web/dist` needs the orchestrator on the same origin, and nothing does that yet.
+The dev server proxies `/api` to the orchestrator, WebSockets included. `ORCHESTRATOR_URL` names it
+— see [environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy
+behind it: serving `orchestrator-ui/dist` needs the orchestrator on the same origin, and nothing
+does that yet.
 
 **The change stream is the one exception: it skips the proxy.** `eventsUrl` builds its address
 from the page's own protocol and hostname, plus the orchestrator's port. A proxied stream never

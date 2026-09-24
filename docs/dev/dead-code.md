@@ -17,7 +17,8 @@ unused test helper invisible.
 | Production | `src/` only      | Only tests reach this    | Prints only     |
 
 Each pass reads the `src/` and `tests/` of every workspace member: the root, `lib/common/`,
-`lib/agent/`, `lib/domain/` and `agent-daemon/`. The test pass also reads the repo-root `conftest.py`.
+`lib/agent/`, `lib/domain/`, `agent-daemon/` and `orchestrator-api/`. The test pass also reads the
+repo-root `conftest.py`.
 
 **Only the test pass fails the build.** A symbol neither `src/` nor `tests/` uses is dead by any
 reading. A symbol only tests reach is different: an in-memory store or a helper a test drives is a
@@ -97,11 +98,11 @@ production list today.
 
 ## TypeScript
 
-`web/knip.json` configures the test pass. `web/knip.production.json` configures the production pass
-and differs by one key: it ignores `src/test/**` and the story fixtures,
-`src/session/transcript.fixture.ts` and `src/canvas/taskNode.fixture.ts`. A story fixture is reached
-from a story and from nothing else, so the production pass, which does not read stories, calls it an
-unused file. Knip 6 has no `extends`, so the two are whole files rather than one and a delta.
+`orchestrator-ui/knip.json` configures the test pass. `orchestrator-ui/knip.production.json`
+configures the production pass and differs by one key: it ignores `src/test/**` and the story
+fixtures, `src/session/transcript.fixture.ts` and `src/canvas/taskNode.fixture.ts`. A story
+fixture is reached from a story and from nothing else, so the production pass, which does not read
+stories, calls it an unused file. Knip 6 has no `extends`, so the two are whole files rather than one and a delta.
 
 `ignoreExportsUsedInFile` is what makes the gate usable. It drops the two false positives that
 dominate: a constant used only in the file that exports it, and a member of a union that callers
@@ -111,8 +112,8 @@ needs them.
 Knip finds the vite, vitest and eslint entry points by itself. The config names only
 `src/**/*.stories.tsx`, because Ladle reaches a story and nothing else does.
 
-`bin/knip-check` covers `web/` alone. `tools/mael-session-channel` has no tsconfig and no CI job, so
-covering it means building a gate for it first.
+`bin/knip-check` covers `orchestrator-ui/` alone. `tools/mael-session-channel` has no tsconfig and
+no CI job, so covering it means building a gate for it first.
 
 `bin/publish` does not run knip. It ships the Python wheel, and the web app is not in it, so the
 release path covers vulture only.
@@ -122,7 +123,8 @@ release path covers vulture only.
 The `lint` job runs `bin/lint`, which includes vulture. The `web` job runs `bin/knip-check`.
 
 `.github/workflows/test.yml` decides which jobs run from the changed paths. That filter has one gap
-worth knowing. A change under `src/`, `lib/` or `agent-daemon/` runs the Python gates, and a change under `web/` runs the web
-gates, so a change that strands code in the other language can pass. The filter names
-`mael_domain/protocol.py` on the web side for this reason: deleting a wire field there runs knip
-over the TypeScript that reads it. Other cross-language edits stay uncovered.
+worth knowing. A change under `src/`, `lib/`, `agent-daemon/` or `orchestrator-api/` runs the Python
+gates, and a change under `orchestrator-ui/` runs the web gates, so a change that strands code in
+the other language can pass. The filter names `mael_domain/protocol.py` on the web side for this
+reason: deleting a wire field there runs knip over the TypeScript that reads it. Other
+cross-language edits stay uncovered.

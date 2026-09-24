@@ -33,17 +33,17 @@ satisfied. During development `uv run pytest -m 'not slow'` skips the slow tests
 loop, but run the full set before you push.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
-`uv run ruff format src tests lib agent-daemon conftest.py` to apply it.
+`uv run ruff format src tests lib agent-daemon orchestrator-api conftest.py` to apply it.
 
-A change under `web/` runs its own gates, which CI keeps in a separate job:
+A change under `orchestrator-ui/` runs its own gates, which CI keeps in a separate job:
 
 ```bash
-cd web && pnpm lint && pnpm typecheck && pnpm test && pnpm build
-bin/knip-check                     # dead code in web/
+cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+bin/knip-check                     # dead code in orchestrator-ui/
 ```
 
-CI runs those web gates as a fourth job, on its own path filter, so a change under `web/` alone
-still gets checked.
+CI runs those web gates as a fourth job, on its own path filter, so a change under
+`orchestrator-ui/` alone still gets checked.
 
 `bin/lint` runs vulture and `bin/knip-check` runs knip. Each finds code nothing calls. See
 [dead code](docs/dev/dead-code.md) for how the two passes differ, what to do with a finding, and

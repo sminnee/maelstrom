@@ -3,7 +3,7 @@
 The server builds the world the orchestrator UI shows — tasks, worktrees, agents,
 attention — from the task notebook, `list-all` and the agent host, and serves it over HTTP:
 resources by REST, change notices on one stream, and one socket per open agent transcript.
-`mael orchestrator serve` runs it.
+`mael-orchestrator serve` runs it.
 
 The server owns the business model. The agent host owns the agent processes. The server only
 reaches the host through the host's own client protocol, never by importing its internals, so a
@@ -11,7 +11,8 @@ host on another machine later is the same protocol over TCP.
 
 ## The layers
 
-`src/maelstrom/orchestrator/` and the wire modules in `mael_domain` follow
+The server is the `mael_orchestrator` package, in the workspace member `orchestrator-api/`. The
+package and the wire modules in `mael_domain` follow
 [architecture-patterns.md](architecture-patterns.md). The wire types are `TypedDict`s in the wire's own camelCase, so an entity is the dict the socket
 carries and nothing maps between a dataclass and the wire.
 
@@ -28,11 +29,12 @@ carries and nothing maps between a dataclass and the wire.
 | `hubs.py` | adapter | `NoticeHub`: change notices to every open notice stream, coalesced per subscriber. `TranscriptHub`: transcript frames to every socket open on an agent, bounded per socket |
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
-| `daemon_bridge.py` | storage | `AsyncDaemonClient`: the agent-host protocol, its reply mapping, and a scripted fake. The socket client itself is `agent_transport.SocketAsyncDaemonClient` |
+| `daemon_bridge.py` | storage | `DaemonRouter`: the agent-host protocol and its reply mapping. The socket client is `agent_transport.SocketAsyncDaemonClient`, and its fake is `agent_transport.ScriptedAsyncDaemonClient` |
+| `codex_bridge.py`, `codex_daemon.py` | storage | The Codex agent host, run in process. See [agent-daemon.md](agent-daemon.md) |
 | `mael_domain/desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
-| `../orchestrator_cli.py` | CLI | `mael orchestrator serve`, and the logging the server runs under |
+| `cli.py` | CLI | `mael-orchestrator serve`, the composition root `build_orchestrator`, and the logging the server runs under |
 
 `mael_domain.task_launch` holds the launch plan and its two guards, shared with
 `mael task run`. `mael_domain.list_all` holds the rows both `mael list-all` and the server read.
@@ -45,10 +47,10 @@ and holds the result to a golden under `lib/domain/fixtures/normalised/`. That t
 `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py` re-records them, so a
 normaliser change is a deliberate re-record and never a silent drift.
 
-The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py`
-are a hand port of `web/src/session/toolCards.ts`, which renders in the browser and stays the
-reference. `tests/fixtures/agent_events/tool-cards.json` records what it makes of each tool;
-`UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it, and the Python test replays it.
+The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py` are
+a hand port of `orchestrator-ui/src/session/toolCards.ts`, which renders in the browser and stays
+the reference. `orchestrator-ui/fixtures/tool-cards.json` records what it makes of each tool;
+`UPDATE_GOLDEN=1 pnpm test` in `orchestrator-ui/` re-records it, and the Python test replays it.
 
 ## A loaded skill
 
@@ -658,8 +660,8 @@ and a parent is often virtual, naming no real task.
 
 A desk id names what its entry stands for — see `CONTEXT.md`, "Desk". `desk_id_for_task`,
 `desk_id_for_agent` and `split_desk_id` build and split one, mirrored in
-`web/src/protocol/deskId.ts`. The task half carries the wire id, so two projects may each keep
-their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids; the
+`orchestrator-ui/src/protocol/deskId.ts`. The task half carries the wire id, so two projects may
+each keep their own `2026-06-11.1`. A desk written before ids carried a kind held bare task ids; the
 desk ladder's import rung rewrites those to `task:` ids as it reads `desk.json`.
 
 ## Reading the world
@@ -903,8 +905,8 @@ anything else to `invalid`.
 ## Running it
 
 ```bash
-mael orchestrator serve                                # http://127.0.0.1:8765
-mael orchestrator serve --port 3072 --log-level warning
+uv run mael-orchestrator serve                         # http://127.0.0.1:8765
+uv run mael-orchestrator serve --port 3072 --log-level warning
 mael env start                                         # in this repo: web and orchestrator together
 ```
 
@@ -931,7 +933,7 @@ The server writes timestamped logs to stderr. Under `mael env` that stream lands
 `--log-level` sets it; the default is `info`.
 
 ```bash
-mael orchestrator serve --log-level warning            # drop the per-command trace
+uv run mael-orchestrator serve --log-level warning     # drop the per-command trace
 mael env logs orchestrator                             # tail the running server
 ```
 
@@ -944,7 +946,7 @@ Two rules keep the file worth reading:
 - **The HTTP access log stays off.** The notice stream pings every client every 15 seconds, so an
   access line per request would bury what the log is read for.
 
-Logging is configured in `orchestrator_cli.setup_logging`, not in `build_app`. The test suite runs
+Logging is configured in `cli.setup_logging`, not in `build_app`. The test suite runs
 the real app, and a global logging setup inside `build_app` would follow it into every test.
 
 ## Open risks
