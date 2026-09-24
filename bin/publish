@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish sminnee-maelstrom to PyPI.
+"""Publish sminnee-maelstrom, the `mael` CLI, to PyPI.
 
 Usage: bin/publish [--minor|--major] [--dry-run]
 
@@ -30,9 +30,11 @@ from pathlib import Path
 
 PYPROJECT = Path("pyproject.toml")
 #: Every package's version, as (pyproject, __init__) pairs. The root is first
-#: and is the one read; the workspace members move with it in lockstep.
-VERSIONED = [
-    (PYPROJECT, Path("src/maelstrom/__init__.py")),
+#: and is the one read; the workspace members move with it in lockstep. The root
+#: builds no package, so it has no ``__init__``.
+VERSIONED: list[tuple[Path, Path | None]] = [
+    (PYPROJECT, None),
+    (Path("cli/pyproject.toml"), Path("cli/src/mael_cli/__init__.py")),
     (Path("lib/common/pyproject.toml"), Path("lib/common/src/mael_common/__init__.py")),
     (Path("lib/agent/pyproject.toml"), Path("lib/agent/src/mael_agent/__init__.py")),
     (Path("lib/domain/pyproject.toml"), Path("lib/domain/src/mael_domain/__init__.py")),
@@ -40,6 +42,7 @@ VERSIONED = [
     (Path("orchestrator-api/pyproject.toml"), Path("orchestrator-api/src/mael_orchestrator/__init__.py")),
 ]
 LOCK = Path("uv.lock")
+DIST = Path("dist")
 CHANGELOG = Path("CHANGELOG.md")
 
 UNRELEASED_HEADING = "## [Unreleased]"
@@ -87,6 +90,8 @@ def write_version(old: str, new: str) -> None:
             pyproject.read_text(encoding="utf-8").replace(f'version = "{old}"', f'version = "{new}"', 1),
             encoding="utf-8",
         )
+        if init is None:
+            continue
         init.write_text(
             init.read_text(encoding="utf-8").replace(f'__version__ = "{old}"', f'__version__ = "{new}"', 1),
             encoding="utf-8",
@@ -125,6 +130,13 @@ def retitle_unreleased(new: str, released_on: str) -> None:
         text.replace(UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1),
         encoding="utf-8",
     )
+
+
+def build(outdir: Path) -> None:
+    """Build the one wheel this release uploads: the CLI's, into ``outdir``."""
+    # --directory, so a caller outside the repository builds this checkout.
+    root = Path(__file__).resolve().parent.parent
+    run("uv", "build", "--directory", str(root), "--package", "sminnee-maelstrom", "--wheel", "-o", str(outdir.resolve()))
 
 
 def run(*command: str) -> None:
@@ -180,13 +192,13 @@ def main() -> int:
 
     # Gates must pass before anything is published. A release runs all three
     # whatever changed, in the same order .github/workflows/test.yml uses.
-    run("uv", "run", "pytest", "--ignore=tests/e2e")
-    run("uv", "run", "pytest", "tests/e2e/", "-v")
+    run("uv", "run", "pytest", "-m", "not e2e")
+    run("uv", "run", "pytest", "-m", "e2e", "-v")
     run("bin/lint")
 
     write_version(old, new)
-    shutil.rmtree("dist", ignore_errors=True)
-    run("uv", "build")
+    shutil.rmtree(DIST, ignore_errors=True)
+    build(DIST)
 
     if args.dry_run:
         print("Dry run: built but not published. Reverting the version bump.")
@@ -194,7 +206,7 @@ def main() -> int:
         return 0
 
     retitle_unreleased(new, date.today().isoformat())
-    versioned = [str(path) for pair in VERSIONED for path in pair]
+    versioned = [str(path) for pair in VERSIONED for path in pair if path is not None]
     run("git", "add", *versioned, str(LOCK), str(CHANGELOG))
     run("git", "commit", "-m", f"chore: release v{new}")
 

@@ -1,9 +1,8 @@
 """Test fixtures for every workspace member.
 
-The root and each member's ``tests/`` all sit below this file, so what is here
-applies to every suite. It imports no package: a member's suite must run
-without the ``maelstrom`` CLI. The ``maelstrom`` fixtures are in
-``tests/conftest.py``.
+Each member's ``tests/`` sits below this file, so what is here applies to
+every suite. It imports no package: a member's suite must run without the
+``mael`` CLI. The CLI's fixtures are in ``cli/tests/conftest.py``.
 """
 
 import socket

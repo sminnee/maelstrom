@@ -1,6 +1,6 @@
 """Driving the ``mael-agent-daemon`` group through the recording transport.
 
-A copy of the root suite's ``agent_cli_support``: the daemon's suite stands alone.
+A copy of the CLI suite's ``agent_cli_support``: the daemon's suite stands alone.
 """
 
 from pathlib import Path

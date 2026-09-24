@@ -80,14 +80,14 @@ _.side_effect  # unused attribute (tests/)
 # Pytest fixtures a test requests for their side effect alone. Naming the
 # fixture in the signature is how a test asks for it, so the parameter is the
 # use, but vulture sees only a parameter nothing reads. Each name below is a
-# fixture defined with @pytest.fixture in tests/.
-darwin  # unused variable (tests/test_schedule_launchd.py)
-no_power_commands  # unused variable (tests/test_schedule_launchd.py)
-quiet_finalize  # unused variable (tests/test_sync_flags.py)
-process_cleanup  # unused variable (tests/e2e/conftest.py)
+# fixture defined with @pytest.fixture in cli/tests/.
+darwin  # unused variable (cli/tests/test_schedule_launchd.py)
+no_power_commands  # unused variable (cli/tests/test_schedule_launchd.py)
+quiet_finalize  # unused variable (cli/tests/test_sync_flags.py)
+process_cleanup  # unused variable (cli/tests/e2e/conftest.py)
 
 # Parameters a lambda must accept to match the signature it replaces.
-pp  # unused variable (tests/test_task_cli.py, lib/domain/tests/test_worktree_close.py)
+pp  # unused variable (cli/tests/test_task_cli.py, lib/domain/tests/test_worktree_close.py)
 num  # unused variable (lib/domain/tests/test_ports.py)
 
 

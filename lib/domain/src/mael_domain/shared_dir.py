@@ -4,11 +4,16 @@ from pathlib import Path
 
 
 def get_shared_dir() -> Path:
-    """Get path to maelstrom's shared/ directory."""
+    """Get path to maelstrom's shared/ directory.
+
+    The published ``mael`` wheel carries it inside this package, because no
+    repository surrounds it. A checkout has it at the repository root.
+    """
+    here = Path(__file__).parent
     # lib/domain/src/mael_domain/ -> the repository root.
-    dev_path = Path(__file__).parents[4] / "shared"
-    if dev_path.exists():
-        return dev_path
+    for candidate in (here / "shared", here.parents[3] / "shared"):
+        if candidate.exists():
+            return candidate
     raise FileNotFoundError("Could not locate maelstrom shared directory")
 
 

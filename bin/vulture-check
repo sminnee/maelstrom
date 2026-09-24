@@ -31,7 +31,7 @@ uv run vulture \
   --min-confidence=60 \
   --ignore-decorators='@click.*,@*.command,@*.group,@*.result_callback,@property,@dataclass,@staticmethod,@classmethod,@overload,@routes.*,@pytest.*' \
   --ignore-names='compose,on_*,action_*,BINDINGS,CSS,list_commands,get_command,command_class,group_class,InMemory*,test_*,pytest_*,mock_*' \
-  src tests \
+  cli/src cli/tests \
   lib/common/src lib/common/tests \
   lib/agent/src lib/agent/tests \
   lib/domain/src lib/domain/tests \

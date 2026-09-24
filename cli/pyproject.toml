@@ -1,0 +1,41 @@
+[project]
+name = "sminnee-maelstrom"
+version = "0.1.2"
+description = "Parallel development environment manager using git worktrees"
+# A link to the repository's README. Hatch reads no readme outside the member.
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sam Minnee" }]
+# The bundled libraries' third-party dependencies as well as the CLI's own: the
+# wheel carries the libraries, so PyPI installs only this list. No workspace
+# member is listed, because PyPI has none of them.
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.0",
+    "markdown-to-mrkdwn>=0.3",
+    "textual>=8.2.8,<9",
+    "pydantic>=2.13.5",
+]
+
+[project.urls]
+Repository = "https://github.com/sminnee/maelstrom"
+
+[project.scripts]
+mael = "mael_cli.cli:main"
+sminnee-maelstrom = "mael_cli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# hatch_build.py bundles the libraries and `shared/` into the published wheel.
+# See docs/dev/architecture-patterns.md.
+[tool.hatch.build.targets.wheel]
+packages = ["src/mael_cli"]
+# An editable install puts these on the path. `mael self-update` installs this
+# member alone as an editable uv tool, with no other member beside it, so the
+# bundled libraries must be reachable from this install.
+dev-mode-dirs = ["src", "../lib/common/src", "../lib/agent/src", "../lib/domain/src"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]

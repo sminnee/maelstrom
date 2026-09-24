@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run ruff check src tests lib agent-daemon orchestrator-api conftest.py
-uv run ruff format --check src tests lib agent-daemon orchestrator-api conftest.py
+uv run ruff check cli lib agent-daemon orchestrator-api conftest.py
+uv run ruff format --check cli lib agent-daemon orchestrator-api conftest.py
 uv run pyright
 uv run lint-imports
 bin/vulture-check
