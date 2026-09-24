@@ -270,6 +270,12 @@ parent reports every ask beneath it. `mael agent list` shows it under its parent
 `tail` take its id, and the orchestrator UI opens it from the parent's session tab.
 _Avoid_: Sidechain, child session, sub-agent
 
+**Delegating**:
+The state of a driven agent whose turn ended while at least one of its **subagents** still runs.
+No turn is open and nobody waits for the user, but the work goes on. A background `Bash` does not
+count.
+_Avoid_: Idle, waiting
+
 **Usage window**:
 One rolling budget the Claude account spends against: the five-hour window and the seven-day
 window. Each carries a utilisation and the time it rolls over. The reading arrives on a driven

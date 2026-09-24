@@ -26,6 +26,10 @@ PROCESSING = "processing"
 AWAITING_PERMISSION = "awaiting-permission"
 AWAITING_QUESTION = "awaiting-question"
 AWAITING_PLAN_REVIEW = "awaiting-plan-review"
+#: A subagent runs on after the turn ended (see CONTEXT.md, "Delegating").
+#: The one state the row derives rather than observes: the reducer's own
+#: status stays ``IDLE``. In neither tuple below.
+DELEGATING = "delegating"
 #: Terminal: the child process is gone. An exited agent answers nothing.
 EXITED = "exited"
 

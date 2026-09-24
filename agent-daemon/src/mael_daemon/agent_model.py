@@ -19,6 +19,7 @@ from typing import Any
 
 from mael_agent.agent_transport import ROOT_ENV
 from mael_agent.agent_wire import (
+    DELEGATING,
     EXITED,
     IDLE,
     NORMAL,
@@ -947,6 +948,18 @@ def _wait_status(pending: dict[str, PendingRequest], fallback: str) -> str:
     return fallback
 
 
+def _status_without_asks(state: AgentState) -> str:
+    """The status ``state`` reports when no ask is open: ``delegating`` while an
+    idle agent's subagent runs. The reducer keeps ``idle`` for ``last_status``
+    and the resume prompt.
+    """
+    if state.status == IDLE and any(
+        sub.status == SUB_RUNNING for sub in state.subagents.values()
+    ):
+        return DELEGATING
+    return state.status
+
+
 def _with_pending(state: AgentState, pending: dict[str, PendingRequest]) -> AgentState:
     """``state`` holding ``pending``, with the status that follows from it."""
     return replace(state, own_pending=pending, status=_wait_status(pending, PROCESSING))
@@ -1264,7 +1277,7 @@ def build_agent_row(state: AgentState, spawn_session: str = "") -> AgentRow:
         asks: dict[str, PendingRequest] = {}
     else:
         asks = open_asks(state)
-        status = _wait_status(asks, state.status)
+        status = _wait_status(asks, _status_without_asks(state))
     return {
         "id": state.agent_id,
         "parent": "",
