@@ -66,3 +66,22 @@ def test_the_wheel_bundles_every_library_and_not_the_daemon():
         "src",
         *(p.rsplit("/", 1)[0] for p in libraries),
     }
+
+
+def _third_party(requirements: list[str]) -> set[str]:
+    """The distribution names in ``requirements``, less the workspace members."""
+    names = {re.split(r"[<>=!~;\[ ]", r, maxsplit=1)[0].lower() for r in requirements}
+    return {n for n in names if not n.startswith("mael-")}
+
+
+def test_the_root_declares_every_bundled_librarys_dependencies():
+    """The root wheel bundles each library, so PyPI installs only the root's
+    dependencies. A library's own list never reaches a `mael` user."""
+    root = tomllib.loads((REPO / "pyproject.toml").read_text())
+    declared = _third_party(root["project"]["dependencies"])
+    for member in root["tool"]["uv"]["workspace"]["members"]:
+        if not member.startswith("lib/"):
+            continue
+        project = tomllib.loads((REPO / member / "pyproject.toml").read_text())
+        needed = _third_party(project["project"].get("dependencies", []))
+        assert needed <= declared, f"{member} needs {needed - declared}"
