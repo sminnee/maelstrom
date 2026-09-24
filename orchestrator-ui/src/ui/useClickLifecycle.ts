@@ -78,6 +78,7 @@ function isThenable(value: unknown): value is Promise<unknown> {
   return !!value && typeof (value as Promise<unknown>).then === 'function';
 }
 
-function messageOf(err: unknown): string {
+/** The words to show for a refusal: an `ApiError`'s own message, or the thrown value. */
+export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
