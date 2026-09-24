@@ -16,25 +16,25 @@ from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
+from git_helpers import create_commit, history_refs, run_git, three_commits
 
-from maelstrom import worktree as worktree_module
-from maelstrom.base_store import InMemoryBaseStore
-from maelstrom.cli import cli
-from maelstrom.worktree import (
+from mael_domain import worktree as worktree_module
+from mael_domain.base_store import InMemoryBaseStore
+from mael_domain.worktree import (
     get_commits_ahead,
     get_worktree_dirty_files,
     rebase_in_progress,
     squash_branch,
     uncommit_branch,
 )
-from maelstrom.worktree_model import (
+from mael_domain.worktree_model import (
     SQUASH_MESSAGE,
     BaseRef,
     SquashResult,
     SquashScope,
     WorktreeError,
 )
-from tests.git_helpers import create_commit, history_refs, run_git, three_commits
+from maelstrom.cli import cli
 
 
 def _subjects(worktree_path: Path, rev_range: str) -> list[str]:
@@ -450,7 +450,7 @@ class TestUncommitBranchCommandScope:
     """``mael git uncommit-branch`` takes the same flag pair."""
 
     def _run(self, worktree_path: Path, args=None):
-        from maelstrom.worktree_model import UncommitResult
+        from mael_domain.worktree_model import UncommitResult
 
         with (
             patch(

@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
+from mael_domain.mv_project import build_move_plan
 from maelstrom.cli import cli
-from maelstrom.mv_project import build_move_plan
 from maelstrom.mv_project_cli import _rewrite_path_string
 
 

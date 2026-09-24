@@ -5,11 +5,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from git_helpers import create_commit, run_git, setup_git_repo
 
+from mael_domain.ports import load_port_allocations, record_port_allocation
+from mael_domain.worktree import WorktreeInfo, update_local_main
 from maelstrom.doctor import CheckStatus, _check_port_allocations, run_doctor
-from maelstrom.ports import load_port_allocations, record_port_allocation
-from maelstrom.worktree import WorktreeInfo, update_local_main
-from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 
 def _create_project_repo(default_branch="main"):

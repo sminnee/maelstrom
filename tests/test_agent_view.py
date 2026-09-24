@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from agent_fixtures import FIXTURES
+
 from mael_agent.agent_wire import (
     AGENT_EXITED,
     BACKLOG_END,
@@ -24,8 +26,6 @@ from maelstrom.agent_view import (
     transcript_items,
     turn_result_line,
 )
-
-from .agent_fixtures import FIXTURES
 
 #: The tool-card golden stays beside the web goldens, which read it too.
 GOLDEN = Path(__file__).parent / "fixtures" / "agent_events" / "tool-cards.json"

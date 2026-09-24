@@ -4,6 +4,9 @@ import asyncio
 
 import pytest
 
+from mael_domain.state_db.db import StateDb
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.types import Migration, TableSpec, Write
 from maelstrom.refresh import (
     Fetched,
     Health,
@@ -13,9 +16,6 @@ from maelstrom.refresh import (
     refused,
     succeeded,
 )
-from maelstrom.state_db.db import StateDb
-from maelstrom.state_db.migrate import open_state_db
-from maelstrom.state_db.types import Migration, TableSpec, Write
 
 #: Wall time a test stamps a fact with, so a `since` is readable rather than now.
 AT = "2026-09-12T10:00:00Z"

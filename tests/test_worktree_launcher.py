@@ -681,7 +681,7 @@ class TestOpenClaudeWorkspace:
     def test_returns_false_without_project_or_worktree(self):
         # A workspace can't be named without project+worktree → no placement.
         with patch(
-            "maelstrom.cmux.mael_layout.ensure_worktree_workspace"
+            "mael_domain.cmux.mael_layout.ensure_worktree_workspace"
         ) as mock_ensure:
             placed = open_claude_workspace(None, "alpha", Path("/wt"), ["claude", "hi"])
             assert placed is False
@@ -691,7 +691,7 @@ class TestOpenClaudeWorkspace:
         # Outside cmux the seam returns False; open_claude_workspace passes it on.
         with (
             patch(
-                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
                 return_value=False,
             ),
             patch(
@@ -707,7 +707,7 @@ class TestOpenClaudeWorkspace:
     def test_passes_shell_line_and_install_to_seam(self):
         with (
             patch(
-                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
                 return_value=True,
             ) as mock_ensure,
             patch(
@@ -748,7 +748,7 @@ class TestOpenClaudeWorkspace:
         )
         with (
             patch(
-                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
                 return_value=True,
             ) as mock_ensure,
             patch(
@@ -766,7 +766,7 @@ class TestOpenClaudeWorkspace:
     def test_empty_install_cmd_passed_as_none(self):
         with (
             patch(
-                "maelstrom.cmux.mael_layout.ensure_worktree_workspace",
+                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
                 return_value=True,
             ) as mock_ensure,
             patch(

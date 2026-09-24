@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from maelstrom.worktree import (
+from mael_domain.worktree import (
     create_worktree,
     get_current_branch,
     is_worktree_closed,

@@ -15,11 +15,12 @@ import pytest
 from click.testing import CliRunner
 
 from mael_common.shell import describe
-from maelstrom import session_discovery, task_cli
-from maelstrom import task as model
+from mael_domain import session_discovery
+from mael_domain import task as model
+from mael_domain.task_table import InMemoryTaskTable
+from mael_domain.worktree import SyncResult, WorktreeSetup
+from maelstrom import task_cli
 from maelstrom.integrations.linear_cli import cmd_plan
-from maelstrom.task_table import InMemoryTaskTable
-from maelstrom.worktree import SyncResult, WorktreeSetup
 
 
 @pytest.fixture
@@ -337,7 +338,7 @@ class TestUpdateRename:
 
 class TestStatusFiresActions:
     def test_status_done_fires_post_action(self, runner, store, monkeypatch):
-        from maelstrom.integrations import linear
+        from mael_domain.integrations import linear
 
         calls = []
 
@@ -778,7 +779,7 @@ class TestRunHarness:
         # deterministic --session-id; neither applies to opencode, so even a
         # live claude session for this task must not block an opencode launch.
         t = await model.create(store, project="p", title="Plan it")
-        from maelstrom import session_discovery
+        from mael_domain import session_discovery
 
         live = session_discovery.LiveSession(
             pid=1,
@@ -897,7 +898,7 @@ class TestRunHarness:
 
 def _live_session(pid=1, cwd=Path("/work/tree"), session_id=None):
     """A minimal :class:`LiveSession` stand-in (always live by construction)."""
-    from maelstrom.session_discovery import LiveSession
+    from mael_domain.session_discovery import LiveSession
 
     return LiveSession(pid=pid, cwd=cwd, session_id=session_id)
 

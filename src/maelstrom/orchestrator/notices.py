@@ -5,7 +5,7 @@ client refetches what it shows and finds each id present or gone. See
 ``docs/dev/orchestrator-server.md``, "Change notices".
 """
 
-from .protocol import ENTITY_KINDS, ServerEvent
+from mael_domain.protocol import ENTITY_KINDS, ServerEvent
 
 #: The kinds a notice may name: every entity kind but ``comment``, which
 #: folds into ``document`` because the client fetches comments with theirs.

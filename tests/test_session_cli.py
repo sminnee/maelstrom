@@ -8,16 +8,16 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from mael_domain import task as model
+from mael_domain.task import Task
+from mael_domain.task_table import InMemoryTaskTable
 from maelstrom import session_cli
-from maelstrom import task as model
 from maelstrom.cli import cli
-from maelstrom.task import Task
-from maelstrom.task_table import InMemoryTaskTable
 
 
 def _patch_live(sessions):
     """Patch the live-process sweep `session list` drives off."""
-    from maelstrom import session_discovery
+    from mael_domain import session_discovery
 
     swept = list(sessions)
 
@@ -34,7 +34,7 @@ def _patch_pid_lookup(pid, cwd="/w/alpha"):
     that is not a ``claude``. Patched rather than run for real so no test shells
     out to `ps`/`lsof` and depends on what is running on the machine.
     """
-    from maelstrom import session_discovery
+    from mael_domain import session_discovery
 
     found = None if pid is None else _live(pid, cwd)
 
@@ -45,7 +45,7 @@ def _patch_pid_lookup(pid, cwd="/w/alpha"):
 
 
 def _live(pid, cwd):
-    from maelstrom.session_discovery import LiveSession
+    from mael_domain.session_discovery import LiveSession
 
     return LiveSession(pid=pid, cwd=Path(cwd))
 

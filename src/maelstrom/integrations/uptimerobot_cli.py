@@ -4,8 +4,13 @@ import time
 
 import click
 
-from . import uptimerobot
-from ._format import format_datetime, format_relative_time, parse_since
+from mael_domain.integrations import uptimerobot
+from mael_domain.integrations._format import (
+    format_datetime,
+    format_relative_time,
+    parse_since,
+)
+
 from .group_cli import IntegrationGroup
 
 

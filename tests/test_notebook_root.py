@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from maelstrom.notebook_root import (
+from mael_domain.notebook_root import (
     NOTEBOOK_ROOT_ENV,
     NotebookRootUnset,
     notebook_root,
@@ -86,25 +86,25 @@ class TestTheNotebookPathsFollowTheRoot:
     """
 
     def test_the_state_db_follows_the_root(self, monkeypatch):
-        from maelstrom.state_db.paths import get_state_db_path
+        from mael_domain.state_db.paths import get_state_db_path
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_state_db_path() == Path("/tmp/nb/state.db")
 
     def test_the_desk_follows_the_root(self, monkeypatch):
-        from maelstrom.state_db.paths import get_desk_json_path
+        from mael_domain.state_db.paths import get_desk_json_path
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_desk_json_path() == Path("/tmp/nb/desk.json")
 
     def test_the_notebook_export_follows_the_root(self, monkeypatch):
-        from maelstrom.state_db.paths import get_notebook_path
+        from mael_domain.state_db.paths import get_notebook_path
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_notebook_path() == Path("/tmp/nb/tasks")
 
     def test_the_store_root_follows_the_root(self, monkeypatch):
-        from maelstrom.task_store import tasks_root
+        from mael_domain.task_store import tasks_root
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert tasks_root() == Path("/tmp/nb/tasks")
@@ -112,8 +112,8 @@ class TestTheNotebookPathsFollowTheRoot:
     def test_the_two_task_paths_agree(self, monkeypatch):
         """They resolve the same directory by different routes. Moving one and
         not the other desynchronises the export from its importer."""
-        from maelstrom.state_db.paths import get_notebook_path
-        from maelstrom.task_store import tasks_root
+        from mael_domain.state_db.paths import get_notebook_path
+        from mael_domain.task_store import tasks_root
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_notebook_path() == tasks_root()

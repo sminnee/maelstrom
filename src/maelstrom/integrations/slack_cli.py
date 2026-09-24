@@ -4,7 +4,8 @@ import sys
 
 import click
 
-from . import slack
+from mael_domain.integrations import slack
+
 from .group_cli import IntegrationGroup
 
 

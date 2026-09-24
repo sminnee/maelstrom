@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TranscriptItem } from '../protocol/transcript';
 
-// vitest runs from web/; the goldens the Python normaliser owns live beside the Python tests.
-const GOLDEN = resolve(process.cwd(), '../tests/fixtures/agent_events/normalised');
+// vitest runs from web/; the goldens the Python normaliser owns live in the domain library.
+const GOLDEN = resolve(process.cwd(), '../lib/domain/fixtures/normalised');
 
 interface Golden {
   transcripts: Record<string, { items: TranscriptItem[] }>;
@@ -11,7 +11,7 @@ interface Golden {
 
 /**
  * The transcript items one recorded daemon stream normalises to, from the
- * golden `tests/test_orchestrator_normalise.py` owns. One fixture set feeds
+ * golden `lib/domain/tests/test_orchestrator_normalise.py` owns. One fixture set feeds
  * both suites.
  */
 export function goldenItems(fixture: string): TranscriptItem[] {

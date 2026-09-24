@@ -81,7 +81,7 @@ def resolve_model_reference(model: str | None, mode: str = "normal") -> ModelRef
 #: What an execute-model alias may contain. The alias reaches the child as the
 #: text of a ``/model`` user turn rather than as an argv element, so a newline
 #: in it would deliver a second turn of its own. Same character set and same
-#: reason as :func:`maelstrom.task.is_safe_id`.
+#: reason as :func:`mael_domain.task.is_safe_id`.
 _SAFE_ALIAS = re.compile(r"[A-Za-z0-9._-]+")
 
 

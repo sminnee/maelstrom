@@ -337,7 +337,7 @@ class TestGitMergeCommand:
     def test_success_echoes_merge_and_push_messages(
         self, mock_ctx, mock_branch, mock_merge
     ):
-        from maelstrom.worktree import SyncResult
+        from mael_domain.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_branch.return_value = "feat/test"
@@ -363,7 +363,7 @@ class TestGitMergeCommand:
     @patch("maelstrom.git_cli.get_current_branch")
     @patch("maelstrom.git_cli.resolve_context")
     def test_close_flag_passes_close_true(self, mock_ctx, mock_branch, mock_merge):
-        from maelstrom.worktree import SyncResult
+        from mael_domain.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_branch.return_value = "feat/test"
@@ -385,7 +385,7 @@ class TestGitMergeCommand:
     def test_no_squash_flag_passes_squash_false(
         self, mock_ctx, mock_branch, mock_merge
     ):
-        from maelstrom.worktree import SyncResult
+        from mael_domain.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_branch.return_value = "feat/test"
@@ -407,7 +407,7 @@ class TestGitMergeCommand:
     def test_conflicts_print_guidance_and_exit_1(
         self, mock_ctx, mock_branch, mock_merge
     ):
-        from maelstrom.worktree import SyncResult
+        from mael_domain.worktree import SyncResult
 
         mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
         mock_branch.return_value = "feat/test"

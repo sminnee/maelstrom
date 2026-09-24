@@ -8,15 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from maelstrom import task as model
-from maelstrom.session_discovery import LiveSession, LiveSessionSet
-from maelstrom.task_launch import (
+from mael_domain import task as model
+from mael_domain.session_discovery import LiveSession, LiveSessionSet
+from mael_domain.task_launch import (
     LaunchBlocked,
     check_not_live,
     check_synced,
     plan_launch,
 )
-from maelstrom.worktree import SyncResult, WorktreeSetup
+from mael_domain.worktree import SyncResult, WorktreeSetup
 
 
 def test_plan_launch_derives_everything_from_the_task():

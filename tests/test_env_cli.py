@@ -6,9 +6,9 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from mael_domain.config import MaelstromConfig
+from mael_domain.env import EnvState, ServiceState, ServiceStatus
 from maelstrom.cli import cli
-from maelstrom.config import MaelstromConfig
-from maelstrom.env import EnvState, ServiceState, ServiceStatus
 from maelstrom.env_cli import (
     ensure_cmux_browser,
     print_service_status,
@@ -1393,7 +1393,7 @@ class TestEnvTargetsMain:
     @patch("maelstrom.env_cli.load_env_state")
     @patch("maelstrom.env_cli.get_env_status", return_value=[])
     @patch("maelstrom.env_cli.start_env")
-    @patch("maelstrom.context.load_global_config")
+    @patch("mael_domain.context.load_global_config")
     def test_start_resolves_the_main_folder(
         self, mock_global, mock_start, mock_status, mock_load, mock_app, tmp_path
     ):

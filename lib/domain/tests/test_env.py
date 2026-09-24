@@ -1,0 +1,3499 @@
+"""Tests for mael_domain.env module."""
+
+import itertools
+import signal
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
+
+import pytest
+
+from mael_domain.config import ServiceDef
+from mael_domain.env import (
+    MAX_LOG_BYTES,
+    EnvState,
+    ProcfileEntry,
+    ResolvedService,
+    ServiceState,
+    ServiceStatus,
+    SharedEnvState,
+    _spawn_services,
+    build_service_env,
+    cleanup_stale_env,
+    cleanup_stale_shared,
+    get_env_status,
+    get_log_files,
+    get_services,
+    get_shared_status,
+    is_service_alive,
+    is_shared_service,
+    list_all_envs,
+    list_project_envs,
+    load_env_state,
+    load_shared_state,
+    parse_procfile,
+    read_service_logs,
+    regenerate_and_restart_if_running,
+    remove_env_state,
+    remove_shared_state,
+    save_env_state,
+    save_shared_state,
+    start_env,
+    stop_all_envs,
+    stop_env,
+    stop_sessions,
+    tail_log_file,
+)
+from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
+from mael_domain.session_discovery import LiveSession
+
+
+class TestParseProcfile:
+    """Tests for parse_procfile function."""
+
+    def test_standard_format(self, tmp_path):
+        """Parse a basic Procfile with multiple services."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text(
+            "web: python manage.py runserver\nworker: celery -A app worker\n"
+        )
+        result = parse_procfile(procfile)
+        assert result == [
+            ProcfileEntry(name="web", command="python manage.py runserver"),
+            ProcfileEntry(name="worker", command="celery -A app worker"),
+        ]
+
+    def test_comments_and_empty_lines(self, tmp_path):
+        """Skip comments and blank lines."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text(
+            "# This is a comment\n\nweb: python app.py\n\n# Another comment\n"
+        )
+        result = parse_procfile(procfile)
+        assert result == [ProcfileEntry(name="web", command="python app.py")]
+
+    def test_colon_in_command(self, tmp_path):
+        """Commands containing colons are handled (split on first colon only)."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text("web: uvicorn app:main --host 0.0.0.0:8000\n")
+        result = parse_procfile(procfile)
+        assert result == [
+            ProcfileEntry(name="web", command="uvicorn app:main --host 0.0.0.0:8000")
+        ]
+
+    def test_missing_file(self, tmp_path):
+        """FileNotFoundError for a missing Procfile."""
+        with pytest.raises(FileNotFoundError):
+            parse_procfile(tmp_path / "Procfile")
+
+    def test_invalid_line_no_colon(self, tmp_path):
+        """ValueError for a line without a colon."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text("this is invalid\n")
+        with pytest.raises(ValueError, match="no colon"):
+            parse_procfile(procfile)
+
+    def test_empty_name(self, tmp_path):
+        """ValueError for a line with an empty name."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text(": some command\n")
+        with pytest.raises(ValueError, match="empty name"):
+            parse_procfile(procfile)
+
+    def test_empty_procfile(self, tmp_path):
+        """An empty Procfile returns no entries."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text("")
+        assert parse_procfile(procfile) == []
+
+    def test_whitespace_trimming(self, tmp_path):
+        """Names and commands are stripped of surrounding whitespace."""
+        procfile = tmp_path / "Procfile"
+        procfile.write_text("  web  :  python app.py  \n")
+        result = parse_procfile(procfile)
+        assert result == [ProcfileEntry(name="web", command="python app.py")]
+
+
+class TestGetServices:
+    """Tests for get_services function."""
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_procfile_present(self, mock_config, tmp_path):
+        """Use Procfile when it exists (and no structured services)."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        (tmp_path / "Procfile").write_text("web: python app.py\n")
+        result = get_services(tmp_path)
+        assert result == [ResolvedService(name="web", command="python app.py")]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_fallback_to_start_cmd(self, mock_config, tmp_path):
+        """Fall back to start_cmd as single 'app' service."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="npm start")
+        result = get_services(tmp_path)
+        assert result == [ResolvedService(name="app", command="npm start")]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_neither_available(self, mock_config, tmp_path):
+        """RuntimeError when no services, no Procfile and no start_cmd."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        with pytest.raises(RuntimeError, match="No Procfile"):
+            get_services(tmp_path)
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_procfile_takes_precedence_over_start_cmd(self, mock_config, tmp_path):
+        """Procfile is used even when start_cmd is configured."""
+        (tmp_path / "Procfile").write_text("web: gunicorn app\n")
+        mock_config.return_value = MagicMock(services=[], start_cmd="npm start")
+        result = get_services(tmp_path)
+        assert result == [ResolvedService(name="web", command="gunicorn app")]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_structured_services_take_precedence(self, mock_config, tmp_path):
+        """Structured services win over a Procfile."""
+        (tmp_path / "Procfile").write_text("web: gunicorn app\n")
+        mock_config.return_value = MagicMock(
+            services=[ServiceDef(name="frontend", command="node server.ts")],
+        )
+        result = get_services(tmp_path, "proj")
+        assert result == [ResolvedService(name="frontend", command="node server.ts")]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_procfile_shared_suffix_marks_shared(self, mock_config, tmp_path):
+        """Procfile services with a -shared suffix resolve as shared."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        (tmp_path / "Procfile").write_text("web: python app.py\ndb-shared: postgres\n")
+        result = get_services(tmp_path)
+        assert result[0] == ResolvedService(name="web", command="python app.py")
+        assert result[1] == ResolvedService(
+            name="db-shared",
+            command="postgres",
+            shared=True,
+        )
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_structured_container_service(self, mock_config, tmp_path):
+        """A structured apple-container service resolves to the run boilerplate."""
+        mock_config.return_value = MagicMock(
+            services=[
+                ServiceDef(
+                    name="db",
+                    shared=True,
+                    engine="apple-container",
+                    image="pgvector/pgvector:pg16",
+                    host_var="DB_HOST",
+                    publish=["${DB_PORT}:5432"],
+                ),
+            ],
+        )
+        result = get_services(tmp_path, "proj")
+        assert len(result) == 1
+        svc = result[0]
+        assert svc.name == "db"
+        assert svc.shared is True
+        assert svc.engine == "apple-container"
+        assert svc.container_name == "proj-db"
+        assert svc.host_var == "DB_HOST"
+        assert "container run --rm --name proj-db" in svc.command
+
+
+class TestGetServicesSelection:
+    """Tests for optional filtering and the `names` selection in get_services."""
+
+    def _config(self):
+        return MagicMock(
+            services=[
+                ServiceDef(name="web", command="node server.ts"),
+                ServiceDef(name="ladle", command="ladle serve", optional=True),
+                ServiceDef(name="worker", command="run worker"),
+            ],
+        )
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_default_skips_optional(self, mock_config, tmp_path):
+        """A default resolve leaves optional services out."""
+        mock_config.return_value = self._config()
+        result = get_services(tmp_path, "proj")
+        assert [s.name for s in result] == ["web", "worker"]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_names_selects_optional(self, mock_config, tmp_path):
+        """A named resolve returns the named service, optional or not."""
+        mock_config.return_value = self._config()
+        result = get_services(tmp_path, "proj", names=["ladle"])
+        assert [s.name for s in result] == ["ladle"]
+        assert result[0].optional is True
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_names_returns_declaration_order(self, mock_config, tmp_path):
+        """Named services come back in declaration order, not request order."""
+        mock_config.return_value = self._config()
+        result = get_services(tmp_path, "proj", names=["worker", "web"])
+        assert [s.name for s in result] == ["web", "worker"]
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_unknown_name_lists_declared(self, mock_config, tmp_path):
+        """An unknown name is rejected, listing what is declared."""
+        mock_config.return_value = self._config()
+        with pytest.raises(ValueError, match="web, ladle, worker"):
+            get_services(tmp_path, "proj", names=["nope"])
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_names_on_procfile_project_rejected(self, mock_config, tmp_path):
+        """A Procfile project cannot select a service by name."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        (tmp_path / "Procfile").write_text("web: python app.py\n")
+        with pytest.raises(ValueError, match="Procfile"):
+            get_services(tmp_path, "proj", names=["web"])
+
+    @patch("mael_domain.env.load_config_or_default")
+    def test_procfile_ignores_optional_filter(self, mock_config, tmp_path):
+        """Procfile services are all returned; there is no optional there."""
+        mock_config.return_value = MagicMock(services=[], start_cmd="")
+        (tmp_path / "Procfile").write_text("web: python app.py\nworker: run\n")
+        result = get_services(tmp_path)
+        assert [s.name for s in result] == ["web", "worker"]
+
+
+class TestEnvStateRoundTrip:
+    """Tests for save_env_state / load_env_state / remove_env_state."""
+
+    def _make_state(self):
+        return EnvState(
+            project="myproject",
+            worktree="bravo",
+            worktree_path="/home/user/myproject/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=12345,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+    def test_save_and_load(self):
+        """State round-trips through save/load."""
+        store = InMemoryEnvStore()
+        state = self._make_state()
+        save_env_state(store, state)
+        loaded = load_env_state(store, "myproject", "bravo")
+        assert loaded is not None
+        assert loaded.project == state.project
+        assert loaded.worktree == state.worktree
+        assert loaded.worktree_path == state.worktree_path
+        assert loaded.started_at == state.started_at
+        assert len(loaded.services) == 1
+        assert loaded.services[0].name == "web"
+        assert loaded.services[0].pid == 12345
+
+    def test_load_missing_file(self):
+        """Returns None for missing state file."""
+        store = InMemoryEnvStore()
+        assert load_env_state(store, "noproject", "alpha") is None
+
+    def test_load_corrupt_json(self, tmp_path):
+        """Returns None for corrupt JSON."""
+        store = JsonEnvStore(root=tmp_path)
+        state_dir = tmp_path / "myproject"
+        state_dir.mkdir(parents=True)
+        (state_dir / "bravo.json").write_text("not valid json{{{")
+        assert load_env_state(store, "myproject", "bravo") is None
+
+    def test_remove(self):
+        """State entry is deleted by remove_env_state."""
+        store = InMemoryEnvStore()
+        state = self._make_state()
+        save_env_state(store, state)
+        assert store.exists("myproject/bravo.json")
+        remove_env_state(store, "myproject", "bravo")
+        assert not store.exists("myproject/bravo.json")
+
+    def test_remove_nonexistent(self):
+        """remove_env_state is a no-op if entry doesn't exist."""
+        store = InMemoryEnvStore()
+        remove_env_state(store, "noproject", "alpha")  # should not raise
+
+    def test_creates_parent_dirs(self):
+        """save_env_state persists the state entry."""
+        store = InMemoryEnvStore()
+        state = self._make_state()
+        save_env_state(store, state)
+        assert store.exists("myproject/bravo.json")
+
+
+class TestBuildServiceEnv:
+    """Tests for build_service_env function."""
+
+    @patch("mael_domain.env.read_env_file")
+    def test_merges_env_file(self, mock_read, monkeypatch):
+        """os.environ is overlaid with .env vars."""
+        monkeypatch.setenv("EXISTING", "original")
+        mock_read.return_value = {"NEW_VAR": "from_env", "EXISTING": "overridden"}
+        env = build_service_env(Path("/some/worktree"))
+        assert env["NEW_VAR"] == "from_env"
+        assert env["EXISTING"] == "overridden"
+
+    @patch("mael_domain.env.read_env_file")
+    def test_no_env_file(self, mock_read, monkeypatch):
+        """Works when .env has no variables."""
+        monkeypatch.setenv("PATH", "/usr/bin")
+        mock_read.return_value = {}
+        env = build_service_env(Path("/some/worktree"))
+        assert env["PATH"] == "/usr/bin"
+
+    @patch("mael_domain.env.read_env_file")
+    def test_drops_the_inherited_virtualenv(self, mock_read, monkeypatch):
+        """`mael` runs from `_main/.venv`, which is the wrong venv for a service."""
+        monkeypatch.setenv("VIRTUAL_ENV", "/p/_main/.venv")
+        monkeypatch.setenv("PATH", "/p/_main/.venv/bin:/usr/bin")
+        mock_read.return_value = {}
+        env = build_service_env(Path("/some/worktree"))
+        assert "VIRTUAL_ENV" not in env
+        # PATH is untouched, so the service resolves the same binaries.
+        assert env["PATH"] == "/p/_main/.venv/bin:/usr/bin"
+
+    @patch("mael_domain.env.read_env_file")
+    def test_a_worktree_may_name_its_own_virtualenv(self, mock_read, monkeypatch):
+        """The .env overlay still wins, so a deliberate value survives."""
+        monkeypatch.setenv("VIRTUAL_ENV", "/p/_main/.venv")
+        mock_read.return_value = {"VIRTUAL_ENV": "/p/alpha/.venv"}
+        env = build_service_env(Path("/some/worktree"))
+        assert env["VIRTUAL_ENV"] == "/p/alpha/.venv"
+
+
+class TestIsServiceAlive:
+    """Tests for is_service_alive function."""
+
+    @patch("os.kill")
+    def test_alive(self, mock_kill):
+        """Returns True when os.kill succeeds."""
+        mock_kill.return_value = None
+        assert is_service_alive(12345) is True
+        mock_kill.assert_called_once_with(12345, 0)
+
+    @patch("os.kill")
+    def test_dead(self, mock_kill):
+        """Returns False on ProcessLookupError."""
+        mock_kill.side_effect = ProcessLookupError
+        assert is_service_alive(12345) is False
+
+    @patch("os.kill")
+    def test_permission_error(self, mock_kill):
+        """Returns True on PermissionError (process exists, can't signal)."""
+        mock_kill.side_effect = PermissionError
+        assert is_service_alive(12345) is True
+
+
+class TestStartEnv:
+    """Tests for start_env function."""
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env")
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_spawns_services(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """Each service is spawned with correct args."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="worker", command="celery worker"),
+        ]
+        mock_env.return_value = {"PATH": "/usr/bin"}
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_popen.return_value = mock_proc
+
+        wt_path = Path("/project/bravo")
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", wt_path)
+
+        assert len(state.services) == 2
+        assert state.services[0].name == "web"
+        assert state.services[1].name == "worker"
+        assert mock_popen.call_count == 2
+
+        # Verify Popen call args
+        first_call = mock_popen.call_args_list[0]
+        assert first_call[0][0] == ["sh", "-c", "python app.py"]
+        assert first_call[1]["cwd"] == wt_path
+        assert first_call[1]["start_new_session"] is True
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_runs_install_cmd(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """install_cmd is run before spawning services."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
+        mock_popen.return_value = MagicMock(pid=1)
+        wt_path = Path("/project/bravo")
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", wt_path)
+        mock_install.assert_called_once_with(wt_path)
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_skip_install(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """install_cmd is skipped when skip_install=True."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
+        mock_popen.return_value = MagicMock(pid=1)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), skip_install=True)
+        mock_install.assert_not_called()
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.load_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.get_env_status")
+    @patch("mael_domain.env.cleanup_stale_env")
+    def test_skips_a_service_already_running(
+        self,
+        mock_cleanup,
+        mock_status,
+        mock_services,
+        mock_log_dir,
+        mock_install,
+        mock_env,
+        mock_popen,
+        mock_load,
+        mock_save,
+        tmp_path,
+    ):
+        """A start leaves a running service alone rather than refusing."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ResolvedService(name="web", command="python app.py")
+        ]
+        mock_status.return_value = [
+            ServiceStatus(
+                name="web",
+                pid=123,
+                alive=True,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            )
+        ]
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=123,
+                    log_file="/tmp/x.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        mock_popen.assert_not_called()
+        # The running service keeps its real pid: nothing was respawned.
+        assert [(s.name, s.pid) for s in state.services] == [("web", 123)]
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_saves_state(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """State is saved after spawning."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
+        mock_popen.return_value = MagicMock(pid=99)
+
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+        mock_save.assert_called_once_with(store, state)
+        assert state.project == "proj"
+        assert state.worktree == "bravo"
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_log_dir_created(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """Log directory is created before spawning."""
+        log_dir = tmp_path / "logs" / "proj" / "bravo"
+        mock_log_dir.return_value = log_dir
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
+        mock_popen.return_value = MagicMock(pid=1)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+        assert log_dir.exists()
+
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env._get_log_dir")
+    def test_cleans_stale_before_start(
+        self,
+        mock_log_dir,
+        mock_cleanup,
+        mock_services,
+        mock_install,
+        mock_env,
+        mock_popen,
+        mock_save,
+        tmp_path,
+    ):
+        """Stale env is cleaned up before checking for running services."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
+        mock_popen.return_value = MagicMock(pid=1)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+        mock_cleanup.assert_called_once_with(store, "proj", "bravo")
+
+
+class TestStartEnvNamedServices:
+    """Tests for the `services=` selection in start_env."""
+
+    ALL = [
+        ResolvedService(name="web", command="python app.py"),
+        ResolvedService(name="ladle", command="ladle serve", optional=True),
+        ResolvedService(name="db", command="postgres", shared=True),
+    ]
+
+    def _services(self, worktree_path, project="", *, names=None):
+        """Stand-in for get_services honouring the same `names` contract."""
+        if names is None:
+            return [s for s in self.ALL if not s.optional]
+        return [s for s in self.ALL if s.name in set(names)]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_named_start_spawns_only_that_service(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A named start spawns the named local service, not its siblings."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        state = start_env(
+            store, "proj", "bravo", Path("/project/bravo"), services=["ladle"]
+        )
+
+        assert [s.name for s in state.services] == ["ladle"]
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert "python app.py" not in commands
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status")
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_named_start_allows_running_sibling(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Starting `ladle` while `web` runs is allowed."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_status.return_value = [
+            ServiceStatus(
+                name="web",
+                pid=1,
+                alive=True,
+                command="python app.py",
+                log_file="/tmp/web.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        state = start_env(
+            store, "proj", "bravo", Path("/project/bravo"), services=["ladle"]
+        )
+        assert [s.name for s in state.services] == ["ladle"]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.get_env_status")
+    @patch("mael_domain.env.cleanup_stale_env")
+    def test_named_start_of_a_running_service_is_a_no_op(
+        self,
+        mock_cleanup,
+        mock_status,
+        mock_services,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_cleanup,
+        mock_shared_load,
+        mock_env,
+        mock_popen,
+        mock_load,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Naming a service that is already alive starts nothing, and is not an error."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_status.return_value = [
+            ServiceStatus(
+                name="ladle",
+                pid=1,
+                alive=True,
+                command="ladle serve",
+                log_file="/tmp/ladle.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(
+            store,
+            "proj",
+            "bravo",
+            Path("/project/bravo"),
+            services=["ladle"],
+        )
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert "ladle serve" not in commands
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_named_start_appends_to_existing_state(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A named start appends to the saved state, keeping its metadata."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        save_env_state(
+            store,
+            EnvState(
+                project="proj",
+                worktree="bravo",
+                worktree_path="/project/bravo",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[
+                    ServiceState(
+                        name="web",
+                        command="python app.py",
+                        pid=7,
+                        log_file="/tmp/web.log",
+                        started_at="2025-01-01T00:00:00+00:00",
+                    ),
+                ],
+                cmux_browser_surface="surface-1",
+            ),
+        )
+
+        state = start_env(
+            store, "proj", "bravo", Path("/project/bravo"), services=["ladle"]
+        )
+
+        assert [s.name for s in state.services] == ["web", "ladle"]
+        assert state.started_at == "2025-01-01T00:00:00+00:00"
+        assert state.cmux_browser_surface == "surface-1"
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_log_dir")
+    def test_named_start_subscribes_to_shared(
+        self,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A named start still subscribes to shared services and gets host vars."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.side_effect = self._services
+        # The record must hold the declared shared service: an empty list now
+        # means "db is missing", which is a gap fill rather than a subscribe.
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db",
+                    command="postgres",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+            host_vars={"DB_HOST": "10.0.0.5"},
+        )
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        # The recorded db is running, so this start subscribes rather than
+        # filling a gap.
+        with patch("mael_domain.env.is_service_alive", return_value=True):
+            start_env(
+                store, "proj", "bravo", Path("/project/bravo"), services=["ladle"]
+            )
+
+        saved = mock_shared_save.call_args[0][1]
+        assert saved.subscribers == ["alpha", "bravo"]
+        spawn_env = mock_popen.call_args[1]["env"]
+        assert spawn_env["DB_HOST"] == "10.0.0.5"
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_default_start_skips_optional(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A default start leaves the optional service alone."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+        assert [s.name for s in state.services] == ["web"]
+
+
+class TestStopEnv:
+    """Tests for stop_env function."""
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_sigterm_sent(self, mock_load, mock_killpg, mock_alive, mock_remove):
+        """SIGTERM is sent to each process group."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        mock_killpg.assert_called_with(100, signal.SIGTERM)
+        assert any("stopped" in m for m in messages)
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive")
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    @patch("time.monotonic")
+    @patch("time.sleep")
+    def test_sigkill_after_timeout(
+        self,
+        mock_sleep,
+        mock_monotonic,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+    ):
+        """SIGKILL is sent after timeout when services don't die."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        # Service stays alive throughout the timeout
+        mock_alive.return_value = True
+        # Simulate time passing: first call sets deadline, then exceed it
+        mock_monotonic.side_effect = [0.0, 11.0]
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo", timeout=10.0)
+        # Should have called killpg with both SIGTERM and SIGKILL
+        assert call(100, signal.SIGTERM) in mock_killpg.call_args_list
+        assert call(100, signal.SIGKILL) in mock_killpg.call_args_list
+        assert any("SIGKILL" in m for m in messages)
+
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_no_state(self, mock_load):
+        """Returns message when no state file exists."""
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        assert len(messages) == 1
+        assert "No running environment" in messages[0]
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_removes_state(self, mock_load, mock_killpg, mock_alive, mock_remove):
+        """State file is removed after stopping."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="x",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo")
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_handles_dead_processes(
+        self, mock_load, mock_killpg, mock_alive, mock_remove
+    ):
+        """Dead processes are handled gracefully (ProcessLookupError on SIGTERM)."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="x",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        mock_killpg.side_effect = ProcessLookupError
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        assert any("stopped" in m for m in messages)
+
+
+class TestStopSessions:
+    """Tests for stop_sessions — SIGINT -> SIGTERM, never SIGKILL."""
+
+    @staticmethod
+    def _alive_tracker(alive_pids, die_on):
+        """Fakes for (os.kill, is_service_alive) backed by a live-pid set.
+
+        ``os.kill`` removes a pid from ``alive_pids`` when the signal is in
+        ``die_on`` (e.g. ``{SIGINT}`` for a session that exits on interrupt,
+        ``{SIGTERM}`` for one that only dies on terminate). ``is_service_alive``
+        reads the set. Together they let a single test express "signal X kills
+        this pid" without hand-scripting per-call return values.
+        """
+
+        def fake_kill(pid, sig):
+            if sig in die_on:
+                alive_pids.discard(pid)
+
+        def fake_alive(pid):
+            return pid in alive_pids
+
+        return fake_kill, fake_alive
+
+    def test_empty_input_is_noop(self):
+        with patch("os.kill") as mock_kill:
+            assert stop_sessions([]) == []
+        mock_kill.assert_not_called()
+
+    def test_only_self_pid_is_noop(self):
+        with patch("os.getpid", return_value=999), patch("os.kill") as mock_kill:
+            assert stop_sessions([LiveSession(pid=999, cwd=Path("/w/a"))]) == []
+        mock_kill.assert_not_called()
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_sigint_alone_exits_no_sigterm(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)  # deadline passes fast
+        alive = {100}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("mael_domain.env.is_service_alive", side_effect=fake_alive),
+        ):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert call(100, signal.SIGINT) in mock_kill.call_args_list
+        assert call(100, signal.SIGTERM) not in mock_kill.call_args_list
+        assert call(100, signal.SIGKILL) not in mock_kill.call_args_list
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_sigterm_after_surviving_sigint(self, mock_monotonic, _sleep):
+        # Never dies from SIGINT; dies on SIGTERM. Both deadlines expire so both
+        # stages fully poll.
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGTERM})
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("mael_domain.env.is_service_alive", side_effect=fake_alive),
+        ):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        kills = mock_kill.call_args_list
+        assert call(100, signal.SIGINT) in kills
+        assert call(100, signal.SIGTERM) in kills
+        assert call(100, signal.SIGKILL) not in kills
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_survivor_after_sigterm_reported_never_sigkill(
+        self, mock_monotonic, _sleep
+    ):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100}  # never dies
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on=set())
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("mael_domain.env.is_service_alive", side_effect=fake_alive),
+        ):
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert call(100, signal.SIGKILL) not in mock_kill.call_args_list
+        assert messages == ["claude session (pid 100): still running after SIGTERM"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_self_pid_excluded_from_signalling(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        alive = {100, 999}
+        fake_kill, fake_alive = self._alive_tracker(alive, die_on={signal.SIGINT})
+        with (
+            patch("os.getpid", return_value=999),
+            patch("os.kill", side_effect=fake_kill) as mock_kill,
+            patch("mael_domain.env.is_service_alive", side_effect=fake_alive),
+        ):
+            messages = stop_sessions(
+                [
+                    LiveSession(pid=100, cwd=Path("/w/a")),
+                    LiveSession(pid=999, cwd=Path("/w/a")),
+                ]
+            )
+        signalled = {c.args[0] for c in mock_kill.call_args_list}
+        assert 999 not in signalled
+        assert 100 in signalled
+        assert messages == ["claude session (pid 100): stopped"]
+
+    @patch("time.sleep")
+    @patch("time.monotonic")
+    def test_kill_errors_swallowed(self, mock_monotonic, _sleep):
+        mock_monotonic.side_effect = itertools.count(0.0, 100.0)
+        with (
+            patch("os.getpid", return_value=1),
+            patch("os.kill", side_effect=ProcessLookupError),
+            patch("mael_domain.env.is_service_alive", return_value=False),
+        ):
+            # is_service_alive False => nothing signalled, all reported stopped;
+            # PermissionError/ProcessLookupError from os.kill must not propagate.
+            messages = stop_sessions([LiveSession(pid=100, cwd=Path("/w/a"))])
+        assert messages == ["claude session (pid 100): stopped"]
+
+
+class TestGetEnvStatus:
+    """Tests for get_env_status function."""
+
+    @patch("mael_domain.env.is_service_alive")
+    @patch("mael_domain.env.load_env_state")
+    def test_returns_status_per_service(self, mock_load, mock_alive):
+        """Returns a ServiceStatus for each tracked service."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+                ServiceState(
+                    name="worker",
+                    command="celery worker",
+                    pid=101,
+                    log_file="/tmp/worker.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_alive.side_effect = [True, False]
+
+        store = InMemoryEnvStore()
+        result = get_env_status(store, "proj", "bravo")
+        assert result is not None
+        assert len(result) == 2
+        assert result[0].name == "web"
+        assert result[0].alive is True
+        assert result[1].name == "worker"
+        assert result[1].alive is False
+
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_none_when_no_state(self, mock_load):
+        """Returns None when no state file exists."""
+        store = InMemoryEnvStore()
+        assert get_env_status(store, "proj", "bravo") is None
+
+
+class TestCleanupStaleEnv:
+    """Tests for cleanup_stale_env function."""
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.get_env_status")
+    def test_cleans_dead(self, mock_status, mock_remove):
+        """Removes state when all services are dead."""
+        mock_status.return_value = [
+            ServiceStatus(
+                name="web",
+                pid=100,
+                alive=False,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            )
+        ]
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is True
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
+
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.get_env_status")
+    def test_preserves_alive(self, mock_status, mock_remove):
+        """Does not remove state when services are alive."""
+        mock_status.return_value = [
+            ServiceStatus(
+                name="web",
+                pid=100,
+                alive=True,
+                command="x",
+                log_file="/tmp/x.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            )
+        ]
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is False
+        mock_remove.assert_not_called()
+
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    def test_no_state(self, mock_status):
+        """Returns False when no state file exists."""
+        store = InMemoryEnvStore()
+        assert cleanup_stale_env(store, "proj", "bravo") is False
+
+
+class TestListProjectEnvs:
+    """Tests for list_project_envs function."""
+
+    def _make_state(self, project, worktree, pid=100):
+        return EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=f"/project/{worktree}",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=pid,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    def test_lists_running_envs(self, mock_alive):
+        """Returns states for running environments."""
+        store = InMemoryEnvStore()
+        state = self._make_state("proj", "alpha")
+        save_env_state(store, state)
+        state2 = self._make_state("proj", "bravo", pid=200)
+        save_env_state(store, state2)
+
+        result = list_project_envs(store, "proj")
+        assert len(result) == 2
+        worktrees = [s.worktree for s in result]
+        assert "alpha" in worktrees
+        assert "bravo" in worktrees
+
+    def test_empty_project_dir(self):
+        """Returns empty list for project with no env files."""
+        store = InMemoryEnvStore()
+        assert list_project_envs(store, "proj") == []
+
+    def test_nonexistent_project(self):
+        """Returns empty list for nonexistent project dir."""
+        store = InMemoryEnvStore()
+        assert list_project_envs(store, "noproject") == []
+
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    def test_stale_cleanup_during_listing(self, mock_alive):
+        """Stale envs are cleaned up and excluded from results."""
+        store = InMemoryEnvStore()
+        state = self._make_state("proj", "alpha")
+        save_env_state(store, state)
+
+        result = list_project_envs(store, "proj")
+        assert result == []
+        # State entry should have been cleaned up
+        assert not store.exists("proj/alpha.json")
+
+
+class TestListAllEnvs:
+    """Tests for list_all_envs function."""
+
+    def _make_state(self, project, worktree, pid=100):
+        return EnvState(
+            project=project,
+            worktree=worktree,
+            worktree_path=f"/project/{worktree}",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=pid,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    def test_lists_across_projects(self, mock_alive):
+        """Returns states from multiple projects."""
+        store = InMemoryEnvStore()
+        save_env_state(store, self._make_state("projA", "alpha", pid=100))
+        save_env_state(store, self._make_state("projB", "bravo", pid=200))
+
+        result = list_all_envs(store)
+        assert len(result) == 2
+        projects = {s.project for s in result}
+        assert projects == {"projA", "projB"}
+
+    def test_empty_state_dir(self):
+        """Returns empty list when no envs dir exists."""
+        store = InMemoryEnvStore()
+        assert list_all_envs(store) == []
+
+
+class TestStopAllEnvs:
+    """Tests for stop_all_envs function."""
+
+    @patch("mael_domain.env.stop_env")
+    @patch("mael_domain.env.list_all_envs")
+    def test_stops_all_envs(self, mock_list, mock_stop):
+        """Calls stop_env for each running environment."""
+        mock_list.return_value = [
+            EnvState(
+                project="projA",
+                worktree="alpha",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[],
+            ),
+            EnvState(
+                project="projB",
+                worktree="bravo",
+                worktree_path="/project/bravo",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[],
+            ),
+        ]
+        mock_stop.side_effect = [
+            ["web (pid 100): stopped"],
+            ["app (pid 200): stopped"],
+        ]
+
+        store = InMemoryEnvStore()
+        results = stop_all_envs(store)
+        assert len(results) == 2
+        assert results[0] == ("projA", "alpha", ["web (pid 100): stopped"])
+        assert results[1] == ("projB", "bravo", ["app (pid 200): stopped"])
+        assert mock_stop.call_args_list == [
+            call(store, "projA", "alpha", timeout=10.0),
+            call(store, "projB", "bravo", timeout=10.0),
+        ]
+
+    @patch("mael_domain.env.stop_env")
+    @patch("mael_domain.env.list_all_envs")
+    def test_no_envs(self, mock_list, mock_stop):
+        """Returns empty list when no environments running."""
+        mock_list.return_value = []
+        store = InMemoryEnvStore()
+        results = stop_all_envs(store)
+        assert results == []
+        mock_stop.assert_not_called()
+
+
+class TestGetLogFiles:
+    """Tests for get_log_files function."""
+
+    @patch("mael_domain.env.load_env_state")
+    def test_from_state(self, mock_load, tmp_path):
+        """Returns log paths from running env state."""
+        log_file = tmp_path / "web.log"
+        log_file.write_text("some logs")
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file=str(log_file),
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
+        assert result == {"web": log_file}
+
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_fallback_to_dir_scan(self, mock_load, mock_log_dir, tmp_path):
+        """Falls back to scanning log directory when no state."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "web.log").write_text("web logs")
+        (log_dir / "worker.log").write_text("worker logs")
+        mock_log_dir.return_value = log_dir
+
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
+        assert set(result.keys()) == {"web", "worker"}
+
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_no_state_no_dir(self, mock_load, mock_log_dir, tmp_path):
+        """Returns empty dict when no state and no log dir."""
+        mock_log_dir.return_value = tmp_path / "nonexistent"
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
+        assert result == {}
+
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_empty_dir(self, mock_load, mock_log_dir, tmp_path):
+        """Returns empty dict when log dir exists but has no .log files."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        mock_log_dir.return_value = log_dir
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
+        assert result == {}
+
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env.load_env_state")
+    def test_state_with_missing_files_falls_back(
+        self, mock_load, mock_log_dir, tmp_path
+    ):
+        """Falls back to dir scan when state log files don't exist on disk."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="x",
+                    pid=100,
+                    log_file="/nonexistent/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "web.log").write_text("fallback logs")
+        mock_log_dir.return_value = log_dir
+
+        store = InMemoryEnvStore()
+        result = get_log_files(store, "proj", "bravo")
+        assert "web" in result
+
+
+class TestTailLogFile:
+    """Tests for tail_log_file function."""
+
+    def test_last_n_lines(self, tmp_path):
+        """Returns last N lines."""
+        log = tmp_path / "test.log"
+        log.write_text("\n".join(f"line {i}" for i in range(200)))
+        result = tail_log_file(log, n=5)
+        assert len(result) == 5
+        assert result[-1] == "line 199"
+
+    def test_fewer_than_n(self, tmp_path):
+        """Returns all lines when fewer than N exist."""
+        log = tmp_path / "test.log"
+        log.write_text("line 1\nline 2\n")
+        result = tail_log_file(log, n=100)
+        assert len(result) == 2
+
+    def test_it_reads_only_the_end_of_a_large_file(self, tmp_path):
+        """A long-lived service's log must not be read whole to show its tail.
+
+        The logs are appended, never truncated, and one on this machine has
+        reached 187 MB. Reading it whole to print 100 lines costs that much
+        memory every time someone runs ``mael env logs``.
+        """
+        log = tmp_path / "big.log"
+        log.write_text("\n".join(f"line {i}" for i in range(200_000)))
+        size = log.stat().st_size
+
+        read = 0
+        real_open = Path.open
+
+        def counting_open(self, *args, **kwargs):
+            handle = real_open(self, *args, **kwargs)
+            if self == log:
+                inner_read = handle.read
+
+                def tracked(*a, **k):
+                    nonlocal read
+                    chunk = inner_read(*a, **k)
+                    read += len(chunk)
+                    return chunk
+
+                handle.read = tracked
+            return handle
+
+        with patch.object(Path, "open", counting_open):
+            result = tail_log_file(log, n=5)
+
+        assert result[-1] == "line 199999"
+        assert read < size / 10, f"read {read} of {size} bytes"
+
+    def test_missing_file(self, tmp_path):
+        """Returns empty list for missing file."""
+        result = tail_log_file(tmp_path / "missing.log")
+        assert result == []
+
+    def test_empty_file(self, tmp_path):
+        """Returns empty list for empty file."""
+        log = tmp_path / "empty.log"
+        log.write_text("")
+        result = tail_log_file(log)
+        assert result == []
+
+
+class TestReadServiceLogs:
+    """Tests for read_service_logs function."""
+
+    @patch("mael_domain.env.get_log_files")
+    def test_single_service(self, mock_files, tmp_path):
+        """Reads logs for a specific service."""
+        log = tmp_path / "web.log"
+        log.write_text("request 1\nrequest 2\n")
+        mock_files.return_value = {"web": log, "worker": tmp_path / "worker.log"}
+
+        store = InMemoryEnvStore()
+        result = read_service_logs(store, "proj", "bravo", service="web")
+        assert all(name == "web" for name, _ in result)
+        assert len(result) == 2
+
+    @patch("mael_domain.env.get_log_files")
+    def test_all_services(self, mock_files, tmp_path):
+        """Reads logs for all services when no service specified."""
+        web_log = tmp_path / "web.log"
+        web_log.write_text("web line\n")
+        worker_log = tmp_path / "worker.log"
+        worker_log.write_text("worker line\n")
+        mock_files.return_value = {"web": web_log, "worker": worker_log}
+
+        store = InMemoryEnvStore()
+        result = read_service_logs(store, "proj", "bravo")
+        names = [name for name, _ in result]
+        assert "web" in names
+        assert "worker" in names
+
+    @patch("mael_domain.env.get_log_files")
+    def test_service_not_found(self, mock_files, tmp_path):
+        """Raises ValueError for unknown service."""
+        mock_files.return_value = {"web": tmp_path / "web.log"}
+        store = InMemoryEnvStore()
+        with pytest.raises(ValueError, match="Service 'db' not found"):
+            read_service_logs(store, "proj", "bravo", service="db")
+
+    @patch("mael_domain.env.get_log_files")
+    def test_no_logs(self, mock_files):
+        """Raises ValueError when no logs exist."""
+        mock_files.return_value = {}
+        store = InMemoryEnvStore()
+        with pytest.raises(ValueError, match="No logs found"):
+            read_service_logs(store, "proj", "bravo")
+
+
+# --- Shared Services Tests ---
+
+
+class TestIsSharedService:
+    """Tests for is_shared_service function."""
+
+    def test_shared_suffix(self):
+        """Returns True for names ending in -shared."""
+        assert is_shared_service("db-shared") is True
+        assert is_shared_service("redis-shared") is True
+
+    def test_non_shared(self):
+        """Returns False for regular service names."""
+        assert is_shared_service("web") is False
+        assert is_shared_service("worker") is False
+        assert is_shared_service("shared") is False
+
+    def test_edge_cases(self):
+        """Edge cases for shared service detection."""
+        assert is_shared_service("-shared") is True
+        assert is_shared_service("shared-web") is False
+
+
+class TestSharedEnvStateRoundTrip:
+    """Tests for shared state save/load/remove."""
+
+    def _make_shared_state(self):
+        return SharedEnvState(
+            project="myproject",
+            worktree_path="/home/user/myproject/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres -p 5432",
+                    pid=12345,
+                    log_file="/tmp/db-shared.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+            subscribers=["alpha", "bravo"],
+        )
+
+    def test_save_and_load(self):
+        """Shared state round-trips through save/load."""
+        store = InMemoryEnvStore()
+        state = self._make_shared_state()
+        save_shared_state(store, state)
+        loaded = load_shared_state(store, "myproject")
+        assert loaded is not None
+        assert loaded.project == state.project
+        assert loaded.worktree_path == state.worktree_path
+        assert loaded.started_at == state.started_at
+        assert len(loaded.services) == 1
+        assert loaded.services[0].name == "db-shared"
+        assert loaded.subscribers == ["alpha", "bravo"]
+
+    def test_load_missing(self):
+        """Returns None for missing shared state."""
+        store = InMemoryEnvStore()
+        assert load_shared_state(store, "noproject") is None
+
+    def test_load_corrupt(self, tmp_path):
+        """Returns None for corrupt JSON."""
+        store = JsonEnvStore(root=tmp_path)
+        state_dir = tmp_path / "myproject"
+        state_dir.mkdir(parents=True)
+        (state_dir / "_shared.json").write_text("not valid json{{{")
+        assert load_shared_state(store, "myproject") is None
+
+    def test_remove(self):
+        """Shared state entry is deleted by remove_shared_state."""
+        store = InMemoryEnvStore()
+        state = self._make_shared_state()
+        save_shared_state(store, state)
+        assert store.exists("myproject/_shared.json")
+        remove_shared_state(store, "myproject")
+        assert not store.exists("myproject/_shared.json")
+
+    def test_remove_nonexistent(self):
+        """remove_shared_state is a no-op if entry doesn't exist."""
+        store = InMemoryEnvStore()
+        remove_shared_state(store, "noproject")  # should not raise
+
+
+class TestGetSharedStatus:
+    """Tests for get_shared_status function."""
+
+    @patch("mael_domain.env.is_service_alive")
+    @patch("mael_domain.env.load_shared_state")
+    def test_returns_status(self, mock_load, mock_alive):
+        """Returns ServiceStatus for each shared service."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        mock_alive.return_value = True
+
+        store = InMemoryEnvStore()
+        result = get_shared_status(store, "proj")
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].name == "db-shared"
+        assert result[0].alive is True
+
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    def test_none_when_no_state(self, mock_load):
+        """Returns None when no shared state exists."""
+        store = InMemoryEnvStore()
+        assert get_shared_status(store, "proj") is None
+
+
+class TestCleanupStaleShared:
+    """Tests for cleanup_stale_shared function."""
+
+    @patch("mael_domain.env.remove_shared_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("mael_domain.env.load_shared_state")
+    def test_cleans_dead(self, mock_load, mock_alive, mock_remove):
+        """Removes shared state when all services are dead."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is True
+        mock_remove.assert_called_once_with(store, "proj")
+
+    @patch("mael_domain.env.remove_shared_state")
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    @patch("mael_domain.env.load_shared_state")
+    def test_preserves_alive(self, mock_load, mock_alive, mock_remove):
+        """Does not remove shared state when services are alive."""
+        mock_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=100,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is False
+        mock_remove.assert_not_called()
+
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    def test_no_state(self, mock_load):
+        """Returns False when no shared state exists."""
+        store = InMemoryEnvStore()
+        assert cleanup_stale_shared(store, "proj") is False
+
+
+class TestStartEnvShared:
+    """Tests for shared service handling in start_env."""
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env._get_shared_log_dir")
+    def test_splits_shared_and_local(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Shared services are separated from local and started independently."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="db-shared", command="postgres", shared=True),
+        ]
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_popen.return_value = mock_proc
+
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        # Local state should only contain non-shared services
+        assert len(state.services) == 1
+        assert state.services[0].name == "web"
+
+        # Shared state should have been saved with the shared service
+        mock_shared_save.assert_called_once()
+        shared_state = mock_shared_save.call_args[0][1]
+        assert len(shared_state.services) == 1
+        assert shared_state.services[0].name == "db-shared"
+        assert shared_state.subscribers == ["bravo"]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_log_dir")
+    def test_subscribes_to_existing_shared(
+        self,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Second worktree subscribes to existing shared services."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="db-shared", command="postgres", shared=True),
+        ]
+        # Shared services already running with alpha as subscriber
+        existing_shared = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha"],
+        )
+        mock_shared_load.return_value = existing_shared
+        mock_proc = MagicMock()
+        mock_proc.pid = 42
+        mock_popen.return_value = mock_proc
+
+        store = InMemoryEnvStore()
+        # The recorded shared service is running, so bravo subscribes to it.
+        with patch("mael_domain.env.is_service_alive", return_value=True):
+            state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        # Only local service should be spawned (1 Popen call for "web")
+        assert mock_popen.call_count == 1
+        assert state.services[0].name == "web"
+
+        # Shared state should be updated with bravo as subscriber
+        mock_shared_save.assert_called_once()
+        saved = mock_shared_save.call_args[0][1]
+        assert saved.subscribers == ["alpha", "bravo"]
+
+
+def _shared_service(name, pid, command="postgres"):
+    """A recorded shared service, as a prior start would have left it."""
+    return ServiceState(
+        name=name,
+        command=command,
+        pid=pid,
+        log_file=f"/tmp/{name}.log",
+        started_at="2025-01-01T00:00:00+00:00",
+    )
+
+
+class TestStartEnvSharedGapFill:
+    """A start must reach shared services the record does not hold.
+
+    The record is written once and was never extended, so a shared service
+    absent from it could never start again. Reaching that state needs no late
+    declaration: starting shared services one at a time is enough.
+    """
+
+    ALL = [
+        ResolvedService(name="web", command="python app.py"),
+        ResolvedService(name="db", command="postgres", shared=True),
+        ResolvedService(name="redis", command="redis-server", shared=True),
+    ]
+
+    @pytest.fixture(autouse=True)
+    def _recorded_is_running(self):
+        """A recorded service is a running one, unless a test says otherwise.
+
+        Fixture pids are invented, so without this every record would read as
+        dead and every test would be a restart test.
+        """
+        with patch("mael_domain.env.is_service_alive", return_value=True):
+            yield
+
+    def _services(self, worktree_path, project="", *, names=None):
+        """Stand-in for get_services honouring the same `names` contract."""
+        if names is None:
+            return [s for s in self.ALL if not s.optional]
+        return [s for s in self.ALL if s.name in set(names)]
+
+    def _db_only(self):
+        """A record holding db alone — redis declared but never recorded."""
+        return SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[_shared_service("db", 999)],
+            subscribers=["alpha"],
+            host_vars={"DB_HOST": "10.0.0.5"},
+        )
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_named_start_reaches_a_service_the_record_lacks(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """`mael env start redis` starts redis and leaves db running."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["redis-server"]
+
+        saved = mock_shared_save.call_args[0][1]
+        assert [s.name for s in saved.services] == ["db", "redis"]
+        assert saved.services[0].pid == 999
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_bare_start_fills_the_gap_without_a_restart(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A bare start adds the missing shared service, sparing the running one."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert "postgres" not in commands
+        assert set(commands) == {"python app.py", "redis-server"}
+
+        saved = mock_shared_save.call_args[0][1]
+        assert [s.name for s in saved.services] == ["db", "redis"]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_shared_services_started_one_at_a_time_both_end_up_recorded(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_cleanup,
+        mock_shared_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """An install script starting db then redis leaves both recorded.
+
+        This needs no late declaration: the first start writes a record
+        holding db alone, which is the subset that used to be permanent.
+        """
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        record: list[SharedEnvState] = []
+        mock_shared_save.side_effect = lambda _store, state: record.append(state)
+
+        with patch("mael_domain.env.load_shared_state", return_value=None):
+            start_env(store, "proj", "bravo", Path("/project/bravo"), services=["db"])
+        assert [s.name for s in record[-1].services] == ["db"]
+
+        with patch("mael_domain.env.load_shared_state", return_value=record[-1]):
+            start_env(
+                store, "proj", "bravo", Path("/project/bravo"), services=["redis"]
+            )
+        assert [s.name for s in record[-1].services] == ["db", "redis"]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_complete_record_spawns_no_shared_service(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """With every shared service recorded, only the local one starts."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        complete = self._db_only()
+        complete.services.append(_shared_service("redis", 998, "redis-server"))
+        mock_shared_load.return_value = complete
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["python app.py"]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_gap_filled_service_sees_the_recorded_host_vars(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """The new service resolves a running sibling's host var."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        spawn_env = mock_popen.call_args[1]["env"]
+        assert spawn_env["DB_HOST"] == "10.0.0.5"
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_recorded_shared_service_that_died_is_restarted(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Liveness decides, not the record: a dead entry comes back."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        record = self._db_only()
+        record.services.append(_shared_service("redis", 998, "redis-server"))
+        mock_shared_load.return_value = record
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        # Override the class fixture: db's process is gone, redis's is not.
+        with patch(
+            "mael_domain.env.is_service_alive", side_effect=lambda pid: pid != 999
+        ):
+            start_env(store, "proj", "bravo", Path("/project/bravo"), services=["db"])
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["postgres"]
+
+        saved = mock_shared_save.call_args[0][1]
+        # One db entry, carrying the new pid — not a duplicate name.
+        dbs = [s for s in saved.services if s.name == "db"]
+        assert len(dbs) == 1
+        assert dbs[0].pid == 42
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_shared_service_running_elsewhere_is_not_restarted(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """Naming a shared service alpha started subscribes bravo, and starts nothing."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["db"])
+
+        mock_popen.assert_not_called()
+        # Joining alpha's shared service is what makes this about elsewhere.
+        saved = mock_shared_save.call_args[0][1]
+        assert saved.subscribers == ["alpha", "bravo"]
+
+    @patch("mael_domain.env.load_env_state")
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status")
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_gap_fill_reaches_a_worktree_already_running(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        mock_load,
+        tmp_path,
+    ):
+        """The common route: web is already up when redis is named.
+
+        Before the start reconciled, a live local service made this path
+        refuse before it ever reached the shared services.
+        """
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        web = ServiceState(
+            name="web",
+            command="python app.py",
+            pid=111,
+            log_file="/tmp/web.log",
+            started_at="2025-01-01T00:00:00+00:00",
+        )
+        mock_status.return_value = [
+            ServiceStatus(
+                name="web",
+                pid=111,
+                alive=True,
+                command="python app.py",
+                log_file="/tmp/web.log",
+                started_at="2025-01-01T00:00:00+00:00",
+            ),
+        ]
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[web],
+        )
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        state = start_env(store, "proj", "bravo", Path("/project/bravo"))
+
+        commands = [c[0][0][2] for c in mock_popen.call_args_list]
+        assert commands == ["redis-server"]
+        # The running local service is untouched, and keeps its own pid.
+        assert [(s.name, s.pid) for s in state.services] == [("web", 111)]
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_a_gap_fill_keeps_the_record_identity(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """The record keeps where and when it started; the new service does not."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = self._services
+        mock_shared_load.return_value = self._db_only()
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["redis"])
+
+        saved = mock_shared_save.call_args[0][1]
+        assert saved.worktree_path == "/project/alpha"
+        assert saved.started_at == "2025-01-01T00:00:00+00:00"
+        redis = next(s for s in saved.services if s.name == "redis")
+        assert redis.started_at != "2025-01-01T00:00:00+00:00"
+
+
+class TestTwoPhaseStartWithIpInjection:
+    """Two-phase start: containers first, VM IP injected into command services."""
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env._get_shared_log_dir")
+    def test_injects_host_var_into_command_service(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A shared apple-container's IP is injected into a local command svc."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+            ResolvedService(
+                name="app",
+                command="serve",
+                env={"PGHOST": "${DB_HOST}"},
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        runner = MagicMock(
+            return_value='[{"networks": [{"address": "192.168.64.4/24"}]}]'
+        )
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+        # The command service was spawned with DB_HOST in its env.
+        app_call = next(
+            c for c in mock_popen.call_args_list if c[0][0] == ["sh", "-c", "serve"]
+        )
+        assert app_call[1]["env"]["DB_HOST"] == "192.168.64.4"
+        # The service's own env: ${DB_HOST} is expanded to the injected IP.
+        assert app_call[1]["env"]["PGHOST"] == "192.168.64.4"
+
+        # host_vars persisted on the shared state.
+        shared_state = mock_shared_save.call_args[0][1]
+        assert shared_state.host_vars == {"DB_HOST": "192.168.64.4"}
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env._get_log_dir")
+    def test_late_subscriber_reuses_host_vars(
+        self,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A late subscriber reads host_vars from shared state, no re-inspect."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+            ResolvedService(
+                name="app",
+                command="serve",
+                env={"PGHOST": "${DB_HOST}"},
+            ),
+        ]
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db",
+                    command="container run ...",
+                    pid=999,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                    engine="apple-container",
+                    container_name="proj-db",
+                ),
+            ],
+            subscribers=["alpha"],
+            host_vars={"DB_HOST": "192.168.64.4"},
+        )
+        mock_popen.return_value = MagicMock(pid=42)
+        runner = MagicMock()
+
+        store = InMemoryEnvStore()
+        # The recorded container is running, so this start reuses its IP
+        # instead of starting it again.
+        with patch("mael_domain.env.is_service_alive", return_value=True):
+            start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+        # The runner (container inspect) must NOT be called on a subscribe.
+        runner.assert_not_called()
+        # Only the local command service is spawned, with the reused IP.
+        assert mock_popen.call_count == 1
+        app_call = mock_popen.call_args_list[0]
+        assert app_call[1]["env"]["DB_HOST"] == "192.168.64.4"
+        # The reused host var is expanded into the command service's env: too.
+        assert app_call[1]["env"]["PGHOST"] == "192.168.64.4"
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_log_dir")
+    @patch("mael_domain.env._get_shared_log_dir")
+    def test_ip_timeout_aborts_start(
+        self,
+        mock_shared_log_dir,
+        mock_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_save,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A never-resolving VM IP raises TimeoutError, aborting the start."""
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.return_value = [
+            ResolvedService(
+                name="db",
+                command="container run ... postgres",
+                shared=True,
+                engine="apple-container",
+                container_name="proj-db",
+                host_var="DB_HOST",
+            ),
+        ]
+        mock_popen.return_value = MagicMock(pid=42)
+
+        # Runner never yields an address, discover_container_ip times out fast.
+        runner = MagicMock(return_value='[{"networks": [{"address": null}]}]')
+        with patch("mael_domain.services.time") as mock_time:
+            # First call sets deadline; subsequent calls are past it.
+            mock_time.monotonic.side_effect = itertools.chain(
+                [0.0],
+                itertools.repeat(999.0),
+            )
+            store = InMemoryEnvStore()
+            with pytest.raises(TimeoutError):
+                start_env(store, "proj", "bravo", Path("/project/bravo"), runner=runner)
+
+
+class TestContainerCleanupOnStop:
+    """Engine-aware best-effort container cleanup after killpg."""
+
+    @patch("mael_domain.env.subprocess.run")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_docker_service_force_removed(
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
+    ):
+        """A docker container service is force-removed after its shell stops."""
+        from mael_domain.env import _stop_services
+
+        svc = ServiceState(
+            name="db",
+            command="docker run ...",
+            pid=123,
+            log_file=str(tmp_path / "db.log"),
+            started_at="2025-01-01T00:00:00+00:00",
+            engine="docker",
+            container_name="proj-db",
+        )
+        _stop_services([svc])
+        argv = mock_run.call_args[0][0]
+        assert argv == ["docker", "rm", "-f", "proj-db"]
+
+    @patch("mael_domain.env.subprocess.run")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_apple_container_deleted(
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
+    ):
+        """An apple-container service uses `container delete --force`."""
+        from mael_domain.env import _stop_services
+
+        svc = ServiceState(
+            name="db",
+            command="container run ...",
+            pid=123,
+            log_file=str(tmp_path / "db.log"),
+            started_at="2025-01-01T00:00:00+00:00",
+            engine="apple-container",
+            container_name="proj-db",
+        )
+        _stop_services([svc])
+        argv = mock_run.call_args[0][0]
+        assert argv == ["container", "delete", "--force", "proj-db"]
+
+    @patch("mael_domain.env.subprocess.run")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_command_service_not_cleaned(
+        self,
+        mock_killpg,
+        mock_alive,
+        mock_run,
+        tmp_path,
+    ):
+        """A command service (no engine) triggers no container cleanup."""
+        from mael_domain.env import _stop_services
+
+        svc = ServiceState(
+            name="app",
+            command="serve",
+            pid=123,
+            log_file=str(tmp_path / "app.log"),
+            started_at="2025-01-01T00:00:00+00:00",
+        )
+        _stop_services([svc])
+        mock_run.assert_not_called()
+
+
+class TestStopEnvNamedServices:
+    """Tests for the `services=` selection in stop_env."""
+
+    def _state(self, tmp_path):
+        return EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file=str(tmp_path / "web.log"),
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+                ServiceState(
+                    name="ladle",
+                    command="ladle serve",
+                    pid=200,
+                    log_file=str(tmp_path / "ladle.log"),
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_stops_only_named_service(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """Only the named service's process group is signalled."""
+        mock_load.return_value = self._state(tmp_path)
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["ladle"])
+
+        signalled = {c[0][0] for c in mock_killpg.call_args_list}
+        assert signalled == {200}
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_saves_remaining_services(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """The sibling stays in the saved state; the state is not removed."""
+        mock_load.return_value = self._state(tmp_path)
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["ladle"])
+
+        mock_remove.assert_not_called()
+        saved = mock_save.call_args[0][1]
+        assert [s.name for s in saved.services] == ["web"]
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_does_not_unsubscribe_while_services_remain(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """A partial stop leaves the shared subscription in place."""
+        mock_load.return_value = self._state(tmp_path)
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["ladle"])
+        mock_unsub.assert_not_called()
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_last_named_service_converges_on_full_stop(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """Naming the last running service is the same as stopping the env."""
+        state = self._state(tmp_path)
+        state.services = state.services[:1]
+        mock_load.return_value = state
+
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["web"])
+
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
+        mock_save.assert_not_called()
+        mock_unsub.assert_called_once()
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_named_service_not_running_reports(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """A named service that is not running reports rather than raising."""
+        mock_load.return_value = self._state(tmp_path)
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo", services=["worker"])
+
+        assert messages == ["No running service 'worker' for proj/bravo"]
+        mock_killpg.assert_not_called()
+        mock_save.assert_not_called()
+
+    @patch("mael_domain.env.subprocess.run")
+    @patch("mael_domain.env._unsubscribe_shared", return_value=[])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_named_container_service_is_cleaned_up(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        mock_run,
+        tmp_path,
+    ):
+        """A named container service still gets its force-remove."""
+        state = self._state(tmp_path)
+        state.services[1].engine = "docker"
+        state.services[1].container_name = "proj-ladle"
+        mock_load.return_value = state
+
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["ladle"])
+
+        argv = mock_run.call_args[0][0]
+        assert "proj-ladle" in argv
+
+
+class TestStopEnvNamedSharedService:
+    """Stopping a shared service by name goes through the subscriber count."""
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=["unsubscribed"])
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env.load_env_state")
+    def test_named_shared_service_unsubscribes(
+        self,
+        mock_load,
+        mock_shared_load,
+        mock_remove,
+        mock_save,
+        mock_unsub,
+        tmp_path,
+    ):
+        """Naming a shared service unsubscribes, leaving the local env alone."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file=str(tmp_path / "web.log"),
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db",
+                    command="postgres",
+                    pid=900,
+                    log_file=str(tmp_path / "db.log"),
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha", "bravo"],
+        )
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo", services=["db"])
+
+        mock_unsub.assert_called_once()
+        mock_remove.assert_not_called()
+        assert "unsubscribed" in messages
+
+
+class TestStopEnvShared:
+    """Tests for shared service handling in stop_env."""
+
+    @patch("mael_domain.env.remove_shared_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env.load_env_state")
+    def test_unsubscribes_keeps_shared(
+        self,
+        mock_load,
+        mock_shared_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_remove,
+    ):
+        """Shared services stay running when other subscribers remain."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=200,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["alpha", "bravo"],
+        )
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        assert any("stopped" in m for m in messages)
+        assert any("still used by 1" in m for m in messages)
+        # Shared services should NOT be killed
+        mock_shared_remove.assert_not_called()
+
+    @patch("mael_domain.env.remove_shared_state")
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env.load_env_state")
+    def test_last_subscriber_stops_shared(
+        self,
+        mock_load,
+        mock_shared_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_remove,
+    ):
+        """Shared services are stopped when last subscriber disconnects."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db-shared",
+                    command="postgres",
+                    pid=200,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["bravo"],
+        )
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        # Both local and shared should be stopped
+        assert any("web" in m and "stopped" in m for m in messages)
+        assert any("db-shared" in m and "stopped" in m for m in messages)
+        mock_shared_remove.assert_called_once_with(store, "proj")
+
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    @patch("mael_domain.env.load_env_state")
+    def test_no_shared_services(
+        self,
+        mock_load,
+        mock_killpg,
+        mock_alive,
+        mock_remove,
+        mock_shared_load,
+    ):
+        """Works normally when no shared services exist."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+        store = InMemoryEnvStore()
+        messages = stop_env(store, "proj", "bravo")
+        assert any("stopped" in m for m in messages)
+        assert not any("shared" in m for m in messages)
+
+
+class TestListProjectEnvsShared:
+    """Tests for list_project_envs skipping shared state."""
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    def test_skips_shared_state_file(self, mock_alive):
+        """_shared.json is not returned as a worktree env."""
+        store = InMemoryEnvStore()
+
+        # Save a regular env
+        save_env_state(
+            store,
+            EnvState(
+                project="proj",
+                worktree="alpha",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[
+                    ServiceState(
+                        name="web",
+                        command="x",
+                        pid=100,
+                        log_file="/tmp/web.log",
+                        started_at="2025-01-01T00:00:00+00:00",
+                    )
+                ],
+            ),
+        )
+
+        # Save shared state
+        save_shared_state(
+            store,
+            SharedEnvState(
+                project="proj",
+                worktree_path="/project/alpha",
+                started_at="2025-01-01T00:00:00+00:00",
+                services=[
+                    ServiceState(
+                        name="db-shared",
+                        command="postgres",
+                        pid=200,
+                        log_file="/tmp/db.log",
+                        started_at="2025-01-01T00:00:00+00:00",
+                    ),
+                ],
+                subscribers=["alpha"],
+            ),
+        )
+
+        result = list_project_envs(store, "proj")
+        assert len(result) == 1
+        assert result[0].worktree == "alpha"
+
+
+class TestRegenerateAndRestartIfRunning:
+    """Tests for regenerate_and_restart_if_running helper."""
+
+    @patch("mael_domain.env.start_env")
+    @patch("mael_domain.env.stop_env")
+    @patch("mael_domain.env.regenerate_env_file")
+    @patch("mael_domain.env.load_env_state", return_value=None)
+    def test_when_stopped(self, mock_load, mock_regen, mock_stop, mock_start, tmp_path):
+        """When env not running: regenerate .env, no stop/start, returns ([], None)."""
+        store = InMemoryEnvStore()
+        result = regenerate_and_restart_if_running(
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
+        )
+        assert result == ([], None)
+        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        mock_stop.assert_not_called()
+        mock_start.assert_not_called()
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    @patch("mael_domain.env.start_env")
+    @patch("mael_domain.env.stop_env", return_value=["web (pid 100): stopped"])
+    @patch("mael_domain.env.regenerate_env_file")
+    @patch("mael_domain.env.load_env_state")
+    def test_when_running(
+        self,
+        mock_load,
+        mock_regen,
+        mock_stop,
+        mock_start,
+        mock_alive,
+        tmp_path,
+    ):
+        """When env running: stop, regenerate, start with skip_install=True."""
+        state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_load.return_value = state
+        new_state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:01+00:00",
+            services=[],
+        )
+        mock_start.return_value = new_state
+
+        store = InMemoryEnvStore()
+        stop_messages, returned_state = regenerate_and_restart_if_running(
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
+        )
+
+        assert stop_messages == ["web (pid 100): stopped"]
+        assert returned_state is new_state
+        mock_stop.assert_called_once_with(store, "proj", "bravo")
+        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        mock_start.assert_called_once_with(
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "wt",
+            skip_install=True,
+        )
+
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("mael_domain.env.start_env")
+    @patch("mael_domain.env.stop_env")
+    @patch("mael_domain.env.regenerate_env_file")
+    @patch("mael_domain.env.load_env_state")
+    def test_state_exists_but_dead(
+        self,
+        mock_load,
+        mock_regen,
+        mock_stop,
+        mock_start,
+        mock_alive,
+        tmp_path,
+    ):
+        """State file exists but no services alive: treat as stopped."""
+        state = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(tmp_path / "wt"),
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="python app.py",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+        mock_load.return_value = state
+
+        store = InMemoryEnvStore()
+        stop_messages, returned_state = regenerate_and_restart_if_running(
+            store,
+            "proj",
+            "bravo",
+            tmp_path / "proj",
+            tmp_path / "wt",
+        )
+
+        assert stop_messages == []
+        assert returned_state is None
+        mock_stop.assert_not_called()
+        mock_start.assert_not_called()
+        mock_regen.assert_called_once()
+
+
+class TestStartEnvSharedOnlySelection:
+    """Naming only a shared service must not write an empty local state."""
+
+    @patch("mael_domain.env.save_shared_state")
+    @patch("mael_domain.env.Popen")
+    @patch("mael_domain.env.build_service_env", return_value={})
+    @patch("mael_domain.env.get_services")
+    @patch("mael_domain.env.run_install_cmd")
+    @patch("mael_domain.env.get_env_status", return_value=None)
+    @patch("mael_domain.env.cleanup_stale_env")
+    @patch("mael_domain.env.cleanup_stale_shared")
+    @patch("mael_domain.env.load_shared_state", return_value=None)
+    @patch("mael_domain.env._get_shared_log_dir")
+    @patch("mael_domain.env._get_log_dir")
+    def test_shared_only_start_writes_no_local_state(
+        self,
+        mock_log_dir,
+        mock_shared_log_dir,
+        mock_shared_load,
+        mock_shared_cleanup,
+        mock_cleanup,
+        mock_status,
+        mock_install,
+        mock_services,
+        mock_env,
+        mock_popen,
+        mock_shared_save,
+        tmp_path,
+    ):
+        """A start naming only a shared service leaves no local state file."""
+        all_svcs = [
+            ResolvedService(name="web", command="python app.py"),
+            ResolvedService(name="db", command="postgres", shared=True),
+        ]
+
+        def services(worktree_path, project="", *, names=None):
+            if names is None:
+                return all_svcs
+            return [s for s in all_svcs if s.name in set(names)]
+
+        mock_log_dir.return_value = tmp_path / "logs"
+        mock_shared_log_dir.return_value = tmp_path / "shared_logs"
+        mock_services.side_effect = services
+        mock_popen.return_value = MagicMock(pid=42)
+
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", Path("/project/bravo"), services=["db"])
+
+        assert load_env_state(store, "proj", "bravo") is None
+        assert get_env_status(store, "proj", "bravo") is None
+
+
+class TestStopEnvSharedOnlyRemainder:
+    """Stopping the last shared service must not strand an empty state file."""
+
+    @patch("mael_domain.env._unsubscribe_shared", return_value=["unsubscribed"])
+    @patch("mael_domain.env.remove_env_state")
+    @patch("mael_domain.env.save_env_state")
+    @patch("mael_domain.env.load_shared_state")
+    @patch("mael_domain.env.load_env_state")
+    def test_empty_local_state_is_removed(
+        self, mock_load, mock_shared_load, mock_save, mock_remove, mock_unsub
+    ):
+        """A state holding no local services is removed, not left behind."""
+        mock_load.return_value = EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path="/project/bravo",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[],
+        )
+        mock_shared_load.return_value = SharedEnvState(
+            project="proj",
+            worktree_path="/project/alpha",
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="db",
+                    command="postgres",
+                    pid=900,
+                    log_file="/tmp/db.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+            subscribers=["bravo"],
+        )
+
+        store = InMemoryEnvStore()
+        stop_env(store, "proj", "bravo", services=["db"])
+
+        mock_remove.assert_called_once_with(store, "proj", "bravo")
+        mock_save.assert_not_called()
+
+
+class TestServiceEnvExpands:
+    """A service's `env:` block is ${VAR}-expanded before the child sees it.
+
+    `WORKTREE` and `HOME` are both in the base environment, so a per-worktree
+    path needs no new machinery. This pins that both actually expand -- an
+    unexpanded ${HOME} would create a directory literally named "${HOME}".
+    """
+
+    def test_a_service_env_path_expands(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/tester")
+        spawned = []
+
+        def fake_popen(argv, **kwargs):
+            spawned.append(kwargs["env"])
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(
+            name="cache",
+            command="run-cache --dir ${CACHE_DIR}",
+            env={"CACHE_DIR": "${HOME}/.cache/p-${WORKTREE}"},
+        )
+        with patch("mael_domain.env.Popen", fake_popen):
+            _spawn_services(
+                [svc],
+                tmp_path,
+                {"HOME": "/home/tester", "WORKTREE": "delta"},
+                tmp_path / "logs",
+                "2026-09-05T00:00:00+00:00",
+            )
+        child_env = spawned[0]
+        assert child_env["CACHE_DIR"] == "/home/tester/.cache/p-delta"
+
+
+class TestServiceLogsSurviveARestart:
+    """A restart must not destroy the log of the run that made it necessary.
+
+    A service that dies is normally restarted at once, and the restart used to
+    truncate the log, so the crash that prompted it left nothing to read.
+    """
+
+    def test_a_log_past_the_cap_rolls_over_rather_than_growing_forever(self, tmp_path):
+        """Appending must not let a log grow without limit.
+
+        One log on this machine reached 187 MB. The previous run still has to
+        survive the restart, so the old file is kept as ``.log.1`` rather than
+        deleted.
+        """
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        big = logs / "web.log"
+        big.write_text("x" * (MAX_LOG_BYTES + 1))
+
+        def fake_popen(argv, **kwargs):
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(name="web", command="serve", env={})
+        with patch("mael_domain.env.Popen", fake_popen):
+            _spawn_services([svc], tmp_path, {}, logs, "2026-09-07T00:00:00+00:00")
+
+        assert big.stat().st_size < MAX_LOG_BYTES
+        assert (logs / "web.log.1").stat().st_size > MAX_LOG_BYTES
+
+    def test_a_restart_appends_to_the_log_rather_than_truncating_it(self, tmp_path):
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        (logs / "web.log").write_text("=== an earlier run ===\nthe crash\n")
+
+        def fake_popen(argv, **kwargs):
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        svc = ResolvedService(name="web", command="serve", env={})
+        with patch("mael_domain.env.Popen", fake_popen):
+            _spawn_services([svc], tmp_path, {}, logs, "2026-09-07T00:00:00+00:00")
+
+        text = (logs / "web.log").read_text()
+        assert "the crash" in text, "the previous run's log was truncated"
+        assert "2026-09-07T00:00:00+00:00" in text

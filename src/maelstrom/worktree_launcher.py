@@ -48,12 +48,11 @@ from mael_common.shell import (
     describe,
     run_cmd,
 )
-
-from .cmux import mael_layout
-from .cmux.client import current_client, ensure_cmux_running
-from .cmux.model import TerminalTab
-from .config import load_config_or_default
-from .shared_dir import agent_prompt_file
+from mael_domain.cmux import mael_layout
+from mael_domain.cmux.client import current_client, ensure_cmux_running
+from mael_domain.cmux.model import TerminalTab
+from mael_domain.config import load_config_or_default
+from mael_domain.shared_dir import agent_prompt_file
 
 
 class AddContext(StrEnum):
@@ -259,7 +258,7 @@ def build_claude_command(
     ``model`` becomes ``--model`` — a free-form passthrough (an alias like ``opus``
     or a full id); falsy means "omit the flag", so the session inherits the user's
     Claude Code default. ``claude`` itself rejects an unknown value. A task launch
-    never passes falsy: :func:`~maelstrom.task_launch.plan_launch` resolves an
+    never passes falsy: :func:`~mael_domain.task_launch.plan_launch` resolves an
     unset model to ``DEFAULT_MODEL`` first. Only a free agent omits the flag.
 
     ``--session-id`` *creates* a session and fails if one with that id already

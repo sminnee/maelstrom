@@ -36,6 +36,7 @@ from mael_agent.agent_wire import (
     RECENT_LIMIT,
     next_mode,
 )
+from mael_domain.protocol import TranscriptItem
 
 from .agent_view import (
     AttachView,
@@ -51,7 +52,6 @@ from .agent_view import (
     transcript_items,
     turn_result_line,
 )
-from .orchestrator.protocol import TranscriptItem
 
 #: How many lines of a tool's output the card shows.
 TOOL_OUTPUT_LINES = 4
@@ -81,7 +81,7 @@ def current_branch_or_blank(cwd: str) -> str:
     if not cwd or not Path(cwd).is_dir():
         return ""
     try:
-        from .worktree import get_current_branch
+        from mael_domain.worktree import get_current_branch
 
         return get_current_branch(Path(cwd))
     except (subprocess.CalledProcessError, OSError):

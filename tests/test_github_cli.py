@@ -5,9 +5,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from maelstrom.cli import cli
-from maelstrom.github_cli import _format_size, _render_pr_comments
-from maelstrom.github_model import (
+from mael_domain.github_model import (
     GitHubCliMissing,
     GitHubCommandFailed,
     NoPullRequest,
@@ -15,6 +13,8 @@ from maelstrom.github_model import (
     PRInfo,
     SyncFailed,
 )
+from maelstrom.cli import cli
+from maelstrom.github_cli import _format_size, _render_pr_comments
 from maelstrom.orchestrator_notify import orchestrator_url, tell_orchestrator
 
 

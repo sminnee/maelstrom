@@ -7,14 +7,14 @@ finds and leaves the rest alone.
 import json
 from pathlib import Path
 
-from maelstrom import shared_dir
+from mael_domain import shared_dir
+from mael_domain.shared_dir import agent_prompt_file
 from maelstrom.claude_integration import (
     SANDBOX_EXCLUSIONS,
     install_sandbox_exclusions,
     remove_session_channel,
     remove_session_hooks,
 )
-from maelstrom.shared_dir import agent_prompt_file
 
 
 def _settings(tmp_path: Path, data: dict) -> Path:

@@ -6,8 +6,8 @@ the TUI renders. No I/O, no clock, no widgets — so the whole view is
 exercisable by replaying a recorded transcript.
 
 The transcript itself is not reduced here. This module carries a one-agent
-:class:`~maelstrom.orchestrator.protocol.ClientState` and reduces through
-``orchestrator.normalise``, which is golden-tested against the TypeScript
+:class:`~mael_domain.protocol.ClientState` and reduces through
+``mael_domain.normalise``, which is golden-tested against the TypeScript
 reference.
 
 What that normaliser does not carry, this module adds: the working directory,
@@ -33,10 +33,9 @@ from mael_agent.agent_wire import (
     TokenUsage,
     usage_of,
 )
-
-from .orchestrator.normalise import NormaliseContext, normalise_stream_event
-from .orchestrator.normalise import mark_exited as normalise_exited
-from .orchestrator.protocol import (
+from mael_domain.normalise import NormaliseContext, normalise_stream_event
+from mael_domain.normalise import mark_exited as normalise_exited
+from mael_domain.protocol import (
     Agent,
     ClientState,
     ServerEvent,

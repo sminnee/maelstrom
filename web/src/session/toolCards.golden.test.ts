@@ -9,8 +9,8 @@ import type { ToolCallItem } from '../protocol/transcript';
  * this module. Both are hand ports, and nothing else stops them drifting —
  * so this file is the reference and Python replays it. This module renders
  * in the browser, so this side stays the owner: `UPDATE_GOLDEN=1 pnpm test`
- * re-records. The file sits beside the fixtures, not in `normalised/`, which
- * the Python normaliser test owns.
+ * re-records. The Python normaliser test owns the other goldens, in
+ * `lib/domain/fixtures/normalised/`.
  */
 const GOLDEN = resolve(__dirname, '../../../tests/fixtures/agent_events/tool-cards.json');
 

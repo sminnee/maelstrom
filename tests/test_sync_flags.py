@@ -8,7 +8,7 @@ Covers the two independent, composable flags added to `mael sync`:
   pushing.
 
 Worktree-level tests use real git via the source → bare-remote → working-clone
-pattern (mirroring ``tests/test_tidy_branches.py``); CLI tests drive ``cmd_sync``
+pattern (mirroring ``lib/domain/tests/test_tidy_branches.py``); CLI tests drive ``cmd_sync``
 through ``CliRunner`` with ``sync_worktree`` mocked.
 """
 
@@ -20,16 +20,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from git_helpers import create_commit, run_git
 
-from maelstrom.base_store import InMemoryBaseStore
-from maelstrom.cli import cli
-from maelstrom.ports import (
-    get_port_allocation,
-    record_port_allocation,
-)
-from maelstrom.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
-from maelstrom.task_launch import LaunchBlocked, check_synced
-from maelstrom.worktree import (
+from mael_domain.base_store import InMemoryBaseStore
+from mael_domain.ports import get_port_allocation, record_port_allocation
+from mael_domain.rebase_repair import _REPAIR_TIMEOUT, run_resolve_rebase_session
+from mael_domain.task_launch import LaunchBlocked, check_synced
+from mael_domain.worktree import (
     CloseResult,
     SyncResult,
     _detach_and_free_ports,
@@ -41,9 +38,9 @@ from maelstrom.worktree import (
     sync_worktree,
     sync_worktree_with_autorepair,
 )
-from maelstrom.worktree import rebase_in_progress as _rebase_in_progress
-from maelstrom.worktree_model import BaseRef, StackTip
-from tests.git_helpers import create_commit, run_git, setup_git_repo
+from mael_domain.worktree import rebase_in_progress as _rebase_in_progress
+from mael_domain.worktree_model import BaseRef, StackTip
+from maelstrom.cli import cli
 
 # ---------------------------------------------------------------------------
 # Real-git fixtures
@@ -57,86 +54,6 @@ def _current_head(path: Path) -> str:
 def _is_detached(path: Path) -> bool:
     result = run_git(path, "symbolic-ref", "-q", "HEAD", check=False)
     return result.returncode != 0
-
-
-@pytest.fixture
-def project_with_worktree():
-    """A bare-clone project ``test-repo`` with a worktree ``test-repo-alpha``.
-
-    Mirrors maelstrom's real layout so port-allocation name extraction works:
-    the worktree folder is ``<project>-<nato>``. ``get_maelstrom_dir`` is patched
-    to a temp directory so port allocations don't touch the real home dir.
-
-    Yields ``(project_path, worktree_path, remote_path)``.
-    """
-    with TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-
-        # Source repo with an initial commit on main.
-        source_path = tmp / "source"
-        source_path.mkdir()
-        setup_git_repo(source_path)
-        create_commit(source_path, "README.md", "# Test\n", "Initial commit")
-        run_git(source_path, "branch", "-M", "main")
-
-        # Bare "remote".
-        remote_path = tmp / "remote.git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True,
-            capture_output=True,
-        )
-
-        # Project root: bare clone in .git (maelstrom layout).
-        project_path = tmp / "test-repo"
-        project_path.mkdir()
-        git_dir = project_path / ".git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True,
-            capture_output=True,
-        )
-        run_git(project_path, "config", "core.bare", "true")
-        run_git(
-            project_path,
-            "config",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        )
-        run_git(project_path, "config", "user.email", "test@test.com")
-        run_git(project_path, "config", "user.name", "Test")
-        run_git(project_path, "fetch", "origin")
-
-        # Detach project-root HEAD so main isn't checked out there.
-        head_sha = _current_head(project_path)
-        run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
-
-        # Worktree on a feature branch, folder named <project>-alpha.
-        worktree_path = project_path / "test-repo-alpha"
-        subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                "-b",
-                "feature/work",
-                str(worktree_path),
-                "origin/main",
-            ],
-            cwd=project_path,
-            check=True,
-            capture_output=True,
-        )
-        run_git(worktree_path, "config", "user.email", "test@test.com")
-        run_git(worktree_path, "config", "user.name", "Test")
-
-        maelstrom_dir = tmp / "maelstrom-home"
-        maelstrom_dir.mkdir()
-        with (
-            patch("maelstrom.context.get_maelstrom_dir", return_value=maelstrom_dir),
-            patch("maelstrom.ports.get_maelstrom_dir", return_value=maelstrom_dir),
-        ):
-            yield project_path, worktree_path, remote_path
 
 
 def _push_branch(worktree_path: Path, branch: str) -> None:
@@ -324,7 +241,7 @@ class TestSyncClose:
         """A failed `git branch -D` is surfaced, not silently claimed as deleted."""
         project_path, worktree_path, remote_path = project_with_worktree
 
-        with patch("maelstrom.worktree.delete_branch", return_value=(False, False)):
+        with patch("mael_domain.worktree.delete_branch", return_value=(False, False)):
             result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
 
         assert result.success is False
@@ -338,7 +255,7 @@ class TestSyncClose:
         project_path, worktree_path, remote_path = project_with_worktree
         _push_branch(worktree_path, "feature/work")  # so delete_remote is attempted
 
-        with patch("maelstrom.worktree.delete_branch", return_value=(True, False)):
+        with patch("mael_domain.worktree.delete_branch", return_value=(True, False)):
             result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
 
         assert result.success is False
@@ -399,7 +316,7 @@ class TestRunResolveRebaseSession:
     """The real repair runner. Every other test substitutes its own."""
 
     def test_runs_the_resolve_command_headlessly_in_the_worktree(self, tmp_path):
-        with patch("maelstrom.rebase_repair.run_cmd") as run:
+        with patch("mael_domain.rebase_repair.run_cmd") as run:
             run_resolve_rebase_session(tmp_path)
 
         argv, kwargs = run.call_args.args[0], run.call_args.kwargs
@@ -422,7 +339,7 @@ class TestRunResolveRebaseSession:
         Capturing the output would hold it until the session exits, so the
         console stays silent for the whole repair.
         """
-        with patch("maelstrom.rebase_repair.run_cmd") as run:
+        with patch("mael_domain.rebase_repair.run_cmd") as run:
             run_resolve_rebase_session(tmp_path)
 
         assert run.call_args.kwargs["stream"] is True
@@ -737,9 +654,9 @@ class TestSquashAutorepair:
 def quiet_finalize():
     """Stub the finalize side-effects so worktrees stay clean for real-git assertions."""
     with (
-        patch("maelstrom.worktree.update_claude_local_md", return_value=False),
-        patch("maelstrom.worktree.run_install_cmd"),
-        patch("maelstrom.worktree.setup_claude_memory_symlink"),
+        patch("mael_domain.worktree.update_claude_local_md", return_value=False),
+        patch("mael_domain.worktree.run_install_cmd"),
+        patch("mael_domain.worktree.setup_claude_memory_symlink"),
     ):
         yield
 
@@ -964,7 +881,7 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
         with patch(
-            "maelstrom.worktree.run_resolve_rebase_session",
+            "mael_domain.worktree.run_resolve_rebase_session",
             side_effect=_idle_runner,
         ):
             result = setup_worktree_for_branch(
@@ -995,14 +912,14 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
         with (
-            patch("maelstrom.worktree.setup_claude_memory_symlink"),
-            patch("maelstrom.worktree.run_install_cmd"),
+            patch("mael_domain.worktree.setup_claude_memory_symlink"),
+            patch("mael_domain.worktree.run_install_cmd"),
             patch(
-                "maelstrom.worktree.update_claude_local_md",
+                "mael_domain.worktree.update_claude_local_md",
                 return_value=False,
             ) as local_md,
             patch(
-                "maelstrom.worktree.run_resolve_rebase_session",
+                "mael_domain.worktree.run_resolve_rebase_session",
                 side_effect=_idle_runner,
             ),
         ):
@@ -1024,7 +941,7 @@ class TestSetupWorktreeSyncOnOpen:
         branch = self._conflicting_branch(project_path, worktree_path, remote_path)
 
         with patch(
-            "maelstrom.worktree.run_resolve_rebase_session",
+            "mael_domain.worktree.run_resolve_rebase_session",
             side_effect=_repairing_runner,
         ):
             result = setup_worktree_for_branch(
@@ -1065,7 +982,7 @@ class TestSetupWorktreeSyncOnOpen:
         run_git(worktree_path, "fetch", "origin")
 
         with patch(
-            "maelstrom.worktree.run_resolve_rebase_session",
+            "mael_domain.worktree.run_resolve_rebase_session",
             side_effect=_idle_runner,
         ):
             result = setup_worktree_for_branch(

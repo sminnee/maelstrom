@@ -1,14 +1,18 @@
 """Global test fixtures for maelstrom test suite."""
 
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
-from maelstrom.cmux.client import RecordingCmuxClient
-from maelstrom.cmux.model import CmuxLayout
+from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
+    _block_real_claude_branch_gen,
+    _block_real_cmux,
+    _isolate_notebook_root,
+    _mark_test_commands_production,
+    project_with_worktree,
+    state_db,
+    store,
+)
 
 
 @pytest.fixture
@@ -19,7 +23,7 @@ def collapsible_project():
     remote and a rebase inside the command under test can fetch. Shared by the
     squash and uncommit suites, which drive the same two commands.
 
-    Named apart from ``test_sync_flags``'s ``project_with_worktree``, which
+    Named apart from ``domain_fixtures``' ``project_with_worktree``, which
     yields a third element and patches ``get_maelstrom_dir``. Two fixtures of
     one name, one shadowing the other by import, is how that suite's ``F811``
     suppressions arose.
@@ -28,7 +32,7 @@ def collapsible_project():
     """
     import subprocess
 
-    from tests.git_helpers import create_commit, run_git, setup_git_repo
+    from git_helpers import create_commit, run_git, setup_git_repo
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -89,65 +93,6 @@ def collapsible_project():
         yield project_path, worktree_path
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _block_real_cmux():
-    """Prevent any test from accidentally invoking the real cmux binary.
-
-    Patches the binary discovery used by the real transport to return None (no
-    binary found) and removes CMUX_SOCKET_PATH from the environment, so
-    ``current_client()`` returns None and nothing shells out.
-    """
-    saved = os.environ.pop("CMUX_SOCKET_PATH", None)
-    with patch("maelstrom.cmux.client._find_cmux_cli", return_value=None):
-        yield
-    if saved is not None:
-        os.environ["CMUX_SOCKET_PATH"] = saved
-
-
-@pytest.fixture(autouse=True)
-def _isolate_notebook_root(monkeypatch, tmp_path):
-    """Keep every test off the developer's real task notebook.
-
-    Every notebook path — ``state.db``, ``desk.json`` and the task export —
-    hangs off ``MAEL_NOTEBOOK_ROOT``, and a developer's shell sets it to a live
-    root. An unpinned test would read *and write* the real notebook.
-
-    Replaces a fixture that patched ``get_maelstrom_dir`` on
-    ``state_db.paths``. That module reads the root rather than the home
-    directory now, so one pinned variable covers what the patch did and the
-    store's own ``tasks_root`` besides — which the patch never reached.
-
-    Autouse and set rather than deleted: the root has no fallback, so an absent
-    one would make every task test fail on the refusal instead of exercising
-    what it means to test. Tests for the refusal delete it explicitly.
-    """
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path / "maelstrom"))
-
-
-@pytest.fixture(autouse=True)
-def _mark_test_commands_production(monkeypatch):
-    """Keep command-output tests free of the non-production warning."""
-    monkeypatch.setenv("MAEL_PRODUCTION", "1")
-
-
-@pytest.fixture(autouse=True)
-def _block_real_claude_branch_gen(monkeypatch):
-    """Prevent branch-name generation from shelling out to a live ``claude``.
-
-    ``branch_name._run_claude`` invokes ``claude -p`` to pick a descriptive
-    branch slug; in tests we force it to fail so generation falls back to the
-    deterministic offline slug. Tests that want to exercise the model path
-    inject a fake ``runner`` into ``generate_branch_name`` (or re-patch
-    ``_run_claude`` themselves) — the later ``monkeypatch.setattr`` wins.
-    """
-    from maelstrom import branch_name
-
-    def _unavailable(prompt: str) -> str:
-        raise FileNotFoundError("claude")
-
-    monkeypatch.setattr(branch_name, "_run_claude", _unavailable)
-
-
 @pytest.fixture(autouse=True)
 def _reset_task_db():
     """Forget the task CLI's cached database between tests.
@@ -167,54 +112,3 @@ def _reset_task_db():
         task_cli._DB.close()
     task_cli._DB = None
     task_cli._CHECKED = False
-
-
-@pytest.fixture()
-async def state_db():
-    """A migrated in-memory state database, closed when the test ends.
-
-    Four suites open one the same way. What each builds on top differs — a task
-    table, a desk store, an export queue — so only the database is shared; the
-    store fixtures stay with the contracts they exercise.
-    """
-    from maelstrom.state_db.migrate import open_state_db
-
-    db = open_state_db(":memory:")
-    await db.migrate()
-    yield db
-    db.close()
-
-
-@pytest.fixture()
-def store():
-    """Shared task-table fixture for the model / CLI / actions test suites.
-
-    Named ``store`` because that is what several hundred tests already call it;
-    what it yields is an :class:`~maelstrom.task_table.InMemoryTaskTable`, the
-    model's one injected collaborator now that the notebook is a table.
-
-    The contract itself is exercised against both backends in
-    ``tests/test_task_table.py``; here the in-memory twin keeps the behaviour
-    suites fast and free of a database file.
-    """
-    from maelstrom.task_table import InMemoryTaskTable
-
-    return InMemoryTaskTable()
-
-
-@pytest.fixture()
-def recording_layout():
-    """Return a factory for a :class:`CmuxLayout` over a :class:`RecordingCmuxClient`.
-
-    Call ``recording_layout(responses, name="ws")`` to build a layout whose
-    client records every ``run`` call in ``client.calls`` and returns scripted
-    results. ``responses`` is either a dict keyed by the exact args tuple or a
-    callable ``fn(*args) -> str | None``. The returned tuple is
-    ``(layout, client)`` so tests can assert on ``client.calls``.
-    """
-
-    def make(responses=None, name="myproject-alpha"):
-        client = RecordingCmuxClient(responses)
-        return CmuxLayout(client, name), client
-
-    return make

@@ -5,10 +5,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+from git_helpers import create_commit, run_git, setup_git_repo
 
+from mael_domain.worktree import ProjectInfo, list_projects
 from maelstrom.cli import cli
-from maelstrom.worktree import ProjectInfo, list_projects
-from tests.git_helpers import create_commit, run_git, setup_git_repo
 
 
 def _make_project(projects_dir: Path, name: str, worktrees: list[str]) -> Path:

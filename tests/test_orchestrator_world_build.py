@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from agent_fixtures import FIXTURES
 
 from mael_daemon.agent_model import (
     AgentState,
@@ -10,7 +11,7 @@ from mael_daemon.agent_model import (
     build_agent_row,
     mark_exited,
 )
-from maelstrom import task as model
+from mael_domain import task as model
 from maelstrom.orchestrator.world_build import (
     agent_entity,
     diff_kind,
@@ -23,8 +24,6 @@ from maelstrom.orchestrator.world_build import (
     task_key,
     worktree_entity,
 )
-
-from .agent_fixtures import FIXTURES
 
 TASK_MD = """---
 id: NORT-7.2

@@ -1,7 +1,7 @@
 """Session CLI: `mael session list`, `mael session info`, `mael session end`.
 
 A session here is a running ``claude`` process. Everything shown comes from the
-process itself (via :mod:`maelstrom.session_discovery`) plus the task table's
+process itself (via :mod:`mael_domain.session_discovery`) plus the task table's
 reverse lookup on the session id. There is no registry file to consult: the
 session-tracking channel that wrote one is gone, and ``mael agent list`` is
 where a driven agent's state lives.
@@ -14,13 +14,13 @@ from pathlib import Path
 import click
 
 from mael_common.cli_async import AsyncGroup
+from mael_domain import session_discovery
+from mael_domain.context import resolve_context
+from mael_domain.env import stop_sessions
+from mael_domain.task_table import SqliteTaskTable
 
-from . import session_discovery
-from .context import resolve_context
-from .env import stop_sessions
 from .table_cli import draw_table
 from .task_cli import open_task_table
-from .task_table import SqliteTaskTable
 
 
 @click.group("session", cls=AsyncGroup)
@@ -172,7 +172,7 @@ async def _find_session(id: str | None) -> session_discovery.LiveSession:
     candidates for them would be a guess.
 
     A pid the sweep does not know resolves through
-    :func:`~maelstrom.session_discovery.session_for_pid`, which reads the process
+    :func:`~mael_domain.session_discovery.session_for_pid`, which reads the process
     itself. Without it a session whose ``pgrep`` sweep misses it — its own,
     often — could not name itself.
     """

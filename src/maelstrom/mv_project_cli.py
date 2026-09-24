@@ -1,7 +1,7 @@
 """``mael mv-project`` — rename a project and everything derived from its name.
 
-The IO adapter for :mod:`maelstrom.mv_project`. It gathers the facts the pure
-model needs, renders or applies the resulting :class:`~maelstrom.mv_project.MovePlan`,
+The IO adapter for :mod:`mael_domain.mv_project`. It gathers the facts the pure
+model needs, renders or applies the resulting :class:`~mael_domain.mv_project.MovePlan`,
 and is the only layer here that touches the filesystem, git, or the terminal.
 
 A plain ``mv`` of a project directory is not safe. Two failures are silent:
@@ -21,29 +21,29 @@ import click
 from mael_common.claude_paths import has_claude_transcript
 from mael_common.cli_async import AsyncCommand
 from mael_common.util import abbreviate_home, get_maelstrom_dir, locked_file
-
-from . import task as task_model
-from .claude_integration import read_json
-from .context import load_global_config, validate_project_name
-from .env import (
+from mael_domain import task as task_model
+from mael_domain.context import load_global_config, validate_project_name
+from mael_domain.env import (
     load_env_state,
     load_shared_state,
     stop_env,
     stop_sessions,
     stop_shared_services,
 )
-from .env_cli import make_store as make_env_store
-from .mv_project import DirMove, MovePlan, build_move_plan, rekey_claude_json
-from .ports import rename_project_allocations
-from .session_discovery import LiveSession, all_live_sessions
-from .task_cli import open_task_table
-from .worktree import (
+from mael_domain.mv_project import DirMove, MovePlan, build_move_plan, rekey_claude_json
+from mael_domain.ports import rename_project_allocations
+from mael_domain.session_discovery import LiveSession, all_live_sessions
+from mael_domain.worktree import (
     list_worktrees,
     run_git,
     setup_claude_memory_symlink,
     update_claude_local_md,
 )
-from .worktree_model import extract_worktree_name_from_folder
+from mael_domain.worktree_model import extract_worktree_name_from_folder
+
+from .claude_integration import read_json
+from .env_cli import make_store as make_env_store
+from .task_cli import open_task_table
 
 
 def _claude_json_path(home: Path) -> Path:

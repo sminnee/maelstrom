@@ -10,13 +10,13 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_fixtures import FIXTURES
+
 from mael_agent.agent_wire import (
     AGENT_EXITED,
     BACKLOG_END,
 )
 from maelstrom.agent_tui import AttachApp
-
-from .agent_fixtures import FIXTURES
 
 NOW = "2026-01-01T00:00:00Z"
 

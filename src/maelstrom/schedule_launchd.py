@@ -1,6 +1,6 @@
 """launchd glue for the scheduled-task agent (macOS only).
 
-Isolated from the pure :mod:`maelstrom.schedule` module: everything here touches
+Isolated from the pure :mod:`mael_domain.schedule` module: everything here touches
 the filesystem and shells out to ``launchctl``, so it is mocked rather than
 exercised directly in tests (apart from :func:`render_plist`, which is pure).
 
@@ -34,7 +34,7 @@ from pathlib import Path
 
 from mael_common.shell import mael_path
 
-LABEL = "nz.tangerinelabs.maelstrom.schedule"
+LABEL = "nz.tangerinelabs.mael_domain.schedule"
 
 
 def _maelstrom_dir() -> Path:

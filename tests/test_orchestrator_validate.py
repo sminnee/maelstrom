@@ -5,14 +5,14 @@ command the same way the fake backend does, before the host is touched.
 """
 
 import pytest
+from agent_fixtures import make_agent, make_document
 
-from maelstrom.orchestrator.protocol import empty_world
+from mael_domain.protocol import empty_world
 from maelstrom.orchestrator.validate import validate_command
-from tests.test_orchestrator_normalise import make_agent, make_document
 
 
 def make_task(**over) -> dict:
-    from maelstrom import task as model
+    from mael_domain import task as model
     from maelstrom.orchestrator.world_build import task_entity
 
     task = task_entity(

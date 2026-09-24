@@ -47,15 +47,19 @@ from mael_agent.agent_wire import (
 from mael_agent.harness_model import resolve_execute_model
 from mael_common.cli_async import AsyncGroup
 from mael_common.util import now_iso
+from mael_domain.agent_cost import AgentCost, Stage, build_cost_report
+from mael_domain.agent_store import (
+    SqliteAgentStore,
+    SqliteMilestoneStore,
+    register_agent,
+)
+from mael_domain.context import resolve_context
+from mael_domain.notebook_root import NotebookRootUnset
+from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.paths import get_state_db_path
+from mael_domain.state_db.types import StateDbError
 
-from .agent_cost import AgentCost, Stage, build_cost_report
-from .agent_store import SqliteAgentStore, SqliteMilestoneStore, register_agent
-from .context import resolve_context
-from .notebook_root import NotebookRootUnset
-from .shared_dir import agent_prompt_file
-from .state_db.migrate import open_state_db
-from .state_db.paths import get_state_db_path
-from .state_db.types import StateDbError
 from .table_cli import draw_table
 from .task_cli import open_task_table
 
@@ -509,7 +513,7 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
 
     This socket is the Claude agent daemon, the only harness `mael agent`
     reaches, so the harness is always ``claude`` — see
-    :func:`maelstrom.agent_store.register_agent`.
+    :func:`mael_domain.agent_store.register_agent`.
     """
     reply = await daemon_client().request({"cmd": "list"})
     if "error" in reply:

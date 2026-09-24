@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from maelstrom.integrations._format import parse_since
-from maelstrom.integrations.errors import IntegrationError, IntegrationHTTPError
+from mael_domain.integrations._format import parse_since
+from mael_domain.integrations.errors import IntegrationError, IntegrationHTTPError
 from maelstrom.integrations.sentry_cli import sentry_group as sentry
 
 
@@ -24,7 +24,8 @@ class TestParseSince:
 
 class TestListIssuesCommand:
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
     def test_bad_since_is_a_cli_error(self, _mock_config):
         result = CliRunner().invoke(sentry, ["list-issues", "--since", "bogus"])
@@ -33,10 +34,11 @@ class TestListIssuesCommand:
         assert "Error: Invalid --since value 'bogus'" in result.output
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
     @patch(
-        "maelstrom.integrations.sentry.api_request",
+        "mael_domain.integrations.sentry.api_request",
         side_effect=IntegrationHTTPError(403, "forbidden"),
     )
     def test_an_http_error_is_a_cli_error(self, _mock_api, _mock_config):
@@ -46,9 +48,10 @@ class TestListIssuesCommand:
         assert "Error: HTTP Error 403: forbidden" in result.output
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request", return_value=[])
+    @patch("mael_domain.integrations.sentry.api_request", return_value=[])
     def test_no_since_query_unchanged(self, mock_api, _mock_config):
         runner = CliRunner()
         result = runner.invoke(sentry, ["list-issues"])
@@ -59,9 +62,10 @@ class TestListIssuesCommand:
         assert "lastSeen" not in params["query"]
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request", return_value=[])
+    @patch("mael_domain.integrations.sentry.api_request", return_value=[])
     def test_since_adds_lastseen_token(self, mock_api, _mock_config):
         runner = CliRunner()
         result = runner.invoke(sentry, ["list-issues", "--since", "7d"])
@@ -73,9 +77,10 @@ class TestListIssuesCommand:
         assert "environment:prod" in query
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request", return_value=[])
+    @patch("mael_domain.integrations.sentry.api_request", return_value=[])
     def test_since_whitespace_normalized_in_query(self, mock_api, _mock_config):
         runner = CliRunner()
         result = runner.invoke(sentry, ["list-issues", "--since", " 7d "])
@@ -87,9 +92,10 @@ class TestListIssuesCommand:
         assert "lastSeen:- 7d" not in query
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request", return_value=[])
+    @patch("mael_domain.integrations.sentry.api_request", return_value=[])
     def test_since_rejects_bad_value(self, _mock_api, _mock_config):
         runner = CliRunner()
         result = runner.invoke(sentry, ["list-issues", "--since", "bogus"])
@@ -98,9 +104,10 @@ class TestListIssuesCommand:
         assert "Invalid --since" in result.output
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request")
+    @patch("mael_domain.integrations.sentry.api_request")
     def test_renders_table_with_window_heading(self, mock_api, _mock_config):
         mock_api.return_value = [
             {
@@ -121,9 +128,10 @@ class TestListIssuesCommand:
         assert "last 7d" in result.output
 
     @patch(
-        "maelstrom.integrations.sentry.get_sentry_config", return_value=("org", "proj")
+        "mael_domain.integrations.sentry.get_sentry_config",
+        return_value=("org", "proj"),
     )
-    @patch("maelstrom.integrations.sentry.api_request", return_value=[])
+    @patch("mael_domain.integrations.sentry.api_request", return_value=[])
     def test_empty_result_reflects_window(self, _mock_api, _mock_config):
         runner = CliRunner()
         result = runner.invoke(sentry, ["list-issues", "--since", "7d"])

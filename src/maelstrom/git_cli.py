@@ -7,9 +7,8 @@ from pathlib import Path
 import click
 
 from mael_common.shell import run_cmd
-
-from .context import resolve_context
-from .worktree import (
+from mael_domain.context import resolve_context
+from mael_domain.worktree import (
     SyncResult,
     get_commits_ahead,
     get_current_branch,
@@ -18,7 +17,7 @@ from .worktree import (
     squash_branch,
     uncommit_branch,
 )
-from .worktree_model import MAIN_BRANCH, WorktreeError
+from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:

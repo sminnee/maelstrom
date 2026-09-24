@@ -34,8 +34,7 @@ from mael_agent.harness_model import (
     resolve_model_reference,
 )
 from mael_common.util import now_iso
-
-from ..agent_store import (
+from mael_domain.agent_store import (
     AGENT_ENDED,
     AGENT_RUNNING,
     AgentStore,
