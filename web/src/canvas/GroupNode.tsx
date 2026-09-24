@@ -2,6 +2,7 @@ import type { NodeProps, Node } from '@xyflow/react';
 import { useCloseWorktree } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { GraphGroup } from '../selectors/graph';
+import { canClose } from '../selectors/worktrees';
 import { AppButton } from '../ui/AppButton';
 import styles from './GroupNode.module.css';
 
@@ -20,13 +21,10 @@ export function GroupNode({ data }: NodeProps<GroupFlowNode>) {
   );
 }
 
-/**
- * The lane's close, on the worktree the lane stands for. `_main` never closes,
- * so it is offered no button.
- */
+/** The lane's close, on the worktree the lane stands for. */
 function CloseWorktree({ worktree }: { worktree: Worktree }) {
   const close = useCloseWorktree();
-  if (worktree.nato === '_main') return null;
+  if (!canClose(worktree)) return null;
   return (
     <AppButton
       variant="quiet"

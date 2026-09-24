@@ -10,7 +10,7 @@ import {
 } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
-import { listWorktrees } from '../selectors/worktrees';
+import { canClose, listWorktrees } from '../selectors/worktrees';
 import { ExternalLink } from '../shell/ExternalLink';
 import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
@@ -171,7 +171,7 @@ function Actions({
           />
         </>
       )}
-      {closable && !worktree.isClosed && (
+      {canClose(worktree) && (
         <>
           <AppButton
             variant="quiet"
