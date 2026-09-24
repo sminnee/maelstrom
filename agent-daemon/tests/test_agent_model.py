@@ -1391,6 +1391,78 @@ def test_a_backgrounded_subagent_outlives_the_parents_tool_result():
     assert state.subagents["a1.1"].status == SUB_COMPLETED
 
 
+#: The two background tasks in ``subagent-background.jsonl``, by ``tool_use_id``.
+TASK_NAMES = {
+    "toolu_01Psu3ew4jVXe96yarRAujE5": "subagent ends",
+    "toolu_015penBXps91JNaUmB5hKzj3": "shell ends",
+}
+
+
+def test_a_turn_that_ends_under_a_running_subagent_is_delegating():
+    """The row says ``delegating`` until the subagent's notification, then ``idle``.
+
+    The fixture's ``local_bash`` notification arrives first, and changes nothing.
+    """
+    raw = (FIXTURES / "subagent-background.jsonl").read_text().splitlines()
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    seen = []
+    for line in raw:
+        event = json.loads(line)
+        state = apply_event(state, event)
+        if event.get("type") == "result":
+            seen.append(("result", build_agent_row(state)["state"]))
+        elif event.get("subtype") == "task_notification":
+            task = TASK_NAMES[event["tool_use_id"]]
+            seen.append((task, build_agent_row(state)["state"]))
+    assert seen == [
+        ("result", "delegating"),
+        ("shell ends", "delegating"),
+        ("subagent ends", "idle"),
+        ("result", "idle"),
+    ]
+    # The reducer's own status stays idle: the row derives the word.
+    assert state.status == IDLE
+
+
+def _task_started(tool_use_id: str, task_type: str, task_id: str = "t") -> dict:
+    return {
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": task_id,
+        "tool_use_id": tool_use_id,
+        "description": "a task",
+        "task_type": task_type,
+    }
+
+
+def test_a_turn_that_ends_under_a_background_shell_is_idle():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _task_started("b1", "local_bash"))
+    state = apply_event(state, {"type": "result"})
+    assert build_agent_row(state)["state"] == IDLE
+
+
+def test_a_subagents_ask_outranks_delegating_until_it_is_answered():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _task_started("t1", "local_agent", task_id="task-1"))
+    state = apply_event(state, {"type": "result"})
+    ask = {
+        "type": "control_request",
+        "request_id": "r1",
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": "WebFetch",
+            "input": {},
+            "agent_id": "task-1",
+        },
+    }
+    state = apply_event(state, ask)
+    assert build_agent_row(state)["state"] == AWAITING_PERMISSION
+    answer = {"type": "control_response", "response": {"request_id": "r1"}}
+    state = apply_event(state, answer)
+    assert build_agent_row(state)["state"] == "delegating"
+
+
 def test_a_subagent_of_a_subagent_is_dot_one_dot_one():
     """The ring holding the spawning call decides the level, not the tool name."""
     state = AgentState(agent_id="a1", cwd="/tmp/x")

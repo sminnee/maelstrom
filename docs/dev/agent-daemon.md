@@ -1031,6 +1031,22 @@ or `stopped`) and a `summary`. The parent's own `tool_result` for the `Agent` ca
 a backgrounded subagent gets that result at launch and runs on. A subagent that speaks after its
 notification is running again.
 
+#### A turn that ends while a subagent runs
+
+A parent that starts a background subagent ends its turn with a `result`, and the subagent runs
+on. The row then reads `delegating`: no turn is open, but the work is not done. It reads `idle`
+again when the last subagent's `task_notification` arrives, and `processing` when the
+notification wakes the parent for its next turn. A background `Bash` is no subagent, so it keeps
+the row `idle`.
+
+`build_agent_row` derives `delegating` from two facts the reducer already holds: status `idle`,
+and a subagent still `running`. `AgentState.status` stays `idle`, so `last_status` and the resume
+prompt do not change. An open ask outranks `delegating`, and an exit outranks both.
+`agent-daemon/fixtures/agent_events/subagent-background.jsonl` records the sequence.
+
+A foreground `Agent` call needs none of this: the parent's turn stays open, so it reads
+`processing`.
+
 #### A subagent's permission ask
 
 A `control_request` carries no `parent_tool_use_id`, so a subagent's ask arrives on the parent's
