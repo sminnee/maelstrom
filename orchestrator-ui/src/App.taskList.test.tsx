@@ -635,6 +635,161 @@ describe('the task list', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  describe('bulk actions', () => {
+    const tick = (user: ReturnType<typeof userEvent.setup>, taskId: string) =>
+      user.click(screen.getByRole('checkbox', { name: `Select ${taskId}` }));
+    const bar = () => screen.getByRole('region', { name: 'Bulk actions' });
+    const noBar = () => expect(screen.queryByRole('region', { name: 'Bulk actions' })).toBeNull();
+
+    it('ticking rows shows the bar and does not open the task editor, and Clear unticks them', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      await goToList(user);
+      noBar();
+
+      await tick(user, 'NORT-9');
+      await tick(user, 'NORT-9.1');
+
+      expect(bar()).toHaveTextContent('2 selected');
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      await user.click(within(bar()).getByRole('button', { name: 'Clear' }));
+      noBar();
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-9.1' })).not.toBeChecked();
+    });
+
+    it('adds the ticked rows to the desk, sending none for a row already on it', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      await goToList(user);
+      await showEveryStatus(user);
+      expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'true');
+      for (const id of ['NORT-3', 'NORT-5', 'NORT-9']) await tick(user, id);
+
+      await user.click(within(bar()).getByRole('button', { name: 'Add to desk' }));
+
+      // The bar goes once every row went through, so the run is over.
+      await waitFor(noBar);
+      expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true');
+      expect(listRow('NORT-5')).toHaveAttribute('data-on-desk', 'true');
+      const posts = server.requests.filter((r) => r.method === 'POST' && r.path === '/api/desk');
+      expect(posts.map((r) => r.body)).toEqual([{ id: 'task:NORT-3' }, { id: 'task:NORT-5' }]);
+    });
+
+    it('removes the ticked rows from the desk, sending none for a row not on it', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      await goToList(user);
+      await showEveryStatus(user);
+      // NORT-3 is off the desk.
+      for (const id of ['NORT-3', 'NORT-9.1']) await tick(user, id);
+
+      await user.click(within(bar()).getByRole('button', { name: 'Remove from desk' }));
+
+      await waitFor(noBar);
+      expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false');
+      const deletes = server.requests.filter((r) => r.method === 'DELETE');
+      expect(deletes.map((r) => r.path)).toEqual(['/api/desk/task%3ANORT-9.1']);
+    });
+
+    it('moves the ticked rows to a status, sending none for a row already at that status', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      await goToList(user);
+      // NORT-15 is already blocked.
+      for (const id of ['NORT-9', 'NORT-9.1', 'NORT-15']) await tick(user, id);
+
+      await user.selectOptions(
+        within(bar()).getByRole('combobox', { name: 'Set status' }),
+        'blocked',
+      );
+
+      await waitFor(noBar);
+      for (const id of ['NORT-9', 'NORT-9.1']) {
+        expect(
+          await within(listRow(id) as HTMLElement).findByRole('button', { name: 'blocked' }),
+        ).toBeInTheDocument();
+      }
+      const posts = server.requests.filter((r) => r.path.endsWith('/status'));
+      expect(posts.map((r) => r.path).sort()).toEqual([
+        '/api/tasks/NORT-9.1/status',
+        '/api/tasks/NORT-9/status',
+      ]);
+    });
+
+    it('a refused row says why and stays ticked, and the rest carry on', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      server.refuse(/NORT-9\/status/, {
+        status: 400,
+        code: 'invalid',
+        message: 'NORT-9 has a running agent',
+      });
+      await goToList(user);
+      // NORT-9 goes first, so NORT-9.1 moving proves the run did not stop.
+      for (const id of ['NORT-9', 'NORT-9.1']) await tick(user, id);
+
+      await user.selectOptions(
+        within(bar()).getByRole('combobox', { name: 'Set status' }),
+        'blocked',
+      );
+
+      expect(await within(bar()).findByRole('alert')).toHaveTextContent(
+        '1 of 2 failed: NORT-9 has a running agent',
+      );
+      expect(bar()).toHaveTextContent('1 selected');
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-9.1' })).not.toBeChecked();
+      expect(
+        await within(listRow('NORT-9.1') as HTMLElement).findByRole('button', { name: 'blocked' }),
+      ).toBeInTheDocument();
+
+      // A new selection is not the one that failed.
+      await tick(user, 'NORT-9.1');
+      expect(within(bar()).queryByRole('alert')).toBeNull();
+    });
+
+    it('the header box ticks every listed row, is mixed for some, and clears them', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      await goToList(user);
+      const all = screen.getByRole('checkbox', { name: 'Select all' });
+      const live = Object.values(seedWorld().world.tasks).filter((t) =>
+        ['todo', 'in-progress', 'blocked'].includes(t.status),
+      );
+
+      await tick(user, 'NORT-9');
+      expect(all).toBePartiallyChecked();
+
+      await user.click(all);
+      expect(bar()).toHaveTextContent(`${live.length} selected`);
+      expect(all).toBeChecked();
+      // A hidden row is not ticked with the rest.
+      await user.click(screen.getByRole('checkbox', { name: 'done' }));
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-3' })).not.toBeChecked();
+
+      await user.click(all);
+      await user.click(all);
+      noBar();
+    });
+
+    it('a ticked row that leaves the filter leaves the selection', async () => {
+      const user = userEvent.setup();
+      await renderApp();
+      await goToList(user);
+      await tick(user, 'NORT-9');
+
+      // Moved from its own row, not the bar, so only the filter drops it.
+      await pickStatus(user, 'NORT-9', 'in-progress', 'done');
+
+      await waitFor(() => expect(listRow('NORT-9')).toBeNull());
+      noBar();
+      await user.click(screen.getByRole('checkbox', { name: 'done' }));
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).not.toBeChecked();
+    });
+  });
+
   it('the attention chip still counts an agent blocked on an off-desk task', async () => {
     const user = userEvent.setup();
     await renderApp();
