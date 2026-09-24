@@ -101,14 +101,11 @@ def isolated_maelstrom(tmp_path, monkeypatch):
     projects_dir = tmp_path / "Projects"
     projects_dir.mkdir()
 
-    # Patch get_maelstrom_dir in all modules that import it
+    # The domain reads ~/.maelstrom/ through this one symbol.
     def fake_get_dir():
         return maelstrom_dir
 
     monkeypatch.setattr("mael_domain.context.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("mael_domain.env.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("mael_domain.env_store.get_maelstrom_dir", fake_get_dir)
-    monkeypatch.setattr("mael_domain.ports.get_maelstrom_dir", fake_get_dir)
     # The state database, the desk and the task export all hang off the
     # notebook root, so a test that opens any of them would otherwise write
     # into the developer's live notebook.
@@ -137,9 +134,6 @@ def isolated_maelstrom_module(tmp_path_factory):
         return maelstrom_dir
 
     mp.setattr("mael_domain.context.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("mael_domain.env.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("mael_domain.env_store.get_maelstrom_dir", fake_get_dir)
-    mp.setattr("mael_domain.ports.get_maelstrom_dir", fake_get_dir)
     mp.setenv("MAEL_NOTEBOOK_ROOT", str(maelstrom_dir))
     mp.setattr(
         "mael_domain.context.load_global_config",

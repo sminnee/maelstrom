@@ -25,12 +25,14 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
-from mael_common.util import atomic_write_json, get_maelstrom_dir
+from mael_common.util import atomic_write_json
+
+from . import context
 
 
 def get_state_dir() -> Path:
     """Return the directory for environment state files."""
-    return get_maelstrom_dir() / "envs"
+    return context.get_maelstrom_dir() / "envs"
 
 
 class EnvStore(Protocol):
