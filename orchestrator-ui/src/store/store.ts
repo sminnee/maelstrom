@@ -37,6 +37,7 @@ export interface AppStore {
   setEditingTask(taskId: TaskId | null): void;
   setNewWorkOpen(open: boolean): void;
   setPanelWidth(width: number): void;
+  setPanelOpen(open: boolean): void;
   /** Which zone the deck list shows. Narrow layout only. */
   setDeckZone(zone: Zone): void;
   /** Push a screen over the deck list, or return to it if it is already open. */
@@ -76,7 +77,8 @@ export const useAppStore = create<AppStore>()((set) => ({
   openTab: (tab) =>
     set((s) => {
       const tabs = openOrFocusTab(s.ui.tabs, tab);
-      return { ui: { ...s.ui, tabs, activeTabKey: tab.key } };
+      // Opening a tab always shows the panel: a link must show what it opened.
+      return { ui: { ...s.ui, tabs, activeTabKey: tab.key, panelOpen: true } };
     }),
   activateTab: (key) => set((s) => ({ ui: { ...s.ui, activeTabKey: key } })),
   closeTab: (key) =>
@@ -93,6 +95,7 @@ export const useAppStore = create<AppStore>()((set) => ({
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setNewWorkOpen: (newWorkOpen) => set((s) => ({ ui: { ...s.ui, newWorkOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
+  setPanelOpen: (panelOpen) => set((s) => ({ ui: { ...s.ui, panelOpen } })),
   setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
   pushScreen: (screen) =>
     set((s) => ({ ui: { ...s.ui, mobileStack: pushScreen(s.ui.mobileStack, screen) } })),

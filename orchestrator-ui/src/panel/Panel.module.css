@@ -6,6 +6,10 @@
   background: var(--bg);
   flex-shrink: 0;
 }
+/* The display above outranks the attribute's own. */
+.panel[hidden] {
+  display: none;
+}
 .grip {
   position: absolute;
   left: -3px;

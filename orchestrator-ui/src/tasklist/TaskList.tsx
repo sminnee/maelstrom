@@ -8,7 +8,9 @@ import type { Attention } from '../protocol/attention';
 import type { Agent } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { driftLabel, progressOf } from '../protocol/progress';
+import { sessionTab } from '../selectors/tabs';
 import { listTasks } from '../selectors/taskList';
+import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -149,7 +151,9 @@ function stateCell(task: TaskRow, agent: Agent | undefined, attention: readonly 
   const progress = progressOf(task, agent, attention);
   return (
     <>
-      {progress.words}
+      {/* The list's one way into the panel: the state is the agent's, so it
+          opens the agent's session. */}
+      {agent ? <PanelLink tab={sessionTab(agent.id)}>{progress.words}</PanelLink> : progress.words}
       {progress.drift && (
         <span
           className={styles.drift}

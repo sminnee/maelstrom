@@ -163,8 +163,8 @@ Branch applies to Desk and Tasks only: its options are built from tasks, so a wo
 no task names would silently vanish from a table meant to show every one of them. Desk has Agent
 status and Group by controls, Tasks has status and text controls, and Worktrees has "show closed".
 
-`View` is a union nothing switches on exhaustively, so widening it compiles clean. The three branch
-sites — `AppShell`, `MobileShell` and `FilterBar` — are edited by hand.
+`View` is a union nothing switches on exhaustively; its docstring in `store/uiSlice.ts` lists the
+sites to edit by hand when it widens.
 
 ### The worktree table
 
@@ -201,7 +201,9 @@ of the six statuses. The expanded card carries the same control, at the right en
 strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
 which says why the select is native. Choosing a status posts the new one, and a refusal shows
 beside the control. A click anywhere on a row opens the task editor, which holds title, status,
-content and branch, with command, mode, base, priority and model under a folded "Advanced". The
+content and branch, with command, mode, base, priority and model under a folded "Advanced". A
+task with an agent has a panel link in its state cell, to the agent's session. The row's click
+guard skips links, so that link does not open the editor. The
 title cell carries a real button, because a table row reaches no keyboard. The dialog opens
 read-only with Edit, Delete and Close; Edit unlocks the fields and restores Cancel and Save. Every
 read-only or disabled field draws with a transparent background and a fainter border, the one
@@ -449,8 +451,10 @@ The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` 
 prompt in full. `selectors/transcript.ts` skips the same call when it builds the context before a
 wait.
 
-The panel holds session and document tabs only. A panel link opens a session or a document as
-a tab; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
+The panel holds session and document tabs only. It sits beside the canvas and the task list —
+`hasPanel` in `store/uiSlice.ts` names the views. The Panel toggle in the top bar collapses it
+with the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a session or a document as a tab, and opens a collapsed panel
+too; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
 whatever raised it — a plan review, or a tag the agent wrote in its own message.
 

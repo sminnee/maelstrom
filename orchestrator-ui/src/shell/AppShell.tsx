@@ -8,6 +8,7 @@ import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
+import { hasPanel } from '../store/uiSlice';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
@@ -33,6 +34,7 @@ function WideShell() {
   // Above the views, so the list's scrolling box cannot clip it.
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
+  const panelOpen = useAppStore((s) => s.ui.panelOpen);
   const { status } = useWorld();
   // The provider stays outside the switch: the attention chip fits the view
   // from the top bar, whichever view is showing.
@@ -52,8 +54,9 @@ function WideShell() {
               <TaskList />
             )}
           </main>
-          {/* Only the canvas has something to put beside it. */}
-          {view === 'canvas' && <Panel />}
+          {/* Hidden rather than unmounted: a session tab holds its scroll
+              position, window floor and pending waits across a toggle. */}
+          {hasPanel(view) && <Panel hidden={!panelOpen} />}
         </div>
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}

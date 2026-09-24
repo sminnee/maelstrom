@@ -7,13 +7,13 @@ import { PANEL_BODY_ID, PanelTabs } from './PanelTabs';
 import styles from './Panel.module.css';
 
 const MIN_PANEL_WIDTH = 320;
-/** The canvas that stays visible however wide the panel is dragged, so the grip stays reachable. */
-const MIN_CANVAS_STRIP = 48;
+/** The main view that stays visible however wide the panel is dragged, so the grip stays reachable. */
+const MIN_MAIN_STRIP = 48;
 const clamp = (width: number) =>
-  Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_CANVAS_STRIP, width));
+  Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_MAIN_STRIP, width));
 
 /** The one right-hand region: a tab strip and the active tab's body. Resizable by drag. */
-export function Panel() {
+export function Panel({ hidden = false }: { hidden?: boolean }) {
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const width = useAppStore((s) => s.ui.panelWidth);
@@ -50,14 +50,19 @@ export function Panel() {
   );
 
   return (
-    <aside className={styles.panel} style={{ width: clamp(width) }} data-testid="panel">
+    <aside
+      className={styles.panel}
+      style={{ width: clamp(width) }}
+      data-testid="panel"
+      hidden={hidden}
+    >
       <div className={styles.grip} onPointerDown={onPointerDown} aria-hidden="true" />
       <PanelTabs />
       <div className={styles.body} role="tabpanel" id={PANEL_BODY_ID}>
         {active ? (
           <TabBody tab={active} />
         ) : (
-          <div className={styles.empty}>Open a session or a document from a node.</div>
+          <div className={styles.empty}>Open a session or a document from a node or a task.</div>
         )}
       </div>
     </aside>

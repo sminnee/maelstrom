@@ -17,6 +17,7 @@ describe('the narrow layout', () => {
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Panel' })).toBeNull();
   });
 
   it('reads the PR number on a deck row, as the canvas node does', async () => {
@@ -130,6 +131,15 @@ describe('the narrow layout', () => {
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Project')).toBeNull();
     expect(screen.queryByLabelText('Branch')).toBeNull();
+  });
+
+  it("pushes the agent's session from a task's state link, with no editor", async () => {
+    await renderApp({ viewport: 'narrow' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks' }));
+    const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
+    await userEvent.click(within(row as HTMLElement).getByRole('link'));
+    expect(await screen.findByTestId('session-tab')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('still starts new work', async () => {
