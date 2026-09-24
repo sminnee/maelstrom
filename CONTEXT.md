@@ -750,10 +750,15 @@ every agent it sees start, and the entry outlives the agent, so stopped work sta
 canvas until the user dismisses it. A restart rebuilds the agents, so an entry naming an agent
 that is gone is dropped as the desk loads. Each entry names its kind — `task:<project>/<notebook id>`
 or `agent:<agent id>`. The desk is tracked apart from the notebook and is not a status, so a
-task stays on the desk whatever its status. A task leaves the desk from its own node or from
-its task list row; a free agent leaves from its node only. There is one desk today, and one per
-user later.
+task stays on the desk whatever its status. A node leaves the desk by a **Dismiss**. There is
+one desk today, and one per user later.
 _Avoid_: Workspace, board, pinned
+
+**Dismiss**:
+Taking a node off the desk. A dismiss never stops an agent; **stop** does, and the node card
+offers both in one control — see `docs/dev/orchestrator-ui.md`. The task list row labels the
+same act "Remove from desk".
+_Avoid_: Hide, archive
 
 **Active branch**:
 A branch with a desk entry at it — a task through the notebook, an agent through its worktree.
@@ -767,7 +772,7 @@ An agent with no task. A launch pins a task session id on the agent, so an agent
 none matches no task. A free agent is started by hand in a worktree, or from the orchestrator
 UI's new-work form. A free agent takes its name, branch and lane from the worktree it runs in;
 an agent whose worktree the world has not read yet falls back to its own project and a generic
-name. A free agent is dismissed from its own node.
+name. A free agent has no task list row, so its node is the only place to **Dismiss** it.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
 **Canvas**:

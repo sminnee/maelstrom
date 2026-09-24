@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useResume, useStop } from '../api/agents';
 import { useRemoveFromDesk } from '../api/desk';
+import { useCloseWorktree } from '../api/worktrees';
 import { useMilestones } from '../api/milestones';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
@@ -11,7 +12,9 @@ import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
+import type { Agent, Worktree } from '../protocol/entities';
 import type { GraphNode } from '../selectors/graph';
+import { canClose } from '../selectors/worktrees';
 import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
@@ -24,6 +27,7 @@ import { ago, clockTime, silentFor } from '../protocol/time';
 import { contextFigure } from '../protocol/tokens';
 import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
+import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './NodeCard.module.css';
@@ -41,9 +45,8 @@ const SILENT_MS = 10 * 60_000;
  * The content only — each layout supplies its own surface around it, so the
  * two cannot drift on what a node says.
  *
- * `onDone` is called when a command has taken the node off the surface — a
- * dismiss or a remove from the desk. The canvas collapses the card; the narrow
- * layout goes back to the deck list.
+ * `onDone` is called when a dismiss has taken the node off the surface. The
+ * canvas collapses the card; the narrow layout goes back to the deck list.
  */
 export function NodeCardBody({
   node,
@@ -63,6 +66,7 @@ export function NodeCardBody({
   const resume = useResume();
   const setStatus = useSetStatus();
   const removeFromDesk = useRemoveFromDesk();
+  const closeWorktree = useCloseWorktree();
   const editTask = useAppStore((s) => s.setEditingTask);
   const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
@@ -83,6 +87,21 @@ export function NodeCardBody({
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
+  const endOfWork = endOfWorkOptions({
+    live: isLive(agent),
+    where,
+    others: where ? otherLiveAgents(world.agents, where.id, agent?.id) : 0,
+    // Terminate ends the process; the session tab's Stop only abandons the
+    // turn — see CONTEXT.md, "Interrupt".
+    stop: () => stop.mutateAsync({ agentId: agent!.id }),
+    dismiss: async () => {
+      const id = node.kind === 'freeAgent' ? deskIdForAgent(agent!.id) : deskIdForTask(task!.id);
+      // A live node draws with no desk entry, so there may be none to take.
+      if (id in world.desk) await removeFromDesk.mutateAsync({ id });
+      onDone();
+    },
+    close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
+  });
   const meta = [
     where?.branch || task?.branch || '',
     where?.nato || (agent ? agent.worktreeId : ''),
@@ -274,43 +293,9 @@ export function NodeCardBody({
               Launch
             </AppButton>
           )}
-          {node.kind === 'freeAgent' && agent && (
-            <AppButton
-              variant="quiet"
-              // Disabled while live: the node draws regardless, so a
-              // dismiss now would do nothing.
-              disabled={isLive(agent)}
-              onClick={async () => {
-                await removeFromDesk.mutateAsync({ id: deskIdForAgent(agent.id) });
-                onDone();
-              }}
-            >
-              Dismiss
-            </AppButton>
-          )}
           {node.kind === 'task' && task && (
             <AppButton variant="quiet" onClick={() => editTask(task.id)}>
               Edit task
-            </AppButton>
-          )}
-          {/* Hidden rather than disabled, unlike Dismiss above: a task keeps
-              its task list row as the other way off the desk. */}
-          {node.kind === 'task' && task && !isLive(agent) && (
-            <AppButton
-              variant="quiet"
-              onClick={async () => {
-                await removeFromDesk.mutateAsync({ id: deskIdForTask(task.id) });
-                onDone();
-              }}
-            >
-              Remove from desk
-            </AppButton>
-          )}
-          {agent && isLive(agent) && (
-            /* Terminate ends the process; the session tab's Stop only abandons
-               the turn — see CONTEXT.md, "Interrupt". */
-            <AppButton variant="quiet" onClick={() => stop.mutateAsync({ agentId: agent.id })}>
-              Terminate
             </AppButton>
           )}
           {agent && !isLive(agent) && (
@@ -322,6 +307,7 @@ export function NodeCardBody({
               Resume
             </AppButton>
           )}
+          <SplitButton variant="quiet" options={endOfWork} />
         </div>
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
@@ -335,4 +321,70 @@ export function NodeCardBody({
       </footer>
     </>
   );
+}
+
+/**
+ * The end-of-work control's options, the usual one first: Terminate while the
+ * agent is live, Dismiss once it is not. A close runs first in its chain and
+ * sends no stop — see `docs/dev/orchestrator-ui.md`.
+ */
+function endOfWorkOptions({
+  live,
+  where,
+  others,
+  stop,
+  dismiss,
+  close,
+}: {
+  live: boolean;
+  where: Worktree | undefined;
+  /** Live agents in `where` other than this node's own. */
+  others: number;
+  stop: () => Promise<unknown>;
+  dismiss: () => Promise<unknown>;
+  close: () => Promise<unknown>;
+}): SplitOption[] {
+  const options: SplitOption[] = live
+    ? [
+        { label: 'Terminate', processing: 'Terminating…', run: stop },
+        {
+          label: 'Terminate & dismiss',
+          processing: 'Terminating…',
+          run: async () => {
+            await stop();
+            await dismiss();
+          },
+        },
+      ]
+    : [{ label: 'Dismiss', run: dismiss }];
+  if (where && canClose(where)) {
+    options.push({
+      label: `${live ? 'Terminate, dismiss' : 'Dismiss'} & close ${where.nato}`,
+      processing: 'Closing…',
+      disabled: others > 0,
+      detail:
+        others > 0
+          ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
+          : undefined,
+      run: async () => {
+        await close();
+        await dismiss();
+      },
+    });
+  }
+  return options;
+}
+
+/**
+ * Live top-level agents in a worktree, leaving out `self`. A subagent is not
+ * counted: it runs inside its parent, and stops with it.
+ */
+function otherLiveAgents(
+  agents: Record<string, Agent>,
+  worktreeId: string,
+  self: string | undefined,
+): number {
+  return Object.values(agents).filter(
+    (a) => a.worktreeId === worktreeId && a.id !== self && !a.parent && isLive(a),
+  ).length;
 }
