@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Spinner } from './Spinner';
+import { useClickLifecycle } from './useClickLifecycle';
 import styles from './AppButton.module.css';
 
 export type ButtonClickHandler = (
@@ -17,25 +18,17 @@ export interface AppButtonProps extends Omit<
   processingChildren?: ReactNode;
   /** Shown after the handler rejects. Defaults to "Failed"; the message goes in `title`. */
   errorChildren?: ReactNode | ((err: unknown) => ReactNode);
-  /** How long the error shows before the button is ready again. `0` holds it until the next click. */
+  /** Passed to `useClickLifecycle`. */
   errorResetMs?: number;
   onError?: (err: unknown) => void;
 }
 
-type State =
-  { kind: 'ready' } | { kind: 'processing' } | { kind: 'error'; message: string; error: unknown };
-
-const READY: State = { kind: 'ready' };
-
 /**
- * A button that owns the life of its click: `processing` while a returned
- * promise is pending, `error` for `errorResetMs` after it rejects, `ready`
- * otherwise. See `docs/dev/orchestrator-ui.md`, "Commands are mutations".
+ * A button that owns the life of its click — see `useClickLifecycle`, and
+ * `docs/dev/orchestrator-ui.md`, "Commands are mutations".
  *
  * The click never reaches the element behind the button, so a button on a
- * canvas node does not also toggle the node. The rejection is not rethrown:
- * React reports a rejection from an async handler as unhandled. `onError`
- * hears it instead.
+ * canvas node does not also toggle the node.
  */
 export function AppButton({
   onClick,
@@ -51,57 +44,12 @@ export function AppButton({
   type = 'button',
   ...rest
 }: AppButtonProps) {
-  const [state, setState] = useState<State>(READY);
-  const mounted = useRef(true);
-  const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { state, run } = useClickLifecycle({ errorResetMs, onError });
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (reset.current) clearTimeout(reset.current);
-    };
-  }, []);
-
-  const clearReset = () => {
-    if (reset.current) clearTimeout(reset.current);
-    reset.current = null;
-  };
-
-  const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!onClick) return;
-    clearReset();
-    let result: void | Promise<unknown>;
-    try {
-      result = onClick(e);
-    } catch (err) {
-      fail(err);
-      return;
-    }
-    if (!isThenable(result)) {
-      if (state.kind !== 'ready') setState(READY);
-      return;
-    }
-    setState({ kind: 'processing' });
-    try {
-      await result;
-      if (mounted.current) setState(READY);
-    } catch (err) {
-      fail(err);
-    }
-  };
-
-  const fail = (err: unknown) => {
-    onError?.(err);
-    if (!mounted.current) return;
-    setState({ kind: 'error', message: messageOf(err), error: err });
-    if (errorResetMs > 0) {
-      reset.current = setTimeout(() => {
-        reset.current = null;
-        if (mounted.current) setState(READY);
-      }, errorResetMs);
-    }
+    void run(() => onClick(e));
   };
 
   const classes = [styles.button, styles[variant], className].filter(Boolean).join(' ');
@@ -114,7 +62,7 @@ export function AppButton({
       aria-busy={state.kind === 'processing' || undefined}
       data-state={state.kind}
       title={state.kind === 'error' ? state.message : title}
-      onClick={(e) => void handleClick(e)}
+      onClick={handleClick}
     >
       {state.kind === 'processing' ? (
         <>
@@ -130,12 +78,4 @@ export function AppButton({
       )}
     </button>
   );
-}
-
-function isThenable(value: unknown): value is Promise<unknown> {
-  return !!value && typeof (value as Promise<unknown>).then === 'function';
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
