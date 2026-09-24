@@ -190,10 +190,17 @@ ignore_names = [
 ]
 
 # The dependency graph between the packages: mael_agent imports mael_common;
-# mael_daemon and maelstrom import both; maelstrom never imports mael_daemon.
+# mael_domain imports both; mael_daemon imports mael_agent and mael_common;
+# maelstrom imports the three libraries and never mael_daemon.
 # Run by `bin/lint` as `lint-imports`. See docs/dev/architecture-patterns.md.
 [tool.importlinter]
-root_packages = ["mael_common", "mael_agent", "mael_daemon", "maelstrom"]
+root_packages = [
+    "mael_common",
+    "mael_agent",
+    "mael_domain",
+    "mael_daemon",
+    "maelstrom",
+]
 # So a contract can name click, which is not one of the packages above.
 include_external_packages = true
 
@@ -201,19 +208,25 @@ include_external_packages = true
 name = "mael_common imports no other maelstrom package"
 type = "forbidden"
 source_modules = ["mael_common"]
-forbidden_modules = ["mael_agent", "mael_daemon", "maelstrom"]
+forbidden_modules = ["mael_agent", "mael_domain", "mael_daemon", "maelstrom"]
 
 [[tool.importlinter.contracts]]
 name = "mael_agent imports only mael_common"
 type = "forbidden"
 source_modules = ["mael_agent"]
+forbidden_modules = ["mael_domain", "mael_daemon", "maelstrom"]
+
+[[tool.importlinter.contracts]]
+name = "mael_domain imports only mael_agent and mael_common"
+type = "forbidden"
+source_modules = ["mael_domain"]
 forbidden_modules = ["mael_daemon", "maelstrom"]
 
 [[tool.importlinter.contracts]]
-name = "The daemon imports nothing of the maelstrom CLI"
+name = "The daemon imports neither the domain nor the maelstrom CLI"
 type = "forbidden"
 source_modules = ["mael_daemon"]
-forbidden_modules = ["maelstrom"]
+forbidden_modules = ["mael_domain", "maelstrom"]
 
 [[tool.importlinter.contracts]]
 name = "The maelstrom CLI meets the daemon only on the wire"
@@ -221,12 +234,11 @@ type = "forbidden"
 source_modules = ["maelstrom"]
 forbidden_modules = ["mael_daemon"]
 
-# tests/test_service_boundary.py walks src/maelstrom alone, and stops at the
-# libraries. So a domain module that reached click through a library would pass
-# it. The async click group is the one library module allowed to import click.
+# The domain is click-free, so the CLI and the orchestrator server can share it.
+# The async click group is the one library module allowed to import click.
 [[tool.importlinter.contracts]]
 name = "The libraries import no click, bar the async click group"
 type = "forbidden"
-source_modules = ["mael_common", "mael_agent"]
+source_modules = ["mael_common", "mael_agent", "mael_domain"]
 forbidden_modules = ["click", "mael_common.cli_async"]
 ignore_imports = ["mael_common.cli_async -> click"]
