@@ -249,7 +249,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         </div>
       );
     case 'milestone':
-      // The `.compact` idiom, coloured. See `web/DESIGN.md`, "Milestone bar".
+      // The `.compact` idiom, coloured. See `orchestrator-ui/DESIGN.md`, "Milestone bar".
       return (
         <div className={styles.milestone} data-testid="milestone" data-recognised={item.recognised}>
           <span className={styles.milestoneLabel}>

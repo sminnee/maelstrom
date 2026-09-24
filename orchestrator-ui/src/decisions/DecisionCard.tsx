@@ -109,7 +109,7 @@ function OneDecision({
 /**
  * Which surface the decision is drawn on. `block` is the expanded node card,
  * where the context explains the ask on sight. `dock` is the band under a
- * document, where the context is a control. See `web/DESIGN.md`, "Review Dock".
+ * document, where the context is a control. See `orchestrator-ui/DESIGN.md`, "Review Dock".
  */
 type Variant = 'block' | 'dock';
 
@@ -118,7 +118,7 @@ type Variant = 'block' | 'dock';
  *
  * `contextBefore` caps this at three items, but an item may be a whole message,
  * so three items can still fill the pane. Each surface bounds that differently
- * — see `web/DESIGN.md`, "Decision" and "Review Dock".
+ * — see `orchestrator-ui/DESIGN.md`, "Decision" and "Review Dock".
  *
  * Neither state is persisted, for the reason the panel's tabs and filters are
  * not: view state is not held. Unsent input is — see `docs/dev/orchestrator-ui.md`,

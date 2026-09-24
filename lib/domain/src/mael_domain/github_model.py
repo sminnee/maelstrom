@@ -199,7 +199,7 @@ def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
 
 
 #: How close a pull request is to merging — see **PR state** in ``CONTEXT.md``.
-#: The web UI mirrors this union in ``web/src/protocol/entities.ts``.
+#: The web UI mirrors this union in ``orchestrator-ui/src/protocol/entities.ts``.
 PrState = Literal[
     "merged",
     "ci-failed",

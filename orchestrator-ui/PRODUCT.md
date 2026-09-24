@@ -99,7 +99,7 @@ Undecided: whether cancelling a task should release or block the tasks that foll
 The real-time strategy metaphor is binding.
 
 Nothing else is. The current palette, the hue-per-phase scheme, Inter and JetBrains Mono, and
-the token set in `web/src/styles/tokens.css` are all provisional and may be replaced.
+the token set in `orchestrator-ui/src/styles/tokens.css` are all provisional and may be replaced.
 
 Two structural rules survive any redesign. No file outside `tokens.css` names a hex colour.
 And light and dark are both first-class: the app follows the operating system preference, so
@@ -113,8 +113,8 @@ in both schemes on the same day.
 - `docs/dev/orchestrator-ui.md` — the four layers, the event and command protocol, the canvas,
   the panel, the fake backend.
 - `docs/dev/orchestrator-server.md` — the server behind it and the wire protocol.
-- `web/src/fake-backend/` — a running simulation of the world, usable for design work without
-  a live server. `pnpm dev` runs against it on port 5173.
+- `orchestrator-ui/src/fake-backend/` — a running simulation of the world, usable for design work
+  without a live server. `pnpm dev` runs against it on port 5173.
 - `agent-daemon/fixtures/agent_events/` — recorded stream-json from real agents.
 
 There are no users beyond the author, no testimonials, no benchmarks, no pricing and no

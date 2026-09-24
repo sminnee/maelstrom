@@ -29,7 +29,7 @@ def read_stamped_fixture(name: str) -> list[dict]:
 
 
 def make_agent(**over) -> dict:
-    """The seed agent ``web/src/test/fixtures.ts`` replays every fixture into."""
+    """The seed agent ``orchestrator-ui/src/test/fixtures.ts`` replays every fixture into."""
     agent = {
         "id": "agent-1",
         "parent": "",

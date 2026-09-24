@@ -198,7 +198,7 @@ def _with_items(
 ) -> tuple[TranscriptItem, ...]:
     """``items`` after the transcript events in ``events``.
 
-    The same reduction ``web/src/protocol/reducer.ts`` runs. The server relays
+    The same reduction ``orchestrator-ui/src/protocol/reducer.ts`` runs. The server relays
     these events rather than storing what they add up to, so every client
     keeps its own copy.
     """
@@ -271,7 +271,7 @@ def plan_markdown(view: AttachView, item: TranscriptItem) -> str:
     return document["markdown"] if document else ""
 
 
-#: Which card draws a tool call. A port of ``web/src/session/toolCards.ts``, so
+#: Which card draws a tool call. A port of ``orchestrator-ui/src/session/toolCards.ts``, so
 #: the TUI and the web UI classify the same call the same way.
 _TOOL_KINDS = {
     "Bash": "bash",
@@ -335,7 +335,7 @@ def _context(tokens: int) -> str:
 
     Truncates rather than rounding, so "148k ctx" means at least 148,000 and a
     size never reads larger than the context is. ``contextSize`` in
-    ``web/src/protocol/tokens.ts`` is this rule for the web UI, over the same
+    ``orchestrator-ui/src/protocol/tokens.ts`` is this rule for the web UI, over the same
     figure, so one agent reads the same on both surfaces.
     """
     if not tokens:

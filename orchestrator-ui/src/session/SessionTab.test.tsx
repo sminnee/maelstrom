@@ -41,7 +41,7 @@ describe('the session header', () => {
 
     // One row, so a wide panel spends its width rather than its height. The
     // fallback to two rows is a container query, which jsdom cannot compute —
-    // see the verification note in web/DESIGN.md, "Session header".
+    // see the verification note in orchestrator-ui/DESIGN.md, "Session header".
     const rows = head().querySelectorAll('[data-testid="session-head-row"]');
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent('f2c6a9d4');

@@ -1,6 +1,6 @@
 # `_main` is maelstrom's fixed environment — see docs/guide/worktrees.md.
 main_port_base: 277
-install_cmd: uv sync --extra dev && pnpm --dir web install --frozen-lockfile
+install_cmd: uv sync --extra dev && pnpm --dir orchestrator-ui install --frozen-lockfile
 
 linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
@@ -9,7 +9,7 @@ linear:
 services:
   web:
     ports: [FRONTEND, FRONTEND_HMR]
-    dir: web
+    dir: orchestrator-ui
     command: pnpm dev
     env:
       ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
@@ -17,7 +17,7 @@ services:
   # Bound on every interface, as the web service is: the change stream is
   # dialled directly rather than through the dev server's proxy, so a page
   # loaded over the tailnet reaches this port itself. Close that off at the
-  # firewall, as `web/vite.config.ts` says of its own bind.
+  # firewall, as `orchestrator-ui/vite.config.ts` says of its own bind.
   orchestrator:
     ports: [ORCHESTRATOR]
     command: uv run mael-orchestrator serve --host 0.0.0.0 --port ${ORCHESTRATOR_PORT}
@@ -39,5 +39,5 @@ services:
   ladle:
     optional: true
     ports: [LADLE]
-    dir: web
+    dir: orchestrator-ui
     command: pnpm ladle --port ${LADLE_PORT}

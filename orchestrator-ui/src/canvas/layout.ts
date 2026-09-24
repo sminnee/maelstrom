@@ -41,7 +41,7 @@ const LANE_GAP = 28;
  * Hand-rolled swimlanes. One band per group, stacked in group order. Inside a
  * band, x is the node's progress zone plus its depth along the follows edges
  * within that zone, and y is the row of the followed node when it is free,
- * else the next free row. See `web/DESIGN.md` for why the zones align.
+ * else the next free row. See `orchestrator-ui/DESIGN.md` for why the zones align.
  */
 export function layoutSwimlanes(graph: Graph): Layout {
   const groups: Record<string, Box> = {};

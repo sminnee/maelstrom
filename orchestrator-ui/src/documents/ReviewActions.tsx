@@ -31,7 +31,7 @@ export function ReviewActions({
   if (doc.status !== 'awaiting-review') {
     return <div className={styles.bar}>This version is {doc.status}.</div>;
   }
-  // Approve leads, as the primary — see `web/DESIGN.md`, "Review Dock".
+  // Approve leads, as the primary — see `orchestrator-ui/DESIGN.md`, "Review Dock".
   return (
     <div className={styles.bar}>
       <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>

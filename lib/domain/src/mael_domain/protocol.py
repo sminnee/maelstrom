@@ -1,6 +1,6 @@
 """The wire types the orchestrator server serves the web UI, and their reducer.
 
-The entity shapes are ``web/src/protocol/`` — ``entities.ts``, ``transcript.ts``,
+The entity shapes are ``orchestrator-ui/src/protocol/`` — ``entities.ts``, ``transcript.ts``,
 ``attention.ts``, ``documents.ts`` — as ``TypedDict``s, in the wire's own
 camelCase. Pure: no I/O, no clock. :func:`apply_event` is how the server's
 world changes; the normaliser and ``agent_view`` reduce with it too.

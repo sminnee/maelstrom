@@ -7,7 +7,7 @@ import styles from './cards.module.css';
  * A permission request and a plan review ask the same thing of the user, so
  * they ask it in the same shape.
  *
- * Approve leads, as the primary — see `web/DESIGN.md`, "Review Dock".
+ * Approve leads, as the primary — see `orchestrator-ui/DESIGN.md`, "Review Dock".
  */
 export function DecideRow({
   onDecide,

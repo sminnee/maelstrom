@@ -44,7 +44,7 @@ htmlcov/
 
 # Node
 node_modules/
-web/.vite/
+orchestrator-ui/.vite/
 *.tsbuildinfo
 
 # OS

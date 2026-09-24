@@ -34,10 +34,10 @@ jobs:
              [ -n "$changed" ]; then
             echo "Changed files:"
             echo "$changed"
-            if ! echo "$changed" | grep -Eq '^(src/|tests/|lib/|agent-daemon/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(src/|tests/|lib/|agent-daemon/|orchestrator-api/|orchestrator-ui/fixtures/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
               code=false
             fi
-            if ! echo "$changed" | grep -Eq '^(web/|bin/|lib/domain/src/mael_domain/(protocol|normalise)\.py$|lib/domain/fixtures/normalised/|\.github/workflows/test\.yml$)'; then
+            if ! echo "$changed" | grep -Eq '^(orchestrator-ui/|bin/|lib/domain/src/mael_domain/(protocol|normalise)\.py$|lib/domain/fixtures/normalised/|\.github/workflows/test\.yml$)'; then
               web=false
             fi
           else
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web
+        working-directory: orchestrator-ui
     steps:
       - uses: actions/checkout@v7.0.0
 
@@ -119,14 +119,14 @@ jobs:
         uses: pnpm/action-setup@v4.4.0
         with:
           # `working-directory` does not reach a `uses` step.
-          package_json_file: web/package.json
+          package_json_file: orchestrator-ui/package.json
 
       - name: Set up Node
         uses: actions/setup-node@v4.4.0
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: orchestrator-ui/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

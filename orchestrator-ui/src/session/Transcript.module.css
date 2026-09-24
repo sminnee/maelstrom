@@ -117,7 +117,7 @@
 .compactLabel {
   white-space: nowrap;
 }
-/* The `.compact` rule's shape, in `--ok`. See `web/DESIGN.md`, "Milestone bar". */
+/* The `.compact` rule's shape, in `--ok`. See `orchestrator-ui/DESIGN.md`, "Milestone bar". */
 .milestone {
   display: flex;
   align-items: center;

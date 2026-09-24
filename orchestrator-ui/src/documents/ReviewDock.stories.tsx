@@ -16,7 +16,7 @@ export default { title: 'Documents / Review dock' };
  * What these stories answer that the suite cannot: whether the dock is one row
  * or two, whether a control clears the thumb floor, and where the context sheet
  * lands. Check 390px and a wide panel, in both schemes. Below 840px the app
- * draws the narrow layout, so 390px is the phone. See `web/DESIGN.md`,
+ * draws the narrow layout, so 390px is the phone. See `orchestrator-ui/DESIGN.md`,
  * "Seeing a change".
  *
  * Approve must sit in the same place, drawn the same way, in all three stories.

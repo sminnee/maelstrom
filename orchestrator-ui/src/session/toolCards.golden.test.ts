@@ -12,7 +12,7 @@ import type { ToolCallItem } from '../protocol/transcript';
  * re-records. The Python normaliser test owns the other goldens, in
  * `lib/domain/fixtures/normalised/`.
  */
-const GOLDEN = resolve(__dirname, '../../../tests/fixtures/agent_events/tool-cards.json');
+const GOLDEN = resolve(__dirname, '../../fixtures/tool-cards.json');
 
 const CASES: [string, Record<string, unknown>][] = [
   ['Bash', { description: 'List files', command: 'ls -la' }],

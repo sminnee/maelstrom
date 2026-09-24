@@ -27,8 +27,13 @@ from maelstrom.agent_view import (
     turn_result_line,
 )
 
-#: The tool-card golden stays beside the web goldens, which read it too.
-GOLDEN = Path(__file__).parent / "fixtures" / "agent_events" / "tool-cards.json"
+#: The tool-card golden is the orchestrator UI's: its test records it.
+GOLDEN = (
+    Path(__file__).resolve().parents[1]
+    / "orchestrator-ui"
+    / "fixtures"
+    / "tool-cards.json"
+)
 
 NOW = "2026-01-01T00:00:00Z"
 
@@ -320,10 +325,10 @@ def test_a_tool_result_does_not_start_the_work():
 
 
 def test_tool_cards_match_the_typescript_reference():
-    """`web/src/session/toolCards.ts` is the reference; this is a hand port.
+    """`orchestrator-ui/src/session/toolCards.ts` is the reference; this is a hand port.
 
     Nothing else ties the two together, so the golden is what catches a
-    one-sided change. `UPDATE_GOLDEN=1 pnpm test` in `web/` re-records it.
+    one-sided change. `UPDATE_GOLDEN=1 pnpm test` in `orchestrator-ui/` re-records it.
     """
     golden = json.loads(GOLDEN.read_text())
     for row in golden:
