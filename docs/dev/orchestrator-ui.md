@@ -55,6 +55,7 @@ The ordinary run through them, in order:
 | Queued | `todo` | none | not started |
 | Ready to launch | `todo`, actionable | none | not started |
 | Working | `in-progress` | processing | running |
+| Subagents working | `in-progress` | delegating | running |
 | Needs you · … | `in-progress` | awaiting, with an open attention item | running |
 | Idle | `in-progress` | idle | running |
 | Finalising | `done` | still running | running |

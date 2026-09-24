@@ -109,6 +109,8 @@ export interface Task {
 export type AgentState =
   | 'idle'
   | 'processing'
+  /** The turn ended while a background subagent still runs. */
+  | 'delegating'
   | 'awaiting-permission'
   | 'awaiting-question'
   | 'awaiting-plan-review'

@@ -7,7 +7,7 @@ import type { WorldView } from './world';
 import type { TaskId } from '../protocol/ids';
 import { phaseForCommand } from '../protocol/phase';
 import type { Progress } from '../protocol/progress';
-import { progressOf } from '../protocol/progress';
+import { isWorking, progressOf } from '../protocol/progress';
 import type { AgentStatusFilter, Filters, GroupBy } from './filters';
 import { branchKey } from './filters';
 
@@ -287,7 +287,7 @@ function allowsAgentStatus(
     case 'all':
       return true;
     case 'working':
-      return agent?.state === 'processing';
+      return isWorking(agent);
     case 'idle':
       return agent?.state === 'idle' || agent?.state.startsWith('awaiting-') === true;
     case 'working-idle':

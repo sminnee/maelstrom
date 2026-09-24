@@ -95,7 +95,7 @@ function nodeState(
   // that gets a hue: queued is waiting on other work, ready is waiting on them.
   if (!agent) return task?.actionable ? 'ready' : 'queued';
   if (agent.state === 'exited') return 'stopped';
-  if (agent.state === 'processing') return 'working';
+  if (isWorking(agent)) return 'working';
   return 'idle';
 }
 
@@ -120,7 +120,7 @@ function describeState(
       // code to name.
       return `Exited (code ${agent?.exitCode})`;
     case 'working':
-      return 'Working';
+      return agent?.state === 'delegating' ? 'Subagents working' : 'Working';
     case 'finalising':
       return 'Finalising';
     case 'ready':
@@ -165,13 +165,18 @@ function needsYouWords(agent: Agent | undefined): string {
   }
 }
 
+/** Whether the agent's work runs: its own turn, or its subagents after the turn ended. */
+export function isWorking(agent: Agent | undefined): boolean {
+  return agent?.state === 'processing' || agent?.state === 'delegating';
+}
+
 /**
- * Whether the agent is turning, or waiting on the operator. Narrower than
- * `isLive` in `selectors/graph.ts`, which asks only whether the process is up
- * and so counts an idle agent.
+ * Whether the agent's work is in hand: it is working, or it waits on the
+ * operator. Narrower than `isLive` in `selectors/graph.ts`, which asks only
+ * whether the process is up and so counts an idle agent.
  */
 function isTurning(agent: Agent): boolean {
-  return agent.state === 'processing' || agent.state.startsWith('awaiting-');
+  return isWorking(agent) || agent.state.startsWith('awaiting-');
 }
 
 /**
