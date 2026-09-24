@@ -44,6 +44,14 @@ function trackedAgents(world: WorldView, worktreeId: string): Agent[] {
 }
 
 /**
+ * Whether a close is on offer. `_main` holds the project's main checkout, so it
+ * never closes; a closed worktree has nothing left to close.
+ */
+export function canClose(worktree: Worktree): boolean {
+  return worktree.nato !== '_main' && !worktree.isClosed;
+}
+
+/**
  * `_main` first, then the NATO names in order.
  *
  * `_main` leads because it holds the branch the others are cut from, and it is
