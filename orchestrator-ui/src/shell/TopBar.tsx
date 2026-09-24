@@ -1,6 +1,6 @@
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useAppStore } from '../store/store';
-import type { View } from '../store/uiSlice';
+import { hasPanel, type View } from '../store/uiSlice';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
@@ -18,6 +18,8 @@ export function TopBar() {
   const setView = useAppStore((s) => s.setView);
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
   const clearStack = useAppStore((s) => s.clearStack);
+  const panelOpen = useAppStore((s) => s.ui.panelOpen);
+  const setPanelOpen = useAppStore((s) => s.setPanelOpen);
   const narrow = useLayoutMode() === 'narrow';
   return (
     <header className={styles.bar} data-narrow={narrow || undefined}>
@@ -55,6 +57,19 @@ export function TopBar() {
         <AgentsChip />
       </div>
       <AttentionChip />
+      {/* At the right edge, over the panel it shows and hides. */}
+      {!narrow && hasPanel(view) && (
+        <div className={styles.views}>
+          <button
+            type="button"
+            className={styles.view}
+            aria-pressed={panelOpen}
+            onClick={() => setPanelOpen(!panelOpen)}
+          >
+            Panel
+          </button>
+        </div>
+      )}
     </header>
   );
 }

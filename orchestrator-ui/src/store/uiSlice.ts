@@ -22,6 +22,12 @@ export type PanelTab =
  */
 export type View = 'canvas' | 'list' | 'worktrees';
 
+/** A record, not a comparison, so a new view does not compile until it answers. */
+const PANEL_BESIDE: Record<View, boolean> = { canvas: true, list: true, worktrees: false };
+
+/** Whether the wide layout puts the panel beside this view. */
+export const hasPanel = (view: View) => PANEL_BESIDE[view];
+
 export interface UiState {
   view: View;
   groupBy: GroupBy;
@@ -45,6 +51,8 @@ export interface UiState {
   newWorkOpen: boolean;
   /** How wide the panel is, in px. Set by a drag; not persisted across a reload. */
   panelWidth: number;
+  /** Whether the panel is showing, or collapsed from the top bar. Not persisted across a reload. */
+  panelOpen: boolean;
   /**
    * Which zone the deck list is showing. Narrow layout only: the canvas draws
    * every zone at once, so it has no such choice to make.
@@ -81,6 +89,7 @@ export function initialUiState(): UiState {
     editingTaskId: null,
     newWorkOpen: false,
     panelWidth: openingWidth(),
+    panelOpen: true,
     // Running is where the work the user can act on is.
     deckZone: 'running',
     mobileStack: [],

@@ -54,6 +54,11 @@ describe('document tabs', () => {
     expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute('data-focused');
     await user.click(screen.getByRole('tab', { name: /Plan/ }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
+    // A collapsed panel shows nothing, so no node is marked as its source.
+    await user.click(screen.getByRole('button', { name: 'Panel' }));
+    expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
+    await user.click(screen.getByRole('button', { name: 'Panel' }));
+    expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
   });
 
   it('the attention badge opens the document behind it, or expands the node when there is none', async () => {

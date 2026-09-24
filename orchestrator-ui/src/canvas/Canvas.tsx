@@ -55,7 +55,9 @@ export function Canvas() {
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();
-  const focused = focusedTaskId(world, tabs, activeTabKey);
+  const panelOpen = useAppStore((s) => s.ui.panelOpen);
+  // A collapsed panel shows no tab, so no node is marked as its source.
+  const focused = panelOpen ? focusedTaskId(world, tabs, activeTabKey) : null;
 
   const { nodes, edges, byId, positions } = useMemo(() => {
     const graph = deriveGraph(world, { groupBy, filters });

@@ -814,10 +814,9 @@ closed or unread. Unallocated stands for no worktree, so its lane offers no clos
 _Avoid_: Ungrouped, orphaned, no worktree
 
 **Task list**:
-The full-width view that lists every task the server knows, with filters for status, project,
-branch and text. The task list is where a task joins the desk, and one of the two places it
-leaves it. It lists tasks only: a free agent has no row, and is dismissed from its node on the
-canvas.
+The view that lists every task the server knows, with filters for status, project, branch and
+text. The task list is where a task joins the desk, and one of the two places it leaves it. It
+lists tasks only: a free agent has no row, and is dismissed from its node on the canvas.
 _Avoid_: Table view, index
 
 **Task editor**:
@@ -862,9 +861,15 @@ document's own review route. One dock, so a reader answers in one place whoever 
 `orchestrator-ui/DESIGN.md`, "Review Dock".
 _Avoid_: Action bar, footer
 
+**Panel**:
+The right-hand column of session and document tabs, beside the canvas and the task list. The
+worktree table and the narrow layout have no panel. The Panel toggle in the top bar collapses it,
+and a panel link opens it again.
+_Avoid_: Sidebar, drawer, detail pane
+
 **Panel link**:
-A link that opens a session or a document as a tab in the right panel. It carries the
-open-in-panel icon.
+A link that opens a session or a document as a tab in the panel. It carries the open-in-panel
+icon.
 _Avoid_: Open button
 
 **Offer**:

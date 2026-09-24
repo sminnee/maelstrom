@@ -435,6 +435,17 @@ describe('the task list', () => {
     expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 16');
   });
 
+  it("links a task's state to its agent's session, and the link opens no editor", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    await user.click(within(listRow('NORT-7') as HTMLElement).getByRole('link'));
+    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // NORT-9.1 has no agent, so its state is words only.
+    expect(within(listRow('NORT-9.1') as HTMLElement).queryByRole('link')).toBeNull();
+  });
+
   it('a click anywhere on a row opens the task, read-only', async () => {
     const user = userEvent.setup();
     await renderApp();

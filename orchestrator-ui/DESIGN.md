@@ -376,13 +376,15 @@ state.
 
 ## Layout
 
-Two surfaces side by side under one bar. A 40px top bar holds the brand, the view switch and
-the attention chip. Beneath it the body splits: the main view takes the remaining width, and
-the panel is a resizable right-hand column with a 6px drag grip on its left edge.
+Two surfaces side by side under one bar. A 40px top bar holds the brand, the view switch, the
+attention chip and the Panel toggle. Beneath it the body splits: the main view takes the
+remaining width, and the panel is a resizable right-hand column with a 6px drag grip on its left
+edge. The Panel toggle collapses the panel, and the main view takes its width.
 
-The main view is either the canvas or the task list; the top bar switches between them. The
-canvas draws the desk as horizontal lanes, one per group when grouped by project or branch,
-and none when grouped by `none`. The task list is a full-width table with a sticky filter row.
+The main view is the canvas, the task list or the worktree table; the top bar switches between
+them. The panel sits beside the canvas and the task list. The worktree table takes the full
+width. The canvas draws the desk as horizontal lanes, one per group when grouped by project or
+branch, and none when grouped by `none`. The task list is a table with a sticky filter row.
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
 separated by 56px horizontally and 14px vertically. A lane has 20px of padding, a 30px header,
