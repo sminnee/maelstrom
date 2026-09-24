@@ -488,7 +488,7 @@ _Avoid_: Daemon (in UI-facing prose)
 **Orchestrator server**:
 The process that builds the world from the notebook, `list-all` and the agent host, and serves
 it to the orchestrator UI over HTTP: resources by REST, change notices on one stream, one socket
-per open agent transcript. `mael orchestrator serve` runs it.
+per open agent transcript. `mael-orchestrator serve` runs it.
 _Avoid_: Backend, API server
 
 **Change notice**:
@@ -847,7 +847,7 @@ _Avoid_: Checkpoint UI, prompt card
 **Review dock**:
 The band under a document holding whatever waits on the user there: an agent's own wait, or the
 document's own review route. One dock, so a reader answers in one place whoever is asking. See
-`web/DESIGN.md`, "Review Dock".
+`orchestrator-ui/DESIGN.md`, "Review Dock".
 _Avoid_: Action bar, footer
 
 **Panel link**:

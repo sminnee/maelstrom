@@ -745,20 +745,21 @@ uv run mael-agent-daemon gc                     # after a daemon died: kill its 
 
 ---
 
-## Orchestrator
+## The orchestrator server
 
-Serve the world to the orchestrator UI: tasks from the notebook, worktrees from `list-all`, and
-agents from the agent host, over HTTP. See
+`mael-orchestrator` serves the world to the orchestrator UI: tasks from the notebook, worktrees
+from `list-all`, and agents from the agent host, over HTTP. It is a separate command, not a `mael`
+group: the published `mael` package does not include the server. Run it with `uv run` from a maelstrom checkout. See
 [orchestrator-server.md](../dev/orchestrator-server.md) for the routes.
 
 | Command | Description |
 |---|---|
-| `mael orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
-mael orchestrator serve                     # http://127.0.0.1:8765
-mael orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
-mael orchestrator serve --log-level warning # quieter: drop the per-command trace
+uv run mael-orchestrator serve                     # http://127.0.0.1:8765
+uv run mael-orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
+uv run mael-orchestrator serve --log-level warning # quieter: drop the per-command trace
 ```
 
 The first command that needs the agent host starts one, as `mael agent` does. Under maelstrom,
@@ -1153,6 +1154,6 @@ mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
 
-`mael orchestrator serve` refuses a state database written by a different build, and the refusal
+`mael-orchestrator serve` refuses a state database written by a different build, and the refusal
 names `mael admin migrate`. The command is forward-only and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".

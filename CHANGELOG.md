@@ -68,6 +68,11 @@ release while that section is empty, and retitles it to the version it is releas
   `uv run mael-agent-daemon`. The `agent-daemon` service in `.maelstrom.yaml` runs
   `uv run mael-agent-daemon serve`.
 
+- **The orchestrator server has its own command, `mael-orchestrator`.** `mael orchestrator` is
+  gone, and the published `mael` package does not include the server. Run it from a maelstrom
+  checkout with `uv run mael-orchestrator serve`. The `orchestrator` service in `.maelstrom.yaml`
+  runs that command. The web app moved from `web/` to `orchestrator-ui/`.
+
 ### Fixed
 
 - **Terminate and Resume on a node card no longer get stuck.** Terminating an agent the daemon

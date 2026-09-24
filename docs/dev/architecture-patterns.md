@@ -37,11 +37,13 @@ follows the three layers inside it:
 | `mael_agent` | `lib/agent/` | The agent wire contract, the daemon transport and client, and the harness model. |
 | `mael_domain` | `lib/domain/` | The domain: the storage and model layers for tasks, worktrees, environments, GitHub, the integrations, cmux and the state database, plus the orchestrator's wire protocol and normaliser. |
 | `mael_daemon` | `agent-daemon/` | The agent daemon, which drives Claude Code agents, and its `mael-agent-daemon` CLI. |
-| `maelstrom` | `src/maelstrom/` | The `mael` CLI and the orchestrator server with its Codex harness. |
+| `mael_orchestrator` | `orchestrator-api/` | The orchestrator server with its Codex harness, and its `mael-orchestrator` CLI. |
+| `maelstrom` | `src/maelstrom/` | The `mael` CLI. |
 
 `mael_agent` imports `mael_common`. `mael_domain` imports both. `mael_daemon`
-imports `mael_agent` and `mael_common`. `maelstrom` imports the three libraries
-and never `mael_daemon`: it reaches the daemon over the socket. Only
+imports `mael_agent` and `mael_common`. `mael_orchestrator` and `maelstrom`
+import the three libraries. Nothing imports a service, `mael_daemon` or
+`mael_orchestrator`: each is reached over its socket. Only
 `mael_common.cli_async` in the libraries imports click. Import-linter
 contracts in `pyproject.toml` enforce all of this, and `bin/lint` runs them as
 `lint-imports`. Tests are outside the contracts, so a root test may still build
@@ -53,7 +55,8 @@ basename unique across the members, because pytest imports member tests by
 basename.
 
 A new model or store module goes in `mael_domain`. A module that only the CLI
-or the orchestrator server calls stays in `maelstrom`. The domain suites'
+calls stays in `maelstrom`, and one that only the orchestrator server calls
+stays in `mael_orchestrator`. The domain suites'
 fixtures are in `lib/domain/tests/domain_fixtures.py`, and its docstring says
 how `tests/` imports them too.
 
@@ -235,7 +238,7 @@ grep -cE '\b(run_cmd|run_git)\w*\(' lib/domain/src/mael_domain/<module>.py
 | [`worktree.py`](../../lib/domain/src/mael_domain/worktree.py) | 100 |
 | [`github.py`](../../lib/domain/src/mael_domain/github.py) | 26 |
 | [`task.py`](../../lib/domain/src/mael_domain/task.py) | 1 — the `$EDITOR` launch, a convention 2 exception |
-| [`worktree_model.py`](../../lib/domain/src/mael_domain/worktree_model.py), [`github_model.py`](../../lib/domain/src/mael_domain/github_model.py), [`task_actions.py`](../../lib/domain/src/mael_domain/task_actions.py), [`task_launch.py`](../../lib/domain/src/mael_domain/task_launch.py), [`normalise.py`](../../lib/domain/src/mael_domain/normalise.py), [`orchestrator/world.py`](../../src/maelstrom/orchestrator/world.py) | 0 |
+| [`worktree_model.py`](../../lib/domain/src/mael_domain/worktree_model.py), [`github_model.py`](../../lib/domain/src/mael_domain/github_model.py), [`task_actions.py`](../../lib/domain/src/mael_domain/task_actions.py), [`task_launch.py`](../../lib/domain/src/mael_domain/task_launch.py), [`normalise.py`](../../lib/domain/src/mael_domain/normalise.py), [`world.py`](../../orchestrator-api/src/mael_orchestrator/world.py) | 0 |
 
 The count includes the `run_cmd_async` sites, which are the already-converted
 ones — it measures where the I/O is, not how much of it still blocks.

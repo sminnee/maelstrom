@@ -408,7 +408,8 @@ In `mael_agent`:
   stream markers, the `list` scopes, the request payloads, the reply builders, the token counts,
   and the row and detail shapes as `TypedDict`s. No I/O, no clock, no subprocess.
 - `agent_transport.py` — the transport trio, mirroring `cmux/client.py`: an `AsyncDaemonClient`
-  Protocol, the real `SocketAsyncDaemonClient`, and the `RecordingDaemonClient` fake.
+  Protocol, the real `SocketAsyncDaemonClient`, and two fakes: `RecordingDaemonClient` records
+  commands, and `ScriptedAsyncDaemonClient` also plays scripted rows and attach streams.
 
 In `mael_daemon`:
 
@@ -422,7 +423,7 @@ The client CLI is `src/maelstrom/agent_cli.py`. It parses flags, sends one comma
 the reply.
 
 The daemon drives Claude Code agents only. The Codex harness is orchestrator code:
-`maelstrom/orchestrator/codex_bridge.py` and `codex_daemon.py`. The orchestrator builds a
+`orchestrator-api/src/mael_orchestrator/codex_bridge.py` and `codex_daemon.py`. The orchestrator builds a
 `CodexDaemonClient` as a second `AsyncDaemonClient`, beside the one for this daemon.
 
 Import-linter contracts hold the split; see

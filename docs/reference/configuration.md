@@ -116,7 +116,7 @@ services:
 
   orchestrator:
     ports: [ORCHESTRATOR]
-    command: uv run mael orchestrator serve --port ${ORCHESTRATOR_PORT}
+    command: uv run mael-orchestrator serve --port ${ORCHESTRATOR_PORT}
 
   ladle:
     optional: true                         # skipped by `mael env start`

@@ -17,7 +17,7 @@ uv run pytest --cov=maelstrom --cov=mael_domain  # Run with coverage
 uv run python -m maelstrom         # Run the module
 uv run mael-agent-daemon status     # Which agent daemon answers, and whose code it runs
 bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture (gate before commit)
-bin/knip-check                     # dead code in web/
+bin/knip-check                     # dead code in orchestrator-ui/
 ```
 
 ## Developer Documentation
@@ -41,8 +41,8 @@ See `docs/dev/` for architecture and design docs:
   `ensure_*` verbs, and the pane 0/1/2 convention.
 - `docs/dev/agent-daemon.md` — driving agents over a stream-json pipe: the flags, the event
   vocabulary, the reply shapes, and teleport.
-- `docs/dev/orchestrator-ui.md` — the `web/` canvas app: its four layers, how it reads the world,
-  hears changes and follows transcripts, and how to run it.
+- `docs/dev/orchestrator-ui.md` — the `orchestrator-ui/` canvas app: its four layers, how it reads
+  the world, hears changes and follows transcripts, and how to run it.
 - `docs/dev/orchestrator-server.md` — the server behind that app: its layers, how it keeps the
   world fresh, launch, and the routes it serves the UI.
 
