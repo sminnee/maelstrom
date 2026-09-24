@@ -13,15 +13,18 @@ from pathlib import Path
 import pytest
 
 
-def _can_bind_a_unix_socket() -> bool:
-    """Whether this process may ``bind()`` at all.
+def _can_bind_sockets() -> bool:
+    """Whether this process may ``bind()`` a Unix socket and a loopback TCP port.
 
     Probed rather than sniffed for, so it stays right whatever the sandbox is.
+    The daemon listens on the first and the orchestrator server on the second.
     """
     with tempfile.TemporaryDirectory() as tmp:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
                 probe.bind(str(Path(tmp) / "probe.sock"))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
         except OSError:
             return False
     return True
@@ -29,9 +32,9 @@ def _can_bind_a_unix_socket() -> bool:
 
 def pytest_collection_modifyitems(config, items):
     """Skip the tests that need a ``bind()`` when this process may not."""
-    if _can_bind_a_unix_socket():
+    if _can_bind_sockets():
         return
-    skip = pytest.mark.skip(reason="the sandbox denies bind() on a Unix socket")
+    skip = pytest.mark.skip(reason="the sandbox denies bind()")
     for item in items:
         if "binds_socket" in item.keywords:
             item.add_marker(skip)
