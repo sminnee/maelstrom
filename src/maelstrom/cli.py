@@ -91,7 +91,6 @@ from .integrations.sentry_cli import sentry_group
 from .integrations.slack_cli import slack_group
 from .integrations.uptimerobot_cli import uptimerobot_group
 from .mv_project_cli import cmd_mv_project
-from .orchestrator_cli import orchestrator as orchestrator_cli
 from .project_cli import project as project_cli
 from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
@@ -1786,7 +1785,6 @@ cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)
 cli.add_command(cmd_self_env)
 cli.add_command(agent_cli)
-cli.add_command(orchestrator_cli)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,4 +1,4 @@
-"""Command validation, ported from ``web/src/protocol/validate.test.ts``.
+"""Command validation, ported from ``orchestrator-ui/src/protocol/validate.test.ts``.
 
 The codes mirror the agent host's own refusals, so the server answers a bad
 command the same way the fake backend does, before the host is touched.
@@ -8,12 +8,12 @@ import pytest
 from agent_fixtures import make_agent, make_document
 
 from mael_domain.protocol import empty_world
-from maelstrom.orchestrator.validate import validate_command
+from mael_orchestrator.validate import validate_command
 
 
 def make_task(**over) -> dict:
     from mael_domain import task as model
-    from maelstrom.orchestrator.world_build import task_entity
+    from mael_orchestrator.world_build import task_entity
 
     task = task_entity(
         model.Task(id="NORT-7", title="Add order export", project="northwind"),

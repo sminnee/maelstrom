@@ -36,5 +36,6 @@ uv run vulture \
   lib/agent/src lib/agent/tests \
   lib/domain/src lib/domain/tests \
   agent-daemon/src agent-daemon/tests \
+  orchestrator-api/src orchestrator-api/tests \
   conftest.py .vulture_whitelist.py
 echo "No dead code."

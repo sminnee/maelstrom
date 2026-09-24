@@ -3,12 +3,12 @@
 import asyncio
 from dataclasses import dataclass, field
 
+from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_domain.agent_cost import build_cost_report
 from mael_domain.agent_store import InMemoryMilestoneStore
-from maelstrom.orchestrator.daemon_bridge import (
+from mael_orchestrator.daemon_bridge import (
     UNCONFIRMED_LISTS_BEFORE_END,
     DaemonRouter,
-    ScriptedAsyncDaemonClient,
 )
 
 #: A pinned clock, so a record's start and end are assertable.

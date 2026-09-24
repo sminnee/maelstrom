@@ -37,6 +37,7 @@ VERSIONED = [
     (Path("lib/agent/pyproject.toml"), Path("lib/agent/src/mael_agent/__init__.py")),
     (Path("lib/domain/pyproject.toml"), Path("lib/domain/src/mael_domain/__init__.py")),
     (Path("agent-daemon/pyproject.toml"), Path("agent-daemon/src/mael_daemon/__init__.py")),
+    (Path("orchestrator-api/pyproject.toml"), Path("orchestrator-api/src/mael_orchestrator/__init__.py")),
 ]
 LOCK = Path("uv.lock")
 CHANGELOG = Path("CHANGELOG.md")

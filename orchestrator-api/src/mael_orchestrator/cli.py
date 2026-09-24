@@ -1,8 +1,8 @@
-"""``mael orchestrator`` — run the orchestrator server.
+"""``mael-orchestrator`` — run the orchestrator server.
 
-The thin CLI over :mod:`maelstrom.orchestrator.server`. It wires the real
+The thin CLI over :mod:`mael_orchestrator.server`. It wires the real
 sources — the task notebook, ``list-all`` and the agent host's socket — into
-an :class:`~maelstrom.orchestrator.server.Orchestrator` and serves it. See
+an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 ``docs/dev/orchestrator-server.md``.
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from mael_agent.agent_transport import SocketAsyncDaemonClient, daemon_paths
+from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
@@ -37,13 +37,13 @@ from mael_domain.worktree import (
 from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
 from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
 from mael_domain.worktree_ops import run_env, run_sync
-from maelstrom.orchestrator.codex_bridge import CodexBridge
-from maelstrom.orchestrator.codex_daemon import CodexDaemonClient
 
-from .orchestrator.daemon_bridge import DaemonRouter
-from .orchestrator.routes import build_app, serve_app
-from .orchestrator.server import Orchestrator
-from .orchestrator.sources import (
+from .codex_bridge import CodexBridge
+from .codex_daemon import CodexDaemonClient
+from .daemon_bridge import DaemonRouter
+from .routes import build_app, serve_app
+from .server import Orchestrator
+from .sources import (
     CloseBlocked,
     ListAllWorktreeSource,
     NotebookTaskSource,
@@ -247,7 +247,7 @@ def setup_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
 
 def _log_unhandled(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
     """Log what a task died of when nobody was awaiting it to find out."""
-    logging.getLogger("maelstrom.orchestrator").error(
+    logging.getLogger("mael_orchestrator").error(
         "unhandled error in the event loop: %s",
         context.get("message", "(no message)"),
         exc_info=context.get("exception"),
@@ -313,12 +313,12 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
         db.close()
 
 
-@click.group()
-def orchestrator() -> None:
+@click.group("mael-orchestrator")
+def cli() -> None:
     """Serve the world to the orchestrator UI."""
 
 
-@orchestrator.command("serve")
+@cli.command("serve")
 @click.option("--host", default=DEFAULT_HOST, show_default=True, help="Bind address.")
 @click.option(
     "--port", default=DEFAULT_PORT, show_default=True, type=int, help="Bind port."
@@ -339,10 +339,9 @@ def cmd_serve(host: str, port: int, log_level: str) -> None:
     click.echo(f"Serving on http://{host}:{port}", err=True)
     try:
         run_server(host, port, log_level)
-    except (StateDbError, NotebookRootUnset) as exc:
+    except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
-        # bury it. `main()`'s arm never sees these — this command exits below
-        # Click — so the notebook root is caught here or not at all.
+        # bury it.
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     except KeyboardInterrupt:
@@ -352,3 +351,8 @@ def cmd_serve(host: str, port: int, log_level: str) -> None:
     except OSError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+
+
+def main() -> None:
+    """The ``mael-orchestrator`` console script."""
+    cli()

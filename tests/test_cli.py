@@ -2330,13 +2330,20 @@ class TestMainExitCodes:
 
         assert main(["--nonexistent"]) == 2
 
-    def test_an_unknown_command_exits_two(self, capsys):
-        """The daemon's commands are the `mael-agent-daemon` script, not a
-        `mael agent` group."""
+    @pytest.mark.parametrize(
+        ("argv", "unknown"),
+        [
+            (["agent", "daemon", "status"], "daemon"),
+            (["orchestrator", "serve"], "orchestrator"),
+        ],
+    )
+    def test_an_unknown_command_exits_two(self, argv, unknown, capsys):
+        """The daemon and the orchestrator server are console scripts of their
+        own, `mael-agent-daemon` and `mael-orchestrator`, not `mael` groups."""
         from maelstrom.cli import main
 
-        assert main(["agent", "daemon", "status"]) == 2
-        assert "No such command 'daemon'" in capsys.readouterr().err
+        assert main(argv) == 2
+        assert f"No such command '{unknown}'" in capsys.readouterr().err
 
     def test_a_missing_daemon_root_is_an_error_not_a_traceback(
         self, monkeypatch, capsys

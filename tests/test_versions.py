@@ -49,7 +49,7 @@ def test_each_member_agrees_with_the_root(pyproject: Path, init: Path):
     assert (declared, match.group(1)) == (ROOT_VERSION, ROOT_VERSION)
 
 
-def test_the_wheel_bundles_every_library_and_not_the_daemon():
+def test_the_wheel_bundles_every_library_and_no_service():
     """`mael` imports the libraries, so the root wheel and the root's editable
     install must both carry them. `mael self-update` installs the root alone."""
     root = tomllib.loads((REPO / "pyproject.toml").read_text())

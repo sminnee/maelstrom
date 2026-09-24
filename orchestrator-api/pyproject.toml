@@ -1,0 +1,29 @@
+[project]
+name = "mael-orchestrator"
+version = "0.1.2"
+description = "Maelstrom's orchestrator server: serves the world to the orchestrator UI"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sam Minnee" }]
+dependencies = [
+    "mael-common",
+    "mael-agent",
+    "mael-domain",
+    "click>=8.0",
+    "aiohttp>=3.13",
+]
+
+[project.scripts]
+mael-orchestrator = "mael_orchestrator.cli:main"
+
+[tool.uv.sources]
+mael-common = { workspace = true }
+mael-agent = { workspace = true }
+mael-domain = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mael_orchestrator"]

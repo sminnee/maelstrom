@@ -1,6 +1,6 @@
 """The HTTP face of the orchestrator server: one aiohttp app, every route.
 
-The adapter between :class:`~maelstrom.orchestrator.server.Orchestrator` and
+The adapter between :class:`~mael_orchestrator.server.Orchestrator` and
 the network. The orchestrator knows nothing about HTTP; this module knows
 nothing about the world beyond which table each route reads.
 ``docs/dev/orchestrator-server.md`` documents what the routes speak.

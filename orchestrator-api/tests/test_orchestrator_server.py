@@ -15,6 +15,7 @@ import aiohttp
 import pytest
 from agent_fixtures import read_stamped_fixture
 
+from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_agent.agent_wire import (
     PendingRequest,
     reply_for_approval,
@@ -29,16 +30,15 @@ from mael_domain.integrations.errors import IntegrationError
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.worktree import WorktreeSetup
-from maelstrom.orchestrator import linear_source, server
-from maelstrom.orchestrator.daemon_bridge import ScriptedAsyncDaemonClient
-from maelstrom.orchestrator.routes import SOCKETS, build_app, serving
-from maelstrom.orchestrator.server import Orchestrator
-from maelstrom.orchestrator.sources import (
+from mael_orchestrator import linear_source, server
+from mael_orchestrator.routes import SOCKETS, build_app, serving
+from mael_orchestrator.server import Orchestrator
+from mael_orchestrator.sources import (
     CloseBlocked,
     InMemoryWorktreeSource,
     NotebookTaskSource,
 )
-from maelstrom.orchestrator.world_build import split_task_key
+from mael_orchestrator.world_build import split_task_key
 
 NOW = "2026-09-01T00:00:00Z"
 PROJECT = "northwind"

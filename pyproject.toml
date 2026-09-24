@@ -12,7 +12,6 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0",
     "markdown-to-mrkdwn>=0.3",
-    "aiohttp>=3.13",
     "textual>=8.2.8,<9",
     "pydantic>=2.13.5",
 ]
@@ -36,7 +35,13 @@ dev = [
 # listed member would reach PyPI as a requirement nothing there satisfies.
 # `default-groups` makes every `uv sync` install them editable all the same.
 [dependency-groups]
-members = ["mael-common", "mael-agent", "mael-domain", "mael-agent-daemon"]
+members = [
+    "mael-common",
+    "mael-agent",
+    "mael-domain",
+    "mael-agent-daemon",
+    "mael-orchestrator",
+]
 
 [project.urls]
 Repository = "https://github.com/sminnee/maelstrom"
@@ -49,8 +54,9 @@ sminnee-maelstrom = "maelstrom.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# The daemon is left out: the published `mael` CLI does not run one. Build it
-# on its own with `uv build --package mael-agent-daemon`.
+# The services are left out: the published `mael` CLI runs neither the daemon
+# nor the orchestrator server. Build each on its own with
+# `uv build --package mael-agent-daemon` or `uv build --package mael-orchestrator`.
 [tool.hatch.build.targets.wheel]
 packages = [
     "src/maelstrom",
@@ -67,13 +73,20 @@ dev-mode-dirs = ["src", "lib/common/src", "lib/agent/src", "lib/domain/src"]
 default-groups = ["members"]
 
 [tool.uv.workspace]
-members = ["lib/common", "lib/agent", "lib/domain", "agent-daemon"]
+members = [
+    "lib/common",
+    "lib/agent",
+    "lib/domain",
+    "agent-daemon",
+    "orchestrator-api",
+]
 
 [tool.uv.sources]
 mael-common = { workspace = true }
 mael-agent = { workspace = true }
 mael-domain = { workspace = true }
 mael-agent-daemon = { workspace = true }
+mael-orchestrator = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -82,6 +95,7 @@ testpaths = [
     "lib/agent/tests",
     "lib/domain/tests",
     "agent-daemon/tests",
+    "orchestrator-api/tests",
 ]
 # The domain suites' support modules. `tests/` imports them too, so they must
 # be on the path whichever suite pytest collects first.
@@ -106,6 +120,7 @@ include = [
     "lib/agent/src",
     "lib/domain/src",
     "agent-daemon/src",
+    "orchestrator-api/src",
 ]
 exclude = [".vulture_whitelist.py"]
 pythonVersion = "3.11"
@@ -124,6 +139,7 @@ src = [
     "lib/agent/src",
     "lib/domain/src",
     "agent-daemon/src",
+    "orchestrator-api/src",
 ]
 # The vulture whitelist is a list of bare names, not a program. Every line is
 # an undefined name by design, so ruff and pyright must both skip it.
@@ -142,6 +158,7 @@ paths = [
     "lib/agent/src",
     "lib/domain/src",
     "agent-daemon/src",
+    "orchestrator-api/src",
     ".vulture_whitelist.py",
 ]
 min_confidence = 60
@@ -191,7 +208,8 @@ ignore_names = [
 
 # The dependency graph between the packages: mael_agent imports mael_common;
 # mael_domain imports both; mael_daemon imports mael_agent and mael_common;
-# maelstrom imports the three libraries and never mael_daemon.
+# mael_orchestrator and maelstrom import the three libraries. Nothing imports
+# either service, mael_daemon or mael_orchestrator.
 # Run by `bin/lint` as `lint-imports`. See docs/dev/architecture-patterns.md.
 [tool.importlinter]
 root_packages = [
@@ -199,6 +217,7 @@ root_packages = [
     "mael_agent",
     "mael_domain",
     "mael_daemon",
+    "mael_orchestrator",
     "maelstrom",
 ]
 # So a contract can name click, which is not one of the packages above.
@@ -208,31 +227,43 @@ include_external_packages = true
 name = "mael_common imports no other maelstrom package"
 type = "forbidden"
 source_modules = ["mael_common"]
-forbidden_modules = ["mael_agent", "mael_domain", "mael_daemon", "maelstrom"]
+forbidden_modules = [
+    "mael_agent",
+    "mael_domain",
+    "mael_daemon",
+    "mael_orchestrator",
+    "maelstrom",
+]
 
 [[tool.importlinter.contracts]]
 name = "mael_agent imports only mael_common"
 type = "forbidden"
 source_modules = ["mael_agent"]
-forbidden_modules = ["mael_domain", "mael_daemon", "maelstrom"]
+forbidden_modules = ["mael_domain", "mael_daemon", "mael_orchestrator", "maelstrom"]
 
 [[tool.importlinter.contracts]]
 name = "mael_domain imports only mael_agent and mael_common"
 type = "forbidden"
 source_modules = ["mael_domain"]
-forbidden_modules = ["mael_daemon", "maelstrom"]
+forbidden_modules = ["mael_daemon", "mael_orchestrator", "maelstrom"]
 
 [[tool.importlinter.contracts]]
 name = "The daemon imports neither the domain nor the maelstrom CLI"
 type = "forbidden"
 source_modules = ["mael_daemon"]
-forbidden_modules = ["mael_domain", "maelstrom"]
+forbidden_modules = ["mael_domain", "mael_orchestrator", "maelstrom"]
 
 [[tool.importlinter.contracts]]
-name = "The maelstrom CLI meets the daemon only on the wire"
+name = "The orchestrator server imports neither the daemon nor the maelstrom CLI"
+type = "forbidden"
+source_modules = ["mael_orchestrator"]
+forbidden_modules = ["mael_daemon", "maelstrom"]
+
+[[tool.importlinter.contracts]]
+name = "The maelstrom CLI meets the services only on the wire"
 type = "forbidden"
 source_modules = ["maelstrom"]
-forbidden_modules = ["mael_daemon"]
+forbidden_modules = ["mael_daemon", "mael_orchestrator"]
 
 # The domain is click-free, so the CLI and the orchestrator server can share it.
 # The async click group is the one library module allowed to import click.

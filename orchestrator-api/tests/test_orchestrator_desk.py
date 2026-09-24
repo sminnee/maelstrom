@@ -6,7 +6,7 @@ when a change is published and saved.
 
 import pytest
 
-from maelstrom.orchestrator.desk import (
+from mael_orchestrator.desk import (
     active_branches,
     add,
     desk_id_for_agent,

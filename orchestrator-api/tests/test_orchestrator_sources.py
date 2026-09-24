@@ -10,13 +10,17 @@ has to read every task in every project; one that learns *which rows* moved
 reads those rows alone. Both backends answer it, so both are tested.
 """
 
+from pathlib import Path
+
 import pytest
 
 from mael_domain import task as model
+from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
-from maelstrom.orchestrator.sources import NotebookTaskSource
+from mael_domain.worktree import WorktreeSetup
+from mael_orchestrator.sources import NotebookTaskSource
 
 PROJECT = "northwind"
 
@@ -189,7 +193,7 @@ def test_a_row_id_is_already_the_wire_id_for_a_task():
     matching, and deleted tasks would linger on the canvas.
     """
     from mael_domain.task_table import row_id
-    from maelstrom.orchestrator.world_build import task_key
+    from mael_orchestrator.world_build import task_key
 
     assert row_id("northwind", "NORT-7") == task_key("northwind", "NORT-7")
 
@@ -216,8 +220,8 @@ async def test_an_injected_version_is_not_a_revision(table):
 
 def an_orchestrator(table):
     """An orchestrator whose task source reads ``table`` for real."""
-    from maelstrom.orchestrator.server import Orchestrator
-    from maelstrom.orchestrator.sources import InMemoryWorktreeSource
+    from mael_orchestrator.server import Orchestrator
+    from mael_orchestrator.sources import InMemoryWorktreeSource
 
     return Orchestrator(a_source(table), InMemoryWorktreeSource(), _NoDaemon())
 
@@ -372,8 +376,8 @@ def an_exporting_orchestrator(table, root, **options):
     """An orchestrator that drains its export queue to ``root``."""
     from mael_domain.task_export import SqliteExportQueue, TaskExporter
     from mael_domain.task_store import GitFileStore
-    from maelstrom.orchestrator.server import Orchestrator
-    from maelstrom.orchestrator.sources import InMemoryWorktreeSource
+    from mael_orchestrator.server import Orchestrator
+    from mael_orchestrator.sources import InMemoryWorktreeSource
 
     exporter = TaskExporter(
         SqliteExportQueue(table._db), table, GitFileStore(root=root)
@@ -494,3 +498,56 @@ async def test_the_board_refuses_a_non_claude_execute_model(table):
     )
     with pytest.raises(LaunchBlocked, match="must be a Claude model"):
         await source.launch(f"{PROJECT}/NORT-7", None)
+
+
+async def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(table):
+    """Both ways in refuse: a task's launch, and a free agent's start."""
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    source = a_source(table)
+    with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
+        await source.launch(f"{PROJECT}/NORT-7", None)
+    assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
+    with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
+        await source.worktree_for(PROJECT, "feat/x")
+
+
+def a_launching_source(table, *, has_transcript) -> NotebookTaskSource:
+    """A source over ``table`` whose worktree and transcript check are fixed."""
+    return NotebookTaskSource(
+        table,
+        lambda: [PROJECT],
+        open_worktree=lambda project, branch, base: WorktreeSetup(
+            path=Path("/w/alpha"), name="alpha", action="reused"
+        ),
+        live_sessions=lambda: LiveSessionSet([]),
+        has_transcript=has_transcript,
+    )
+
+
+async def test_launch_resumes_a_task_that_has_already_run(table):
+    """Relaunching a stopped task must continue its session, not claim its id."""
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    source = a_launching_source(table, has_transcript=lambda path, sid: True)
+    request = await source.launch(f"{PROJECT}/NORT-7", None)
+    assert request.payload["resume"] is True
+
+
+async def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(table):
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    source = a_launching_source(table, has_transcript=lambda path, sid: False)
+    request = await source.launch(f"{PROJECT}/NORT-7", None)
+    assert request.payload["resume"] is False
+
+
+async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
+    """The transcript lives under the worktree path, so the check needs it."""
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    seen: list[tuple] = []
+
+    def has_transcript(path, session_id):
+        seen.append((path, session_id))
+        return False
+
+    source = a_launching_source(table, has_transcript=has_transcript)
+    request = await source.launch(f"{PROJECT}/NORT-7", None)
+    assert seen == [(Path("/w/alpha"), request.payload["session"])]
