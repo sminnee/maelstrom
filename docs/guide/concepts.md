@@ -147,6 +147,7 @@ the work each node unblocks, and captures your checkpoints in the tool: plan app
 permissions, document feedback. Desk shows the work on your desk plus everything running now. Tasks
 is where you add a task to the desk, and either view takes it off. Project and branch filters apply
 to both views. Tasks opens on live work. It also edits a task: its status, title, content and more.
+Tick several rows to set their status, or to add them to the desk or take them off, in one action.
 The top bar's "New" control starts new work without leaving the page: a task, whose title, branch
 and command are inferred from the prose you type, or a free agent in a branch's worktree.
 `uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
