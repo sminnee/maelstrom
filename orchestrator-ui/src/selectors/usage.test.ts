@@ -455,8 +455,13 @@ describe('agentCounts', () => {
   });
 
   it('counts only the ones taking a turn as working', () => {
-    const world = agents({ state: 'idle' }, { state: 'processing' }, { state: 'exited' });
-    expect(agentCounts(world).working).toBe(1);
+    const world = agents(
+      { state: 'idle' },
+      { state: 'processing' },
+      { state: 'delegating' },
+      { state: 'exited' },
+    );
+    expect(agentCounts(world).working).toBe(2);
   });
 
   it('leaves subagents to their parent, so one agent is not counted twice', () => {

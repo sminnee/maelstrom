@@ -10,6 +10,7 @@
  * reaches further in than the staleness check.
  */
 import type { Agent, Host, HostUsage } from '../protocol/entities';
+import { isWorking } from '../protocol/progress';
 import type { ChipTone } from '../protocol/chipTone';
 import type { WorkCalendar } from '../protocol/workCalendar';
 import { WORKING_WEEK, weightedFractionLeft } from '../protocol/workCalendar';
@@ -277,7 +278,7 @@ export function agentCounts(agents: Record<string, Agent>): AgentCounts {
   for (const agent of Object.values(agents)) {
     if (agent.parent || !isLive(agent)) continue;
     open += 1;
-    if (agent.state === 'processing') working += 1;
+    if (isWorking(agent)) working += 1;
   }
   return { open, working };
 }
