@@ -55,6 +55,16 @@ describe('the task list', () => {
     await user.click(within(listRow(taskId) as HTMLElement).getByRole('button', { name }));
     return screen.findByRole('dialog', { name });
   };
+  /** Move a task from its own row's status picker. */
+  const pickStatus = async (
+    user: ReturnType<typeof userEvent.setup>,
+    taskId: string,
+    from: string,
+    to: string,
+  ) => {
+    await user.click(within(listRow(taskId) as HTMLElement).getByRole('button', { name: from }));
+    await user.selectOptions(within(listRow(taskId) as HTMLElement).getByRole('combobox'), to);
+  };
   /** Open a task's dialog and press Edit, leaving its fields editable. */
   const openForEditing = async (
     user: ReturnType<typeof userEvent.setup>,
@@ -133,8 +143,7 @@ describe('the task list', () => {
     const row = () => listRow('NORT-9') as HTMLElement;
     expect(within(row()).queryByRole('combobox')).toBeNull();
 
-    await user.click(within(row()).getByRole('button', { name: 'in-progress' }));
-    await user.selectOptions(within(row()).getByRole('combobox'), 'blocked');
+    await pickStatus(user, 'NORT-9', 'in-progress', 'blocked');
 
     expect(await within(row()).findByRole('button', { name: 'blocked' })).toBeInTheDocument();
     expect(within(row()).queryByRole('combobox')).toBeNull();
@@ -145,13 +154,7 @@ describe('the task list', () => {
     await renderApp();
     await goToList(user);
 
-    await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'in-progress' }),
-    );
-    await user.selectOptions(
-      within(listRow('NORT-9') as HTMLElement).getByRole('combobox'),
-      'done',
-    );
+    await pickStatus(user, 'NORT-9', 'in-progress', 'done');
 
     // The default filter hides done work, so the row goes. That is the filter
     // doing its job, not the move failing.
