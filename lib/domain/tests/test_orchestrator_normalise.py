@@ -1208,6 +1208,104 @@ def test_a_parents_replay_carries_none_of_its_subagents_items():
     assert not any("I'll look for" in i.get("markdown", "") for i in state.items)
 
 
+def feed(events, state: str = "idle") -> Replayed:
+    """``events`` normalised in order into a seed agent in ``state``."""
+    replayed = Replayed(seed([make_agent(id="ag1", state=state)]))
+    ctx = context_for_agent("ag1")
+    for raw in events:
+        out = normalise_stream_event(replayed.state, ctx, raw, NOW)
+        ctx = out.ctx
+        replayed.take(out.events)
+    return replayed
+
+
+def task_started(tool_use_id: str, task_type: str = "local_agent") -> dict:
+    return {
+        "type": "system",
+        "subtype": "task_started",
+        "tool_use_id": tool_use_id,
+        "task_type": task_type,
+    }
+
+
+def task_notification(tool_use_id: str) -> dict:
+    return {
+        "type": "system",
+        "subtype": "task_notification",
+        "tool_use_id": tool_use_id,
+    }
+
+
+#: The two background tasks in ``subagent-background.jsonl``, by ``tool_use_id``.
+TASK_NAMES = {
+    "toolu_01Psu3ew4jVXe96yarRAujE5": "subagent ends",
+    "toolu_015penBXps91JNaUmB5hKzj3": "shell ends",
+}
+
+
+def test_a_turn_that_ends_under_a_running_subagent_is_delegating_until_it_ends():
+    """The row's rule, on the stream: ``delegating`` from the ``result`` to the
+    subagent's notification. The ``local_bash`` notification between changes
+    nothing, and the next turn's assistant event sets ``processing``."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    seen = []
+    for raw in read_fixture("subagent-background.jsonl"):
+        out = normalise_stream_event(state.state, ctx, raw, NOW)
+        ctx = out.ctx
+        state.take(out.events)
+        if raw.get("type") == "result":
+            seen.append(("result", agent_of(state)["state"]))
+        elif raw.get("subtype") == "task_notification":
+            seen.append((TASK_NAMES[raw["tool_use_id"]], agent_of(state)["state"]))
+        elif raw.get("type") == "assistant" and not raw.get("parent_tool_use_id"):
+            seen.append(("assistant", agent_of(state)["state"]))
+    assert seen == [
+        ("assistant", "processing"),
+        ("assistant", "processing"),
+        ("assistant", "processing"),
+        ("result", "delegating"),
+        ("shell ends", "delegating"),
+        ("subagent ends", "idle"),
+        ("assistant", "processing"),
+        ("result", "idle"),
+    ]
+
+
+def test_a_turn_that_ends_under_a_background_shell_is_idle():
+    state = feed([task_started("b1", "local_bash"), {"type": "result"}], "processing")
+    assert agent_of(state)["state"] == "idle"
+
+
+def test_delegating_lasts_until_the_last_subagent_ends():
+    events = [task_started("t1"), task_started("t2"), {"type": "result"}]
+    assert agent_of(feed(events, "processing"))["state"] == "delegating"
+    events.append(task_notification("t1"))
+    assert agent_of(feed(events, "processing"))["state"] == "delegating"
+    events.append(task_notification("t2"))
+    assert agent_of(feed(events, "processing"))["state"] == "idle"
+
+
+def test_a_subagents_answered_ask_goes_back_to_delegating():
+    """A subagent's ask arrives on the parent's stream, as the parent's wait.
+    Once it is answered no turn is open, so the agent is delegating again."""
+    ask = {
+        "type": "control_request",
+        "request_id": "r1",
+        "request": {"subtype": "can_use_tool", "tool_name": "WebFetch", "input": {}},
+    }
+    answer = {
+        "type": "control_response",
+        "response": {"request_id": "r1", "response": {"behavior": "allow"}},
+    }
+    events = [task_started("t1"), {"type": "result"}, ask]
+    assert agent_of(feed(events, "processing"))["state"] == "awaiting-permission"
+    events.append(answer)
+    assert agent_of(feed(events, "processing"))["state"] == "delegating"
+    events.append(task_notification("t1"))
+    assert agent_of(feed(events, "processing"))["state"] == "idle"
+
+
 def child() -> dict:
     """A seed subagent, idle so a stream that wrongly moved its state would show."""
     return make_agent(

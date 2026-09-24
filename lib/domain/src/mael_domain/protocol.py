@@ -14,6 +14,7 @@ TaskStatus = Literal["todo", "in-progress", "blocked", "done", "cancelled", "tem
 AgentStateName = Literal[
     "idle",
     "processing",
+    "delegating",
     "awaiting-permission",
     "awaiting-question",
     "awaiting-plan-review",
