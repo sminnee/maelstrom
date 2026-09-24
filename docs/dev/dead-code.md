@@ -17,7 +17,7 @@ unused test helper invisible.
 | Production | `src/` only      | Only tests reach this    | Prints only     |
 
 Each pass reads the `src/` and `tests/` of every workspace member: the root, `lib/common/`,
-`lib/agent/` and `agent-daemon/`. The test pass also reads the repo-root `conftest.py`.
+`lib/agent/`, `lib/domain/` and `agent-daemon/`. The test pass also reads the repo-root `conftest.py`.
 
 **Only the test pass fails the build.** A symbol neither `src/` nor `tests/` uses is dead by any
 reading. A symbol only tests reach is different: an in-memory store or a helper a test drives is a
@@ -81,11 +81,11 @@ That duplication fails silently, and nothing checks it. Change `[tool.vulture]` 
 `bin/vulture-check` in the same edit. A setting added to one alone changes what the test pass
 reports, and no gate says so.
 
-The whitelist carries the wire fields of `orchestrator/protocol.py`. Python writes each field and
+The whitelist carries the wire fields of `mael_domain/protocol.py`. Python writes each field and
 TypeScript reads it, so no Python call site exists. Regenerate the entries with:
 
 ```bash
-uv run vulture src/maelstrom/orchestrator/protocol.py --make-whitelist
+uv run vulture lib/domain/src/mael_domain/protocol.py --make-whitelist
 ```
 
 Excluding that file would be shorter. It would also stop the gate checking the functions in it, so
@@ -124,5 +124,5 @@ The `lint` job runs `bin/lint`, which includes vulture. The `web` job runs `bin/
 `.github/workflows/test.yml` decides which jobs run from the changed paths. That filter has one gap
 worth knowing. A change under `src/`, `lib/` or `agent-daemon/` runs the Python gates, and a change under `web/` runs the web
 gates, so a change that strands code in the other language can pass. The filter names
-`orchestrator/protocol.py` on the web side for this reason: deleting a wire field there runs knip
+`mael_domain/protocol.py` on the web side for this reason: deleting a wire field there runs knip
 over the TypeScript that reads it. Other cross-language edits stay uncovered.

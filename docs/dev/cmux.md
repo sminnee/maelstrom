@@ -3,7 +3,7 @@
 How maelstrom drives cmux from code. For the shell-level `cmux` CLI — opening a browser pane,
 sending a command to a terminal — use the `cmux` skill instead.
 
-`src/maelstrom/cmux/` follows the three layers in
+`lib/domain/src/mael_domain/cmux/` follows the three layers in
 [architecture-patterns.md](architecture-patterns.md):
 
 - `client.py` — transport. The `CmuxClient` Protocol, the real `SubprocessCmuxClient`, the

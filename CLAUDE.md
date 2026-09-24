@@ -11,9 +11,9 @@ Use `uv run` to execute commands in the project's virtual environment:
 ```bash
 uv run pytest -m 'not slow'        # Skip slow e2e tests (recommended for dev)
 uv run pytest                      # Run all tests including slow ones
-uv run pytest tests/test_ports.py  # Run a single test file
+uv run pytest lib/domain/tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
-uv run pytest --cov=maelstrom      # Run with coverage
+uv run pytest --cov=maelstrom --cov=mael_domain  # Run with coverage
 uv run python -m maelstrom         # Run the module
 uv run mael-agent-daemon status     # Which agent daemon answers, and whose code it runs
 bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture (gate before commit)
@@ -67,6 +67,8 @@ names (alpha, bravo, charlie, …) in a bare-like repository structure.
 The CLI is built with **Click**. `src/maelstrom/cli.py` is the entry point; each subsystem
 adds its own command group (`task_cli.py`, `env_cli.py`, `git_cli.py`, `github_cli.py`,
 `session_cli.py`, `admin_cli.py`, and the `integrations/` package).
+The command groups are thin. The model and store modules they call are in the
+`mael_domain` package, in `lib/domain/`, which the orchestrator server also imports.
 
 For the module-by-module picture, read `docs/dev/architecture-patterns.md` — it documents the
 storage / model / CLI layering the modules follow, rather than restating a file list that

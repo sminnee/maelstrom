@@ -586,7 +586,7 @@ A task needs a title and a branch, and the prose field is the only one the user 
 save that never pressed Suggest takes both from the prose: `protocol/branchFromDraft.ts` uses the
 draft's first non-empty line as the title, and slugs it into a `feat/<desc>` branch.
 
-It mirrors the deterministic half of `src/maelstrom/branch_name.py`, never the model's half, and
+It mirrors the deterministic half of `lib/domain/src/mael_domain/branch_name.py`, never the model's half, and
 carries why. One limit is worth knowing: `slugify` keeps `[a-z0-9]` only, so prose in a non-Latin
 script slugs to nothing and every such task falls back to `feat/task`. Python has the same limit.
 
@@ -835,7 +835,7 @@ factory whose sockets open with a transcript snapshot. A command changes the wor
 server would and sends the notices. A test moves the world with `server.change`, which mutates
 and sends the notice the real server would, and the transcripts with `server.append` and
 `server.patch`. `test/seedWorld.ts` is the world the app tests open on. The transcript component
-renders items from the goldens `tests/test_orchestrator_normalise.py` owns, so one fixture set
+renders items from the goldens `lib/domain/tests/test_orchestrator_normalise.py` owns, so one fixture set
 feeds both suites.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown

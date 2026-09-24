@@ -16,14 +16,15 @@ Each feature is split into three files with one responsibility each:
 
 | Layer | File | Responsibility | Reference |
 |-------|------|----------------|-----------|
-| **Storage** | `*_store.py`, `*_table.py` | An abstract base class plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_table.py`](../../src/maelstrom/task_table.py) |
-| **Model** | `*.py` | Pure domain logic. The store is injected; no I/O, no printing. Raises typed domain errors. | [`task.py`](../../src/maelstrom/task.py) |
+| **Storage** | `*_store.py`, `*_table.py` | An abstract base class plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_table.py`](../../lib/domain/src/mael_domain/task_table.py) |
+| **Model** | `*.py` | Pure domain logic. The store is injected; no I/O, no printing. Raises typed domain errors. | [`task.py`](../../lib/domain/src/mael_domain/task.py) |
 | **CLI** | `*_cli.py` | Thin adapter: parse args → call one model function → render. The *only* layer that prints or converts errors to exit codes. | [`task_cli.py`](../../src/maelstrom/task_cli.py) |
 
 Dependencies point one way: CLI → model → store. The model never imports the CLI;
-the store never imports the model. `tests/test_service_boundary.py` enforces the
-first half: no domain module reaches click or a `*_cli` module, even through a
-lazy import.
+the store never imports the model. The storage and model layers live in
+`mael_domain`, and the CLI layer in `maelstrom`. The import-linter contracts
+below enforce the first half: no domain module reaches click or `maelstrom`,
+even through a lazy import.
 
 ## The packages
 
@@ -34,20 +35,27 @@ follows the three layers inside it:
 |---------|-----------|-------|
 | `mael_common` | `lib/common/` | Leaves with no domain knowledge: `shell`, `util`, `table`, `cli_async`, `process_table`, `claude_paths` and `image`. |
 | `mael_agent` | `lib/agent/` | The agent wire contract, the daemon transport and client, and the harness model. |
+| `mael_domain` | `lib/domain/` | The domain: the storage and model layers for tasks, worktrees, environments, GitHub, the integrations, cmux and the state database, plus the orchestrator's wire protocol and normaliser. |
 | `mael_daemon` | `agent-daemon/` | The agent daemon, which drives Claude Code agents, and its `mael-agent-daemon` CLI. |
-| `maelstrom` | `src/maelstrom/` | Everything else: the domain, the orchestrator with its Codex harness, and the `mael` CLI. |
+| `maelstrom` | `src/maelstrom/` | The `mael` CLI and the orchestrator server with its Codex harness. |
 
-`mael_agent` imports `mael_common`. `mael_daemon` and `maelstrom` import both.
-`maelstrom` never imports `mael_daemon`: it reaches the daemon over the socket.
-Only `mael_common.cli_async` in the two libraries imports click. Import-linter
+`mael_agent` imports `mael_common`. `mael_domain` imports both. `mael_daemon`
+imports `mael_agent` and `mael_common`. `maelstrom` imports the three libraries
+and never `mael_daemon`: it reaches the daemon over the socket. Only
+`mael_common.cli_async` in the libraries imports click. Import-linter
 contracts in `pyproject.toml` enforce all of this, and `bin/lint` runs them as
 `lint-imports`. Tests are outside the contracts, so a root test may still build
 state through `mael_daemon.agent_model`.
 
-A member's `tests/` has no `__init__.py` and no `conftest.py`. Fixtures that
-every suite needs are in the repo-root `conftest.py`, which imports no package.
-Keep each test file's basename unique across the members, because pytest imports
-member tests by basename.
+A member's `tests/` has no `__init__.py`. Fixtures that every suite needs are
+in the repo-root `conftest.py`, which imports no package. Keep each test file's
+basename unique across the members, because pytest imports member tests by
+basename.
+
+A new model or store module goes in `mael_domain`. A module that only the CLI
+or the orchestrator server calls stays in `maelstrom`. The domain suites'
+fixtures are in `lib/domain/tests/domain_fixtures.py`, and its docstring says
+how `tests/` imports them too.
 
 ## The seven conventions
 
@@ -56,19 +64,20 @@ member tests by basename.
 Storage / pure model / thin CLI, as above. The task subsystem is the worked
 example:
 
-- [`task_table.py`](../../src/maelstrom/task_table.py) — storage. Defines the
+- [`task_table.py`](../../lib/domain/src/mael_domain/task_table.py) — storage. Defines the
   `TaskTable` abstract base class
   (`load` / `list` / `save` / `delete` / `find_by_session_id` / `transact` /
   `changed_since` / `revision`), with `InMemoryTaskTable` and `SqliteTaskTable`
   backends.
-- [`task.py`](../../src/maelstrom/task.py) — the pure model.
+- [`task.py`](../../lib/domain/src/mael_domain/task.py) — the pure model.
 - [`task_cli.py`](../../src/maelstrom/task_cli.py) — the thin CLI.
 
 The service integrations follow the same split. Each of
-[`integrations/`](../../src/maelstrom/integrations/)`linear.py`, `sentry.py`,
+[`integrations/`](../../lib/domain/src/mael_domain/integrations/)`linear.py`, `sentry.py`,
 `slack.py` and `uptimerobot.py` holds the API client, the reusable operations
-and the pure formatters. Its `*_cli.py` twin holds the click group and the
-commands, and reaches the model as `from . import linear`. Some commands still
+and the pure formatters. Its `*_cli.py` twin in `src/maelstrom/integrations/`
+holds the click group and the commands, and reaches the model as
+`from mael_domain.integrations import linear`. Some commands still
 build their own queries in the CLI module, for example `mael linear release`
 and `mael sentry list-issues`.
 
@@ -82,31 +91,31 @@ with no git and no filesystem (see the task unit tests).
 
 A model that must report while it runs takes a line callback instead of
 printing: `warn: Callable[[str], None]` in
-[`task_actions.py`](../../src/maelstrom/task_actions.py), `announce` in the
+[`task_actions.py`](../../lib/domain/src/mael_domain/task_actions.py), `announce` in the
 worktree steps. The CLI passes a stderr echo. The orchestrator passes a logger.
 
 > Sanctioned exceptions are rare, obvious, and documented — they are not licence
 > for general I/O in the model:
 >
 > - launching an interactive editor (e.g. `edit_in_editor`,
->   [`task.py`](../../src/maelstrom/task.py#L942)), which is inherently a side
+>   [`task.py`](../../lib/domain/src/mael_domain/task.py#L942)), which is inherently a side
 >   effect on the user's terminal;
 > - generating a descriptive branch name
->   ([`branch_name.py`](../../src/maelstrom/branch_name.py)), which shells out to
+>   ([`branch_name.py`](../../lib/domain/src/mael_domain/branch_name.py)), which shells out to
 >   `claude -p` for a slug. Contained because every path falls back to a
 >   deterministic offline slug and the subprocess is reached through an
 >   injectable `runner`, so the model stays exercisable with no CLI.
 > - discovering a container's VM IP
->   ([`services.py`](../../src/maelstrom/services.py) `discover_container_ip`),
+>   ([`services.py`](../../lib/domain/src/mael_domain/services.py) `discover_container_ip`),
 >   which polls `container inspect`. Same containment: the subprocess is reached
 >   through an injectable `runner`, so command synthesis and IP parsing stay pure
 >   and testable with a fake runner. The `services:` schema lives in
->   [`config.py`](../../src/maelstrom/config.py); command/container builders and
+>   [`config.py`](../../lib/domain/src/mael_domain/config.py); command/container builders and
 >   the per-engine table live in `services.py`; the two-phase start (containers
 >   first, VM IP injected into sibling command services' spawn env) lives in
->   [`env.py`](../../src/maelstrom/env.py).
+>   [`env.py`](../../lib/domain/src/mael_domain/env.py).
 > - resolving a rebase conflict
->   ([`rebase_repair.py`](../../src/maelstrom/rebase_repair.py)), which runs
+>   ([`rebase_repair.py`](../../lib/domain/src/mael_domain/rebase_repair.py)), which runs
 >   `claude -p /resolve-rebase-conflicts` in the conflicted worktree. Same
 >   containment as `branch_name.py`: the subprocess is reached through an
 >   injectable `repair_runner` on both autorepair entry points
@@ -127,10 +136,10 @@ catches them and converts to `click.ClickException` / exit codes — see the
 A domain the two builtins do not describe gets a named error instead — one that
 is neither "not found" nor "bad input". Give a subsystem's errors one base, so a
 CLI catches the family by name rather than listing every subclass.
-[`worktree_model.py`](../../src/maelstrom/worktree_model.py) has `WorktreeError`
+[`worktree_model.py`](../../lib/domain/src/mael_domain/worktree_model.py) has `WorktreeError`
 over `UnclosableWorktreeError`, `WorktreeNamesExhaustedError` and
 `WorktreeSetupError`.
-[`integrations/errors.py`](../../src/maelstrom/integrations/errors.py) has
+[`integrations/errors.py`](../../lib/domain/src/mael_domain/integrations/errors.py) has
 `IntegrationError` over `IntegrationHTTPError`.
 
 A family can have one conversion point instead of a catch in every command.
@@ -168,19 +177,19 @@ module", and reaching across for it couples the two files.
 ### 5. All persistence goes through a store abstraction
 
 Persisted state goes through a store like
-[`TaskTable`](../../src/maelstrom/task_table.py), not ad-hoc `json.dump`. A store
+[`TaskTable`](../../lib/domain/src/mael_domain/task_table.py), not ad-hoc `json.dump`. A store
 gives you a swappable in-memory backend for tests, a single place for atomicity
 and locking, and — on the state database — transactions and a revision counter
 for free.
 
 The env subsystem is the worked example of this convention beyond `task`.
-[`env_store.py`](../../src/maelstrom/env_store.py) defines the
-[`EnvStore` Protocol](../../src/maelstrom/env_store.py), with an `InMemoryEnvStore`
+[`env_store.py`](../../lib/domain/src/mael_domain/env_store.py) defines the
+[`EnvStore` Protocol](../../lib/domain/src/mael_domain/env_store.py), with an `InMemoryEnvStore`
 and a `JsonEnvStore` backend. `JsonEnvStore` writes to a temp file then renames it,
 via [`util.atomic_write_json`](../../lib/common/src/mael_common/util.py). `env.py` writes only
 through the store.
 
-Counter-example still to migrate: [`ports.py`](../../src/maelstrom/ports.py)
+Counter-example still to migrate: [`ports.py`](../../lib/domain/src/mael_domain/ports.py)
 reads and writes `~/.maelstrom/port_allocations.json` directly with `json.load` /
 `json.dump`, and the write is **not atomic** — a crash mid-write can leave a
 truncated allocations file. A `PortStore` mirroring `EnvStore` (atomic write,
@@ -205,7 +214,7 @@ That rule stops at the I/O. A pure function has no await point to yield at, so
 `GitFileStore` stays sync for a stronger reason: it holds a cross-process
 `flock`, which is hostile to being made async, and it is not a bottleneck.
 
-**[`state_db/`](../../src/maelstrom/state_db/) is the exception, and the
+**[`state_db/`](../../lib/domain/src/mael_domain/state_db/) is the exception, and the
 reason is reversibility rather than I/O.** Its public surface is `async def`
 and its engine is sync `sqlite3` called inline, so an `await` there yields
 nothing today. The surface is async because the tables it holds may later move
@@ -218,15 +227,15 @@ backend may become a network database; keep it sync otherwise.
 Where the I/O actually is. Re-derive the counts with:
 
 ```bash
-grep -cE '\b(run_cmd|run_git)\w*\(' src/maelstrom/<module>.py
+grep -cE '\b(run_cmd|run_git)\w*\(' lib/domain/src/mael_domain/<module>.py
 ```
 
 | Module | `run_cmd` / `run_git` call sites |
 |--------|----------------------------------|
-| [`worktree.py`](../../src/maelstrom/worktree.py) | 100 |
-| [`github.py`](../../src/maelstrom/github.py) | 26 |
-| [`task.py`](../../src/maelstrom/task.py) | 1 — the `$EDITOR` launch, a convention 2 exception |
-| [`worktree_model.py`](../../src/maelstrom/worktree_model.py), [`github_model.py`](../../src/maelstrom/github_model.py), [`task_actions.py`](../../src/maelstrom/task_actions.py), [`task_launch.py`](../../src/maelstrom/task_launch.py), [`orchestrator/normalise.py`](../../src/maelstrom/orchestrator/normalise.py), [`orchestrator/world.py`](../../src/maelstrom/orchestrator/world.py) | 0 |
+| [`worktree.py`](../../lib/domain/src/mael_domain/worktree.py) | 100 |
+| [`github.py`](../../lib/domain/src/mael_domain/github.py) | 26 |
+| [`task.py`](../../lib/domain/src/mael_domain/task.py) | 1 — the `$EDITOR` launch, a convention 2 exception |
+| [`worktree_model.py`](../../lib/domain/src/mael_domain/worktree_model.py), [`github_model.py`](../../lib/domain/src/mael_domain/github_model.py), [`task_actions.py`](../../lib/domain/src/mael_domain/task_actions.py), [`task_launch.py`](../../lib/domain/src/mael_domain/task_launch.py), [`normalise.py`](../../lib/domain/src/mael_domain/normalise.py), [`orchestrator/world.py`](../../src/maelstrom/orchestrator/world.py) | 0 |
 
 The count includes the `run_cmd_async` sites, which are the already-converted
 ones — it measures where the I/O is, not how much of it still blocks.
