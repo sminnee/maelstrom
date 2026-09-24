@@ -112,10 +112,7 @@ def project_with_stack():
 
         maelstrom_dir = tmp / "maelstrom-home"
         maelstrom_dir.mkdir()
-        with (
-            patch("mael_domain.context.get_maelstrom_dir", return_value=maelstrom_dir),
-            patch("mael_domain.ports.get_maelstrom_dir", return_value=maelstrom_dir),
-        ):
+        with patch("mael_domain.context.get_maelstrom_dir", return_value=maelstrom_dir):
             yield project_path, worktrees["alpha"], worktrees["bravo"], remote_path
 
 

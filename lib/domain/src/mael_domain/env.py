@@ -15,8 +15,9 @@ from pathlib import Path
 from string import Template
 from subprocess import DEVNULL, STDOUT, Popen
 
-from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
+from mael_common.util import now_iso, sanitise_child_env
 
+from . import context
 from .config import (
     ServiceDef,
     load_config_or_default,
@@ -287,7 +288,7 @@ def _env_key(project: str, worktree: str) -> str:
 
 def _get_log_dir(project: str, worktree: str) -> Path:
     """Return the directory for service log files."""
-    return get_maelstrom_dir() / "logs" / project / worktree
+    return context.get_maelstrom_dir() / "logs" / project / worktree
 
 
 def load_env_state(store: EnvStore, project: str, worktree: str) -> EnvState | None:
@@ -333,7 +334,7 @@ def _shared_key(project: str) -> str:
 
 def _get_shared_log_dir(project: str) -> Path:
     """Return the directory for shared service log files."""
-    return get_maelstrom_dir() / "logs" / project / "_shared"
+    return context.get_maelstrom_dir() / "logs" / project / "_shared"
 
 
 def load_shared_state(store: EnvStore, project: str) -> SharedEnvState | None:

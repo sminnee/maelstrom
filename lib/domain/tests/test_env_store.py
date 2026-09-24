@@ -120,7 +120,7 @@ class TestJsonEnvStore:
 
     def test_root_defaults_to_state_dir(self, tmp_path, monkeypatch):
         """A root-less store resolves its root lazily via get_maelstrom_dir."""
-        monkeypatch.setattr("mael_domain.env_store.get_maelstrom_dir", lambda: tmp_path)
+        monkeypatch.setattr("mael_domain.context.get_maelstrom_dir", lambda: tmp_path)
         store = JsonEnvStore()
         assert store.root == tmp_path / "envs"
         store.write("proj/bravo.json", {"v": 1})

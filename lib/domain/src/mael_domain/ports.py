@@ -6,8 +6,9 @@ import socket
 import time
 from pathlib import Path
 
-from mael_common.util import get_maelstrom_dir, locked_file
+from mael_common.util import locked_file
 
+from . import context
 from .mv_project import rekey_port_allocations
 
 ALLOCATIONS_FILENAME = "port_allocations.json"
@@ -55,7 +56,7 @@ def check_ports_free(port_base: int, num_ports: int = 10) -> bool:
 
 def _get_allocations_path() -> Path:
     """Return the path to the port allocations JSON file."""
-    return get_maelstrom_dir() / ALLOCATIONS_FILENAME
+    return context.get_maelstrom_dir() / ALLOCATIONS_FILENAME
 
 
 def load_port_allocations() -> dict[str, dict[str, int]]:

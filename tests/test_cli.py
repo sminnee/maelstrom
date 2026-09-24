@@ -1984,7 +1984,6 @@ class TestMvProjectIntegration:
             patch("mael_domain.context.load_global_config", return_value=config),
             patch("maelstrom.cli.load_global_config", return_value=config),
             patch("mael_domain.context.get_maelstrom_dir", return_value=mael_dir),
-            patch("mael_domain.ports.get_maelstrom_dir", return_value=mael_dir),
             patch("maelstrom.mv_project_cli.get_maelstrom_dir", return_value=mael_dir),
             # The task table lives in the state database, and the store's own
             # root resolves beside it. Both hang off the notebook root, so one
@@ -2125,9 +2124,6 @@ class TestMvProjectIntegration:
             patch(
                 "mael_domain.context.get_maelstrom_dir",
                 return_value=home / ".maelstrom",
-            ),
-            patch(
-                "mael_domain.ports.get_maelstrom_dir", return_value=home / ".maelstrom"
             ),
             patch("mael_domain.context.load_global_config", return_value=config),
             patch("pathlib.Path.home", return_value=home),
