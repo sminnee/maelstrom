@@ -76,6 +76,23 @@ A shell command does not move the agent to `processing`: the two turns carry no 
 assistant event that follows moves the state on its own. See
 [agent-daemon.md](agent-daemon.md#running-a-shell-command) for the wire format.
 
+## A turn that ends while a subagent runs
+
+The world takes a top-level agent's state from its stream, not from the row poll. So the
+normaliser follows the same rule as the row: `NormaliseContext.running_subagents` holds the
+`tool_use_id` of each subagent that `task_started` (`local_agent`) opened and no
+`task_notification` has ended. A `result` sets `delegating` while that set holds an id, else
+`idle`. The last notification sets `idle` again. See
+[agent-daemon.md](agent-daemon.md#a-turn-that-ends-while-a-subagent-runs).
+
+A subagent's ask arrives on the parent's stream as the parent's own wait. When it is answered,
+`NormaliseContext.turn_ended` decides what comes back: `delegating` if the `result` came first,
+else `processing`.
+
+A server that attaches after the ring lost the `task_started` does not know the subagent runs.
+The adopt reads `delegating` from the row, but the replayed `result` then writes `idle` over it.
+The agent reads `idle` until its next turn.
+
 ## A task notification
 
 Two wire shapes say background work finished, and they are deliberately not symmetric.

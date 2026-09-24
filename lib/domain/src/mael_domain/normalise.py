@@ -132,6 +132,13 @@ class NormaliseContext:
     denied_tool_uses: tuple[str, ...] = ()
     #: The shell item still waiting for its output turn, if any.
     open_shell: str | None = None
+    #: The ``tool_use_id`` of each subagent still running. A turn that ends
+    #: while one runs is ``delegating``. Mirrors
+    #: ``agent_model._status_without_asks``.
+    running_subagents: frozenset[str] = frozenset()
+    #: Whether the last turn ended with a ``result``. A subagent's ask can
+    #: arrive after it, and its answer must not reopen the turn.
+    turn_ended: bool = False
 
 
 @dataclass(frozen=True)
@@ -372,6 +379,20 @@ def normalise_stream_event(
             # The compact reports its own occupancy, as in ``apply_event``.
             if reported:
                 out.agent({"contextTokens": _num(post)})
+        elif raw.get("subtype") == "task_started":
+            # A background shell is a task too, but no subagent.
+            tool_use_id = _str(raw.get("tool_use_id"))
+            if raw.get("task_type") == "local_agent" and tool_use_id:
+                out.ctx = replace(
+                    out.ctx,
+                    running_subagents=out.ctx.running_subagents | {tool_use_id},
+                )
+        elif raw.get("subtype") == "task_notification":
+            running = out.ctx.running_subagents - {_str(raw.get("tool_use_id"))}
+            out.ctx = replace(out.ctx, running_subagents=running)
+            # Idle until the ``<task-notification>`` turn sets ``processing``.
+            if not running and agent["state"] == "delegating":
+                out.agent({"state": "idle"})
         elif raw.get("subtype") == "permission_denied":
             out.ctx = replace(
                 out.ctx,
@@ -436,6 +457,7 @@ def normalise_stream_event(
                 # A message to the agent is the start of a turn. Without this
                 # the UI shows "idle" until the agent's first event lands,
                 # which reads as though nothing was sent.
+                out.ctx = replace(out.ctx, turn_ended=False)
                 if not out.ctx.pending:
                     out.agent({"state": "processing"})
             elif block.get("type") == "tool_result":
@@ -524,6 +546,7 @@ def normalise_stream_event(
                         tool_use_id: tool_use_id,
                     },
                 )
+        out.ctx = replace(out.ctx, turn_ended=False)
         if not out.ctx.pending and agent["state"] != "processing":
             out.agent({"state": "processing"})
 
@@ -559,9 +582,10 @@ def normalise_stream_event(
             }
         )
         out.end_every_wait()
+        out.ctx = replace(out.ctx, turn_ended=True)
         out.agent(
             {
-                "state": "idle",
+                "state": "delegating" if out.ctx.running_subagents else "idle",
                 "costUsd": _num(raw.get("total_cost_usd")),
                 # Mirrors ``agent_model.apply_event``, so the live stream and
                 # the next world poll agree on the number.
@@ -994,7 +1018,8 @@ class _Emitter:
             }
         )
         if not held:
-            self.agent({"state": "processing"})
+            delegating = self.ctx.turn_ended and self.ctx.running_subagents
+            self.agent({"state": "delegating" if delegating else "processing"})
 
     def raise_attention(
         self, kind: str, summary: str, request_id: str | None, document_id: str | None
