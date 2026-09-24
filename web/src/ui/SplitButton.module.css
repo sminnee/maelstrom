@@ -1,0 +1,83 @@
+/*
+ * Two segments in one bordered unit: the label, a hairline, the chevron. Each
+ * segment keeps the button border from `base.css`; the corners where they meet
+ * go square and the chevron drops its left border for the divider, so the pair
+ * reads as one control.
+ */
+.wrap {
+  display: inline-flex;
+}
+.wrap[data-split] .main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+/* The trigger half of the anchor pair — see `useAnchorName`. */
+.chevron {
+  anchor-name: var(--anchor-name);
+  justify-content: center;
+  min-width: 24px;
+  padding-inline: var(--space-1);
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+/* Above the main segment, so its hover border is not hidden under the overlap. */
+.chevron:hover {
+  position: relative;
+}
+
+.menu {
+  composes: anchored from './anchoredPopover.module.css';
+  margin: 0;
+  padding: var(--space-1);
+  flex-direction: column;
+  min-width: max-content;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  /* Near the bottom of the screen the menu opens upward instead. */
+  position-try-fallbacks: flip-block;
+}
+/* Offsets at (0,2,0) — see `anchoredPopover.module.css`. */
+.menu:popover-open {
+  display: flex;
+  top: calc(anchor(bottom) + 2px);
+  /* Right-aligned to the trigger: the control ends its row, so growing
+     leftward keeps the menu on screen. */
+  right: anchor(right);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+.item:hover,
+.item:focus-visible {
+  background: var(--bg-hover);
+}
+.item[aria-disabled='true'] {
+  cursor: default;
+  color: var(--fg-muted);
+}
+.item[aria-disabled='true']:hover {
+  background: none;
+}
+.detail {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
