@@ -6,7 +6,7 @@ changed, and who decides when to refresh it.
 > **Status: the machinery is built; two subsystems are not on it.** The state database, the
 > revision counter, the notice path and the refresher contract exist, in
 > [`state_db/`](../../lib/domain/src/mael_domain/state_db/) and
-> [`refresh.py`](../../src/maelstrom/refresh.py). The desk and the tasks are canonical and on
+> [`refresh.py`](../../cli/src/mael_cli/refresh.py). The desk and the tasks are canonical and on
 > the database. Worktrees and pull requests still work as "Why a common architecture" describes
 > below, and moving each one is its own task.
 

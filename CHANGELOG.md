@@ -10,6 +10,23 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **The `mael` wheel carries `shared/`.** The install is unchanged: `uv tool install
+  sminnee-maelstrom`. `mael install` now finds the shared skills and prompts in an install from
+  PyPI, where before it found them only in a git checkout.
+
+- **A local install names `cli/`.** The CLI is now the `cli/` workspace member, so a development
+  install is `uv tool install --editable ./cli`. `mael self-update` installs from `cli/` itself.
+
+  An editable install made before this change breaks on its next `mael self-update`. That update
+  still runs the old code, which reinstalls the repository root, and the root no longer builds a
+  package. Reinstall once by hand, then `self-update` works again:
+
+  ```bash
+  uv tool install --editable ~/Projects/maelstrom/_main/cli --reinstall --force
+  ```
+
 ### Added
 
 - **Resume a terminated or crashed agent from its node card.** Once an agent has exited, its node

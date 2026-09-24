@@ -13,8 +13,8 @@ uv run pytest -m 'not slow'        # Skip slow e2e tests (recommended for dev)
 uv run pytest                      # Run all tests including slow ones
 uv run pytest lib/domain/tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
-uv run pytest --cov=maelstrom --cov=mael_domain  # Run with coverage
-uv run python -m maelstrom         # Run the module
+uv run pytest --cov=mael_cli --cov=mael_domain  # Run with coverage
+uv run mael --help                 # Run the CLI
 uv run mael-agent-daemon status     # Which agent daemon answers, and whose code it runs
 bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture (gate before commit)
 bin/knip-check                     # dead code in orchestrator-ui/
@@ -64,7 +64,7 @@ workspaces, git worktrees to isolate code, and Claude Code as its agent. It has 
 task notebook and its own dev environment manager. Worktrees use NATO phonetic alphabet
 names (alpha, bravo, charlie, …) in a bare-like repository structure.
 
-The CLI is built with **Click**. `src/maelstrom/cli.py` is the entry point; each subsystem
+The CLI is built with **Click**. `cli/src/mael_cli/cli.py` is the entry point; each subsystem
 adds its own command group (`task_cli.py`, `env_cli.py`, `git_cli.py`, `github_cli.py`,
 `session_cli.py`, `admin_cli.py`, and the `integrations/` package).
 The command groups are thin. The model and store modules they call are in the

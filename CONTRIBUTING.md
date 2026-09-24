@@ -8,7 +8,7 @@ Issues and pull requests are welcome.
 git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync --all-extras
-uv tool install --editable .
+uv tool install --editable ./cli
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
@@ -21,8 +21,8 @@ skills and hooks in place if you want to use maelstrom on itself.
 ## Before you commit
 
 ```bash
-uv run pytest --ignore=tests/e2e   # unit tests
-uv run pytest tests/e2e/ -v        # end-to-end tests
+uv run pytest -m 'not e2e'         # unit tests
+uv run pytest -m e2e -v            # end-to-end tests
 bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture
 ```
 
