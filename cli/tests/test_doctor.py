@@ -418,6 +418,38 @@ class TestCheckEditableInstall:
         # And the repair, so they can act without reading the source.
         assert "uv sync" in result.message
 
+    def test_checks_every_members_path(self, tmp_path):
+        """`uv sync` writes one `.pth` per workspace member. The CLI's is named
+        after its distribution and lists one path per line: its own `src/`
+        and each bundled library's."""
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, target=None)
+        main = project_path / "_main"
+        stray = project_path / "proj-lima" / "lib" / "domain" / "src"
+        site = next(main.glob(".venv/lib/python*/site-packages"))
+        (site / "_editable_impl_mael_common.pth").write_text(
+            f"{main / 'lib' / 'common' / 'src'}\n"
+        )
+        (site / "_sminnee_maelstrom.pth").write_text(
+            f"{main / 'cli' / 'src'}\n{stray}\n"
+        )
+        (site / "_virtualenv.pth").write_text("import _virtualenv\n")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.WARNING
+        assert str(stray) in result.message
+        assert str(main / "lib" / "common" / "src") not in result.message
+
+    def test_a_path_outside_the_project_is_not_a_stray(self, tmp_path):
+        """Another package's `.pth` in the same venv names its own source."""
+        from mael_cli.doctor import _check_editable_install
+
+        project_path = self._setup(tmp_path, tmp_path / "elsewhere" / "src")
+
+        result = _check_editable_install(project_path)
+        assert result.status == CheckStatus.OK
+
     def test_ok_when_there_is_no_venv(self, tmp_path):
         """Not every project is installed this way."""
         from mael_cli.doctor import _check_editable_install
