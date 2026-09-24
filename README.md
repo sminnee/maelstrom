@@ -23,7 +23,7 @@ uvx sminnee-maelstrom <command>
 git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync
-uv tool install --editable .
+uv tool install --editable ./cli
 ```
 
 Then install the Claude Code skills and hooks:
@@ -132,7 +132,7 @@ deliberate local-shell escape hatch.
 uv sync --all-extras           # install dev dependencies
 uv run pytest -m 'not slow'    # tests, skipping slow e2e
 uv run pytest                  # everything
-uv run pytest --cov=maelstrom --cov=mael_domain  # with coverage
+uv run pytest --cov=mael_cli --cov=mael_domain  # with coverage
 bin/lint                       # ruff lint, ruff format check, pyright, vulture
 ```
 
@@ -143,8 +143,10 @@ the gates to run before you commit, and the commit and changelog conventions.
 
 ## Release
 
-The package is published as `sminnee-maelstrom`. A release is one command, run by hand from a
-clean checkout of the branch you want to release:
+The `mael` CLI is published as `sminnee-maelstrom`. Its wheel bundles the three libraries and
+`shared/`. The agent daemon and the orchestrator server are not published: they run from a
+checkout. A release is one command, run by hand from a clean checkout of the branch you want to
+release:
 
 ```bash
 ./bin/publish --dry-run   # rehearse: gates and build, then revert the bump
@@ -153,12 +155,10 @@ clean checkout of the branch you want to release:
 ./bin/publish --major
 ```
 
-`bin/publish` does the whole release, in this order: rebase onto `origin/main`, run the three
-gates CI runs, write the new version to every workspace member's `pyproject.toml` and
-`__init__.py` (the root, `lib/common`, `lib/agent`, `lib/domain`, `agent-daemon` and
-`orchestrator-api`) and to `uv.lock`, build, retitle the changelog's `Unreleased` section to the
-new version, commit,
-upload to PyPI, then tag `vX.Y.Z` and push the commit and the tag.
+`bin/publish` does the whole release, in this order: rebase onto `origin/main` and run the three
+gates CI runs. Write the new version to every `pyproject.toml`, each member's `__init__.py`, and
+`uv.lock`. Build the CLI's wheel, retitle the changelog's `Unreleased` section to the new version,
+and commit. Upload to PyPI, then tag `vX.Y.Z` and push the commit and the tag.
 
 The order is deliberate. The rebase runs first so the commit that gets tagged is already in its
 final form — a tag written before a rebase ends up on a commit the rebase then rewrites. The

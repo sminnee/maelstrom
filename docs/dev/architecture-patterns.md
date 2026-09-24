@@ -18,36 +18,47 @@ Each feature is split into three files with one responsibility each:
 |-------|------|----------------|-----------|
 | **Storage** | `*_store.py`, `*_table.py` | An abstract base class plus an in-memory and a persistent backend. Hides *where* data lives. | [`task_table.py`](../../lib/domain/src/mael_domain/task_table.py) |
 | **Model** | `*.py` | Pure domain logic. The store is injected; no I/O, no printing. Raises typed domain errors. | [`task.py`](../../lib/domain/src/mael_domain/task.py) |
-| **CLI** | `*_cli.py` | Thin adapter: parse args → call one model function → render. The *only* layer that prints or converts errors to exit codes. | [`task_cli.py`](../../src/maelstrom/task_cli.py) |
+| **CLI** | `*_cli.py` | Thin adapter: parse args → call one model function → render. The *only* layer that prints or converts errors to exit codes. | [`task_cli.py`](../../cli/src/mael_cli/task_cli.py) |
 
 Dependencies point one way: CLI → model → store. The model never imports the CLI;
 the store never imports the model. The storage and model layers live in
-`mael_domain`, and the CLI layer in `maelstrom`. The import-linter contracts
-below enforce the first half: no domain module reaches click or `maelstrom`,
+`mael_domain`, and the CLI layer in `mael_cli`. The import-linter contracts
+below enforce the first half: no domain module reaches click or `mael_cli`,
 even through a lazy import.
 
-## The packages
+## The workspace
 
-The repository is a uv workspace. Each member is one package, and each package
-follows the three layers inside it:
+The repository is a uv workspace. Each workspace member is one package, and
+each package follows the three layers inside it:
 
-| Package | Directory | Holds |
+| Package | Member | Holds |
 |---------|-----------|-------|
 | `mael_common` | `lib/common/` | Leaves with no domain knowledge: `shell`, `util`, `table`, `cli_async`, `process_table`, `claude_paths` and `image`. |
 | `mael_agent` | `lib/agent/` | The agent wire contract, the daemon transport and client, and the harness model. |
 | `mael_domain` | `lib/domain/` | The domain: the storage and model layers for tasks, worktrees, environments, GitHub, the integrations, cmux and the state database, plus the orchestrator's wire protocol and normaliser. |
 | `mael_daemon` | `agent-daemon/` | The agent daemon, which drives Claude Code agents, and its `mael-agent-daemon` CLI. |
 | `mael_orchestrator` | `orchestrator-api/` | The orchestrator server with its Codex harness, and its `mael-orchestrator` CLI. |
-| `maelstrom` | `src/maelstrom/` | The `mael` CLI. |
+| `mael_cli` | `cli/` | The `mael` CLI. |
 
 `mael_agent` imports `mael_common`. `mael_domain` imports both. `mael_daemon`
-imports `mael_agent` and `mael_common`. `mael_orchestrator` and `maelstrom`
+imports `mael_agent` and `mael_common`. `mael_orchestrator` and `mael_cli`
 import the three libraries. Nothing imports a service, `mael_daemon` or
 `mael_orchestrator`: each is reached over its socket. Only
 `mael_common.cli_async` in the libraries imports click. Import-linter
 contracts in `pyproject.toml` enforce all of this, and `bin/lint` runs them as
-`lint-imports`. Tests are outside the contracts, so a root test may still build
+`lint-imports`. Tests are outside the contracts, so a CLI test may still build
 state through `mael_daemon.agent_model`.
+
+The root `pyproject.toml` is not a member. It builds no package. It depends on
+every member, so `uv sync --extra dev` installs all six editable into one
+`.venv`, and it holds the one `dev` extra and the tool config for every gate.
+
+Only `cli/` publishes. Its wheel, `sminnee-maelstrom`, bundles the three
+libraries and `shared/`, because PyPI has no `mael-*` distribution to depend
+on. `cli/hatch_build.py` adds them to the published wheel alone. The editable
+install reaches the libraries in the checkout through `dev-mode-dirs` instead.
+The daemon and the orchestrator server do not publish: they run from a
+checkout.
 
 A member's `tests/` has no `__init__.py`. Fixtures that every suite needs are
 in the repo-root `conftest.py`, which imports no package. Keep each test file's
@@ -55,10 +66,10 @@ basename unique across the members, because pytest imports member tests by
 basename.
 
 A new model or store module goes in `mael_domain`. A module that only the CLI
-calls stays in `maelstrom`, and one that only the orchestrator server calls
+calls stays in `mael_cli`, and one that only the orchestrator server calls
 stays in `mael_orchestrator`. The domain suites'
 fixtures are in `lib/domain/tests/domain_fixtures.py`, and its docstring says
-how `tests/` imports them too.
+how `cli/tests/` imports them too.
 
 ## The seven conventions
 
@@ -73,12 +84,12 @@ example:
   `changed_since` / `revision`), with `InMemoryTaskTable` and `SqliteTaskTable`
   backends.
 - [`task.py`](../../lib/domain/src/mael_domain/task.py) — the pure model.
-- [`task_cli.py`](../../src/maelstrom/task_cli.py) — the thin CLI.
+- [`task_cli.py`](../../cli/src/mael_cli/task_cli.py) — the thin CLI.
 
 The service integrations follow the same split. Each of
 [`integrations/`](../../lib/domain/src/mael_domain/integrations/)`linear.py`, `sentry.py`,
 `slack.py` and `uptimerobot.py` holds the API client, the reusable operations
-and the pure formatters. Its `*_cli.py` twin in `src/maelstrom/integrations/`
+and the pure formatters. Its `*_cli.py` twin in `cli/src/mael_cli/integrations/`
 holds the click group and the commands, and reaches the model as
 `from mael_domain.integrations import linear`. Some commands still
 build their own queries in the CLI module, for example `mael linear release`
@@ -134,7 +145,7 @@ The model raises **typed domain errors** (`KeyError` for "task not found",
 `ValueError` for invalid input, etc.). The **CLI layer is the only place** that
 catches them and converts to `click.ClickException` / exit codes — see the
 `except KeyError: raise click.ClickException(...)` pattern throughout
-[`task_cli.py`](../../src/maelstrom/task_cli.py).
+[`task_cli.py`](../../cli/src/mael_cli/task_cli.py).
 
 A domain the two builtins do not describe gets a named error instead — one that
 is neither "not found" nor "bad input". Give a subsystem's errors one base, so a
@@ -147,7 +158,7 @@ over `UnclosableWorktreeError`, `WorktreeNamesExhaustedError` and
 
 A family can have one conversion point instead of a catch in every command.
 `IntegrationGroup` in
-[`integrations/group_cli.py`](../../src/maelstrom/integrations/group_cli.py) is
+[`integrations/group_cli.py`](../../cli/src/mael_cli/integrations/group_cli.py) is
 the group class of every integration. It turns an `IntegrationError` into
 `click.ClickException` with the same message.
 
@@ -172,8 +183,8 @@ re-export through the package, and **never** import another module's `_private`
 helpers.
 
 If two modules need a helper, promote it to a public function with a real name.
-[`ensure_cmux_browser`](../../src/maelstrom/env_cli.py) and
-[`print_service_status`](../../src/maelstrom/env_cli.py) are public for exactly
+[`ensure_cmux_browser`](../../cli/src/mael_cli/env_cli.py) and
+[`print_service_status`](../../cli/src/mael_cli/env_cli.py) are public for exactly
 this reason — `cli.py` needs them. A leading underscore means "private to this
 module", and reaching across for it couples the two files.
 

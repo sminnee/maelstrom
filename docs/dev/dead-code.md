@@ -16,7 +16,7 @@ unused test helper invisible.
 | Test       | `src/`, `tests/` | Nothing at all uses this | Fails the build |
 | Production | `src/` only      | Only tests reach this    | Prints only     |
 
-Each pass reads the `src/` and `tests/` of every workspace member: the root, `lib/common/`,
+Each pass reads the `src/` and `tests/` of every workspace member: `cli/`, `lib/common/`,
 `lib/agent/`, `lib/domain/`, `agent-daemon/` and `orchestrator-api/`. The test pass also reads the
 repo-root `conftest.py`.
 
@@ -123,7 +123,7 @@ release path covers vulture only.
 The `lint` job runs `bin/lint`, which includes vulture. The `web` job runs `bin/knip-check`.
 
 `.github/workflows/test.yml` decides which jobs run from the changed paths. That filter has one gap
-worth knowing. A change under `src/`, `lib/`, `agent-daemon/` or `orchestrator-api/` runs the Python
+worth knowing. A change under `cli/`, `lib/`, `agent-daemon/` or `orchestrator-api/` runs the Python
 gates, and a change under `orchestrator-ui/` runs the web gates, so a change that strands code in
 the other language can pass. The filter names `mael_domain/protocol.py` on the web side for this
 reason: deleting a wire field there runs knip over the TypeScript that reads it. Other

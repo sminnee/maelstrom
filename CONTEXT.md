@@ -354,6 +354,12 @@ client imports the wire contract and never the daemon's model, so the daemon can
 holds agents without changing a client.
 _Avoid_: Protocol module, shared types
 
+**Client surface**:
+The code a client of the agent daemon imports: the **Wire contract**, the transport that speaks
+it, and the harness model. `mael_agent` holds it, so the `mael` CLI and the orchestrator server
+reach the daemon without importing `mael_daemon`.
+_Avoid_: Client library, SDK
+
 **Stray**:
 A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
 died uncleanly; found by the next daemon start or by `mael-agent-daemon gc` through the pid in its
@@ -1001,6 +1007,15 @@ The directory that groups one piece of work's attachments. A task uses its noteb
 Linear issue its identifier, an agent tied to no task `agent-<id>`, and a task that does not
 exist yet `draft-<random>`.
 _Avoid_: Folder, group, album
+
+## Code layout
+
+**Workspace member**:
+One package in the uv workspace, with its own `pyproject.toml`, `src/` and `tests/`. The members
+are `cli/`, `lib/common/`, `lib/agent/`, `lib/domain/`, `agent-daemon/` and `orchestrator-api/`.
+The repository root is not a member: it builds nothing, and `uv sync` reads it to install every
+member into one environment.
+_Avoid_: Subproject, module, crate
 
 ## Open questions
 

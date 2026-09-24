@@ -419,7 +419,7 @@ In `mael_daemon`:
 - `agent_server.py` — the daemon. Child processes, the control socket, and `AgentDaemon.handle`.
 - `cli.py` — `mael-agent-daemon`: `serve`, `status`, `reconcile`, `gc` and `list`.
 
-The client CLI is `src/maelstrom/agent_cli.py`. It parses flags, sends one command, and prints
+The client CLI is `cli/src/mael_cli/agent_cli.py`. It parses flags, sends one command, and prints
 the reply.
 
 The daemon drives Claude Code agents only. The Codex harness is orchestrator code:
