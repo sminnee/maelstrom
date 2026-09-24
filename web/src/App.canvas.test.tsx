@@ -1,12 +1,21 @@
+import type { DeskBody } from './api/desk';
+import { keys } from './api/keys';
 import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { UNALLOCATED } from './selectors/graph';
-import { askQuestion, chipCount, nodeState } from './test/appHelpers';
+import { askQuestion, chipCount, commandsSince, nodeState } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
+
+/** The labels of the open menu in `card`, in order. */
+function menuLabels(card: HTMLElement): (string | null)[] {
+  return within(card)
+    .getAllByRole('menuitem')
+    .map((i) => i.getAttribute('aria-label'));
+}
 
 describe('App', () => {
   it('renders the app title', async () => {
@@ -42,21 +51,30 @@ describe('App', () => {
     expect(handles[0]).toHaveClass('connectable');
   });
 
-  it('dismisses a free agent from its card, once the agent has stopped', async () => {
+  it('offers Terminate while the agent is live, and Dismiss once it has stopped', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
-    expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+    // Live, the card's end-of-work control terminates.
+    expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
 
     server.change({ kind: 'agent', ids: ['f2c6a9d4'] }, (w) => {
       w.agents['f2c6a9d4'] = { ...w.agents['f2c6a9d4']!, state: 'exited', exitCode: 0 };
     });
     await waitFor(() =>
-      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeEnabled(),
+      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument(),
     );
     expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    expect(menuLabels(card)).toEqual(['Dismiss', 'Dismiss & close bravo']);
+    // c3e8f1b5 still runs in maelstrom-bravo.
+    expect(within(card).getByRole('menuitem', { name: 'Dismiss & close bravo' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await user.keyboard('{Escape}');
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
@@ -65,41 +83,85 @@ describe('App', () => {
     );
   });
 
-  it('removes a task from the desk from its own card', async () => {
+  it('dismisses a task with no agent from its own card', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
     clickNode('NORT-9.1');
     const card = screen.getByRole('dialog', { name: 'Watch the migration PR' });
 
-    await user.click(within(card).getByRole('button', { name: 'Remove from desk' }));
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument(),
     );
+    expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/task:NORT-9.1']);
   });
 
-  it('offers no removal on a task whose agent is live, since the node draws on regardless', async () => {
-    await renderApp();
-    clickNode('NORT-9');
-    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
-
-    // Terminate proves the footer rendered, so the absence below is the guard
-    // at work rather than a card that drew nothing.
-    expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
-    expect(
-      within(card).queryByRole('button', { name: 'Remove from desk' }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('resumes a terminated agent from the card that terminated it', async () => {
+  it('closes the worktree of a stopped agent, then dismisses', async () => {
     const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
+      w.agents['a1f3c9e2'] = {
+        ...w.agents['a1f3c9e2']!,
+        state: 'exited',
+        exitCode: 0,
+        pendingRequestIds: [],
+      };
+    });
+    clickNode('NORT-7');
+    const card = screen.getByRole('dialog', { name: 'Plan the order export' });
+
+    await within(card).findByRole('button', { name: 'Dismiss' });
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('menuitem', { name: 'Dismiss & close alpha' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
+    );
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/worktrees/northwind-alpha/close',
+      'DELETE /api/desk/task:NORT-7',
+    ]);
+  });
+
+  it('draws a plain Dismiss, with no menu, on a task with no worktree to close', async () => {
     await renderApp();
+    clickNode('NORT-15');
+    const card = screen.getByRole('dialog', { name: 'Shape the reporting module' });
+
+    expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+  });
+
+  it('draws a plain Dismiss, with no menu, when the worktree is closed already', async () => {
+    const { server } = await renderApp();
+    clickNode('f2c6a9d4');
+    const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
+    server.change({ kind: 'agent', ids: ['f2c6a9d4'] }, (w) => {
+      w.agents['f2c6a9d4'] = { ...w.agents['f2c6a9d4']!, state: 'exited', exitCode: 0 };
+    });
+    server.change({ kind: 'worktree', ids: ['maelstrom-bravo'] }, (w) => {
+      w.worktrees['maelstrom-bravo'] = { ...w.worktrees['maelstrom-bravo']!, isClosed: true };
+    });
+
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument(),
+    );
+    expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+  });
+
+  it('resumes a terminated agent from the card that terminated it, and terminate sends only a stop', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
+    const before = server.requests.length;
     await user.click(within(card).getByRole('button', { name: 'Terminate' }));
     await waitFor(() =>
       expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument(),
     );
+    expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
     expect(within(card).queryByRole('button', { name: 'Terminate' })).not.toBeInTheDocument();
 
     await user.click(within(card).getByRole('button', { name: 'Resume' }));
@@ -107,6 +169,124 @@ describe('App', () => {
       expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument(),
     );
     expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
+  });
+
+  it('terminates and dismisses a live agent in one choice', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    expect(menuLabels(card)).toEqual([
+      'Terminate',
+      'Terminate & dismiss',
+      'Terminate, dismiss & close bravo',
+    ]);
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
+    );
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/agents/d9a4c7f1/stop',
+      'DELETE /api/desk/task:NORT-9',
+    ]);
+    expect(
+      screen.queryByRole('dialog', { name: 'Migrate to Postgres 16' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('closes the worktree, then dismisses, with no stop of its own', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-12');
+    const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const before = server.requests.length;
+    await user.click(
+      within(card).getByRole('menuitem', { name: 'Terminate, dismiss & close delta' }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-12"]')).not.toBeInTheDocument(),
+    );
+    // The close stops the agent itself, so the card sends no stop.
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/worktrees/northwind-delta/close',
+      'DELETE /api/desk/task:NORT-12',
+    ]);
+  });
+
+  it('leaves the node on the desk when the close refuses, and says why', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const close = within(card).getByRole('menuitem', { name: 'Terminate, dismiss & close bravo' });
+    // The subagent d9a4c7f1.1 is live in the same worktree, and does not hold the close.
+    expect(close).not.toHaveAttribute('aria-disabled');
+    const before = server.requests.length;
+    await user.click(close);
+    const alert = await within(card).findByRole('alert');
+    expect(alert.closest('button')).toHaveAttribute('title', 'Worktree has uncommitted changes');
+    expect(commandsSince(server, before)).toEqual(['POST /api/worktrees/northwind-bravo/close']);
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+  });
+
+  it('sends no dismiss when the stop fails', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/agents\/d9a4c7f1\/stop$/, { status: 409, code: 'invalid' });
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await within(card).findByRole('alert');
+    expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+  });
+
+  it('terminates a live node with no desk entry, and has nothing to dismiss', async () => {
+    const user = userEvent.setup();
+    const { server, queryClient } = await renderApp();
+    // The task list row removes a live task from the desk; its node draws on.
+    server.change({ kind: 'desk', ids: ['task:NORT-9'] }, (w) => {
+      delete w.desk['task:NORT-9'];
+    });
+    await waitFor(() =>
+      expect(queryClient.getQueryData<DeskBody>(keys.desk())?.desk.map((e) => e.id)).not.toContain(
+        'task:NORT-9',
+      ),
+    );
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
+    );
+    expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
+  });
+
+  it('holds the close while another agent still runs in the worktree', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('f2c6a9d4');
+    const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const close = within(card).getByRole('menuitem', {
+      name: 'Terminate, dismiss & close bravo',
+    });
+    expect(close).toHaveAttribute('aria-disabled', 'true');
+    expect(close).toHaveAccessibleDescription('1 other agent still running in bravo');
   });
 
   it('reads the PR number and its state in the collapsed node identity', async () => {

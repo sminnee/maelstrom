@@ -980,6 +980,14 @@ function command(
     }
     world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
     server.change({ kind: 'worktree', ids: [id] });
+    // The real close stops every agent in the worktree.
+    const stopped = Object.values(world.agents).filter(
+      (a) => a.worktreeId === id && a.state !== 'exited',
+    );
+    for (const a of stopped) {
+      world.agents[a.id] = { ...a, state: 'exited', exitCode: 0, pendingRequestIds: [] };
+    }
+    if (stopped.length) server.change({ kind: 'agent', ids: stopped.map((a) => a.id) });
     return ok({});
   }
 

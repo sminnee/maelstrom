@@ -255,11 +255,26 @@ long run, so the card would go quiet on exactly the agents that have been runnin
 arriving on the transcript is still the live signal: nothing about the ledger moves the world, so
 no change notice fires, and the count of bars is what refetches the route.
 
-The task list lists tasks only. A free agent has no row, and is dismissed from its own expanded
-card. That control is disabled while the agent runs, because a live agent is drawn whatever the
-desk says; a remove that arrives anyway is accepted and takes effect once the agent stops. A task
-is removed from its own card too, under the label its task list row uses. That control is hidden
-rather than disabled, because the task list row remains as the other way off the desk.
+The task list lists tasks only. Every card ends its footer with one end-of-work control,
+`ui/SplitButton.tsx`. A click on its label runs the usual act, and its chevron opens the longer
+chains:
+
+| Node state | Click | Menu |
+|---|---|---|
+| Live agent | Terminate | Terminate · Terminate & dismiss · Terminate, dismiss & close `<nato>` |
+| No live agent | Dismiss | Dismiss · Dismiss & close `<nato>` |
+
+The close item is left out when the worktree is `_main`, is closed, or does not exist. With one
+item left, the control is a plain button. The close item is disabled while another top-level agent
+runs in the same worktree, and its second line says how many. A subagent is not counted, because
+it stops with its parent.
+
+A chain with a close sends the close first and no stop, because the server's close stops every
+agent in the worktree. The close is also the step that can refuse, on a dirty tree or unmerged
+commits. Sent first, a refusal leaves the node on the desk, and the control shows the reason in
+its title. A live node can draw with no desk entry, so a chain skips the dismiss when there is
+none to take. "Terminate & dismiss" sends the stop first: `agent.stop` records the exit before it replies, so
+the dismiss can follow at once.
 
 A node shows the bare notebook id, because its lane already names the project. A panel tab shows
 the qualified id, because a tab exists to tell two projects' tasks apart.
@@ -297,8 +312,8 @@ A Stop button at the right of that group sends `agent.interrupt` — see `CONTEX
 "Interrupt". It is offered only while the agent is `processing` with no ask open. A waiting
 agent's button is disabled, and its title sends the user to the ask, because an interrupt would
 deny that ask and the route's reply would not say so. An exited agent's title says it has gone.
-The node card's Terminate button is the other act: it sends `agent.stop`.
-Once the agent has exited, the node card offers Resume in its place. Resume sends
+The node card's Terminate is the other act: it sends `agent.stop`.
+Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
 one.
 

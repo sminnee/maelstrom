@@ -90,3 +90,11 @@ export function addPlan(server: FakeServer, status: Document['status'] = 'approv
     w.documents[doc.id] = doc;
   });
 }
+
+/** The commands sent since request `from`: every call but a read, path decoded. */
+export function commandsSince(server: FakeServer, from: number): string[] {
+  return server.requests
+    .slice(from)
+    .filter((r) => r.method !== 'GET')
+    .map((r) => `${r.method} ${decodeURIComponent(r.path)}`);
+}

@@ -31,7 +31,7 @@ export function useCloseWorktree() {
       }),
     onSuccess: () => {
       // The close stops every agent in the worktree, which clears what they
-      // waited on and empties the desk entries a free agent held.
+      // waited on. It leaves the desk as it was.
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
       void queryClient.invalidateQueries({ queryKey: keys.attention() });
