@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskRow } from '../api/types';
 import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
 import { useDeleteTask, useSetStatus } from '../api/tasks';
@@ -13,6 +13,7 @@ import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { StatusPicker } from '../ui/StatusPicker';
+import { BulkActions } from './BulkActions';
 import styles from './TaskList.module.css';
 
 /** Every task in the world, and the one place the desk is edited. */
@@ -34,12 +35,64 @@ export function TaskList() {
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
   const rows = useMemo(() => listTasks(world, filters, listFilters), [world, filters, listFilters]);
+  // The ticked rows, only ever listed ones: a task the filter hides is
+  // unticked, so the bar never acts on a row the user cannot see.
+  const [ticked, setTicked] = useState<ReadonlySet<TaskId>>(new Set());
+  // Why the last bulk run failed. It describes that run's rows, so any tick clears it.
+  const [failure, setFailure] = useState<string | null>(null);
+  // Pruned while rendering, not in an effect, so no frame draws a hidden tick.
+  const [prunedFor, setPrunedFor] = useState(rows);
+  if (prunedFor !== rows) {
+    setPrunedFor(rows);
+    const listed = new Set(rows.map((r) => r.task.id));
+    if (![...ticked].every((id) => listed.has(id))) {
+      setTicked(new Set([...ticked].filter((id) => listed.has(id))));
+    }
+  }
+  const selected = rows.filter((r) => ticked.has(r.task.id));
+  const allTicked = rows.length > 0 && selected.length === rows.length;
+  const tickAll = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (tickAll.current) tickAll.current.indeterminate = selected.length > 0 && !allTicked;
+  }, [selected.length, allTicked]);
+  const retick = (change: (prev: ReadonlySet<TaskId>) => ReadonlySet<TaskId>) => {
+    setFailure(null);
+    setTicked(change);
+  };
+  const toggle = (taskId: TaskId) =>
+    retick((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(taskId)) next.add(taskId);
+      return next;
+    });
 
   return (
     <div className={styles.view} data-testid="task-list">
+      {selected.length > 0 && (
+        <BulkActions
+          rows={selected}
+          failure={failure}
+          // Unticks only the rows that went through, so a row ticked during
+          // the run stays ticked.
+          onDone={(done, why) => {
+            setTicked((prev) => new Set([...prev].filter((id) => !done.includes(id))));
+            setFailure(why);
+          }}
+          onClear={() => retick(() => new Set())}
+        />
+      )}
       <table className={styles.table}>
         <thead>
           <tr>
+            <th>
+              <input
+                ref={tickAll}
+                type="checkbox"
+                aria-label="Select all"
+                checked={allTicked}
+                onChange={() => retick(() => new Set(allTicked ? [] : rows.map((r) => r.task.id)))}
+              />
+            </th>
             <th>id</th>
             <th>title</th>
             <th>project</th>
@@ -64,6 +117,14 @@ export function TaskList() {
                 }
               }}
             >
+              <td>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${task.id}`}
+                  checked={ticked.has(task.id)}
+                  onChange={() => toggle(task.id)}
+                />
+              </td>
               <td className={styles.mono}>{task.id}</td>
               <td>
                 {/* A real button: a row reaches no keyboard. */}
