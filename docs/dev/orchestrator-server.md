@@ -11,14 +11,14 @@ host on another machine later is the same protocol over TCP.
 
 ## The layers
 
-`src/maelstrom/orchestrator/` follows [architecture-patterns.md](architecture-patterns.md). The
-wire types are `TypedDict`s in the wire's own camelCase, so an entity is the dict the socket
+`src/maelstrom/orchestrator/` and the wire modules in `mael_domain` follow
+[architecture-patterns.md](architecture-patterns.md). The wire types are `TypedDict`s in the wire's own camelCase, so an entity is the dict the socket
 carries and nothing maps between a dataclass and the wire.
 
 | File | Layer | Holds |
 |---|---|---|
-| `protocol.py` | pure | The wire types, `empty_world`, and `apply_event`, the one way the world changes |
-| `normalise.py` | pure | The stream-json normaliser: the daemon's raw events to transcript items, agent upserts, documents and attention |
+| `mael_domain/protocol.py` | pure | The wire types, `empty_world`, and `apply_event`, the one way the world changes |
+| `mael_domain/normalise.py` | pure | The stream-json normaliser: the daemon's raw events to transcript items, agent upserts, documents and attention |
 | `validate.py` | pure | Command validation: the rules the server applies before it asks the host |
 | `world.py` | pure | `WorldState`: the tables, and `apply` as their only writer |
 | `world_build.py` | pure | Entity builders from a task, a `list-all` row and an agent row; `link_agent`; `diff_kind`; `task_key` |
@@ -29,20 +29,20 @@ carries and nothing maps between a dataclass and the wire.
 | `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
 | `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
 | `daemon_bridge.py` | storage | `AsyncDaemonClient`: the agent-host protocol, its reply mapping, and a scripted fake. The socket client itself is `agent_transport.SocketAsyncDaemonClient` |
-| `../desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
+| `mael_domain/desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `../orchestrator_cli.py` | CLI | `mael orchestrator serve`, and the logging the server runs under |
 
-`task_launch.py` at the top level holds the launch plan and its two guards, shared with
-`mael task run`. `list_all.py` holds the rows both `mael list-all` and the server read.
+`mael_domain.task_launch` holds the launch plan and its two guards, shared with
+`mael task run`. `mael_domain.list_all` holds the rows both `mael list-all` and the server read.
 
 ## The normaliser and its goldens
 
-The Python normaliser is the one the wire carries. `tests/test_orchestrator_normalise.py`
+The Python normaliser is the one the wire carries. `lib/domain/tests/test_orchestrator_normalise.py`
 replays every recorded daemon stream under `agent-daemon/fixtures/agent_events/` into one seed agent
-and holds the result to a golden under `normalised/`. That test owns the goldens:
-`UPDATE_GOLDEN=1 uv run pytest tests/test_orchestrator_normalise.py` re-records them, so a
+and holds the result to a golden under `lib/domain/fixtures/normalised/`. That test owns the goldens:
+`UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py` re-records them, so a
 normaliser change is a deliberate re-record and never a silent drift.
 
 The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py`
@@ -780,7 +780,7 @@ check being missing, both answer 400 `invalid`.
 
 An image reaches an agent as a file in the task notebook, whatever brought it in. `mael linear
 plan` already worked this way; the orchestrator UI uses the same mechanism through
-`maelstrom.attachments`, so a pasted screenshot is not a second way to put an image in the
+`mael_domain.attachments`, so a pasted screenshot is not a second way to put an image in the
 notebook.
 
 Two routes carry the bytes. Neither is a command: nothing about the world changes.

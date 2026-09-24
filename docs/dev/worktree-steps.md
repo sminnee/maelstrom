@@ -5,7 +5,7 @@ stops the environment, the agents and the sessions, rescues `.env`, closes in gi
 cmux workspace. Remove is that list with a different git step, a dirty-file guard and no rescue.
 The open path is not a sequence — see "What stays whole" — but it takes the same scopes.
 
-`src/maelstrom/worktree_steps.py` holds that vocabulary once, so a sequence is a list rather than
+`lib/domain/src/mael_domain/worktree_steps.py` holds that vocabulary once, so a sequence is a list rather than
 a function each caller writes out. `worktree_close.py` builds close and remove over it, and
 `worktree_ops.py` builds sync and the environment — every operation the orchestrator offers.
 

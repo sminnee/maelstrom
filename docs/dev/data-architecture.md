@@ -5,7 +5,7 @@ changed, and who decides when to refresh it.
 
 > **Status: the machinery is built; two subsystems are not on it.** The state database, the
 > revision counter, the notice path and the refresher contract exist, in
-> [`state_db/`](../../src/maelstrom/state_db/) and
+> [`state_db/`](../../lib/domain/src/mael_domain/state_db/) and
 > [`refresh.py`](../../src/maelstrom/refresh.py). The desk and the tasks are canonical and on
 > the database. Worktrees and pull requests still work as "Why a common architecture" describes
 > below, and moving each one is its own task.
@@ -127,7 +127,7 @@ any code path, so losing it costs history rather than data, and the reader that 
 prose queries the table.
 
 The export never runs on the write path: a task write enqueues, and the orchestrator drains.
-See [`task_export.py`](../../src/maelstrom/task_export.py) for why the queue is a table in the
+See [`task_export.py`](../../lib/domain/src/mael_domain/task_export.py) for why the queue is a table in the
 same database.
 
 Two rules keep it honest. The queue **drains on shutdown**, so a clean stop loses nothing. And

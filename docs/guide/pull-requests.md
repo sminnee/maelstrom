@@ -46,7 +46,7 @@ and append the Linear issue in brackets:
 
 ```bash
 mael gh show-code --uncommitted        # review before committing
-git add src/maelstrom/ports.py
+git add lib/domain/src/mael_domain/ports.py
 printf 'feat: widen the port range [PROJ-123]\n\nDetail.\n' | git commit -F -
 ```
 
