@@ -19,7 +19,7 @@ Story commits do not each need to pass the gates. Only the final tree must pass,
 5. The subject states the decision. The body states why, what it replaces, and what was rejected — not a file list. A body that misdescribes its diff is worse than no body.
 6. Keep unchanged prior decisions verbatim. Merge a revised decision into one updated story commit.
 7. Confirm both `git diff --stat <history-ref>` and `git status --porcelain` are empty. If not, stop and find the missing or dropped decision.
-8. Update `.drafts/pr.md`, which review already wrote: keep its decisions and its `## Raised by review, not actioned` section, and bring the overview, diagrams and test seams into line with the story commits. Report the decisions and history ref.
+8. Update `.drafts/pr.md`, which review already wrote: keep its decisions and its `## Raised by review, not actioned` section, and bring the overview, diagrams and test seams into line with the story commits. Report each story commit with its changed-line count (`git log --format='%h %s' --shortstat "origin/<base>..HEAD"`), and the history ref.
 
 Write `<milestone>presented</milestone>` when the story commits are cut.
 
