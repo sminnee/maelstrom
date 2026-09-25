@@ -51,6 +51,7 @@ function worktree(
     appUrl: '',
     appRunning: false,
     sessionCount: 0,
+    shellUrl: '',
     ...over,
   };
 }

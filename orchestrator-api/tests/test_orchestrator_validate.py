@@ -858,3 +858,24 @@ class TestEnv:
             empty_world(), worktree_cmd("worktree.env", "northwind-zulu", action="stop")
         )
         assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
+
+
+class TestCreateTerminal:
+    def test_a_terminal_for_a_known_worktree_is_allowed(self):
+        world = world_with(worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.createTerminal", "northwind-alpha")
+        assert validate_command(world, cmd) is None
+
+    def test_a_terminal_in_a_closed_worktree_is_refused(self):
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        error = validate_command(
+            world, worktree_cmd("worktree.createTerminal", "northwind-alpha")
+        )
+        assert code(error) == "invalid"
+        assert "closed" in error["message"]
+
+    def test_a_terminal_for_a_worktree_the_world_lacks_is_unknown_id(self):
+        error = validate_command(
+            empty_world(), worktree_cmd("worktree.createTerminal", "northwind-zulu")
+        )
+        assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}

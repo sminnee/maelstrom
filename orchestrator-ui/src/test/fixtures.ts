@@ -29,6 +29,7 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     appUrl: '',
     appRunning: false,
     sessionCount: 0,
+    shellUrl: '',
     ...over,
   };
 }

@@ -149,6 +149,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "appUrl": "http://localhost:3070",
         "appRunning": True,
         "sessionCount": 1,
+        "shellUrl": "",
     }
 
 

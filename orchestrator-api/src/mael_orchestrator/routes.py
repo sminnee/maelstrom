@@ -115,6 +115,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/force-close", _force_close_worktree)
     app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
+    app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
@@ -601,6 +602,15 @@ async def _env_worktree(request: web.Request) -> web.StreamResponse:
             "worktreeId": worktree_id,
             "action": body.get("action", "start"),
         },
+    )
+
+
+async def _create_worktree_terminal(request: web.Request) -> web.StreamResponse:
+    """Make a worktree's shell pane in cmux. The reply carries its ``shellUrl``."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.createTerminal", "worktreeId": worktree_id},
     )
 
 

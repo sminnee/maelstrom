@@ -84,6 +84,21 @@ RemoveWorktree = Callable[[str, str, str], Awaitable[None]]
 EnvWorktree = Callable[[str, str, str, str], Awaitable[None]]
 
 
+#: Makes sure a worktree has its shell pane in cmux, and returns the pane's
+#: ``cmux://`` link: ``(project, nato, path) -> url``. Raises
+#: :class:`CloseBlocked` when cmux cannot. Blocking: it shells out to cmux.
+CreateTerminal = Callable[[str, str, str], str]
+
+#: The shell pane's ``cmux://`` link, by ``(project, nato)``, for the open
+#: worktrees it is given: ``pairs -> {(project, nato): url}``. A worktree with
+#: no shell pane is absent. Blocking: cmux is asked over a subprocess.
+ShellUrls = Callable[[list[tuple[str, str]]], dict[tuple[str, str], str]]
+
+
+def _no_shell_urls(_pairs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    return {}
+
+
 class CloseBlocked(Exception):
     """The operation must not run now. The message says why, for the user.
 
@@ -297,6 +312,9 @@ class WorktreeSource(Protocol):
 
     #: Starts or stops a worktree's environment, or ``None``.
     env: EnvWorktree | None
+
+    #: Makes a worktree's shell pane and returns its link, or ``None``.
+    create_terminal: CreateTerminal | None
 
     #: Whether the last read had its pull request lookup refused for quota. The
     #: rows still stand — a refused lookup costs the pull request column, not
@@ -536,6 +554,7 @@ class InMemoryWorktreeSource:
         sync: SyncWorktree | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
+        create_terminal: CreateTerminal | None = None,
     ) -> None:
         self.projects = list(projects or [])
         self.worktrees = list(worktrees or [])
@@ -544,6 +563,7 @@ class InMemoryWorktreeSource:
         self.sync = sync
         self.remove = remove
         self.env = env
+        self.create_terminal = create_terminal
         #: How many times the source has been read, so a test can check that a
         #: poll did *not* run. The real source's reads cost GitHub quota, and
         #: an unwanted one is invisible in the world it produces.
@@ -584,8 +604,11 @@ class ListAllWorktreeSource:
         sync: SyncWorktree | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
+        create_terminal: CreateTerminal | None = None,
+        shell_urls: ShellUrls = _no_shell_urls,
     ) -> None:
         self.projects_dir = projects_dir
+        self.shell_urls = shell_urls
         #: The last pull request seen, by project and then by branch, answering
         #: the branches a read did not ask about; see
         #: :func:`mael_domain.list_all.resolve_pr`. Keyed by project because
@@ -599,6 +622,7 @@ class ListAllWorktreeSource:
         self.sync = sync
         self.remove = remove
         self.env = env
+        self.create_terminal = create_terminal
 
     async def read(
         self, active_branches: set[str] | None = None
@@ -618,8 +642,19 @@ class ListAllWorktreeSource:
             data = refused.args[1]
         self._remember_prs(data)
         projects = [project_entity(p) for p in data["projects"]]
+        open_rows = [
+            (p["name"], row["name"])
+            for p in data["projects"]
+            for row in p["worktrees"]
+            if not row.get("is_closed")
+        ]
+        shell_urls = await asyncio.to_thread(self.shell_urls, open_rows)
         worktrees = [
-            worktree_entity(p["name"], row)
+            worktree_entity(
+                p["name"],
+                row,
+                shell_url=shell_urls.get((p["name"], row["name"]), ""),
+            )
             for p in data["projects"]
             for row in p["worktrees"]
         ]
