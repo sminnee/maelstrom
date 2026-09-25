@@ -768,8 +768,8 @@ _Avoid_: Workspace, board, pinned
 
 **Dismiss**:
 Taking a node off the desk. A dismiss never stops an agent; **stop** does, and the node card
-offers both in one control — see `docs/dev/orchestrator-ui.md`. The task list row labels the
-same act "Remove from desk".
+offers both in one control — see `docs/dev/orchestrator-ui.md`. The task list row and the
+card's follows rows label the same act "Remove from desk".
 _Avoid_: Hide, archive
 
 **Active branch**:
@@ -815,8 +815,9 @@ _Avoid_: Ungrouped, orphaned, no worktree
 
 **Task list**:
 The view that lists every task the server knows, with filters for status, project, branch and
-text. The task list is where a task joins the desk, and one of the two places it leaves it. It
-lists tasks only: a free agent has no row, and is dismissed from its node on the canvas.
+text. The task list is where a task joins the desk, and one of the places it leaves it. A task
+node's expanded card offers the same toggle for every task its task follows or is followed by.
+The task list lists tasks only: a free agent has no row, and is dismissed from its node on the canvas.
 _Avoid_: Table view, index
 
 **Task editor**:

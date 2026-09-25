@@ -29,6 +29,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **A task node's card lists what its task follows and what follows it.** The expanded card has
+  a Follows group and a Followed by group, direct and indirect, nearest first. Each row has the
+  task list's Add to desk or Remove from desk button, so a related task joins the desk without a
+  trip to the task list.
+
 - **Resume a terminated or crashed agent from its node card.** Once an agent has exited, its node
   card offers Resume in place of Terminate. Resume starts the agent again under its own id, with
   its conversation, as `mael agent resume` does.

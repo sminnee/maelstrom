@@ -595,6 +595,10 @@ only, and nothing at all when there is none. No hairline: the band gap separates
 separates the status line from the Now block, and a rule would rank a closed stage above the
 brief. See **Milestone bar**.
 
+A task node with follows relations gets one more band above the footer: Follows, then Followed
+by, each headed in the Now block's register. A row puts the title over the id and status, with
+its desk toggle at the right. The title of a task off the desk takes `--fg-muted`.
+
 A drifting task gets its own band under the status strip: the amber caret, a sentence naming
 both the task status and what the agent is doing, and a button that applies the fix where there
 is one. The sentence takes `--fg-muted`, because an open attention item is a real block and

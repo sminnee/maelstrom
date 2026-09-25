@@ -59,7 +59,8 @@ replaces the CLI; it is the surface for watching and answering.
 
 The world it draws is large: roughly 700 tasks across every project, most of them finished.
 The canvas therefore opens empty and draws only the desk — the tasks the user has put on it.
-The task list is where a task joins the desk or leaves it.
+The task list is where a task joins the desk or leaves it. A task node's card offers the same
+toggle for the tasks its task follows or is followed by.
 
 ## Capabilities and Constraints
 
