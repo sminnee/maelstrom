@@ -12,8 +12,10 @@ import { Markdown } from '../markdown/Markdown';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
-import type { Agent, Worktree } from '../protocol/entities';
+import type { Agent, DeskEntry, Worktree } from '../protocol/entities';
+import type { TaskRow } from '../api/types';
 import type { GraphNode } from '../selectors/graph';
+import { followsReach } from '../selectors/follows';
 import { canClose } from '../selectors/worktrees';
 import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
@@ -22,6 +24,7 @@ import { toolCallTitle } from '../session/toolCards';
 import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
+import { DeskToggle } from '../tasklist/DeskToggle';
 import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { contextFigure } from '../protocol/tokens';
@@ -277,6 +280,8 @@ export function NodeCardBody({
         )
       )}
 
+      {node.kind === 'task' && task && <FollowsSection taskId={task.id} />}
+
       <footer className={styles.footer}>
         <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
@@ -320,6 +325,49 @@ export function NodeCardBody({
         )}
       </footer>
     </>
+  );
+}
+
+/** The node's follows relations, each with a desk toggle. Not called a chain — see CONTEXT.md. */
+function FollowsSection({ taskId }: { taskId: string }) {
+  const { world } = useWorld();
+  const { before, after } = followsReach(world.tasks, taskId);
+  if (before.length === 0 && after.length === 0) return null;
+  return (
+    <div className={styles.follows} data-testid="node-follows">
+      <FollowsGroup heading="Follows" tasks={before} desk={world.desk} />
+      <FollowsGroup heading="Followed by" tasks={after} desk={world.desk} />
+    </div>
+  );
+}
+
+function FollowsGroup({
+  heading,
+  tasks,
+  desk,
+}: {
+  heading: string;
+  tasks: TaskRow[];
+  desk: Record<string, DeskEntry>;
+}) {
+  if (tasks.length === 0) return null;
+  return (
+    <div role="group" aria-label={heading} className={styles.followsGroup}>
+      <span className={styles.nowHead}>{heading}</span>
+      {tasks.map((t) => {
+        const onDesk = deskIdForTask(t.id) in desk;
+        return (
+          <div key={t.id} className={styles.followsRow} data-on-desk={onDesk}>
+            <span className={styles.followsTitle}>{t.title}</span>
+            <span className={styles.meta}>
+              <span data-testid="follows-id">{t.notebookId}</span> ·{' '}
+              <span data-testid="follows-status">{t.status}</span>
+            </span>
+            <DeskToggle taskId={t.id} onDesk={onDesk} variant="quiet" />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

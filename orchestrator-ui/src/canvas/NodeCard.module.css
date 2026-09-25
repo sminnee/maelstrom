@@ -290,6 +290,36 @@
 .nowText[data-note] {
   color: var(--fg);
 }
+.follows {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.followsGroup {
+  display: grid;
+  gap: var(--space-1);
+}
+.followsRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-2);
+  align-items: center;
+}
+.followsRow > :last-child {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.followsTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.followsRow[data-on-desk='false'] .followsTitle {
+  color: var(--fg-muted);
+}
 .running {
   font-family: var(--mono);
   font-size: var(--text-xs);
