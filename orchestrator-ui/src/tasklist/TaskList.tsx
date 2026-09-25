@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskRow } from '../api/types';
-import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
 import { useDeleteTask, useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
-import { deskIdForTask } from '../protocol/deskId';
 import type { Attention } from '../protocol/attention';
 import type { Agent } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
@@ -16,17 +14,16 @@ import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { StatusPicker } from '../ui/StatusPicker';
 import { BulkActions } from './BulkActions';
+import { DeskToggle } from './DeskToggle';
 import styles from './TaskList.module.css';
 
-/** Every task in the world, and the one place the desk is edited. */
+/** Every task in the world, each with its desk toggle. */
 export function TaskList() {
   const { world, status, errors, retry } = useWorld();
   const filters = useAppStore((s) => s.ui.filters);
   const listFilters = useAppStore((s) => s.ui.listFilters);
   const editTask = useAppStore((s) => s.setEditingTask);
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
-  const addToDesk = useAddToDesk();
-  const removeFromDesk = useRemoveFromDesk();
   const setStatus = useSetStatus();
   const deleteTask = useDeleteTask();
   // Which row's status is being picked.
@@ -150,15 +147,7 @@ export function TaskList() {
               </td>
               <td>{stateCell(task, agent, attention)}</td>
               <td>
-                <AppButton
-                  onClick={() =>
-                    (onDesk ? removeFromDesk : addToDesk).mutateAsync({
-                      id: deskIdForTask(task.id),
-                    })
-                  }
-                >
-                  {onDesk ? 'Remove from desk' : 'Add to desk'}
-                </AppButton>
+                <DeskToggle taskId={task.id} onDesk={onDesk} />
                 {/* One question open at a time: two rows asking at once is two
                     destructive actions one click apart. */}
                 <ConfirmButton
