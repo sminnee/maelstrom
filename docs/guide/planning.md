@@ -124,7 +124,7 @@ message; it revises the drafts and re-tags them, and the document comes back as 
 
 ## Single-session vs multi-session
 
-**Single-session** — up to about 1500 lines of new code, landing as several ~500-line
+**Single-session** — up to about 2000 lines of new code, landing as several ~500-line
 commits. One execute draft:
 
 ```bash
@@ -225,7 +225,7 @@ wrong way. Re-cut it.
 Each iteration should:
 
 - Ship its tests with the slice they cover. No test-only iterations.
-- Be up to about 1500 lines of new code.
+- Be up to about 2000 lines of new code.
 - Be independently testable and pass CI when merged.
 - Not break existing behaviour.
 - Land on the shared branch.
