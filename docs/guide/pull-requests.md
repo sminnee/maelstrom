@@ -74,7 +74,7 @@ reviewer needs. `/present` re-cuts them:
 /present
 ```
 
-It squashes the branch, then partitions the final diff into one to eight story commits — one per
+It squashes the branch, then partitions the final diff into three to ten story commits — one per
 design decision, ordered so each reads on top of the last. The reviewer then reads them in order on
 the PR's Commits tab.
 
