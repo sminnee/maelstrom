@@ -92,6 +92,22 @@ describe('layoutSwimlanes', () => {
     expect(layout.nodes['D']!.y).toBeGreaterThan(layout.nodes['C']!.y);
   });
 
+  it('puts a not-started follower on the row of the done task it follows', () => {
+    const layout = layoutSwimlanes(
+      graphOf([
+        makeTask({ id: 'S1', project: 'p1' }),
+        makeTask({ id: 'S2', project: 'p1' }),
+        makeTask({ id: 'S3', project: 'p1' }),
+        doneTask('T', 'p1'),
+        makeTask({ id: 'U', project: 'p1', follows: ['T'] }),
+      ]),
+    );
+    // The graph orders by id, so the three singletons pack first.
+    expect(layout.nodes['U']!.y).toBe(layout.nodes['T']!.y);
+    expect(layout.nodes['U']!.x).toBe(layout.nodes['S1']!.x);
+    expect(layout.nodes['T']!.x).toBeLessThan(layout.nodes['U']!.x);
+  });
+
   it('group by none lays the whole world out as one band with no header', () => {
     const graph = deriveGraph(worldWith({ tasks: chain, desk: onDesk(chain) }), {
       groupBy: 'none',
