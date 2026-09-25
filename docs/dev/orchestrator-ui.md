@@ -269,6 +269,12 @@ long run, so the card would go quiet on exactly the agents that have been runnin
 arriving on the transcript is still the live signal: nothing about the ledger moves the world, so
 no change notice fires, and the count of bars is what refetches the route.
 
+A task node's card lists every task its task follows and every task that follows it, direct and
+indirect, nearest first (`selectors/follows.ts`). Each row has an Add to desk or Remove from desk
+button. The canvas draws a follows edge only when both ends are on the desk, so without this list
+the user must find each related task in the task list. The list reads `world.tasks`, which
+holds every task, so it needs no route of its own.
+
 The task list lists tasks only. Every card ends its footer with one end-of-work control,
 `ui/SplitButton.tsx`. A click on its label runs the usual act, and its chevron opens the longer
 chains:
