@@ -18,6 +18,7 @@ All operations are non-fatal; a transport failure surfaces as a ``CmuxResult``
 whose ``raw`` is ``None`` (never an exception).
 """
 
+import json
 import os
 import re
 import shutil
@@ -25,7 +26,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 # cmux's conventional socket path. Used when ``CMUX_SOCKET_PATH`` is unset or
 # empty, so a caller outside a cmux-spawned shell (a launchd tick, a session
@@ -33,6 +34,10 @@ from typing import Protocol
 # concluding "not in cmux mode". A missing binary or a dead socket still fails
 # honestly downstream.
 DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
+
+# A cmux command answers in well under a second. A wedged app must not hold
+# its caller for ever: the orchestrator's worktree read calls cmux on every poll.
+COMMAND_TIMEOUT_SECONDS = 10.0
 
 
 def resolve_socket_path() -> str:
@@ -77,6 +82,20 @@ class CmuxResult:
         match = re.search(rf"{kind}:\d+", self.text)
         return match.group(0) if match else None
 
+    def json(self) -> dict[str, Any] | None:
+        """The reply to a ``--json`` command as an object, or ``None``.
+
+        ``None`` for a failed transport, a reply that is not JSON, or JSON that
+        is not an object. A ``--json`` reply has no ``OK`` prefix.
+        """
+        if not self.raw:
+            return None
+        try:
+            parsed = json.loads(self.raw)
+        except ValueError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
 
 class CmuxClient(Protocol):
     """A transport that runs a cmux command and returns its parsed result."""
@@ -118,13 +137,24 @@ class SubprocessCmuxClient:
         """Run a cmux command with ``--socket`` and parse the text response.
 
         Returns a :class:`CmuxResult` whose ``raw`` is the stripped stdout, or
-        ``None`` on any transport failure (the command is non-fatal).
+        ``None`` on any transport failure, a timeout included (the command is
+        non-fatal).
         """
         cmd = [self._cli_path, "--socket", self._socket_path, *args]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
             return CmuxResult(result.stdout.strip())
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except (
+            FileNotFoundError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
             return CmuxResult(None)
 
 

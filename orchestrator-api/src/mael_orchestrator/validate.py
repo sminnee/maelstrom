@@ -76,6 +76,7 @@ WORKTREE_COMMANDS = (
     "worktree.remove",
     "worktree.sync",
     "worktree.env",
+    "worktree.createTerminal",
 )
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
@@ -89,6 +90,7 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.forceClose",
     "worktree.sync",
     "worktree.env",
+    "worktree.createTerminal",
 )
 
 #: The three settings ``mael sync`` has, which the one sync command chooses

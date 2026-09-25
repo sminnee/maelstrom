@@ -5509,6 +5509,75 @@ def test_a_server_that_cannot_change_environments_says_so(harness):
     assert "cannot start or stop environments" in reply.body["error"]["message"]
 
 
+def test_creating_a_terminal_puts_its_link_on_the_row_without_a_re_read(harness):
+    asked: list[tuple[str, str, str]] = []
+    url = "cmux://workspace/W/pane/P"
+
+    def create_terminal(project: str, nato: str, path: str) -> str:
+        asked.append((project, nato, path))
+        return url
+
+    harness.worktrees.create_terminal = create_terminal
+
+    async def scenario():
+        async with harness.client() as api:
+            reads = harness.worktrees.reads
+            reply = await api.post("/api/worktrees/northwind-alpha/terminal")
+            reads_after = harness.worktrees.reads
+            return reply, await api.get_json("/api/worktrees"), reads_after - reads
+
+    reply, worktrees, reads = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {"shellUrl": url}
+    assert asked == [(PROJECT, "alpha", WORKTREE_PATH)]
+    # The source was not asked: the link was written into the row itself.
+    assert worktrees["worktrees"][0]["shellUrl"] == url
+    assert reads == 0
+
+
+def test_a_terminal_that_fails_says_why(harness):
+    def create_terminal(project: str, nato: str, path: str) -> str:
+        raise RuntimeError("split refused")
+
+    harness.worktrees.create_terminal = create_terminal
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/terminal")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert (
+        reply.body["error"]["message"] == "Could not create the terminal: split refused"
+    )
+
+
+def test_a_terminal_cmux_refuses_is_invalid(harness):
+    def create_terminal(project: str, nato: str, path: str) -> str:
+        raise CloseBlocked("cmux could not make the shell pane")
+
+    harness.worktrees.create_terminal = create_terminal
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/terminal")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert reply.body["error"]["message"] == "cmux could not make the shell pane"
+
+
+def test_a_server_that_cannot_create_terminals_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/terminal")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot create terminals" in reply.body["error"]["message"]
+
+
 # --- the milestone Maelstrom writes when the user approves a plan ------------
 
 

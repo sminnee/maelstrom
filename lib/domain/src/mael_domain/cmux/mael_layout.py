@@ -7,11 +7,14 @@ command, app/PR URLs). Each function builds a :class:`~mael_domain.cmux.model.Cm
 and issues declarative assertion verbs. These are the functions the CLI call
 sites invoke; they never touch the cmux mechanics directly.
 
-Every function degrades silently outside cmux (``CmuxLayout.current()`` is
-``None``), returning ``None``/``False``.
+Every function degrades silently outside cmux, returning ``None``, ``False``
+or an empty dict.
 """
 
-from .model import BrowserTab, CmuxLayout, TerminalTab
+from collections.abc import Iterable
+
+from .client import current_client
+from .model import BrowserTab, CmuxLayout, TerminalTab, workspace_pane_ids
 
 # The standard 3-pane workspace layout.
 CLAUDE_PANE = 0
@@ -107,6 +110,46 @@ def ensure_worktree_shell_workspace(
         lay.ensure_workspace(TerminalTab("Terminal", cwd=path, command=install_cmd))
         is not None
     )
+
+
+def _shell_url(workspace_id: str, pane_id: str) -> str:
+    """The cmux deep link that focuses one pane."""
+    return f"cmux://workspace/{workspace_id}/pane/{pane_id}"
+
+
+def worktree_shell_urls(
+    worktrees: Iterable[tuple[str, str]],
+) -> dict[tuple[str, str], str]:
+    """The shell pane's deep link, by ``(project, worktree)``.
+
+    A worktree with no workspace, or no shell pane, is absent. Empty outside
+    cmux.
+    """
+    client = current_client()
+    if client is None:
+        return {}
+    by_name = {workspace_name(p, w): (p, w) for p, w in worktrees}
+    ids = workspace_pane_ids(client, by_name, SHELL_PANE)
+    return {by_name[name]: _shell_url(*pair) for name, pair in ids.items()}
+
+
+def create_worktree_terminal(project: str, worktree: str, path: str) -> str | None:
+    """Make sure the worktree has its shell pane, and return its deep link.
+
+    A missing workspace is created with pane 0 and the shell pane. No installer
+    runs: a worktree the orchestrator shows is already installed. A live shell
+    pane is reused, so no tab is added. Nothing is focused; the link does that.
+    ``None`` outside cmux or when cmux fails.
+    """
+    lay = CmuxLayout.current(workspace_name(project, worktree))
+    if lay is None:
+        return None
+    if lay.ensure_workspace(TerminalTab("Claude", cwd=path)) is None:
+        return None
+    if lay.ensure_terminal(SHELL_PANE, TerminalTab("Terminal", cwd=path)) is None:
+        return None
+    ids = lay.pane_ids(SHELL_PANE)
+    return _shell_url(*ids) if ids else None
 
 
 def show_app_browser(project: str, worktree: str, url: str) -> str | None:

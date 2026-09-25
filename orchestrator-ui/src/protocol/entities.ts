@@ -61,6 +61,8 @@ export interface Worktree {
   appUrl: string;
   appRunning: boolean;
   sessionCount: number;
+  /** The `cmux://` link to the worktree's shell pane, or `''` when it has none. */
+  shellUrl: string;
 }
 
 export interface TaskStep {

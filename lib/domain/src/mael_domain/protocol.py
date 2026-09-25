@@ -56,6 +56,8 @@ class Worktree(TypedDict):
     appUrl: str
     appRunning: bool
     sessionCount: int
+    #: The ``cmux://`` link to the worktree's shell pane, or ``""`` with none.
+    shellUrl: str
 
 
 class TaskStep(TypedDict):

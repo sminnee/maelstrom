@@ -124,8 +124,10 @@ each drop the oldest matching stand-in once the real, non-pending item lands.
 `useSetStatus`, `useAddToDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves
 with the result, or rejects with an `ApiError` carrying the code. On success the hook
 invalidates the keys the command touched; the change notice invalidates them again a moment
-later, so the screen is right while the stream reconnects too. The launch call waits two
-minutes: the server opens the worktree first.
+later, so the screen is right while the stream reconnects too. `useCreateWorktreeTerminal` is
+the exception: it writes its reply into the cached worktree, so its control turns into a link
+before the notice arrives. The launch call waits two minutes: the server opens the worktree
+first.
 
 Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns
 what happens next. A handler that returns a promise puts the button in `processing`: disabled,
@@ -482,6 +484,11 @@ whole difference a reader sees. The wire carries a ready `prUrl`, so the card li
 request without joining two fields; a worktree with no PR draws none. The dev env link draws
 only while the environment runs, and the worktree poll makes it appear and
 disappear on its own.
+
+The row ends with `worktrees/CmuxControl.tsx`, the worktree's shell pane in cmux. While
+`shellUrl` is set it is an `ExternalLink` with `newTab={false}`: cmux takes a `cmux:` link, so a
+new tab would stay blank. With `shellUrl` empty it is a button that makes the pane, then follows
+the returned link. See [cmux.md](cmux.md#pane-ids-and-deep-links).
 
 A pull request draws as one chip wherever it appears — a collapsed node, a deck row, the card's
 footer — so the same PR reads the same everywhere. `shell/PrChip.tsx` is that chip: `#278` in the

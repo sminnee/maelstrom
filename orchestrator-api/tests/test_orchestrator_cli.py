@@ -82,6 +82,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     from mael_domain.worktree import WorktreeSetup
     from mael_orchestrator.cli import build_orchestrator
     from mael_orchestrator.sources import (
+        CloseBlocked,
         ListAllWorktreeSource,
         NotebookTaskSource,
     )
@@ -104,9 +105,17 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         patch(
             "mael_orchestrator.cli.setup_worktree_for_branch", return_value=setup
         ) as open_wt,
+        patch("mael_orchestrator.cli.create_worktree_terminal", return_value=None),
+        patch("mael_orchestrator.cli.worktree_shell_urls") as shell_urls,
     ):
         orchestrator = build_orchestrator()
         opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
+        create_terminal = orchestrator.worktrees.create_terminal
+        assert create_terminal is not None
+        # No pane, whether cmux is down or refused, and the user reads why.
+        with pytest.raises(CloseBlocked, match="cmux could not make the shell pane"):
+            create_terminal("northwind", "alpha", "/p")
+    assert orchestrator.worktrees.shell_urls is shell_urls
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.table is table.return_value

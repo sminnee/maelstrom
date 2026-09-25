@@ -794,6 +794,13 @@ check being missing, both answer 400 `invalid`.
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
+| `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
+| `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
+| `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
+| `POST /api/worktrees/{id}/env` | `action` | `worktree.env` | `{}` |
+| `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
+| `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
+| `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
 ## Attachments
 
@@ -830,12 +837,15 @@ rather than a half-written task, and all four UI surfaces share one path.
 The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both refusals answer
 400 `invalid`.
 
-| `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
-| `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
-| `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
-| `POST /api/worktrees/{id}/env` | `action` | `worktree.env` | `{}` |
-| `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
-| `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
+`worktree.createTerminal` makes the worktree's shell pane when it is missing, and returns the
+pane's `cmux://` link. The server focuses nothing; see [cmux.md](cmux.md#pane-ids-and-deep-links).
+It writes the link into that one row and does not re-read: a re-read asks GitHub and takes
+seconds, and the UI follows the link only after the reply. When cmux is not running, or cannot
+make the pane, the command is refused `invalid`. A closed worktree is refused too.
+
+Each worktree read also asks cmux for every open worktree's shell pane, and puts the link in
+`Worktree.shellUrl`. A worktree with no shell pane has `''`. A pane closed since the last read
+leaves a dead link until the next read; cmux ignores it.
 
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
 event, so the world changes when that arrives, and a mode the child refuses never reaches the

@@ -83,6 +83,23 @@ mael env open        # browser pane for this worktree's app
 Pull request URLs recycle a single `github.com` tab, so opening a second PR replaces the
 first rather than piling up tabs.
 
+### The shell pane from the orchestrator
+
+An expanded card in the orchestrator UI has a **cmux** control for its worktree. It has two
+states:
+
+| Icon | Meaning | A click |
+|---|---|---|
+| Terminal | The worktree has a shell pane (pane 1). | Opens cmux on that pane. |
+| Plus | The worktree has no shell pane. | Makes the pane, then opens cmux on it. |
+
+A missing workspace is created with pane 0 and the shell pane. No `install_cmd` runs, because
+the worktree is already installed. A live shell pane is reused, so a second click adds no tab.
+
+The control is a `cmux://` link, and it needs **cmux 0.64 or later**. An older cmux still makes
+the pane, but the link does nothing. The first click in a browser can ask to open cmux. A closed
+worktree shows no control.
+
 ## Outside cmux
 
 Every cmux call degrades silently when there is no cmux workspace to act on. So maelstrom

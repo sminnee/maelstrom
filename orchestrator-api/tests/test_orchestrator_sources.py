@@ -551,3 +551,37 @@ async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
     source = a_launching_source(table, has_transcript=has_transcript)
     request = await source.launch(f"{PROJECT}/NORT-7", None)
     assert seen == [(Path("/w/alpha"), request.payload["session"])]
+
+
+# --- ListAllWorktreeSource: the shell pane's link ---------------------------
+
+
+async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
+    """The link lands on its own row, and the others get ``''``."""
+    from mael_orchestrator import sources
+
+    async def list_all(*_args, **_kwargs):
+        rows = [
+            {"name": "alpha", "path": "/p/alpha"},
+            {"name": "bravo", "path": "/p/bravo"},
+            {"name": "charlie", "path": "/p/charlie", "is_closed": True},
+        ]
+        return {"projects": [{"name": PROJECT, "worktrees": rows}]}
+
+    monkeypatch.setattr(sources, "build_list_all_data", list_all)
+    asked: list[list[tuple[str, str]]] = []
+
+    def shell_urls(pairs):
+        asked.append(list(pairs))
+        return {(PROJECT, "alpha"): "cmux://workspace/W/pane/P"}
+
+    source = sources.ListAllWorktreeSource(Path("/p"), shell_urls=shell_urls)
+    _, worktrees = await source.read()
+
+    assert {w["nato"]: w["shellUrl"] for w in worktrees} == {
+        "alpha": "cmux://workspace/W/pane/P",
+        "bravo": "",
+        "charlie": "",
+    }
+    # Only the open rows are asked about.
+    assert asked == [[(PROJECT, "alpha"), (PROJECT, "bravo")]]

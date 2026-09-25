@@ -25,6 +25,7 @@ import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { DeskToggle } from '../tasklist/DeskToggle';
+import { CmuxControl } from '../worktrees/CmuxControl';
 import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { contextFigure } from '../protocol/tokens';
@@ -287,6 +288,7 @@ export function NodeCardBody({
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
           <PrChip worktree={where} size="large" />
           {appUrl && <ExternalLink href={appUrl}>Dev env</ExternalLink>}
+          <CmuxControl worktree={where} />
         </div>
         <div className={styles.commands}>
           {!agent && task?.actionable && (

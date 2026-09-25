@@ -18,8 +18,9 @@ All verbs are non-fatal: they return a ref / bool and never raise.
 
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from .client import CmuxClient, current_client
 
@@ -29,6 +30,49 @@ from .client import CmuxClient, current_client
 # shell to process a `cd` without a noticeable hang; the per-pane `cd` send in
 # ensure_terminal is a fallback for slower shells.
 _PANE_CD_SETTLE_SECONDS = 0.25
+
+
+# Global flags that make cmux reply in JSON with UUIDs, the ids a
+# ``cmux://workspace/<ws>/pane/<pane>`` deep link names.
+_JSON_UUIDS = ("--json", "--id-format", "uuids")
+
+
+def workspace_pane_ids(
+    client: CmuxClient, names: Iterable[str], pane_index: int
+) -> dict[str, tuple[str, str]]:
+    """``(workspace uuid, pane uuid)`` of pane ``pane_index``, by workspace name.
+
+    A name with no workspace, or a workspace with no such pane, is absent. One
+    ``list-workspaces`` for all names, then one ``list-panes`` per match. The
+    first workspace of a name wins, as in :meth:`CmuxLayout.has_workspace`.
+    """
+    wanted = set(names)
+    listing = client.run(*_JSON_UUIDS, "list-workspaces").json() or {}
+    workspace_ids: dict[str, str] = {}
+    for workspace in _entries(listing, "workspaces"):
+        title, workspace_id = workspace.get("title"), workspace.get("id")
+        if title in wanted and title not in workspace_ids and workspace_id:
+            workspace_ids[title] = workspace_id
+
+    ids: dict[str, tuple[str, str]] = {}
+    for name, workspace_id in workspace_ids.items():
+        panes = (
+            client.run(*_JSON_UUIDS, "list-panes", "--workspace", workspace_id).json()
+            or {}
+        )
+        for pane in _entries(panes, "panes"):
+            if pane.get("index") == pane_index and pane.get("id"):
+                ids[name] = (workspace_id, pane["id"])
+                break
+    return ids
+
+
+def _entries(reply: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """The objects in ``reply[key]``. Anything of another shape is dropped."""
+    entries = reply.get(key)
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict)]
 
 
 # --- value objects: inert specs (write side; no I/O, no maelstrom concepts) ---
@@ -147,6 +191,12 @@ class CmuxLayout:
             self._send_to_workspace(workspace_ref, f"{tab.command}\n")
         self._rename_pane_tab(workspace_ref, 0, tab.title)
         return workspace_ref
+
+    def pane_ids(self, pane_index: int) -> tuple[str, str] | None:
+        """``(workspace uuid, pane uuid)`` of pane ``pane_index``, or ``None``."""
+        return workspace_pane_ids(self._client, [self._name], pane_index).get(
+            self._name
+        )
 
     # === terminal tabs by pane index ===
 
