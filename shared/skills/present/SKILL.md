@@ -15,6 +15,7 @@ Story commits do not each need to pass the gates. Only the final tree must pass,
    Choose three to ten decisions, ordered so each builds on the last. A decision is one reason, not one file. Put mechanical moves first. Use fewer only when the branch really has fewer reasons, and say so in the report.
 4. Stage and commit one decision at a time. Stage complete hunks: write them from `git diff -- <path>` to a patch and run `git apply --cached`. For a new file, run `git add -N` first. Check `git diff --cached --stat` before every commit.
    When one file holds two decisions and its hunks do not separate, write the earlier decision's version of the file, stage and commit it, then restore the final content with `git restore --source=<history-ref> --worktree -- <path>`. When the final tree deletes the file, `git rm` it in the later decision instead.
+   When a staged commit changes more than about 250 lines, check whether it holds more than one reason. Split it, or state in the body why it is one decision. A widespread mechanical change, such as a rename, can be large and still be one decision.
 5. Write a truthful subject and body for each decision.
 6. Keep unchanged prior decisions verbatim. Merge a revised decision into one updated story commit.
 7. Confirm both `git diff --stat <history-ref>` and `git status --porcelain` are empty. If not, stop and find the missing or dropped decision.
