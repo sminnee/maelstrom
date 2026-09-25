@@ -45,3 +45,6 @@ link. Neither focuses anything.
 
 `list-workspaces` may list only the current cmux window. A worktree workspace in another window
 then has no link.
+
+Every command times out after `COMMAND_TIMEOUT_SECONDS` (10 s) and reads as no answer. The
+orchestrator's worktree read calls cmux on every poll, so a wedged cmux must not hold it.

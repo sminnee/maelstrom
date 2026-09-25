@@ -4,6 +4,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from mael_domain.cmux.client import (
+    COMMAND_TIMEOUT_SECONDS,
     DEFAULT_SOCKET_PATH,
     CmuxResult,
     RecordingCmuxClient,
@@ -119,6 +120,7 @@ class TestSubprocessCmuxClient:
             capture_output=True,
             text=True,
             check=True,
+            timeout=COMMAND_TIMEOUT_SECONDS,
         )
 
     def test_strips_stdout(self):
@@ -144,6 +146,14 @@ class TestSubprocessCmuxClient:
             side_effect=subprocess.CalledProcessError(1, "cmux"),
         ):
             assert client.run("bad-command").raw is None
+
+    def test_none_on_timeout(self):
+        client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired("cmux", COMMAND_TIMEOUT_SECONDS),
+        ):
+            assert client.run("list-panes").raw is None
 
     def test_none_on_file_not_found(self):
         client = SubprocessCmuxClient("/usr/bin/cmux", "/tmp/cmux.sock")

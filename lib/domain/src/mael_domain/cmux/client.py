@@ -35,6 +35,10 @@ from typing import Any, Protocol
 # honestly downstream.
 DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
 
+# A cmux command answers in well under a second. A wedged app must not hold
+# its caller for ever: the orchestrator's worktree read calls cmux on every poll.
+COMMAND_TIMEOUT_SECONDS = 10.0
+
 
 def resolve_socket_path() -> str:
     """The cmux socket path from the environment, or the conventional default."""
@@ -133,13 +137,24 @@ class SubprocessCmuxClient:
         """Run a cmux command with ``--socket`` and parse the text response.
 
         Returns a :class:`CmuxResult` whose ``raw`` is the stripped stdout, or
-        ``None`` on any transport failure (the command is non-fatal).
+        ``None`` on any transport failure, a timeout included (the command is
+        non-fatal).
         """
         cmd = [self._cli_path, "--socket", self._socket_path, *args]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
             return CmuxResult(result.stdout.strip())
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except (
+            FileNotFoundError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
             return CmuxResult(None)
 
 
