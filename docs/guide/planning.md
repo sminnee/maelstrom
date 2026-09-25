@@ -124,8 +124,7 @@ message; it revises the drafts and re-tags them, and the document comes back as 
 
 ## Single-session vs multi-session
 
-**Single-session** — up to about 2000 lines of new code, landing as several ~500-line
-commits. One execute draft:
+**Single-session** — up to about 2000 lines of new code. One execute draft:
 
 ```bash
 mael task draft .drafts/iter.md "Execute: PROJ-123 — add avatar upload" \
@@ -215,8 +214,12 @@ model named there.
 
 ## Slice vertically
 
-Each iteration must be a **thin vertical slice**: an end-to-end cut through every layer it
+Each iteration must be a **vertical slice**: an end-to-end cut through every layer it
 touches, shipping its own tests and delivering behaviour a user can see.
+
+A slice can be a substantial piece of work. Do not split work only to make the PR small.
+`/present` re-cuts the build commits into one story commit per design decision, so a reviewer
+can read a large PR.
 
 Layer-shaped iterations — "the back-end API", "then the front end", "then the e2e tests" —
 are an **antipattern**. A plan whose iterations are named after layers has been sliced the
