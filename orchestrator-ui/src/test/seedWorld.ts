@@ -243,6 +243,7 @@ export function seedWorld(): Seed {
       appUrl: 'http://localhost:4210',
       appRunning: true,
       sessionCount: 1,
+      shellUrl: 'cmux://workspace/WS-DELTA/pane/PANE-DELTA',
     }),
     worktree('northwind', 'echo', { isClosed: true }),
   ];

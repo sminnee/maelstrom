@@ -140,3 +140,30 @@ export function useRefreshWorktrees() {
     },
   });
 }
+
+/**
+ * Make a worktree's shell pane in cmux, and return the pane's link. The reply
+ * is written into the cached worktree, so the control turns into a link
+ * without waiting for the pushed world.
+ */
+export function useCreateWorktreeTerminal() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+      api.post<{ shellUrl: string }>(
+        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/terminal`,
+        undefined,
+        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      ),
+    onSuccess: ({ shellUrl }, { worktreeId }) => {
+      queryClient.setQueryData<WorktreesBody>(keys.worktrees(), (body) =>
+        body
+          ? {
+              worktrees: body.worktrees.map((w) => (w.id === worktreeId ? { ...w, shellUrl } : w)),
+            }
+          : body,
+      );
+    },
+  });
+}

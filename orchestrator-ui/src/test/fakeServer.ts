@@ -1052,6 +1052,20 @@ function command(
     return ok({});
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/terminal$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    const nato = worktree.nato.toUpperCase();
+    const shellUrl = worktree.shellUrl || `cmux://workspace/WS-${nato}/pane/PANE-${nato}`;
+    // No change notice: the real server's re-read reaches the page after this
+    // reply, so a test sees what the reply alone does.
+    world.worktrees[id] = { ...worktree, shellUrl };
+    return ok({ shellUrl });
+  }
+
   if (pathname === '/api/desk' && method === 'POST') {
     const id = str('id') ?? '';
     world.desk[id] = { id, addedAt: now() };

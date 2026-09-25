@@ -54,6 +54,9 @@ export default defineConfig(({ command }) => {
       // surfaces as an unrelated test failing in file order. Two suites had
       // grown the same `afterEach(vi.restoreAllMocks())` to work around this.
       restoreMocks: true,
+      // The same for a stubbed global: a test that fails before its own
+      // unstub would leave a fake `location` for every test after it.
+      unstubGlobals: true,
       // A cold CI runner is far slower than a dev machine. This ceiling was
       // raised four times chasing flakes that splitting `App.test.tsx` and
       // setting `asyncUtilTimeout` (see src/test/setup.ts) turned out to
