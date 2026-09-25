@@ -515,7 +515,8 @@ Group by `project`, `branch` and `worktree` draw one hairline lane per group. Gr
 draws no lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
 running, not started — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
-one lane at a time, and `canvas/layout.ts` aligns the zones and packs the rows.
+one lane at a time. `canvas/rows.ts` packs the rows, also pure and one lane at a time, and
+`canvas/layout.ts` aligns the zones and places the boxes.
 
 An agent's wait and the document's own review route share one place: the dock under the document.
 `documents/DocumentTab.tsx` renders one `.dock` wrapper and gives it to whichever is waiting.

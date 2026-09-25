@@ -398,6 +398,9 @@ Horizontal position is progress first and dependency second:
 - A zone no lane uses takes no columns and collapses, and draws no label.
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
   follows edge draws backwards.
+- A task sits on the row of the task it follows, across zones; a second follower branches below.
+  A run of followers reserves the columns it spans. A task that follows nothing fills the first
+  free cell.
 - A wire another path already implies is not drawn. The board shows what gates what, not every
   id on disk.
 

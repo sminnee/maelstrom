@@ -1,6 +1,7 @@
 import { zoneForState, ZONES, type Zone } from '../protocol/progress';
 import type { Graph } from '../selectors/graph';
 import { assignColumns } from './columns';
+import { assignRows } from './rows';
 
 export interface Box {
   x: number;
@@ -40,8 +41,8 @@ const LANE_GAP = 28;
 /**
  * Hand-rolled swimlanes. One band per group, stacked in group order. Inside a
  * band, x is the node's progress zone plus its depth along the follows edges
- * within that zone, and y is the row of the followed node when it is free,
- * else the next free row. See `orchestrator-ui/DESIGN.md` for why the zones align.
+ * within that zone, and y is the row of the node's track: a follower sits on
+ * the row of what it follows. See `orchestrator-ui/DESIGN.md` for why the zones align.
  */
 export function layoutSwimlanes(graph: Graph): Layout {
   const groups: Record<string, Box> = {};
@@ -92,30 +93,27 @@ export function layoutSwimlanes(graph: Graph): Layout {
   for (const group of graph.groups) {
     const header = group.kind === 'none' ? 0 : LANE_HEADER;
     const placed = columnsPerGroup.get(group.id)!.byId;
-    const taken = new Map<number, Set<number>>();
-    const slotOf = new Map<string, number>();
+    const columnOf = new Map(
+      group.nodeIds.map((id) => {
+        const at = placed.get(id) ?? { zone: 'notStarted' as Zone, column: 0 };
+        return [id, offsets[at.zone] + at.column];
+      }),
+    );
+    const rowOf = assignRows(
+      group.nodeIds.map((id) => ({
+        id,
+        column: columnOf.get(id)!,
+        follows: followsOf.get(id) ?? [],
+      })),
+    );
     let rows = 0;
     for (const id of group.nodeIds) {
-      const at = placed.get(id) ?? { zone: 'notStarted' as Zone, column: 0 };
-      const column = offsets[at.zone] + at.column;
-      const used = taken.get(column) ?? new Set<number>();
-      taken.set(column, used);
-      // A done predecessor's row is no home for a not-started follower several
-      // columns away, so only a same-zone predecessor offers one.
-      const wanted =
-        (followsOf.get(id) ?? [])
-          .filter((source) => placed.get(source)?.zone === at.zone)
-          .map((source) => slotOf.get(source))
-          .find((slot) => slot !== undefined) ?? 0;
-      let slot = wanted;
-      while (used.has(slot)) slot += 1;
-      used.add(slot);
-      slotOf.set(id, slot);
+      const row = rowOf.get(id)!;
       nodes[id] = {
-        x: LANE_PAD + column * (NODE.width + GAP_X),
-        y: header + LANE_PAD + slot * (NODE.height + GAP_Y),
+        x: LANE_PAD + columnOf.get(id)! * (NODE.width + GAP_X),
+        y: header + LANE_PAD + row * (NODE.height + GAP_Y),
       };
-      rows = Math.max(rows, slot + 1);
+      rows = Math.max(rows, row + 1);
     }
     const height = header + LANE_PAD * 2 + rows * NODE.height + Math.max(0, rows - 1) * GAP_Y;
     bands.push({ id: group.id, height });
