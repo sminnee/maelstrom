@@ -96,9 +96,10 @@ done.
 
 ### Slice vertically
 
-Each iteration should be a **thin vertical slice**: an end-to-end cut through every layer it
+Each iteration should be a **vertical slice**: an end-to-end cut through every layer it
 touches, shipping its own tests and delivering behaviour a user can see. Aim for up to
-~1500 lines, landing as several ~500-line commits.
+~2000 lines, landing as several ~500-line commits. [Planning](planning.md#slice-vertically)
+explains why a slice can be large.
 
 Layer-shaped iterations — "the back-end API", "then the front end", "then the e2e tests" —
 are an antipattern. A plan whose iterations are named after layers has been sliced the wrong

@@ -74,12 +74,13 @@ reviewer needs. `/present` re-cuts them:
 /present
 ```
 
-It squashes the branch, then partitions the final diff into one to eight story commits — one per
+It squashes the branch, then partitions the final diff into three to ten story commits — one per
 design decision, ordered so each reads on top of the last. The reviewer then reads them in order on
 the PR's Commits tab.
 
 **The invariant is the tree, not the story.** The final tree equals the tree the branch had before
-the pass, and the working history is the undo.
+the pass, and the working history is the undo. Only the final tree must pass the gates. A story
+commit in the middle can fail them.
 
 **Present runs once per task**, after `/code-review`, so it partitions reviewed code. After the PR
 is pushed, every change is a `fixup!` on the story commit it revises, or a `chore:` when it revises
