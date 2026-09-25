@@ -594,3 +594,72 @@ describe('drift between the task file and the agent', () => {
     });
   });
 });
+
+describe('follows relations on the expanded node', () => {
+  const group = (name: string) =>
+    within(within(expanded()).getByTestId('node-follows')).getByRole('group', { name });
+  /** Each listed row as its id, status and desk state. */
+  const listed = (name: string) =>
+    Array.from(group(name).querySelectorAll<HTMLElement>('[data-on-desk]')).map((r) => ({
+      id: within(r).getByTestId('follows-id').textContent,
+      status: within(r).getByTestId('follows-status').textContent,
+      onDesk: r.dataset.onDesk === 'true',
+    }));
+  const row = (name: string, id: string) =>
+    within(group(name)).getByText(id).closest('[data-on-desk]') as HTMLElement;
+
+  it('lists what the task follows and what follows it, the indirect ones too', async () => {
+    await renderApp();
+    clickNode('MAEL-40.1');
+    expect(within(group('Follows')).getByText('Task index cache')).toBeInTheDocument();
+    // The fixture leaves MAEL-40 off the desk.
+    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'done', onDesk: false }]);
+    expect(listed('Followed by')).toEqual([{ id: 'MAEL-40.2', status: 'todo', onDesk: true }]);
+    clickNode('MAEL-52');
+    expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
+    expect(listed('Followed by')).toEqual([
+      { id: 'MAEL-52.1', status: 'todo', onDesk: true },
+      { id: 'MAEL-52.2', status: 'todo', onDesk: true },
+    ]);
+  });
+
+  it('puts a task off the desk on it, and the canvas draws its node', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    expect(document.querySelector('[data-task-id="MAEL-40"]')).toBeNull();
+    clickNode('MAEL-40.1');
+    await user.click(
+      within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'Add to desk' }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="MAEL-40"]')).toBeInTheDocument(),
+    );
+    expect(
+      within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'Remove from desk' }),
+    ).toBeInTheDocument();
+  });
+
+  it('takes a listed task off the desk', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('MAEL-40.1');
+    await user.click(
+      within(row('Followed by', 'MAEL-40.2')).getByRole('button', { name: 'Remove from desk' }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="MAEL-40.2"]')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('draws no section for a task with no follows relations', async () => {
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    expect(within(expanded()).getByTestId('node-follows')).toBeInTheDocument();
+    act(() => {
+      server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
+        w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, follows: [] };
+      });
+    });
+    await waitFor(() => expect(within(expanded()).queryByTestId('node-follows')).toBeNull());
+  });
+});
