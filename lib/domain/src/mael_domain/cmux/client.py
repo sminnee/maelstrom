@@ -18,6 +18,7 @@ All operations are non-fatal; a transport failure surfaces as a ``CmuxResult``
 whose ``raw`` is ``None`` (never an exception).
 """
 
+import json
 import os
 import re
 import shutil
@@ -25,7 +26,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 # cmux's conventional socket path. Used when ``CMUX_SOCKET_PATH`` is unset or
 # empty, so a caller outside a cmux-spawned shell (a launchd tick, a session
@@ -76,6 +77,20 @@ class CmuxResult:
             return None
         match = re.search(rf"{kind}:\d+", self.text)
         return match.group(0) if match else None
+
+    def json(self) -> dict[str, Any] | None:
+        """The reply to a ``--json`` command as an object, or ``None``.
+
+        ``None`` for a failed transport, a reply that is not JSON, or JSON that
+        is not an object. A ``--json`` reply has no ``OK`` prefix.
+        """
+        if not self.raw:
+            return None
+        try:
+            parsed = json.loads(self.raw)
+        except ValueError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
 
 class CmuxClient(Protocol):

@@ -206,7 +206,7 @@ its task session id as its session id, so the two agree until the first `/clear`
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`, holding three panes: pane 0 the Claude session,
-pane 1 a shell, pane 2 browsers. Pane numbering is 0-based. Every session runs in a workspace
+pane 1 the **shell pane**, pane 2 browsers. Pane numbering is 0-based. Every session runs in a workspace
 so that no agent runs somewhere you cannot watch it.
 _Avoid_: Window, pane group
 

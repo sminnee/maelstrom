@@ -12,7 +12,13 @@ from mael_domain.cmux.client import (
     current_client,
     ensure_cmux_running,
 )
-from mael_domain.cmux.model import BrowserTab, CmuxLayout, Surface, TerminalTab
+from mael_domain.cmux.model import (
+    BrowserTab,
+    CmuxLayout,
+    Surface,
+    TerminalTab,
+    workspace_pane_ids,
+)
 
 # ===========================================================================
 # Transport layer — client.py
@@ -856,3 +862,125 @@ class TestListSurfaces:
         )
         lay, _ = _layout({("list-panels",): output})
         assert len(lay._list_surfaces()) == 2
+
+
+# Replies copied from cmux 0.61 ``--json --id-format uuids`` output, trimmed.
+_WORKSPACES_JSON = """{
+  "window_id" : "0962639D-30C2-4E0C-8124-37261DFFDCF3",
+  "workspaces" : [
+    {
+      "title" : "myproject-alpha",
+      "index" : 0,
+      "id" : "D2022D3A-292F-4647-B095-E6ACE6263CE3",
+      "pinned" : false,
+      "selected" : false
+    },
+    {
+      "id" : "4D510C9F-5AE9-419B-B13A-F36057732685",
+      "selected" : true,
+      "index" : 1,
+      "title" : "myproject-bravo",
+      "pinned" : false
+    }
+  ]
+}"""
+
+_ALPHA_PANES_JSON = """{
+  "workspace_id" : "D2022D3A-292F-4647-B095-E6ACE6263CE3",
+  "panes" : [
+    {
+      "surface_ids" : ["3B12EB97-763B-46B0-8F3A-AFD2940A6B86"],
+      "id" : "3B338EDA-6066-410F-B2BD-B0AD86C7E83C",
+      "index" : 0,
+      "selected_surface_id" : "3B12EB97-763B-46B0-8F3A-AFD2940A6B86",
+      "focused" : true,
+      "surface_count" : 1
+    },
+    {
+      "index" : 1,
+      "focused" : false,
+      "surface_count" : 1,
+      "id" : "4CDF2624-0414-4AB8-A7FE-E38BEC2C01EC",
+      "selected_surface_id" : "9E1123BD-BB6C-46DF-8F0C-509DACD4D8DA",
+      "surface_ids" : ["9E1123BD-BB6C-46DF-8F0C-509DACD4D8DA"]
+    }
+  ],
+  "window_id" : "0962639D-30C2-4E0C-8124-37261DFFDCF3"
+}"""
+
+_BRAVO_PANES_JSON = """{
+  "workspace_id" : "4D510C9F-5AE9-419B-B13A-F36057732685",
+  "panes" : [
+    {
+      "index" : 0,
+      "id" : "13805E5F-A869-48B5-9DB2-9A3555E64D07",
+      "surface_count" : 1,
+      "focused" : true,
+      "selected_surface_id" : "688197C4-AC70-4546-89B9-57B3B841C736",
+      "surface_ids" : ["688197C4-AC70-4546-89B9-57B3B841C736"]
+    }
+  ],
+  "window_id" : "0962639D-30C2-4E0C-8124-37261DFFDCF3"
+}"""
+
+_JSON = ("--json", "--id-format", "uuids")
+
+_ID_REPLIES = {
+    (*_JSON, "list-workspaces"): _WORKSPACES_JSON,
+    (
+        *_JSON,
+        "list-panes",
+        "--workspace",
+        "D2022D3A-292F-4647-B095-E6ACE6263CE3",
+    ): _ALPHA_PANES_JSON,
+    (
+        *_JSON,
+        "list-panes",
+        "--workspace",
+        "4D510C9F-5AE9-419B-B13A-F36057732685",
+    ): _BRAVO_PANES_JSON,
+}
+
+
+class TestPaneIds:
+    """workspace_pane_ids / CmuxLayout.pane_ids — the uuids a deep link names."""
+
+    def test_ids_of_the_workspaces_that_have_the_pane(self):
+        client = RecordingCmuxClient(_ID_REPLIES)
+        ids = workspace_pane_ids(
+            client, ["myproject-alpha", "myproject-bravo", "myproject-charlie"], 1
+        )
+        # bravo has no pane 1 and charlie has no workspace: both are absent.
+        assert ids == {
+            "myproject-alpha": (
+                "D2022D3A-292F-4647-B095-E6ACE6263CE3",
+                "4CDF2624-0414-4AB8-A7FE-E38BEC2C01EC",
+            )
+        }
+
+    def test_lists_workspaces_once(self):
+        client = RecordingCmuxClient(_ID_REPLIES)
+        workspace_pane_ids(client, ["myproject-alpha", "myproject-bravo"], 1)
+        assert client.calls.count((*_JSON, "list-workspaces")) == 1
+
+    def test_an_entry_with_no_id_is_skipped(self):
+        replies = {
+            **_ID_REPLIES,
+            (
+                *_JSON,
+                "list-workspaces",
+            ): '{"workspaces": [{"title": "myproject-alpha"}]}',
+        }
+        client = RecordingCmuxClient(replies)
+        assert workspace_pane_ids(client, ["myproject-alpha"], 1) == {}
+
+    def test_empty_when_cmux_does_not_answer(self):
+        assert workspace_pane_ids(RecordingCmuxClient(), ["myproject-alpha"], 1) == {}
+
+    def test_layout_reads_its_own_workspace(self):
+        lay, _ = _layout(_ID_REPLIES)
+        assert lay.pane_ids(1) == (
+            "D2022D3A-292F-4647-B095-E6ACE6263CE3",
+            "4CDF2624-0414-4AB8-A7FE-E38BEC2C01EC",
+        )
+        assert lay.pane_ids(2) is None
