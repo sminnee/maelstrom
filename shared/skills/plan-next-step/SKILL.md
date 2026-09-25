@@ -13,7 +13,7 @@ Load `planning` first. The initial prompt contains remaining work and the expect
 
 Use the prompt as the plan of record, then reconcile it with commits, status, diffs, and source. Plan the top item, not a reconstruction of the whole task.
 
-Plan the top remaining item as a substantial, tested vertical slice. Finish all remaining work when it fits one execute session. Re-cut layer-shaped work into vertical slices. The execute draft must describe implementation, public **Seams under test**, verification, and any required test re-cut.
+Plan the top remaining item as a substantial, tested vertical slice. Do not split work only to make the PR small: `/present` re-cuts the commits into one story commit per decision. Finish all remaining work when it fits one execute session. Re-cut layer-shaped work into vertical slices. The execute draft must describe implementation, public **Seams under test**, verification, and any required test re-cut.
 
 Create `.drafts/step.md` in auto mode with `linear.in-progress`. If work remains, create a normal-mode `plan-next-step` tail on the inherited branch and update it with the reduced remaining list and expanded completed-state summary. Do not set `post-action: linear.done`.
 

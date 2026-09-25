@@ -11,7 +11,7 @@ metadata:
 
 Load `planning` first. Read the brief from the initial prompt. Research the relevant code and patterns before drafting. This session plans only; do not implement.
 
-Classify work as one execute session (about 2,000 new lines or less) or a short chain. Confirm a material classification choice with the user. Make each execute step a tested, independently mergeable vertical slice. Keep all steps on the inherited branch. Do not set `post-action: linear.done`.
+Classify work as one execute session (about 2,000 new lines or less) or a short chain. A slice can be a substantial piece of work. Do not split work only to make the PR small: `/present` re-cuts the commits into one story commit per decision. Confirm a material classification choice with the user. Make each execute step a tested, independently mergeable vertical slice. Keep all steps on the inherited branch. Do not set `post-action: linear.done`.
 
 Research before drafting. Use one to three read-only explorers when they help. A slice includes its tests and public behaviour; never make layer-only or test-only iterations. Name the public seams and any test re-cut in each execute draft. Ask before a chain longer than three slices.
 

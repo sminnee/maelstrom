@@ -26,6 +26,6 @@ mael task promote .drafts/next.md --follow <first-id>
 
 On UI approval, the UI already promoted and deleted the drafts. Use the reported ids. On rejection, delete drafts.
 
-After promotion, close the planning task, launch the head with `mael task next --run`, then run `mael session end`. Prefer a few coherent iterations over many small ones.
+After promotion, close the planning task, launch the head with `mael task next --run`, then run `mael session end`. Prefer a few coherent iterations over many small ones. A large PR stays readable because `/present` re-cuts it into one story commit per decision.
 
 The head follows the planning task, so close the planner before launching it. A planning session ends only after the first task launches. Do not end it merely because the drafts exist.

@@ -215,8 +215,12 @@ model named there.
 
 ## Slice vertically
 
-Each iteration must be a **thin vertical slice**: an end-to-end cut through every layer it
+Each iteration must be a **vertical slice**: an end-to-end cut through every layer it
 touches, shipping its own tests and delivering behaviour a user can see.
+
+A slice can be a substantial piece of work. Do not split work only to make the PR small.
+`/present` re-cuts the build commits into one story commit per design decision, so a reviewer
+can read a large PR.
 
 Layer-shaped iterations — "the back-end API", "then the front end", "then the e2e tests" —
 are an **antipattern**. A plan whose iterations are named after layers has been sliced the
