@@ -196,7 +196,9 @@ Each row carries its operations. Sync, close and the environment control are pla
 close and delete are `ui/ConfirmButton.tsx`, one question open at a time per row, because two
 destructive actions a click apart is how the wrong worktree gets deleted. `_main` is offered
 neither close nor delete — it holds the main checkout — but it still syncs. The environment control
-reads `appRunning`: Start when it is down, Stop and Restart when it is up.
+is `worktrees/EnvControl.tsx`, a split button over the env state; its options are listed in
+[the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator). The expanded card
+draws the same control when its task has an open worktree.
 
 The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every
@@ -479,12 +481,12 @@ too; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phas
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
 whatever raised it — a plan review, or a tag the agent wrote in its own message.
 
-The same links row carries two external links, which open a new browser tab instead of a
-panel tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the
-whole difference a reader sees. The wire carries a ready `prUrl`, so the card links a pull
-request without joining two fields; a worktree with no PR draws none. The dev env link draws
-only while the environment runs, and the worktree poll makes it appear and
-disappear on its own.
+The same links row carries external links, which open a new browser tab instead of a panel
+tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
+difference a reader sees. The wire carries a ready `prUrl`, so the card links a pull request
+without joining two fields; a worktree with no PR draws none. `worktrees/DevEnvLinks.tsx` draws
+a link per running web-facing service, and the worktree poll makes each appear and disappear on
+its own.
 
 The row ends with `worktrees/CmuxControl.tsx`, the worktree's terminal in cmux. While
 `shellUrl` is set it is an `ExternalLink` with `newTab={false}`. With `shellUrl` empty it is a button that makes the terminal, then

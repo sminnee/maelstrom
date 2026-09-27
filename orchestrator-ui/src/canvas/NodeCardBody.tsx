@@ -21,7 +21,6 @@ import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
-import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { DeskToggle } from '../tasklist/DeskToggle';
@@ -33,6 +32,8 @@ import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
+import { DevEnvLinks } from '../worktrees/DevEnvLinks';
+import { EnvControl } from '../worktrees/EnvControl';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './NodeCard.module.css';
 
@@ -113,8 +114,6 @@ export function NodeCardBody({
     agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
-  // A stopped env, or a worktree with no web-facing port, draws nothing.
-  const appUrl = where?.appRunning && where.appUrl ? where.appUrl : '';
   const title = nodeTitle(node);
   const deciding = !!agent && agent.pendingRequestIds.length > 0;
   const running = [...transcript.items]
@@ -287,7 +286,7 @@ export function NodeCardBody({
         <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
           <PrChip worktree={where} size="large" />
-          {appUrl && <ExternalLink href={appUrl}>Dev env</ExternalLink>}
+          <DevEnvLinks worktree={where} />
           <CmuxControl worktree={where} />
         </div>
         <div className={styles.commands}>
@@ -314,6 +313,7 @@ export function NodeCardBody({
               Resume
             </AppButton>
           )}
+          {where && !where.isClosed && <EnvControl worktree={where} />}
           <SplitButton variant="quiet" options={endOfWork} />
         </div>
         {documents.length > 0 && (

@@ -91,23 +91,18 @@ describe('the expanded node', () => {
     });
 
     it('links the dev env only while it runs, and drops the link when it stops', async () => {
-      const { server } = await renderApp();
+      const user = userEvent.setup();
+      await renderApp();
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('link', { name: 'Dev env' })).toHaveAttribute(
         'href',
         'http://localhost:4210',
       );
-      act(() => {
-        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
-          w.worktrees['northwind-delta'] = {
-            ...w.worktrees['northwind-delta']!,
-            appRunning: false,
-          };
-        });
-      });
+      await user.click(within(expanded()).getByRole('button', { name: 'Stop env' }));
       await waitFor(() =>
         expect(within(expanded()).queryByRole('link', { name: 'Dev env' })).toBeNull(),
       );
+      expect(within(expanded()).getByRole('button', { name: 'Start env' })).toBeInTheDocument();
       // The PR link is not the dev env's: it stays.
       expect(
         within(expanded()).getByRole('link', { name: 'PR #118, CI running' }),
@@ -177,6 +172,27 @@ describe('the expanded node', () => {
         expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull(),
       );
       expect(within(expanded()).queryByRole('button', { name: 'cmux' })).toBeNull();
+    });
+
+    it('offers no env control on a card with no worktree', async () => {
+      await renderApp();
+      // Blocked and not yet launched, so nothing has made its worktree.
+      clickNode('NORT-15');
+      expect(within(expanded()).queryByRole('button', { name: /env$/ })).toBeNull();
+    });
+
+    it('offers no env control once the worktree is closed', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      expect(within(expanded()).getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
+      act(() => {
+        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+          w.worktrees['northwind-delta'] = { ...w.worktrees['northwind-delta']!, isClosed: true };
+        });
+      });
+      await waitFor(() =>
+        expect(within(expanded()).queryByRole('button', { name: /env$/ })).toBeNull(),
+      );
     });
   });
 

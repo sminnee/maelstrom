@@ -183,6 +183,17 @@ position instead.
 
 `mael env status` tags a stopped service `(optional)` or `(shared)` to match its declaration.
 
+## The environment in the orchestrator
+
+The worktree view and the expanded card show the same environment control. Its button does what
+the env state asks for: Stop when every core service runs, Start when some or none do. Its menu
+adds Stop when the env is partial, then Restart, then a Start or Stop for each optional service.
+A whole stop or restart also stops the optional services, and a whole start leaves them down.
+
+Each running web-facing service gets a link. One link reads "Dev env". More than one read
+"Dev env: web · ladle", one link per service. Only a [web-facing](#ports) port gets a link, so name an
+optional catalogue's port `LADLE_APP`, not `LADLE`.
+
 ## An agent daemon per environment
 
 The agent daemon holds driven agents and serves the control socket `mael agent` talks to.
