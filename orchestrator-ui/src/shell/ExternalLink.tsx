@@ -12,24 +12,29 @@ export function ExternalLink({
   href,
   children,
   className,
+  icon: Icon = ExternalLinkIcon,
+  newTab = true,
   'aria-label': ariaLabel,
 }: {
   href: string;
   children: ReactNode;
   className?: string;
+  icon?: (props: { className?: string }) => ReactNode;
+  /** Off for a link another app takes, such as `cmux:`: a new tab would stay blank. */
+  newTab?: boolean;
   'aria-label'?: string;
 }) {
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      target={newTab ? '_blank' : undefined}
+      rel={newTab ? 'noopener noreferrer' : undefined}
       className={[styles.link, className].filter(Boolean).join(' ')}
       aria-label={ariaLabel}
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-      <ExternalLinkIcon className={styles.icon} />
+      <Icon className={styles.icon} />
     </a>
   );
 }

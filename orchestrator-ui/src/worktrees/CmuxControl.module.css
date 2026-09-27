@@ -1,0 +1,5 @@
+/* Matches the icon of `ExternalLink`, which the linked state draws. */
+.icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}

@@ -11,6 +11,17 @@ describe('ExternalLink', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('stays in the tab for a link another app takes', () => {
+    render(
+      <ExternalLink href="cmux://workspace/W/pane/P" newTab={false}>
+        cmux
+      </ExternalLink>,
+    );
+    const link = screen.getByRole('link', { name: 'cmux' });
+    expect(link).not.toHaveAttribute('target');
+    expect(link).not.toHaveAttribute('rel');
+  });
+
   it('does not reach a clickable parent: a link on a node must not toggle the node', () => {
     const onParentClick = vi.fn();
     render(
