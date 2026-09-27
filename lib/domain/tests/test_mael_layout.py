@@ -102,6 +102,80 @@ class TestOpenForShell:
         assert "npm i\n" not in cmux.texts()
 
 
+class TestTerminalUrl:
+    def test_the_first_terminals_pane_in_an_agent_workspace(self):
+        cmux = FakeCmux().with_workspace(
+            NAME, [["Claude"], ["Terminal"], [("browser", "http://x")]]
+        )
+        assert _worktree(cmux).terminal_url() == cmux.pane_link(NAME, 0)
+
+    def test_a_browser_before_the_first_terminal_is_skipped(self):
+        cmux = FakeCmux().with_workspace(
+            NAME, [[("browser", "http://x")], ["Terminal"]]
+        )
+        assert _worktree(cmux).terminal_url() == cmux.pane_link(NAME, 1)
+
+    def test_none_without_a_terminal(self):
+        cmux = FakeCmux().with_workspace(NAME, [[("browser", "http://x")]])
+        assert _worktree(cmux).terminal_url() is None
+
+    def test_none_without_the_workspace(self):
+        assert _worktree(FakeCmux().with_workspace("other")).terminal_url() is None
+
+
+class TestEnsureTerminal:
+    def test_a_missing_workspace_gets_one_terminal(self):
+        cmux = FakeCmux()
+        url = _worktree(cmux).ensure_terminal()
+        assert url == cmux.pane_link(NAME, 0)
+        # One terminal tab, no Claude tab, no installer, and no focus.
+        assert cmux.tabs(NAME) == [["Terminal"]]
+        assert cmux.texts() == ["cd /wt\n"]
+        assert cmux.focused == []
+
+    def test_a_live_workspace_gains_nothing(self):
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        assert _worktree(cmux).ensure_terminal() == cmux.pane_link(NAME, 0)
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal"]]
+        assert cmux.sent == []
+
+    def test_none_when_the_workspace_cannot_be_made(self):
+        cmux = FakeCmux()
+        with patch.object(cmux, "new_workspace", return_value=None):
+            assert _worktree(cmux).ensure_terminal() is None
+
+
+class TestTerminalUrls:
+    def test_links_for_matched_worktrees_only(self):
+        cmux = (
+            FakeCmux()
+            .with_workspace(NAME, [["Claude"], ["Terminal"]])
+            .with_workspace("myproject-bravo", [[("browser", "http://x")]])
+            .with_workspace("other-alpha")
+        )
+        urls = MaelCmux(cmux).terminal_urls(
+            [("myproject", "alpha"), ("myproject", "bravo"), ("myproject", "charlie")]
+        )
+        # bravo has no terminal and charlie has no workspace: both are absent.
+        assert urls == {("myproject", "alpha"): cmux.pane_link(NAME, 0)}
+
+    def test_the_first_workspace_of_a_name_wins(self):
+        cmux = FakeCmux().with_workspace(NAME).with_workspace(NAME)
+        urls = MaelCmux(cmux).terminal_urls([("myproject", "alpha")])
+        # pane_link names the first workspace of the title.
+        assert urls == {("myproject", "alpha"): cmux.pane_link(NAME, 0)}
+
+    def test_lists_workspaces_once(self):
+        cmux = FakeCmux().with_workspace(NAME).with_workspace("myproject-bravo")
+        with patch.object(
+            cmux, "list_workspaces", wraps=cmux.list_workspaces
+        ) as listed:
+            MaelCmux(cmux).terminal_urls(
+                [("myproject", "alpha"), ("myproject", "bravo")]
+            )
+        assert listed.call_count == 1
+
+
 class TestAppBrowser:
     def test_show_opens_in_the_browser_pane(self):
         cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
