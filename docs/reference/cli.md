@@ -939,6 +939,9 @@ reading the tree sees an ordinary branch. Because it rebases, it also does the w
 `mael sync --no-push`.
 
 The squashed commit's subject is always `wip: squashed for review`. `/present` re-cuts it away.
+Its body lists each commit it collapsed, oldest first: the short SHA, then the message. The
+reasons of the build commits stay on the branch, and the working history keeps each SHA
+reachable, so `git show <sha>` still works.
 
 It prints the base, the working-history ref, the commit count and the diff stat.
 
@@ -949,7 +952,9 @@ Returns the branch to unstaged changes at its base tip, keeping a working histor
 This is `squash-branch` followed by `git reset --mixed HEAD^`. `/present` runs it to re-cut the
 reviewed tree into story commits. Run it yourself only to re-cut a branch's commits by hand.
 
-It prints the base, the working-history ref, the commit count and the diff stat.
+It prints the base, the working-history ref, the commit count, the short SHA and message of each
+commit it uncommitted, and the diff stat. After `squash-branch`, the squashed commit's message holds the
+build commits' messages, so `/present` reads them all here.
 
 **Scope, on both commands**
 
