@@ -16,6 +16,9 @@ The API and the mechanics know no maelstrom concepts. Only the policy layer know
 `{project}-{worktree}` name and the pane 0/1/2 convention. CLI call sites and the orchestrator
 use the policy layer.
 
+A read across many workspaces is not a change to one workspace, so it is not in `CmuxLayout`.
+`MaelCmux.terminal_urls` reads the API directly.
+
 ## The API
 
 `CliCmuxApi` reads with `--json --id-format both`. The reply gives each entity a ref, such as
@@ -66,8 +69,28 @@ A call site checks for `None` once. After that, every method degrades silently.
 
 ## The pane convention
 
-maelstrom uses a 3-pane layout per worktree workspace: pane 0 Claude, pane 1 shell, pane 2
-browsers. `mael_layout.py` is the source of truth — read it rather than relying on this list.
+An agent workspace has 3 panes: pane 0 Claude, pane 1 shell, pane 2 browsers. A workspace that
+`ensure_terminal` makes has one terminal, in pane 0. `mael_layout.py` is the source of truth —
+read it rather than relying on this list.
+
+## Terminal links
+
+cmux 0.64 and later open `cmux://workspace/<workspace uuid>/pane/<pane uuid>` links. The link
+focuses a pane that is already open. It cannot make one.
+
+A worktree's terminal link names the pane of the **first terminal tab** in its workspace, in
+`list-panels` order. The rule does not use the pane convention. In a workspace that the
+orchestrator made, that is its one terminal in pane 0. In an agent workspace, it is the Claude
+pane, and cmux shows that pane's selected tab. Either way the link lands on a terminal in the
+worktree.
+
+`MaelCmux.terminal_urls` gives the orchestrator's world each worktree's terminal link. It runs
+one `list-workspaces`, then one `list-panels` for each matched workspace.
+`WorktreeWorkspace.ensure_terminal` returns the link. When the workspace is missing, it first
+makes one with one terminal tab in the worktree.
+
+`list-workspaces` and `list-panels` may list only the current cmux window. A worktree workspace in another window
+then has no link.
 
 ## Timeouts
 

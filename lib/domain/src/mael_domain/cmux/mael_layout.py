@@ -7,14 +7,17 @@ command, app/PR URLs).
 
 :class:`MaelCmux` is maelstrom's view of one cmux. :class:`WorktreeWorkspace` is
 one worktree's workspace, with its intents as methods: open it for an agent,
-or open it for a shell. Each intent issues
-:class:`~mael_domain.cmux.model.CmuxLayout` verbs.
+open it for a shell, link to its terminal. Each intent issues
+:class:`~mael_domain.cmux.model.CmuxLayout` verbs, or reads the API directly
+when it reads more than one workspace or only reads.
 
 ``MaelCmux.current()`` is ``None`` outside cmux. After that, every method is
-non-fatal: it returns ``None`` or ``False``.
+non-fatal: it returns ``None``, ``False`` or an empty dict.
 """
 
-from .api import CliCmuxApi, CmuxApi
+from collections.abc import Iterable
+
+from .api import CliCmuxApi, CmuxApi, Workspace
 from .client import current_client
 from .model import BrowserTab, CmuxLayout, TerminalTab
 
@@ -30,6 +33,16 @@ GITHUB_URL_PREFIX = "https://github.com"
 def workspace_name(project: str, worktree: str) -> str:
     """Canonical cmux workspace name: ``{project}-{worktree}``."""
     return f"{project}-{worktree}"
+
+
+def _terminal_url(api: CmuxApi, workspace: Workspace) -> str | None:
+    """The deep link to the pane of the workspace's first terminal tab."""
+    terminal = next(
+        (s for s in api.list_surfaces(workspace.ref) if s.type == "terminal"), None
+    )
+    if terminal is None:
+        return None
+    return f"cmux://workspace/{workspace.id}/pane/{terminal.pane_id}"
 
 
 class MaelCmux:
@@ -52,6 +65,27 @@ class MaelCmux:
         """The workspace of one worktree. ``path`` is where its terminals start."""
         return WorktreeWorkspace(self._api, project, worktree, path)
 
+    def terminal_urls(
+        self, worktrees: Iterable[tuple[str, str]]
+    ) -> dict[tuple[str, str], str]:
+        """Each worktree's terminal link, by ``(project, worktree)``.
+
+        A worktree with no workspace, or no terminal, is absent. One
+        ``list-workspaces`` for all of them, then one ``list-panels`` per match.
+        """
+        wanted = {workspace_name(p, w): (p, w) for p, w in worktrees}
+        found: dict[str, Workspace] = {}
+        # Reversed, so the first workspace of a name wins, as in CmuxLayout.
+        for workspace in reversed(self._api.list_workspaces()):
+            if workspace.title in wanted:
+                found[workspace.title] = workspace
+        urls: dict[tuple[str, str], str] = {}
+        for name, workspace in found.items():
+            url = _terminal_url(self._api, workspace)
+            if url is not None:
+                urls[wanted[name]] = url
+        return urls
+
     def show_pr_browser(self, url: str) -> str | None:
         """Open or recycle the github browser tab in the caller's workspace.
 
@@ -69,7 +103,8 @@ class WorktreeWorkspace:
 
     Full agentic development: :meth:`open_for_agent`, or
     :meth:`prepare_install_shell` then :meth:`add_agent`. Terminal access only:
-    :meth:`open_for_shell` for ``mael add --no-agent``.
+    :meth:`open_for_shell` for ``mael add --no-agent``, :meth:`ensure_terminal`
+    and :meth:`terminal_url` for the orchestrator.
     """
 
     def __init__(
@@ -124,6 +159,27 @@ class WorktreeWorkspace:
             return self._layout.add_terminal(SHELL_PANE, tab) is not None
         tab = TerminalTab("Terminal", cwd=self._path, command=install_cmd)
         return self._layout.ensure_workspace(tab) is not None
+
+    def ensure_terminal(self) -> str | None:
+        """The terminal link, after making the workspace if it is missing.
+
+        A new workspace has one terminal tab in the worktree. It has no Claude
+        tab and runs no installer: a worktree the orchestrator shows is already
+        installed. Nothing is focused; the link does that. ``None`` when cmux
+        fails.
+        """
+        workspace = self._layout.workspace()
+        if workspace is None:
+            tab = TerminalTab("Terminal", cwd=self._path)
+            if self._layout.ensure_workspace(tab) is None:
+                return None
+            workspace = self._layout.workspace()
+        return _terminal_url(self._api, workspace) if workspace else None
+
+    def terminal_url(self) -> str | None:
+        """The link to the pane of the workspace's first terminal tab."""
+        workspace = self._layout.workspace()
+        return _terminal_url(self._api, workspace) if workspace else None
 
     # === browsers and teardown ===
 
