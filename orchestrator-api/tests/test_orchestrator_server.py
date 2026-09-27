@@ -79,8 +79,17 @@ class Harness:
                     "dirtyFiles": 0,
                     "localCommits": 0,
                     "prNumber": None,
-                    "appUrl": "",
-                    "appRunning": False,
+                    "env": {
+                        "state": "stopped",
+                        "services": [
+                            {
+                                "name": "ladle",
+                                "optional": True,
+                                "running": False,
+                                "url": "",
+                            }
+                        ],
+                    },
                     "sessionCount": 0,
                 }
             ],
@@ -5445,13 +5454,15 @@ def test_a_server_that_cannot_sync_worktrees_says_so(harness):
 
 
 def test_starting_an_environment_passes_the_action_and_refreshes_the_world(harness):
-    acted: list[tuple[str, str]] = []
+    acted: list[tuple[str, str, str | None]] = []
 
-    def env(project: str, nato: str, path: str, action: str) -> None:
-        acted.append((nato, action))
+    def env(
+        project: str, nato: str, path: str, action: str, service: str | None
+    ) -> None:
+        acted.append((nato, action, service))
         harness.worktrees.worktrees[0] = {
             **harness.worktrees.worktrees[0],
-            "appRunning": True,
+            "env": {"state": "running", "services": []},
         }
 
     harness.worktrees.env = env
@@ -5465,13 +5476,31 @@ def test_starting_an_environment_passes_the_action_and_refreshes_the_world(harne
 
     reply, worktrees = run(scenario())
     assert reply.status == 200
-    assert acted == [("alpha", "start")]
-    assert worktrees["worktrees"][0]["appRunning"] is True
+    assert acted == [("alpha", "start", None)]
+    assert worktrees["worktrees"][0]["env"]["state"] == "running"
+
+
+def test_starting_one_service_passes_its_name_to_the_model(harness):
+    acted: list[tuple[str, str | None]] = []
+    harness.worktrees.env = lambda p, n, path, action, service: acted.append(
+        (action, service)
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/env",
+                {"action": "start", "service": "ladle"},
+            )
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert acted == [("start", "ladle")]
 
 
 def test_an_env_call_with_no_action_starts(harness):
     acted: list[str] = []
-    harness.worktrees.env = lambda p, n, path, action: acted.append(action)
+    harness.worktrees.env = lambda p, n, path, action, service: acted.append(action)
 
     async def scenario():
         async with harness.client() as api:
@@ -5484,7 +5513,7 @@ def test_an_env_call_with_no_action_starts(harness):
 
 def test_an_unknown_env_action_is_refused_before_the_model_runs(harness):
     acted: list[str] = []
-    harness.worktrees.env = lambda p, n, path, action: acted.append(action)
+    harness.worktrees.env = lambda p, n, path, action, service: acted.append(action)
 
     async def scenario():
         async with harness.client() as api:

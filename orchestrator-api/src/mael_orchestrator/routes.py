@@ -593,7 +593,10 @@ async def _sync_worktree(request: web.Request) -> web.StreamResponse:
 
 
 async def _env_worktree(request: web.Request) -> web.StreamResponse:
-    """Start, stop or restart a worktree's environment. Services take time to come up."""
+    """Start, stop or restart a worktree's environment, or one optional service.
+
+    Services take time to come up.
+    """
     worktree_id = request.match_info["id"]
     return await _command(
         request,
@@ -601,6 +604,7 @@ async def _env_worktree(request: web.Request) -> web.StreamResponse:
             "type": "worktree.env",
             "worktreeId": worktree_id,
             "action": body.get("action", "start"),
+            "service": body.get("service"),
         },
     )
 

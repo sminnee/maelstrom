@@ -1994,7 +1994,12 @@ class Orchestrator:
         row = self.world["worktrees"][worktree_id]
         try:
             await self._run_worktree(
-                env, row["project"], row["nato"], row["path"], command["action"]
+                env,
+                row["project"],
+                row["nato"],
+                row["path"],
+                command["action"],
+                command.get("service"),
             )
         except CloseBlocked as exc:
             return _refused("invalid", str(exc))

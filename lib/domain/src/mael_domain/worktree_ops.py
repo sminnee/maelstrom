@@ -43,13 +43,27 @@ def _autorepair(worktree_path: Path) -> SyncResult:
     return sync_worktree_with_autorepair(worktree_path)
 
 
-def _start(project: str, worktree: str, worktree_path: Path) -> list[str]:
-    state = start_env(JsonEnvStore(), project, worktree, worktree_path)
-    return [f"{service.name}: started" for service in state.services]
+def _start(
+    project: str, worktree: str, worktree_path: Path, services: list[str] | None
+) -> list[str]:
+    # A named start skips the install, as `mael env start <name>` does.
+    state = start_env(
+        JsonEnvStore(),
+        project,
+        worktree,
+        worktree_path,
+        services=services,
+        skip_install=services is not None,
+    )
+    return [
+        f"{service.name}: started"
+        for service in state.services
+        if services is None or service.name in services
+    ]
 
 
-def _stop(project: str, worktree: str) -> list[str]:
-    return stop_env(JsonEnvStore(), project, worktree)
+def _stop(project: str, worktree: str, services: list[str] | None) -> list[str]:
+    return stop_env(JsonEnvStore(), project, worktree, services=services)
 
 
 @dataclass
@@ -64,8 +78,8 @@ class SyncSteps:
 class EnvSteps:
     """The collaborators the environment operation drives."""
 
-    start: Callable[[str, str, Path], list[str]] = _start
-    stop: Callable[[str, str], list[str]] = _stop
+    start: Callable[[str, str, Path, list[str] | None], list[str]] = _start
+    stop: Callable[[str, str, list[str] | None], list[str]] = _stop
 
 
 async def run_sync(
@@ -118,6 +132,7 @@ async def run_env(
     project_path: Path,
     action: str,
     *,
+    service: str | None = None,
     steps: EnvSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
@@ -128,15 +143,19 @@ async def run_env(
     sequence, so a half-restart never happens: starting over a process that
     would not die hides the fault behind a running service.
 
+    ``service`` names the one service to act on; omit it for the whole
+    environment.
+
     Never raises for a failure: read ``result.ok``.
     """
     steps = steps or EnvSteps()
+    services = [service] if service else None
 
     def stop() -> StepOutcome:
         if action not in (STOP, RESTART):
             return StepOutcome()
         try:
-            return StepOutcome(messages=list(steps.stop(project, worktree)))
+            return StepOutcome(messages=list(steps.stop(project, worktree, services)))
         except Exception as exc:  # noqa: BLE001 — the caller reads the refusal
             return StepOutcome(blocked=f"Could not stop the environment: {exc}")
 
@@ -145,7 +164,7 @@ async def run_env(
             return StepOutcome()
         try:
             return StepOutcome(
-                messages=list(steps.start(project, worktree, worktree_path))
+                messages=list(steps.start(project, worktree, worktree_path, services))
             )
         except Exception as exc:  # noqa: BLE001 — the caller reads the refusal
             return StepOutcome(blocked=f"Could not start the environment: {exc}")
