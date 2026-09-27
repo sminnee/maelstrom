@@ -210,11 +210,11 @@ security & correctness, coding standards. The prose reviewer loads the `writing-
 supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
 too and take precedence.
 
-Review leaves its fixes uncommitted. Commit them, then run `/present`.
+Review commits its fixes as one `wip: review fixes` commit, then `/present` runs.
 
 ### Fixups, not amends
 
-Review needs no fixups — its edits sit in the working tree. Fixups belong to **Land**: a change
+Review needs no fixups — its fixes are one commit, and present re-cuts it. Fixups belong to **Land**: a change
 made after the PR is pushed, when the branch already carries story commits.
 
 ```bash
