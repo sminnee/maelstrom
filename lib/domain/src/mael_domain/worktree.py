@@ -47,6 +47,7 @@ from .worktree_model import (
     SYNC_CLOSE_KEEP_BRANCH,
     WORKTREE_NAMES,
     BaseRef,
+    CollapsedCommit,
     CopyBackResult,
     EnvConflict,
     RebasePlan,
@@ -60,6 +61,7 @@ from .worktree_model import (
     WorktreeSetupError,
     apply_preserved_values,
     describe_branch_deletion,
+    describe_commits,
     extract_project_name,
     extract_worktree_name_from_folder,
     fetch_prunes,
@@ -1559,6 +1561,7 @@ def uncommit_branch(
         commits=squashed.commits,
         stat=squashed.stat,
         scope=squashed.scope,
+        collapsed=squashed.collapsed,
     )
 
 
@@ -1613,10 +1616,12 @@ def _collapse_branch(
     if scope == "local":
         _refuse_outbound_fixups(worktree_path, collapse_point)
 
+    collapsed = _collapsed_commits(worktree_path, collapse_point)
+
     ref = _free_history_ref(worktree_path, branch)
     run_git(["update-ref", ref, "HEAD"], cwd=worktree_path, quiet=True)
 
-    squashed, squash_error = _squash_onto(worktree_path, collapse_point)
+    squashed, squash_error = _squash_onto(worktree_path, collapse_point, collapsed)
     if squashed is None:
         # The soft reset may already have moved HEAD off the commits. Restore it
         # from the ref *before* dropping the ref — otherwise the work is left
@@ -1669,14 +1674,35 @@ def _collapse_branch(
         stat=stat,
         scope=scope,
         sha=head,
+        collapsed=collapsed,
     )
 
 
-def _squash_onto(worktree_path: Path, collapse_point: str) -> tuple[str | None, str]:
+def _collapsed_commits(
+    worktree_path: Path, collapse_point: str
+) -> tuple[CollapsedCommit, ...]:
+    """Each commit after ``collapse_point``, oldest first."""
+    log = run_git(
+        ["log", "--reverse", "--format=%H%x00%B%x00", f"{collapse_point}..HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+    ).stdout
+    fields = log.split("\0")
+    return tuple(
+        CollapsedCommit(sha.strip(), message.strip())
+        for sha, message in zip(fields[0::2], fields[1::2])
+        if sha.strip()
+    )
+
+
+def _squash_onto(
+    worktree_path: Path, collapse_point: str, collapsed: tuple[CollapsedCommit, ...]
+) -> tuple[str | None, str]:
     """Collapse everything after ``collapse_point`` into one commit.
 
     A soft reset plus a commit, rather than an interactive rebase: it cannot
-    conflict, because the tree never changes.
+    conflict, because the tree never changes. The commit's body lists
+    ``collapsed``, so the collapsed commits' reasons and SHAs stay on the branch.
 
     Returns ``(new HEAD, "")``, or ``(None, git's message)`` when it failed.
     """
@@ -1687,7 +1713,10 @@ def _squash_onto(worktree_path: Path, collapse_point: str) -> tuple[str | None, 
         return None, reset.stderr.strip() or "git reset failed"
 
     commit = run_git(
-        ["commit", "-m", SQUASH_MESSAGE], cwd=worktree_path, quiet=True, check=False
+        ["commit", "-m", SQUASH_MESSAGE, "-m", describe_commits(collapsed)],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
     )
     if commit.returncode != 0:
         return None, commit.stderr.strip() or "git commit failed"

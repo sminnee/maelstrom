@@ -13,6 +13,7 @@ decision is table-testable — see ``docs/dev/architecture-patterns.md``.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -134,6 +135,33 @@ SQUASH_MESSAGE = "wip: squashed for review"
 
 
 @dataclass(frozen=True)
+class CollapsedCommit:
+    """One commit a squash or an uncommit took in."""
+
+    sha: str
+    """Its SHA. The history ref keeps it reachable after the collapse."""
+    message: str
+    """Its full message."""
+
+
+def describe_commits(commits: Sequence[CollapsedCommit]) -> str:
+    """List commits as a bullet each: short SHA and subject, the body indented beneath.
+
+    The squashed commit's body is this list, so the build commits' reasons
+    survive the squash, and ``uncommit-branch`` prints it for ``/present`` to
+    read. The SHA lets a reader inspect the commit itself. A message that is
+    itself such a list nests one level deeper.
+    """
+    items = []
+    for commit in commits:
+        subject, *body = commit.message.strip().split("\n")
+        lines = [f"- {commit.sha[:12]} {subject}"]
+        lines += [f"  {line}" if line else "" for line in body]
+        items.append("\n".join(lines))
+    return "\n".join(items)
+
+
+@dataclass(frozen=True)
 class SquashResult:
     """What ``squash_branch`` did: what it collapsed, and into what."""
 
@@ -155,6 +183,8 @@ class SquashResult:
     ``uncommit_branch`` resets here rather than to ``HEAD^``, which does not
     resolve when the squashed commit is a branch's first. Empty for that root
     case, where there is no parent to name."""
+    collapsed: tuple[CollapsedCommit, ...] = ()
+    """Each collapsed commit, oldest first."""
 
 
 @dataclass(frozen=True)
@@ -171,6 +201,8 @@ class UncommitResult:
     """``git diff --stat`` of what is now unstaged in the working tree."""
     scope: SquashScope = "remote"
     """Which part of the branch was returned to the working tree."""
+    collapsed: tuple[CollapsedCommit, ...] = ()
+    """Each uncommitted commit, oldest first."""
 
 
 # Printed when an autorepair session resolved the conflicts. Every command that

@@ -26,10 +26,12 @@ from mael_domain.worktree import (
     get_commits_ahead,
     get_worktree_dirty_files,
     rebase_in_progress,
+    squash_branch,
     uncommit_branch,
 )
 from mael_domain.worktree_model import (
     BaseRef,
+    CollapsedCommit,
     UncommitResult,
     WorktreeError,
     history_ref,
@@ -59,6 +61,28 @@ class TestUncommitCollapsesTheBranch:
             "three.txt",
             "two.txt",
         ]
+
+    def test_after_a_squash_it_reports_the_build_messages_nested(
+        self, collapsible_project
+    ):
+        """The path `/present` takes: review squashes, then present uncommits."""
+        _, worktree_path = collapsible_project
+        one = create_commit(worktree_path, "one.txt", "one\n", "feat: one\n\nWhy one.")
+        two = create_commit(worktree_path, "two.txt", "two\n", "feat: two")
+        squashed = squash_branch(worktree_path).sha
+        fix = create_commit(worktree_path, "fix.txt", "fix\n", "wip: review fixes")
+
+        result = uncommit_branch(worktree_path)
+
+        assert result.collapsed == (
+            CollapsedCommit(
+                squashed,
+                "wip: squashed for review\n\n"
+                f"- {one[:12]} feat: one\n\n  Why one.\n"
+                f"- {two[:12]} feat: two",
+            ),
+            CollapsedCommit(fix, "wip: review fixes"),
+        )
 
     def test_the_history_ref_holds_the_chronology(self, collapsible_project):
         _, worktree_path = collapsible_project
@@ -278,14 +302,18 @@ class TestUncommitBranchCommand:
         ):
             return CliRunner().invoke(cli, ["git", "uncommit-branch"])
 
-    def test_it_reports_the_base_the_ref_the_count_and_the_stat(self, tmp_path):
+    def test_it_reports_the_base_the_ref_the_messages_and_the_stat(self, tmp_path):
         result = self._run(
             tmp_path,
             result=UncommitResult(
                 base="feat/parent",
                 history_ref="refs/mael/history/feat/child/20260908T121500Z",
-                commits=3,
+                commits=2,
                 stat=" one.txt | 1 +\n 1 file changed, 1 insertion(+)",
+                collapsed=(
+                    CollapsedCommit("a" * 40, "feat: one\n\nWhy one."),
+                    CollapsedCommit("b" * 40, "feat: two"),
+                ),
             ),
         )
 
@@ -293,7 +321,12 @@ class TestUncommitBranchCommand:
         assert result.output == (
             "Base: feat/parent\n"
             "Working history: refs/mael/history/feat/child/20260908T121500Z\n"
-            "Uncommitted 3 commits into the working tree.\n"
+            "Uncommitted 2 commits into the working tree:\n"
+            "\n"
+            "- aaaaaaaaaaaa feat: one\n"
+            "\n"
+            "  Why one.\n"
+            "- bbbbbbbbbbbb feat: two\n"
             "\n"
             " one.txt | 1 +\n"
             " 1 file changed, 1 insertion(+)\n"

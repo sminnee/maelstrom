@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **`/present` gets the reasons of the build commits.** The commit `mael git squash-branch` makes
+  now lists the SHA and message of each commit it collapsed. `mael git uncommit-branch` prints the
+  SHA and message of each commit it uncommits, so after a squash it prints the build commits.
+  `/present` reads them to choose its story commits.
+
 - **The `mael` wheel carries `shared/`.** The install is unchanged: `uv tool install
   sminnee-maelstrom`. `mael install` now finds the shared skills and prompts in an install from
   PyPI, where before it found them only in a git checkout.

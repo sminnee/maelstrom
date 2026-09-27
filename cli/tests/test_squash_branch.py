@@ -81,6 +81,28 @@ class TestSquashCollapsesTheWholeBranch:
         assert _subjects(worktree_path, "origin/main..HEAD") == [SQUASH_MESSAGE]
         assert result.sha == run_git(worktree_path, "rev-parse", "HEAD").stdout.strip()
 
+    def test_the_squashed_commit_lists_the_collapsed_messages(
+        self, collapsible_project
+    ):
+        """`/present` reads the build commits' reasons from here, oldest first.
+
+        Each carries its SHA, which the history ref keeps reachable.
+        """
+        _, worktree_path = collapsible_project
+        message = "feat: one\n\nWhy one.\n# kept\n\nCo-Authored-By: A <a@b.c>"
+        one = create_commit(worktree_path, "one.txt", "one\n", message)
+        two = create_commit(worktree_path, "two.txt", "two\n", "feat: two")
+
+        squash_branch(worktree_path)
+
+        body = run_git(worktree_path, "log", "-1", "--format=%B").stdout.strip()
+        assert body == (
+            "wip: squashed for review\n\n"
+            f"- {one[:12]} feat: one\n\n"
+            "  Why one.\n  # kept\n\n  Co-Authored-By: A <a@b.c>\n"
+            f"- {two[:12]} feat: two"
+        )
+
     def test_the_history_ref_holds_the_chronology(self, collapsible_project):
         _, worktree_path = collapsible_project
         three_commits(worktree_path)

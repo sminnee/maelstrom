@@ -17,7 +17,7 @@ from mael_domain.worktree import (
     squash_branch,
     uncommit_branch,
 )
-from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError
+from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError, describe_commits
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
@@ -427,7 +427,12 @@ def git_uncommit_branch(target, remote):
 
     click.echo(f"Base: {result.base}")
     click.echo(f"Working history: {result.history_ref}")
-    click.echo(f"Uncommitted {result.commits} commits into the working tree.")
+    if result.collapsed:
+        click.echo(f"Uncommitted {result.commits} commits into the working tree:")
+        click.echo()
+        click.echo(describe_commits(result.collapsed))
+    else:
+        click.echo(f"Uncommitted {result.commits} commits into the working tree.")
     if result.stat:
         click.echo()
         click.echo(result.stat)
