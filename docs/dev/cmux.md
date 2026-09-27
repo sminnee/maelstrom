@@ -29,3 +29,8 @@ Call sites do not need a guard.
 
 maelstrom uses a 3-pane layout per worktree workspace: pane 0 Claude, pane 1 shell, pane 2
 browsers. `mael_layout.py` is the source of truth — read it rather than relying on this list.
+
+## Timeouts
+
+Every command times out after `COMMAND_TIMEOUT_SECONDS` (10 s) and reads as no answer. A
+failure to run the binary also reads as no answer.
