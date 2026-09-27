@@ -121,6 +121,18 @@ LIST_ALL_ROW = {
     "pushed_commits": None,
     "app_url": "http://localhost:3070",
     "app_running": True,
+    "env": {
+        "state": "running",
+        "services": [
+            {
+                "name": "web",
+                "optional": False,
+                "running": True,
+                "url": "http://localhost:3070",
+            },
+            {"name": "ladle", "optional": True, "running": False, "url": ""},
+        ],
+    },
     "session_count": 1,
     "pr_url": "https://github.com/acme/northwind/pull/42",
     "pr_state": "ready",
@@ -146,8 +158,18 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "prUrl": "https://github.com/acme/northwind/pull/42",
         "prState": "ready",
         "prDraft": False,
-        "appUrl": "http://localhost:3070",
-        "appRunning": True,
+        "env": {
+            "state": "running",
+            "services": [
+                {
+                    "name": "web",
+                    "optional": False,
+                    "running": True,
+                    "url": "http://localhost:3070",
+                },
+                {"name": "ladle", "optional": True, "running": False, "url": ""},
+            ],
+        },
         "sessionCount": 1,
         "shellUrl": "",
     }
@@ -159,13 +181,13 @@ def test_worktree_entity_blanks_the_nulls_of_a_closed_row():
         "branch": None,
         "base": None,
         "is_closed": True,
-        "app_url": None,
+        "env": None,
     }
     entity = worktree_entity("northwind", row)
     assert entity["branch"] == ""
     assert entity["base"] == ""
     assert entity["isClosed"] is True
-    assert entity["appUrl"] == ""
+    assert entity["env"] == {"state": "stopped", "services": []}
 
 
 def test_worktree_entity_carries_the_pr_url():

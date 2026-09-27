@@ -6,6 +6,7 @@ checked here once, against the bare-clone-plus-worktree fixture.
 
 import asyncio
 import dataclasses
+import os
 import threading
 import time
 from contextlib import ExitStack, contextmanager
@@ -15,6 +16,8 @@ from unittest.mock import patch
 import pytest
 
 import mael_domain.task
+from mael_domain.env import EnvState, ServiceState, save_env_state
+from mael_domain.env_store import JsonEnvStore
 from mael_domain.github_model import PrStatus, RateLimited
 from mael_domain.list_all import (
     build_list_all_data,
@@ -168,6 +171,59 @@ def test_a_pr_with_no_url_of_its_own_falls_back_to_the_repo_join(
     )
     row = _row_for(project_path, dataclasses.replace(_pr(42), url=""))
     assert row["pr_url"] == "https://github.com/test/test-repo/pull/42"
+
+
+def test_a_worktree_row_carries_its_env_from_its_own_config(
+    project_with_worktree,
+):
+    """The worktree's own ``.maelstrom.yaml`` declares the services; a link
+    goes on a web-facing port only, and liveness is the tracked pid."""
+    project_path, worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    (worktree_path / ".maelstrom.yaml").write_text(
+        "services:\n"
+        "  web:\n"
+        "    command: run web\n"
+        "    ports: [FRONTEND, FRONTEND_HMR]\n"
+        "  worker:\n"
+        "    command: run worker\n"
+        "  ladle:\n"
+        "    optional: true\n"
+        "    command: run ladle\n"
+        "    ports: [LADLE_APP]\n"
+    )
+    save_env_state(
+        JsonEnvStore(),
+        EnvState(
+            project="test-repo",
+            worktree="alpha",
+            worktree_path=str(worktree_path),
+            started_at="2026-09-28T00:00:00+00:00",
+            services=[
+                ServiceState("web", "run web", os.getpid(), "/tmp/web.log", "x"),
+            ],
+        ),
+    )
+    with patch("mael_domain.list_all.get_port_allocation", return_value=321):
+        row = _row_for(project_path, None)
+    assert row["env"] == {
+        "state": "partial",
+        "services": [
+            {
+                "name": "web",
+                "optional": False,
+                "running": True,
+                "url": "http://localhost:3210",
+            },
+            {"name": "worker", "optional": False, "running": False, "url": ""},
+            {
+                "name": "ladle",
+                "optional": True,
+                "running": False,
+                "url": "http://localhost:3212",
+            },
+        ],
+    }
 
 
 def test_a_worktree_row_carries_its_pr_state(
@@ -390,7 +446,7 @@ def _fake_worktrees(project_path: Path, count: int) -> list[WorktreeInfo]:
 
 @contextmanager
 def _quiet_worktree_reads(**overrides):
-    """Stop a fake worktree row reaching git, ``gh`` or the ports file.
+    """Stop a fake worktree row reaching git, ``gh``, the ports or env state files.
 
     ``overrides`` names the read the test is actually about, so each test
     patches one function itself and lets the rest answer nothing.
@@ -403,6 +459,8 @@ def _quiet_worktree_reads(**overrides):
         "get_local_only_commits_async": 0,
         "get_pushed_commit_count_async": 0,
         "get_app_url": None,
+        "get_env_status": None,
+        "get_shared_status": None,
     }
     with ExitStack() as stack:
         stack.enter_context(

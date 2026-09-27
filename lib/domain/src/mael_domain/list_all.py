@@ -14,16 +14,29 @@ per caller.
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from . import session_discovery
 from .base_store import GitConfigBaseStore
-from .config import linear_team_id
+from .config import (
+    ServiceDef,
+    linear_team_id,
+    load_config_or_default,
+    service_port_names,
+)
+from .env import (
+    EnvSummary,
+    ServiceStatus,
+    get_env_status,
+    get_shared_status,
+    summarise_env,
+)
+from .env_store import JsonEnvStore
 from .github import get_open_prs, get_pr_for_branch
 from .github_model import PrStatus, RateLimited, is_open_pr
-from .ports import get_app_url
+from .ports import get_app_url, get_port_allocation, is_web_port_name
 from .worktree import (
     WorktreeInfo,
     closed_worktrees_async,
@@ -251,6 +264,8 @@ class _ProjectContext:
     pr_cache: dict[str, PrStatus]
     repo_url: str | None
     live_sessions: session_discovery.LiveSessionSet
+    #: The project's shared services, read once for every row's env state.
+    shared_status: list[ServiceStatus] | None
     limit: asyncio.Semaphore
 
 
@@ -337,6 +352,9 @@ async def _project_data(
         pr_cache=pr_cache or {},
         repo_url=repo_url,
         live_sessions=live_sessions,
+        shared_status=await asyncio.to_thread(
+            get_shared_status, JsonEnvStore(), project_name
+        ),
         limit=limit,
     )
     read = await asyncio.gather(
@@ -391,6 +409,7 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             "pushed_commits": None,
             "app_url": None,
             "app_running": False,
+            "env": {"state": "stopped", "services": []},
             "session_count": 0,
         }
 
@@ -422,6 +441,7 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
     app_info = get_app_url(ctx.path, display_name)
     if app_info:
         app_url, app_running = app_info
+    env = await asyncio.to_thread(_env_summary, wt.path, display_name, ctx, app_url)
 
     return {
         "name": display_name,
@@ -440,5 +460,44 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
         "pushed_commits": pushed_commits,
         "app_url": app_url,
         "app_running": app_running,
+        "env": {
+            "state": env.state,
+            "services": [asdict(service) for service in env.services],
+        },
         "session_count": session_count,
     }
+
+
+def _web_urls(
+    port_base: int | None, declared: list[ServiceDef], port_names: list[str]
+) -> dict[str, str]:
+    """Each per-worktree service's URL, on its first web-facing port."""
+    if port_base is None:
+        return {}
+    urls: dict[str, str] = {}
+    for svc in declared:
+        web = [p.name for p in svc.ports if is_web_port_name(p.name)]
+        if not svc.shared and web and web[0] in port_names:
+            urls[svc.name] = (
+                f"http://localhost:{port_base * 10 + port_names.index(web[0])}"
+            )
+    return urls
+
+
+def _env_summary(
+    worktree_path: Path, worktree: str, ctx: _ProjectContext, app_url: str | None
+) -> EnvSummary:
+    """The worktree's env state, from its config and the env state files.
+
+    Liveness is the tracked pid, not a port probe. The config is the worktree's
+    own, because a branch can declare a service main lacks. Blocking: it reads
+    files, so the caller runs it off the loop.
+    """
+    config = load_config_or_default(worktree_path)
+    declared = config.services
+    port_base = get_port_allocation(ctx.path, worktree)
+    urls = _web_urls(port_base, declared, service_port_names(config))
+    if not declared and app_url:
+        urls["app"] = app_url
+    tracked = get_env_status(JsonEnvStore(), ctx.name, worktree)
+    return summarise_env(declared, urls, tracked, ctx.shared_status)

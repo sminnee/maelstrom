@@ -549,6 +549,16 @@ A service marked `optional: true`. `mael env start` skips an optional service; `
 service still owns its declared ports, so marking a service optional never renumbers the
 services after it. A service cannot be both optional and shared.
 
+**Env state**:
+The condition of a worktree's environment, taken over its core services: every declared service
+that is not optional, shared ones included. `running` when every core service is alive,
+`stopped` when none is, `partial` otherwise. An optional service never changes the env state.
+_Avoid_: App running
+
+**Web-facing service**:
+A service with a port whose name holds `APP` or `FRONTEND` as a `_`-separated segment. A running
+web-facing service gets a dev env link in the orchestrator.
+
 **Subscriber**:
 A worktree currently using a project's shared services. Shared services stop when the
 subscriber list empties.

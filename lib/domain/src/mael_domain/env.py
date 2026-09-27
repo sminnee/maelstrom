@@ -23,6 +23,7 @@ from .config import (
     load_config_or_default,
 )
 from .env_store import EnvStore
+from .protocol import EnvStateName
 from .services import (
     ENGINES,
     build_command_service,
@@ -118,6 +119,24 @@ class ServiceStatus:
     command: str
     log_file: str
     started_at: str
+
+
+@dataclass(frozen=True)
+class WorktreeService:
+    """One per-worktree service as the world shows it."""
+
+    name: str
+    optional: bool
+    running: bool  # its tracked pid is alive
+    url: str  # "" unless it has a web-facing port
+
+
+@dataclass(frozen=True)
+class EnvSummary:
+    """The env state of a worktree and its per-worktree services."""
+
+    state: EnvStateName
+    services: list[WorktreeService]
 
 
 # --- Helpers ---
@@ -1159,6 +1178,45 @@ def get_shared_status(store: EnvStore, project: str) -> list[ServiceStatus] | No
         )
         for svc in state.services
     ]
+
+
+def summarise_env(
+    declared: list[ServiceDef],
+    urls: dict[str, str],
+    tracked: list[ServiceStatus] | None,
+    shared: list[ServiceStatus] | None,
+) -> EnvSummary:
+    """Summarise a worktree's environment for the world.
+
+    ``urls`` maps a service name to its web-facing URL. The state is the
+    **Env state** in ``CONTEXT.md``. A project with no declared services
+    (Procfile or ``start_cmd``) lists its tracked services, and its one URL
+    goes on a synthetic ``app`` service.
+    """
+    alive = {s.name for s in (tracked or []) + (shared or []) if s.alive}
+
+    if declared:
+        core = [svc.name for svc in declared if not svc.optional]
+        services = [
+            WorktreeService(
+                svc.name, svc.optional, svc.name in alive, urls.get(svc.name, "")
+            )
+            for svc in declared
+            if not svc.shared
+        ]
+    else:
+        core = [s.name for s in tracked or []]
+        services = [WorktreeService(name, False, name in alive, "") for name in core]
+
+    running = sum(name in alive for name in core)
+    state: EnvStateName = (
+        "stopped" if running == 0 else "running" if running == len(core) else "partial"
+    )
+
+    if not declared and "app" in urls:
+        services.append(WorktreeService("app", False, state != "stopped", urls["app"]))
+
+    return EnvSummary(state, services)
 
 
 def cleanup_stale_shared(store: EnvStore, project: str) -> bool:

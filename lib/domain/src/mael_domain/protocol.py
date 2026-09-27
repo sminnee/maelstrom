@@ -31,6 +31,30 @@ class Project(TypedDict):
     hasLinear: bool
 
 
+#: The **Env state** in ``CONTEXT.md``.
+EnvStateName = Literal["running", "partial", "stopped"]
+
+
+class WorktreeServiceRow(TypedDict):
+    """One per-worktree service. ``url`` is ``""`` unless it is web-facing."""
+
+    name: str
+    optional: bool
+    running: bool
+    url: str
+
+
+class WorktreeEnv(TypedDict):
+    """The worktree's env state, and its per-worktree services.
+
+    ``services`` is the declared ones in config order, or for a Procfile project
+    its tracked services and a synthetic ``app``.
+    """
+
+    state: EnvStateName
+    services: list[WorktreeServiceRow]
+
+
 class Worktree(TypedDict):
     """One row of ``mael --json list-all``."""
 
@@ -54,8 +78,7 @@ class Worktree(TypedDict):
     #: A :data:`mael_domain.github_model.PrState`, or ``""`` with no PR.
     prState: str
     prDraft: bool
-    appUrl: str
-    appRunning: bool
+    env: WorktreeEnv
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
     shellUrl: str

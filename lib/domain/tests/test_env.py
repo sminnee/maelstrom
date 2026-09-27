@@ -11,11 +11,13 @@ from mael_domain.config import ServiceDef
 from mael_domain.env import (
     MAX_LOG_BYTES,
     EnvState,
+    EnvSummary,
     ProcfileEntry,
     ResolvedService,
     ServiceState,
     ServiceStatus,
     SharedEnvState,
+    WorktreeService,
     _spawn_services,
     build_service_env,
     cleanup_stale_env,
@@ -41,6 +43,7 @@ from mael_domain.env import (
     stop_all_envs,
     stop_env,
     stop_sessions,
+    summarise_env,
     tail_log_file,
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
@@ -3497,3 +3500,95 @@ class TestServiceLogsSurviveARestart:
         text = (logs / "web.log").read_text()
         assert "the crash" in text, "the previous run's log was truncated"
         assert "2026-09-07T00:00:00+00:00" in text
+
+
+def _status(name: str, alive: bool) -> ServiceStatus:
+    return ServiceStatus(
+        name=name,
+        pid=1,
+        alive=alive,
+        command="run",
+        log_file="/tmp/x.log",
+        started_at="2025-01-01T00:00:00+00:00",
+    )
+
+
+class TestSummariseEnv:
+    """Tests for summarise_env: the env state and service list of a worktree."""
+
+    DECLARED = [
+        ServiceDef(name="web"),
+        ServiceDef(name="db", shared=True),
+        ServiceDef(name="worker"),
+        ServiceDef(name="ladle", optional=True),
+    ]
+
+    def test_every_core_service_alive_is_running(self):
+        """An optional service that is down does not stop the env running."""
+        summary = summarise_env(
+            self.DECLARED,
+            {},
+            [_status("web", True), _status("worker", True)],
+            [_status("db", True)],
+        )
+        assert summary.state == "running"
+
+    def test_some_core_services_alive_is_partial(self):
+        summary = summarise_env(
+            self.DECLARED,
+            {},
+            [_status("web", True), _status("worker", False)],
+            [_status("db", True)],
+        )
+        assert summary.state == "partial"
+
+    def test_no_core_service_alive_is_stopped(self):
+        """A running optional service alone leaves the env stopped."""
+        summary = summarise_env(self.DECLARED, {}, [_status("ladle", True)], None)
+        assert summary.state == "stopped"
+
+    def test_a_dead_shared_service_makes_the_env_partial(self):
+        summary = summarise_env(
+            self.DECLARED,
+            {},
+            [_status("web", True), _status("worker", True)],
+            [_status("db", False)],
+        )
+        assert summary.state == "partial"
+
+    def test_services_are_the_declared_worktree_services_in_order(self):
+        """Shared services are project-level, so they are not listed."""
+        summary = summarise_env(
+            self.DECLARED,
+            {"web": "http://localhost:4210", "ladle": "http://localhost:4212"},
+            [_status("web", True)],
+            None,
+        )
+        assert summary.services == [
+            WorktreeService("web", False, True, "http://localhost:4210"),
+            WorktreeService("worker", False, False, ""),
+            WorktreeService("ladle", True, False, "http://localhost:4212"),
+        ]
+
+    def test_a_legacy_project_lists_its_tracked_services_and_a_synthetic_app(self):
+        """A Procfile project keeps its one Dev env link on an `app` service."""
+        summary = summarise_env(
+            [],
+            {"app": "http://localhost:3010"},
+            [_status("web", True), _status("worker", True)],
+            None,
+        )
+        assert summary == EnvSummary(
+            "running",
+            [
+                WorktreeService("web", False, True, ""),
+                WorktreeService("worker", False, True, ""),
+                WorktreeService("app", False, True, "http://localhost:3010"),
+            ],
+        )
+
+    def test_a_stopped_legacy_project_has_a_stopped_app(self):
+        summary = summarise_env([], {"app": "http://localhost:3010"}, None, None)
+        assert summary == EnvSummary(
+            "stopped", [WorktreeService("app", False, False, "http://localhost:3010")]
+        )
