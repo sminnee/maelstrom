@@ -16,9 +16,11 @@ from mael_orchestrator.cli import (
     DEFAULT_HOST,
     DEFAULT_LOG_LEVEL,
     DEFAULT_PORT,
+    build_orchestrator,
     cli,
     run_server,
 )
+from mael_orchestrator.sources import CloseBlocked, ListAllWorktreeSource
 
 
 @pytest.fixture
@@ -80,11 +82,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
 
     from mael_domain.desk_store import SqliteDeskStore
     from mael_domain.worktree import WorktreeSetup
-    from mael_orchestrator.cli import build_orchestrator
-    from mael_orchestrator.sources import (
-        ListAllWorktreeSource,
-        NotebookTaskSource,
-    )
+    from mael_orchestrator.sources import NotebookTaskSource
 
     projects_dir = tmp_path / "Projects"
     (projects_dir / "northwind").mkdir(parents=True)
@@ -125,6 +123,44 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
     assert open_wt.call_args.kwargs["run_install"] is False
     assert open_wt.call_args.kwargs["base"] == "feat/base"
+
+
+def _worktree_source(tmp_path, monkeypatch) -> ListAllWorktreeSource:
+    """The worktree source ``build_orchestrator`` wires."""
+    monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
+    from types import SimpleNamespace
+
+    with (
+        patch(
+            "mael_orchestrator.cli.load_global_config",
+            return_value=SimpleNamespace(projects_dir=tmp_path),
+        ),
+        patch("mael_orchestrator.cli.SqliteTaskTable"),
+        patch("mael_orchestrator.cli.open_state_db"),
+    ):
+        worktrees = build_orchestrator().worktrees
+    assert isinstance(worktrees, ListAllWorktreeSource)
+    assert worktrees.ensure_terminal is not None
+    return worktrees
+
+
+def test_the_terminal_ports_ask_the_running_cmux(tmp_path, monkeypatch, fake_cmux):
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    assert worktrees.ensure_terminal is not None
+    url = worktrees.ensure_terminal("northwind", "alpha", "/p")
+    assert worktrees.terminal_urls([("northwind", "alpha")]) == {
+        ("northwind", "alpha"): url
+    }
+    assert fake_cmux.tabs("northwind-alpha") == [["Terminal"]]
+
+
+def test_the_terminal_ports_outside_cmux(tmp_path, monkeypatch):
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    assert worktrees.ensure_terminal is not None
+    # No terminal, and the user reads why.
+    with pytest.raises(CloseBlocked, match="cmux could not make the terminal"):
+        worktrees.ensure_terminal("northwind", "alpha", "/p")
+    assert worktrees.terminal_urls([("northwind", "alpha")]) == {}
 
 
 @pytest.mark.usefixtures("migrated_notebook")

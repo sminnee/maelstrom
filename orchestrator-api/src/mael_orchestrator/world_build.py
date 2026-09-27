@@ -118,8 +118,13 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
     }
 
 
-def worktree_entity(project: str, row: dict[str, Any]) -> Worktree:
-    """The wire worktree for one ``list-all`` row. Nulls become empty strings."""
+def worktree_entity(
+    project: str, row: dict[str, Any], *, shell_url: str = ""
+) -> Worktree:
+    """The wire worktree for one ``list-all`` row. Nulls become empty strings.
+
+    ``shell_url`` is not in the row: cmux knows it, not ``list-all``.
+    """
     nato = row["name"]
     return {
         "id": get_worktree_folder_name(project, nato),
@@ -140,6 +145,7 @@ def worktree_entity(project: str, row: dict[str, Any]) -> Worktree:
         "appUrl": row.get("app_url") or "",
         "appRunning": bool(row.get("app_running")),
         "sessionCount": int(row.get("session_count") or 0),
+        "shellUrl": shell_url,
     }
 
 

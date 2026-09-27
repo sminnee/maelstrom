@@ -18,6 +18,7 @@ import click
 
 from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
+from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
 from mael_domain.notebook_root import NotebookRootUnset
@@ -177,6 +178,17 @@ def build_orchestrator(
         if not ran.ok:
             raise CloseBlocked(ran.blocked or "The environment did not change")
 
+    def ensure_worktree_terminal(project: str, nato: str, path: str) -> str:
+        cmux = MaelCmux.current()
+        url = cmux.worktree(project, nato, path).ensure_terminal() if cmux else None
+        if url is None:
+            raise CloseBlocked("cmux could not make the terminal")
+        return url
+
+    def terminal_urls(worktrees: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+        cmux = MaelCmux.current()
+        return cmux.terminal_urls(worktrees) if cmux else {}
+
     tasks = NotebookTaskSource(
         table,
         lambda: [path.name for path in find_all_projects(projects_dir)],
@@ -189,6 +201,8 @@ def build_orchestrator(
         remove=remove_worktree,
         sync=sync_worktree,
         env=env_worktree,
+        ensure_terminal=ensure_worktree_terminal,
+        terminal_urls=terminal_urls,
     )
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
