@@ -38,6 +38,6 @@ services:
   # Start it by name: `mael env start ladle`.
   ladle:
     optional: true
-    ports: [LADLE]
+    ports: [LADLE_APP]
     dir: orchestrator-ui
-    command: pnpm ladle --port ${LADLE_PORT}
+    command: pnpm ladle --port ${LADLE_APP_PORT}

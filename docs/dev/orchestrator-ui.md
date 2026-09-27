@@ -828,7 +828,7 @@ a soft keyboard sends no other key; the Send button sends.
 ```
 mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
 mael env start                  # this worktree's own copy, on its floating ports
-mael env start ladle            # the component workbench, alone, on this worktree's LADLE port
+mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
 cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
 cd orchestrator-ui && pnpm test # vitest, jsdom
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
@@ -837,7 +837,7 @@ bin/knip-check                  # dead code, both passes
 
 **Start Ladle through `mael env`, not `pnpm ladle`.** The `ladle` service is `optional: true`, so
 `mael env start` leaves it alone and you ask for it by name. It takes the worktree's allocated
-`LADLE_PORT`, which is what lets several worktrees serve their own catalogue at once — a hardcoded
+`LADLE_APP_PORT`, which is what lets several worktrees serve their own catalogue at once — a hardcoded
 port collides with the next worktree that tries.
 
 `mael env list` shows it under stopped services, and `mael env stop ladle` ends it.
@@ -847,8 +847,8 @@ one instance is always at the same address whatever a NATO worktree is doing. Se
 [the fixed environment](../guide/worktrees.md#the-fixed-environment).
 
 Under maelstrom the `web` service always points at the `orchestrator` service, so start both. A
-worktree whose `.env` is missing a port a service needs — `ORCHESTRATOR_PORT`, or `LADLE_PORT` on
-a worktree opened before the workbench existed — needs `mael env reset` once to add it.
+worktree whose `.env` is missing a port a service needs — `ORCHESTRATOR_PORT`, or `LADLE_APP_PORT`
+on a worktree opened before the port had that name — needs `mael env reset` once to add it.
 
 The dev server proxies `/api` to the orchestrator, WebSockets included. `ORCHESTRATOR_URL` names it
 — see [environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy
