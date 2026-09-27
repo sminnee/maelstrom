@@ -19,7 +19,7 @@ Use `mode: auto` for execute tasks and `mode: normal` for planning. Keep execute
 
 ## Build and commit
 
-Build test-first. Stop environments before heavy edits. Run the project gates from its instructions. Working commits may use `wip:`. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.
+Build test-first. Stop environments before heavy edits. Run the project gates from its instructions. Commit in small steps. Give each build commit a short body that says why the change was made: `/present` reads these bodies to find the design decisions. Working commits may use `wip:`. Do not use `--fixup` before review; commit the correction as its own step. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.
 
 During Land, use `--fixup=<sha>` for an earlier decision. Do not amend an earlier commit. Record test-shaping choices in a commit body.
 
