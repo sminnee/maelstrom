@@ -186,13 +186,11 @@ class TestEnvStart:
 class TestEnvStartBrowserDedup:
     """Tests for cmux browser placement in env start.
 
-    The CLI now delegates to mael_layout.show_app_browser (the policy seam);
-    its recycle-vs-open behaviour is tested in test_mael_layout.py, so here we
-    just assert the seam is called with the right (project, worktree, url).
+    The recycle-vs-open behaviour is tested in test_mael_layout.py, so here we
+    just assert the app URL opens and its surface is stored.
     """
 
     @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.mael_layout.show_app_browser", return_value="surface:183")
     @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.load_env_state")
     @patch("mael_cli.env_cli.get_env_status")
@@ -205,11 +203,12 @@ class TestEnvStartBrowserDedup:
         mock_status,
         mock_load,
         mock_app,
-        mock_show,
         mock_save,
         tmp_path,
+        fake_cmux,
     ):
-        """Delegates to show_app_browser with the env's project/worktree/url."""
+        """The app URL opens in the browser pane, and its surface is stored."""
+        fake_cmux.with_workspace("proj-bravo", [["Claude"], ["Terminal"]])
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
         mock_load.return_value = _make_state()
@@ -219,12 +218,11 @@ class TestEnvStartBrowserDedup:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "start"])
         assert result.exit_code == 0
-        # state.project / ctx.worktree drive the call.
-        args = mock_show.call_args.args
-        assert args[2] == "http://localhost:3000"
+        assert fake_cmux.tabs("proj-bravo")[2] == ["http://localhost:3000"]
+        stored = mock_save.call_args.args[1].cmux_browser_surface
+        assert stored == fake_cmux.surface_ref("proj-bravo", 2)
 
     @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.mael_layout.show_app_browser", return_value=None)
     @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.load_env_state", return_value=None)
     @patch("mael_cli.env_cli.get_env_status")
@@ -237,11 +235,10 @@ class TestEnvStartBrowserDedup:
         mock_status,
         mock_load,
         mock_app,
-        mock_show,
         mock_save,
         tmp_path,
     ):
-        """When show_app_browser returns None (outside cmux), no surface stored."""
+        """Outside cmux, no surface is stored."""
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
         mock_start.return_value = _make_state()
@@ -255,18 +252,14 @@ class TestEnvStartBrowserDedup:
 class TestEnvStopBrowser:
     """Tests for browser close on env stop."""
 
-    @patch("mael_cli.env_cli.mael_layout.hide_app_browser", return_value=True)
     @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.stop_env")
     @patch("mael_cli.env_cli.resolve_context")
-    def test_closes_browser_on_stop(
-        self,
-        mock_ctx,
-        mock_stop,
-        mock_app,
-        mock_hide,
-    ):
-        """Delegates to hide_app_browser with the env's project/worktree/url."""
+    def test_closes_browser_on_stop(self, mock_ctx, mock_stop, mock_app, fake_cmux):
+        """The app's browser tab closes."""
+        fake_cmux.with_workspace(
+            "proj-bravo", [["Claude"], [("browser", "http://localhost:3000")]]
+        )
         mock_ctx.return_value = MagicMock(
             project="proj", worktree="bravo", project_path=Path("/proj")
         )
@@ -275,7 +268,7 @@ class TestEnvStopBrowser:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "stop"])
         assert result.exit_code == 0
-        mock_hide.assert_called_once_with("proj", "bravo", "http://localhost:3000")
+        assert fake_cmux.tabs("proj-bravo") == [["Claude"]]
 
 
 class TestEnvStatus:
@@ -1072,15 +1065,15 @@ class TestEnvStartNamedService:
 class TestEnvStopNamedService:
     """Tests for `mael env stop <service>`."""
 
-    @patch("mael_cli.env_cli.mael_layout.hide_app_browser")
-    @patch("mael_cli.env_cli.get_app_url", return_value=None)
+    @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.stop_env")
     @patch("mael_cli.env_cli.load_config_or_default")
     @patch("mael_cli.env_cli.resolve_context")
     def test_partial_stop_leaves_browser_alone(
-        self, mock_ctx, mock_config, mock_stop, mock_app, mock_hide
+        self, mock_ctx, mock_config, mock_stop, mock_app, fake_cmux
     ):
         """A named stop does not close the main app's browser pane."""
+        fake_cmux.with_workspace("proj-bravo", [[("browser", "http://localhost:3000")]])
         mock_ctx.return_value = MagicMock(
             project="proj",
             worktree="bravo",
@@ -1095,7 +1088,7 @@ class TestEnvStopNamedService:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "stop", "ladle"])
         assert result.exit_code == 0
-        mock_hide.assert_not_called()
+        assert fake_cmux.tabs("proj-bravo") == [["http://localhost:3000"]]
         assert "Service stopped for proj/bravo: ladle." in result.output
         mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
 
@@ -1104,20 +1097,18 @@ class TestEnsureCmuxBrowserPort:
     """The browser pane waits on the port it is about to open."""
 
     @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.mael_layout.show_app_browser", return_value=None)
     @patch("mael_cli.env_cli.wait_for_port")
     @patch("mael_cli.env_cli.get_app_url")
-    def test_waits_on_the_app_url_port(self, mock_app, mock_wait, mock_show, mock_save):
+    def test_waits_on_the_app_url_port(self, mock_app, mock_wait, mock_save):
         """It waits on the URL's own port, not the worktree's first port."""
         mock_app.return_value = ("http://localhost:3002", True)
         ensure_cmux_browser(_make_state(), Path("/proj"), "bravo")
         mock_wait.assert_called_once_with(3002)
 
     @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.mael_layout.show_app_browser", return_value=None)
     @patch("mael_cli.env_cli.wait_for_port")
     @patch("mael_cli.env_cli.get_app_url")
-    def test_passes_service_through(self, mock_app, mock_wait, mock_show, mock_save):
+    def test_passes_service_through(self, mock_app, mock_wait, mock_save):
         """A named service restricts the URL search to that service."""
         mock_app.return_value = ("http://localhost:3005", True)
         ensure_cmux_browser(_make_state(), Path("/proj"), "bravo", service="ladle")

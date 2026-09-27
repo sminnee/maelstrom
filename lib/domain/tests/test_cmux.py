@@ -3,6 +3,7 @@
 import subprocess
 from unittest.mock import MagicMock, patch
 
+from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.client import (
     COMMAND_TIMEOUT_SECONDS,
     DEFAULT_SOCKET_PATH,
@@ -13,7 +14,7 @@ from mael_domain.cmux.client import (
     current_client,
     ensure_cmux_running,
 )
-from mael_domain.cmux.model import BrowserTab, CmuxLayout, Surface, TerminalTab
+from mael_domain.cmux.model import BrowserTab, CmuxLayout, TerminalTab
 
 # ===========================================================================
 # Transport layer — client.py
@@ -344,530 +345,188 @@ class TestEnsureCmuxRunning:
 
 
 # ===========================================================================
-# Layout / domain layer — model.py
+# Layout / domain layer — model.py, over the FakeCmux
 # ===========================================================================
 
-
-def _layout(responses=None, name="myproject-alpha"):
-    """Build a CmuxLayout over a RecordingCmuxClient; return (layout, client)."""
-    client = RecordingCmuxClient(responses)
-    return CmuxLayout(client, name), client
+NAME = "myproject-alpha"
 
 
-class TestCurrent:
-    """CmuxLayout.current returns None outside cmux, a layout inside."""
-
-    def test_none_outside_cmux(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert CmuxLayout.current("foo") is None
-
-    def test_layout_inside_cmux(self):
-        with (
-            patch.dict("os.environ", {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
-            patch(
-                "mael_domain.cmux.client._find_cmux_cli",
-                return_value="/usr/bin/cmux",
-            ),
-            patch("subprocess.run", side_effect=_ping_reply("OK")),
-        ):
-            lay = CmuxLayout.current("foo")
-            assert isinstance(lay, CmuxLayout)
+def _layout(cmux: FakeCmux, name: str = NAME) -> CmuxLayout:
+    return CmuxLayout(cmux, name)
 
 
 class TestHasWorkspace:
-    """CmuxLayout.has_workspace."""
-
     def test_true_when_present(self):
-        lay, _ = _layout(
-            {
-                ("list-workspaces",): "  workspace:13  myproject-alpha",
-            }
-        )
-        assert lay.has_workspace() is True
+        assert _layout(FakeCmux().with_workspace(NAME)).has_workspace() is True
 
     def test_false_when_absent(self):
-        lay, _ = _layout({("list-workspaces",): "  workspace:14  other"})
-        assert lay.has_workspace() is False
-
-    def test_false_when_cmux_unavailable(self):
-        lay, _ = _layout({("list-workspaces",): None})
-        assert lay.has_workspace() is False
-
-    def test_matches_first(self):
-        lay, _ = _layout(
-            {
-                ("list-workspaces",): (
-                    "  workspace:14  other\n"
-                    "  workspace:15  myproject-alpha\n"
-                    "  workspace:16  myproject-alpha"
-                ),
-            }
-        )
-        # has_workspace is boolean, but the underlying find returns the first.
-        assert lay.has_workspace() is True
+        assert _layout(FakeCmux().with_workspace("other")).has_workspace() is False
 
 
 class TestEnsureWorkspace:
     """CmuxLayout.ensure_workspace — create if absent, no-op if present."""
 
     def test_no_op_when_present(self):
-        lay, client = _layout(
-            {
-                ("list-workspaces",): "  workspace:13  myproject-alpha",
-            }
+        cmux = FakeCmux().with_workspace(NAME)
+        ref = _layout(cmux).ensure_workspace(
+            TerminalTab("Claude", cwd="/wt", command="claude")
         )
-        ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt", command="claude"))
-        assert ref == "workspace:13"
-        # No creation commands issued.
-        assert not any(c[0] == "new-workspace" for c in client.calls)
+        assert ref == cmux.workspace_ref(NAME)
+        assert len(cmux.list_workspaces()) == 1
+        assert cmux.sent == []
 
-    def test_creates_with_initial_terminal(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return ""  # absent
-            if args[0] == "new-workspace":
-                return "OK workspace:1"
-            if args[0] == "list-panes":
-                return "pane:0"
-            if args[0] == "list-pane-surfaces":
-                return '  surface:5  terminal  "shell"'
-            return "OK"
+    def test_the_first_of_two_names_wins(self):
+        cmux = FakeCmux().with_workspace("other").with_workspace(NAME)
+        cmux.with_workspace(NAME)
+        ref = _layout(cmux).ensure_workspace(TerminalTab("Claude"))
+        assert ref == cmux.list_workspaces()[1].ref
 
-        lay, client = _layout(fn)
-        ref = lay.ensure_workspace(
-            TerminalTab("Claude", cwd="/wt", command="claude"),
+    def test_creates_with_the_tab_in_its_initial_terminal(self):
+        cmux = FakeCmux()
+        ref = _layout(cmux).ensure_workspace(
+            TerminalTab("Claude", cwd="/wt", command="claude")
         )
-        assert ref == "workspace:1"
-        # Created with the cd as its initial command.
-        assert ("new-workspace", "--command", "cd /wt") in client.calls
-        # Renamed to the canonical name.
-        assert (
-            "rename-workspace",
-            "--workspace",
-            "workspace:1",
-            "myproject-alpha",
-        ) in client.calls
-        # The command is sent into the workspace's initial surface.
-        assert (
-            "send",
-            "--workspace",
-            "workspace:1",
-            "--",
-            "claude\n",
-        ) in client.calls
-        # The initial tab is renamed to the tab title.
-        assert ("rename-tab", "--surface", "surface:5", "Claude") in client.calls
-
-    def test_returns_none_on_creation_failure(self):
-        lay, _ = _layout(
-            {
-                ("list-workspaces",): "",
-                ("new-workspace", "--command", "cd /wt"): None,
-            }
-        )
-        ref = lay.ensure_workspace(TerminalTab("Claude", cwd="/wt"))
-        assert ref is None
+        assert ref == cmux.workspace_ref(NAME)
+        # One terminal, renamed to the tab title.
+        assert cmux.tabs(NAME) == [["Claude"]]
+        # The cd starts the workspace, then the command runs in the same terminal.
+        surface = cmux.surface_ref(NAME, 0)
+        assert cmux.sent == [(surface, "cd /wt\n"), (surface, "claude\n")]
+        assert cmux.focused == []
 
 
 class TestEnsureTerminal:
     """CmuxLayout.ensure_terminal — at-least-one terminal at a pane index."""
 
     def test_no_op_when_pane_present(self):
-        """Pane exists → a terminal already exists there; no split."""
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "list-pane-surfaces":
-                return '  surface:7  terminal  "Terminal"'
-            return "OK"
-
-        lay, client = _layout(fn)
-        ref = lay.ensure_terminal(1, TerminalTab("Terminal", cwd="/wt"))
-        assert ref == "surface:7"
-        # No new pane was split.
-        assert not any(c[0] == "new-split" for c in client.calls)
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        ref = _layout(cmux).ensure_terminal(1, TerminalTab("Terminal", cwd="/wt"))
+        assert ref == cmux.surface_ref(NAME, 1)
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal"]]
+        assert cmux.sent == []
 
     def test_splits_and_reuses_initial_surface_when_pane_absent(self):
-        # Pane 1 absent; split a new pane and send the command into ITS initial
-        # surface (no new tab).
-        panes_seq = ["pane:0", "pane:0 pane:9"]
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return panes_seq.pop(0) if panes_seq else "pane:0 pane:9"
-            if args[0] == "new-split":
-                return "OK surface:90 workspace:13"
-            if args[0] == "list-pane-surfaces":
-                # rightmost pane:0's surface, then the new pane:9's surface
-                pane = args[2]
-                return {
-                    "pane:0": '  surface:50  terminal  "x"',
-                    "pane:9": '  surface:91  terminal  "shell"',
-                }.get(pane, "")
-            return "OK"
-
-        lay, client = _layout(fn)
-        with patch("mael_domain.cmux.model.time.sleep") as mock_sleep:
-            ref = lay.ensure_terminal(
-                1, TerminalTab("Terminal", cwd="/wt", command="npm i")
-            )
-        assert ref == "surface:91"
-        # Split off the rightmost surface (focus-safe), not new-pane.
-        assert any(c[0] == "new-split" for c in client.calls)
-        assert not any(c[0] == "new-pane" for c in client.calls)
-        # Settle sleep interposed before sending into the split pane.
-        mock_sleep.assert_called_once()
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"]])
+        ref = _layout(cmux).ensure_terminal(
+            1, TerminalTab("Terminal", cwd="/wt", command="npm i")
+        )
+        # A new pane with one terminal, and no second tab.
+        assert cmux.tabs(NAME) == [["Claude"], [""]]
+        assert ref == cmux.surface_ref(NAME, 1)
         # cwd + command sent into the new pane's initial surface.
-        assert (
-            "send",
-            "--surface",
-            "surface:91",
-            "--workspace",
-            "workspace:13",
-            "--",
-            "cd /wt\n",
-        ) in client.calls
-        assert (
-            "send",
-            "--surface",
-            "surface:91",
-            "--workspace",
-            "workspace:13",
-            "--",
-            "npm i\n",
-        ) in client.calls
+        assert cmux.sent == [(ref, "cd /wt\n"), (ref, "npm i\n")]
+        assert cmux.focused == []
 
     def test_returns_none_when_no_workspace(self):
-        lay, _ = _layout({("list-workspaces",): ""})
-        assert lay.ensure_terminal(1, TerminalTab("T")) is None
+        assert _layout(FakeCmux()).ensure_terminal(1, TerminalTab("T")) is None
 
 
 class TestAddTerminal:
     """CmuxLayout.add_terminal — unconditionally add a new tab."""
 
     def test_adds_new_tab_and_focuses(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "new-surface":
-                return "OK surface:99 pane:0 workspace:13"
-            return "OK"
-
-        lay, client = _layout(fn)
-        ref = lay.add_terminal(0, TerminalTab("Claude", cwd="/wt", command="claude"))
-        assert ref == "surface:99"
-        # A new terminal surface tab was created in pane:0.
-        assert (
-            "new-surface",
-            "--type",
-            "terminal",
-            "--pane",
-            "pane:0",
-            "--workspace",
-            "workspace:13",
-        ) in client.calls
-        assert ("rename-tab", "--surface", "surface:99", "Claude") in client.calls
-        # Command sent into the new surface, scoped to the workspace.
-        assert (
-            "send",
-            "--surface",
-            "surface:99",
-            "--workspace",
-            "workspace:13",
-            "--",
-            "claude\n",
-        ) in client.calls
-        # The workspace is brought to the foreground (it may be a background one),
-        # the pane focused, and the new tab brought to front.
-        assert (
-            "select-workspace",
-            "--workspace",
-            "workspace:13",
-        ) in client.calls
-        assert (
-            "focus-pane",
-            "--pane",
-            "pane:0",
-            "--workspace",
-            "workspace:13",
-        ) in client.calls
-        assert (
-            "focus-panel",
-            "--panel",
-            "surface:99",
-            "--workspace",
-            "workspace:13",
-        ) in client.calls
+        cmux = FakeCmux().with_workspace("other")
+        cmux.with_workspace(NAME, [["Claude"], ["Terminal"]])
+        cmd = "claude --permission-mode plan 'do the thing'"
+        ref = _layout(cmux).add_terminal(
+            0, TerminalTab("Claude", cwd="/wt", command=cmd)
+        )
+        assert ref == cmux.surface_ref(NAME, 0, 1)
+        assert cmux.tabs(NAME) == [["Claude", "Claude"], ["Terminal"]]
+        # The command is sent verbatim into the new surface, which sits in a
+        # workspace other than the current one.
+        assert cmux.sent == [(ref, "cd /wt\n"), (ref, f"{cmd}\n")]
+        # The workspace comes to the foreground, then the pane, then the tab.
+        pane = cmux.list_panes(cmux.workspace_ref(NAME))[0].ref
+        assert cmux.focused == [cmux.workspace_ref(NAME), pane, ref]
 
     def test_returns_none_when_pane_absent(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0"
-            return "OK"
-
-        lay, _ = _layout(fn)
-        assert lay.add_terminal(2, TerminalTab("X")) is None
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"]])
+        assert _layout(cmux).add_terminal(2, TerminalTab("X")) is None
 
     def test_returns_none_when_no_workspace(self):
-        lay, _ = _layout({("list-workspaces",): ""})
-        assert lay.add_terminal(0, TerminalTab("X")) is None
-
-    def test_sends_command_verbatim(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0"
-            if args[0] == "new-surface":
-                return "OK surface:99 pane:0 workspace:13"
-            return "OK"
-
-        lay, client = _layout(fn)
-        cmd = "claude --permission-mode plan 'do the thing'"
-        lay.add_terminal(0, TerminalTab("Claude", cwd="/wt", command=cmd))
-        assert (
-            "send",
-            "--surface",
-            "surface:99",
-            "--workspace",
-            "workspace:13",
-            "--",
-            f"{cmd}\n",
-        ) in client.calls
+        assert _layout(FakeCmux()).add_terminal(0, TerminalTab("X")) is None
 
 
 class TestEnsureBrowser:
     """CmuxLayout.ensure_browser — recycle by URL prefix, else open new."""
 
     def test_recycles_existing_in_place(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "App"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "http://localhost:3000/dashboard"
-            if args[0] == "browser" and "goto" in args:
-                return "OK"
-            return None
-
-        lay, client = _layout(fn)
-        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
-        assert ref == "surface:183"
-        # Navigated in place — no close, no new surface.
-        assert (
-            "browser",
-            "--surface",
-            "surface:183",
-            "goto",
-            "http://localhost:3000",
-        ) in client.calls
-        assert not any(c[0] == "close-surface" for c in client.calls)
-        assert not any(c[0] == "new-surface" for c in client.calls)
+        cmux = FakeCmux().with_workspace(
+            NAME,
+            [["Claude"], ["Terminal"], [("browser", "http://localhost:3000/dash")]],
+        )
+        ref = _layout(cmux).ensure_browser(2, BrowserTab("http://localhost:3000"))
+        assert ref == cmux.surface_ref(NAME, 2)
+        # Navigated in place — no close, no new surface, no focus.
+        assert cmux.tabs(NAME)[2] == ["http://localhost:3000"]
+        assert cmux.focused == []
 
     def test_opens_in_existing_pane_when_no_match(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:103  terminal  "Terminal"'
-            if args[0] == "list-panes":
-                return "pane:0 pane:1 pane:2"
-            if args[0] == "new-surface":
-                return "OK surface:200 pane:2 workspace:13"
-            return None
-
-        lay, client = _layout(fn)
-        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
-        assert ref == "surface:200"
-        # Opened a browser tab in pane:2 (the browser pane).
-        assert (
-            "new-surface",
-            "--type",
-            "browser",
-            "--pane",
-            "pane:2",
-            "--url",
-            "http://localhost:3000",
-        ) in client.calls
+        cmux = FakeCmux().with_workspace(
+            NAME, [["Claude"], ["Terminal"], [("browser", "https://docs.example")]]
+        )
+        ref = _layout(cmux).ensure_browser(2, BrowserTab("http://localhost:3000"))
+        assert ref == cmux.surface_ref(NAME, 2, 1)
+        assert cmux.tabs(NAME)[2] == ["https://docs.example", "http://localhost:3000"]
 
     def test_match_prefix_overrides_url(self):
         """match= recycles a different github page in place (PR navigation)."""
-
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "GitHub"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "https://github.com/owner/repo/issues/5"
-            if args[0] == "browser" and "goto" in args:
-                return "OK"
-            return None
-
-        lay, client = _layout(fn)
-        ref = lay.ensure_browser(
-            2,
-            BrowserTab(
-                "https://github.com/owner/repo/pull/9",
-                match="https://github.com",
-            ),
+        cmux = FakeCmux().with_workspace(
+            NAME,
+            [
+                ["Claude"],
+                ["Terminal"],
+                [("browser", "https://github.com/o/r/issues/5")],
+            ],
         )
-        assert ref == "surface:183"
-        assert (
-            "browser",
-            "--surface",
-            "surface:183",
-            "goto",
-            "https://github.com/owner/repo/pull/9",
-        ) in client.calls
+        ref = _layout(cmux).ensure_browser(
+            2, BrowserTab("https://github.com/o/r/pull/9", match="https://github.com")
+        )
+        assert ref == cmux.surface_ref(NAME, 2)
+        assert cmux.tabs(NAME)[2] == ["https://github.com/o/r/pull/9"]
 
     def test_splits_new_pane_when_browser_pane_absent(self):
-        # No browser pane (pane index 2 absent): split off the rightmost,
-        # focus-safely, and discard the placeholder surface.
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:103  terminal  "Terminal"'
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"  # only 2 panes → index 2 absent
-            if args[0] == "new-split":
-                return "OK surface:430 workspace:13"
-            if args[0] == "list-pane-surfaces":
-                pane = args[2]
-                return {
-                    "pane:1": '  surface:90  terminal  "rightmost"',
-                    "pane:9": '  surface:100  terminal  "placeholder"',
-                }.get(pane, "")
-            if args[0] == "new-surface":
-                return "OK surface:200 pane:9 workspace:13"
-            if args[0] == "close-surface":
-                return "OK"
-            return None
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        ref = _layout(cmux).ensure_browser(2, BrowserTab("http://localhost:3000"))
+        # A new rightmost pane holds the browser; its placeholder terminal is gone.
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal"], ["http://localhost:3000"]]
+        assert ref == cmux.surface_ref(NAME, 2)
+        assert cmux.focused == []
 
-        # list-panes returns "pane:0 pane:1" for index-2 / rightmost lookups, then
-        # "...pane:9" for the post-split rightmost lookup inside _split_pane_off.
-        panes_seq = ["pane:0 pane:1", "pane:0 pane:1", "pane:0 pane:1 pane:9"]
-
-        def fn2(*args):
-            if args[0] == "list-panes":
-                return panes_seq.pop(0) if panes_seq else "pane:0 pane:1 pane:9"
-            return fn(*args)
-
-        lay, client = _layout(fn2)
-        ref = lay.ensure_browser(2, BrowserTab("http://localhost:3000"))
-        assert ref == "surface:200"
-        # Split via new-split --surface (no focus, no new-pane).
-        assert any(c[0] == "new-split" and "--surface" in c for c in client.calls)
-        assert not any(c[0] == "new-pane" for c in client.calls)
-        # Placeholder terminal surface discarded.
-        assert ("close-surface", "--surface", "surface:100") in client.calls
-        # No focus grab.
-        assert not any(c[0] == "focus-pane" for c in client.calls)
-        assert not any(c[0] == "focus-panel" for c in client.calls)
-
-    def test_opens_new_tab_when_navigate_fails(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "GitHub"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "https://github.com/owner/repo"
-            if args[0] == "browser" and "goto" in args:
-                return None  # navigation failed
-            if args[0] == "list-panes":
-                return "pane:0 pane:1 pane:2"
-            if args[0] == "new-surface":
-                return "OK surface:300 pane:2 workspace:13"
-            return None
-
-        lay, _ = _layout(fn)
-        ref = lay.ensure_browser(
-            2,
-            BrowserTab(
-                "https://github.com/owner/repo/pull/9", match="https://github.com"
-            ),
-        )
-        assert ref == "surface:300"
+    def test_acts_on_the_current_workspace(self):
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"], ["x"]])
+        cmux.with_workspace("other")
+        _layout(cmux, "other").ensure_browser(2, BrowserTab("http://localhost:3000"))
+        assert cmux.tabs(NAME)[2] == ["x", "http://localhost:3000"]
+        assert cmux.tabs("other") == [["Terminal"]]
 
 
 class TestEnsureAbsentBrowser:
     """CmuxLayout.ensure_absent_browser — close a matching browser, if any."""
 
     def test_closes_matching(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "App"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "http://localhost:3000"
-            if args[0] == "close-surface":
-                return "OK"
-            return None
-
-        lay, client = _layout(fn)
-        assert lay.ensure_absent_browser("http://localhost:3000") is True
-        assert ("close-surface", "--surface", "surface:183") in client.calls
+        cmux = FakeCmux().with_workspace(
+            NAME, [["Claude"], [("browser", "http://localhost:3000")]]
+        )
+        assert _layout(cmux).ensure_absent_browser("http://localhost:3000") is True
+        assert cmux.tabs(NAME) == [["Claude"]]
 
     def test_no_op_when_no_match(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:103  terminal  "Terminal"'
-            return None
-
-        lay, client = _layout(fn)
-        assert lay.ensure_absent_browser("http://localhost:3000") is False
-        assert not any(c[0] == "close-surface" for c in client.calls)
+        cmux = FakeCmux().with_workspace(
+            NAME, [["Claude"], [("browser", "https://docs.example")]]
+        )
+        assert _layout(cmux).ensure_absent_browser("http://localhost:3000") is False
+        assert cmux.tabs(NAME) == [["Claude"], ["https://docs.example"]]
 
 
 class TestClose:
     """CmuxLayout.close."""
 
     def test_close_closes_matching_workspace(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "* workspace:13  myproject-alpha  [selected]"
-            if args[0] == "close-workspace":
-                return "OK"
-            return None
-
-        lay, client = _layout(fn)
-        assert lay.close() is True
-        assert ("close-workspace", "--workspace", "workspace:13") in client.calls
+        cmux = FakeCmux().with_workspace(NAME).with_workspace("other")
+        assert _layout(cmux).close() is True
+        assert [w.title for w in cmux.list_workspaces()] == ["other"]
 
     def test_close_false_when_absent(self):
-        lay, _ = _layout({("list-workspaces",): "  workspace:14  other"})
-        assert lay.close() is False
-
-
-class TestListSurfaces:
-    """The browser-state parsing seam (_list_surfaces / Surface objects)."""
-
-    def test_parses_terminal_and_browser(self):
-        output = (
-            '  surface:103  terminal  "Terminal"\n  surface:183  browser  "My App"\n'
-        )
-        lay, _ = _layout({("list-panels",): output})
-        surfaces = lay._list_surfaces()
-        assert surfaces == [
-            Surface(
-                ref="surface:103", type="terminal", title="Terminal", focused=False
-            ),
-            Surface(ref="surface:183", type="browser", title="My App", focused=False),
-        ]
-
-    def test_parses_focused(self):
-        output = '* surface:104  terminal  [focused]  "Terminal"\n'
-        lay, _ = _layout({("list-panels",): output})
-        surfaces = lay._list_surfaces()
-        assert surfaces[0].focused is True
-        assert surfaces[0].ref == "surface:104"
-
-    def test_skips_malformed_and_blank(self):
-        output = (
-            '\n  surface:103  terminal  "Terminal"\n'
-            "  garbage line\n"
-            '  surface:104  browser  "App"\n\n'
-        )
-        lay, _ = _layout({("list-panels",): output})
-        assert len(lay._list_surfaces()) == 2
+        assert _layout(FakeCmux().with_workspace("other")).close() is False

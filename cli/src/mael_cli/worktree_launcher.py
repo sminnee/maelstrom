@@ -48,8 +48,8 @@ from mael_common.shell import (
     describe,
     run_cmd,
 )
-from mael_domain.cmux import mael_layout
 from mael_domain.cmux.client import current_client, ensure_cmux_running
+from mael_domain.cmux.mael_layout import MaelCmux, WorktreeWorkspace
 from mael_domain.cmux.model import TerminalTab
 from mael_domain.config import load_config_or_default
 from mael_domain.shared_dir import agent_prompt_file
@@ -150,23 +150,20 @@ async def launch_add_in_worktree(
     """Select the agent or shell surface for a prepared ``mael add`` worktree."""
     install_cmd = load_config_or_default(worktree_path).install_cmd or None
     if context == AddContext.CMUX:
+        workspace = _worktree_workspace(project, worktree, worktree_path)
+        if workspace is None:
+            return False
         if no_agent:
-            return mael_layout.ensure_worktree_shell_workspace(
-                project, worktree, str(worktree_path), install_cmd=install_cmd
-            )
+            return workspace.open_for_shell(install_cmd)
         if harness == TRANSPORT_DAEMON:
-            if not mael_layout.ensure_worktree_install_shell(
-                project, worktree, str(worktree_path), install_cmd=install_cmd
-            ):
+            if not workspace.prepare_install_shell(install_cmd):
                 return False
             agent_id = await start_agent_in_worktree(
                 worktree_path, model=model, execute_model=execute_model
             )
             if not agent_id:
                 return False
-            return mael_layout.add_worktree_agent(
-                project,
-                worktree,
+            return workspace.add_agent(
                 TerminalTab(
                     "Claude",
                     cwd=str(worktree_path),
@@ -175,12 +172,9 @@ async def launch_add_in_worktree(
             )
         else:
             command = Command(build_harness_command(model=model))
-        return mael_layout.ensure_worktree_workspace(
-            project,
-            worktree,
-            str(worktree_path),
-            command=describe(command),
-            install_cmd=install_cmd,
+        return workspace.open_for_agent(
+            TerminalTab("Claude", cwd=str(worktree_path), command=describe(command)),
+            install_cmd,
         )
 
     if context == AddContext.DAEMON:
@@ -344,14 +338,22 @@ def open_cmux_workspace(
     """Open a cmux workspace that runs ``command`` in pane 0."""
     if not (project and worktree):
         return False
+    workspace = _worktree_workspace(project, worktree, worktree_path)
+    if workspace is None:
+        return False
     install_cmd = load_config_or_default(worktree_path).install_cmd
-    return mael_layout.ensure_worktree_workspace(
-        project,
-        worktree,
-        str(worktree_path),
-        command=describe(command),
-        install_cmd=install_cmd or None,
+    return workspace.open_for_agent(
+        TerminalTab("Claude", cwd=str(worktree_path), command=describe(command)),
+        install_cmd or None,
     )
+
+
+def _worktree_workspace(
+    project: str, worktree: str, worktree_path: Path
+) -> WorktreeWorkspace | None:
+    """The worktree's cmux workspace, or ``None`` outside cmux."""
+    cmux = MaelCmux.current()
+    return cmux.worktree(project, worktree, str(worktree_path)) if cmux else None
 
 
 def open_claude_workspace(

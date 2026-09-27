@@ -366,3 +366,13 @@ class TestAgainstARealRepo:
 
         assert result.close.success, result.close.message
         assert "lock" not in result.close.message.lower()
+
+
+def test_the_workspace_step_closes_the_worktrees_cmux_workspace(fake_cmux):
+    fake_cmux.with_workspace("myproject-alpha").with_workspace("other")
+    assert CloseSteps().close_workspace("myproject", "alpha") is True
+    assert [w.title for w in fake_cmux.list_workspaces()] == ["other"]
+
+
+def test_the_workspace_step_is_a_no_op_outside_cmux():
+    assert CloseSteps().close_workspace("myproject", "alpha") is False

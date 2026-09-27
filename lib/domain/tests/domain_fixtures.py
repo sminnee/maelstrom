@@ -14,6 +14,9 @@ from unittest.mock import patch
 import pytest
 from git_helpers import create_commit, run_git, setup_git_repo
 
+from mael_domain.cmux.api import FakeCmux
+from mael_domain.cmux.mael_layout import MaelCmux
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _block_real_cmux():
@@ -28,6 +31,14 @@ def _block_real_cmux():
         yield
     if saved is not None:
         os.environ["CMUX_SOCKET_PATH"] = saved
+
+
+@pytest.fixture
+def fake_cmux():
+    """A running cmux, in memory: ``MaelCmux.current()`` answers over it."""
+    cmux = FakeCmux()
+    with patch.object(MaelCmux, "current", return_value=MaelCmux(cmux)):
+        yield cmux
 
 
 @pytest.fixture(autouse=True)

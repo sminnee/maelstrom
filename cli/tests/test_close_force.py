@@ -294,10 +294,8 @@ class TestCloseForceCli:
             ),
             patch("mael_cli.cli.make_store", return_value=env_store),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
-            patch("mael_domain.worktree_close.mael_layout") as mock_layout,
             patch("mael_cli.cli.add_task") as mock_add_task,
         ):
-            mock_layout.close_workspace.return_value = False
             mock_add_task.return_value = MagicMock(id="reopen-1")
             result = runner.invoke(cli, ["close", "myproject.alpha", *args])
         return result, mock_add_task
@@ -358,10 +356,8 @@ class TestCloseForceCli:
             ) as mock_close,
             patch("mael_cli.cli.make_store", return_value=MagicMock()),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
-            patch("mael_domain.worktree_close.mael_layout") as mock_layout,
             patch("mael_cli.cli.add_task"),
         ):
-            mock_layout.close_workspace.return_value = False
             runner.invoke(cli, ["close", "myproject.alpha", "--force"])
         _, kwargs = mock_close.call_args
         assert kwargs["force"] is True

@@ -73,7 +73,8 @@ def _close(worktree_path: Path, force: bool, discard: bool) -> CloseResult:
 
 
 def _close_workspace(project: str, worktree: str) -> bool:
-    return mael_layout.close_workspace(project, worktree)
+    cmux = mael_layout.MaelCmux.current()
+    return bool(cmux and cmux.worktree(project, worktree).close())
 
 
 def _remove(project_path: Path, folder_name: str) -> None:
