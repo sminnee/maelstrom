@@ -18,6 +18,7 @@ import type {
   TaskMode,
   TaskStatus,
   Worktree,
+  WorktreeEnv,
 } from '../protocol/entities';
 import type { AgentId, TaskId } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
@@ -478,6 +479,30 @@ const waitName = (kind: string) => WAIT_NAMES[kind] ?? kind;
 /** The worktree command vocabularies, mirroring `orchestrator/validate.py`. */
 const SYNC_MODES: readonly string[] = ['plain', 'autorepair', 'squash'];
 const ENV_ACTIONS: readonly string[] = ['start', 'stop', 'restart'];
+
+/**
+ * The environment after an env call. A named service flips alone. A whole
+ * start runs every core service; a whole stop stops every service.
+ */
+function actOnEnv(env: WorktreeEnv, action: string, service: string | undefined): WorktreeEnv {
+  if (service !== undefined) {
+    return {
+      ...env,
+      services: env.services.map((s) =>
+        s.name === service ? { ...s, running: action === 'start' } : s,
+      ),
+    };
+  }
+  // A stop, and so a restart, takes the optional services down too.
+  const up = action !== 'stop';
+  return {
+    state: up ? 'running' : 'stopped',
+    services: env.services.map((s) => ({
+      ...s,
+      running: s.optional ? action === 'start' && s.running : up,
+    })),
+  };
+}
 
 /** How a wait reads in `waitingOn`, the way the normaliser summarises it. */
 function summaryOf(item: TranscriptItem): string {
@@ -1048,7 +1073,14 @@ function command(
     if (!ENV_ACTIONS.includes(action)) {
       return error(400, 'invalid', `Unknown environment action: ${action}`);
     }
-    world.worktrees[id] = { ...worktree, appRunning: action !== 'stop' };
+    const named = str('service');
+    if (named !== undefined) {
+      if (!worktree.env.services.some((s) => s.optional && s.name === named)) {
+        return error(400, 'invalid', `${named} is not an optional service`);
+      }
+      if (action === 'restart') return error(400, 'invalid', 'A single service cannot restart');
+    }
+    world.worktrees[id] = { ...worktree, env: actOnEnv(worktree.env, action, named) };
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderApp } from './test/renderApp';
 
@@ -159,18 +159,73 @@ describe('the worktrees view', () => {
     );
   });
 
-  it('offers Stop and Restart where an environment is running, and links the dev env', async () => {
+  it('offers Stop, then Restart and the optional services, where an environment runs', async () => {
     const user = userEvent.setup();
     await renderApp();
     await goToWorktrees(user);
 
     const delta = within(row('northwind-delta')!);
     expect(delta.getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
-    expect(delta.getByRole('button', { name: 'Restart' })).toBeInTheDocument();
-    expect(delta.getByRole('link', { name: /Dev env/ })).toHaveAttribute(
+    await user.click(delta.getByRole('button', { name: 'More actions' }));
+    expect(delta.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Stop env',
+      'Restart env',
+      'Start ladle',
+    ]);
+    expect(delta.getByRole('link', { name: 'Dev env' })).toHaveAttribute(
       'href',
       'http://localhost:4210',
     );
+  });
+
+  it('offers Start first where only part of an environment runs', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+        const delta = w.worktrees['northwind-delta']!;
+        w.worktrees['northwind-delta'] = { ...delta, env: { ...delta.env, state: 'partial' } };
+      });
+    });
+    await goToWorktrees(user);
+
+    const delta = within(row('northwind-delta')!);
+    await waitFor(() =>
+      expect(delta.getByRole('button', { name: 'Start env' })).toBeInTheDocument(),
+    );
+    await user.click(delta.getByRole('button', { name: 'More actions' }));
+    expect(delta.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Start env',
+      'Stop env',
+      'Restart env',
+      'Start ladle',
+    ]);
+  });
+
+  it('starts an optional service from the menu, and links it beside the app', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToWorktrees(user);
+
+    const delta = within(row('northwind-delta')!);
+    await user.click(delta.getByRole('button', { name: 'More actions' }));
+    await user.click(delta.getByRole('menuitem', { name: 'Start ladle' }));
+
+    await waitFor(() => expect(delta.getByRole('link', { name: 'ladle' })).toBeInTheDocument());
+    expect(delta.getByRole('link', { name: 'ladle' })).toHaveAttribute(
+      'href',
+      'http://localhost:4212',
+    );
+    expect(delta.getByRole('link', { name: 'web' })).toHaveAttribute(
+      'href',
+      'http://localhost:4210',
+    );
+    expect(delta.getByText(/Dev env:/).textContent).toBe('Dev env: web · ladle');
+
+    await user.click(delta.getByRole('button', { name: 'More actions' }));
+    await user.click(delta.getByRole('menuitem', { name: 'Stop ladle' }));
+    await waitFor(() => expect(delta.queryByRole('link', { name: 'ladle' })).toBeNull());
+    expect(delta.getByRole('link', { name: 'Dev env' })).toBeInTheDocument();
   });
 
   it('syncs a worktree, asking for the mode that repairs a conflict', async () => {

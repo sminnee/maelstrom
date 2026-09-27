@@ -106,17 +106,22 @@ export function useSyncWorktree() {
 }
 
 /**
- * Start, stop or restart a worktree's dev environment. Only the worktree's own
- * `appRunning` moves, so nothing else is cleared.
+ * Start, stop or restart a worktree's dev environment, or start or stop one
+ * optional `service`. Only the worktree's own `env` moves, so nothing else is
+ * cleared.
  */
 export function useEnvWorktree() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId; action: 'start' | 'stop' | 'restart' }) =>
+    mutationFn: (vars: {
+      worktreeId: WorktreeId;
+      action: 'start' | 'stop' | 'restart';
+      service?: string;
+    }) =>
       api.post(
         `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/env`,
-        { action: vars.action },
+        { action: vars.action, service: vars.service },
         { timeoutMs: SLOW_CALL_TIMEOUT_MS },
       ),
     onSuccess: () => {

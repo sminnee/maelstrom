@@ -203,7 +203,8 @@ describe('App', () => {
     clickNode('NORT-12');
     const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
 
-    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    // The env control has its own menu first; the end of work comes last.
+    await user.click(within(card).getAllByRole('button', { name: 'More actions' }).at(-1)!);
     const before = server.requests.length;
     await user.click(
       within(card).getByRole('menuitem', { name: 'Terminate, dismiss & close delta' }),

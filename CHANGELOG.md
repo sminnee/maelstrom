@@ -10,6 +10,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **Control a task's dev environment from its node card.** The expanded card and the worktree
+  view share one environment control. Its button reads the env state: Stop when every core
+  service runs, Start when some or none do. Its menu adds Restart, and a Start or Stop for each
+  optional service, such as `ladle`. Each running web-facing service gets its own link: one reads
+  "Dev env", more read "Dev env: web · ladle".
+
 ### Changed
 
 - **`/present` gets the reasons of the build commits.** The commit `mael git squash-branch` makes

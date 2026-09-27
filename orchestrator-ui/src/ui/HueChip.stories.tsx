@@ -77,12 +77,15 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     dirtyFiles: 0,
     localCommits: 0,
     prNumber: 118,
+    prCommits: 4,
+    pushedCommits: null,
     prUrl: 'https://github.com/acme/northwind/pull/118',
     prState,
     prDraft,
-    appUrl: '',
-    appRunning: false,
-  } as Worktree;
+    env: { state: 'stopped', services: [] },
+    shellUrl: '',
+    sessionCount: 0,
+  };
 }
 
 /** Every PR reading at both sizes. Hover a large one to see it open. */

@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
 import {
   useCloseWorktree,
-  useEnvWorktree,
   useForceCloseWorktree,
   useRefreshWorktrees,
   useRemoveWorktree,
@@ -11,11 +10,12 @@ import {
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { canClose, listWorktrees } from '../selectors/worktrees';
-import { ExternalLink } from '../shell/ExternalLink';
 import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { DevEnvLinks } from './DevEnvLinks';
+import { EnvControl } from './EnvControl';
 import styles from './WorktreeTable.module.css';
 
 /**
@@ -97,7 +97,6 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
   // One question open at a time in a row: two destructive actions a click
   // apart is how the wrong worktree gets deleted.
   const [asking, setAsking] = useState<'force-close' | 'remove' | null>(null);
-  const appUrl = worktree.appRunning && worktree.appUrl ? worktree.appUrl : '';
 
   return (
     <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed}>
@@ -112,7 +111,9 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
       <td>
         <PrChip worktree={worktree} />
       </td>
-      <td>{appUrl ? <ExternalLink href={appUrl}>Dev env</ExternalLink> : ''}</td>
+      <td>
+        <DevEnvLinks worktree={worktree} />
+      </td>
       <td>{agents || ''}</td>
       <td className={styles.actions}>
         <Actions worktree={worktree} asking={asking} setAsking={setAsking} />
@@ -147,7 +148,6 @@ function Actions({
   const close = useCloseWorktree();
   const forceClose = useForceCloseWorktree();
   const remove = useRemoveWorktree();
-  const env = useEnvWorktree();
   const id: WorktreeId = worktree.id;
   // `_main` holds the project's main checkout, so it never closes and never
   // goes away. It still syncs and still runs an environment.
@@ -165,10 +165,7 @@ function Actions({
           >
             Sync
           </AppButton>
-          <EnvButton
-            worktree={worktree}
-            onAct={(action) => env.mutateAsync({ worktreeId: id, action })}
-          />
+          <EnvControl worktree={worktree} />
         </>
       )}
       {canClose(worktree) && (
@@ -209,53 +206,6 @@ function Actions({
           Delete
         </ConfirmButton>
       )}
-    </>
-  );
-}
-
-/**
- * One control for the environment, reading what is running.
- *
- * Start when it is down, Stop when it is up. Restart is offered beside Stop
- * rather than hidden behind it: it is the common repair, not a rare one.
- */
-function EnvButton({
-  worktree,
-  onAct,
-}: {
-  worktree: Worktree;
-  onAct: (action: 'start' | 'stop' | 'restart') => Promise<unknown>;
-}) {
-  if (!worktree.appRunning) {
-    return (
-      <AppButton
-        variant="quiet"
-        title={`Start the environment in ${worktree.nato}`}
-        processingChildren="Starting…"
-        onClick={() => onAct('start')}
-      >
-        Start env
-      </AppButton>
-    );
-  }
-  return (
-    <>
-      <AppButton
-        variant="quiet"
-        title={`Stop the environment in ${worktree.nato}`}
-        processingChildren="Stopping…"
-        onClick={() => onAct('stop')}
-      >
-        Stop env
-      </AppButton>
-      <AppButton
-        variant="quiet"
-        title={`Restart the environment in ${worktree.nato}`}
-        processingChildren="Restarting…"
-        onClick={() => onAct('restart')}
-      >
-        Restart
-      </AppButton>
     </>
   );
 }

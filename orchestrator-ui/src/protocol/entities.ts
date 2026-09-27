@@ -33,6 +33,26 @@ export interface Project {
 export type PrState =
   'merged' | 'ci-failed' | 'ci-running' | 'conflict' | 'checks-unreadable' | 'unknown' | 'ready';
 
+/** A worktree's env state — see **Env state** in `CONTEXT.md`. */
+export type EnvStateName = 'running' | 'partial' | 'stopped';
+
+/** One per-worktree service. `url` is `''` unless the service is web-facing. */
+export interface WorktreeService {
+  name: string;
+  optional: boolean;
+  running: boolean;
+  url: string;
+}
+
+export interface WorktreeEnv {
+  state: EnvStateName;
+  /**
+   * The declared per-worktree services in config order, optional ones included.
+   * A Procfile project lists its tracked services and a synthetic `app`.
+   */
+  services: WorktreeService[];
+}
+
 /** Mirrors one row of `mael --json list-all`. */
 export interface Worktree {
   id: WorktreeId;
@@ -58,8 +78,7 @@ export interface Worktree {
   /** How close the PR is to merging, or `''` when there is no PR. */
   prState: PrState | '';
   prDraft: boolean;
-  appUrl: string;
-  appRunning: boolean;
+  env: WorktreeEnv;
   sessionCount: number;
   /** The `cmux://` link to the pane of the worktree's first terminal, or `''` with none. */
   shellUrl: string;
