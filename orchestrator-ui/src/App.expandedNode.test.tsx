@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
@@ -112,6 +112,71 @@ describe('the expanded node', () => {
       expect(
         within(expanded()).getByRole('link', { name: 'PR #118, CI running' }),
       ).toBeInTheDocument();
+    });
+
+    it("links cmux at the worktree's terminal", async () => {
+      await renderApp();
+      clickNode('NORT-12');
+      const link = within(expanded()).getByRole('link', { name: 'cmux' });
+      expect(link).toHaveAttribute('href', 'cmux://workspace/WS-DELTA/pane/PANE-DELTA');
+    });
+
+    it('creates the terminal when there is none, opens it, and then links it', async () => {
+      const user = userEvent.setup();
+      // jsdom's `location` cannot be spied on, and it cannot follow `cmux:`.
+      const assign = vi.fn();
+      vi.stubGlobal('location', { ...window.location, assign });
+      const { server } = await renderApp();
+      clickNode('NORT-7');
+      expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull();
+
+      await user.click(within(expanded()).getByRole('button', { name: 'cmux' }));
+
+      const url = 'cmux://workspace/WS-ALPHA/pane/PANE-ALPHA';
+      expect(server.requests).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path: '/api/worktrees/northwind-alpha/terminal',
+        }),
+      );
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(url));
+      expect(within(expanded()).getByRole('link', { name: 'cmux' })).toHaveAttribute('href', url);
+    });
+
+    it('a refused create shows Failed and follows no link', async () => {
+      const user = userEvent.setup();
+      const assign = vi.fn();
+      vi.stubGlobal('location', { ...window.location, assign });
+      const { server } = await renderApp();
+      server.refuse(/POST \/api\/worktrees\/[^/]+\/terminal$/, {
+        status: 400,
+        code: 'invalid',
+        message: 'cmux could not make the terminal',
+      });
+      clickNode('NORT-7');
+
+      await user.click(within(expanded()).getByRole('button', { name: 'cmux' }));
+
+      const failed = await within(expanded()).findByRole('button', { name: 'Failed' });
+      expect(failed).toHaveAttribute('title', 'cmux could not make the terminal');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('a closed worktree has no cmux control', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      expect(within(expanded()).getByRole('link', { name: 'cmux' })).toBeInTheDocument();
+
+      act(() => {
+        server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+          w.worktrees['northwind-delta'] = { ...w.worktrees['northwind-delta']!, isClosed: true };
+        });
+      });
+
+      await waitFor(() =>
+        expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull(),
+      );
+      expect(within(expanded()).queryByRole('button', { name: 'cmux' })).toBeNull();
     });
   });
 
