@@ -1366,6 +1366,7 @@ class Orchestrator:
             "worktree.remove": self._remove_worktree,
             "worktree.sync": self._sync_worktree,
             "worktree.env": self._env_worktree,
+            "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
@@ -2005,6 +2006,34 @@ class Orchestrator:
             # services, so the world is stale whichever way this ends.
             await self.refresh_worktrees()
         return {"ok": True, "result": {}}
+
+    async def _create_worktree_terminal(
+        self, command: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Make a worktree's terminal in cmux, and write its link into this row only."""
+        ensure_terminal = self.worktrees.ensure_terminal
+        if ensure_terminal is None:
+            return _refused("invalid", "This server cannot create terminals")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            url = await self._run_worktree(
+                ensure_terminal, row["project"], row["nato"], row["path"]
+            )
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not create a terminal for %s", worktree_id)
+            return _refused("invalid", f"Could not create the terminal: {exc}")
+        worktrees = self.world["worktrees"]
+        if worktree_id in worktrees:
+            updated = {
+                **worktrees,
+                worktree_id: {**worktrees[worktree_id], "shellUrl": url},
+            }
+            self._apply(diff_kind("worktree", worktrees, updated))
+        return {"ok": True, "result": {"shellUrl": url}}
 
     async def _refresh_worktrees_now(self, _command: dict[str, Any]) -> dict[str, Any]:
         """Re-read the worktrees because a caller changed something on GitHub.

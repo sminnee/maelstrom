@@ -94,6 +94,7 @@ function worktree(over: Partial<Worktree> = {}): Worktree {
     appUrl: '',
     appRunning: false,
     sessionCount: 1,
+    shellUrl: '',
     ...over,
   };
 }
