@@ -1,27 +1,24 @@
 """Tests for the cmux policy layer (mael_layout.py).
 
-These drive the maelstrom-aware spec builders through a real CmuxLayout over a
-RecordingCmuxClient, asserting the right verbs fire with the right pane indices
-and specs. CmuxLayout.current is patched to return a layout bound to the
-recording client.
+These drive :class:`MaelCmux` and :class:`WorktreeWorkspace` over a
+:class:`FakeCmux` and assert the resulting workspace: its panes, tabs, the text
+sent in, and what was focused.
 """
 
 from unittest.mock import patch
 
 from mael_domain.cmux import mael_layout
+from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.client import RecordingCmuxClient
-from mael_domain.cmux.model import CmuxLayout
+from mael_domain.cmux.mael_layout import MaelCmux
+from mael_domain.cmux.model import TerminalTab
+
+NAME = "myproject-alpha"
+AGENT = TerminalTab("Claude", cwd="/wt", command="claude")
 
 
-def _patch_current(responses, name="myproject-alpha"):
-    """Patch CmuxLayout.current to return a layout over a recording client.
-
-    Returns the recording client so tests can assert on ``client.calls``.
-    """
-    client = RecordingCmuxClient(responses)
-    layout = CmuxLayout(client, name)
-    patcher = patch.object(CmuxLayout, "current", staticmethod(lambda n: layout))
-    return client, patcher
+def _worktree(cmux: FakeCmux, path: str | None = "/wt"):
+    return MaelCmux(cmux).worktree("myproject", "alpha", path)
 
 
 class TestWorkspaceName:
@@ -29,319 +26,114 @@ class TestWorkspaceName:
         assert mael_layout.workspace_name("maelstrom", "bravo") == "maelstrom-bravo"
 
 
-class TestEnsureWorktreeWorkspace:
-    """ensure_worktree_workspace — create-vs-reuse business logic."""
+class TestCurrent:
+    def test_none_outside_cmux(self):
+        with patch.object(mael_layout, "current_client", lambda: None):
+            assert MaelCmux.current() is None
 
-    def test_returns_false_outside_cmux(self):
-        with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert (
-                mael_layout.ensure_worktree_workspace(
-                    "proj",
-                    "alpha",
-                    "/wt",
-                    command="claude",
-                    install_cmd="npm i",
-                )
-                is False
-            )
+    def test_over_the_running_cmux_inside_it(self):
+        client = RecordingCmuxClient(lambda *args: '{"workspaces": []}')
+        with patch.object(mael_layout, "current_client", lambda: client):
+            cmux = MaelCmux.current()
+        assert cmux is not None
+        assert cmux.worktree("myproject", "alpha").close() is False
+        assert client.calls == [("--json", "--id-format", "both", "list-workspaces")]
+
+
+class TestOpenForAgent:
+    """open_for_agent — create-vs-reuse business logic."""
 
     def test_create_path_builds_claude_and_shell(self):
-        """No existing workspace → create with Claude (pane 0) + shell (pane 1)."""
-        # The workspace doesn't exist until new-workspace runs; track that so
-        # later list-workspaces lookups find it (as real cmux would). After the
-        # shell pane is split, list-panes shows two panes.
-        state = {"created": False, "split": False}
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:1  myproject-alpha" if state["created"] else ""
-            if args[0] == "new-workspace":
-                state["created"] = True
-                return "OK workspace:1"
-            if args[0] == "list-panes":
-                return "pane:0 pane:9" if state["split"] else "pane:0"
-            if args[0] == "new-split":
-                state["split"] = True
-                return "OK surface:90 workspace:1"
-            if args[0] == "new-surface":
-                return "OK surface:6 pane:0 workspace:1"
-            if args[0] == "list-pane-surfaces":
-                pane = args[2]
-                return {
-                    "pane:0": '  surface:5  terminal  "shell"',
-                    "pane:9": '  surface:91  terminal  "shell"',
-                }.get(pane, "")
-            return "OK"
-
-        client, patcher = _patch_current(fn)
-        with patcher, patch("mael_domain.cmux.model.time.sleep"):
-            placed = mael_layout.ensure_worktree_workspace(
-                "myproject",
-                "alpha",
-                "/wt",
-                command="claude",
-                install_cmd="npm i",
-            )
-        assert placed is True
-        # Workspace created running the worktree cd.
-        assert ("new-workspace", "--command", "cd /wt") in client.calls
-        # Claude starts only after the installer shell is ready.
-        assert (
-            "send",
-            "--surface",
-            "surface:6",
-            "--workspace",
-            "workspace:1",
-            "--",
-            "claude\n",
-        ) in client.calls
-        # Shell pane (pane 1) split off and install run there.
-        assert any(c[0] == "new-split" for c in client.calls)
-        assert (
-            "send",
-            "--surface",
-            "surface:91",
-            "--workspace",
-            "workspace:1",
-            "--",
-            "npm i\n",
-        ) in client.calls
+        """No workspace → pane 0 gains Claude, pane 1 runs the installer."""
+        cmux = FakeCmux()
+        assert _worktree(cmux).open_for_agent(AGENT, install_cmd="npm i") is True
+        assert cmux.tabs(NAME) == [["Claude", "Claude"], [""]]
+        # The installer is sent before Claude starts.
+        assert cmux.texts().index("npm i\n") < cmux.texts().index("claude\n")
 
     def test_reuse_path_adds_claude_tab_only(self):
-        """Existing workspace → add a Claude tab to pane 0, no shell/install."""
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "new-surface":
-                return "OK surface:99 pane:0 workspace:13"
-            return "OK"
-
-        client, patcher = _patch_current(fn)
-        with patcher:
-            placed = mael_layout.ensure_worktree_workspace(
-                "myproject",
-                "alpha",
-                "/wt",
-                command="claude",
-                install_cmd="npm i",
-            )
-        assert placed is True
-        # Added a fresh Claude tab to pane 0 (add_terminal → new-surface).
-        assert (
-            "new-surface",
-            "--type",
-            "terminal",
-            "--pane",
-            "pane:0",
-            "--workspace",
-            "workspace:13",
-        ) in client.calls
+        """A live workspace → a Claude tab in pane 0, and no second installer."""
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        assert _worktree(cmux).open_for_agent(AGENT, install_cmd="npm i") is True
+        assert cmux.tabs(NAME) == [["Claude", "Claude"], ["Terminal"]]
+        assert "npm i\n" not in cmux.texts()
         # The reused workspace is brought to the foreground.
-        assert ("select-workspace", "--workspace", "workspace:13") in client.calls
-        # Did NOT create the workspace or run install again.
-        assert not any(c[0] == "new-workspace" for c in client.calls)
-        assert not any(c[0] == "send" and "npm i\n" in c for c in client.calls)
+        assert cmux.workspace_ref(NAME) in cmux.focused
 
-    def test_create_path_returns_false_when_new_workspace_fails(self):
-        """new-workspace non-OK (dead socket) → placement failed, return False."""
+    def test_false_when_the_workspace_cannot_be_made(self):
+        cmux = FakeCmux()
+        with patch.object(cmux, "new_workspace", return_value=None):
+            assert _worktree(cmux).open_for_agent(AGENT, install_cmd="npm i") is False
 
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return ""  # no existing workspace → create path
-            if args[0] == "new-workspace":
-                return None  # cmux error: no workspace ref
-            return "OK"
-
-        _, patcher = _patch_current(fn)
-        with patcher, patch("mael_domain.cmux.model.time.sleep"):
-            placed = mael_layout.ensure_worktree_workspace(
-                "myproject",
-                "alpha",
-                "/wt",
-                command="claude",
-                install_cmd="npm i",
-            )
-        assert placed is False
+    def test_false_when_the_tab_cannot_be_added(self):
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        with patch.object(cmux, "new_surface", return_value=None):
+            assert _worktree(cmux).open_for_agent(AGENT, install_cmd="npm i") is False
 
 
-class TestEnsureWorktreeShellWorkspace:
+class TestPrepareInstallShellThenAddAgent:
+    def test_the_installer_is_ready_before_the_agent(self):
+        cmux = FakeCmux()
+        workspace = _worktree(cmux)
+        assert workspace.prepare_install_shell(install_cmd="uv sync") is True
+        assert cmux.tabs(NAME) == [["Claude"], [""]]
+        assert cmux.texts()[-1] == "uv sync\n"
+        assert workspace.add_agent(AGENT) is True
+        assert cmux.tabs(NAME) == [["Claude", "Claude"], [""]]
+
+    def test_a_live_workspace_is_unchanged(self):
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        assert _worktree(cmux).prepare_install_shell(install_cmd="uv sync") is True
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal"]]
+        assert cmux.sent == []
+
+
+class TestOpenForShell:
     def test_create_runs_the_installer_in_the_initial_shell(self):
-        state = {"created": False}
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "workspace:1  myproject-alpha" if state["created"] else ""
-            if args[0] == "new-workspace":
-                state["created"] = True
-                return "OK workspace:1"
-            if args[0] == "list-panes":
-                return "pane:0"
-            if args[0] == "list-pane-surfaces":
-                return 'surface:5 terminal "shell"'
-            return "OK"
-
-        client, patcher = _patch_current(fn)
-        with patcher, patch("mael_domain.cmux.model.time.sleep"):
-            assert mael_layout.ensure_worktree_shell_workspace(
-                "myproject", "alpha", "/wt", install_cmd="npm i"
-            )
-        assert ("send", "--workspace", "workspace:1", "--", "npm i\n") in client.calls
+        cmux = FakeCmux()
+        assert _worktree(cmux).open_for_shell(install_cmd="npm i") is True
+        assert cmux.tabs(NAME) == [["Terminal"]]
+        assert cmux.texts() == ["cd /wt\n", "npm i\n"]
 
     def test_reuse_adds_a_shell_without_running_the_installer(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "new-surface":
-                return "OK surface:99 pane:1 workspace:13"
-            return "OK"
-
-        client, patcher = _patch_current(fn)
-        with patcher:
-            assert mael_layout.ensure_worktree_shell_workspace(
-                "myproject", "alpha", "/wt", install_cmd="npm i"
-            )
-        assert not any(c[0] == "send" and "npm i\n" in c for c in client.calls)
-
-    def test_reuse_path_returns_false_when_new_surface_fails(self):
-        """Existing workspace but add_terminal (new-surface) non-OK → False."""
-
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "list-panes":
-                return "pane:0 pane:1"
-            if args[0] == "new-surface":
-                return None  # cmux error: tab not placed
-            return "OK"
-
-        _, patcher = _patch_current(fn)
-        with patcher:
-            placed = mael_layout.ensure_worktree_workspace(
-                "myproject",
-                "alpha",
-                "/wt",
-                command="claude",
-                install_cmd="npm i",
-            )
-        assert placed is False
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        assert _worktree(cmux).open_for_shell(install_cmd="npm i") is True
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal", "Terminal"]]
+        assert "npm i\n" not in cmux.texts()
 
 
-class TestShowAppBrowser:
-    def test_opens_in_browser_pane(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:103  terminal  "Terminal"'
-            if args[0] == "list-panes":
-                return "pane:0 pane:1 pane:2"
-            if args[0] == "new-surface":
-                return "OK surface:200 pane:2 workspace:13"
-            return None
+class TestAppBrowser:
+    def test_show_opens_in_the_browser_pane(self):
+        cmux = FakeCmux().with_workspace(NAME, [["Claude"], ["Terminal"]])
+        ref = _worktree(cmux).show_app_browser("http://localhost:3000")
+        assert ref is not None
+        assert cmux.tabs(NAME)[2] == ["http://localhost:3000"]
 
-        client, patcher = _patch_current(fn)
-        with patcher:
-            ref = mael_layout.show_app_browser(
-                "myproject",
-                "alpha",
-                "http://localhost:3000",
-            )
-        assert ref == "surface:200"
-        # Opened in pane 2 (BROWSER_PANE).
-        assert (
-            "new-surface",
-            "--type",
-            "browser",
-            "--pane",
-            "pane:2",
-            "--url",
-            "http://localhost:3000",
-        ) in client.calls
-
-    def test_none_outside_cmux(self):
-        with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert (
-                mael_layout.show_app_browser(
-                    "p",
-                    "a",
-                    "http://localhost:3000",
-                )
-                is None
-            )
-
-
-class TestHideAppBrowser:
-    def test_closes_matching_browser(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "App"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "http://localhost:3000"
-            if args[0] == "close-surface":
-                return "OK"
-            return None
-
-        client, patcher = _patch_current(fn)
-        with patcher:
-            assert (
-                mael_layout.hide_app_browser(
-                    "p",
-                    "a",
-                    "http://localhost:3000",
-                )
-                is True
-            )
-        assert ("close-surface", "--surface", "surface:183") in client.calls
+    def test_hide_closes_the_matching_browser(self):
+        cmux = FakeCmux().with_workspace(
+            NAME, [["Claude"], ["Terminal"], [("browser", "http://localhost:3000")]]
+        )
+        assert _worktree(cmux).hide_app_browser("http://localhost:3000") is True
+        assert cmux.tabs(NAME) == [["Claude"], ["Terminal"]]
 
 
 class TestShowPrBrowser:
     def test_recycles_github_browser_in_place(self):
-        def fn(*args):
-            if args[0] == "list-panels":
-                return '  surface:183  browser  "GitHub"'
-            if args[0] == "browser" and args[1] == "get-url":
-                return "https://github.com/owner/repo"
-            if args[0] == "browser" and "goto" in args:
-                return "OK"
-            return None
-
-        client, patcher = _patch_current(fn)
-        with patcher:
-            ref = mael_layout.show_pr_browser(
-                "https://github.com/owner/repo/pull/9",
-            )
-        assert ref == "surface:183"
-        # Navigated the github tab in place (matched by github.com prefix).
-        assert (
-            "browser",
-            "--surface",
-            "surface:183",
-            "goto",
-            "https://github.com/owner/repo/pull/9",
-        ) in client.calls
-
-    def test_none_outside_cmux(self):
-        with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert mael_layout.show_pr_browser("https://github.com/x") is None
+        cmux = FakeCmux().with_workspace(
+            NAME,
+            [["Claude"], ["Terminal"], [("browser", "https://github.com/o/r")]],
+            current=True,
+        )
+        ref = MaelCmux(cmux).show_pr_browser("https://github.com/o/r/pull/9")
+        assert ref is not None
+        assert cmux.tabs(NAME)[2] == ["https://github.com/o/r/pull/9"]
 
 
-class TestCloseWorkspace:
+class TestClose:
     def test_closes_matching(self):
-        def fn(*args):
-            if args[0] == "list-workspaces":
-                return "  workspace:13  myproject-alpha"
-            if args[0] == "close-workspace":
-                return "OK"
-            return None
+        cmux = FakeCmux().with_workspace(NAME).with_workspace("other")
+        assert _worktree(cmux, path=None).close() is True
+        assert [w.title for w in cmux.list_workspaces()] == ["other"]
 
-        client, patcher = _patch_current(fn)
-        with patcher:
-            assert mael_layout.close_workspace("myproject", "alpha") is True
-        assert ("close-workspace", "--workspace", "workspace:13") in client.calls
-
-    def test_false_outside_cmux(self):
-        with patch.object(CmuxLayout, "current", staticmethod(lambda n: None)):
-            assert mael_layout.close_workspace("p", "a") is False
+    def test_false_when_absent(self):
+        assert _worktree(FakeCmux(), path=None).close() is False

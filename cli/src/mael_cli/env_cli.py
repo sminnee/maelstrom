@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from mael_common.util import format_uptime
-from mael_domain.cmux import mael_layout
+from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.config import load_config_or_default
 from mael_domain.context import ResolvedContext, resolve_context
 from mael_domain.env import (
@@ -155,7 +155,8 @@ def ensure_cmux_browser(
     url, _ = app_info
     port = int(url.rsplit(":", 1)[1])
     wait_for_port(port)
-    ref = mael_layout.show_app_browser(state.project, worktree, url)
+    cmux = MaelCmux.current()
+    ref = cmux.worktree(state.project, worktree).show_app_browser(url) if cmux else None
     if ref:
         state.cmux_browser_surface = ref
         save_env_state(make_store(), state)
@@ -385,8 +386,9 @@ def env_stop(service, worktree_opt):
     # leave the pane showing the main app alone.
     if service_name is None:
         app_info = get_app_url(ctx.project_path, ctx.worktree)
-        if app_info:
-            mael_layout.hide_app_browser(ctx.project, ctx.worktree, app_info[0])
+        cmux = MaelCmux.current() if app_info else None
+        if app_info and cmux:
+            cmux.worktree(ctx.project, ctx.worktree).hide_app_browser(app_info[0])
 
     try:
         messages = stop_env(

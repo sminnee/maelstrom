@@ -25,6 +25,7 @@ from mael_cli.worktree_launcher import (
     start_install_async,
 )
 from mael_common.shell import Command, Pipeline, describe, exec_cmd
+from mael_domain.cmux.mael_layout import MaelCmux
 
 
 class TestOpenWorktree:
@@ -227,21 +228,13 @@ class TestAddLauncher:
         start.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cmux_daemon_attaches_the_started_agent(self, tmp_path):
+    async def test_cmux_daemon_attaches_the_started_agent(self, tmp_path, fake_cmux):
         with (
             patch("mael_cli.worktree_launcher.load_config_or_default") as config,
             patch(
                 "mael_cli.worktree_launcher.start_agent_in_worktree",
                 return_value="agent-1",
             ),
-            patch(
-                "mael_cli.worktree_launcher.mael_layout.ensure_worktree_install_shell",
-                return_value=True,
-            ),
-            patch(
-                "mael_cli.worktree_launcher.mael_layout.add_worktree_agent",
-                return_value=True,
-            ) as workspace,
         ):
             config.return_value.install_cmd = "uv sync"
             assert await launch_add_in_worktree(
@@ -251,18 +244,14 @@ class TestAddLauncher:
                 context=AddContext.CMUX,
                 harness="daemon",
             )
-        assert workspace.call_args.args[:2] == ("proj", "alpha")
-        assert workspace.call_args.args[2].command == "mael agent attach agent-1"
+        # The installer shell is ready before the agent tab attaches.
+        texts = fake_cmux.texts()
+        assert texts.index("uv sync\n") < texts.index("mael agent attach agent-1\n")
+        assert fake_cmux.tabs("proj-alpha")[0] == ["Claude", "Claude"]
 
     @pytest.mark.asyncio
-    async def test_cmux_cli_uses_the_selected_model_command(self, tmp_path):
-        with (
-            patch("mael_cli.worktree_launcher.load_config_or_default") as config,
-            patch(
-                "mael_cli.worktree_launcher.mael_layout.ensure_worktree_workspace",
-                return_value=True,
-            ) as workspace,
-        ):
+    async def test_cmux_cli_uses_the_selected_model_command(self, tmp_path, fake_cmux):
+        with patch("mael_cli.worktree_launcher.load_config_or_default") as config:
             config.return_value.install_cmd = ""
             assert await launch_add_in_worktree(
                 tmp_path,
@@ -272,19 +261,15 @@ class TestAddLauncher:
                 harness="cli",
                 model="codex:terra",
             )
-        assert workspace.call_args.kwargs["command"] == (
+        assert fake_cmux.sent[-1][1] == (
             "codex --sandbox workspace-write --model gpt-5.6-terra -c "
-            "model_reasoning_effort=medium"
+            "model_reasoning_effort=medium\n"
         )
 
     @pytest.mark.asyncio
-    async def test_cmux_no_agent_uses_one_shell_surface(self, tmp_path):
+    async def test_cmux_no_agent_uses_one_shell_surface(self, tmp_path, fake_cmux):
         with (
             patch("mael_cli.worktree_launcher.load_config_or_default") as config,
-            patch(
-                "mael_cli.worktree_launcher.mael_layout.ensure_worktree_shell_workspace",
-                return_value=True,
-            ) as shell,
             patch("mael_cli.worktree_launcher.start_agent_in_worktree") as agent,
         ):
             config.return_value.install_cmd = "uv sync"
@@ -296,9 +281,8 @@ class TestAddLauncher:
                 harness="cli",
                 no_agent=True,
             )
-        shell.assert_called_once_with(
-            "proj", "alpha", str(tmp_path), install_cmd="uv sync"
-        )
+        assert fake_cmux.tabs("proj-alpha") == [["Terminal"]]
+        assert fake_cmux.texts() == [f"cd {tmp_path}\n", "uv sync\n"]
         agent.assert_not_called()
 
 
@@ -669,49 +653,28 @@ class TestExecCmd:
 class TestOpenClaudeWorkspace:
     """Tests for the cmux new-workspace placement peer.
 
-    open_claude_workspace now delegates entirely to the policy seam
-    mael_layout.ensure_worktree_workspace (which owns the cmux-detection and
-    create-vs-reuse logic, tested in test_mael_layout.py). These tests guard the
-    translation: how it builds the command/install args and returns the seam's
-    placed result.
+    open_claude_workspace hands the rendered command and the install command to
+    WorktreeWorkspace.open_for_agent, whose create-vs-reuse logic is tested in
+    test_mael_layout.py. These tests guard the translation.
     """
 
-    def test_returns_false_without_project_or_worktree(self):
+    def test_returns_false_without_project_or_worktree(self, fake_cmux):
         # A workspace can't be named without project+worktree → no placement.
-        with patch(
-            "mael_domain.cmux.mael_layout.ensure_worktree_workspace"
-        ) as mock_ensure:
-            placed = open_claude_workspace(None, "alpha", Path("/wt"), ["claude", "hi"])
-            assert placed is False
-            mock_ensure.assert_not_called()
+        placed = open_claude_workspace(None, "alpha", Path("/wt"), ["claude", "hi"])
+        assert placed is False
+        assert fake_cmux.list_workspaces() == []
 
-    def test_returns_seam_result(self):
-        # Outside cmux the seam returns False; open_claude_workspace passes it on.
-        with (
-            patch(
-                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
-                return_value=False,
-            ),
-            patch(
-                "mael_cli.worktree_launcher.load_config_or_default",
-                return_value=SimpleNamespace(install_cmd=""),
-            ),
-        ):
+    def test_false_outside_cmux(self):
+        with patch.object(MaelCmux, "current", return_value=None):
             placed = open_claude_workspace(
                 "proj", "alpha", Path("/wt"), ["claude", "hi"]
             )
-            assert placed is False
+        assert placed is False
 
-    def test_passes_shell_line_and_install_to_seam(self):
-        with (
-            patch(
-                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
-                return_value=True,
-            ) as mock_ensure,
-            patch(
-                "mael_cli.worktree_launcher.load_config_or_default",
-                return_value=SimpleNamespace(install_cmd="npm install"),
-            ),
+    def test_passes_shell_line_and_install_to_the_workspace(self, fake_cmux):
+        with patch(
+            "mael_cli.worktree_launcher.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd="npm install"),
         ):
             placed = open_claude_workspace(
                 "proj",
@@ -722,16 +685,14 @@ class TestOpenClaudeWorkspace:
                     env={"MAEL_TASK_ID": "t1"},
                 ),
             )
-            assert placed is True
-            mock_ensure.assert_called_once_with(
-                "proj",
-                "alpha",
-                "/wt",
-                command="MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'",
-                install_cmd="npm install",
-            )
+        assert placed is True
+        texts = fake_cmux.texts()
+        assert "npm install\n" in texts
+        assert texts[-1] == (
+            "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'\n"
+        )
 
-    def test_passes_pipeline_to_seam_rendered(self):
+    def test_passes_pipeline_rendered(self, fake_cmux):
         # A Pipeline carries the env on its ``claude`` Command (the right of the
         # pipe); ``open_claude_workspace`` renders it — env stays on the correct
         # segment structurally, so there's nothing to re-prefix at the front.
@@ -744,36 +705,25 @@ class TestOpenClaudeWorkspace:
                 ),
             ]
         )
-        with (
-            patch(
-                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
-                return_value=True,
-            ) as mock_ensure,
-            patch(
-                "mael_cli.worktree_launcher.load_config_or_default",
-                return_value=SimpleNamespace(install_cmd=""),
-            ),
+        with patch(
+            "mael_cli.worktree_launcher.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd=""),
         ):
-            placed = open_claude_workspace("proj", "alpha", Path("/wt"), expr)
-            assert placed is True
-            assert mock_ensure.call_args.kwargs["command"] == (
-                "mael task prompt t1 --project proj "
-                "| MAEL_TASK_ID=t1 claude --permission-mode plan"
-            )
+            assert open_claude_workspace("proj", "alpha", Path("/wt"), expr)
+        assert fake_cmux.sent[-1][1] == (
+            "mael task prompt t1 --project proj "
+            "| MAEL_TASK_ID=t1 claude --permission-mode plan\n"
+        )
 
-    def test_empty_install_cmd_passed_as_none(self):
-        with (
-            patch(
-                "mael_domain.cmux.mael_layout.ensure_worktree_workspace",
-                return_value=True,
-            ) as mock_ensure,
-            patch(
-                "mael_cli.worktree_launcher.load_config_or_default",
-                return_value=SimpleNamespace(install_cmd=""),
-            ),
+    def test_empty_install_cmd_runs_nothing(self, fake_cmux):
+        with patch(
+            "mael_cli.worktree_launcher.load_config_or_default",
+            return_value=SimpleNamespace(install_cmd=""),
         ):
             open_claude_workspace("proj", "alpha", Path("/wt"), ["claude", "hi"])
-            assert mock_ensure.call_args.kwargs["install_cmd"] is None
+        # The shell pane gets its cd and no installer.
+        shell = fake_cmux.surface_ref("proj-alpha", 1)
+        assert [text for ref, text in fake_cmux.sent if ref == shell] == ["cd /wt\n"]
 
 
 @pytest.mark.skip(reason="Superseded by transport selection tests.")

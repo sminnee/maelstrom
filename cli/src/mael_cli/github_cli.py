@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from mael_domain.cmux import mael_layout
+from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import resolve_context
 from mael_domain.github import (
     create_pr,
@@ -62,7 +62,9 @@ def _handle_wait_for_review(cwd: Path) -> None:
 
 def _open_pr_in_cmux(url: str) -> None:
     """Open a PR URL in a cmux browser, recycling any github.com browser. No-op outside cmux."""
-    mael_layout.show_pr_browser(url)
+    cmux = MaelCmux.current()
+    if cmux:
+        cmux.show_pr_browser(url)
 
 
 #: The route that asks an orchestrator to re-read its worktrees at once.

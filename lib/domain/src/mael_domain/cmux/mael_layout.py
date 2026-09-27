@@ -1,16 +1,21 @@
 """Policy layer for cmux integration — the only place that knows maelstrom.
 
-Knows the maelstrom concepts the domain layer deliberately doesn't: the
+Knows the maelstrom concepts the lower layers deliberately don't: the
 ``{project}-{worktree}`` workspace name, the standard 3-pane layout (pane 0 =
 Claude, pane 1 = shell, pane 2 = browsers), and what to run (Claude, the install
-command, app/PR URLs). Each function builds a :class:`~mael_domain.cmux.model.CmuxLayout`
-and issues declarative assertion verbs. These are the functions the CLI call
-sites invoke; they never touch the cmux mechanics directly.
+command, app/PR URLs).
 
-Every function degrades silently outside cmux (``CmuxLayout.current()`` is
-``None``), returning ``None``/``False``.
+:class:`MaelCmux` is maelstrom's view of one cmux. :class:`WorktreeWorkspace` is
+one worktree's workspace, with its intents as methods: open it for an agent,
+or open it for a shell. Each intent issues
+:class:`~mael_domain.cmux.model.CmuxLayout` verbs.
+
+``MaelCmux.current()`` is ``None`` outside cmux. After that, every method is
+non-fatal: it returns ``None`` or ``False``.
 """
 
+from .api import CliCmuxApi, CmuxApi
+from .client import current_client
 from .model import BrowserTab, CmuxLayout, TerminalTab
 
 # The standard 3-pane workspace layout.
@@ -27,137 +32,114 @@ def workspace_name(project: str, worktree: str) -> str:
     return f"{project}-{worktree}"
 
 
-def ensure_worktree_workspace(
-    project: str,
-    worktree: str,
-    path: str,
-    *,
-    command: str,
-    install_cmd: str | None,
-) -> bool:
-    """Place a worktree's 3-pane workspace: Claude (pane 0) + shell (pane 1).
+class MaelCmux:
+    """Maelstrom's view of one cmux."""
 
-    Two distinct cases:
+    def __init__(self, api: CmuxApi) -> None:
+        self._api = api
 
-    - **Live workspace** — add a fresh Claude tab to pane 0 and leave every other
-      pane untouched (it already installed; no duplicate install).
-    - **No workspace** — create it with Claude as pane 0's initial terminal, then
-      split a shell pane (pane 1) running ``install_cmd``.
+    @staticmethod
+    def current() -> "MaelCmux | None":
+        """The running cmux, or ``None`` outside cmux."""
+        client = current_client()
+        if client is None:
+            return None
+        return MaelCmux(CliCmuxApi(client))
 
-    Returns True only when the Claude tab was actually placed — a ``None`` from
-    ``add_terminal``/``ensure_workspace`` (dead socket, cmux error) yields False
-    so the caller treats it as a placement failure, not a silent success. The
-    install/shell pane stays best-effort: a workspace with Claude but no shell
-    pane is degraded, not a failed placement.
-    """
-    claude = TerminalTab("Claude", cwd=path, command=command)
-    if not ensure_worktree_install_shell(
-        project, worktree, path, install_cmd=install_cmd
-    ):
-        return False
-    return add_worktree_agent(project, worktree, claude)
+    def worktree(
+        self, project: str, worktree: str, path: str | None = None
+    ) -> "WorktreeWorkspace":
+        """The workspace of one worktree. ``path`` is where its terminals start."""
+        return WorktreeWorkspace(self._api, project, worktree, path)
 
+    def show_pr_browser(self, url: str) -> str | None:
+        """Open or recycle the github browser tab in the caller's workspace.
 
-def ensure_worktree_install_shell(
-    project: str, worktree: str, path: str, *, install_cmd: str | None
-) -> bool:
-    """Create the installer shell before an agent starts.
-
-    A live workspace is unchanged. Its first install already ran.
-    """
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    if lay is None:
-        return False
-    if lay.has_workspace():
-        return True
-    if lay.ensure_workspace(TerminalTab("Claude", cwd=path)) is None:
-        return False
-    lay.ensure_terminal(
-        SHELL_PANE, TerminalTab("Terminal", cwd=path, command=install_cmd)
-    )
-    return True
-
-
-def add_worktree_agent(project: str, worktree: str, agent: TerminalTab) -> bool:
-    """Add an agent tab after the worktree installer shell is ready."""
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    return bool(lay and lay.add_terminal(CLAUDE_PANE, agent) is not None)
-
-
-def ensure_worktree_shell_workspace(
-    project: str,
-    worktree: str,
-    path: str,
-    *,
-    install_cmd: str | None,
-) -> bool:
-    """Focus a worktree workspace with one shell pane.
-
-    A new workspace runs its installer in pane 0.  A live workspace is only
-    focused.  In particular, reuse must not start a second installer.
-    """
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    if lay is None:
-        return False
-    if lay.has_workspace():
-        return (
-            lay.add_terminal(SHELL_PANE, TerminalTab("Terminal", cwd=path)) is not None
+        Recycles by the ``github.com`` prefix so a PR/issue tab is navigated in
+        place rather than recreated. Returns the surface ref, or ``None``. The
+        browser verbs act on the caller's workspace, so the layout needs no name.
+        """
+        return CmuxLayout(self._api, "").ensure_browser(
+            BROWSER_PANE, BrowserTab(url, match=GITHUB_URL_PREFIX)
         )
-    return (
-        lay.ensure_workspace(TerminalTab("Terminal", cwd=path, command=install_cmd))
-        is not None
-    )
 
 
-def show_app_browser(project: str, worktree: str, url: str) -> str | None:
-    """Ensure the app URL is shown in the workspace's browser pane.
+class WorktreeWorkspace:
+    """One worktree's cmux workspace, by its intents.
 
-    Recycles an existing browser on the same URL prefix, else opens one in pane
-    2. Returns the browser surface ref (stored as
-    ``EnvState.cmux_browser_surface``), or ``None`` outside cmux.
+    Full agentic development: :meth:`open_for_agent`, or
+    :meth:`prepare_install_shell` then :meth:`add_agent`. Terminal access only:
+    :meth:`open_for_shell` for ``mael add --no-agent``.
     """
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    if lay is None:
-        return None
-    return lay.ensure_browser(BROWSER_PANE, BrowserTab(url))
 
+    def __init__(
+        self, api: CmuxApi, project: str, worktree: str, path: str | None
+    ) -> None:
+        self._api = api
+        self._name = workspace_name(project, worktree)
+        self._path = path
+        self._layout = CmuxLayout(api, self._name)
 
-def hide_app_browser(project: str, worktree: str, url: str) -> bool:
-    """Close the app browser matching ``url`` in the workspace, if present."""
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    if lay is None:
-        return False
-    return lay.ensure_absent_browser(url)
+    # === full agentic development ===
 
+    def open_for_agent(self, agent: TerminalTab, install_cmd: str | None) -> bool:
+        """Place the agent's tab in pane 0, and the installer shell in pane 1.
 
-def show_pr_browser(url: str) -> str | None:
-    """Open/recycle the github browser tab in the current workspace's pane 2.
+        A live workspace gains only the agent tab: its first install already
+        ran. True only when the agent tab was placed. The installer shell is
+        best-effort.
+        """
+        if not self.prepare_install_shell(install_cmd):
+            return False
+        return self.add_agent(agent)
 
-    Recycles by the ``github.com`` prefix so a PR/issue tab is navigated in
-    place rather than recreated. Returns the surface ref, or ``None``.
-    """
-    lay = _current_layout()
-    if lay is None:
-        return None
-    return lay.ensure_browser(
-        BROWSER_PANE,
-        BrowserTab(url, match=GITHUB_URL_PREFIX),
-    )
+    def prepare_install_shell(self, install_cmd: str | None) -> bool:
+        """Make the workspace, with the installer running in pane 1.
 
+        A live workspace is unchanged. Its first install already ran.
+        """
+        if self._layout.has_workspace():
+            return True
+        if self._layout.ensure_workspace(TerminalTab("Claude", cwd=self._path)) is None:
+            return False
+        self._layout.ensure_terminal(
+            SHELL_PANE, TerminalTab("Terminal", cwd=self._path, command=install_cmd)
+        )
+        return True
 
-def close_workspace(project: str, worktree: str) -> bool:
-    """Close the worktree's workspace, if present. No-op (False) otherwise."""
-    lay = CmuxLayout.current(workspace_name(project, worktree))
-    if lay is None:
-        return False
-    return lay.close()
+    def add_agent(self, agent: TerminalTab) -> bool:
+        """Add an agent tab to pane 0, after the installer shell is ready."""
+        return self._layout.add_terminal(CLAUDE_PANE, agent) is not None
 
+    # === terminal access only ===
 
-def _current_layout() -> CmuxLayout | None:
-    """A layout over the *current* workspace (name irrelevant for these verbs).
+    def open_for_shell(self, install_cmd: str | None) -> bool:
+        """Focus a workspace with one shell.
 
-    Status and the github-browser verbs act on the caller's current workspace —
-    cmux scopes them to ``$CMUX_WORKSPACE_ID`` — so the bound name is unused. We
-    pass an empty name purely to satisfy the constructor.
-    """
-    return CmuxLayout.current("")
+        A new workspace runs its installer in that shell. A live workspace
+        gains a shell tab in pane 1 and no second installer.
+        """
+        if self._layout.has_workspace():
+            tab = TerminalTab("Terminal", cwd=self._path)
+            return self._layout.add_terminal(SHELL_PANE, tab) is not None
+        tab = TerminalTab("Terminal", cwd=self._path, command=install_cmd)
+        return self._layout.ensure_workspace(tab) is not None
+
+    # === browsers and teardown ===
+
+    def show_app_browser(self, url: str) -> str | None:
+        """Show the app URL in the browser pane.
+
+        Recycles a browser on the same URL prefix, else opens one in pane 2.
+        Returns the browser surface ref (stored as
+        ``EnvState.cmux_browser_surface``).
+        """
+        return self._layout.ensure_browser(BROWSER_PANE, BrowserTab(url))
+
+    def hide_app_browser(self, url: str) -> bool:
+        """Close the app browser matching ``url``, if present."""
+        return self._layout.ensure_absent_browser(url)
+
+    def close(self) -> bool:
+        """Close the workspace, if present. No-op (False) otherwise."""
+        return self._layout.close()

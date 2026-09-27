@@ -44,7 +44,7 @@ built in `worktree_close.py`; `worktree_steps.py` holds `Step`, `StepOutcome` an
 | `check_dirty` | `worktree.get_worktree_dirty_files` | worktree |
 | `git_close` | `worktree.close_worktree` | worktree |
 | `git_remove` | `worktree.remove_worktree_by_path` | repo + worktree |
-| `close_workspace` | `cmux.mael_layout.close_workspace` | none |
+| `close_workspace` | `cmux.mael_layout.WorktreeWorkspace.close` | none |
 | `rebase` | `worktree.sync_worktree` / `sync_worktree_with_autorepair` | worktree |
 | `start_env` | `env.start_env` | worktree |
 | `stop_env` (as an operation) | `env.stop_env` | worktree |

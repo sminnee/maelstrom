@@ -135,6 +135,23 @@ class TestGhCliRegistration:
         assert result.exit_code == 0, result.output
         return mock_create.call_args.kwargs
 
+    def test_create_pr_recycles_the_github_browser_tab(self, fake_cmux):
+        fake_cmux.with_workspace(
+            "myproject-alpha",
+            [["Claude"], ["Terminal"], [("browser", "https://github.com/o")]],
+        )
+        with (
+            patch("mael_cli.github_cli.resolve_context") as mock_ctx,
+            patch(
+                "mael_cli.github_cli.create_pr",
+                return_value=("https://github.com/o/r/pull/9", True),
+            ),
+        ):
+            mock_ctx.return_value.worktree_path = None
+            result = CliRunner().invoke(cli, ["gh", "create-pr"])
+        assert result.exit_code == 0, result.output
+        assert fake_cmux.tabs("myproject-alpha")[2] == ["https://github.com/o/r/pull/9"]
+
     def test_create_pr_passes_autorepair_through(self):
         assert self._run_create_pr(["--autorepair"])["autorepair"] is True
 
