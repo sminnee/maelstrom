@@ -76,12 +76,13 @@ SyncWorktree = Callable[[str, str, str, str], Awaitable[None]]
 RemoveWorktree = Callable[[str, str, str], Awaitable[None]]
 
 #: Starts or stops a worktree's environment:
-#: ``(project, nato, path, action) -> None`` where ``action`` is ``start``,
-#: ``stop`` or ``restart``. The environment is keyed by project and worktree
-#: name, but a start reads the checkout's own ``.env`` and services, so the
-#: path comes too.
+#: ``(project, nato, path, action, service) -> None`` where ``action`` is
+#: ``start``, ``stop`` or ``restart``, and ``service`` names one optional
+#: service, or is ``None`` for the whole environment. The environment is keyed
+#: by project and worktree name, but a start reads the checkout's own ``.env``
+#: and services, so the path comes too.
 #:
-EnvWorktree = Callable[[str, str, str, str], Awaitable[None]]
+EnvWorktree = Callable[[str, str, str, str, str | None], Awaitable[None]]
 
 
 #: Makes sure a worktree has a terminal in cmux, and returns the ``cmux://``

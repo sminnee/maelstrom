@@ -678,7 +678,10 @@ operation rather than half-doing it. Each is a step sequence — close and remov
 `worktree_close.py`, sync and env in `worktree_ops.py` — so each takes the worktree scope and
 cannot reach a checkout another operation is rewriting. `sync` takes a mode — `plain`, `autorepair` or `squash` —
 because it is one operation with the three settings `mael sync` has, not three operations. `env`
-takes an action, and `restart` is `stop` then `start` rather than a third code path.
+takes an action, and `restart` is `stop` then `start` rather than a third code path. `env` also
+takes an optional `service`, which names one optional service to start or stop alone. The
+validator refuses a `service` that is not an optional service in the worktree's `env.services`,
+and refuses `restart` with a `service`.
 
 Each blocks for tens of seconds, so each runs on the worktree pool. The refresh runs whichever way
 the operation ends: a close that fails partway has still stopped agents and freed ports.
@@ -721,7 +724,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 |---|---|
 | `GET /api/projects` | `{projects: [Project]}` |
 | `GET /api/linear/issues?project=` | `{issues: [{id, title, status}]}` — the project's current Linear cycle. Refused unless the project sets `linear.team_id` |
-| `GET /api/worktrees` | `{worktrees: [Worktree]}` |
+| `GET /api/worktrees` | `{worktrees: [Worktree]}`. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
 | `GET /api/agents` | `{agents: [Agent]}` |
@@ -827,7 +830,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
 | `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
-| `POST /api/worktrees/{id}/env` | `action` | `worktree.env` | `{}` |
+| `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |

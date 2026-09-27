@@ -166,13 +166,16 @@ def build_orchestrator(
         if not ran.ok:
             raise CloseBlocked(ran.blocked or "The sync did not finish")
 
-    async def env_worktree(project: str, nato: str, path: str, action: str) -> None:
+    async def env_worktree(
+        project: str, nato: str, path: str, action: str, service: str | None
+    ) -> None:
         ran = await run_env(
             project,
             nato,
             Path(path),
             projects_dir / project,
             action,
+            service=service,
             executor=worktree_executor,
         )
         if not ran.ok:

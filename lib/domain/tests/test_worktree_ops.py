@@ -30,7 +30,8 @@ def sync_steps(**over) -> SyncSteps:
 
 def env_steps(**over) -> EnvSteps:
     defaults = dict(
-        start=lambda project, worktree, path: [], stop=lambda project, worktree: []
+        start=lambda project, worktree, path, services: [],
+        stop=lambda project, worktree, services: [],
     )
     return EnvSteps(**{**defaults, **over})
 
@@ -126,8 +127,8 @@ class TestEnvActions:
             PROJECT_PATH,
             "start",
             steps=env_steps(
-                start=lambda p, w, path: order.append("start") or [],
-                stop=lambda p, w: order.append("stop") or [],
+                start=lambda p, w, path, services: order.append("start") or [],
+                stop=lambda p, w, services: order.append("stop") or [],
             ),
         )
         assert order == ["start"]
@@ -142,8 +143,8 @@ class TestEnvActions:
             PROJECT_PATH,
             "stop",
             steps=env_steps(
-                start=lambda p, w, path: order.append("start") or [],
-                stop=lambda p, w: order.append("stop") or [],
+                start=lambda p, w, path, services: order.append("start") or [],
+                stop=lambda p, w, services: order.append("stop") or [],
             ),
         )
         assert order == ["stop"]
@@ -158,11 +159,30 @@ class TestEnvActions:
             PROJECT_PATH,
             "restart",
             steps=env_steps(
-                start=lambda p, w, path: order.append("start") or [],
-                stop=lambda p, w: order.append("stop") or [],
+                start=lambda p, w, path, services: order.append("start") or [],
+                stop=lambda p, w, services: order.append("stop") or [],
             ),
         )
         assert order == ["stop", "start"]
+
+    async def test_a_named_start_or_stop_passes_the_service_on(self):
+        """The card starts one optional service, not the whole environment."""
+        asked: list[tuple[str, list[str] | None]] = []
+        steps = env_steps(
+            start=lambda p, w, path, services: asked.append(("start", services)) or [],
+            stop=lambda p, w, services: asked.append(("stop", services)) or [],
+        )
+        for action in ("start", "stop"):
+            await run_env(
+                "myproject",
+                "alpha",
+                WORKTREE_PATH,
+                PROJECT_PATH,
+                action,
+                service="ladle",
+                steps=steps,
+            )
+        assert asked == [("start", ["ladle"]), ("stop", ["ladle"])]
 
     async def test_a_start_reports_what_it_brought_up(self):
         result = await run_env(
@@ -171,12 +191,14 @@ class TestEnvActions:
             WORKTREE_PATH,
             PROJECT_PATH,
             "start",
-            steps=env_steps(start=lambda p, w, path: ["web: started on 3320"]),
+            steps=env_steps(
+                start=lambda p, w, path, services: ["web: started on 3320"]
+            ),
         )
         assert any("web: started" in line for line in result.messages)
 
     async def test_a_failed_start_is_blocked_rather_than_raised(self):
-        def boom(project, worktree, path):
+        def boom(project, worktree, path, services):
             raise OSError("port in use")
 
         result = await run_env(
@@ -194,7 +216,7 @@ class TestEnvActions:
         """A half-restart is worse than a refused one: it hides the fault."""
         start = MagicMock(return_value=[])
 
-        def boom(project, worktree):
+        def boom(project, worktree, services):
             raise OSError("will not die")
 
         result = await run_env(

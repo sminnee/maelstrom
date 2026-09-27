@@ -243,6 +243,15 @@ def _worktree_error(
         action = cmd.get("action", "")
         if action not in ENV_ACTIONS:
             return _err("invalid", f"Unknown environment action: {action}")
+        service = cmd.get("service")
+        if service is not None:
+            if not isinstance(service, str):
+                return _err("invalid", "A service is named by a string")
+            optional = {s["name"] for s in worktree["env"]["services"] if s["optional"]}
+            if service not in optional:
+                return _err("invalid", f"{service} is not an optional service")
+            if action == "restart":
+                return _err("invalid", "A single service cannot restart")
 
     return None
 

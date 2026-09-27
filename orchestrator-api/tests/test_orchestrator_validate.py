@@ -688,8 +688,7 @@ def make_worktree(**over) -> dict:
         "dirtyFiles": 0,
         "localCommits": 0,
         "prNumber": None,
-        "appUrl": "",
-        "appRunning": False,
+        "env": {"state": "stopped", "services": []},
         "sessionCount": 0,
         **over,
     }
@@ -852,6 +851,55 @@ class TestEnv:
         )
         assert code(error) == "invalid"
         assert "bounce" in error["message"]
+
+    LADLE_ENV = {
+        "state": "running",
+        "services": [
+            {"name": "web", "optional": False, "running": True, "url": ""},
+            {"name": "ladle", "optional": True, "running": False, "url": ""},
+        ],
+    }
+
+    def test_starting_an_optional_service_is_allowed(self):
+        world = world_with(worktrees=[make_worktree(env=self.LADLE_ENV)])
+        cmd = worktree_cmd(
+            "worktree.env", "northwind-alpha", action="start", service="ladle"
+        )
+        assert validate_command(world, cmd) is None
+
+    def test_a_service_that_is_not_an_optional_one_is_refused(self):
+        """A core service goes with the whole environment, not on its own."""
+        world = world_with(worktrees=[make_worktree(env=self.LADLE_ENV)])
+        for service in ("storybook", "web"):
+            error = validate_command(
+                world,
+                worktree_cmd(
+                    "worktree.env", "northwind-alpha", action="start", service=service
+                ),
+            )
+            assert code(error) == "invalid"
+            assert service in error["message"]
+
+    def test_a_service_that_is_not_a_name_is_refused(self):
+        world = world_with(worktrees=[make_worktree(env=self.LADLE_ENV)])
+        error = validate_command(
+            world,
+            worktree_cmd(
+                "worktree.env", "northwind-alpha", action="start", service=["ladle"]
+            ),
+        )
+        assert code(error) == "invalid"
+
+    def test_restarting_one_service_is_refused(self):
+        world = world_with(worktrees=[make_worktree(env=self.LADLE_ENV)])
+        error = validate_command(
+            world,
+            worktree_cmd(
+                "worktree.env", "northwind-alpha", action="restart", service="ladle"
+            ),
+        )
+        assert code(error) == "invalid"
+        assert "restart" in error["message"]
 
     def test_an_environment_on_a_worktree_the_world_lacks_is_unknown_id(self):
         error = validate_command(
