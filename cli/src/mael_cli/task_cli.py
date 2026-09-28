@@ -368,8 +368,9 @@ async def _run_task(
     )
     if not placed:
         # No session opened, so roll the task back to TODO — a task that never
-        # launched must never be left in-progress. It stays re-runnable and the
-        # next hourly scheduler fire retries it. No execvp happens on this path
+        # launched must never be left in-progress. It stays re-runnable with
+        # `mael task run`; the scheduler has moved its watermark and does not
+        # retry it. No execvp happens on this path
         # now, so this write always runs. The rollback is best-effort: if the
         # store write itself raises, the run aborts loudly (leaving the task
         # in-progress) rather than silently — an acceptable failure mode, since
@@ -378,7 +379,7 @@ async def _run_task(
             table, project, task.id, model.STATUS_TODO, warn=_warn
         )
         # The launcher already named the reason.
-        click.echo(f"Left {task.id} TODO (re-fires next run)", err=True)
+        click.echo(f"Left {task.id} TODO (mael task run {task.id})", err=True)
 
 
 def _warn(line: str) -> None:
