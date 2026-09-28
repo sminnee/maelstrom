@@ -84,6 +84,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     exitCode: null,
     pendingRequestIds: [],
     pid: null,
+    backgroundShells: [],
     ...over,
   };
 }

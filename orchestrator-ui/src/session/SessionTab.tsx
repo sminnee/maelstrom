@@ -10,7 +10,7 @@ import {
 } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
-import type { Agent } from '../protocol/entities';
+import type { Agent, BackgroundShell } from '../protocol/entities';
 import { modelLabel } from '../protocol/models';
 import { nextMode } from '../protocol/modes';
 import { contextSize } from '../protocol/tokens';
@@ -134,15 +134,17 @@ export function SessionTab({ agentId }: { agentId: string }) {
     agent.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
   // Compacting is a turn like any other, so the agent must be free to take
-  // one: not mid-turn, not blocked on a person, not gone. The button owns the
-  // send itself, so an in-flight one is its business rather than this rule's.
-  const canCompact = agent.state === 'idle' && agent.pendingRequestIds.length === 0;
+  // one: not mid-turn, not blocked on a person, not gone. A background shell
+  // holds no turn open. The button owns the send itself, so an in-flight one
+  // is its business rather than this rule's.
+  const free = agent.state === 'idle' || agent.state === 'background';
+  const canCompact = free && agent.pendingRequestIds.length === 0;
   const compactTitle =
     agent.state === 'exited'
       ? 'The agent has exited.'
       : agent.pendingRequestIds.length > 0
         ? 'The agent is waiting on you. Answer it first.'
-        : agent.state !== 'idle'
+        : !free
           ? 'The agent is working. Compacting waits for the turn to end.'
           : 'Compact the conversation, so the session keeps room to work.';
   // Only while the agent runs a turn. The daemon also interrupts a waiting
@@ -268,6 +270,7 @@ export function SessionTab({ agentId }: { agentId: string }) {
         <div ref={bottom} />
       </div>
       {children.length > 0 && <SubagentStrip agents={children} />}
+      {agent.backgroundShells.length > 0 && <BackgroundShellStrip tasks={agent.backgroundShells} />}
       {finished.length > 0 && <FinishedSubagents agents={finished} />}
       {!isChild && (
         <MessageInput
@@ -313,6 +316,20 @@ function SubagentStrip({ agents }: { agents: Agent[] }) {
             </span>
           )}
         </PanelLink>
+      ))}
+    </div>
+  );
+}
+
+/** A shell has no stream of its own, so unlike a subagent it opens no tab. */
+function BackgroundShellStrip({ tasks }: { tasks: BackgroundShell[] }) {
+  return (
+    <div className={styles.subagents} data-testid="background-shells">
+      {tasks.map((task) => (
+        <div key={task.id} className={styles.subagent}>
+          <span className={styles.dot} data-state="background" aria-hidden="true" />
+          <span className={styles.subagentDescription}>{task.description}</span>
+        </div>
       ))}
     </div>
   );

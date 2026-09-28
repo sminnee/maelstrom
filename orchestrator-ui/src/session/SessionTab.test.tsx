@@ -156,6 +156,21 @@ describe('the compact button', () => {
     });
   });
 
+  it('compacts an agent whose turn ended while its background shell runs', async () => {
+    // No turn is open, so the agent is free to take one.
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = {
+        ...w.agents['d9a4c7f1']!,
+        state: 'background',
+        backgroundShells: [{ id: 'b1', description: 'Serve the app' }],
+      };
+    });
+    await openTaskSession(user);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Compact' })).toBeEnabled());
+  });
+
   it('stays busy until the boundary arrives, because the relay returns long before', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

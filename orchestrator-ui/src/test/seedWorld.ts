@@ -122,6 +122,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     exitCode: null,
     pendingRequestIds: [],
     pid: null,
+    backgroundShells: [],
     ...over,
   };
 }
@@ -157,6 +158,7 @@ function freeAgent(
     exitCode: null,
     pendingRequestIds: [],
     pid: null,
+    backgroundShells: [],
     ...over,
   };
 }
