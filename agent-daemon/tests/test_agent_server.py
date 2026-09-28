@@ -3297,13 +3297,19 @@ def test_the_socket_and_its_root_are_owner_only():
     async def serve_briefly():
         daemon = AgentDaemon(paths.root, InMemoryAgentSpecStore())
         task = asyncio.create_task(daemon.serve())
+        # The bind and the chmods are separate steps, and the root's chmod is
+        # the last one. Read the modes only after it, or the poll can see the
+        # socket at the 0755 it was bound with.
         for _ in range(100):
             await asyncio.sleep(0.01)
-            if paths.socket.exists():
+            if (
+                paths.socket.exists()
+                and stat.S_IMODE(paths.root.stat().st_mode) == 0o700
+            ):
                 break
         else:
             task.cancel()
-            pytest.fail("the daemon never bound its socket")
+            pytest.fail("the daemon never bound and secured its socket")
         modes = (
             stat.S_IMODE(paths.socket.stat().st_mode),
             stat.S_IMODE(paths.root.stat().st_mode),
