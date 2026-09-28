@@ -11,8 +11,7 @@ import styles from './Dialog.module.css';
  *
  * `showModal()` is what puts it in the top layer, so a combo box offer inside
  * it can draw over the dialog rather than being clipped by it. It also traps
- * the focus and draws the `::backdrop`, both of which this used to do by hand
- * or not at all.
+ * the focus and draws the `::backdrop`.
  */
 export function Dialog({
   label,
@@ -23,7 +22,7 @@ export function Dialog({
 }: {
   /** The dialog's accessible name. */
   label: string;
-  /** Escape, a click on the backdrop, or the header's ×. */
+  /** Escape or a click on the backdrop (both as `cancel`), or the header's ×. */
   onClose: () => void;
   testId?: string;
   /** Added to the box, for a dialog whose content is not text. */
@@ -64,28 +63,15 @@ export function Dialog({
       aria-label={label}
       data-testid={testId}
       tabIndex={-1}
-      // Escape reaches the dialog as `cancel`. Taking it here rather than on the
-      // document is what lets a control inside stop the key first -- the combo
-      // box does, so one press dismisses its offer and not the dialog too.
+      // Light dismiss. A descendant, such as a combo box offer drawn past the
+      // box's edge, is inside by the DOM tree; the box's own padding is inside
+      // by its rect.
+      closedby="any"
+      // Escape and a backdrop click both arrive as `cancel`. Taking it here, not
+      // on the document, lets a control inside stop Escape first; the combo box does.
       onCancel={(e) => {
         e.preventDefault();
         onClose();
-      }}
-      // A modal dialog fills the viewport, so a press on the backdrop lands on
-      // the dialog element itself. The box is that same element, and it has
-      // padding and a column gap, so the target alone cannot tell the two
-      // apart: a press on a gap between fieldsets would read as a backdrop
-      // press and discard a form mid-edit. The pointer against the box's own
-      // rect is what distinguishes them.
-      onMouseDown={(e) => {
-        const box = e.currentTarget.getBoundingClientRect();
-        // Inclusive, so the border and the rounded corners belong to the box.
-        const inside =
-          e.clientX >= box.left &&
-          e.clientX <= box.right &&
-          e.clientY >= box.top &&
-          e.clientY <= box.bottom;
-        if (!inside) onClose();
       }}
     >
       {children}
