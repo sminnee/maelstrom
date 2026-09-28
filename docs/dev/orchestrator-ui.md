@@ -649,9 +649,12 @@ backdrop and the focus trap, so neither is written here. Escape arrives as `canc
 control inside can stop first — the combo box does, so one press dismisses its offer and a second
 closes the dialog.
 
-A press closes the dialog when it lands outside the box, decided by the pointer's position against
-the box's own rect rather than by the element the press hit. `ui/Dialog.tsx` carries why the target
-cannot decide it.
+A click on the backdrop closes the dialog by the browser's light dismiss (`closedby="any"`). It
+arrives as `cancel`, the same as Escape, so a caller's unsaved-work guard sees one path. A click
+needs its press and its release outside the box. A descendant, such as a combo box offer that
+draws past the box, is inside by the DOM tree. The box's own padding is inside by its rect. A
+browser without `closedby` (Safari) ignores it: the backdrop does nothing, and Escape and × still
+close.
 
 A caller that fills the viewport has no outside, so it needs a close control of its own: below
 839px the box is the full screen. `ui/ImageLightbox.tsx` is the one such caller and carries a

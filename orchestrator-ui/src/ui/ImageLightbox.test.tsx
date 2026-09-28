@@ -20,7 +20,7 @@ describe('a picture in a message', () => {
   it('closes on its own control, which is the only way out on a touch screen', async () => {
     const user = userEvent.setup();
     const box = await open(user);
-    // `Dialog` dismisses a press outside the box, and below 839px the box is the
+    // `Dialog` dismisses a click outside the box, and below 839px the box is the
     // whole screen. Escape is no answer on a phone, so the overlay carries a
     // control of its own.
     await user.click(within(box).getByRole('button', { name: 'Close' }));

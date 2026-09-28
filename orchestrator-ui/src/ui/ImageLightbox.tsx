@@ -43,7 +43,7 @@ export function ImageLightbox({ src, alt }: { src: string; alt: string }) {
             testId="image-lightbox"
             className={styles.box}
           >
-            {/* `Dialog` dismisses a press outside its box, and below 839px the
+            {/* `Dialog` dismisses a click outside its box, and below 839px the
                 box is the whole screen -- so this overlay would have no way out
                 but Escape, which a touch device has not got. */}
             <button
