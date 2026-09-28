@@ -19,17 +19,20 @@ from typing import Any, TypedDict
 QUESTION_TOOL = "AskUserQuestion"
 PLAN_TOOL = "ExitPlanMode"
 
-# The states an agent can be in. Every one is observed from an event rather
-# than inferred, so there is no staleness fudge here and an interrupt is visible.
+# The states an agent can be in. Each one is observed from an event, except
+# ``DELEGATING`` and ``BACKGROUND``, which the row derives from ``IDLE``.
 IDLE = "idle"
 PROCESSING = "processing"
 AWAITING_PERMISSION = "awaiting-permission"
 AWAITING_QUESTION = "awaiting-question"
 AWAITING_PLAN_REVIEW = "awaiting-plan-review"
 #: A subagent runs on after the turn ended (see CONTEXT.md, "Delegating").
-#: The one state the row derives rather than observes: the reducer's own
-#: status stays ``IDLE``. In neither tuple below.
+#: Derived by the row, not observed: the reducer's own status stays ``IDLE``.
+#: In neither tuple below.
 DELEGATING = "delegating"
+#: A background shell runs on after the turn ended, and no subagent does (see
+#: CONTEXT.md, "Background shell"). Derived like ``DELEGATING``, which outranks it.
+BACKGROUND = "background"
 #: Terminal: the child process is gone. An exited agent answers nothing.
 EXITED = "exited"
 
@@ -551,6 +554,13 @@ SCOPES = (SCOPE_RUNNING, SCOPE_STOPPED, SCOPE_ALL)
 # --- the shapes a reply carries ----------------------------------------------
 
 
+class BackgroundShellRow(TypedDict):
+    """One background shell of an agent: the task id and the ``Bash`` description."""
+
+    id: str
+    description: str
+
+
 class AgentRow(TypedDict):
     """One agent or subagent, as ``list`` reports it. Every key is always set."""
 
@@ -572,6 +582,8 @@ class AgentRow(TypedDict):
     tokens: int
     subagent_tokens: dict[str, int]
     context_tokens: int
+    #: The agent's running background shells, oldest first. Empty for a subagent.
+    background: list[BackgroundShellRow]
 
 
 class PendingFields(TypedDict):
@@ -660,6 +672,7 @@ def detail_frame(
         "tokens": 0,
         "subagent_tokens": TokenUsage().as_row(),
         "context_tokens": 0,
+        "background": [],
         "message": "",
         **pending_fields(pending, ""),
         "subagents": [],

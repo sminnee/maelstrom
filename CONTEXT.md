@@ -272,9 +272,17 @@ _Avoid_: Sidechain, child session, sub-agent
 
 **Delegating**:
 The state of a driven agent whose turn ended while at least one of its **subagents** still runs.
-No turn is open and nobody waits for the user, but the work goes on. A background `Bash` does not
-count.
+No turn is open and nobody waits for the user, but the work goes on. A **background shell** does
+not count: it gives the state `background`, which delegating outranks.
 _Avoid_: Idle, waiting
+
+**Background shell**:
+A `Bash` call a driven agent ran with `run_in_background`. It runs on after the call returns, and
+often after the turn ends. It has no stream of its own, so nothing opens it. An agent whose turn
+ended while one runs, and no **subagent** does, is in the state `background`: the UI reads
+"Background tasks working". The shells die with the agent's process.
+_Avoid_: job. Claude Code calls it a background task, a word that covers subagents too; only the
+UI label "Background tasks working" keeps it.
 
 **Usage window**:
 One rolling budget the Claude account spends against: the five-hour window and the seven-day

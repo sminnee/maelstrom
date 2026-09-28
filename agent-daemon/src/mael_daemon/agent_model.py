@@ -19,6 +19,7 @@ from typing import Any
 
 from mael_agent.agent_transport import ROOT_ENV
 from mael_agent.agent_wire import (
+    BACKGROUND,
     DELEGATING,
     EXITED,
     IDLE,
@@ -29,6 +30,7 @@ from mael_agent.agent_wire import (
     TS_KEY,
     AgentDetail,
     AgentRow,
+    BackgroundShellRow,
     PendingRequest,
     StoppedRow,
     TokenUsage,
@@ -393,6 +395,17 @@ AGENT_TASK_TYPE = "local_agent"
 
 
 @dataclass(frozen=True)
+class BackgroundShell:
+    """One background task of an agent that is not a subagent: a shell, in practice.
+
+    See ``docs/dev/agent-daemon.md``.
+    """
+
+    task_id: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class SubagentState:
     """One subagent of an agent: a stream of its own, keyed by a dotted id.
 
@@ -533,6 +546,9 @@ class AgentState:
     #: subagent as. A ``can_use_tool`` names its asker under ``agent_id``, and
     #: this is what turns that into a dotted id.
     subagent_tasks: dict[str, str] = field(default_factory=dict)
+    #: The background shells running now, oldest first. Replaced whole by each
+    #: ``background_tasks_changed``, so a lost end cannot strand one.
+    background: tuple[BackgroundShell, ...] = field(default_factory=tuple)
 
 
 #: How many subagents to keep per agent. See :func:`_make_room`.
@@ -817,6 +833,9 @@ def apply_event(
     if kind == "system" and event.get("subtype") == "task_notification":
         return _end_subagent(state, event, now)
 
+    if kind == "system" and event.get("subtype") == "background_tasks_changed":
+        return replace(state, background=_background_shells(event))
+
     if kind == "system" and event.get("subtype") == "init":
         return replace(
             state,
@@ -948,15 +967,29 @@ def _wait_status(pending: dict[str, PendingRequest], fallback: str) -> str:
     return fallback
 
 
+def _background_shells(event: dict[str, Any]) -> tuple[BackgroundShell, ...]:
+    """The shells a ``background_tasks_changed`` snapshot lists, subagents left out."""
+    return tuple(
+        BackgroundShell(
+            task_id=str(task.get("task_id") or ""),
+            description=str(task.get("description") or ""),
+        )
+        for task in event.get("tasks") or ()
+        if isinstance(task, dict) and task.get("task_type") != AGENT_TASK_TYPE
+    )
+
+
 def _status_without_asks(state: AgentState) -> str:
     """The status ``state`` reports when no ask is open: ``delegating`` while an
-    idle agent's subagent runs. The reducer keeps ``idle`` for ``last_status``
-    and the resume prompt.
+    idle agent's subagent runs, else ``background`` while its shell runs. The
+    reducer keeps ``idle`` for ``last_status`` and the resume prompt.
     """
-    if state.status == IDLE and any(
-        sub.status == SUB_RUNNING for sub in state.subagents.values()
-    ):
+    if state.status != IDLE:
+        return state.status
+    if any(sub.status == SUB_RUNNING for sub in state.subagents.values()):
         return DELEGATING
+    if state.background:
+        return BACKGROUND
     return state.status
 
 
@@ -1220,9 +1253,17 @@ def mark_exited(state: AgentState, exit_code: int | None) -> AgentState:
     Clears ``pending``: a request nobody can answer must not keep advertising
     itself, or ``mael agent answer`` reports success against a dead process.
     Clears ``pid`` too: the process is gone, and the number may be reused.
+    Clears ``background``: the shells died with the process.
     The subagents stay as they are: their rings are still worth reading.
     """
-    return replace(state, status=EXITED, own_pending={}, exit_code=exit_code, pid=None)
+    return replace(
+        state,
+        status=EXITED,
+        own_pending={},
+        exit_code=exit_code,
+        pid=None,
+        background=(),
+    )
 
 
 def freshest_usage(states: Iterable[AgentState]) -> dict[str, Any] | None:
@@ -1301,7 +1342,12 @@ def build_agent_row(state: AgentState, spawn_session: str = "") -> AgentRow:
         # the other, so their sum is the tree's.
         "subagent_tokens": state.subagent_tokens.as_row(),
         "context_tokens": state.context_tokens,
+        "background": [_background_row(shell) for shell in state.background],
     }
+
+
+def _background_row(shell: BackgroundShell) -> BackgroundShellRow:
+    return {"id": shell.task_id, "description": shell.description}
 
 
 def _subagent_status(sub: SubagentState) -> str:
@@ -1365,6 +1411,8 @@ def build_subagent_row(state: AgentState, dotted: str) -> AgentRow:
         # row is the one that reports a tree.
         "subagent_tokens": TokenUsage().as_row(),
         "context_tokens": 0,
+        # A subagent's shells are not listed in the snapshot the parent reads.
+        "background": [],
     }
 
 

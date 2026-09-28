@@ -1435,11 +1435,84 @@ def _task_started(tool_use_id: str, task_type: str, task_id: str = "t") -> dict:
     }
 
 
-def test_a_turn_that_ends_under_a_background_shell_is_idle():
+#: The one shell ``bash-background.jsonl`` runs in the background.
+SLEEP_SHELL = {"id": "bbs1cjtq4", "description": "Sleep 15 seconds then print done"}
+
+
+def test_a_turn_that_ends_under_a_background_shell_is_background():
+    """The row says ``background`` and lists the shell until the snapshot drops it.
+
+    The fixture's foreground ``ls`` raises no task, so it is never listed.
+    """
+    raw = (FIXTURES / "bash-background.jsonl").read_text().splitlines()
     state = AgentState(agent_id="a1", cwd="/tmp/x")
-    state = apply_event(state, _task_started("b1", "local_bash"))
+    seen = []
+    for line in raw:
+        event = json.loads(line)
+        state = apply_event(state, event)
+        if event.get("type") == "result":
+            label = "result"
+        elif event.get("subtype") == "background_tasks_changed":
+            label = "changed"
+        else:
+            continue
+        row = build_agent_row(state)
+        seen.append((label, row["state"], row["background"]))
+    assert seen == [
+        ("changed", PROCESSING, [SLEEP_SHELL]),
+        ("result", "background", [SLEEP_SHELL]),
+        ("changed", IDLE, []),
+        ("result", IDLE, []),
+    ]
+    assert state.status == IDLE
+
+
+def _tasks_changed(*tasks: tuple[str, str]) -> dict:
+    return {
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "tasks": [
+            {"task_id": task_id, "task_type": task_type, "description": "a task"}
+            for task_id, task_type in tasks
+        ],
+    }
+
+
+def test_a_running_subagent_outranks_a_background_shell():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _task_started("t1", "local_agent", task_id="task-1"))
+    state = apply_event(
+        state, _tasks_changed(("task-1", "local_agent"), ("b1", "local_bash"))
+    )
     state = apply_event(state, {"type": "result"})
-    assert build_agent_row(state)["state"] == IDLE
+    row = build_agent_row(state)
+    # The subagent has a row of its own, so the list holds the shell alone.
+    assert (row["state"], row["background"]) == (
+        "delegating",
+        [{"id": "b1", "description": "a task"}],
+    )
+
+
+def test_a_new_turn_keeps_the_shell_that_still_runs():
+    """``init`` opens every turn, so it must not clear the set: a user message
+    sent while the shell runs would drop it."""
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _tasks_changed(("b1", "local_bash")))
+    state = apply_event(state, {"type": "result"})
+    state = apply_event(state, {"type": "system", "subtype": "init"})
+    state = apply_event(state, {"type": "result"})
+    row = build_agent_row(state)
+    assert (row["state"], row["background"]) == (
+        "background",
+        [{"id": "b1", "description": "a task"}],
+    )
+
+
+def test_an_exited_agent_holds_no_background_shell():
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    state = apply_event(state, _tasks_changed(("b1", "local_bash")))
+    state = mark_exited(state, 0)
+    assert build_agent_row(state)["background"] == []
 
 
 def test_a_subagents_ask_outranks_delegating_until_it_is_answered():
@@ -1588,6 +1661,8 @@ def test_subagent_rows_take_the_row_shape_under_the_parent():
         },
         # Its context is the parent's prompt, which the parent's row reports.
         "context_tokens": 0,
+        # The parent's snapshot lists the parent's shells only.
+        "background": [],
     }
     assert last_message.startswith("`docs/dev` exists")
     assert "\n" not in last_message
