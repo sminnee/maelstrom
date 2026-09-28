@@ -11,10 +11,9 @@ agent to it idempotently and is wired into ``install_claude_integration`` so
 ``mael install`` / ``mael self-update`` keep an opted-in agent's ``mael`` path
 current.
 
-The launchd→cmux path needs no secret in the plist: a *user* LaunchAgent runs in
-the logged-in GUI session and so reaches the same keychain the ``cmux`` CLI falls
-through to. It needs no ``CMUX_SOCKET_PATH`` either — the CLI defaults to the
-conventional socket path when the var is unset — so the plist sets only ``PATH``.
+The launchd job touches no cmux: each scheduled run starts on the agent daemon.
+The plist sets only ``PATH``. The ``mael`` shim on that ``PATH`` names the
+everyday daemon root, so the job needs no secret and no other variable.
 
 Nothing here wakes a sleeping Mac, and nothing needs to: launchd starts a job
 missed during sleep on the next wake, coalescing missed intervals into one event.

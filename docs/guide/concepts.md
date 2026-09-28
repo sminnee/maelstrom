@@ -49,8 +49,9 @@ cmux is a workspace manager. Maelstrom gives each worktree a workspace named
 
 Sessions run in cmux workspaces. Maelstrom starts a session by driving the cmux socket. If
 cmux is down, maelstrom starts it. If cmux cannot be reached, maelstrom fails rather than
-running the agent somewhere you cannot see it. The one exception is `--here`, which runs
-the agent in your current shell — a deliberate escape hatch, not a fallback.
+running the agent somewhere you cannot see it. There are two exceptions. `--here` runs the
+agent in your current shell — a deliberate escape hatch, not a fallback. A scheduled run starts
+on the agent daemon with no workspace, and the orchestrator UI shows it.
 
 This matters because you cannot supervise what you cannot find. With one workspace per
 worktree, every agent is always in a known place.

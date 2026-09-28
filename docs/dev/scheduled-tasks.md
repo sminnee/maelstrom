@@ -6,6 +6,11 @@ expression. Hourly, a launchd LaunchAgent runs `mael task add-scheduled
 template whose most recent fire boundary is newer than its `last_run`
 watermark.
 
+Each run starts on the agent daemon with no cmux pane (`attach=False`). The
+orchestrator's next `list` adopts the agent, so the UI shows it. Unlike `task
+run`, `add-scheduled` ignores `MAEL_HARNESS_TYPE`, so a hand run fires the same
+way as the launchd job. `--cli` opens a cmux workspace instead.
+
 ## The launchd agent is opt-in
 
 The agent is **not** installed automatically — `ensure_schedule_agent()` (wired

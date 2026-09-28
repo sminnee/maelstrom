@@ -252,8 +252,8 @@ mael --json session info 97894d02  # the same fields as JSON
 mael session end 97894d02          # stop that session
 ```
 
-**Harness transport.** `mael add`, `mael task run` and `mael task next --run`
-take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
+**Harness transport.** `mael add`, `mael task run`, `mael task next --run` and
+`mael task add-scheduled` take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
 A bare value selects Claude. A qualified value selects its CLI harness.
 The default is `claude:opus`. `--model` conflicts with `--open` and `--no-agent`.
 `--execute-model` names the model the session switches to when its plan is
@@ -587,8 +587,10 @@ stays in `todo`; advance it later with `mael task next --run`.
 |---|---|
 | `-p`, `--project TEXT` | Project name. |
 | `--all-projects` | Scan every maelstrom project. This is the launchd entry point. |
-| `--run` | Launch each due run into a session. |
-| `--here` | With `--run`, launch in the current shell. |
+| `--run` | Launch each due run. The default is a driven agent with no cmux pane. |
+| `--daemon` | Launch through the agent daemon. This is the default without `--here`. `MAEL_HARNESS_TYPE` does not change it. |
+| `--cli` | Launch the model CLI in a new cmux workspace. |
+| `--here` | With `--run`, launch the model CLI in the current shell. Cannot be used with `--daemon`. |
 
 ---
 
