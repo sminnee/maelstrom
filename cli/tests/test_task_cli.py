@@ -2754,6 +2754,40 @@ class TestAddScheduled:
             ("maint-b.2026-06-18", harness, attach),
         ]
 
+    async def test_a_refused_run_does_not_abandon_the_next(
+        self, runner, store, monkeypatch, launch
+    ):
+        # A codex template cannot run on the daemon default. Its refusal is a
+        # warning; the Claude template after it still launches.
+        from datetime import datetime, timezone
+
+        for tmpl_id, model_ref in (("maint-a", "codex:gpt-5"), ("maint-b", "")):
+            await model.create(
+                store,
+                project="p",
+                title="Maintenance",
+                command="",
+                model=model_ref,
+                schedule="0 9 * * *",
+                last_run="2026-06-17T09:00:00+00:00",
+                status=model.STATUS_TEMPLATE,
+                id=tmpl_id,
+                now="2026-06-01T00:00:00+00:00",
+            )
+        real_dt = datetime
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
+        assert result.exit_code == 0, result.output
+        assert "warning: maint-a.2026-06-18" in result.output
+        launched = [c.kwargs["task_id"] for c in launch.session.call_args_list]
+        assert launched == ["maint-b.2026-06-18"]
+
     @pytest.mark.parametrize(
         ("flags", "message"),
         [

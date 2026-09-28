@@ -1123,15 +1123,23 @@ async def _fire_due_templates(
         ensure_cmux_running()
     if run:
         for t in created:
-            await _run_task(
-                table,
-                project,
-                t,
-                here=here,
-                fresh=True,
-                harness=harness,
-                attach=harness != TRANSPORT_DAEMON,
-            )
+            # One run's refusal (a non-Claude model on the daemon, a live
+            # session, an exhausted port range) must not abandon later runs or
+            # later projects.
+            try:
+                await _run_task(
+                    table,
+                    project,
+                    t,
+                    here=here,
+                    fresh=True,
+                    harness=harness,
+                    attach=harness != TRANSPORT_DAEMON,
+                )
+            except click.ClickException as e:
+                click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
+            except RuntimeError as e:
+                click.echo(f"warning: {t.id} — {e}", err=True)
     return created
 
 
