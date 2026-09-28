@@ -62,7 +62,7 @@ This starts cmux if it is down and exits non-zero when it cannot be reached. The
 socket:
 
 ```bash
-echo $CMUX_SOCKET_PATH      # default is /tmp/cmux.sock
+echo $CMUX_SOCKET_PATH      # default is ~/.local/state/cmux/cmux.sock
 ```
 
 To work without cmux for one session, use the escape hatch:
