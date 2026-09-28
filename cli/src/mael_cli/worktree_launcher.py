@@ -86,6 +86,11 @@ def start_install_async(worktree_path: Path) -> bool:
     return True
 
 
+def _announce_started(agent_id: str) -> None:
+    click.echo(f"Agent started: {agent_id}")
+    click.echo(f"Attach with: mael agent attach {agent_id}")
+
+
 def has_install_command(worktree_path: Path) -> bool:
     """Whether this worktree configures an install command."""
     return bool(load_config_or_default(worktree_path).install_cmd)
@@ -196,8 +201,7 @@ async def launch_add_in_worktree(
             worktree_path, model=model, execute_model=execute_model
         )
         if agent_id:
-            click.echo(f"Agent started: {agent_id}")
-            click.echo(f"Attach with: mael agent attach {agent_id}")
+            _announce_started(agent_id)
         return agent_id is not None
 
     if no_agent:
@@ -208,8 +212,7 @@ async def launch_add_in_worktree(
             worktree_path, model=model, execute_model=execute_model
         )
         if agent_id:
-            click.echo(f"Agent started: {agent_id}")
-            click.echo(f"Attach with: mael agent attach {agent_id}")
+            _announce_started(agent_id)
         return agent_id is not None
     result = subprocess.run(build_harness_command(model=model), cwd=worktree_path)
     return result.returncode == 0
@@ -378,6 +381,7 @@ async def launch_agent_in_worktree(
     model: str | None = None,
     execute_model: str | None = None,
     prompt: str = "",
+    attach: bool = True,
 ) -> bool:
     """Start a daemon-driven agent, then place a pane that attaches to it.
 
@@ -399,6 +403,9 @@ async def launch_agent_in_worktree(
     False also comes back when cmux cannot be started, and nothing is placed
     either way — an empty pane would be worse. The agent survives that: it is
     running, and ``mael agent attach`` reaches it.
+
+    ``attach=False`` stops after the start: no cmux, no pane. The installer
+    runs in the background, since there is no shell pane to run it.
     """
     agent_id = await start_agent_in_worktree(
         worktree_path,
@@ -412,6 +419,10 @@ async def launch_agent_in_worktree(
     )
     if not agent_id:
         return False
+    if not attach:
+        start_install_async(worktree_path)
+        _announce_started(agent_id)
+        return True
     if not ensure_cmux_running():
         return False
     return open_claude_workspace(
@@ -436,8 +447,9 @@ async def launch_claude_in_worktree(
     execute_model: str | None = None,
     prompt: str = "",
     harness: str = TRANSPORT_CLI,
+    attach: bool = True,
 ) -> bool:
-    """Launch Claude for a worktree inside cmux. True if placed, False otherwise.
+    """Launch Claude for a worktree, in cmux unless ``attach=False``. True if launched.
 
     **cmux-or-fail**: start the cmux app if it is down, then place a workspace.
     There is no local-execvp fallback — running Claude in the current process is
@@ -448,7 +460,8 @@ async def launch_claude_in_worktree(
 
     ``harness`` picks the runner; see ``HARNESSES``. The default ``daemon``
     hands the whole launch to :func:`launch_agent_in_worktree`. ``prompt`` is
-    the opening prompt, which only the daemon path takes.
+    the opening prompt, which only the daemon path takes. ``attach=False``
+    also only applies there: the agent starts and no pane is placed.
 
     On the legacy paths, with ``task_id`` (and ``project``) set, the command is
     the ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain
@@ -473,6 +486,7 @@ async def launch_claude_in_worktree(
             model=model,
             execute_model=execute_model,
             prompt=prompt,
+            attach=attach,
         )
     if execute_model:
         # A CLI session has no daemon, so no `_approve_plan` and nothing to
