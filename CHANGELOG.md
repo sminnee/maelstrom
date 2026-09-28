@@ -20,6 +20,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Scheduled runs start on the agent daemon, with no cmux workspace.** `mael task
+  add-scheduled --run` launches each due run as a driven agent, and the orchestrator UI shows
+  it. `--cli` opens a cmux workspace as before. `MAEL_HARNESS_TYPE` does not change the
+  default.
 - **`/present` gets the reasons of the build commits.** The commit `mael git squash-branch` makes
   now lists the SHA and message of each commit it collapsed. `mael git uncommit-branch` prints the
   SHA and message of each commit it uncommits, so after a squash it prints the build commits.

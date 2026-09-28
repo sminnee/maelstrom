@@ -14,6 +14,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from mael_agent.harness_model import TRANSPORT_CLI, TRANSPORT_DAEMON
 from mael_cli import task_cli
 from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
@@ -2703,14 +2704,22 @@ class TestAddScheduled:
         launch.session.assert_called_once()
         assert launch.session.call_args.kwargs["resume"] is False
 
-    async def test_run_ensures_cmux_once_and_attempts_every_due_run(
-        self, runner, store, monkeypatch, launch
+    @pytest.mark.parametrize(
+        ("flags", "harness", "attach", "cmux_starts"),
+        [
+            ([], TRANSPORT_DAEMON, False, 0),
+            (["--cli"], TRANSPORT_CLI, True, 1),
+        ],
+        ids=["daemon-default", "cli"],
+    )
+    async def test_run_attempts_every_due_run_on_its_harness(
+        self, runner, store, monkeypatch, launch, flags, harness, attach, cmux_starts
     ):
-        # Two due templates fire in one --run pass: cmux is started ONCE for the
-        # batch, and BOTH runs are attempted (the launch loop is never abandoned
-        # — the old execvp-in-loop bug is gone by construction).
+        # Two due templates fire in one --run pass, and BOTH runs are attempted.
+        # The env names the CLI, to prove the daemon default ignores it.
         from datetime import datetime, timezone
 
+        monkeypatch.setenv("MAEL_HARNESS_TYPE", "cli")
         for tmpl_id in ("maint-a", "maint-b"):
             await model.create(
                 store,
@@ -2731,14 +2740,36 @@ class TestAddScheduled:
                 return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
 
         monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
+        result = runner.invoke(
+            task_cli.task, ["add-scheduled", "-p", "p", "--run", *flags]
+        )
         assert result.exit_code == 0, result.output
-        # One app-start for the whole batch.
-        launch.ensure_cmux.assert_called_once()
-        # Both due runs launched — the loop completed.
-        assert launch.session.call_count == 2
-        launched_ids = {c.kwargs["task_id"] for c in launch.session.call_args_list}
-        assert launched_ids == {"maint-a.2026-06-18", "maint-b.2026-06-18"}
+        assert launch.ensure_cmux.call_count == cmux_starts
+        launched = sorted(
+            (c.kwargs["task_id"], c.kwargs["harness"], c.kwargs["attach"])
+            for c in launch.session.call_args_list
+        )
+        assert launched == [
+            ("maint-a.2026-06-18", harness, attach),
+            ("maint-b.2026-06-18", harness, attach),
+        ]
+
+    @pytest.mark.parametrize(
+        ("flags", "message"),
+        [
+            (["--cli", "--daemon"], "--cli conflicts with --daemon"),
+            (["--here", "--daemon"], "--here cannot use --daemon"),
+        ],
+    )
+    def test_conflicting_harness_flags_are_refused(
+        self, runner, store, launch, flags, message
+    ):
+        result = runner.invoke(
+            task_cli.task, ["add-scheduled", "-p", "p", "--run", *flags]
+        )
+        assert result.exit_code != 0
+        assert message in result.output
+        launch.session.assert_not_called()
 
     async def test_here_run_still_execs_and_skips_ensure_cmux(
         self, runner, store, monkeypatch, launch

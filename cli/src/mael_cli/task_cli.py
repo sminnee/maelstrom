@@ -72,8 +72,15 @@ def resolve_harness_or_fail(
     return resolved
 
 
-def _harness_options():
-    """Add mutually-exclusive CLI and daemon transport flags."""
+def _harness_options(default: str = TRANSPORT_CLI):
+    """Add mutually-exclusive CLI and daemon transport flags.
+
+    ``default`` only marks which flag's help says "(default)"; the command
+    resolves the flags itself.
+    """
+
+    def help_for(text: str, transport: str) -> str:
+        return f"{text} (default)." if transport == default else f"{text}."
 
     def decorator(f):
         def removed(
@@ -95,10 +102,14 @@ def _harness_options():
             "--codex", is_flag=True, hidden=True, expose_value=False, callback=removed
         )(f)
         f = click.option(
-            "--daemon", is_flag=True, help="Launch through the agent daemon."
+            "--daemon",
+            is_flag=True,
+            help=help_for("Launch through the agent daemon", TRANSPORT_DAEMON),
         )(f)
         return click.option(
-            "--cli", is_flag=True, help="Launch the model CLI (default)."
+            "--cli",
+            is_flag=True,
+            help=help_for("Launch the model CLI", TRANSPORT_CLI),
         )(f)
 
     return decorator
@@ -191,8 +202,12 @@ async def _run_task(
     here: bool = False,
     fresh: bool = False,
     harness: str = TRANSPORT_CLI,
+    attach: bool = True,
 ) -> None:
     """Mark a task in-progress and launch its Claude session.
+
+    ``attach=False`` starts a daemon agent with no cmux pane; see
+    :func:`launch_agent_in_worktree`.
 
     With ``here=True`` the session runs in the current shell via
     ``exec_cmd`` — an ``execvp`` that never returns — so every write MUST
@@ -349,6 +364,7 @@ async def _run_task(
         execute_model=plan.execute_model,
         prompt=plan.prompt,
         harness=harness,
+        attach=attach,
     )
     if not placed:
         # No session opened, so roll the task back to TODO — a task that never
@@ -1054,7 +1070,13 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
 
 
 async def _fire_due_templates(
-    table: SqliteTaskTable, project: str, *, now: datetime, run: bool, here: bool
+    table: SqliteTaskTable,
+    project: str,
+    *,
+    now: datetime,
+    run: bool,
+    here: bool,
+    harness: str = TRANSPORT_DAEMON,
 ) -> list["model.Task"]:
     """Create (and optionally launch) one run per due template in ``project``.
 
@@ -1092,15 +1114,24 @@ async def _fire_due_templates(
             )
             await model.update(table, project, tmpl.id, last_run=prev.isoformat())
         created.append(new)
-    if run and created and not here:
+    if run and created and harness == TRANSPORT_CLI and not here:
         # Start the cmux app once for the whole batch (N due runs share one app
         # start); each _run_task still guards liveness individually and rolls its
         # own task back to TODO on failure. With no execvp fallback, the launch
         # loop always completes — a failed placement never abandons later runs.
+        # A daemon run places no pane, so it needs no cmux.
         ensure_cmux_running()
     if run:
         for t in created:
-            await _run_task(table, project, t, here=here, fresh=True)
+            await _run_task(
+                table,
+                project,
+                t,
+                here=here,
+                fresh=True,
+                harness=harness,
+                attach=harness != TRANSPORT_DAEMON,
+            )
     return created
 
 
@@ -1113,22 +1144,38 @@ async def _fire_due_templates(
     help="Scan every maelstrom project (the launchd entry point).",
 )
 @click.option(
-    "--run", is_flag=True, help="Launch each due run into a session (cmux workspace)."
+    "--run",
+    is_flag=True,
+    help="Launch each due run (default: a daemon-driven agent, no cmux pane).",
 )
+@_harness_options(default=TRANSPORT_DAEMON)
 @click.option(
     "--here",
     is_flag=True,
     help="With --run, launch in the current shell (no worktree, no new workspace).",
 )
 async def task_add_scheduled(
-    project: str | None, all_projects: bool, run: bool, here: bool
+    project: str | None,
+    all_projects: bool,
+    run: bool,
+    cli: bool,
+    daemon: bool,
+    here: bool,
 ) -> None:
     """Fire every due template: duplicate it into a dated run and advance its watermark.
 
     The scheduler entry point invoked by the launchd agent. Thin: it computes the
     due templates and reuses the canonical duplicate/launch path — it owns only
     the cron/last-run/catch-up logic, never creation or launch.
+
+    The transport defaults to the daemon, and ``MAEL_HARNESS_TYPE`` does not
+    change it. ``--cli`` or ``--here`` opens a session you can see.
     """
+    if cli or daemon:
+        # A flag is given, so the resolver never reaches the env fallback.
+        harness = resolve_harness_or_fail(cli, daemon, here=here)
+    else:
+        harness = TRANSPORT_CLI if here else TRANSPORT_DAEMON
     now = datetime.now().astimezone()
     # Stamp every run so schedule.log records when the agent fired, even when
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
@@ -1136,7 +1183,10 @@ async def task_add_scheduled(
     table = await _table()
     total = 0
     for proj in _scheduled_projects(project, all_projects):
-        for t in await _fire_due_templates(table, proj, now=now, run=run, here=here):
+        fired = await _fire_due_templates(
+            table, proj, now=now, run=run, here=here, harness=harness
+        )
+        for t in fired:
             click.echo(f"{proj}/{t.id}\t{t.title}")
             total += 1
     if total == 0:
