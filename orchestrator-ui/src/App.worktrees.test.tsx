@@ -184,7 +184,7 @@ describe('the worktrees view', () => {
     act(() => {
       server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
         const delta = w.worktrees['northwind-delta']!;
-        w.worktrees['northwind-delta'] = { ...delta, env: { ...delta.env, state: 'partial' } };
+        w.worktrees['northwind-delta'] = { ...delta, env: { ...delta.env!, state: 'partial' } };
       });
     });
     await goToWorktrees(user);
@@ -200,6 +200,23 @@ describe('the worktrees view', () => {
       'Restart env',
       'Start ladle',
     ]);
+  });
+
+  it('draws a worktree with no env, from a server older than the UI, as stopped', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+        delete w.worktrees['northwind-delta']!.env;
+      });
+    });
+    await goToWorktrees(user);
+
+    const delta = within(row('northwind-delta')!);
+    await waitFor(() =>
+      expect(delta.getByRole('button', { name: 'Start env' })).toBeInTheDocument(),
+    );
+    expect(delta.queryByRole('link', { name: 'Dev env' })).not.toBeInTheDocument();
   });
 
   it('starts an optional service from the menu, and links it beside the app', async () => {
