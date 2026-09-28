@@ -28,13 +28,10 @@ export function EnvControl({ worktree }: { worktree: Worktree }) {
     processing: 'Restarting…',
     run: () => act('restart'),
   };
+  const state = worktree.env?.state ?? 'stopped';
   const whole =
-    worktree.env.state === 'running'
-      ? [stop, restart]
-      : worktree.env.state === 'partial'
-        ? [start, stop, restart]
-        : [start];
-  const optional = worktree.env.services
+    state === 'running' ? [stop, restart] : state === 'partial' ? [start, stop, restart] : [start];
+  const optional = (worktree.env?.services ?? [])
     .filter((s) => s.optional)
     .map((s): SplitOption =>
       s.running

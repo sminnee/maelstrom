@@ -1074,13 +1074,14 @@ function command(
       return error(400, 'invalid', `Unknown environment action: ${action}`);
     }
     const named = str('service');
+    const env: WorktreeEnv = worktree.env ?? { state: 'stopped', services: [] };
     if (named !== undefined) {
-      if (!worktree.env.services.some((s) => s.optional && s.name === named)) {
+      if (!env.services.some((s) => s.optional && s.name === named)) {
         return error(400, 'invalid', `${named} is not an optional service`);
       }
       if (action === 'restart') return error(400, 'invalid', 'A single service cannot restart');
     }
-    world.worktrees[id] = { ...worktree, env: actOnEnv(worktree.env, action, named) };
+    world.worktrees[id] = { ...worktree, env: actOnEnv(env, action, named) };
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});
   }

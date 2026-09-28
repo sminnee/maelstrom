@@ -78,7 +78,8 @@ export interface Worktree {
   /** How close the PR is to merging, or `''` when there is no PR. */
   prState: PrState | '';
   prDraft: boolean;
-  env: WorktreeEnv;
+  /** Absent from a server older than the UI; read it as stopped with no services. */
+  env?: WorktreeEnv;
   sessionCount: number;
   /** The `cmux://` link to the pane of the worktree's first terminal, or `''` with none. */
   shellUrl: string;
