@@ -54,6 +54,7 @@ def make_agent(**over) -> dict:
         "exitCode": None,
         "pendingRequestIds": [],
         "pid": None,
+        "backgroundShells": [],
     }
     agent.update(over)
     return agent

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from mael_domain import task as model
+from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
     Agent,
     HostUsage,
@@ -202,6 +203,7 @@ def agent_entity(
         "exitCode": exit_code,
         "pendingRequestIds": list(pending_request_ids or []),
         "pid": _pid(row.get("pid")),
+        "backgroundShells": background_shells_of_row(row.get("background")),
     }
 
 

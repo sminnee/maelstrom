@@ -282,6 +282,18 @@ def test_agent_entity_carries_the_childs_pid_when_the_row_has_one():
     )
 
 
+def test_agent_entity_carries_the_rows_background_shells():
+    shell = {"id": "b1", "description": "Run the tests"}
+    row = {**build_agent_row(replay("normal-turn.jsonl")), "background": [shell]}
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["backgroundShells"] == [shell]
+    # A row with no list — `server._started_row`, or an older host — still
+    # gives one.
+    row.pop("background")
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["backgroundShells"] == []
+
+
 def test_agent_entity_parses_the_exit_code_out_of_the_row_state():
     row = build_agent_row(mark_exited(replay("normal-turn.jsonl"), 3))
     entity = agent_entity(row, task_id="", project="", worktree_id="")

@@ -34,7 +34,14 @@ from .document_tags import (
     stays_within,
 )
 from .file_registry import FileRegistry
-from .protocol import Agent, Attention, ClientState, Document, ServerEvent
+from .protocol import (
+    Agent,
+    Attention,
+    BackgroundShell,
+    ClientState,
+    Document,
+    ServerEvent,
+)
 from .task import parse_draft
 
 Dict = dict[str, Any]
@@ -136,6 +143,9 @@ class NormaliseContext:
     #: while one runs is ``delegating``. Mirrors
     #: ``agent_model._status_without_asks``.
     running_subagents: frozenset[str] = frozenset()
+    #: Whether a background shell runs. See :func:`_state_after_turn`, which
+    #: mirrors ``agent_model._status_without_asks``.
+    shells_running: bool = False
     #: Whether the last turn ended with a ``result``. A subagent's ask can
     #: arrive after it, and its answer must not reopen the turn.
     turn_ended: bool = False
@@ -196,13 +206,17 @@ def apply_agent_detail(
     if agent is None or agent["parent"]:
         # A subagent's asks are reported through the parent, whatever its detail says.
         return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now)
+    if isinstance(detail.get("background"), list):
+        # The backlog may have lost the last snapshot; the frame is the host's
+        # whole fold. A host that predates the field says nothing.
+        out.shells(background_shells_of_row(detail["background"]))
     request_id = _str(detail.get("request_id"))
     held = list(agent["pendingRequestIds"])
     if request_id in held or (not request_id and not held):
         # The frame names one wait; the world may hold several. A frame naming
         # one we already hold says nothing about the others.
-        return Normalised([], ctx)
-    out = _Emitter(state, agent, ctx, now)
+        return out.done()
     if held:
         # A wait the frame does not name is over, whatever replaces it.
         out.end_every_wait()
@@ -392,7 +406,9 @@ def normalise_stream_event(
             out.ctx = replace(out.ctx, running_subagents=running)
             # Idle until the ``<task-notification>`` turn sets ``processing``.
             if not running and agent["state"] == "delegating":
-                out.agent({"state": "idle"})
+                out.agent({"state": _state_after_turn(out.ctx)})
+        elif raw.get("subtype") == "background_tasks_changed":
+            out.shells(_background_shells(raw))
         elif raw.get("subtype") == "permission_denied":
             out.ctx = replace(
                 out.ctx,
@@ -585,7 +601,7 @@ def normalise_stream_event(
         out.ctx = replace(out.ctx, turn_ended=True)
         out.agent(
             {
-                "state": "delegating" if out.ctx.running_subagents else "idle",
+                "state": _state_after_turn(out.ctx),
                 "costUsd": _num(raw.get("total_cost_usd")),
                 # Mirrors ``agent_model.apply_event``, so the live stream and
                 # the next world poll agree on the number.
@@ -594,6 +610,39 @@ def normalise_stream_event(
         )
 
     return out.done()
+
+
+def _state_after_turn(ctx: NormaliseContext) -> str:
+    """What an agent whose turn has ended reads: ``delegating`` while a
+    subagent runs, else ``background`` while a shell runs, else ``idle``."""
+    if ctx.running_subagents:
+        return "delegating"
+    return "background" if ctx.shells_running else "idle"
+
+
+def _background_shells(raw: Dict) -> list[BackgroundShell]:
+    """The shells a ``background_tasks_changed`` snapshot lists, subagents left out.
+
+    Mirrors ``agent_model._background_shells``.
+    """
+    tasks = raw.get("tasks")
+    return [
+        {"id": _str(task.get("task_id")), "description": _str(task.get("description"))}
+        for task in (tasks if isinstance(tasks, list) else [])
+        if isinstance(task, dict) and task.get("task_type") != "local_agent"
+    ]
+
+
+def background_shells_of_row(value: Any) -> list[BackgroundShell]:
+    """The shells a host row or detail frame lists under ``background``.
+
+    None from a host that predates the field.
+    """
+    return [
+        {"id": _str(row.get("id")), "description": _str(row.get("description"))}
+        for row in (value if isinstance(value, list) else [])
+        if isinstance(row, dict)
+    ]
 
 
 def mark_exited(
@@ -605,7 +654,9 @@ def mark_exited(
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
     out.end_every_wait()
-    out.agent({"state": "exited", "exitCode": exit_code})
+    # The shells died with the process.
+    out.ctx = replace(out.ctx, shells_running=False)
+    out.agent({"state": "exited", "exitCode": exit_code, "backgroundShells": []})
     if exit_code not in (0, None) and not agent["parent"]:
         # A subagent's failure is the parent's to report: the parent gets the
         # notification and says what it makes of it. A `None` code is an exit
@@ -1008,6 +1059,18 @@ class _Emitter:
             self.end_wait(request_id)
         self._report_waits({})
 
+    def shells(self, shells: list[BackgroundShell]) -> None:
+        """Take the background shells as the host now lists them.
+
+        An idle agent's state follows, as ``agent_model._status_without_asks``
+        derives it whatever order the events came in. ``delegating`` is left
+        alone: this context may not know the subagents that set it.
+        """
+        self.ctx = replace(self.ctx, shells_running=bool(shells))
+        self.agent({"backgroundShells": shells})
+        if self.agent_entity["state"] in ("idle", "background"):
+            self.agent({"state": _state_after_turn(self.ctx)})
+
     def _report_waits(self, held: dict[str, PendingContext]) -> None:
         """Tell the world which asks are still open, and what it waits on."""
         oldest = next(iter(held.values()), None)
@@ -1018,8 +1081,10 @@ class _Emitter:
             }
         )
         if not held:
-            delegating = self.ctx.turn_ended and self.ctx.running_subagents
-            self.agent({"state": "delegating" if delegating else "processing"})
+            ended = self.ctx.turn_ended
+            self.agent(
+                {"state": _state_after_turn(self.ctx) if ended else "processing"}
+            )
 
     def raise_attention(
         self, kind: str, summary: str, request_id: str | None, document_id: str | None

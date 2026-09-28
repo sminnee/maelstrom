@@ -93,6 +93,25 @@ A server that attaches after the ring lost the `task_started` does not know the 
 The adopt reads `delegating` from the row, but the replayed `result` then writes `idle` over it.
 The agent reads `idle` until its next turn.
 
+## A turn that ends while a background shell runs
+
+Background shells follow the same pattern with one more flag.
+`NormaliseContext.shells_running` holds whether the last `background_tasks_changed` listed a
+shell. Each such event also writes the list to the agent's `backgroundShells`, subagents left out.
+After a turn, the state is `delegating` if a subagent runs, else `background` if a shell runs,
+else `idle`. The `result`, the last subagent's notification and an answered ask use this rule. A
+snapshot uses it when the agent reads `idle` or `background`, whatever order the events came in,
+as the row does. An exit empties `backgroundShells`. See
+[agent-daemon.md](agent-daemon.md#a-turn-that-ends-while-a-background-shell-runs).
+
+The adopt maps the row's `background` to `backgroundShells`. The poll does not refresh it: the
+stream does.
+
+A server that attaches after the ring lost the last `background_tasks_changed` starts with
+`shells_running` false, and the replayed `result` writes `idle`. The detail frame that follows the
+backlog carries the row's `background`, and `apply_agent_detail` takes it as a snapshot. So the
+agent reads `background` again once the attach is done.
+
 ## A task notification
 
 Two wire shapes say background work finished, and they are deliberately not symmetric.

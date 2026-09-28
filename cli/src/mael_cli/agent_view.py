@@ -104,6 +104,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "exitCode": None,
         "pendingRequestIds": [],
         "pid": None,
+        "backgroundShells": [],
     }
 
 

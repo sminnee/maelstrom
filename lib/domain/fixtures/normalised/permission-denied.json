@@ -27,7 +27,8 @@
         "worktreeId": "northwind-alpha",
         "exitCode": null,
         "pendingRequestIds": [],
-        "pid": null
+        "pid": null,
+        "backgroundShells": []
       }
     },
     "documents": {},
