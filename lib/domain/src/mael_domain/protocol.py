@@ -15,6 +15,7 @@ AgentStateName = Literal[
     "idle",
     "processing",
     "delegating",
+    "background",
     "awaiting-permission",
     "awaiting-question",
     "awaiting-plan-review",
@@ -132,6 +133,13 @@ def task_row(task: Task) -> TaskRow:
     return cast(TaskRow, {k: v for k, v in task.items() if k not in TASK_DETAIL_FIELDS})
 
 
+class BackgroundShell(TypedDict):
+    """One background shell an agent runs: the task id and its ``Bash`` description."""
+
+    id: str
+    description: str
+
+
 class Agent(TypedDict):
     """``build_agent_row`` plus what links the agent to the rest of the world.
 
@@ -178,6 +186,8 @@ class Agent(TypedDict):
     pendingRequestIds: list[str]
     #: The child's pid while it is alive, so the UI can name the process.
     pid: int | None
+    #: The background shells running now, oldest first. Empty for a subagent.
+    backgroundShells: list[BackgroundShell]
 
 
 class Attention(TypedDict):

@@ -917,6 +917,23 @@ def test_the_detail_frame_of_an_idle_host_ends_the_wait_the_world_still_holds():
     assert agent_of(replayed)["pendingRequestIds"] == []
 
 
+def test_the_detail_frame_restores_the_shells_the_backlog_lost():
+    """A re-attach whose ring rolled past the snapshot learns the shells here."""
+    shell = {"id": "b1", "description": "Run the tests"}
+    state = seed([make_agent(id="ag1", state="idle")])
+    replayed = Replayed(state)
+    out = apply_agent_detail(
+        state, context_for_agent("ag1"), {"request_id": "", "background": [shell]}, NOW
+    )
+    replayed.take(out.events)
+    agent = agent_of(replayed)
+    assert (agent["state"], agent["backgroundShells"]) == ("background", [shell])
+    # The shell's end, on the stream that follows, is still heard.
+    after = normalise_stream_event(replayed.state, out.ctx, tasks_changed(), NOW)
+    replayed.take(after.events)
+    assert agent_of(replayed)["state"] == "idle"
+
+
 def test_mark_exited_clears_the_wait_and_raises_attention_on_a_bad_exit():
     waiting = replay("question-unanswered.jsonl", stop_before_control_response=True)
     ctx = waiting.ctx
@@ -1272,9 +1289,90 @@ def test_a_turn_that_ends_under_a_running_subagent_is_delegating_until_it_ends()
     ]
 
 
-def test_a_turn_that_ends_under_a_background_shell_is_idle():
-    state = feed([task_started("b1", "local_bash"), {"type": "result"}], "processing")
-    assert agent_of(state)["state"] == "idle"
+#: The one shell ``bash-background.jsonl`` runs in the background.
+SLEEP_SHELL = {"id": "bbs1cjtq4", "description": "Sleep 15 seconds then print done"}
+
+
+def test_a_turn_that_ends_under_a_background_shell_is_background_until_it_ends():
+    """The row's rule, on the stream: ``background`` from the ``result`` until the
+    snapshot drops the shell. The foreground ``ls`` raises no task."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    seen = []
+    for raw in read_fixture("bash-background.jsonl"):
+        out = normalise_stream_event(state.state, ctx, raw, NOW)
+        ctx = out.ctx
+        state.take(out.events)
+        if raw.get("type") == "result":
+            label = "result"
+        elif raw.get("subtype") == "background_tasks_changed":
+            label = "changed"
+        else:
+            continue
+        agent = agent_of(state)
+        seen.append((label, agent["state"], agent["backgroundShells"]))
+    assert seen == [
+        ("changed", "processing", [SLEEP_SHELL]),
+        ("result", "background", [SLEEP_SHELL]),
+        ("changed", "idle", []),
+        ("result", "idle", []),
+    ]
+
+
+def tasks_changed(*tasks: tuple[str, str]) -> dict:
+    return {
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "tasks": [
+            {"task_id": task_id, "task_type": task_type, "description": "a task"}
+            for task_id, task_type in tasks
+        ],
+    }
+
+
+def test_a_subagent_that_ends_under_a_running_shell_leaves_background():
+    """``delegating`` outranks ``background``; the subagent's list entry is not a shell."""
+    events = [
+        task_started("t1"),
+        tasks_changed(("task-1", "local_agent"), ("b1", "local_bash")),
+        {"type": "result"},
+    ]
+    agent = agent_of(feed(events, "processing"))
+    assert (agent["state"], agent["backgroundShells"]) == (
+        "delegating",
+        [{"id": "b1", "description": "a task"}],
+    )
+    events.append(task_notification("t1"))
+    assert agent_of(feed(events, "processing"))["state"] == "background"
+
+
+def test_a_snapshot_after_the_turn_ended_reads_background():
+    """The daemon derives the state whatever order the events came in."""
+    events = [{"type": "result"}, tasks_changed(("b1", "local_bash"))]
+    assert agent_of(feed(events, "processing"))["state"] == "background"
+
+
+def test_a_new_turn_keeps_the_shell_that_still_runs():
+    """``init`` opens every turn, so it must not clear the set: a user message
+    sent while the shell runs would drop it."""
+    events = [
+        tasks_changed(("b1", "local_bash")),
+        {"type": "result"},
+        {"type": "system", "subtype": "init"},
+        {"type": "result"},
+    ]
+    agent = agent_of(feed(events, "processing"))
+    assert (agent["state"], agent["backgroundShells"]) == (
+        "background",
+        [{"id": "b1", "description": "a task"}],
+    )
+
+
+def test_an_exited_agent_holds_no_background_shell():
+    state = feed([tasks_changed(("b1", "local_bash"))], "processing")
+    out = mark_exited(state.state, context_for_agent("ag1"), 0, NOW)
+    state.take(out.events)
+    assert agent_of(state)["backgroundShells"] == []
 
 
 def test_delegating_lasts_until_the_last_subagent_ends():

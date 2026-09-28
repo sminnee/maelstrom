@@ -1,0 +1,128 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-sonnet-5",
+        "permissionMode": "bypassPermissions",
+        "waitingOn": "",
+        "lastMessage": "Background command finished.",
+        "lastMessageAt": "2026-09-28T01:25:48.740Z",
+        "lastNote": "",
+        "lastNoteAt": "",
+        "costUsd": 0.137173,
+        "totalTokens": 114820,
+        "subagentTokens": 0,
+        "contextTokens": 29491,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null,
+        "backgroundShells": []
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "a9e73400-b4ca-4452-bd86-a6a507a34cb0",
+          "model": "claude-sonnet-5",
+          "id": "ag1-1",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "Do exactly this. First, run the shell command `ls` in the foreground with the Bash tool. Then run the shell command `sleep 15; echo done` with the Bash tool and run_in_background set to true. Then end your turn immediately with a one-line reply; do not wait, do not poll, do not call any other tool. When you are later notified the background command finished, reply with one line saying it finished, and read its output only if you need to.",
+          "id": "ag1-2",
+          "ts": "2026-09-28T01:25:26.868Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01UXfibtZESUJmj4PjxqZERg",
+          "tool": "Bash",
+          "input": {
+            "command": "ls",
+            "description": "List files in current directory"
+          },
+          "status": "done",
+          "id": "toolu_01UXfibtZESUJmj4PjxqZERg",
+          "ts": "2026-09-28T01:25:29.198Z",
+          "output": "(Bash completed with no output)"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01HASaUCrAg5XKgtSqwfr3TQ",
+          "tool": "Bash",
+          "input": {
+            "command": "sleep 15; echo done",
+            "description": "Sleep 15 seconds then print done",
+            "run_in_background": true
+          },
+          "status": "done",
+          "id": "toolu_01HASaUCrAg5XKgtSqwfr3TQ",
+          "ts": "2026-09-28T01:25:32.202Z",
+          "output": "Command running in background with ID: bbs1cjtq4. Output is being written to: /private/tmp/claude-501/-private-tmp-claude-501-clean/a9e73400-b4ca-4452-bd86-a6a507a34cb0/tasks/bbs1cjtq4.output. You will be notified when it completes. To check interim output, use Read on that file path."
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "`ls` returned empty (directory is empty); background sleep started.",
+          "id": "ag1-3",
+          "ts": "2026-09-28T01:25:34.514Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.12968259999999998,
+          "durationMs": 7682,
+          "id": "ag1-4",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "a9e73400-b4ca-4452-bd86-a6a507a34cb0",
+          "model": "claude-sonnet-5",
+          "id": "ag1-5",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "Background command finished.",
+          "id": "ag1-6",
+          "ts": "2026-09-28T01:25:48.740Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.137173,
+          "durationMs": 1375,
+          "id": "ag1-7",
+          "ts": "2026-09-02T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}
