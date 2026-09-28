@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.client import (
     COMMAND_TIMEOUT_SECONDS,
-    DEFAULT_SOCKET_PATH,
     CmuxResult,
     RecordingCmuxClient,
     SubprocessCmuxClient,
     _find_cmux_cli,
     current_client,
     ensure_cmux_running,
+    resolve_socket_path,
 )
 from mael_domain.cmux.model import BrowserTab, CmuxLayout, TerminalTab
 
@@ -224,7 +224,8 @@ class TestCurrentClient:
             patch("subprocess.run", run),
         ):
             assert isinstance(current_client(), SubprocessCmuxClient)
-        assert run.call_args_list[0].args[0][2] == DEFAULT_SOCKET_PATH
+            default = resolve_socket_path()
+        assert run.call_args_list[0].args[0][2] == default
 
     def test_none_when_no_binary(self):
         with (

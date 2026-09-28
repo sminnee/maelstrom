@@ -110,7 +110,7 @@ land somewhere you can find it.
 
 ## The socket
 
-Maelstrom talks to cmux over a Unix socket, `/tmp/cmux.sock` by default. Override it:
+Maelstrom talks to cmux over a Unix socket, `~/.local/state/cmux/cmux.sock` by default (cmux 0.64 and later). Override it:
 
 ```bash
 export CMUX_SOCKET_PATH=/custom/path/cmux.sock

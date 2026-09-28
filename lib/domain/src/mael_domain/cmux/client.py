@@ -28,12 +28,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-# cmux's conventional socket path. Used when ``CMUX_SOCKET_PATH`` is unset or
+# cmux's socket path since 0.64, which moved it out of /tmp. Used when ``CMUX_SOCKET_PATH`` is unset or
 # empty, so a caller outside a cmux-spawned shell (a launchd tick, a session
 # that didn't inherit the var) can still reach a running cmux instead of
 # concluding "not in cmux mode". A missing binary or a dead socket still fails
 # honestly downstream.
-DEFAULT_SOCKET_PATH = "/tmp/cmux.sock"
+DEFAULT_SOCKET_PATH = "~/.local/state/cmux/cmux.sock"
 
 # A cmux command answers in well under a second. A wedged app must not hold
 # its caller for ever: the orchestrator's worktree read calls cmux on every poll.
@@ -42,7 +42,7 @@ COMMAND_TIMEOUT_SECONDS = 10.0
 
 def resolve_socket_path() -> str:
     """The cmux socket path from the environment, or the conventional default."""
-    return os.environ.get("CMUX_SOCKET_PATH") or DEFAULT_SOCKET_PATH
+    return os.environ.get("CMUX_SOCKET_PATH") or os.path.expanduser(DEFAULT_SOCKET_PATH)
 
 
 @dataclass(frozen=True)
