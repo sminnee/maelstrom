@@ -753,6 +753,7 @@ function command(
       exitCode: null,
       pendingRequestIds: [],
       pid: null,
+      backgroundShells: [],
     };
     world.desk[`task:${task.id}`] = { id: `task:${task.id}`, addedAt: now() };
     server.change({ kind: 'task', ids: [task.id] });
@@ -1131,5 +1132,6 @@ function makeNewAgent(
     exitCode: null,
     pendingRequestIds: [],
     pid: null,
+    backgroundShells: [],
   };
 }

@@ -69,6 +69,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     exitCode: null,
     pendingRequestIds: [],
     pid: 4711,
+    backgroundShells: [],
     ...over,
   };
 }

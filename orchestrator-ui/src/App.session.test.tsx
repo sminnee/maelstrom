@@ -211,6 +211,31 @@ describe('the session tab', () => {
     expect(server.sockets.filter((s) => s.agentId === 'd9a4c7f1.1')).toHaveLength(1);
   });
 
+  it('lists the background shells under the transcript while they run', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    await screen.findByTestId('subagent-strip');
+    expect(screen.queryByTestId('background-shells')).toBeNull();
+
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = {
+        ...w.agents['d9a4c7f1']!,
+        backgroundShells: [{ id: 'bbs1cjtq4', description: 'Run the test suite' }],
+      };
+    });
+    const strip = await screen.findByTestId('background-shells');
+    expect(strip).toHaveTextContent('Run the test suite');
+    // A shell has no stream of its own, so there is no tab to open.
+    expect(within(strip).queryByRole('link')).toBeNull();
+
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, backgroundShells: [] };
+    });
+    await waitFor(() => expect(screen.queryByTestId('background-shells')).toBeNull());
+  });
+
   it('drops a subagent from the strip once it finishes', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

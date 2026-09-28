@@ -111,6 +111,8 @@ export type AgentState =
   | 'processing'
   /** The turn ended while a background subagent still runs. */
   | 'delegating'
+  /** The turn ended while a background shell still runs, and no subagent does. */
+  | 'background'
   | 'awaiting-permission'
   | 'awaiting-question'
   | 'awaiting-plan-review'
@@ -177,6 +179,14 @@ export interface Agent {
   pendingRequestIds: RequestId[];
   /** The child's pid while it is alive; `null` before the spawn and after the exit. */
   pid: number | null;
+  /** The background shells running now, oldest first. Empty for a subagent. */
+  backgroundShells: BackgroundShell[];
+}
+
+/** One background shell an agent runs: the task id and its `Bash` description. */
+export interface BackgroundShell {
+  id: string;
+  description: string;
 }
 
 /** One entry on the desk: a task or a free agent the canvas keeps drawing. */

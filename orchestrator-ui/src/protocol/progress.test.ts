@@ -474,12 +474,15 @@ describe('progressOf', () => {
     ).toMatchObject({ state: 'needs-attention', drift: null });
   });
 
-  it('draws an agent whose subagents still run as working, in the running zone', () => {
-    const agent = makeAgent({ state: 'delegating' });
+  it.each([
+    ['delegating', 'Subagents working'],
+    ['background', 'Background tasks working'],
+  ] as const)('draws a %s agent as working, in the running zone', (state, words) => {
+    const agent = makeAgent({ state });
     const progress = progressOf(makeTask({ status: 'in-progress' }), agent, []);
-    expect(progress).toMatchObject({ state: 'working', words: 'Subagents working', drift: null });
+    expect(progress).toMatchObject({ state: 'working', words, drift: null });
     expect(zoneForState(progress.state)).toBe('running');
-    // On a done task its subagents are the tail of the work, not an orphan.
+    // On a done task the work after the turn is its tail, not an orphan.
     expect(progressOf(makeTask({ status: 'done' }), agent, [])).toMatchObject({
       state: 'finalising',
       drift: null,

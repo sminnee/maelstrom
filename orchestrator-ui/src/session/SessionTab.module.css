@@ -94,7 +94,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.state[data-state='processing'] {
+.state[data-state='processing'],
+.state[data-state='delegating'],
+.state[data-state='background'] {
   color: var(--accent);
 }
 .state[data-state^='awaiting'] {
@@ -162,7 +164,8 @@
   border-radius: 50%;
   background: var(--mark-neutral);
 }
-.dot[data-state='processing'] {
+.dot[data-state='processing'],
+.dot[data-state='background'] {
   background: var(--accent);
   animation: pulse 1.6s ease-in-out infinite;
 }

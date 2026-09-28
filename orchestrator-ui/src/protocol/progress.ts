@@ -120,7 +120,7 @@ function describeState(
       // code to name.
       return `Exited (code ${agent?.exitCode})`;
     case 'working':
-      return agent?.state === 'delegating' ? 'Subagents working' : 'Working';
+      return workingWords(agent);
     case 'finalising':
       return 'Finalising';
     case 'ready':
@@ -139,6 +139,13 @@ function describeState(
     case 'idle':
       return 'Idle';
   }
+}
+
+/** The words a working node uses. The work after a turn says what runs it. */
+function workingWords(agent: Agent | undefined): string {
+  if (agent?.state === 'delegating') return 'Subagents working';
+  if (agent?.state === 'background') return 'Background tasks working';
+  return 'Working';
 }
 
 /** The words a waiting node uses. Blocked and template say what they are. */
@@ -165,9 +172,14 @@ function needsYouWords(agent: Agent | undefined): string {
   }
 }
 
-/** Whether the agent's work runs: its own turn, or its subagents after the turn ended. */
+/**
+ * Whether the agent's work runs: its own turn, or its subagents or background
+ * shells after the turn ended.
+ */
 export function isWorking(agent: Agent | undefined): boolean {
-  return agent?.state === 'processing' || agent?.state === 'delegating';
+  return (
+    agent?.state === 'processing' || agent?.state === 'delegating' || agent?.state === 'background'
+  );
 }
 
 /**
