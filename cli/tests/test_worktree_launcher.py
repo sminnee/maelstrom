@@ -726,6 +726,69 @@ class TestOpenClaudeWorkspace:
         assert [text for ref, text in fake_cmux.sent if ref == shell] == ["cd /wt\n"]
 
 
+class TestDaemonLaunchAttach:
+    """``attach`` decides whether a started daemon agent gets a cmux pane."""
+
+    async def _launch(self, client, capsys, *, attach):
+        with (
+            patch("mael_agent.agent_transport.client_factory", lambda **_: client),
+            patch(
+                "mael_cli.worktree_launcher.ensure_cmux_running", return_value=True
+            ) as mock_cmux,
+            patch(
+                "mael_cli.worktree_launcher.open_claude_workspace", return_value=True
+            ) as mock_open,
+            patch("mael_cli.worktree_launcher.start_install_async") as mock_install,
+        ):
+            placed = await launch_claude_in_worktree(
+                Path("/wt/alpha"),
+                project="proj",
+                worktree="alpha",
+                task_id="t1",
+                harness="daemon",
+                attach=attach,
+            )
+        out = capsys.readouterr()
+        return placed, mock_cmux, mock_open, mock_install, out
+
+    async def test_attached_places_a_pane_that_attaches(self, capsys):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        placed, mock_cmux, mock_open, mock_install, _ = await self._launch(
+            client, capsys, attach=True
+        )
+
+        assert placed is True
+        mock_cmux.assert_called_once()
+        assert describe(mock_open.call_args.args[3]) == "mael agent attach a7"
+        mock_install.assert_not_called()  # the pane's shell runs it
+
+    async def test_headless_starts_the_agent_and_touches_no_cmux(self, capsys):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        placed, mock_cmux, mock_open, mock_install, out = await self._launch(
+            client, capsys, attach=False
+        )
+
+        assert placed is True
+        assert [c["cmd"] for c in client.calls] == ["start"]
+        mock_cmux.assert_not_called()
+        mock_open.assert_not_called()
+        mock_install.assert_called_once_with(Path("/wt/alpha"))
+        assert "mael agent attach a7" in out.out
+
+    async def test_headless_failed_start_returns_false_with_the_reason(self, capsys):
+        client = RecordingDaemonClient(replies=[{"error": "connection refused"}])
+        placed, mock_cmux, mock_open, mock_install, out = await self._launch(
+            client, capsys, attach=False
+        )
+
+        assert placed is False
+        mock_cmux.assert_not_called()
+        mock_open.assert_not_called()
+        mock_install.assert_not_called()
+        assert "connection refused" in out.err
+        assert "Agent started" not in out.out
+
+
 @pytest.mark.skip(reason="Superseded by transport selection tests.")
 class TestLaunchAgentInWorktree:
     """The daemon path: start an agent, then place a pane that attaches to it.
