@@ -1036,8 +1036,8 @@ notification is running again.
 A parent that starts a background subagent ends its turn with a `result`, and the subagent runs
 on. The row then reads `delegating`: no turn is open, but the work is not done. It reads `idle`
 again when the last subagent's `task_notification` arrives, and `processing` when the
-notification wakes the parent for its next turn. A background `Bash` is no subagent, so it keeps
-the row `idle`.
+notification wakes the parent for its next turn. A background shell is no subagent: see the next
+section.
 
 `build_agent_row` derives `delegating` from two facts the reducer already holds: status `idle`,
 and a subagent still `running`. `AgentState.status` stays `idle`, so `last_status` and the resume
@@ -1046,6 +1046,28 @@ prompt do not change. An open ask outranks `delegating`, and an exit outranks bo
 
 A foreground `Agent` call needs none of this: the parent's turn stays open, so it reads
 `processing`.
+
+#### A turn that ends while a background shell runs
+
+A `Bash` call with `run_in_background` returns at once, and the shell runs on. The row reads
+`background` while one runs after the turn ended, and it lists each shell under `background` as
+`{"id", "description"}`. A subagent row carries `[]`.
+
+The reducer reads `system/background_tasks_changed`. Claude Code emits it each time the set of
+background tasks changes, and `tasks` lists every live one. So `AgentState.background` is replaced
+whole on each event, and a lost end cannot leave a shell listed. The snapshot lists subagents too,
+as `task_type: "local_agent"`; the reducer leaves those out. A shell that a subagent starts is not
+in the parent's snapshot.
+
+`task_started` with `task_type: "local_bash"` also announces a shell, but only its start. A
+foreground `Bash` raises no task at all.
+
+`system/init` comes at the start of every turn, so it does not clear the set. `mark_exited` does:
+the shells die with the process.
+
+The rank, highest first: an exit, an open ask, `delegating`, `background`, `idle`.
+`AgentState.status` stays `idle`, as for `delegating`.
+`agent-daemon/fixtures/agent_events/bash-background.jsonl` records the sequence.
 
 #### A subagent's permission ask
 
