@@ -89,7 +89,8 @@ describe('the worktrees view', () => {
     expect(main.queryByRole('button', { name: 'Close' })).toBeNull();
     expect(main.queryByRole('button', { name: 'Delete' })).toBeNull();
     // It still syncs: _main is a checkout like any other.
-    expect(main.getByRole('button', { name: 'Sync' })).toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Sync branch' })).toBeInTheDocument();
+    expect(main.queryByRole('button', { name: 'More sync actions' })).toBeNull();
   });
 
   it('closes a worktree and the row goes with it', async () => {
@@ -245,20 +246,48 @@ describe('the worktrees view', () => {
     expect(delta.getByRole('link', { name: 'Dev env' })).toBeInTheDocument();
   });
 
-  it('syncs a worktree, asking for the mode that repairs a conflict', async () => {
+  it('syncs a worktree with a plain sync', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToWorktrees(user);
 
-    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
+    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync branch' }));
     await waitFor(() =>
-      expect(server.requests.some((r) => r.path === '/api/worktrees/northwind-alpha/sync')).toBe(
-        true,
+      expect(server.requests).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path: '/api/worktrees/northwind-alpha/sync',
+          body: { mode: 'plain' },
+        }),
       ),
     );
-    const sync = server.requests.find((r) => r.path === '/api/worktrees/northwind-alpha/sync')!;
-    expect(sync.method).toBe('POST');
-    expect(sync.body).toEqual({ mode: 'autorepair' });
+  });
+
+  it('offers a squash and an autorepair sync from the sync menu', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToWorktrees(user);
+    const alpha = within(row('northwind-alpha')!);
+    const syncBodies = () =>
+      server.requests
+        .filter((r) => r.path === '/api/worktrees/northwind-alpha/sync')
+        .map((r) => r.body);
+
+    await user.click(alpha.getByRole('button', { name: 'More sync actions' }));
+    expect(alpha.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Sync branch',
+      'Sync & squash',
+      'Sync & autorepair',
+    ]);
+    await user.click(alpha.getByRole('menuitem', { name: 'Sync & squash' }));
+    await waitFor(() => expect(syncBodies()).toEqual([{ mode: 'squash' }]));
+
+    await waitFor(() =>
+      expect(alpha.getByRole('button', { name: 'More sync actions' })).toBeEnabled(),
+    );
+    await user.click(alpha.getByRole('button', { name: 'More sync actions' }));
+    await user.click(alpha.getByRole('menuitem', { name: 'Sync & autorepair' }));
+    await waitFor(() => expect(syncBodies()).toEqual([{ mode: 'squash' }, { mode: 'autorepair' }]));
   });
 
   it('refuses a sync on a closed worktree, as the server does', async () => {
@@ -269,7 +298,7 @@ describe('the worktrees view', () => {
     await waitFor(() => expect(row('maelstrom-charlie')).not.toBeNull());
 
     // A closed worktree holds no branch, so it is offered no sync at all.
-    expect(within(row('maelstrom-charlie')!).queryByRole('button', { name: 'Sync' })).toBeNull();
+    expect(within(row('maelstrom-charlie')!).queryByRole('button', { name: /^Sync/ })).toBeNull();
     // Deleting one is still the point of listing it.
     expect(
       within(row('maelstrom-charlie')!).getByRole('button', { name: 'Delete' }),
