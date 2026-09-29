@@ -24,6 +24,10 @@ release while that section is empty, and retitles it to the version it is releas
   add-scheduled --run` launches each due run as a driven agent, and the orchestrator UI shows
   it. `--cli` opens a cmux workspace as before. `MAEL_HARNESS_TYPE` does not change the
   default.
+
+- **The worktree view's Sync no longer starts a repair on a conflict.** It now runs a plain
+  sync. Choose "Sync & autorepair" from its menu for the old behaviour.
+
 - **`/present` gets the reasons of the build commits.** The commit `mael git squash-branch` makes
   now lists the SHA and message of each commit it collapsed. `mael git uncommit-branch` prints the
   SHA and message of each commit it uncommits, so after a squash it prints the build commits.

@@ -84,6 +84,8 @@ export function useRemoveWorktree() {
   });
 }
 
+export type SyncMode = 'plain' | 'autorepair' | 'squash';
+
 /**
  * Sync a worktree: the same `mael sync` runs, in one of its three modes. It
  * rebases and pushes, so it takes the long timeout, but it starts and stops no
@@ -93,7 +95,7 @@ export function useSyncWorktree() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId; mode: 'plain' | 'autorepair' | 'squash' }) =>
+    mutationFn: (vars: { worktreeId: WorktreeId; mode: SyncMode }) =>
       api.post(
         `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/sync`,
         { mode: vars.mode },

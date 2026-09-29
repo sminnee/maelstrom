@@ -192,13 +192,20 @@ shell as readily as an agent.
 A closed worktree is listed only when "show closed" is ticked, and reads as parked. `_main` sorts
 first, because it holds the branch the others are cut from.
 
-Each row carries its operations. Sync, close and the environment control are plain buttons; force
-close and delete are `ui/ConfirmButton.tsx`, one question open at a time per row, because two
-destructive actions a click apart is how the wrong worktree gets deleted. `_main` is offered
-neither close nor delete — it holds the main checkout — but it still syncs. The environment control
-is `worktrees/EnvControl.tsx`, a split button over the env state; its options are listed in
-[the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator). The expanded card
-draws the same control when its task has an open worktree.
+Each row carries its operations. Close is a plain button. Sync and the environment control are
+split buttons. Force close and delete are `ui/ConfirmButton.tsx`, one question open at a time per
+row, because two destructive actions a click apart is how the wrong worktree gets deleted. `_main`
+is offered neither close nor delete — it holds the main checkout — but it still syncs.
+
+The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync branch", sends `plain`,
+so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds "Sync & squash"
+(`squash`) and "Sync & autorepair" (`autorepair`, which starts a repair session on a conflict).
+`_main` gets "Sync branch" alone. The chevron is named "More sync actions", apart from the other
+split buttons' "More actions", so a row with two menus stays readable to a screen reader.
+
+The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its
+options are listed in [the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator).
+The expanded card draws the environment control when its task has an open worktree.
 
 The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every

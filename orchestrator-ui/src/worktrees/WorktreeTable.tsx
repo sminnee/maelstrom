@@ -5,7 +5,6 @@ import {
   useForceCloseWorktree,
   useRefreshWorktrees,
   useRemoveWorktree,
-  useSyncWorktree,
 } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
@@ -16,6 +15,7 @@ import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
+import { SyncControl } from './SyncControl';
 import styles from './WorktreeTable.module.css';
 
 /**
@@ -144,7 +144,6 @@ function Actions({
   asking: 'force-close' | 'remove' | null;
   setAsking: (asking: 'force-close' | 'remove' | null) => void;
 }) {
-  const sync = useSyncWorktree();
   const close = useCloseWorktree();
   const forceClose = useForceCloseWorktree();
   const remove = useRemoveWorktree();
@@ -157,14 +156,7 @@ function Actions({
     <>
       {!worktree.isClosed && (
         <>
-          <AppButton
-            variant="quiet"
-            title={`Sync ${worktree.nato}`}
-            processingChildren="Syncing…"
-            onClick={() => sync.mutateAsync({ worktreeId: id, mode: 'autorepair' })}
-          >
-            Sync
-          </AppButton>
+          <SyncControl worktree={worktree} />
           <EnvControl worktree={worktree} />
         </>
       )}
