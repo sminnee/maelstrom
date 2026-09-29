@@ -89,7 +89,7 @@ describe('the worktrees view', () => {
     expect(main.queryByRole('button', { name: 'Close' })).toBeNull();
     expect(main.queryByRole('button', { name: 'Delete' })).toBeNull();
     // It still syncs: _main is a checkout like any other.
-    expect(main.getByRole('button', { name: 'Sync branch' })).toBeInTheDocument();
+    expect(main.getByRole('button', { name: 'Sync' })).toBeInTheDocument();
     expect(main.queryByRole('button', { name: 'More sync actions' })).toBeNull();
   });
 
@@ -251,7 +251,7 @@ describe('the worktrees view', () => {
     const { server } = await renderApp();
     await goToWorktrees(user);
 
-    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync branch' }));
+    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
     await waitFor(() =>
       expect(server.requests).toContainEqual(
         expect.objectContaining({
@@ -275,7 +275,7 @@ describe('the worktrees view', () => {
 
     await user.click(alpha.getByRole('button', { name: 'More sync actions' }));
     expect(alpha.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
-      'Sync branch',
+      'Sync',
       'Sync & squash',
       'Sync & autorepair',
     ]);

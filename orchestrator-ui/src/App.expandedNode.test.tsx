@@ -178,7 +178,7 @@ describe('the expanded node', () => {
       const user = userEvent.setup();
       const { server } = await renderApp();
       clickNode('NORT-12');
-      await user.click(within(expanded()).getByRole('button', { name: 'Sync branch' }));
+      await user.click(within(expanded()).getByRole('button', { name: 'Sync' }));
       await waitFor(() =>
         expect(server.requests).toContainEqual(
           expect.objectContaining({
@@ -202,7 +202,7 @@ describe('the expanded node', () => {
       const { server } = await renderApp();
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
-      expect(within(expanded()).getByRole('button', { name: 'Sync branch' })).toBeInTheDocument();
+      expect(within(expanded()).getByRole('button', { name: 'Sync' })).toBeInTheDocument();
       act(() => {
         server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
           w.worktrees['northwind-delta'] = { ...w.worktrees['northwind-delta']!, isClosed: true };
