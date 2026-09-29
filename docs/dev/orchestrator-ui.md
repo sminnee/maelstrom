@@ -205,7 +205,7 @@ split buttons' "More actions", so a row with two menus stays readable to a scree
 
 The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its
 options are listed in [the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator).
-The expanded card draws the environment control when its task has an open worktree.
+The expanded card draws both controls when its task has an open worktree.
 
 The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every

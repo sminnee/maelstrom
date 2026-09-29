@@ -174,17 +174,35 @@ describe('the expanded node', () => {
       expect(within(expanded()).queryByRole('button', { name: 'cmux' })).toBeNull();
     });
 
-    it('offers no env control on a card with no worktree', async () => {
+    it("syncs the card's worktree with a plain sync", async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      await user.click(within(expanded()).getByRole('button', { name: 'Sync branch' }));
+      await waitFor(() =>
+        expect(server.requests).toContainEqual(
+          expect.objectContaining({
+            method: 'POST',
+            path: '/api/worktrees/northwind-delta/sync',
+            body: { mode: 'plain' },
+          }),
+        ),
+      );
+    });
+
+    it('offers no env or sync control on a card with no worktree', async () => {
       await renderApp();
       // Blocked and not yet launched, so nothing has made its worktree.
       clickNode('NORT-15');
       expect(within(expanded()).queryByRole('button', { name: /env$/ })).toBeNull();
+      expect(within(expanded()).queryByRole('button', { name: /^Sync/ })).toBeNull();
     });
 
-    it('offers no env control once the worktree is closed', async () => {
+    it('offers no env or sync control once the worktree is closed', async () => {
       const { server } = await renderApp();
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
+      expect(within(expanded()).getByRole('button', { name: 'Sync branch' })).toBeInTheDocument();
       act(() => {
         server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
           w.worktrees['northwind-delta'] = { ...w.worktrees['northwind-delta']!, isClosed: true };
@@ -193,6 +211,7 @@ describe('the expanded node', () => {
       await waitFor(() =>
         expect(within(expanded()).queryByRole('button', { name: /env$/ })).toBeNull(),
       );
+      expect(within(expanded()).queryByRole('button', { name: /^Sync/ })).toBeNull();
     });
   });
 

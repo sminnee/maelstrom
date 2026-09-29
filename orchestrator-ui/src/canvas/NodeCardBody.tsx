@@ -34,6 +34,7 @@ import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { DevEnvLinks } from '../worktrees/DevEnvLinks';
 import { EnvControl } from '../worktrees/EnvControl';
+import { SyncControl } from '../worktrees/SyncControl';
 import { StatusPicker } from '../ui/StatusPicker';
 import styles from './NodeCard.module.css';
 
@@ -313,7 +314,12 @@ export function NodeCardBody({
               Resume
             </AppButton>
           )}
-          {where && !where.isClosed && <EnvControl worktree={where} />}
+          {where && !where.isClosed && (
+            <>
+              <SyncControl worktree={where} />
+              <EnvControl worktree={where} />
+            </>
+          )}
           <SplitButton variant="quiet" options={endOfWork} />
         </div>
         {documents.length > 0 && (
