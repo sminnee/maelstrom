@@ -195,7 +195,7 @@ describe('new work', () => {
     expect(server.world.desk[`task:${created.id}`]).toBeDefined();
   });
 
-  it('fills the branch from the draft when Suggest is pressed, without the user typing one', async () => {
+  it('fills the title and branch from the draft when Suggest is pressed, leaving the planning level', async () => {
     const user = userEvent.setup();
     await renderApp();
     const form = await openNewWork(user);
@@ -213,6 +213,9 @@ describe('new work', () => {
       ),
     );
     expect(within(form).getByLabelText('Title')).toHaveValue('The export drops a row');
+    // The fake infers `mode: 'auto'`, which is not Regular's, so this fails if
+    // Suggest writes it.
+    expect(within(form).getByRole('radio', { name: 'Regular' })).toBeChecked();
   });
 
   it('shows the wait on the Suggest button itself, not beside the footer buttons', async () => {

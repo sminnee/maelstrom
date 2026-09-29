@@ -114,6 +114,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **Suggest in New work names the work and leaves planning alone.** On a task it fills the title
+  and branch, and the Planning level stays where you left it.
+
 - **Terminate and Resume on a node card no longer get stuck.** Terminating an agent the daemon
   has already lost now shows it exited, where before every click failed. A resumed agent goes
   live at once and stays live, where before its card kept offering a Resume the daemon refused.
