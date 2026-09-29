@@ -236,8 +236,8 @@ export function NewWork() {
   const [written, setWritten] = useState<string | null>(null);
 
   /**
-   * Name the task from its prose: its title and branch. The planning level
-   * stays the user's pick.
+   * Name the work from its prose: a task's title and branch, or a free agent's
+   * branch. The planning level and mode stay the user's pick.
    *
    * A button rather than a gate. Inference shells out to a model and takes tens
    * of seconds, so the form must reach Save without it — and the fields it fills
@@ -245,7 +245,13 @@ export function NewWork() {
    */
   const suggest = async () => {
     const inferred = await infer.mutateAsync({ project: chosen, draft });
-    setCaptured((was) => ({ ...was, title: inferred.title, branch: inferred.branch }));
+    // The kind as it is when the reply lands: inference takes tens of seconds,
+    // and the user can switch kind while it runs.
+    setCaptured((was) => ({
+      ...was,
+      branch: inferred.branch,
+      ...(was.kind === 'agent' ? {} : { title: inferred.title }),
+    }));
   };
 
   const startFreeAgent = async () => {
@@ -563,10 +569,15 @@ function Capture({
           itself. A task's branch is its own field below. */}
       {kind === 'agent' && (
         <>
-          <label className={dialog.field}>
-            <span>Branch</span>
-            <ComboBox value={branch} options={branchOptions} onChange={setBranch} />
-          </label>
+          <div className={styles.branchRow}>
+            <label className={dialog.field}>
+              <span>Branch</span>
+              <ComboBox value={branch} options={branchOptions} onChange={setBranch} />
+            </label>
+            <AppButton disabled={busy || !draft.trim()} onClick={onSuggest}>
+              Suggest
+            </AppButton>
+          </div>
           <label className={dialog.field}>
             <span>Mode</span>
             <ModeSelect mode={mode} onChange={setMode} />

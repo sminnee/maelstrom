@@ -218,6 +218,23 @@ describe('new work', () => {
     expect(within(form).getByRole('radio', { name: 'Regular' })).toBeChecked();
   });
 
+  it('fills a free agent branch from the draft when Suggest is pressed, leaving its mode', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    await user.click(within(form).getByRole('button', { name: 'Suggest' }));
+
+    await waitFor(() =>
+      expect((within(form).getByLabelText('Branch') as HTMLInputElement).value).toMatch(
+        /^feat\/.+/,
+      ),
+    );
+    // The fake infers `mode: 'auto'`, so this fails if Suggest writes it.
+    expect(within(form).getByLabelText('Mode')).toHaveValue('plan');
+  });
+
   it('shows the wait on the Suggest button itself, not beside the footer buttons', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
