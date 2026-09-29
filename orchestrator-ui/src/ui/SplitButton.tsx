@@ -33,11 +33,14 @@ export interface SplitOption {
  */
 export function SplitButton({
   options,
+  menuLabel = 'More actions',
   variant = 'plain',
   errorResetMs,
   onError,
 }: {
   options: SplitOption[];
+  /** The chevron's accessible name. A row with two split buttons gives each its own. */
+  menuLabel?: string;
 } & Pick<AppButtonProps, 'variant' | 'errorResetMs' | 'onError'>) {
   const { state, run } = useClickLifecycle({ errorResetMs, onError });
   const [running, setRunning] = useState<SplitOption | null>(null);
@@ -144,7 +147,7 @@ export function SplitButton({
             type="button"
             className={`${segment} ${styles.chevron}`}
             style={anchorStyle}
-            aria-label="More actions"
+            aria-label={menuLabel}
             aria-haspopup="menu"
             aria-expanded={open}
             aria-controls={menuId}
