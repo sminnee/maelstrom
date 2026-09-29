@@ -197,10 +197,10 @@ split buttons. Force close and delete are `ui/ConfirmButton.tsx`, one question o
 row, because two destructive actions a click apart is how the wrong worktree gets deleted. `_main`
 is offered neither close nor delete — it holds the main checkout — but it still syncs.
 
-The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync branch", sends `plain`,
+The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync", sends `plain`,
 so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds "Sync & squash"
 (`squash`) and "Sync & autorepair" (`autorepair`, which starts a repair session on a conflict).
-`_main` gets "Sync branch" alone. The chevron is named "More sync actions", apart from the other
+`_main` gets "Sync" alone. The chevron is named "More sync actions", apart from the other
 split buttons' "More actions", so a row with two menus stays readable to a screen reader.
 
 The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its

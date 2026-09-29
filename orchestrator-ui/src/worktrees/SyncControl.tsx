@@ -15,7 +15,7 @@ export function SyncControl({ worktree }: { worktree: Worktree }) {
     run: () => sync.mutateAsync({ worktreeId: worktree.id, mode }),
   });
 
-  const plain = option('Sync branch', 'Syncing…', 'plain');
+  const plain = option('Sync', 'Syncing…', 'plain');
   const options =
     worktree.nato === '_main'
       ? [plain]

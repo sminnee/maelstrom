@@ -19,8 +19,8 @@ release while that section is empty, and retitles it to the version it is releas
   "Dev env", more read "Dev env: web · ladle".
 
 - **Sync a worktree from its node card.** The expanded card and the worktree view share one
-  sync control. "Sync branch" runs a plain sync, which aborts on a conflict. Its menu adds
-  "Sync & squash" and "Sync & autorepair". `_main` offers "Sync branch" only.
+  sync control. "Sync" runs a plain sync, which aborts on a conflict. Its menu adds
+  "Sync & squash" and "Sync & autorepair". `_main` offers "Sync" only.
 
 ### Changed
 
