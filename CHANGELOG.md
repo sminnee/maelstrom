@@ -18,6 +18,10 @@ release while that section is empty, and retitles it to the version it is releas
   optional service, such as `ladle`. Each running web-facing service gets its own link: one reads
   "Dev env", more read "Dev env: web · ladle".
 
+- **Sync a worktree from its node card.** The expanded card and the worktree view share one
+  sync control. "Sync branch" runs a plain sync, which aborts on a conflict. Its menu adds
+  "Sync & squash" and "Sync & autorepair". `_main` offers "Sync branch" only.
+
 ### Changed
 
 - **Scheduled runs start on the agent daemon, with no cmux workspace.** `mael task
