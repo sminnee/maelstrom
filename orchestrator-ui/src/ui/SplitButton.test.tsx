@@ -165,6 +165,12 @@ describe('SplitButton', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
   });
 
+  it('names the chevron with menuLabel, so two controls in one row stay apart', () => {
+    render(<SplitButton options={three()} menuLabel="More sync actions" />);
+    expect(screen.getByRole('button', { name: 'More sync actions' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+  });
+
   it('keeps its clicks from reaching the element behind it', async () => {
     const behind = vi.fn();
     render(
