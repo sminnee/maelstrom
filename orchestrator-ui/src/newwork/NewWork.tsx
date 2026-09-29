@@ -236,7 +236,8 @@ export function NewWork() {
   const [written, setWritten] = useState<string | null>(null);
 
   /**
-   * Name the task from its prose: title, branch, command and mode.
+   * Name the task from its prose: its title and branch. The planning level
+   * stays the user's pick.
    *
    * A button rather than a gate. Inference shells out to a model and takes tens
    * of seconds, so the form must reach Save without it — and the fields it fills
@@ -244,13 +245,7 @@ export function NewWork() {
    */
   const suggest = async () => {
     const inferred = await infer.mutateAsync({ project: chosen, draft });
-    setCaptured((was) => ({
-      ...was,
-      title: inferred.title,
-      branch: inferred.branch,
-      command: inferred.command,
-      taskMode: inferred.mode,
-    }));
+    setCaptured((was) => ({ ...was, title: inferred.title, branch: inferred.branch }));
   };
 
   const startFreeAgent = async () => {
