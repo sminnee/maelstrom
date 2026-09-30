@@ -526,7 +526,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **`mael env status`, `reset` and `open` take the worktree with `-w`,** like `start`, `stop`,
   `restart` and `logs`. The positional `TARGET` still works, but prints a deprecation warning.
-  Giving both is an error.
+  Giving both is an error. `mael self-env` refuses `-w`, because its target is fixed.
 
 ## [0.1.2] - 2026-08-11
 
