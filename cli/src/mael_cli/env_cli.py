@@ -37,6 +37,29 @@ def make_store() -> JsonEnvStore:
     return JsonEnvStore()
 
 
+# Every verb that acts on one worktree takes it with -w. `mael self-env` finds
+# those verbs by this parameter name.
+WORKTREE_PARAM = "worktree_opt"
+worktree_option = click.option(
+    "-w",
+    "--worktree",
+    WORKTREE_PARAM,
+    default=None,
+    help="Worktree target (project.worktree). Default: the current directory",
+)
+
+deprecated_target_argument = click.argument(
+    "target", required=False, default=None, deprecated="Use -w TARGET."
+)
+
+
+def _worktree_target(worktree_opt: str | None, target: str | None) -> str | None:
+    """Return the target from -w or the deprecated positional, whichever is set."""
+    if worktree_opt is not None and target is not None:
+        raise click.UsageError("Give the target once, with -w.")
+    return worktree_opt if worktree_opt is not None else target
+
+
 def _declared_service_names(ctx: ResolvedContext) -> list[str]:
     """Names of the services the worktree's `.maelstrom.yaml` declares, in order."""
     worktree_path = ctx.worktree_path
@@ -266,12 +289,13 @@ def print_service_status(
 
 
 @env.command("open")
-@click.argument("target", required=False, default=None)
-def env_open(target):
+@deprecated_target_argument
+@worktree_option
+def env_open(worktree_opt, target):
     """Open the browser pane for a running environment."""
     try:
         ctx = resolve_context(
-            target,
+            _worktree_target(worktree_opt, target),
             require_project=True,
             require_worktree=True,
         )
@@ -296,13 +320,7 @@ def env_open(target):
 @click.option(
     "--skip-install", is_flag=True, help="Skip the install step before starting"
 )
-@click.option(
-    "-w",
-    "--worktree",
-    "worktree_opt",
-    default=None,
-    help="Worktree target (project.worktree). Default: the current directory",
-)
+@worktree_option
 def env_start(service, skip_install, worktree_opt):
     """Start services for a worktree environment.
 
@@ -340,12 +358,13 @@ def env_start(service, skip_install, worktree_opt):
 
 
 @env.command("status")
-@click.argument("target", required=False, default=None)
-def env_status(target):
+@deprecated_target_argument
+@worktree_option
+def env_status(worktree_opt, target):
     """Show status of services for a worktree environment."""
     try:
         ctx = resolve_context(
-            target,
+            _worktree_target(worktree_opt, target),
             require_project=True,
             require_worktree=True,
         )
@@ -361,13 +380,7 @@ def env_status(target):
 
 @env.command("stop")
 @click.argument("service", required=False, default=None)
-@click.option(
-    "-w",
-    "--worktree",
-    "worktree_opt",
-    default=None,
-    help="Worktree target (project.worktree). Default: the current directory",
-)
+@worktree_option
 def env_stop(service, worktree_opt):
     """Stop services for a worktree environment.
 
@@ -406,13 +419,7 @@ def env_stop(service, worktree_opt):
 @env.command("restart")
 @click.argument("service", required=False, default=None)
 @click.option("--install", is_flag=True, help="Run the install step before starting")
-@click.option(
-    "-w",
-    "--worktree",
-    "worktree_opt",
-    default=None,
-    help="Worktree target (project.worktree). Default: the current directory",
-)
+@worktree_option
 def env_restart(service, install, worktree_opt):
     """Restart services for a worktree environment.
 
@@ -464,12 +471,13 @@ def env_restart(service, install, worktree_opt):
 
 
 @env.command("reset")
-@click.argument("target", required=False, default=None)
-def env_reset(target):
+@deprecated_target_argument
+@worktree_option
+def env_reset(worktree_opt, target):
     """Regenerate .env file (e.g., after updating .maelstrom.yaml ports)."""
     try:
         ctx = resolve_context(
-            target,
+            _worktree_target(worktree_opt, target),
             require_project=True,
             require_worktree=True,
         )
@@ -660,13 +668,7 @@ def _follow_logs(
 
 @env.command("logs")
 @click.argument("service", required=False, default=None)
-@click.option(
-    "-w",
-    "--worktree",
-    "worktree_opt",
-    default=None,
-    help="Worktree target (project.worktree). Default: the current directory",
-)
+@worktree_option
 @click.option("-n", "num_lines", default=100, type=int, help="Number of lines to show")
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
 def env_logs(service, worktree_opt, num_lines, follow):

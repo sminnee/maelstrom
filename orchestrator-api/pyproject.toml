@@ -9,7 +9,7 @@ dependencies = [
     "mael-common",
     "mael-agent",
     "mael-domain",
-    "click>=8.0",
+    "click>=8.2",
     "aiohttp>=3.13",
 ]
 

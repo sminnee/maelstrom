@@ -258,6 +258,7 @@ one holding stale code.
 mael env start                 # install_cmd, then start every non-optional service
 mael env start --skip-install  # skip the install step
 mael env status                # PIDs, status, log paths
+mael env status -w askastro.b  # ...of another worktree
 mael env logs                  # recent logs
 mael env logs -f               # follow
 mael env logs web -n 50        # one service, 50 lines

@@ -33,12 +33,12 @@ A single letter is a shortcode for the NATO name: `a` → alpha, `b` → bravo, 
 Inside a worktree, maelstrom detects the project and worktree from the current directory,
 so the target is optional.
 
-`_main` is a target like any other: `mael env status myproject._main`. It resolves to the
+`_main` is a target like any other: `mael ide myproject._main`. It resolves to the
 project's `_main` folder.
 
-`mael env start`, `mael env stop`, `mael env restart` and `mael env logs` are the exception:
-their argument names a **service**, and the worktree comes from `--worktree` or the current
-directory.
+`mael env` is the exception: a verb that acts on one worktree takes it with `-w`, or from the
+current directory. The positional argument of `start`, `stop`, `restart` and `logs` names a
+**service**.
 
 ---
 
@@ -791,13 +791,13 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. |
 | `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
-| `mael env status [TARGET]` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
+| `mael env status` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
 | `mael env logs [SERVICE]` | Show service logs, or one service's log. |
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
 | `mael env stop-all` | Stop every running environment. |
-| `mael env reset [TARGET]` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. |
-| `mael env open [TARGET]` | Open the browser pane for a running environment. |
+| `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. |
+| `mael env open` | Open the browser pane for a running environment. |
 
 ```bash
 mael env start                     # install, then start every non-optional service
@@ -814,7 +814,7 @@ mael env reset                     # regenerate .env after changing ports
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
-| `env start`, `env stop`, `env restart`, `env logs` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. |
+| `env start`, `env stop`, `env restart`, `env logs`, `env status`, `env reset`, `env open` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. A positional `TARGET` on `status`, `reset` and `open` is a deprecated alias for `-w`. |
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 
@@ -824,9 +824,9 @@ A project that sets `main_port_base:` in `.maelstrom.yaml` makes `_main` an env 
 that never change. See [the fixed environment](../guide/worktrees.md#the-fixed-environment).
 
 ```bash
-mael env reset myproject._main       # write _main/.env off the reserved base
+mael env reset -w myproject._main    # write _main/.env off the reserved base
 mael env start -w myproject._main    # start it
-mael env status myproject._main
+mael env status -w myproject._main
 ```
 
 ---

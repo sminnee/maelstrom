@@ -5,7 +5,7 @@ description = "Maelstrom's shared utilities: shell, tables, paths and the async 
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Sam Minnee" }]
-dependencies = ["click>=8.0"]
+dependencies = ["click>=8.2"]
 
 [build-system]
 requires = ["hatchling"]

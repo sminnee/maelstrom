@@ -48,10 +48,10 @@ A project can make `_main` a running environment on ports that never change. Set
 main_port_base: 277
 ```
 
-On an existing project, run `mael env reset myproject._main` once to write the `.env`. A
+On an existing project, run `mael env reset -w myproject._main` once to write the `.env`. A
 project cloned after the key was added gets it at clone time.
 
-`_main` then answers to every `mael env` verb, addressed as `myproject._main` — see
+`_main` then answers to every `mael env` verb, addressed as `-w myproject._main` — see
 [the CLI reference](../reference/cli.md).
 
 This is a **reserved base**: it sits outside the 300-999 range the allocator draws from, so no
@@ -79,8 +79,8 @@ the ports of `myproject-bravo` stay put while branches come and go through it.
 Target one by name or shortcode:
 
 ```bash
-mael env status myproject.bravo
-mael env status myproject.b        # shortcode
+mael env status -w myproject.bravo
+mael env status -w myproject.b     # shortcode
 mael env status                    # detected from the current directory
 ```
 
