@@ -98,6 +98,8 @@ class BranchCommit(TypedDict):
     sha: str
     shortSha: str
     subject: str
+    #: The message after its subject line; ``""`` when there is none.
+    body: str
     author: str
     #: ISO 8601, the author date.
     date: str

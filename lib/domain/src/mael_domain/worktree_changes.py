@@ -151,7 +151,9 @@ async def _commits(path: Path, merge_base: str) -> list[BranchCommit]:
         [
             *_GIT_OPTIONS,
             "log",
-            f"--format={_RECORD}%H{_FIELD}%h{_FIELD}%s{_FIELD}%an{_FIELD}%aI",
+            # The body ends in its own separator, because it holds newlines
+            # and the --shortstat line follows it.
+            f"--format={_RECORD}%H{_FIELD}%h{_FIELD}%s{_FIELD}%an{_FIELD}%aI{_FIELD}%b{_FIELD}",
             "--shortstat",
             f"{merge_base}..HEAD",
         ],
@@ -160,14 +162,15 @@ async def _commits(path: Path, merge_base: str) -> list[BranchCommit]:
     )
     commits: list[BranchCommit] = []
     for record in result.stdout.split(_RECORD)[1:]:
-        head, _, stat = record.partition("\n")
-        sha, short, subject, author, date = head.split(_FIELD)
+        # A body may hold the field separator itself; it is rejoined.
+        sha, short, subject, author, date, *body, stat = record.split(_FIELD)
         found = _FILES_CHANGED.search(stat)
         commits.append(
             {
                 "sha": sha,
                 "shortSha": short,
                 "subject": subject,
+                "body": _FIELD.join(body).strip(),
                 "author": author,
                 "date": date,
                 "filesChanged": int(found.group(1)) if found else 0,
