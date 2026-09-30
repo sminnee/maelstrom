@@ -3,22 +3,35 @@ import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { CloseIcon } from '../shell/CloseIcon';
 import { TabChip } from './TabChip';
+import type { TabGroup } from '../selectors/tabs';
 import styles from './PanelTabs.module.css';
 
 export const PANEL_BODY_ID = 'panel-body';
+/** What a sidebar row controls: the worktree bar, the strip and the body. */
+export const PANEL_GROUP_ID = 'panel-group';
 
-export function PanelTabs() {
+/** The tabs of the worktree in view. The sidebar switches between worktrees. */
+export function PanelTabs({
+  group,
+  onClose,
+}: {
+  group: TabGroup | null;
+  onClose: (keys: string[]) => void;
+}) {
   const { world } = useWorld();
-  const tabs = useAppStore((s) => s.ui.tabs);
+  const tabs = group?.tabs ?? [];
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const activateTab = useAppStore((s) => s.activateTab);
-  const closeTab = useAppStore((s) => s.closeTab);
 
   // One tab stop for the strip; arrows move between tabs.
   const onKeyDown = (e: React.KeyboardEvent, index: number) => {
     const key = tabs[index]?.key;
-    if (!key) return;
-    if (e.key === 'Enter' || e.key === ' ') activateTab(key);
+    // A key on the close button is the button's own, not the tab's.
+    if (!key || e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      activateTab(key);
+    }
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       const next = tabs[(index + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
       if (next) {
@@ -29,7 +42,7 @@ export function PanelTabs() {
   };
 
   return (
-    <div className={styles.strip} role="tablist">
+    <div className={styles.strip} role="tablist" aria-label="Open tabs">
       {tabs.map((tab, index) => {
         const attribution = tabAttribution(world, tab);
         const active = tab.key === activeTabKey;
@@ -61,7 +74,7 @@ export function PanelTabs() {
               aria-label={['Close', attribution.label, attribution.id].filter(Boolean).join(' ')}
               onClick={(e) => {
                 e.stopPropagation();
-                closeTab(tab.key);
+                onClose([tab.key]);
               }}
             >
               <CloseIcon />
