@@ -20,6 +20,7 @@ from mael_domain.state_db.types import (
     Write,
     WrongThreadError,
 )
+from mael_domain.task_table import SqliteTaskTable
 
 
 @pytest.fixture
@@ -126,11 +127,11 @@ class TestLadderInjection:
 
 
 class TestTheTasksLadderUpgrade:
-    """An existing database gains a new task column from its own rung.
+    """An existing database changes its task columns by its own rungs.
 
     ``_COLUMNS`` alone serves a fresh install's ``CREATE TABLE``; a database
-    already stamped past that rung never re-runs it, so a new field needs an
-    ``ALTER TABLE`` rung as well. This holds both halves honest.
+    already stamped past that rung never re-runs it, so a new or removed field
+    needs an ``ALTER TABLE`` rung as well. This holds both halves honest.
     """
 
     async def test_an_older_database_gains_execute_model(self, tmp_path):
@@ -151,6 +152,36 @@ class TestTheTasksLadderUpgrade:
             row = await db.read("tasks", "maelstrom/2026-06-11.1")
             assert row is not None
             assert row["execute_model"] == ""
+        finally:
+            db.close()
+
+    async def test_an_older_database_folds_steps_into_content(self, tmp_path):
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            # Stand the database up at the ladder as it was before the drop.
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:3]
+            await db.migrate()
+            prose = {"title": "T", "content": "c", "log": "- l"}
+            await db.write_all(
+                [
+                    Write("tasks", "p/with", {**prose, "steps": "1. a"}),
+                    Write("tasks", "p/without", prose),
+                ]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            row = await db.read("tasks", "p/with")
+            assert row is not None
+            assert "steps" not in row.keys()
+            table = SqliteTaskTable(db)
+            with_steps = await table.load("p", "with")
+            without = await table.load("p", "without")
+            assert with_steps is not None and without is not None
+            assert with_steps.content == "c\n\n## Steps\n\n1. a"
+            assert (without.content, without.log) == ("c", "- l")
         finally:
             db.close()
 

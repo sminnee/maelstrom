@@ -2,9 +2,8 @@
 
 Canonical, so no ``fetched_at``: nobody else authors a task.
 
-The row carries the prose. ``content``, ``steps`` and ``log`` are columns beside
-the frontmatter fields, because splitting a task across two stores is what makes
-a rollback partial — see ``docs/dev/data-architecture.md``, "Canonical".
+The row carries the prose: ``content`` and ``log`` are columns beside the
+frontmatter fields — see ``docs/dev/data-architecture.md``, "Canonical".
 """
 
 import sqlite3
@@ -95,4 +94,15 @@ TASKS: tuple[Rung, ...] = (
     # The model a session switches to when its plan is approved. A rung, not a
     # ``_COLUMNS`` entry — see the note on ``_COLUMNS``.
     Migration(("ALTER TABLE tasks ADD COLUMN execute_model TEXT NOT NULL DEFAULT ''",)),
+    # Drops ``steps``, which rung 1 still declares — see the note on
+    # ``_COLUMNS``. Steps text moves into content first, in the shape
+    # ``from_markdown`` now keeps an old ``## Steps`` heading, so none is lost.
+    Migration(
+        (
+            "UPDATE tasks SET content = "
+            "CASE WHEN content = '' THEN '' ELSE content || char(10, 10) END "
+            "|| '## Steps' || char(10, 10) || steps WHERE steps != ''",
+            "ALTER TABLE tasks DROP COLUMN steps",
+        )
+    ),
 )

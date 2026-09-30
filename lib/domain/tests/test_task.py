@@ -30,7 +30,6 @@ class TestRoundTrip:
             created=NOW,
             updated=NOW,
             content="Some content.",
-            steps="1. do a thing",
             log="- did the thing",
             status="todo",
         )
@@ -71,7 +70,7 @@ class TestRoundTrip:
             "---\n"
             'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         assert Task.from_markdown(text).model == ""
 
@@ -91,7 +90,7 @@ class TestRoundTrip:
             "---\n"
             'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         assert Task.from_markdown(text).base == ""
 
@@ -113,7 +112,7 @@ class TestRoundTrip:
             "---\n"
             'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         assert Task.from_markdown(text).execute_model == ""
 
@@ -130,7 +129,7 @@ class TestRoundTrip:
             "---\n"
             'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         back = Task.from_markdown(text)
         assert back.priority == model.DEFAULT_PRIORITY == "medium"
@@ -140,7 +139,7 @@ class TestRoundTrip:
             "---\n"
             'id: x\ntitle: t\nproject: p\npriority: ""\n'
             "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         assert Task.from_markdown(text).priority == "medium"
 
@@ -160,15 +159,24 @@ class TestRoundTrip:
         t = Task(id="x", title="t", project="p")
         back = Task.from_markdown(t.to_markdown())
         assert back.content == ""
-        assert back.steps == ""
         assert back.log == ""
+
+    def test_an_old_steps_heading_stays_in_content(self):
+        # Kept as text, so nothing under an old heading is lost silently.
+        text = (
+            "---\nid: x\ntitle: t\nproject: p\n---\n\n"
+            "## Content\n\nc\n\n## Steps\n\n1. a\n\n## Log\n\n- l\n"
+        )
+        back = Task.from_markdown(text)
+        assert back.content == "c\n\n## Steps\n\n1. a"
+        assert back.log == "- l"
 
     def test_follows_scalar_coerced_to_list(self):
         text = (
             "---\n"
             'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
             'parent: ""\nfollows: only-one\ncreated: c\nupdated: u\n'
-            "---\n\n## Content\n\n\n## Steps\n\n\n## Log\n\n"
+            "---\n\n## Content\n\n"
         )
         back = Task.from_markdown(text)
         assert back.follows == ["only-one"]

@@ -1,9 +1,9 @@
 """Core model for the task notebook.
 
 A task is one row in the ``tasks`` table of the state database, its prose
-included: ``content``, ``steps`` and ``log`` are columns beside the frontmatter
-fields. Status is a column too, so moving a task is a single-column update
-rather than a relocation. Tasks chain via a ``follows`` graph and each carries
+included: ``content`` and ``log`` are columns beside the frontmatter fields.
+Status is a column too, so moving a task is a single-column update rather than
+a relocation. Tasks chain via a ``follows`` graph and each carries
 the ``command``/``mode`` needed to launch a real Claude session.
 
 This module is the pure model: it never touches git or the filesystem directly,
@@ -279,7 +279,6 @@ class Task:
     # The execute model; empty means no switch. See CONTEXT.md.
     execute_model: str = ""
     content: str = ""
-    steps: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
 
@@ -289,7 +288,7 @@ class Task:
         """Render the task as markdown with YAML frontmatter.
 
         All ten frontmatter keys are always emitted (in a fixed order) and the
-        three body sections always appear, so files round-trip with stable diffs.
+        two body sections always appear, so files round-trip with stable diffs.
         """
         lines = ["---"]
         for k in FRONTMATTER_KEYS:
@@ -303,10 +302,6 @@ class Task:
         lines.append("## Content")
         lines.append("")
         lines.append(self.content.strip())
-        lines.append("")
-        lines.append("## Steps")
-        lines.append("")
-        lines.append(self.steps.strip())
         lines.append("")
         lines.append("## Log")
         lines.append("")
@@ -340,7 +335,6 @@ class Task:
             base=str(frontmatter.get("base", "")),
             execute_model=str(frontmatter.get("execute-model", "")),
             content=sections.get("content", ""),
-            steps=sections.get("steps", ""),
             log=sections.get("log", ""),
             status=status,
         )
@@ -443,15 +437,14 @@ def _split_frontmatter(text: str, *, strict: bool = False) -> tuple[dict, str]:
 
 _SECTION_ALIASES = {
     "content": "content",
-    "steps": "steps",
     "log": "log",
 }
 
 
 def _split_sections(body: str) -> dict[str, str]:
-    """Split a body into the ``content``/``steps``/``log`` sections.
+    """Split a body into the ``content``/``log`` sections.
 
-    Splits only on the known top-level ``## Content``/``## Steps``/``## Log``
+    Splits only on the known top-level ``## Content``/``## Log``
     headings; any other ``##`` line (e.g. a heading that happens to appear inside
     a section's prose) is kept verbatim as part of the current section.
     """
@@ -1150,8 +1143,8 @@ async def _resolve_follow_end(
 async def load(table: "TaskTable", project: str, id: str) -> Task:
     """Load a task by id. Raises ``KeyError`` if not found.
 
-    One single-row query, prose included: the row carries ``content``, ``steps``
-    and ``log``, so there is no second read for the body.
+    One single-row query, prose included: the row carries ``content`` and
+    ``log``, so there is no second read for the body.
     """
     if not is_safe_id(id):
         raise ValueError(f"Unsafe task id: {id!r}")

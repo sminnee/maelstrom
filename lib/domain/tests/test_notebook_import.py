@@ -34,7 +34,6 @@ A_TASK = Task(
     model="opus",
     base="main",
     content="The prose the row carries.",
-    steps="1. write the ladder",
     log="- started",
     status="todo",
 )
@@ -83,6 +82,22 @@ class TestTheNotebookImportRung:
         try:
             loaded = await SqliteTaskTable(db).load("maelstrom", "2026-06-11.1")
             assert loaded == A_TASK
+        finally:
+            db.close()
+
+    async def test_an_old_steps_section_lands_in_content(self, tmp_path):
+        """Every file the old writer made has ``## Steps``; the ladder keeps its text."""
+        folder = tmp_path / "tasks" / "p" / "todo"
+        folder.mkdir(parents=True)
+        (folder / "t.md").write_text(
+            "---\nid: t\ntitle: T\nproject: p\n---\n\n"
+            "## Content\n\nc\n\n## Steps\n\n1. a\n\n## Log\n\n- l\n"
+        )
+        db = await migrated(tmp_path)
+        try:
+            loaded = await SqliteTaskTable(db).load("p", "t")
+            assert loaded is not None
+            assert (loaded.content, loaded.log) == ("c\n\n## Steps\n\n1. a", "- l")
         finally:
             db.close()
 
