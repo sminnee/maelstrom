@@ -895,13 +895,19 @@ document's own review route. One dock, so a reader answers in one place whoever 
 _Avoid_: Action bar, footer
 
 **Panel**:
-The right-hand column of session and document tabs, beside the canvas and the task list. The
-worktree table and the narrow layout have no panel. The Panel toggle in the top bar collapses it,
+The right-hand column of tabs, beside the canvas and the task list. A tab holds a session, a
+document, or a worktree's changes (see **Changes tab**). The worktree table and the narrow layout
+have no panel. The Panel toggle in the top bar collapses it,
 and a panel link opens it again.
 _Avoid_: Sidebar, drawer, detail pane
 
+**Changes tab**:
+A panel tab that shows one worktree's changes: its **Dirty files**, each commit its branch has
+over its **Base**, or the whole branch as one diff. The expanded node's `Changes` link opens it.
+_Avoid_: Diff view, diff browser, code tab
+
 **Panel link**:
-A link that opens a session or a document as a tab in the panel. It carries the open-in-panel
+A link that opens a session, a document or a worktree's changes as a tab in the panel. It carries the open-in-panel
 icon.
 _Avoid_: Open button
 

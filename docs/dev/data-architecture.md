@@ -154,7 +154,8 @@ Read it now, from its source, and store nothing.
 This suits data one route needs rather than the whole world, and that is either cheap to read
 or must be exact at the moment of reading. `GET /api/linear/issues` is the example: it asks
 Linear for the project's current cycle on each request, and no issue ever enters the world.
-Attachment and registered-file bytes are served the same way.
+Attachment and registered-file bytes are served the same way, and so are a worktree's changes and
+diffs, which git answers on each request.
 
 Pass-through is a real answer, not a compromise. Naming it stops a reviewer proposing a cache
 for data that does not want one.
