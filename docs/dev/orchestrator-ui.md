@@ -332,8 +332,11 @@ its title. A live node can draw with no desk entry, so a chain skips the dismiss
 none to take. "Terminate & dismiss" sends the stop first: `agent.stop` records the exit before it replies, so
 the dismiss can follow at once.
 
-A node shows the bare notebook id, because its lane already names the project. A panel tab shows
-the qualified id, because a tab exists to tell two projects' tasks apart.
+The session head in the panel draws the same control, from `session/AgentControls.tsx`. There a
+dismiss also closes the session tab. The agent's document tabs stay open.
+
+A node shows the bare notebook id, because its lane already names the project. A panel tab
+shows the bare id too, because the panel sidebar beside the strip names the project.
 
 An agent with no task shows its own agent id in that same slot, on the node and on the tab both —
 the **Failover id** rule, which `CONTEXT.md` defines.
@@ -514,6 +517,26 @@ whatever raised it — a plan review, or a tag the agent wrote in its own messag
 review group (`selectors/documents.ts`): a group of one is one row, and a larger group is its
 title and status over a link per member. A `superseded` member is left out. A member's tab shows
 its place in the group, `2 of 3`, with links to its siblings, so each file reads on its own.
+
+The panel groups its tabs by worktree. `panel/PanelSidebar.tsx` lists the groups under their
+projects, and the strip shows the tabs of the group in view. `groupTabs` in `selectors/tabs.ts`
+derives the groups from the open tabs on each render, so a group holds no state and shows while
+one of its tabs is open:
+
+- A session tab belongs to its agent's worktree.
+- A document tab belongs to its own agent's worktree, else to the worktree of the agent that runs
+  its task.
+- A changes tab belongs to its own worktree.
+- A tab the world cannot place goes to its project's "no worktree" group, or to "Other".
+
+The group in view is the active tab's group, so no selection is stored. `ui.tabRecency` holds tab
+keys, most recently active first. Selecting a sidebar row activates that group's most recent tab.
+When the active tab closes, the most recent tab left in its group takes over, else the most
+recent tab left anywhere. The group comes first because a tab from another group would switch
+the sidebar under the reader. A row's close button closes every tab in the group.
+
+`panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls, the same
+`worktrees/WorktreeControls.tsx` pieces the expanded card draws.
 
 The same links row carries external links, which open a new browser tab instead of a panel
 tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
