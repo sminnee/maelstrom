@@ -14,6 +14,8 @@ from pathlib import Path
 import aiohttp
 import pytest
 from agent_fixtures import read_stamped_fixture
+from git_helpers import create_commit, setup_git_repo, setup_origin_main
+from git_helpers import run_git as git
 
 from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_agent.agent_wire import (
@@ -5625,6 +5627,106 @@ def test_a_server_that_cannot_sync_worktrees_says_so(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "cannot sync worktrees" in reply.body["error"]["message"]
+
+
+def _point_alpha_at_a_repo(harness, path: Path) -> str:
+    """Give the alpha row a real repo with one dirty file and one commit ahead.
+
+    The changes routes read git in the row's path, so an in-memory row alone
+    has nothing to read. Returns the sha of the commit ahead.
+    """
+    setup_git_repo(path)
+    git(path, "checkout", "-b", "main")
+    create_commit(path, "readme.md", "one\n", "chore: start")
+    setup_origin_main(path)
+    git(path, "checkout", "-b", "feat/orders")
+    sha = create_commit(path, "orders.py", "print(1)\n", "feat: orders")
+    (path / "readme.md").write_text("two\n")
+    harness.worktrees.worktrees[0] = {
+        **harness.worktrees.worktrees[0],
+        "path": str(path),
+    }
+    return sha
+
+
+def test_the_changes_route_lists_dirty_files_and_commits(harness, tmp_path):
+    sha = _point_alpha_at_a_repo(harness, tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/worktrees/northwind-alpha/changes")
+
+    changes = run(scenario())
+    assert changes["dirtyFiles"] == [{"path": "readme.md", "status": "M"}]
+    assert changes["base"] == "main"
+    assert [(c["sha"], c["subject"]) for c in changes["commits"]] == [
+        (sha, "feat: orders")
+    ]
+
+
+def test_the_diff_route_serves_each_rev(harness, tmp_path):
+    sha = _point_alpha_at_a_repo(harness, tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            base = "/api/worktrees/northwind-alpha/diff?rev="
+            return [
+                await api.get_json(base + rev) for rev in ("uncommitted", "branch", sha)
+            ]
+
+    uncommitted, branch, commit = run(scenario())
+    # The parse is the domain suite's; this pins which diff each rev names.
+    assert [
+        (r["rev"], [f["path"] for f in r["files"]])
+        for r in (uncommitted, branch, commit)
+    ] == [
+        ("uncommitted", ["readme.md"]),
+        ("branch", ["orders.py"]),
+        (sha, ["orders.py"]),
+    ]
+
+
+def test_the_changes_routes_refuse_an_unknown_or_closed_worktree(harness, tmp_path):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    harness.worktrees.worktrees.append(
+        {**harness.worktrees.worktrees[0], "id": "northwind-bravo", "isClosed": True}
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return [
+                await api.get(f"/api/worktrees/{worktree}/{route}")
+                for worktree in ("northwind-zulu", "northwind-bravo")
+                for route in ("changes", "diff?rev=branch")
+            ]
+
+    replies = run(scenario())
+    assert [(r.status, r.body["error"]["code"]) for r in replies] == [
+        (404, "unknown_id")
+    ] * 4
+
+
+def test_the_diff_route_refuses_a_request_that_names_no_rev(harness, tmp_path):
+    _point_alpha_at_a_repo(harness, tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get("/api/worktrees/northwind-alpha/diff")
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+
+
+def test_the_diff_route_refuses_a_sha_outside_the_branch(harness, tmp_path):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    on_main = git(tmp_path, "rev-parse", "main").stdout.strip()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(f"/api/worktrees/northwind-alpha/diff?rev={on_main}")
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (404, "unknown_id")
 
 
 def test_starting_an_environment_passes_the_action_and_refreshes_the_world(harness):
