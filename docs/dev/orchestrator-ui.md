@@ -172,6 +172,30 @@ status and Group by controls, Tasks has status and text controls, and Worktrees 
 `View` is a union nothing switches on exhaustively; its docstring in `store/uiSlice.ts` lists the
 sites to edit by hand when it widens.
 
+### Which PR a task shows
+
+A pull request belongs to a branch, and a branch outlives the session that made its PR. After a
+merge, every later task on the branch resolves to the merged PR, including tasks not started. So
+the node, the deck row and the expanded card show a PR only where the task's own session could
+have made it. `selectors/cardPr.ts` holds the rule:
+
+| The task | Shows |
+|---|---|
+| In the not-started zone | No PR |
+| Its agent started after the PR merged | No PR |
+| Its agent started before the PR merged | The merged PR |
+| Its branch has an open PR, and the task has started | The open PR |
+| Finished, with no agent | The merged PR |
+
+An open PR is never wrong: a branch has at most one. The rule compares the worktree's
+`prMergedAt` with the agent's `startedAt`. `startedAt` comes from the Agent record, not the
+daemon, because a resume resets the daemon's start time. That reset would hide the agent's own
+PR. The worktree table does not use the rule: it is about the branch, not a session.
+
+The rule has two known gaps. A finished task whose agent has left the world shows the branch's
+newest merged PR, which may be a later task's. And an agent the orchestrator adopted rather than
+started has the adoption time as `startedAt`, so a PR that merged before the adoption is hidden.
+
 ### The worktree table
 
 `worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
