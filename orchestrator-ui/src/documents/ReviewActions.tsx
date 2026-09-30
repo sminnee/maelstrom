@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Document } from '../protocol/documents';
 import { describeError } from '../api/http';
 import { AppButton } from '../ui/AppButton';
+import { TextArea } from '../ui/TextArea';
 import styles from './ReviewActions.module.css';
 
 /**
@@ -46,7 +47,9 @@ export function ReviewActions({
       <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>
         {approveLabel(doc, members)}
       </AppButton>
-      <input
+      <TextArea
+        grow
+        rows={1}
         aria-label="Summary of requested changes"
         placeholder={
           unresolved ? `${unresolved} comment(s) go back with this` : 'Summary of requested changes'

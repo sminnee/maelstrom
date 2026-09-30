@@ -186,6 +186,10 @@
   text-align: right;
   font-family: var(--mono);
 }
+/* The buttons stay level with the last line of a reason that grows. */
+.decide {
+  align-items: end;
+}
 .reasonInput {
   flex: 1;
   min-width: 120px;

@@ -797,6 +797,10 @@ Selects and text inputs share one chassis: field background, hairline border, 6p
 padding, capped at 180px so a long branch name cannot push the filter bar apart. They inherit
 the interface font — a form control never falls back to the browser's own.
 
+A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its container scrolls.
+A field with no scrolling container, such as the conversation input or a review dock field, caps
+at 50dvh and scrolls itself.
+
 ### Decision
 
 The block shown when an agent waits. The expanded node and the document tab render one component,

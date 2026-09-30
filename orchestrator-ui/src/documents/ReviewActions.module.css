@@ -6,10 +6,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  align-items: center;
+  /* The buttons stay level with the last line of a summary that grows. */
+  align-items: end;
   color: var(--fg-muted);
 }
-.bar input {
+.bar textarea {
   flex: 1;
   min-width: 12ch;
   font: inherit;
@@ -18,4 +19,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 3px 6px;
+  /* Nothing around the review dock scrolls, so a long summary scrolls itself. */
+  max-height: 50dvh;
+  overflow-y: auto;
 }

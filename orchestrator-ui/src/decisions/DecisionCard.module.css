@@ -127,9 +127,12 @@
   flex-wrap: nowrap;
   gap: var(--space-2);
 }
-.decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] input {
+.decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] textarea {
   flex: 1;
   min-width: 0;
+  /* Nothing around the review dock scrolls, so a long reason scrolls itself. */
+  max-height: 50dvh;
+  overflow-y: auto;
 }
 /* The anchor the sheet lifts from. */
 .docked {

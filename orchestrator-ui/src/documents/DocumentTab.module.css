@@ -126,10 +126,12 @@
 @media (max-width: 839px) {
   .dock button,
   .dock input,
+  .dock textarea,
   .dock select {
     min-height: var(--touch);
   }
-  .dock input {
+  .dock input,
+  .dock textarea {
     font-size: var(--text-md);
   }
 }

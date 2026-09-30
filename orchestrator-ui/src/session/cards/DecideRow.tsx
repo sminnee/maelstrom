@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AppButton } from '../../ui/AppButton';
+import { TextArea } from '../../ui/TextArea';
 import styles from './cards.module.css';
 
 /**
@@ -17,11 +18,13 @@ export function DecideRow({
 }) {
   const [reason, setReason] = useState('');
   return (
-    <div className={styles.options} data-role="prompt-actions">
+    <div className={`${styles.options} ${styles.decide}`} data-role="prompt-actions">
       <AppButton variant="primary" disabled={!onDecide} onClick={() => onDecide?.('approve', '')}>
         Approve
       </AppButton>
-      <input
+      <TextArea
+        grow
+        rows={1}
         className={styles.reasonInput}
         aria-label="Deny reason"
         placeholder="Reason to deny"
