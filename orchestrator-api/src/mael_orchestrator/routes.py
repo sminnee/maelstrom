@@ -10,14 +10,17 @@ import asyncio
 import json
 import logging
 import socket
+import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.protocol import HOST_ID, document_row, task_row
+from mael_domain.worktree_changes import UnknownRev, list_changes, read_diff
 
 from .hubs import Lagging
 from .server import Orchestrator
@@ -91,6 +94,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.on_cleanup.append(on_cleanup)
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
+    app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
+    app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/agents", _agents)
@@ -194,6 +199,55 @@ async def _projects(request: web.Request) -> web.Response:
 async def _worktrees(request: web.Request) -> web.Response:
     orch = await _ready(request)
     return web.json_response({"worktrees": list(orch.world["worktrees"].values())})
+
+
+def _open_worktree_path(orch: Orchestrator, worktree_id: str) -> Path | None:
+    """The path of an open worktree the world holds, else ``None``."""
+    row = orch.world["worktrees"].get(worktree_id)
+    if row is None or row["isClosed"]:
+        return None
+    return Path(row["path"])
+
+
+async def _worktree_changes(request: web.Request) -> web.Response:
+    """A worktree's dirty files and branch commits, read from git now."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    try:
+        return web.json_response(await list_changes(path))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+
+
+async def _worktree_diff(request: web.Request) -> web.Response:
+    """One rev's diff: ``uncommitted``, ``branch``, or a commit on the branch."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    if not rev:
+        return error_response("invalid", "Name a rev: uncommitted, branch or a sha")
+    try:
+        files = await read_diff(path, rev)
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    response = web.json_response({"rev": rev, "files": files})
+    # A branch diff runs to megabytes, and it compresses well.
+    response.enable_compression()
+    return response
+
+
+def _git_failed(exc: OSError | subprocess.CalledProcessError) -> web.Response:
+    """A git read that failed, as an error rather than a clean worktree."""
+    detail = exc.stderr if isinstance(exc, subprocess.CalledProcessError) else exc
+    return error_response("invalid", f"git could not read the worktree: {detail}")
 
 
 async def _tasks(request: web.Request) -> web.Response:
