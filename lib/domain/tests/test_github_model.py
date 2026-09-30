@@ -29,6 +29,7 @@ from mael_domain.github_model import (
     parse_pr_comments,
     parse_pr_info,
     parse_run_states,
+    pr_from_row,
     run_id_from_link,
     stack_chain,
 )
@@ -581,6 +582,11 @@ class TestParseOpenPrs:
     def test_a_draft_pr_says_so(self):
         assert self._one(isDraft=True).is_draft is True
 
+    def test_a_merged_pr_says_when_it_merged(self):
+        pr = self._one(state="MERGED", mergedAt="2026-09-01T10:00:00Z")
+        assert pr.merged_at == "2026-09-01T10:00:00Z"
+        assert self._one().merged_at == ""
+
     @pytest.mark.parametrize(
         ("node", "expected"),
         [
@@ -938,3 +944,19 @@ class TestSyncFailed:
         assert str(SyncFailed("Sync failed: detached HEAD")) == (
             "Sync failed: detached HEAD"
         )
+
+
+def test_a_pr_read_back_from_a_list_all_row_keeps_its_merge_time():
+    """The worktree poll remembers PRs through this, so a dropped field would
+    blank the merge time on every branch the next batch skips."""
+    row = {
+        "pr_number": 7,
+        "pr_commits": 3,
+        "pr_url": "https://github.com/acme/repo/pull/7",
+        "pr_state": "merged",
+        "pr_draft": False,
+        "pr_merged_at": "2026-09-01T10:00:00Z",
+    }
+    pr = pr_from_row(row)
+    assert pr is not None
+    assert pr.merged_at == "2026-09-01T10:00:00Z"

@@ -90,6 +90,7 @@ function worktree(over: Partial<Worktree> = {}): Worktree {
     prUrl: '',
     prState: '',
     prDraft: false,
+    prMergedAt: '',
     env: { state: 'stopped', services: [] },
     sessionCount: 1,
     shellUrl: '',

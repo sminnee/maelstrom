@@ -28,7 +28,7 @@ from mael_domain.list_all import (
 from mael_domain.worktree import WorktreeInfo, list_worktrees, run_git
 
 
-def _pr(number, *, commits=1, state="ready"):
+def _pr(number, *, commits=1, state="ready", merged_at=""):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
         number=number,
@@ -36,6 +36,7 @@ def _pr(number, *, commits=1, state="ready"):
         url=f"https://github.com/acme/repo/pull/{number}",
         state=state,
         is_draft=False,
+        merged_at=merged_at,
     )
 
 
@@ -234,6 +235,8 @@ def test_a_worktree_row_carries_its_pr_state(
     (project_path / ".mael").touch()
     row = _row_for(project_path, _pr(42, state="ci-running"))
     assert (row["pr_state"], row["pr_draft"]) == ("ci-running", False)
+    merged = _row_for(project_path, _pr(42, state="merged", merged_at="2026-09-01"))
+    assert merged["pr_merged_at"] == "2026-09-01"
 
 
 def test_a_merged_pr_still_counts_the_pushed_commits(

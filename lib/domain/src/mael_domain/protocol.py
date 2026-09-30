@@ -79,6 +79,8 @@ class Worktree(TypedDict):
     #: A :data:`mael_domain.github_model.PrState`, or ``""`` with no PR.
     prState: str
     prDraft: bool
+    #: When the PR merged, ISO 8601; ``""`` with no PR or one still open.
+    prMergedAt: str
     env: WorktreeEnv
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
