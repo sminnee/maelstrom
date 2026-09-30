@@ -263,8 +263,8 @@ backdrop. The editor renders from `AppShell`, above both views, and its open tas
 store, so the canvas can open the same editor later.
 
 Each row also has a checkbox, and the header has one that ticks every listed row. When a row is
-ticked, a bar above the table offers three bulk actions: set a status, add to the desk, and
-dismiss. The server has no batch route, so `tasklist/BulkActions.tsx` calls the per-task routes
+ticked, a bar above the table offers three bulk actions: set a status, On desk, and Off
+desk. The server has no batch route, so `tasklist/BulkActions.tsx` calls the per-task routes
 one at a time: each status write re-reads the notebook, and parallel re-reads race. A row already
 in the target state sends nothing. A refused row does not stop the others. The bar then shows
 the failed count and the first reason, and keeps only the refused rows ticked. The ticked set is
@@ -313,7 +313,7 @@ arriving on the transcript is still the live signal: nothing about the ledger mo
 no change notice fires, and the count of bars is what refetches the route.
 
 A task node's card lists every task its task follows and every task that follows it, direct and
-indirect, nearest first (`selectors/follows.ts`). Each row has an Add to desk or Remove from desk
+indirect, nearest first (`selectors/follows.ts`). Each row has an On desk or Off desk
 button. The canvas draws a follows edge only when both ends are on the desk, so without this list
 the user must find each related task in the task list. The list reads `world.tasks`, which
 holds every task, so it needs no route of its own.
@@ -324,8 +324,12 @@ chains:
 
 | Node state | Click | Menu |
 |---|---|---|
-| Live agent | Terminate | Terminate · Terminate & dismiss · Terminate, dismiss & close `<nato>` |
-| No live agent | Dismiss | Dismiss · Dismiss & close `<nato>` |
+| Live agent | Terminate | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` |
+| No live agent | Off desk | Off desk · Take off desk & close `<nato>` |
+
+Every desk act draws a tray icon before its label, with an arrow down into the tray for On desk
+and up out of it for Off desk (`shell/OnDeskIcon.tsx`, `shell/OffDeskIcon.tsx`). In the menu,
+each item that takes the node off the desk draws the Off desk icon; plain Terminate draws none.
 
 The close item is left out when the worktree is `_main`, is closed, or does not exist. With one
 item left, the control is a plain button. The close item is disabled while another top-level agent
@@ -335,12 +339,12 @@ it stops with its parent.
 A chain with a close sends the close first and no stop, because the server's close stops every
 agent in the worktree. The close is also the step that can refuse, on a dirty tree or unmerged
 commits. Sent first, a refusal leaves the node on the desk, and the control shows the reason in
-its title. A live node can draw with no desk entry, so a chain skips the dismiss when there is
-none to take. "Terminate & dismiss" sends the stop first: `agent.stop` records the exit before it replies, so
-the dismiss can follow at once.
+its title. A live node can draw with no desk entry, so a chain skips Off desk when there
+is none to take. "Terminate & take off desk" sends the stop first: `agent.stop` records the exit
+before it replies, so the node can go off the desk at once.
 
-The session head in the panel draws the same control, from `session/AgentControls.tsx`. There a
-dismiss also closes the session tab. The agent's document tabs stay open.
+The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
+desk also closes the session tab. The agent's document tabs stay open.
 
 A node shows the bare notebook id, because its lane already names the project. A panel tab
 shows the bare id too, because the panel sidebar beside the strip names the project.
@@ -379,7 +383,7 @@ A Stop button at the right of that group sends `agent.interrupt` — see `CONTEX
 agent's button is disabled, and its title sends the user to the ask, because an interrupt would
 deny that ask and the route's reply would not say so. An exited agent's title says it has gone.
 The node card's Terminate is the other act: it sends `agent.stop`.
-Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
+Once the agent has exited, the node card offers Resume beside its Off desk. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
 one.
 
