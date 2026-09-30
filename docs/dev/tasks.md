@@ -111,7 +111,7 @@ the cwd. So a task whose session has run before relaunches with
 `claude --resume <id>` instead, which reattaches the existing conversation.
 
 Because the id derives from the **project name**, renaming a project changes every
-id. This orphans the existing sessions by design: `mael mv-project` warns about it
+id. This orphans the existing sessions by design: `mael project mv` warns about it
 rather than migrating transcripts, and `mael task run` then starts a fresh session
 instead of resuming.
 

@@ -190,7 +190,7 @@ mael add feature/x --no-recycle
 
 ### "Project not found"
 
-Every command except `add-project --projects-dir` reads `projects_dir` from
+Every command except `project add --projects-dir` reads `projects_dir` from
 `~/.maelstrom/config.yaml`:
 
 ```yaml
@@ -201,7 +201,7 @@ Set it before adding projects. Otherwise maelstrom looks in `~/Projects`.
 
 ### Renaming a project
 
-Use `mael mv-project OLD NEW`. Do not rename the directory with `mv`.
+Use `mael project mv OLD NEW`. Do not rename the directory with `mv`.
 
 A project name is load-bearing. The name is not stored as a field — it *is* the directory
 name. The worktree folders, task and env directories, port allocations and Claude Code state
@@ -216,7 +216,7 @@ all follow from it. A plain `mv` breaks two of these silently:
   cannot find, so it garbage-collects every port base for the project. Each
   worktree then gets new ports on its next start.
 
-`mael mv-project` repairs the git pointers and moves the allocations across. Run
+`mael project mv` repairs the git pointers and moves the allocations across. Run
 it with `--dry-run` first to see the full plan, and `mael doctor NEW` afterwards.
 
 It does not migrate Claude sessions. Session ids derive from the project name, so
