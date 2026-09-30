@@ -124,28 +124,7 @@
   color: var(--danger);
 }
 .diff {
-  font-family: var(--mono);
-  font-size: var(--text-sm);
   border-top: 1px solid var(--border);
-  overflow-x: auto;
-}
-.diffRow {
-  display: flex;
-  gap: 6px;
-  padding: 0 8px;
-  white-space: pre;
-}
-.diffRow[data-kind='add'] {
-  background: color-mix(in srgb, var(--ok) 15%, transparent);
-  color: var(--ok);
-}
-.diffRow[data-kind='remove'] {
-  background: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
-}
-.sign {
-  width: 1ch;
-  color: var(--fg-faint);
 }
 .prompt {
   padding: 8px 10px;
