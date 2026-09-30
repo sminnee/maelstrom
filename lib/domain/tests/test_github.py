@@ -916,47 +916,20 @@ class TestCreatePrRegistersTheStack:
 
 
 class TestGetWorktreeCodeUsesTheBase:
-    """A review must see this branch's own work, not the whole stack."""
+    """A review must see this branch's own work, not the whole stack.
 
-    def _run(self, tmp_path, bases, branch="feat/child"):
-        store = InMemoryBaseStore()
-        for child, parent in bases.items():
-            store.write(child, BaseRef(branch=parent))
-        calls: list[list[str]] = []
+    Which refs name the base is ``base_refs_for_diff``'s rule, tested on real
+    repos in ``test_worktree_changes.py``. This pins what the review does with
+    them: the first ref that resolves is the one it diffs against.
+    """
 
-        def fake_run_git(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=0,
-                stdout="deadbeef",
-                stderr="",
-            )
-
-        with (
-            patch("mael_domain.github.GitConfigBaseStore", return_value=store),
-            patch("mael_domain.github.get_current_branch", return_value=branch),
-            patch("mael_domain.github.run_git", side_effect=fake_run_git),
-        ):
-            get_worktree_code(tmp_path)
-        return calls
-
-    def test_a_stacked_branch_diffs_against_its_base(self, tmp_path):
-        """Diffing against main would show the parent's commits as this PR's work."""
-        calls = self._run(tmp_path, {"feat/child": "feat/parent"})
-
-        merge_bases = [c for c in calls if c[0] == "merge-base"]
-        assert merge_bases == [["merge-base", "HEAD", "origin/feat/parent"]]
-
-    def test_a_base_whose_ref_is_gone_falls_back_to_main(self, tmp_path):
+    def test_a_base_whose_ref_is_gone_falls_back_to_the_next(self, tmp_path):
         """A merged-and-pruned base must not leave the reviewer with no diff at all.
 
         ``merge-base`` against a ref that does not resolve raises, the caller
         swallows it, and ``commits_output`` comes back empty — so a reviewing agent
         silently receives no code rather than the branch's work.
         """
-        store = InMemoryBaseStore()
-        store.write("feat/child", BaseRef(branch="feat/gone"))
         calls: list[list[str]] = []
 
         def fake_run_git(cmd, *args, **kwargs):
@@ -971,20 +944,19 @@ class TestGetWorktreeCodeUsesTheBase:
             )
 
         with (
-            patch("mael_domain.github.GitConfigBaseStore", return_value=store),
-            patch("mael_domain.github.get_current_branch", return_value="feat/child"),
+            patch(
+                "mael_domain.github.base_refs_for_diff",
+                return_value=["origin/feat/gone", "origin/main"],
+            ),
             patch("mael_domain.github.run_git", side_effect=fake_run_git),
         ):
             get_worktree_code(tmp_path)
 
         merge_bases = [c for c in calls if c[0] == "merge-base"]
-        assert ["merge-base", "HEAD", "origin/main"] in merge_bases
-
-    def test_an_unstacked_branch_still_diffs_against_main(self, tmp_path):
-        calls = self._run(tmp_path, {}, branch="feat/solo")
-
-        merge_bases = [c for c in calls if c[0] == "merge-base"]
-        assert merge_bases == [["merge-base", "HEAD", "origin/main"]]
+        assert merge_bases == [
+            ["merge-base", "HEAD", "origin/feat/gone"],
+            ["merge-base", "HEAD", "origin/main"],
+        ]
 
 
 class TestReadersDegradeOnUnparseableOutput:
