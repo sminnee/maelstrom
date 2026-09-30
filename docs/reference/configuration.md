@@ -11,8 +11,8 @@ Maelstrom finds `.maelstrom.yaml` by searching upward from the current directory
 
 `MAEL_HARNESS_TYPE` is a process environment variable, not a YAML key. Set it to `cli` or
 `daemon` to select the default harness transport. Other values select `cli`. Daemon agents set
-it to `daemon` for nested launches. `mael task add-scheduled` ignores it and defaults to
-`daemon`.
+it to `daemon` for nested launches. With `daemon`, maelstrom opens no cmux browser and places no
+pane unless `--cli` asks for one. `mael task add-scheduled` ignores it and defaults to `daemon`.
 
 ---
 

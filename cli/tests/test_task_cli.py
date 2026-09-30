@@ -1354,6 +1354,69 @@ class TestNextRun:
         launch.session.assert_not_called()
 
 
+class TestLaunchFromADrivenAgent:
+    """A driven agent's launches start daemon agents and place no cmux pane.
+
+    A person's launches in a plain terminal keep the CLI in a cmux pane, and so
+    does a driven agent's explicit ``--cli``.
+    """
+
+    @staticmethod
+    async def _invoke(runner, store, tmp_path, command, flags):
+        if command == "run":
+            t = await model.create(store, project="p", title="Go")
+            return runner.invoke(task_cli.task, ["run", t.id, *flags])
+        if command == "next":
+            await model.create(store, project="p", title="Go")
+            return runner.invoke(task_cli.task, ["next", "--run", *flags])
+        if command == "add":
+            return runner.invoke(task_cli.task, ["add", "Go", "--run"])
+        f = tmp_path / "plan.md"
+        f.write_text("---CREATE TASK go---\ntitle: Go\n---\nbody\n")
+        return runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+
+    @pytest.mark.parametrize("command", ["run", "next", "add", "load-many"])
+    @pytest.mark.parametrize(
+        ("driven", "harness", "attach"),
+        [
+            pytest.param(True, TRANSPORT_DAEMON, False, id="driven-agent"),
+            pytest.param(False, TRANSPORT_CLI, True, id="plain-terminal"),
+        ],
+    )
+    async def test_launch_transport_and_pane(
+        self,
+        runner,
+        store,
+        launch,
+        monkeypatch,
+        tmp_path,
+        command,
+        driven,
+        harness,
+        attach,
+    ):
+        if driven:
+            monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
+        result = await self._invoke(runner, store, tmp_path, command, [])
+        assert result.exit_code == 0, result.output
+        kwargs = launch.session.call_args.kwargs
+        assert (kwargs["harness"], kwargs["attach"]) == (harness, attach)
+        if command == "load-many":
+            # The one batch command that starts cmux itself, before its launches.
+            assert launch.ensure_cmux.call_count == (0 if driven else 1)
+
+    @pytest.mark.parametrize("command", ["run", "next"])
+    async def test_a_driven_agents_cli_flag_still_asks_for_the_cli(
+        self, runner, store, launch, monkeypatch, tmp_path, command
+    ):
+        # --cli is an explicit request. The CLI launcher places its pane whatever
+        # `attach` says, so only the harness carries the choice.
+        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
+        result = await self._invoke(runner, store, tmp_path, command, ["--cli"])
+        assert result.exit_code == 0, result.output
+        assert launch.session.call_args.kwargs["harness"] == TRANSPORT_CLI
+
+
 class TestRunHere:
     async def test_run_here_skips_worktree_and_execs_in_cwd(
         self, runner, store, launch
