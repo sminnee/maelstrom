@@ -635,14 +635,16 @@ after the first agent read.
 
 Four commands write new work.
 
-- **`task.infer`** names a task from its prose, through `infer_task_names` in `branch_name.py`.
-  It shells out to `claude -p` and falls back to a deterministic name. The call blocks for up to
-  40 seconds — two 20-second attempts — so it runs on the executor and the UI shows a wait.
+- **`task.infer`** names a task from its prose, through `infer_task_names` in
+  `task_metadata_generator.py`. It makes one HTTP call to OpenAI's `gpt-6-luna` and falls back to
+  a deterministic name. With no `OPENAI_API_KEY` it makes no call and returns the slug. The call
+  blocks for up to 30 seconds — two 15-second attempts — so it runs on the executor and the UI
+  shows a wait.
   `mode` comes from the inferred command through `task.mode_for_command`. Inference writes
   nothing.
 - **`task.create`** writes the task the user edited. It is a separate call so the UI can show the
   inferred fields first. An explicit branch makes `model.create` skip generation, so no second
-  `claude -p` call runs behind the user's edit. With `launch` set it runs the launch path
+  model call runs behind the user's edit. With `launch` set it runs the launch path
   unchanged, as `mael task add --run` does. A launch that fails leaves the task written and on
   the desk, so the refusal names it — without that the client cannot tell the case from "nothing
   was written", and a retry writes the task twice.
@@ -650,7 +652,7 @@ Four commands write new work.
   `linear_source.plan_fields` fetches the issue and returns the task fields the CLI would write,
   through `integrations.linear.build_plan_task` — the CLI command calls the same function, so the
   two cannot drift. The branch comes from `task.infer` over the same brief, not from
-  `build_plan_task`'s own generation, so the server spends one `claude -p` call instead of two.
+  `build_plan_task`'s own generation, so the server spends one model call instead of two.
   The fields then go through `task.create`, which files the task and launches it. `parent` and
   `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so they reach the
   notebook through `create`'s `extra` argument — the server's own to set, never a client's.

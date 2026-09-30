@@ -1,36 +1,29 @@
-"""Generate descriptive git branch names from a task's title/content.
+"""Name a task's title, branch and command from its prose.
 
 A branch name has the shape ``<type>/<desc>`` where ``<type>`` is one of
 ``fix``/``feat``/``chore``/``refactor`` and ``<desc>`` is a 2–4 word kebab-case summary of the work.
 
-The descriptive slug + type are picked by shelling out to the local ``claude``
-CLI in print mode (``claude -p``) — no new dependency, no API key, reusing the
-binary the project already invokes elsewhere. Any failure (CLI missing, timeout,
-non-zero exit, or output that doesn't match the strict format) falls back to a
-deterministic offline slug, so a bad or slow model call never breaks task
-creation.
-
-This module is imported by the model layer (``task.py``), so its ``claude -p``
-subprocess call is a **sanctioned exception** to the "no subprocess in model
-code" convention (``docs/dev/architecture-patterns.md`` §2), alongside
-``edit_in_editor``. It is kept obvious and contained: every code path is fully
-resilient via the deterministic offline fallback, and the subprocess is reached
-through an injectable ``runner`` so the model stays exercisable against an
-``InMemoryStore`` with no CLI. This is not licence for general I/O in the model.
+A :class:`TaskMetadataGenerator` picks the words. :class:`LunaGenerator` asks
+OpenAI's ``gpt-6-luna`` when ``OPENAI_API_KEY`` resolves; otherwise
+:class:`SlugGenerator` stands in and every name is the deterministic slug. A
+failed call (HTTP error, timeout, or output that doesn't match the strict
+format) falls back to that slug too, so a bad or slow model call never breaks
+task creation.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
-import subprocess
-import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
-# Minimal system prompt forced onto the headless call so an inherited project
-# ``CLAUDE.md`` / SessionStart hook can't frame the model as mid-workflow and
-# nudge it to editorialize instead of emitting a slug.
+from .integrations.openai import chat_complete, get_openai_api_key
+
+log = logging.getLogger(__name__)
+
+# Keeps the model to one slug line, so it names the work instead of editorializing.
 _SYSTEM_PROMPT = (
     "You are a branch-name generator. Your only job is to emit a single "
     "git branch-name line in the requested format. Do not explain, do not "
@@ -40,9 +33,9 @@ _SYSTEM_PROMPT = (
 # Output the model is allowed to produce: ``<type>/<2-4-word-kebab-desc>``.
 _OUTPUT_RE = re.compile(r"^(fix|feat|chore|refactor)/[a-z0-9]+(-[a-z0-9]+){0,3}$")
 
-# How long to wait on a `claude -p` call before giving up (seconds). Bounds the
-# worst case so a hung CLI never blocks `task add`.
-_CLAUDE_TIMEOUT = 20
+# How long to wait on one model call before giving up (seconds). Bounds the
+# worst case so a hung request never blocks `task add`.
+_OPENAI_TIMEOUT = 15
 
 # Common English stopwords dropped from the deterministic slug so the kept words
 # carry the actual meaning of the work.
@@ -94,38 +87,46 @@ def slugify(text: str, *, max_words: int = 4) -> str:
     return "-".join(kept[:max_words])
 
 
-def _run_claude(prompt: str, system: str = _SYSTEM_PROMPT) -> str:
-    """Invoke ``claude -p <prompt>`` and return its stdout (stripped).
+class TaskMetadataGenerator(Protocol):
+    """A model that answers one naming prompt with raw text."""
 
-    Raises on any failure (missing binary, non-zero exit, timeout) — the caller
-    treats every exception as "use the deterministic fallback".
+    def complete(self, prompt: str, system: str) -> str:
+        """Return the model's reply. Raises on any failure."""
+        ...
 
-    Isolated from the cwd so a one-line naming prompt is reproducible wherever
-    it runs: a minimal ``--system-prompt`` overrides inherited workflow framing,
-    ``--strict-mcp-config`` skips project MCP servers, and running in a neutral
-    tempdir means no project ``CLAUDE.md`` / SessionStart hook is discovered.
-    """
-    with tempfile.TemporaryDirectory() as neutral_cwd:
-        result = subprocess.run(
-            [
-                "claude",
-                "-p",
-                "--strict-mcp-config",
-                "--system-prompt",
-                system,
-                prompt,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=_CLAUDE_TIMEOUT,
-            check=True,
-            cwd=neutral_cwd,
+
+class LunaGenerator(TaskMetadataGenerator):
+    """OpenAI's ``gpt-6-luna``, over one chat-completions call."""
+
+    def __init__(self, api_key: str, *, model: str = "gpt-6-luna") -> None:
+        self._api_key = api_key
+        self._model = model
+
+    def complete(self, prompt: str, system: str) -> str:
+        return chat_complete(
+            self._api_key,
+            model=self._model,
+            system=system,
+            prompt=prompt,
+            timeout=_OPENAI_TIMEOUT,
         )
-    return result.stdout.strip()
+
+
+class SlugGenerator(TaskMetadataGenerator):
+    """No model. Every caller takes the deterministic slug."""
+
+    def complete(self, prompt: str, system: str) -> str:
+        raise RuntimeError("no naming model configured")
+
+
+def default_generator() -> TaskMetadataGenerator:
+    """:class:`LunaGenerator` when ``OPENAI_API_KEY`` resolves, else the slug."""
+    key = get_openai_api_key()
+    return LunaGenerator(key) if key else SlugGenerator()
 
 
 def _build_prompt(title: str, content: str) -> str:
-    """The instruction handed to ``claude -p`` to pick a type + kebab slug."""
+    """The instruction handed to the model to pick a type + kebab slug."""
     snippet = content.strip()[:800]
     body = f"Title: {title}"
     if snippet:
@@ -188,11 +189,11 @@ def generate_branch_name(
     *,
     default_type: str = "feat",
     prefix: str = "",
-    runner: Callable[[str], str] | None = None,
+    generator: TaskMetadataGenerator | None = None,
 ) -> str:
     """Return ``<type>/<desc>`` for a task.
 
-    Calls ``claude -p`` (via ``runner``) to pick the type and a 2–4 word kebab
+    Asks ``generator`` to pick the type and a 2–4 word kebab
     slug. Output is "not good" when it is the literal ``unknown``, empty, an
     exception, fails strict validation, or is a well-formed slug that shares no
     token with the task text (the model editorializing rather than naming the
@@ -204,9 +205,10 @@ def generate_branch_name(
     ``fix/123-flaky-port-test``). The prefix is spliced in here rather than
     produced by the model, so the number is deterministic and never hallucinated.
 
-    ``runner`` defaults to the real ``claude -p`` invocation; tests inject a fake.
+    ``generator`` defaults to :func:`default_generator`; tests inject a fake.
+    A :class:`SlugGenerator` takes the fallback with no attempts.
     """
-    run = runner or _run_claude
+    gen = generator or default_generator()
 
     fallback_desc = slugify(title) or prefix or "task"
     if prefix and fallback_desc == prefix:
@@ -214,7 +216,7 @@ def generate_branch_name(
         fallback_desc = "task"
     fallback = _compose(default_type, prefix, fallback_desc)
 
-    if not title.strip():
+    if not title.strip() or isinstance(gen, SlugGenerator):
         return fallback
 
     prompt = _build_prompt(title, content)
@@ -222,8 +224,9 @@ def generate_branch_name(
     # a fresh draw usually slugs a clear title fine. If both miss, use fallback.
     for _ in range(2):
         try:
-            raw = run(prompt)
-        except Exception:
+            raw = gen.complete(prompt, _SYSTEM_PROMPT)
+        except Exception as e:
+            log.warning("Branch naming call failed: %s", e)
             continue
 
         line = raw.strip().splitlines()[0].strip() if raw.strip() else ""
@@ -254,8 +257,8 @@ KNOWN_COMMANDS = ("plan-task", "plan-next-step")
 #: short enough to read in the task list's one line.
 MAX_TITLE = 80
 
-# The naming call's system prompt, in the same spirit as _SYSTEM_PROMPT: strip
-# the model of any workflow framing so it names the work instead of doing it.
+# The naming call's system prompt: keeps the model to the three lines, so it
+# names the work instead of doing it.
 _INFER_SYSTEM_PROMPT = (
     "You name software tasks. Your only job is to emit the requested three "
     "lines. Do not explain, do not ask questions, do not run tools — output "
@@ -273,7 +276,7 @@ class TaskNames:
 
 
 def _build_infer_prompt(draft: str) -> str:
-    """The instruction handed to ``claude -p`` to name a task from its prose."""
+    """The instruction handed to the model to name a task from its prose."""
     commands = ", ".join(f"`{c}`" for c in KNOWN_COMMANDS)
     return (
         "You name a software task from the description below. Reply with "
@@ -347,7 +350,7 @@ def _first_line(draft: str) -> str:
 
 
 def infer_task_names(
-    draft: str, *, runner: Callable[[str], str] | None = None
+    draft: str, *, generator: TaskMetadataGenerator | None = None
 ) -> TaskNames:
     """Read a title, a branch and a command off a draft's prose.
 
@@ -361,12 +364,14 @@ def infer_task_names(
     :data:`KNOWN_COMMANDS`. Whatever the model does not supply falls back to
     the draft's own first line and ``f"feat/{slugify(title)}"``.
     """
-    run = runner or _run_claude
+    gen = generator or default_generator()
 
     fallback_title = _first_line(draft)
     fallback_branch = f"feat/{slugify(fallback_title) or 'task'}"
     if not draft.strip():
         return TaskNames(title="", branch=fallback_branch, command="")
+    if isinstance(gen, SlugGenerator):
+        return TaskNames(title=fallback_title, branch=fallback_branch, command="")
 
     prompt = _build_infer_prompt(draft)
     title = branch = command = ""
@@ -375,8 +380,9 @@ def infer_task_names(
     # fine.
     for _ in range(2):
         try:
-            raw = run(prompt)
-        except Exception:
+            raw = gen.complete(prompt, _INFER_SYSTEM_PROMPT)
+        except Exception as e:
+            log.warning("Task naming call failed: %s", e)
             continue
         parsed = _parse_infer(raw)
         if parsed is not None:

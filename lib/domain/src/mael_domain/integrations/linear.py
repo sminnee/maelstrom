@@ -700,12 +700,12 @@ def build_plan_task(
     are the planning *defaults*; ``cmd_plan`` lets its own flags override them,
     and the orchestrator takes them as they come.
 
-    ``branch`` names the branch rather than generating one. Generation shells
-    out to ``claude -p``, so a caller that has already inferred a branch — the
+    ``branch`` names the branch rather than generating one. Generation calls
+    the task metadata generator, so a caller that has already inferred a branch — the
     orchestrator does — passes it here and spares the second model call.
     ``warn`` takes the line for each image that could not be localized.
     """
-    from .. import branch_name
+    from .. import task_metadata_generator
 
     issue = get_issue(issue_id)
     identifier = issue["identifier"]
@@ -724,7 +724,7 @@ def build_plan_task(
     resolved_branch = (
         branch
         if branch is not None
-        else branch_name.generate_branch_name(
+        else task_metadata_generator.generate_branch_name(
             title, description, prefix=identifier.split("-")[-1]
         )
     )

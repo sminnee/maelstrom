@@ -96,21 +96,19 @@ def _mark_test_commands_production(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _block_real_claude_branch_gen(monkeypatch):
-    """Prevent branch-name generation from shelling out to a live ``claude``.
+def _block_real_naming_model(monkeypatch):
+    """Keep task naming off the network: every name is the deterministic slug.
 
-    ``branch_name._run_claude`` invokes ``claude -p`` to pick a descriptive
-    branch slug; in tests we force it to fail so generation falls back to the
-    deterministic offline slug. Tests that want to exercise the model path
-    inject a fake ``runner`` into ``generate_branch_name`` (or re-patch
-    ``_run_claude`` themselves) — the later ``monkeypatch.setattr`` wins.
+    Tests that want the model path pass a fake ``generator`` (or re-patch
+    ``default_generator`` themselves) — the later ``monkeypatch.setattr`` wins.
     """
-    from mael_domain import branch_name
+    from mael_domain import task_metadata_generator
 
-    def _unavailable(prompt: str) -> str:
-        raise FileNotFoundError("claude")
-
-    monkeypatch.setattr(branch_name, "_run_claude", _unavailable)
+    monkeypatch.setattr(
+        task_metadata_generator,
+        "default_generator",
+        task_metadata_generator.SlugGenerator,
+    )
 
 
 @pytest.fixture()

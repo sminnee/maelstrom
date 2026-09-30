@@ -114,14 +114,16 @@ worktree steps. The CLI passes a stderr echo. The orchestrator passes a logger.
 > - launching an interactive editor (e.g. `edit_in_editor`,
 >   [`task.py`](../../lib/domain/src/mael_domain/task.py#L942)), which is inherently a side
 >   effect on the user's terminal;
-> - generating a descriptive branch name
->   ([`branch_name.py`](../../lib/domain/src/mael_domain/branch_name.py)), which shells out to
->   `claude -p` for a slug. Contained because every path falls back to a
->   deterministic offline slug and the subprocess is reached through an
->   injectable `runner`, so the model stays exercisable with no CLI.
+> - naming a task
+>   ([`task_metadata_generator.py`](../../lib/domain/src/mael_domain/task_metadata_generator.py)),
+>   which calls OpenAI through
+>   [`integrations/openai.py`](../../lib/domain/src/mael_domain/integrations/openai.py).
+>   Contained because every path falls back to a deterministic offline slug, and the call is
+>   reached through an injectable `generator`.
+>   Tests get a `SlugGenerator`, so the model stays exercisable with no network.
 > - discovering a container's VM IP
 >   ([`services.py`](../../lib/domain/src/mael_domain/services.py) `discover_container_ip`),
->   which polls `container inspect`. Same containment: the subprocess is reached
+>   which polls `container inspect`. Contained because the subprocess is reached
 >   through an injectable `runner`, so command synthesis and IP parsing stay pure
 >   and testable with a fake runner. The `services:` schema lives in
 >   [`config.py`](../../lib/domain/src/mael_domain/config.py); command/container builders and
@@ -130,8 +132,8 @@ worktree steps. The CLI passes a stderr echo. The orchestrator passes a logger.
 >   [`env.py`](../../lib/domain/src/mael_domain/env.py).
 > - resolving a rebase conflict
 >   ([`rebase_repair.py`](../../lib/domain/src/mael_domain/rebase_repair.py)), which runs
->   `claude -p /resolve-rebase-conflicts` in the conflicted worktree. Same
->   containment as `branch_name.py`: the subprocess is reached through an
+>   `claude -p /resolve-rebase-conflicts` in the conflicted worktree. Contained
+>   because the subprocess is reached through an
 >   injectable `repair_runner` on both autorepair entry points
 >   (`sync_worktree_with_autorepair` and `squash_worktree_with_autorepair`), so
 >   the state machine around it — abort on failure, verify the branch, re-sync to

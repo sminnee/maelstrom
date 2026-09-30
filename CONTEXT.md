@@ -172,6 +172,12 @@ open it: `mael task promote` in a session, and approving the task set's document
 orchestrator UI, which calls the same step.
 _Avoid_: Proposal, pending task, plan file
 
+**Task metadata generator**:
+The component that names a task's title, branch and command from its prose. It asks OpenAI's
+`gpt-6-luna` when `OPENAI_API_KEY` resolves. With no key, every name is the deterministic slug
+of the prose's first line.
+_Avoid_: Branch namer, inference model
+
 **Task set**:
 The drafts of one chain, shown as one **Review group**. Its `<doc-file>` tag names every file in
 chain order, and that order is the order approval promotes and chains them in. Each draft is its

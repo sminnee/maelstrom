@@ -27,10 +27,10 @@ from mael_daemon.agent_model import (
     build_agent_row,
 )
 from mael_domain import task as model
-from mael_domain.branch_name import TaskNames
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
 from mael_orchestrator import linear_source, server
 from mael_orchestrator.routes import SOCKETS, build_app, serving
@@ -3611,7 +3611,7 @@ def test_linear_plan_writes_the_planning_task_and_files_it(harness, linear):
     assert stored.parent == "linear.ME-1"
     assert stored.post_action == "linear.planned"
     # The branch is the server's own inference over the brief, numbered by the
-    # issue as `linear plan` numbers it -- not a second `claude -p` call.
+    # issue as `linear plan` numbers it -- not a second model call.
     assert stored.branch == "feat/1-order-export"
     assert stored.content == "# ME-1: Do the thing\n\nSome details."
     assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]

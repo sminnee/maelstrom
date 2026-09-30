@@ -6,9 +6,8 @@ fed to the existing ``Popen(["sh", "-c", cmd])`` path — build-command is kept
 separate from spawn (``[[feedback_separate_build_from_execute]]``).
 
 The one I/O-touching function, :func:`discover_container_ip`, reaches its
-``container inspect`` subprocess through an injectable ``runner`` (mirroring the
-adapter pattern in ``branch_name.py``), so the model stays exercisable with a
-fake runner and no container runtime.
+``container inspect`` subprocess through an injectable ``runner``, so the model
+stays exercisable with a fake runner and no container runtime.
 """
 
 from __future__ import annotations

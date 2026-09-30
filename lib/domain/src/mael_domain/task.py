@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 from mael_common.shell import run_cmd
 from mael_common.util import now_iso
 
-from . import branch_name
+from . import task_metadata_generator
 from .task_store import tasks_root
 
 if TYPE_CHECKING:
@@ -1492,12 +1492,14 @@ def default_branch(
         if m:
             number = m.group(1).split("-")[-1]  # "NORT-123" -> "123"
             if generate and title:
-                return branch_name.generate_branch_name(title, content, prefix=number)
+                return task_metadata_generator.generate_branch_name(
+                    title, content, prefix=number
+                )
             return f"feat/{number}"
         # Child of a non-Linear parent: keep sharing the parent's branch.
         return f"task/{parent}"
     if generate and title:
-        return branch_name.generate_branch_name(title, content)
+        return task_metadata_generator.generate_branch_name(title, content)
     return f"task/{id}"
 
 
