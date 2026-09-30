@@ -8,6 +8,7 @@ from click.testing import CliRunner
 from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_cli.cli import cli
+from mael_cli.project_cli import project_list
 from mael_domain.worktree import ProjectInfo, list_projects
 
 
@@ -71,14 +72,14 @@ class TestListProjects:
 class TestProjectListCommand:
     """The CLI boundary: ``mael project list``."""
 
-    def _invoke(self, projects, args, home=Path("/Users/example")):
+    def _invoke(self, projects, args, home=Path("/Users/example"), command=cli):
         """Run the command with the project scan and $HOME both faked."""
         runner = CliRunner()
         with patch("mael_cli.project_cli.load_global_config") as mock_config:
             mock_config.return_value = MagicMock(projects_dir=home / "Projects")
             with patch("mael_cli.project_cli.list_projects", return_value=projects):
                 with patch("mael_common.util.Path.home", return_value=home):
-                    return runner.invoke(cli, args)
+                    return runner.invoke(command, args)
 
     def test_the_table_lists_every_project_with_home_abbreviated(self):
         home = Path("/Users/example")
@@ -108,6 +109,12 @@ class TestProjectListCommand:
         result = self._invoke([], ["project", "list"])
 
         assert result.exit_code == 0
+        assert result.output.strip() == "No projects found."
+
+    def test_invoked_without_the_root_group_prints_text_not_json(self):
+        result = self._invoke([], [], command=project_list)
+
+        assert result.exception is None
         assert result.output.strip() == "No projects found."
 
     def test_json_lists_every_project(self):

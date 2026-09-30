@@ -19,6 +19,8 @@ from mael_domain.worktree import (
 )
 from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError, describe_commits
 
+from .json_flag import wants_json
+
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
     """Print conflict-resolution guidance after a failed rebase.
@@ -252,18 +254,16 @@ def build_status_dict(
 
 
 @click.group("git")
-@click.pass_context
-def git(ctx):
+def git():
     """Git helper commands."""
     pass
 
 
 @git.command("status")
 @click.argument("target", required=False, default=None)
-@click.pass_context
-def git_status(ctx, target):
+def git_status(target):
     """Show a compact git status summary."""
-    output_json = ctx.obj.get("json", False) if ctx.obj else False
+    output_json = wants_json()
 
     # Resolve working directory
     try:

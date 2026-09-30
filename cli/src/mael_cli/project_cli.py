@@ -9,6 +9,7 @@ from mael_common.util import abbreviate_home
 from mael_domain.context import load_global_config
 from mael_domain.worktree import list_projects
 
+from .json_flag import wants_json
 from .mv_project_cli import cmd_mv_project
 from .table_cli import draw_table
 
@@ -21,7 +22,7 @@ def project() -> None:
 @project.command("list")
 def project_list() -> None:
     """List maelstrom-aware projects under the configured projects directory."""
-    output_json = click.get_current_context().obj.get("json", False)
+    output_json = wants_json()
     global_config = load_global_config()
 
     projects = list_projects(global_config.projects_dir)
