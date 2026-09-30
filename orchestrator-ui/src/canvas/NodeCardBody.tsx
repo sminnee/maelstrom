@@ -80,7 +80,7 @@ export function NodeCardBody({
   const { task, agent, worktree } = node;
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
-  const brief = detail.data?.content.trim() ?? '';
+  const brief = detail.data?.displayContent.trim() ?? '';
 
   const {
     expanded: expandedContent,

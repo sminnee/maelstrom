@@ -430,7 +430,13 @@ function read(path: string, server: FakeServer): Reply {
   let m = pathname.match(/^\/api\/tasks\/(.+)$/);
   if (m) {
     const task = world.tasks[m[1]!];
-    return task ? ok(task) : notFound(`task ${m[1]}`);
+    if (!task) return notFound(`task ${m[1]}`);
+    // The server's `attachment_urls`, for the token form the UI writes.
+    const displayContent = task.content.replaceAll(
+      ']({{MAEL_TASK_DIR}}/images/',
+      `](/api/attachments/${task.project}/`,
+    );
+    return ok({ ...task, displayContent });
   }
   if (pathname === '/api/linear/issues') {
     const project = params.get('project') ?? '';

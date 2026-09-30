@@ -19,7 +19,7 @@ from typing import Any
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
-from mael_domain.protocol import HOST_ID, document_row, task_row
+from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import UnknownRev, list_changes, read_diff
 
 from .hubs import Lagging
@@ -274,7 +274,15 @@ async def _task(request: web.Request) -> web.Response:
     task = orch.world["tasks"].get(task_id)
     if task is None:
         return error_response("unknown_id", f"No task {task_id}")
-    return web.json_response(task)
+    from mael_domain.attachments import attachment_urls
+
+    # `content` holds refs the agent reads and an edit saves back;
+    # `displayContent` is the same text with refs the browser can fetch.
+    detail: TaskDetail = {
+        **task,
+        "displayContent": attachment_urls(task["content"], task["project"]),
+    }
+    return web.json_response(detail)
 
 
 async def _agents(request: web.Request) -> web.Response:
