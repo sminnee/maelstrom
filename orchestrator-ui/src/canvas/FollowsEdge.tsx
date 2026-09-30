@@ -62,6 +62,8 @@ export function FollowsEdge({
         path={path}
         markerEnd={markerEnd}
         style={style}
+        className={styles.wire}
+        data-hovered={hovered || undefined}
         // The hit area below carries the pointer; a second one would select without hovering.
         interactionWidth={0}
       />

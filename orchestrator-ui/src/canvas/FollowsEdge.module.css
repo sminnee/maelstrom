@@ -50,3 +50,19 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+
+/*
+ * Overlapping wires share a track, so the hovered one stands out along its
+ * whole route. It sets React Flow's own stroke variables, which also reach a
+ * selected wire, so no selector has to outrank another.
+ */
+.wire {
+  transition:
+    stroke var(--duration-fast),
+    stroke-width var(--duration-fast);
+}
+.wire[data-hovered] {
+  --xy-edge-stroke: var(--fg-muted);
+  --xy-edge-stroke-selected: var(--fg-muted);
+  --xy-edge-stroke-width: 4;
+}
