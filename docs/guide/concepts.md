@@ -149,8 +149,9 @@ permissions, document feedback. Desk shows the work on your desk plus everything
 is where you add a task to the desk, and either view takes it off. Project and branch filters apply
 to both views. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
-The top bar's "New" control starts new work without leaving the page: a task, whose title, branch
-and command are inferred from the prose you type, or a free agent in a branch's worktree.
+The top bar's "New" control starts new work without leaving the page: a task, or a free agent in
+a branch's worktree. Save and Start name an empty title or branch from the prose you type. They
+use OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line otherwise.
 `uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
 from the task notebook, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and

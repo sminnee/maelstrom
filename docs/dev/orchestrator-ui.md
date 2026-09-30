@@ -14,7 +14,7 @@ unit that needs orders shows it on the canvas itself.
 
 | Layer | Directory | Holds | Imports |
 |---|---|---|---|
-| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts`, `branchFromDraft.ts` | Nothing |
+| Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
@@ -678,13 +678,13 @@ moves. The form is one step: everything the work needs is on one surface.
 - **"Suggest"**, beside Branch, calls `useInferTask`. On a task it fills the title and branch from
   the reply; on a free agent, the branch only. It never changes the planning level or the mode:
   the user picks those, so the UI does not read the reply's command and mode. It is a button
-  rather than a gate: inference shells out to a model and takes tens of seconds, and a task
-  rarely needs a better name than its own prose gives it. It is an `AppButton`, so those tens of
-  seconds show on the control that started them — see "Commands are mutations". A save that never presses it still writes a title and a branch — see "Naming a task
-  from its prose" below.
+  rather than a gate: a submit names empty fields itself, so Suggest is for seeing the names
+  first. It is an `AppButton`, so its wait shows on the control that started it — see "Commands
+  are mutations". See "Naming a task from its prose" below.
 - **A free agent** names a branch, a mode, a model and an execute model instead. The branch
   combobox offers the branches of open worktrees in the chosen project and keeps anything else
-  typed, so a branch with no worktree gets one provisioned. Mode and model start on `plan` — a
+  typed, so a branch with no worktree gets one provisioned. The branch may stay empty: Start then
+  names it from the prose. Mode and model start on `plan` — a
   new task's own default — and `opus`, the UI's shortlist default. Model and Execute Model sit
   side by side, the same as a task's Advanced row — defaulting the same way too, though a free
   agent has no plan to default "same as" from. "Start" runs `useStartAgent`.
@@ -734,13 +734,17 @@ pair no level stands for reads as N/A — see `newwork/PlanningLevelField.tsx`.
 
 ### Naming a task from its prose
 
-A task needs a title and a branch, and the prose field is the only one the user must fill in. So a
-save that never pressed Suggest takes both from the prose: `protocol/branchFromDraft.ts` uses the
-draft's first non-empty line as the title, and slugs it into a `feat/<desc>` branch.
+A task needs a title and a branch, and the prose field is the only one the user must fill in. So
+Save and Start first call `useInferTask` when the title or the branch is empty. A free agent's
+Start does the same when its branch is empty. Each empty field takes the reply's value; a typed
+value always wins.
 
-It mirrors the deterministic half of `lib/domain/src/mael_domain/branch_name.py`, never the model's half, and
-carries why. One limit is worth knowing: `slugify` keeps `[a-z0-9]` only, so prose in a non-Latin
-script slugs to nothing and every such task falls back to `feat/task`. Python has the same limit.
+The submit's inference is its own mutation, apart from Suggest's. So its wait shows as the footer
+spinner, and Suggest never shows a wait it did not start.
+
+The server's **Task metadata generator** does the naming — see `task.infer` in
+[the orchestrator server](orchestrator-server.md). With no key the branch is a slug of the first
+line, and prose in a non-Latin script slugs to nothing, so it falls back to `feat/task`.
 
 `ui/Dialog.tsx` and `tasklist/TaskFields.tsx` are shared with the task editor, so the two
 surfaces cannot drift on what a task's fields are. New work composes the parts rather than

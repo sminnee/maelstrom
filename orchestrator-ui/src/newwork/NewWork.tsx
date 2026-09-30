@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { AttachField } from '../ui/AttachField';
 import { useStartAgent } from '../api/agents';
@@ -28,7 +28,6 @@ import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { LinearFields } from './LinearFields';
 import { PlanningLevelField } from '../tasklist/PlanningLevelField';
 import { ProjectField } from './ProjectField';
-import { branchFromDraft, titleFromDraft } from '../protocol/branchFromDraft';
 import { Spinner } from '../ui/Spinner';
 import { retainedKey } from '../ui/retained';
 import { useRetained } from '../ui/useRetained';
@@ -129,6 +128,9 @@ export function NewWork() {
   const projects = useProjects();
   const worktrees = useWorktrees();
   const infer = useInferTask();
+  // The same call, made by a submit to name what the user left empty. Its own
+  // mutation, so its wait shows in the footer and never on Suggest.
+  const naming = useInferTask();
   const create = useCreateTask();
   const start = useStartAgent();
   const plan = useCreateLinearTask();
@@ -154,6 +156,12 @@ export function NewWork() {
   // `useRetained` reads storage in its own initialiser, so a held bucket is
   // already here to be reused rather than replaced.
   const [bucket] = useState(() => captured.bucket || mintBucket());
+  // The fields as they are now, for a submit that reads them again after it
+  // waits on naming: the user can type while that runs, and typed values win.
+  const latest = useRef(captured);
+  useEffect(() => {
+    latest.current = captured;
+  });
   const patch = (fields: Partial<Captured>) => setCaptured((was) => ({ ...was, ...fields }));
   // A held project the world no longer has is dropped rather than carried: the
   // fallback below picks the *first* project, so a stale name would silently
@@ -218,19 +226,22 @@ export function NewWork() {
     [worktrees.data, chosen],
   );
 
-  // The submits, not inference: Suggest is an `AppButton` and shows its own wait.
-  const busy = create.isPending || start.isPending || plan.isPending;
+  // The submits and the naming they wait on, not Suggest: Suggest is an
+  // `AppButton` and shows its own wait.
+  const busy = create.isPending || start.isPending || plan.isPending || naming.isPending;
   // The error of the kind that is showing. React Query holds a mutation's
   // error until that same mutation runs again, so a fixed precedence would
   // let a refused start outlive the surface that raised it. A task's own
   // surface can refuse twice — Suggest and the create — so the newer wins.
-  // The error of the kind that is showing. Inference is not here: the Suggest
-  // button catches its own rejection and says so on itself, so feeding it to
-  // this alert too would announce one refusal in two live regions -- and
-  // React Query holds an error until its own mutation runs again, so a spent
-  // create error would outrank the live inference one anyway.
+  // The error of the kind that is showing. Suggest's inference is not here: the
+  // Suggest button says so on itself. A submit's naming is: it runs before the
+  // submit, so its refusal is the newer, and `nameEmpty` clears it when skipped.
   const failure =
-    showing === 'agent' ? start.error : showing === 'linear' ? plan.error : create.error;
+    showing === 'agent'
+      ? (naming.error ?? start.error)
+      : showing === 'linear'
+        ? plan.error
+        : (naming.error ?? create.error);
   // A create whose launch failed still wrote the task, and the refusal names
   // it. Remembering that is what stops a retry writing a second copy.
   const [written, setWritten] = useState<string | null>(null);
@@ -239,14 +250,14 @@ export function NewWork() {
    * Name the work from its prose: a task's title and branch, or a free agent's
    * branch. The planning level and mode stay the user's pick.
    *
-   * A button rather than a gate. Inference shells out to a model and takes tens
-   * of seconds, so the form must reach Save without it — and the fields it fills
-   * stay editable after it, as every other field is.
+   * A button rather than a gate: a submit names what is still empty itself —
+   * see `nameEmpty` — so Suggest is for seeing the names first. The fields it
+   * fills stay editable after it, as every other field is.
    */
   const suggest = async () => {
     const inferred = await infer.mutateAsync({ project: chosen, draft });
-    // The kind as it is when the reply lands: inference takes tens of seconds,
-    // and the user can switch kind while it runs.
+    // The kind as it is when the reply lands: the user can switch kind while
+    // inference runs.
     setCaptured((was) => ({
       ...was,
       branch: inferred.branch,
@@ -254,10 +265,23 @@ export function NewWork() {
     }));
   };
 
+  /**
+   * The generator's names for the draft, or none when every field it would
+   * fill is already typed. Typed values win: the caller keeps them.
+   */
+  const nameEmpty = async (fields: string[]) => {
+    if (fields.every((f) => f.trim())) {
+      naming.reset();
+      return undefined;
+    }
+    return naming.mutateAsync({ project: chosen, draft });
+  };
+
   const startFreeAgent = async () => {
+    const inferred = await nameEmpty([branch]);
     await start.mutateAsync({
       project: chosen,
-      branch,
+      branch: latest.current.branch.trim() || (inferred?.branch ?? ''),
       prompt: draft,
       mode,
       model,
@@ -291,13 +315,13 @@ export function NewWork() {
 
   const writeTask = async (launch: boolean) => {
     if (written) return;
+    // Named before the create, so a refused naming writes nothing.
+    const inferred = await nameEmpty([task.title, task.branch]);
     try {
       await create.mutateAsync({
         project: chosen,
-        title: task.title.trim() || titleFromDraft(draft),
-        // Both come from the prose when Suggest was never pressed, by the same
-        // deterministic rule the notebook falls back to -- see `branchFromDraft`.
-        branch: task.branch.trim() || branchFromDraft(draft),
+        title: latest.current.title.trim() || (inferred?.title ?? ''),
+        branch: latest.current.branch.trim() || (inferred?.branch ?? ''),
         content: task.content,
         command: task.command,
         mode: task.mode,
@@ -393,7 +417,7 @@ export function NewWork() {
         {showing === 'agent' ? (
           <AppButton
             variant="primary"
-            disabled={busy || !chosen || !draft.trim() || !branch.trim()}
+            disabled={busy || !chosen || !draft.trim()}
             onClick={() => startFreeAgent()}
           >
             Start
