@@ -203,6 +203,7 @@ uptimerobot:
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
+| `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
 
 ```yaml
@@ -217,6 +218,9 @@ sentry:
 
 uptimerobot:
   api_key: "u796748-xxx"
+
+openai:
+  api_key: "sk-xxx"
 
 slack:
   webhooks:

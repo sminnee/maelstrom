@@ -160,6 +160,7 @@ that lack the key.
 | `LINEAR_API_KEY` | `linear.api_key` | `mael linear …` |
 | `SENTRY_API_KEY` | `sentry.api_key` | `mael sentry …` |
 | `UPTIMEROBOT_API_KEY` | `uptimerobot.api_key` | `mael uptimerobot …` |
+| `OPENAI_API_KEY` | `openai.api_key` | Task naming (`task.infer`, and branch generation in `mael task add` and `mael linear plan`) |
 
 ### Other
 

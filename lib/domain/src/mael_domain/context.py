@@ -26,6 +26,7 @@ class GlobalConfig:
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
+    openai_api_key: str | None = None
     slack_webhooks: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -53,6 +54,11 @@ class GlobalConfig:
         uptimerobot_api_key = (
             ur_config.get("api_key") if isinstance(ur_config, dict) else None
         )
+        # Support nested openai config: openai.api_key
+        openai_config = data.get("openai", {})
+        openai_api_key = (
+            openai_config.get("api_key") if isinstance(openai_config, dict) else None
+        )
         # Support nested slack config: slack.webhooks (named map of channel -> URL)
         slack_config = data.get("slack", {})
         slack_webhooks: dict[str, str] = {}
@@ -67,6 +73,7 @@ class GlobalConfig:
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,
+            openai_api_key=openai_api_key,
             slack_webhooks=slack_webhooks,
         )
 
