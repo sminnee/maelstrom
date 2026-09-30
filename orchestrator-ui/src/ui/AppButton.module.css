@@ -8,6 +8,10 @@
   align-items: center;
   gap: var(--space-1);
 }
+/* A label that wraps in a narrow column must not squeeze its icon. */
+.button > svg {
+  flex: none;
+}
 .primary {
   border-color: var(--accent);
   color: var(--accent);

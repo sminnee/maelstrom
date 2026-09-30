@@ -7,6 +7,7 @@ import type { Agent, Worktree } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { isLive } from '../selectors/graph';
 import { canClose } from '../selectors/worktrees';
+import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { AppButton } from '../ui/AppButton';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 
@@ -14,11 +15,11 @@ import { SplitButton, type SplitOption } from '../ui/SplitButton';
  * Resume, while the agent is not live, and the end-of-work control. The
  * expanded card and the session head both draw these.
  *
- * `taskId` names the desk entry a dismiss takes: a task node's own, else the
+ * `taskId` names the desk entry Off desk takes: a task node's own, else the
  * agent's task, else — for a free agent — the agent itself. A task with no
- * agent still dismisses, so `agent` is optional.
+ * agent still goes off the desk, so `agent` is optional.
  *
- * `onTakenOffDesk` runs once a dismiss has taken the entry off the desk: the
+ * `onTakenOffDesk` runs once Off desk has taken the entry off the desk: the
  * card collapses, and the panel closes the session tab.
  */
 export function AgentControls({
@@ -71,7 +72,7 @@ export function AgentControls({
 
 /**
  * The end-of-work control's options, the usual one first: Terminate while the
- * agent is live, Dismiss once it is not. A close runs first in its chain and
+ * agent is live, Off desk once it is not. A close runs first in its chain and
  * sends no stop — see `docs/dev/orchestrator-ui.md`.
  */
 function endOfWorkOptions({
@@ -94,7 +95,8 @@ function endOfWorkOptions({
     ? [
         { label: 'Terminate', processing: 'Terminating…', run: stop },
         {
-          label: 'Terminate & dismiss',
+          label: 'Terminate & take off desk',
+          icon: <OffDeskIcon />,
           processing: 'Terminating…',
           run: async () => {
             await stop();
@@ -102,10 +104,11 @@ function endOfWorkOptions({
           },
         },
       ]
-    : [{ label: 'Dismiss', run: takeOffDesk }];
+    : [{ label: 'Off desk', icon: <OffDeskIcon />, run: takeOffDesk }];
   if (where && canClose(where)) {
     options.push({
-      label: `${live ? 'Terminate, dismiss' : 'Dismiss'} & close ${where.nato}`,
+      label: `${live ? 'Terminate, take off desk' : 'Take off desk'} & close ${where.nato}`,
+      icon: <OffDeskIcon />,
       processing: 'Closing…',
       disabled: others > 0,
       detail:

@@ -5,6 +5,8 @@ import { deskIdForTask } from '../protocol/deskId';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import type { ListRow } from '../selectors/taskList';
+import { OffDeskIcon } from '../shell/OffDeskIcon';
+import { OnDeskIcon } from '../shell/OnDeskIcon';
 import { AppButton } from '../ui/AppButton';
 import { messageOf } from '../ui/useClickLifecycle';
 import styles from './BulkActions.module.css';
@@ -83,7 +85,7 @@ export function BulkActions({
           )
         }
       >
-        Add to desk
+        <OnDeskIcon /> On desk
       </AppButton>
       {/* Only the rows on the desk: a DELETE for one that is not is a 404. */}
       <AppButton
@@ -95,7 +97,7 @@ export function BulkActions({
           )
         }
       >
-        Remove from desk
+        <OffDeskIcon /> Off desk
       </AppButton>
       <AppButton disabled={busy} onClick={onClear}>
         Clear

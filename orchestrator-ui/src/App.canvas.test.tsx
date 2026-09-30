@@ -10,6 +10,12 @@ import { askQuestion, chipCount, commandsSince, nodeState } from './test/appHelp
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
 
+/**
+ * The card's own commands. A follows row has an Off desk button of its own, so
+ * the card's end-of-work control is found here, not in the whole card.
+ */
+const commands = (card: HTMLElement) => within(within(card).getByTestId('node-commands'));
+
 /** The labels of the open menu in `card`, in order. */
 function menuLabels(card: HTMLElement): (string | null)[] {
   return within(card)
@@ -51,7 +57,7 @@ describe('App', () => {
     expect(handles[0]).toHaveClass('connectable');
   });
 
-  it('offers Terminate while the agent is live, and Dismiss once it has stopped', async () => {
+  it('offers Terminate while the agent is live, and Off desk once it has stopped', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('f2c6a9d4');
@@ -64,40 +70,39 @@ describe('App', () => {
       w.agents['f2c6a9d4'] = { ...w.agents['f2c6a9d4']!, state: 'exited', exitCode: 0 };
     });
     await waitFor(() =>
-      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument(),
+      expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument(),
     );
     expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    expect(menuLabels(card)).toEqual(['Dismiss', 'Dismiss & close bravo']);
+    expect(menuLabels(card)).toEqual(['Off desk', 'Take off desk & close bravo']);
     // c3e8f1b5 still runs in maelstrom-bravo.
-    expect(within(card).getByRole('menuitem', { name: 'Dismiss & close bravo' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    expect(
+      within(card).getByRole('menuitem', { name: 'Take off desk & close bravo' }),
+    ).toHaveAttribute('aria-disabled', 'true');
     await user.keyboard('{Escape}');
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
-    await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
+    await user.click(commands(card).getByRole('button', { name: 'Off desk' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument(),
     );
   });
 
-  it('dismisses a task with no agent from its own card', async () => {
+  it('takes a task with no agent off the desk from its own card', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-9.1');
     const card = screen.getByRole('dialog', { name: 'Watch the migration PR' });
 
     const before = server.requests.length;
-    await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
+    await user.click(commands(card).getByRole('button', { name: 'Off desk' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument(),
     );
     expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/task:NORT-9.1']);
   });
 
-  it('closes the worktree of a stopped agent, then dismisses', async () => {
+  it('closes the worktree of a stopped agent, then takes it off the desk', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
@@ -111,10 +116,10 @@ describe('App', () => {
     clickNode('NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
 
-    await within(card).findByRole('button', { name: 'Dismiss' });
+    await commands(card).findByRole('button', { name: 'Off desk' });
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Dismiss & close alpha' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & close alpha' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
     );
@@ -124,16 +129,16 @@ describe('App', () => {
     ]);
   });
 
-  it('draws a plain Dismiss, with no menu, on a task with no worktree to close', async () => {
+  it('draws a plain Off desk, with no menu, on a task with no worktree to close', async () => {
     await renderApp();
     clickNode('NORT-15');
     const card = screen.getByRole('dialog', { name: 'Shape the reporting module' });
 
-    expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+    expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
   });
 
-  it('draws a plain Dismiss, with no menu, when the worktree is closed already', async () => {
+  it('draws a plain Off desk, with no menu, when the worktree is closed already', async () => {
     const { server } = await renderApp();
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
@@ -145,7 +150,7 @@ describe('App', () => {
     });
 
     await waitFor(() =>
-      expect(within(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument(),
+      expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument(),
     );
     expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
   });
@@ -171,7 +176,7 @@ describe('App', () => {
     expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
   });
 
-  it('terminates and dismisses a live agent in one choice', async () => {
+  it('terminates a live agent and takes it off the desk in one choice', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-9');
@@ -180,11 +185,11 @@ describe('App', () => {
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Terminate',
-      'Terminate & dismiss',
-      'Terminate, dismiss & close bravo',
+      'Terminate & take off desk',
+      'Terminate, take off desk & close bravo',
     ]);
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
     );
@@ -197,7 +202,7 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('closes the worktree, then dismisses, with no stop of its own', async () => {
+  it('closes the worktree, then takes the node off the desk, with no stop of its own', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-12');
@@ -207,7 +212,7 @@ describe('App', () => {
     await user.click(within(card).getAllByRole('button', { name: 'More actions' }).at(-1)!);
     const before = server.requests.length;
     await user.click(
-      within(card).getByRole('menuitem', { name: 'Terminate, dismiss & close delta' }),
+      within(card).getByRole('menuitem', { name: 'Terminate, take off desk & close delta' }),
     );
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-12"]')).not.toBeInTheDocument(),
@@ -226,7 +231,9 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    const close = within(card).getByRole('menuitem', { name: 'Terminate, dismiss & close bravo' });
+    const close = within(card).getByRole('menuitem', {
+      name: 'Terminate, take off desk & close bravo',
+    });
     // The subagent d9a4c7f1.1 is live in the same worktree, and does not hold the close.
     expect(close).not.toHaveAttribute('aria-disabled');
     const before = server.requests.length;
@@ -237,7 +244,7 @@ describe('App', () => {
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 
-  it('sends no dismiss when the stop fails', async () => {
+  it('sends no Off desk when the stop fails', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     server.refuse(/POST \/api\/agents\/d9a4c7f1\/stop$/, { status: 409, code: 'invalid' });
@@ -246,13 +253,13 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
     await within(card).findByRole('alert');
     expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 
-  it('terminates a live node with no desk entry, and has nothing to dismiss', async () => {
+  it('terminates a live node with no desk entry, and has nothing to take off the desk', async () => {
     const user = userEvent.setup();
     const { server, queryClient } = await renderApp();
     // The task list row removes a live task from the desk; its node draws on.
@@ -269,7 +276,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
     );
@@ -284,7 +291,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const close = within(card).getByRole('menuitem', {
-      name: 'Terminate, dismiss & close bravo',
+      name: 'Terminate, take off desk & close bravo',
     });
     expect(close).toHaveAttribute('aria-disabled', 'true');
     expect(close).toHaveAccessibleDescription('1 other agent still running in bravo');

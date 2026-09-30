@@ -1,6 +1,8 @@
 import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { deskIdForTask } from '../protocol/deskId';
 import type { TaskId } from '../protocol/ids';
+import { OffDeskIcon } from '../shell/OffDeskIcon';
+import { OnDeskIcon } from '../shell/OnDeskIcon';
 import { AppButton } from '../ui/AppButton';
 
 /** Puts a task on the desk, or takes it off. */
@@ -20,7 +22,15 @@ export function DeskToggle({
       variant={variant}
       onClick={() => (onDesk ? takeOffDesk : putOnDesk).mutateAsync({ id: deskIdForTask(taskId) })}
     >
-      {onDesk ? 'Remove from desk' : 'Add to desk'}
+      {onDesk ? (
+        <>
+          <OffDeskIcon /> Off desk
+        </>
+      ) : (
+        <>
+          <OnDeskIcon /> On desk
+        </>
+      )}
     </AppButton>
   );
 }

@@ -45,7 +45,7 @@ const SILENT_MS = 10 * 60_000;
  * The content only — each layout supplies its own surface around it, so the
  * two cannot drift on what a node says.
  *
- * `onDone` is called when a dismiss has taken the node off the surface. The
+ * `onDone` is called when Off desk has taken the node off the surface. The
  * canvas collapses the card; the narrow layout goes back to the deck list.
  */
 export function NodeCardBody({
@@ -265,7 +265,7 @@ export function NodeCardBody({
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
           <WorktreeLinks worktree={where} pr={cardPr(node, where) ?? null} />
         </div>
-        <div className={styles.commands}>
+        <div className={styles.commands} data-testid="node-commands">
           {!agent && task?.actionable && (
             <AppButton
               variant="primary"
