@@ -16,7 +16,6 @@ A command that finds none says so, naming the root — see
 
 import asyncio
 import json
-import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,9 +29,6 @@ from mael_agent.agent_transport import client as daemon_client
 from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
-    AWAITING_PERMISSION,
-    AWAITING_PLAN_REVIEW,
-    AWAITING_QUESTION,
     BACKLOG_END,
     MODES,
     SCOPE_ALL,
@@ -60,6 +56,7 @@ from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
 
+from .agent_view import render_agent_detail
 from .table_cli import draw_table
 from .task_cli import open_task_table
 
@@ -77,10 +74,6 @@ LIST_COLUMNS = [
     "model",
     "cost",
 ]
-
-#: Columns ``mael agent show`` prints for a parent's subagents, in order. No
-#: ``last_note``: a subagent writes none, so the column would always be empty.
-SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
 
 
 async def _send(payload: dict[str, Any]) -> dict[str, Any]:
@@ -313,81 +306,7 @@ async def cmd_show(agent_id: str, as_json: bool) -> None:
     if as_json:
         click.echo(json.dumps(detail, indent=2))
         return
-    _print_detail(detail)
-
-
-def _answer_hint(detail: dict[str, Any]) -> str:
-    """The command that resolves this agent's wait, or ``""`` when none does."""
-    agent_id = detail["id"]
-    kind = detail.get("waiting_kind", "")
-    if kind == AWAITING_QUESTION:
-        options = [
-            option["label"]
-            for question in detail.get("questions", [])
-            for option in question.get("options", [])
-        ]
-        choice = options[0] if options else "<choice>"
-        # An option label is model-written text. Unquoted, one carrying a `$` or
-        # a backtick becomes a live substitution the moment a user pastes it.
-        return f"mael agent answer {agent_id} {shlex.quote(choice)}"
-    if kind == AWAITING_PLAN_REVIEW:
-        return f"mael agent approve {agent_id}"
-    if kind == AWAITING_PERMISSION:
-        return f"mael agent approve {agent_id}   (or deny)"
-    return ""
-
-
-def _print_detail(detail: dict[str, Any]) -> None:
-    """Render one detail, an agent's or a subagent's, as ``show`` returned it.
-
-    An agent shows its state, its words, its wait and its subagents. A
-    subagent's detail has the same keys with the last two empty, so it prints
-    its state and its words and stops.
-    """
-    for key in (
-        "id",
-        "parent",
-        "description",
-        "state",
-        "session",
-        "cwd",
-        "model",
-        "cost",
-    ):
-        if detail.get(key):
-            click.echo(f"{key + ':':<13} {detail[key]}")
-
-    if detail.get("message"):
-        click.echo(f"\n{detail['message']}")
-
-    if detail.get("plan"):
-        click.echo(f"\nPlan:\n{detail['plan']}")
-    if detail.get("plan_file"):
-        click.echo(f"\nPlan file: {detail['plan_file']}")
-
-    for question in detail.get("questions", []):
-        header = question.get("header") or "Question"
-        multi = " (choose any)" if question.get("multi_select") else ""
-        click.echo(f"\n{header}{multi}: {question['question']}")
-        for option in question.get("options", []):
-            description = option.get("description", "")
-            suffix = f" — {description}" if description else ""
-            click.echo(f"  {option['label']}{suffix}")
-
-    if detail.get("waiting_tool") and not detail.get("questions"):
-        origin = detail.get("waiting_subagent", "")
-        suffix = f" (from {origin})" if origin else ""
-        click.echo(f"\nWaiting on: {detail['waiting_tool']}{suffix}")
-        if detail.get("waiting_input"):
-            click.echo(f"  {json.dumps(detail['waiting_input'])[:400]}")
-
-    hint = _answer_hint(detail)
-    if hint:
-        click.echo(f"\nAnswer with:  {hint}")
-
-    if detail.get("subagents"):
-        click.echo("\nSubagents:")
-        draw_table(detail["subagents"], SUBAGENT_COLUMNS)
+    click.echo(render_agent_detail(detail))
 
 
 @agent.command("say")
