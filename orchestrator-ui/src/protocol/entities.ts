@@ -96,6 +96,8 @@ export interface BranchCommit {
   sha: string;
   shortSha: string;
   subject: string;
+  /** The message after its subject line; `''` when there is none. */
+  body: string;
   author: string;
   /** ISO 8601, the author date. */
   date: string;

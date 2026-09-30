@@ -188,16 +188,31 @@ async def test_a_file_past_the_line_cap_keeps_its_first_lines_and_drops_later_hu
 
 async def test_commits_ahead_of_main_list_newest_first(repo):
     create_commit(repo, "a.txt", "a\n", "feat: first")
-    second = create_commit(repo, "b.txt", "b\n", "feat: second")
+    second = create_commit(
+        repo,
+        "b.txt",
+        "b\n",
+        "feat: second\n\nWhy it\x1fis needed.\n\nA second paragraph.",
+    )
 
     changes = await list_changes(repo)
 
     assert changes["base"] == "main"
-    assert [c["subject"] for c in changes["commits"]] == ["feat: second", "feat: first"]
+    assert [
+        {k: c[k] for k in ("subject", "body", "author", "filesChanged")}
+        for c in changes["commits"]
+    ] == [
+        {
+            "subject": "feat: second",
+            "body": "Why it\x1fis needed.\n\nA second paragraph.",
+            "author": "Test",
+            "filesChanged": 1,
+        },
+        {"subject": "feat: first", "body": "", "author": "Test", "filesChanged": 1},
+    ]
     newest = changes["commits"][0]
     assert newest["sha"] == second
     assert second.startswith(newest["shortSha"])
-    assert (newest["author"], newest["filesChanged"]) == ("Test", 1)
 
     [only] = await read_diff(repo, second)
     assert only["path"] == "b.txt"
