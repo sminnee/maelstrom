@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import type { TaskEdit } from '../api/types';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
@@ -13,6 +13,7 @@ import { AttachField } from '../ui/AttachField';
 import { ComboBox, type ComboOption } from '../ui/ComboBox';
 import styles from '../ui/Dialog.module.css';
 import { MultiComboBox } from '../ui/MultiComboBox';
+import { TextArea } from '../ui/TextArea';
 import { PlanningLevelField } from './PlanningLevelField';
 
 /** From `task.PRIORITIES`, highest first. */
@@ -156,17 +157,9 @@ export function TaskContentField({
   bucket: string;
   readOnly?: boolean;
 }) {
-  // The content field shows the whole task body: it grows to fit, and the
-  // dialog scrolls.
   // Document-global, so two field sets on one page must not share it.
   const contentId = useId();
-  const content = useRef<HTMLTextAreaElement>(null);
   const [attached, setAttached] = useState<Attachment[]>([]);
-  const grow = useCallback((el: HTMLTextAreaElement | null) => {
-    content.current = el;
-    fitToText(el);
-  }, []);
-  useEffect(() => fitToText(content.current), [draft.content]);
 
   return (
     <>
@@ -193,9 +186,9 @@ export function TaskContentField({
             onChange({ content: withoutRef(draft.content, image) });
           }}
         >
-          <textarea
+          <TextArea
+            grow
             id={contentId}
-            ref={grow}
             rows={1}
             value={draft.content}
             readOnly={readOnly}
@@ -429,13 +422,4 @@ export function ExecuteModelSelect({
       ))}
     </select>
   );
-}
-
-/** Set a textarea's height to the height of its text. */
-function fitToText(el: HTMLTextAreaElement | null) {
-  if (!el) return;
-  // Collapse first, or the height only ever grows: `scrollHeight` includes
-  // whatever height is already set.
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
 }
