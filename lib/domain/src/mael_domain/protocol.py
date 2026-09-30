@@ -85,6 +85,69 @@ class Worktree(TypedDict):
     shellUrl: str
 
 
+class ChangedFile(TypedDict):
+    """One **Dirty file**: its path and ``git status``'s letter, ``?`` when untracked."""
+
+    path: str
+    status: str
+
+
+class BranchCommit(TypedDict):
+    """One commit on a worktree's branch that its base does not have."""
+
+    sha: str
+    shortSha: str
+    subject: str
+    author: str
+    #: ISO 8601, the author date.
+    date: str
+    filesChanged: int
+
+
+class WorktreeChanges(TypedDict):
+    """``GET /api/worktrees/{id}/changes``: what the Changes tab can show."""
+
+    dirtyFiles: list[ChangedFile]
+    #: The **Base** the commits are measured against: ``main`` when the base was pruned.
+    base: str
+    #: Newest first.
+    commits: list[BranchCommit]
+
+
+DiffLineKind = Literal["context", "add", "remove"]
+FileDiffStatus = Literal["added", "modified", "deleted", "renamed"]
+
+
+class DiffLine(TypedDict):
+    kind: DiffLineKind
+    text: str
+    #: ``None`` on an added line.
+    oldLine: int | None
+    #: ``None`` on a removed line.
+    newLine: int | None
+
+
+class DiffHunk(TypedDict):
+    #: The ``@@ -a,b +c,d @@`` line as git wrote it.
+    header: str
+    lines: list[DiffLine]
+
+
+class FileDiff(TypedDict):
+    """One file of ``GET /api/worktrees/{id}/diff``."""
+
+    path: str
+    #: The path before a rename, else ``None``.
+    oldPath: str | None
+    status: FileDiffStatus
+    binary: bool
+    additions: int
+    deletions: int
+    #: The file passed the line cap, so ``hunks`` holds its first lines only.
+    truncated: bool
+    hunks: list[DiffHunk]
+
+
 class TaskLogEntry(TypedDict):
     ts: str
     text: str
