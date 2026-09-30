@@ -463,7 +463,7 @@ async def _upload_attachment(request: web.Request) -> web.Response:
     later reads from disk, while ``url`` points at this server and is the only
     one a browser can fetch.
     """
-    from mael_domain.attachments import markdown_ref, save_attachment
+    from mael_domain.attachments import attachment_url, markdown_ref, save_attachment
 
     try:
         reader = await request.multipart()
@@ -507,7 +507,7 @@ async def _upload_attachment(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "markdown": markdown_ref(filename or name, token),
-            "url": f"/api/attachments/{project}/{bucket}/{name}",
+            "url": attachment_url(project, bucket, name),
         }
     )
 

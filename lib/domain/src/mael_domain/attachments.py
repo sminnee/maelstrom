@@ -15,6 +15,7 @@ Files are written untracked; the caller's next notebook commit sweeps them in
 via ``git add -A``.
 """
 
+import re
 from pathlib import Path
 
 from mael_common.image import MAX_BYTES, image_extension, is_image
@@ -116,6 +117,33 @@ def _escape_alt(alt: str) -> str:
     # A ref is one line. A newline would leave the tail of the alt behind it as
     # markdown of its own.
     return " ".join(alt.split())
+
+
+#: The route that serves an attachment's bytes, under which each one is
+#: ``<project>/<bucket>/<name>``.
+ROUTE = "/api/attachments"
+
+
+def attachment_url(project: str, bucket: str, name: str) -> str:
+    """The URL a browser fetches one saved attachment from."""
+    return f"{ROUTE}/{project}/{bucket}/{name}"
+
+
+def attachment_urls(markdown: str, project: str) -> str:
+    """``markdown`` with each attachment ref rewritten to the route that serves it.
+
+    The token takes its project from ``project``; an absolute path under
+    ``tasks_root()`` names its own. Only the prefix of a ref's target changes:
+    the route checks the bucket and the name when the browser asks. A path in
+    prose or code stays as written, so the reader sees what was sent.
+    """
+    from .task import MAEL_TASK_DIR_TOKEN
+
+    markdown = markdown.replace(
+        f"]({MAEL_TASK_DIR_TOKEN}/images/", f"]({ROUTE}/{project}/"
+    )
+    root = re.escape(str(task_store.tasks_root()))
+    return re.sub(rf"\]\({root}/([^/\s()]+)/images/", rf"]({ROUTE}/\1/", markdown)
 
 
 def resolve_attachment(project: str, bucket: str, name: str) -> Path:
