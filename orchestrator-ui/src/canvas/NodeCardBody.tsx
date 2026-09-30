@@ -1,7 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useResume, useStop } from '../api/agents';
-import { useRemoveFromDesk } from '../api/desk';
-import { useCloseWorktree } from '../api/worktrees';
 import { useMilestones } from '../api/milestones';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
@@ -9,35 +6,30 @@ import { useAppStore } from '../store/store';
 import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
-import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
+import { deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
-import type { Agent, DeskEntry, Worktree } from '../protocol/entities';
+import type { DeskEntry } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
-import { canClose } from '../selectors/worktrees';
-import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
+import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { reviewGroups } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
-import { changesTab, documentTab, sessionTab } from '../selectors/tabs';
+import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
-import { PrChip } from '../shell/PrChip';
 import { DeskToggle } from '../tasklist/DeskToggle';
-import { CmuxControl } from '../worktrees/CmuxControl';
 import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { contextFigure } from '../protocol/tokens';
 import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
-import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
-import { DevEnvLinks } from '../worktrees/DevEnvLinks';
-import { EnvControl } from '../worktrees/EnvControl';
-import { SyncControl } from '../worktrees/SyncControl';
 import { StatusPicker } from '../ui/StatusPicker';
+import { WorktreeCommands, WorktreeLinks } from '../worktrees/WorktreeControls';
+import { AgentControls } from '../session/AgentControls';
 import styles from './NodeCard.module.css';
 
 /**
@@ -70,11 +62,7 @@ export function NodeCardBody({
   const transcript = useAgentStream(node.agent?.id ?? null);
   const milestones = useMilestones(node.agent?.id ?? null);
   const launch = useLaunch();
-  const stop = useStop();
-  const resume = useResume();
   const setStatus = useSetStatus();
-  const removeFromDesk = useRemoveFromDesk();
-  const closeWorktree = useCloseWorktree();
   const editTask = useAppStore((s) => s.setEditingTask);
   const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
@@ -97,21 +85,6 @@ export function NodeCardBody({
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
-  const endOfWork = endOfWorkOptions({
-    live: isLive(agent),
-    where,
-    others: where ? otherLiveAgents(world.agents, where.id, agent?.id) : 0,
-    // Terminate ends the process; the session tab's Stop only abandons the
-    // turn — see CONTEXT.md, "Interrupt".
-    stop: () => stop.mutateAsync({ agentId: agent!.id }),
-    dismiss: async () => {
-      const id = node.kind === 'freeAgent' ? deskIdForAgent(agent!.id) : deskIdForTask(task!.id);
-      // A live node draws with no desk entry, so there may be none to take.
-      if (id in world.desk) await removeFromDesk.mutateAsync({ id });
-      onDone();
-    },
-    close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
-  });
   const meta = [
     where?.branch || task?.branch || '',
     where?.nato || (agent ? agent.worktreeId : ''),
@@ -290,10 +263,7 @@ export function NodeCardBody({
       <footer className={styles.footer}>
         <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
-          {where && !where.isClosed && <PanelLink tab={changesTab(where.id)}>Changes</PanelLink>}
-          <PrChip worktree={cardPr(node, where)} size="large" />
-          <DevEnvLinks worktree={where} />
-          <CmuxControl worktree={where} />
+          <WorktreeLinks worktree={where} pr={cardPr(node, where) ?? null} />
         </div>
         <div className={styles.commands}>
           {!agent && task?.actionable && (
@@ -310,22 +280,8 @@ export function NodeCardBody({
               Edit task
             </AppButton>
           )}
-          {agent && !isLive(agent) && (
-            <AppButton
-              variant="quiet"
-              processingChildren="Resuming"
-              onClick={() => resume.mutateAsync({ agentId: agent.id })}
-            >
-              Resume
-            </AppButton>
-          )}
-          {where && !where.isClosed && (
-            <>
-              <SyncControl worktree={where} />
-              <EnvControl worktree={where} />
-            </>
-          )}
-          <SplitButton variant="quiet" options={endOfWork} />
+          <WorktreeCommands worktree={where} />
+          <AgentControls agent={agent} taskId={task?.id} where={where} onDismissed={onDone} />
         </div>
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
@@ -396,70 +352,4 @@ function FollowsGroup({
       })}
     </div>
   );
-}
-
-/**
- * The end-of-work control's options, the usual one first: Terminate while the
- * agent is live, Dismiss once it is not. A close runs first in its chain and
- * sends no stop — see `docs/dev/orchestrator-ui.md`.
- */
-function endOfWorkOptions({
-  live,
-  where,
-  others,
-  stop,
-  dismiss,
-  close,
-}: {
-  live: boolean;
-  where: Worktree | undefined;
-  /** Live agents in `where` other than this node's own. */
-  others: number;
-  stop: () => Promise<unknown>;
-  dismiss: () => Promise<unknown>;
-  close: () => Promise<unknown>;
-}): SplitOption[] {
-  const options: SplitOption[] = live
-    ? [
-        { label: 'Terminate', processing: 'Terminating…', run: stop },
-        {
-          label: 'Terminate & dismiss',
-          processing: 'Terminating…',
-          run: async () => {
-            await stop();
-            await dismiss();
-          },
-        },
-      ]
-    : [{ label: 'Dismiss', run: dismiss }];
-  if (where && canClose(where)) {
-    options.push({
-      label: `${live ? 'Terminate, dismiss' : 'Dismiss'} & close ${where.nato}`,
-      processing: 'Closing…',
-      disabled: others > 0,
-      detail:
-        others > 0
-          ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
-          : undefined,
-      run: async () => {
-        await close();
-        await dismiss();
-      },
-    });
-  }
-  return options;
-}
-
-/**
- * Live top-level agents in a worktree, leaving out `self`. A subagent is not
- * counted: it runs inside its parent, and stops with it.
- */
-function otherLiveAgents(
-  agents: Record<string, Agent>,
-  worktreeId: string,
-  self: string | undefined,
-): number {
-  return Object.values(agents).filter(
-    (a) => a.worktreeId === worktreeId && a.id !== self && !a.parent && isLive(a),
-  ).length;
 }
