@@ -77,6 +77,15 @@
 .item[aria-disabled='true']:hover {
   background: none;
 }
+/* An icon sits before the label, spaced as on `AppButton`. */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.label > svg {
+  flex: none;
+}
 .detail {
   font-size: var(--text-sm);
   color: var(--fg-muted);
