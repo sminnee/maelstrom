@@ -57,7 +57,14 @@ export function FollowsEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        style={style}
+        // The hit area below carries the pointer; a second one would select without hovering.
+        interactionWidth={0}
+      />
       {/* An invisible wide twin of the wire, so the pointer can find it. */}
       <path
         d={path}
