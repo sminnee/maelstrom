@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { FileDiff } from './protocol/entities';
@@ -45,6 +45,7 @@ function seedChanges(server: FakeServer) {
           sha: SHA,
           shortSha: 'c0ffee1',
           subject: 'feat: rotate on expiry',
+          body: 'A token past its expiry\nnow rotates, so `refresh()` runs.\n\nThe old one stays:\n- for a minute\n- once',
           author: 'Sam',
           date: '2026-09-02T09:00:00+12:00',
           filesChanged: 1,
@@ -62,8 +63,10 @@ function seedChanges(server: FakeServer) {
   };
 }
 
+type Changes = FakeServer['world']['changes'][string];
+
 /** Open delta's Changes tab from NORT-12's node. `tweak` edits the seeded changes first. */
-async function openChanges(tweak?: (changes: FakeServer['world']['changes'][string]) => void) {
+async function openChanges(tweak?: (changes: Changes) => void) {
   const { server } = await renderApp();
   seedChanges(server);
   tweak?.(server.world.changes[DELTA]!);
@@ -74,7 +77,14 @@ async function openChanges(tweak?: (changes: FakeServer['world']['changes'][stri
   return { server, panel };
 }
 
-const picker = () => screen.getByRole('combobox', { name: 'Changes to show' });
+/** The strip of revs beside the diff. */
+const strip = () => screen.getByRole('navigation', { name: 'Changes to show' });
+const entries = () =>
+  within(strip())
+    .getAllByRole('button')
+    .map((b) => b.textContent);
+const current = () => within(strip()).getByRole('button', { current: true }).textContent;
+const pick = (name: RegExp) => userEvent.click(within(strip()).getByRole('button', { name }));
 
 describe('the Changes tab', () => {
   const scrolled = vi.fn();
@@ -91,7 +101,7 @@ describe('the Changes tab', () => {
       'aria-selected',
       'true',
     );
-    expect(picker()).toHaveDisplayValue('Uncommitted (2)');
+    expect(current()).toBe('Uncommitted 2');
     const files = within(panel).getByRole('list', { name: 'Files' });
     expect(
       within(files)
@@ -107,18 +117,36 @@ describe('the Changes tab', () => {
     expect(removed).toHaveTextContent('5');
   });
 
-  it('switches to the whole branch or one commit from the picker', async () => {
+  it('lists the uncommitted changes, the whole branch and each commit in a strip', async () => {
     const { server, panel } = await openChanges();
-    expect(
-      within(picker())
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['Uncommitted (2)', 'All commits (1)', 'c0ffee1 feat: rotate on expiry']);
+    expect(entries()).toEqual(['Uncommitted 2', 'All commits 1', 'c0ffee1 feat: rotate on expiry']);
 
-    await userEvent.selectOptions(picker(), 'c0ffee1 feat: rotate on expiry');
+    await pick(/rotate on expiry/);
     await within(panel).findByText('new expiry');
     expect(within(panel).queryByText('new tokens')).toBeNull();
+    expect(current()).toBe('c0ffee1 feat: rotate on expiry');
     expect(server.requests.map((r) => r.path)).toContain(`/api/worktrees/${DELTA}/diff?rev=${SHA}`);
+  });
+
+  it("shows a commit's message above its diff, and folds it away", async () => {
+    const { panel } = await openChanges();
+    expect(within(panel).queryByRole('article', { name: 'Commit message' })).toBeNull();
+
+    await pick(/rotate on expiry/);
+    const message = await within(panel).findByRole('article', { name: 'Commit message' });
+    expect(message).toHaveTextContent('feat: rotate on expiry');
+    // The body is Markdown: git's hard wraps join, and lists and code spans draw.
+    const body = within(message).getByText(/A token past its expiry now rotates/);
+    expect(body).toBeVisible();
+    expect(within(message).getByText('refresh()').tagName).toBe('CODE');
+    expect(
+      within(message)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual(['for a minute', 'once']);
+
+    await userEvent.click(within(message).getByText('feat: rotate on expiry'));
+    expect(body).not.toBeVisible();
   });
 
   it('scrolls to a file when its entry in the file list is clicked', async () => {
@@ -140,18 +168,33 @@ describe('the Changes tab', () => {
     await within(panel).findByText('new again');
   });
 
-  it('falls back to the default rev when the picked commit leaves the branch', async () => {
-    const { server, panel } = await openChanges();
-    await userEvent.selectOptions(picker(), 'c0ffee1 feat: rotate on expiry');
-    await within(panel).findByText('new expiry');
-    // A rebase rewrote the commit, so its sha names nothing on the branch now.
+  it.each([
+    {
+      picked: /rotate on expiry/,
+      why: 'a rebase rewrote the commit',
+      change: (c: Changes) => (c.changes.commits = []),
+      then: 'Uncommitted 2',
+    },
+    {
+      picked: /All commits/,
+      why: 'a reset left no commits',
+      change: (c: Changes) => (c.changes.commits = []),
+      then: 'Uncommitted 2',
+    },
+    {
+      picked: /Uncommitted/,
+      why: 'the agent committed everything',
+      change: (c: Changes) => (c.changes.dirtyFiles = []),
+      then: 'All commits 1',
+    },
+  ])('falls back to the default rev when $why', async ({ picked, change, then }) => {
+    const { server } = await openChanges();
+    await pick(picked);
     act(() => {
-      server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
-        w.changes[DELTA]!.changes.commits = [];
-      });
+      server.change({ kind: 'worktree', ids: [DELTA] }, (w) => change(w.changes[DELTA]!));
     });
-    await within(panel).findByText('new tokens');
-    expect(picker()).toHaveDisplayValue('Uncommitted (2)');
+    // The picked entry is no longer drawn, so the default is current.
+    await waitFor(() => expect(current()).toBe(then));
   });
 
   it('reads the changes again on Refresh, with no notice', async () => {
@@ -176,14 +219,23 @@ describe('the Changes tab', () => {
     expect(region('auth/keys.py')).toHaveTextContent('auth/secrets.py → auth/keys.py');
   });
 
-  it('opens on all commits when nothing is uncommitted, and says when there are none', async () => {
+  it('opens on all commits when nothing is uncommitted', async () => {
+    const { panel } = await openChanges((c) => {
+      c.changes.dirtyFiles = [];
+    });
+    await within(panel).findByText('new expiry');
+    expect(entries()).toEqual(['All commits 1', 'c0ffee1 feat: rotate on expiry']);
+    expect(current()).toBe('All commits 1');
+  });
+
+  it('draws no strip, and says so, when there are no changes', async () => {
     const { panel } = await openChanges((c) => {
       c.changes.dirtyFiles = [];
       c.changes.commits = [];
       c.diffs.branch = [];
     });
     expect(await within(panel).findByText('No commits ahead of main')).toBeInTheDocument();
-    expect(picker()).toHaveDisplayValue('All commits (0)');
+    expect(screen.queryByRole('navigation', { name: 'Changes to show' })).toBeNull();
   });
 
   it('pushes a screen in the narrow layout', async () => {

@@ -505,10 +505,17 @@ while the worktree is open. The tab chip names the
 worktree by its id, `<project>-<nato> changes`, because every project has a `delta`. It draws
 no phase, because a worktree has no task of its own.
 
-A picker at the top chooses the rev: "Uncommitted (N)", "All commits (M)", then one entry per
-commit. The tab opens on Uncommitted when there are **Dirty files**, else on All commits. Under
-the picker, a collapsible file list jumps to each file, and every file follows in one scroll.
-Each file's head sticks to the top of that scroll. The tab's header sits outside the scroll, so
+A strip beside the diff chooses the rev: "Uncommitted" when there are **Dirty files**, "All
+commits" when the branch has commits, then one entry per commit, newest first. With neither,
+there is no strip. The tab opens on Uncommitted when there are dirty files, else on All commits.
+A picked entry that is no longer drawn gives way to that default. In a panel narrower than 40rem,
+the strip stacks above the diff. A container query sets this, because the panel's width, not the
+window's, decides.
+
+A commit's message opens the scroll: its subject, its body and its author. The body is drawn as
+Markdown, which joins git's hard wraps. The reader can fold the message away, and it stays folded
+from one commit to the next. Under it, a collapsible file list jumps to each file, and every file follows. Each file's
+head sticks to the top of that scroll. The tab's header and the strip sit outside the scroll, so
 the heads need no offset.
 
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
