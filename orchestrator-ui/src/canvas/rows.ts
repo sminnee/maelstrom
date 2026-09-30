@@ -19,12 +19,19 @@ export interface RowInput {
  *
  * A track reserves every cell from its head's column to its tail's column, so
  * its edges draw straight and never behind a card. Tracks pack first-fit onto
- * the lowest row where that whole interval is free, leftmost head first. Without
- * branches, that order takes the fewest rows: the most tracks on one column.
+ * the lowest row where that whole interval is free, leftmost head first. When
+ * every component below is a single track and nothing branches, that order
+ * takes the fewest rows: the most tracks on one column.
  * Between heads in one column, the track whose tail sits furthest right packs
  * first, and input order breaks what ties remain. A node that follows
  * nothing is a one-cell track. A branch, a second follower of one node, searches
  * from the row below that node.
+ *
+ * Tracks joined by follows edges, read in either direction, form a
+ * component. When a component's leading track packs, the rest of the
+ * component packs straight after it, in the same order, so a track that
+ * merges into another sits near it. The next component packs first-fit from
+ * row 0 and fills the gaps.
  */
 export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, number> {
   const columnOf = new Map(nodes.map((n) => [n.id, n.column]));
@@ -46,11 +53,23 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
     continues.add(node.id);
   }
 
+  // Union-find over every follows edge, including those the track cut ignores.
+  const parentOf = new Map(nodes.map((n) => [n.id, n.id]));
+  const find = (id: string): string => {
+    let top = id;
+    while (parentOf.get(top) !== top) top = parentOf.get(top)!;
+    parentOf.set(id, top);
+    return top;
+  };
+  for (const node of nodes) {
+    for (const id of node.follows) {
+      if (parentOf.has(id)) parentOf.set(find(id), find(node.id));
+    }
+  }
+
   // A continuation always sits in a higher column, so a track cannot loop.
   // A branch's parent sits in a lower column, so it has a row first.
-  const taken = new Map<number, Set<number>>();
-  const rows = new Map<string, number>();
-  const tracks = byColumn
+  const sorted = byColumn
     .filter((n) => !continues.has(n.id))
     .map((head) => {
       const ids = [head.id];
@@ -58,16 +77,29 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
       return { ids, first: head.column, last: columnOf.get(ids[ids.length - 1]!)! };
     })
     .sort((a, b) => a.first - b.first || b.last - a.last);
-  for (const { ids, first, last } of tracks) {
-    const parent = branchesFrom.get(ids[0]!);
-    let row = parent === undefined ? 0 : rows.get(parent)! + 1;
-    while (!isFree(taken, first, last, row)) row += 1;
-    for (let column = first; column <= last; column += 1) {
-      const used = taken.get(column) ?? new Set<number>();
-      used.add(row);
-      taken.set(column, used);
+  // A map keeps insertion order, so a component's leading track places it.
+  const components = new Map<string, typeof sorted>();
+  for (const track of sorted) {
+    const key = find(track.ids[0]!);
+    const component = components.get(key) ?? [];
+    component.push(track);
+    components.set(key, component);
+  }
+
+  const taken = new Map<number, Set<number>>();
+  const rows = new Map<string, number>();
+  for (const tracks of components.values()) {
+    for (const { ids, first, last } of tracks) {
+      const parent = branchesFrom.get(ids[0]!);
+      let row = parent === undefined ? 0 : rows.get(parent)! + 1;
+      while (!isFree(taken, first, last, row)) row += 1;
+      for (let column = first; column <= last; column += 1) {
+        const used = taken.get(column) ?? new Set<number>();
+        used.add(row);
+        taken.set(column, used);
+      }
+      for (const id of ids) rows.set(id, row);
     }
-    for (const id of ids) rows.set(id, row);
   }
   return rows;
 }
