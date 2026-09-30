@@ -65,7 +65,8 @@ from .worktree import (
     sync_worktree_with_autorepair,
     update_local_main,
 )
-from .worktree_model import MAIN_BRANCH, REPAIRED_MESSAGE, print_flushed
+from .worktree_changes import base_refs_for_diff
+from .worktree_model import REPAIRED_MESSAGE, print_flushed
 
 
 def get_repo_info(cwd: Path) -> tuple[str, str]:
@@ -578,32 +579,6 @@ def create_pr(
         discard_pr_draft(cwd)
     _register_stack(cwd, branch_name, announce=announce)
     return new_url, True
-
-
-def _base_refs_for_diff(cwd: Path) -> list[str]:
-    """Refs to diff a review against, best first.
-
-    A stacked branch diffs against its base, so a review sees only this branch's
-    own work rather than the whole stack. ``origin/main`` follows as a fallback for
-    a base that has merged and been pruned.
-    """
-    base = _resolve_base_branch(cwd)
-    refs = [f"origin/{base}"]
-    if base != MAIN_BRANCH:
-        refs.append(f"origin/{MAIN_BRANCH}")
-    return refs
-
-
-def _resolve_base_branch(cwd: Path) -> str:
-    """The branch ``cwd``'s work is stacked on, or ``main`` if it is not stacked.
-
-    Never raises: a worktree whose branch or config cannot be read falls back to
-    ``main``, which is what every branch used before stacking existed.
-    """
-    try:
-        return GitConfigBaseStore(cwd).read(get_current_branch(cwd)).branch
-    except Exception:
-        return MAIN_BRANCH
 
 
 def _write_pr_body(
@@ -1263,7 +1238,7 @@ def get_worktree_code(cwd: Path) -> tuple[str, str]:
         # merge-base raises, the handler below swallows it, and the review is
         # handed no code at all.
         merge_base = ""
-        for base_ref in _base_refs_for_diff(cwd):
+        for base_ref in base_refs_for_diff(cwd):
             try:
                 merge_base = run_git(
                     ["merge-base", "HEAD", base_ref],
