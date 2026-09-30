@@ -3,6 +3,13 @@ import styles from './DiffRow.module.css';
 
 export type DiffRowKind = 'context' | 'add' | 'remove';
 
+/** A row to draw. The Changes tab gives each its line numbers; an Edit card does not. */
+export interface DiffRowData {
+  kind: DiffRowKind;
+  text: string;
+  lineNumbers?: { old: number | null; new: number | null };
+}
+
 const SIGN: Record<DiffRowKind, string> = { add: '+', remove: '-', context: ' ' };
 
 /**
@@ -10,15 +17,7 @@ const SIGN: Record<DiffRowKind, string> = { add: '+', remove: '-', context: ' ' 
  * ground. An Edit card draws it bare; the Changes tab passes the old and new
  * line numbers, which draw as a gutter.
  */
-export function DiffRow({
-  kind,
-  text,
-  lineNumbers,
-}: {
-  kind: DiffRowKind;
-  text: string;
-  lineNumbers?: { old: number | null; new: number | null };
-}) {
+export function DiffRow({ kind, text, lineNumbers }: DiffRowData) {
   return (
     <div className={styles.row} data-kind={kind} data-testid="diff-row">
       {lineNumbers && (
