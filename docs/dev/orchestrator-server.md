@@ -526,8 +526,10 @@ the router takes it back in.
 What an agent waits on is not stored. Both the host and the server derive it by running the same
 function over the same events: a `control_request` opens the wait, and a `control_response`, a
 `control_cancel_request` or a `result` ends it. The host reads those events with no stream in
-between, so the host is never behind the server. Where the host disagrees with the world, the
-server takes the host's answer.
+between, so the host's state is never behind the server's. Where the host disagrees with the
+world, the server takes the host's answer. A `list` reply is the exception: it is a copy of that
+state, and the stream can move past it while it is in transit. The reconciliation of waits below
+allows for that.
 
 Every attach opens with the host's `mael_agent_detail` frame. The frame always carries
 `request_id`, empty when the agent waits on nothing, so the frame reports the whole of what the
@@ -554,6 +556,11 @@ A row still reporting `awaiting-` holds its wait, so only a row that has moved o
 wait the row no longer shows is over, and the server ends it as the child ends one it withdraws.
 The check needs no marker, because it never asks how the events went missing. A gap ate them,
 the cursor is past them, or a daemon restart took them. The row settles it either way.
+
+The row judges only the waits the world held when the server sent `list`. The host reduces an
+event before it relays it, so those waits are in the state the row was built from. A wait that the
+stream raises while the reply is in transit is newer than the row. The row says `processing` for
+it, and closing it would hide the prompt until the turn ends. The next poll judges that wait.
 
 The server normalises the host's stream into transcript events and keeps one `TranscriptLog`
 per agent: the items as they stand, a seq per frame, and a ring of the last 2000 frames. The

@@ -3380,6 +3380,58 @@ def test_a_wait_the_hosts_row_still_shows_is_left_alone(harness):
     assert after["state"] == "awaiting-permission"
 
 
+def test_a_wait_that_arrives_while_the_listing_is_in_transit_is_kept(
+    harness_factory,
+):
+    """The row was built before the host took the ask, so it cannot judge it.
+
+    The stream delivers the ``control_request`` while the ``list`` reply is on
+    its way. That reply still says ``processing``, but the wait is new, not
+    over: closing it hides a question that nothing will raise again.
+    """
+    events, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
+    cut = max(i for i, e in enumerate(events) if e["type"] == "control_request")
+    backlog, ask = events[:cut], events[cut]
+    # The poller stays out of the way, so the explicit poll is the one in transit.
+    harness = harness_factory(agent_poll=30.0)
+    harness.daemon.rows["ag1"] = agent_row(state="processing")
+    harness.daemon.backlog["ag1"] = backlog
+
+    async def ask_in_transit():
+        pending = pending_from([ask])
+        harness.daemon.pending["ag1"] = pending
+        harness.daemon.rows["ag1"].update(
+            state=pending.wait_kind, waiting_on=pending.summary
+        )
+        harness.daemon.push("ag1", ask)
+        await wait_until(
+            lambda: harness.orch.world["agents"]["ag1"]["pendingRequestIds"]
+        )
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/agents/ag1", lambda a: a["state"] == "processing")
+            harness.daemon.before_list_reply = ask_in_transit
+            await harness.orch.refresh_agents()
+            agent = await api.get_json("/api/agents/ag1")
+            attention = await api.get_json("/api/attention?open=1")
+            items = (await transcript_of(api))["items"]
+            question = next(i for i in items if i["type"] == "question")
+            return {
+                "pending": agent["pendingRequestIds"],
+                "state": agent["state"],
+                "stale": bool(question.get("stale")),
+                "attention": [a["agentId"] for a in attention["attention"]],
+            }
+
+    assert run(scenario()) == {
+        "pending": [ask["request_id"]],
+        "state": "awaiting-question",
+        "stale": False,
+        "attention": ["ag1"],
+    }
+
+
 def test_a_wait_a_dropped_stream_lost_the_answer_to_is_closed(harness):
     """A dropped stream reports no gap, and the answer is behind the cursor.
 

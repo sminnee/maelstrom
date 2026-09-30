@@ -784,6 +784,12 @@ class Orchestrator:
         socket is open on it (:meth:`ensure_attached`), so a subagent's events
         never cross to this server until someone asks for them.
         """
+        # Read before ``list``: a wait raised while the reply is in transit is
+        # newer than the row.
+        held_before = {
+            agent_id: set(agent["pendingRequestIds"])
+            for agent_id, agent in self.world["agents"].items()
+        }
         reply = await self.daemon.request({"cmd": "list"})
         if "error" in reply:
             log.warning("agent host: %s", reply["error"])
@@ -816,7 +822,9 @@ class Orchestrator:
             if agent_id not in self._watches and not is_child:
                 await self._attach(agent_id)
             await self._relink(row)
-            await self._close_wait_the_host_no_longer_holds(agent_id, state)
+            await self._close_wait_the_host_no_longer_holds(
+                agent_id, state, held_before.get(agent_id, set())
+            )
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
@@ -882,13 +890,16 @@ class Orchestrator:
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 
     async def _close_wait_the_host_no_longer_holds(
-        self, agent_id: str, state: str
+        self, agent_id: str, state: str, held_before: set[str]
     ) -> None:
         """End a wait the world holds that the host's row does not report.
 
         The row wins when the two disagree — see ``docs/dev/orchestrator-server.md``,
         "Agents". The wait ends the way the child ends one it withdraws, so the
         transcript item goes stale with it.
+
+        The row judges only ``held_before``, the waits the world held when
+        ``list`` went out. A later wait is newer than the row.
 
         Runs after ``_attach``. A watch whose backlog has not landed holds no
         wait of its own to end, because the frame that raises one is applied
@@ -898,7 +909,11 @@ class Orchestrator:
         if watch is None:
             return
         agent = self.world["agents"].get(agent_id)
-        held = list(agent["pendingRequestIds"]) if agent else []
+        held = [
+            request_id
+            for request_id in (agent["pendingRequestIds"] if agent else [])
+            if request_id in held_before
+        ]
         if not held or state.startswith("awaiting-"):
             return
         for request_id in held:
