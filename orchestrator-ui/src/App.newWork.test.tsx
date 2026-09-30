@@ -185,9 +185,11 @@ describe('new work', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
     const created = createdTask(server);
     // A task needs a title and a branch, and neither was typed, so the form
-    // answers for both rather than refusing the save.
+    // names both through the server's inference rather than refusing the save.
+    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(true);
+    // The fake names a draft by its first line: these are its answers.
     expect(created.title).toBe('The export drops a row');
-    expect(created.branch).toBe('feat/export-drops-row');
+    expect(created.branch).toBe('feat/the-export-drops-a');
     // The prose becomes the content verbatim; naming never rewrites it.
     expect(created.content).toBe('The export drops a row');
     expect(created.status).toBe('todo');
@@ -200,8 +202,8 @@ describe('new work', () => {
     await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    // Empty until asked: inference no longer gates the submit, so it runs only
-    // when the user wants a better name than the draft's own.
+    // Empty until asked: Save names an empty branch itself, so Suggest is for
+    // seeing the names first.
     expect(within(form).getByLabelText('Branch')).toHaveValue('');
     await user.click(within(form).getByRole('button', { name: 'Suggest' }));
 
@@ -240,8 +242,8 @@ describe('new work', () => {
     const { server } = await renderApp();
     const form = await openNewWork(user);
     await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    // Inference shells out to a model and takes tens of seconds, so the button
-    // that started it is where the wait belongs.
+    // Inference is a network call, so the button that started it is where the
+    // wait belongs.
     server.hold();
     await user.click(within(form).getByRole('button', { name: 'Suggest' }));
 
@@ -256,6 +258,47 @@ describe('new work', () => {
 
     server.release();
     await waitFor(() => expect(suggest).not.toHaveAttribute('aria-busy'));
+  });
+
+  it("shows a submit's naming wait beside the footer buttons, not on Suggest", async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    server.hold();
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    // The naming is held, so this wait is its wait: no create can run before it.
+    // The footer's spinner, not one inside a button.
+    await waitFor(() =>
+      expect(
+        within(form)
+          .getAllByTestId('spinner')
+          .some((sp) => !sp.closest('button')),
+      ).toBe(true),
+    );
+    const suggest = within(form).getByRole('button', { name: /Suggest/ });
+    expect(suggest).not.toHaveAttribute('aria-busy');
+    expect(within(suggest).queryByTestId('spinner')).toBeNull();
+
+    server.release();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+  });
+
+  it('shows a refused naming and writes nothing', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    server.refuse(/api\/tasks\/infer$/, {
+      status: 503,
+      code: 'unavailable',
+      message: 'Naming down',
+    });
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('Naming down');
+    expect(server.requests.some((r) => r.method === 'POST' && r.path === '/api/tasks')).toBe(false);
   });
 
   it('shows Title above the prose field, matching the task editor', async () => {
@@ -279,7 +322,9 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    // The typed title wins; only the branch, left empty, is inferred.
     expect(createdTask(server).title).toBe('Fix the export');
+    expect(createdTask(server).branch).toBe('feat/the-export-drops-a');
   });
 
   it('starts the task it creates when Start is pressed instead', async () => {
@@ -319,6 +364,22 @@ describe('new work', () => {
     expect(free.model).toBe('claude:opus');
   });
 
+  it('starts a free agent with no branch typed, on the branch inference names', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    const startButton = within(form).getByRole('button', { name: 'Start' });
+    expect(startButton).toBeEnabled();
+    await user.click(startButton);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const started = server.requests.find((r) => r.path === '/api/agents' && r.method === 'POST');
+    expect(started?.body).toMatchObject({ branch: 'feat/read-the-logs' });
+  });
+
   it('starts a free agent under the mode and model the form chose', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
@@ -336,6 +397,8 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    // The branch was typed, so nothing was left to name.
+    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(false);
     const free = startedAgent(server);
     expect(free.permissionMode).toBe('auto');
     expect(free.model).toBe('claude:fable');

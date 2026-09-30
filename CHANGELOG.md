@@ -28,6 +28,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Task naming uses OpenAI `gpt-6-luna`, not `claude -p`.** Set `OPENAI_API_KEY`, or
+  `openai.api_key` in `~/.maelstrom/config.yaml`. With no key, a task's title and branch are a
+  slug of its prose's first line. In the New work form, Save and Start name an empty title or
+  branch through the model. A free agent's Start no longer needs a typed branch.
+
 - **Breaking: the project commands moved under `mael project`.** `mael add-project`,
   `mael create-project` and `mael mv-project` are now `mael project add`, `mael project create`
   and `mael project mv`, beside `mael project list`. The old names are removed, with no aliases.

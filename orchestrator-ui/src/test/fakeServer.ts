@@ -905,7 +905,7 @@ function command(
     if (!world.projects[project]) return notFound(`project ${project}`);
     if (!draft) return error(400, 'invalid', 'Nothing to create');
     // The real server asks a model; this reads the draft's first line, so a
-    // test gets a plausible naming without a subprocess.
+    // test gets a plausible naming with no network.
     const title = draft.split('\n')[0]!.trim().slice(0, 80);
     const slug =
       title
