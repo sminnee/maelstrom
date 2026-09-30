@@ -63,16 +63,16 @@ function atBottom(el: HTMLElement): boolean {
  * A subagent opens in the same tab, read-only, and a parent lists its
  * subagents in a strip beneath the transcript. See `docs/dev/orchestrator-ui.md`.
  *
- * With `onDismissed`, the head also carries Resume and the end-of-work
+ * With `onTakenOffDesk`, the head also carries Resume and the end-of-work
  * control, and a dismiss calls it. The panel passes it to close the tab; the
  * narrow layout does not, and keeps those controls on the node alone.
  */
 export function SessionTab({
   agentId,
-  onDismissed,
+  onTakenOffDesk,
 }: {
   agentId: string;
-  onDismissed?: () => void;
+  onTakenOffDesk?: () => void;
 }) {
   const approve = useApprove();
   const deny = useDeny();
@@ -235,8 +235,8 @@ export function SessionTab({
                 Compact
               </AppButton>
               {/* A subagent has no process of its own, so it gets none. */}
-              {onDismissed && (
-                <AgentControls agent={agent} where={where} onDismissed={onDismissed} />
+              {onTakenOffDesk && (
+                <AgentControls agent={agent} where={where} onTakenOffDesk={onTakenOffDesk} />
               )}
             </span>
           )}

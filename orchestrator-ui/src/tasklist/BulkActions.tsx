@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
+import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { useSetStatus } from '../api/tasks';
 import { deskIdForTask } from '../protocol/deskId';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
@@ -23,8 +23,8 @@ export function BulkActions({
   onDone: (done: TaskId[], failure: string | null) => void;
   onClear: () => void;
 }) {
-  const addToDesk = useAddToDesk();
-  const removeFromDesk = useRemoveFromDesk();
+  const putOnDesk = usePutOnDesk();
+  const takeOffDesk = useTakeOffDesk();
   const setStatus = useSetStatus();
   const [busy, setBusy] = useState(false);
 
@@ -79,7 +79,7 @@ export function BulkActions({
         onClick={() =>
           run(
             rows.filter((r) => !r.onDesk),
-            (r) => addToDesk.mutateAsync({ id: deskIdForTask(r.task.id) }),
+            (r) => putOnDesk.mutateAsync({ id: deskIdForTask(r.task.id) }),
           )
         }
       >
@@ -91,7 +91,7 @@ export function BulkActions({
         onClick={() =>
           run(
             rows.filter((r) => r.onDesk),
-            (r) => removeFromDesk.mutateAsync({ id: deskIdForTask(r.task.id) }),
+            (r) => takeOffDesk.mutateAsync({ id: deskIdForTask(r.task.id) }),
           )
         }
       >

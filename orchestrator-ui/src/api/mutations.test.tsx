@@ -25,7 +25,7 @@ import {
   useStop,
 } from './agents';
 import { ApiProvider } from './ApiProvider';
-import { useAddToDesk, useRemoveFromDesk } from './desk';
+import { usePutOnDesk, useTakeOffDesk } from './desk';
 import {
   useAddComment,
   useApproveDocument,
@@ -297,16 +297,16 @@ describe('the mutation hooks', () => {
       [keys.agents.list(), keys.desk()],
     ],
     [
-      'useAddToDesk',
-      useAddToDesk,
+      'usePutOnDesk',
+      usePutOnDesk,
       { id: 'task:a/b' },
       'POST /api/desk',
       { id: 'task:a/b' },
       [keys.desk()],
     ],
     [
-      'useRemoveFromDesk',
-      useRemoveFromDesk,
+      'useTakeOffDesk',
+      useTakeOffDesk,
       { id: 'task:northwind/NORT-7' },
       'DELETE /api/desk/task%3Anorthwind%2FNORT-7',
       undefined,

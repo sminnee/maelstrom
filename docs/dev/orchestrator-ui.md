@@ -122,7 +122,7 @@ appends a `pending` stand-in item straight to the store, and the append/snapshot
 each drop the oldest matching stand-in once the real, non-pending item lands.
 
 **Commands are mutations.** One hook per command in `api/` — `useApprove`, `useLaunch`,
-`useSetStatus`, `useAddToDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves
+`useSetStatus`, `usePutOnDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves
 with the result, or rejects with an `ApiError` carrying the code. On success the hook
 invalidates the keys the command touched; the change notice invalidates them again a moment
 later, so the screen is right while the stream reconnects too. `useCreateWorktreeTerminal` is

@@ -16,7 +16,7 @@ export function useDesk() {
   });
 }
 
-export function useAddToDesk() {
+export function usePutOnDesk() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
@@ -26,7 +26,7 @@ export function useAddToDesk() {
 }
 
 /** The desk id holds a `/`, so it travels URL-encoded. */
-export function useRemoveFromDesk() {
+export function useTakeOffDesk() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({

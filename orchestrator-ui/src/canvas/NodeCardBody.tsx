@@ -281,7 +281,7 @@ export function NodeCardBody({
             </AppButton>
           )}
           <WorktreeCommands worktree={where} />
-          <AgentControls agent={agent} taskId={task?.id} where={where} onDismissed={onDone} />
+          <AgentControls agent={agent} taskId={task?.id} where={where} onTakenOffDesk={onDone} />
         </div>
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">

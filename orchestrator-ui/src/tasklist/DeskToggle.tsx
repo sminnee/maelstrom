@@ -1,4 +1,4 @@
-import { useAddToDesk, useRemoveFromDesk } from '../api/desk';
+import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { deskIdForTask } from '../protocol/deskId';
 import type { TaskId } from '../protocol/ids';
 import { AppButton } from '../ui/AppButton';
@@ -13,14 +13,12 @@ export function DeskToggle({
   onDesk: boolean;
   variant?: 'plain' | 'quiet';
 }) {
-  const addToDesk = useAddToDesk();
-  const removeFromDesk = useRemoveFromDesk();
+  const putOnDesk = usePutOnDesk();
+  const takeOffDesk = useTakeOffDesk();
   return (
     <AppButton
       variant={variant}
-      onClick={() =>
-        (onDesk ? removeFromDesk : addToDesk).mutateAsync({ id: deskIdForTask(taskId) })
-      }
+      onClick={() => (onDesk ? takeOffDesk : putOnDesk).mutateAsync({ id: deskIdForTask(taskId) })}
     >
       {onDesk ? 'Remove from desk' : 'Add to desk'}
     </AppButton>
