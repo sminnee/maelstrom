@@ -4,6 +4,7 @@ import { driftLabel } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
+import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
@@ -83,7 +84,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
         <span className={styles.id}>{nodeIdLine(node)}</span>
         {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-        <PrChip worktree={node.worktree} className={styles.pr} />
+        <PrChip worktree={cardPr(node)} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       <Handle type="source" position={Position.Right} className={styles.handle} />

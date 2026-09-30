@@ -3,6 +3,7 @@ import { driftLabel } from '../protocol/progress';
 import { phaseLabel } from '../protocol/phase';
 import type { GraphNode } from '../selectors/graph';
 import { nodeIdLine, nodeTitle } from '../selectors/graph';
+import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
@@ -52,7 +53,7 @@ export function DeckRow({ node, onOpen }: { node: GraphNode; onOpen: () => void 
           )}
           <span className={styles.id}>{nodeIdLine(node)}</span>
           {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-          <PrChip worktree={node.worktree} link={false} className={styles.pr} />
+          <PrChip worktree={cardPr(node)} link={false} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
       </button>

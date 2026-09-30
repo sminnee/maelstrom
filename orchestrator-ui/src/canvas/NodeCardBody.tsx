@@ -16,6 +16,7 @@ import type { Agent, DeskEntry, Worktree } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
+import { cardPr } from '../selectors/cardPr';
 import { canClose } from '../selectors/worktrees';
 import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { reviewGroups } from '../selectors/documents';
@@ -290,7 +291,7 @@ export function NodeCardBody({
         <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
           {where && !where.isClosed && <PanelLink tab={changesTab(where.id)}>Changes</PanelLink>}
-          <PrChip worktree={where} size="large" />
+          <PrChip worktree={cardPr(node, where)} size="large" />
           <DevEnvLinks worktree={where} />
           <CmuxControl worktree={where} />
         </div>
