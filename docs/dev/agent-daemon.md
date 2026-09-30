@@ -1179,6 +1179,7 @@ So a child's environment is the daemon's own, with these changes:
 |---|---|---|
 | `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` | Removed | An inherited marker can suppress the transcript write |
 | `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` | Set to `1` | Asks for the transcript outright, rather than relying on the removals |
+| Every other `CMUX_` variable except `CMUX_SOCKET_PATH` and `CMUX_SOCKET_PASSWORD` | Removed | A daemon started in a cmux pane must not put every agent in that pane; see [cmux.md](cmux.md#outside-cmux) |
 | `CMUX_CLAUDE_HOOKS_DISABLED` | Set to `1` | Runs the real `claude`, not cmux's shim |
 | `MAEL_AGENT_ROOT` | Set to the daemon's own root | A `mael agent …` command inside the session reaches the daemon that runs it, not whichever root the daemon's own shell named |
 

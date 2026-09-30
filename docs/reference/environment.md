@@ -166,6 +166,7 @@ that lack the key.
 | Variable | Default | Meaning |
 |---|---|---|
 | `CMUX_SOCKET_PATH` | `~/.local/state/cmux/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
+| `CMUX_WORKSPACE_ID` | — | Set by cmux in each of its panes. `mael gh create-pr`, `mael gh read-pr`, `mael add` and `mael env open`, `start`, `restart` and `reset` open a browser only when it is set and `MAEL_HARNESS_TYPE` is not `daemon`. `mael env stop` hides the browser under the same rule. The agent daemon removes it, and the other variables of its own pane, from the agents it starts. |
 | `MAEL_AGENT_ROOT` | — | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. There is no default. `mael-agent-daemon serve` exits 2 without it, and every `mael agent` command reports that it has no daemon to reach. Each worktree's `.env` carries it, substituted from the project root's `.env` template; a daemon exports its own root to every agent it starts; and `mael self-update` puts the everyday root into the `mael` on your PATH. Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
 | `MAEL_NOTEBOOK_ROOT` | — | The State database root. `mael self-update` puts `~/.maelstrom` into the `mael` on your PATH unless this variable is already set. |
 | `MAEL_PRODUCTION` | — | Suppresses the non-production environment warning. The PATH `mael` shim sets it. Worktree `uv run mael` commands leave it unset and print their agent daemon root and State database root. |

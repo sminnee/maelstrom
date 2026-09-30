@@ -124,6 +124,13 @@ FORCE_PERSISTENCE_ENV = "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
 #: ``--settings`` block of hooks calling back into the cmux IDE. A driven agent
 #: is not an IDE session, so they only cost it subprocess spawns.
 CMUX_HOOKS_DISABLED_ENV = "CMUX_CLAUDE_HOOKS_DISABLED"
+#: The prefix of cmux's variables. Most place a process in a cmux pane, and a
+#: driven agent is in no pane, even when the daemon was started from one.
+_CMUX_PREFIX = "CMUX_"
+#: The cmux variables that say how to reach the app, not which pane a process is
+#: in. A driven agent keeps them, so ``mael close`` and ``--cli`` placement
+#: still reach a cmux on a non-default socket.
+_CMUX_CONNECTION = ("CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD")
 
 #: What a resumed agent is told on its first turn back.
 #:
@@ -148,9 +155,10 @@ def build_agent_env(
 
     Takes ``base`` (the daemon's own environment), drops the variables no child
     should inherit and the two markers that can stop the child writing a
-    transcript, asks for persistence outright, turns off cmux's hook injection,
-    names ``root`` as the daemon root, then lets ``extra`` win. The harness
-    transport is the exception: every driven child must inherit `daemon`.
+    transcript, drops the ``CMUX_`` variables of the daemon's own pane, asks for
+    persistence outright, turns off cmux's hook injection, names ``root`` as the
+    daemon root, then lets ``extra`` win. The harness transport is the
+    exception: every driven child must inherit `daemon`.
 
     ``root`` is the spawning daemon's own root, so a ``mael agent`` command run
     inside the session reaches the daemon that holds it. Without it the child
@@ -160,6 +168,9 @@ def build_agent_env(
     env = sanitise_child_env(base)
     for marker in _CHILD_MARKERS:
         env.pop(marker, None)
+    pane = [k for k in env if k.startswith(_CMUX_PREFIX)]
+    for key in set(pane) - set(_CMUX_CONNECTION):
+        del env[key]
     env[FORCE_PERSISTENCE_ENV] = "1"
     if root is not None:
         env[ROOT_ENV] = str(root)
