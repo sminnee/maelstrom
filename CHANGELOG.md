@@ -131,6 +131,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **Images in a task and in your messages now show.** An image in a task shows as a thumbnail
+  on its node card, and an image in a message you sent shows in the transcript. A click opens
+  it full size. Before, neither picture loaded.
 - **Suggest in New work names the work and leaves planning alone.** On a task it fills the title
   and branch, and the Planning level stays where you left it. A free agent now has Suggest
   beside Branch too, which fills the branch and leaves Mode unchanged.

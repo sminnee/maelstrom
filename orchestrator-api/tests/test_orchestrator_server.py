@@ -3998,6 +3998,31 @@ def test_a_sent_message_shows_its_attachment_by_a_fetchable_url(harness, images)
     assert item["markdown"] == f"![shot.png](/api/attachments/{PROJECT}/t1/shot.png)"
 
 
+def test_a_task_detail_names_its_attachments_by_a_fetchable_url(harness, images):
+    """``displayContent`` is what the node card shows; ``content`` is what an edit saves."""
+    # `_upload` saves `shot.png` into bucket `t1`.
+    content = "See this:\n\n![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)"
+    harness.add_task("NORT-7", content=content)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/attachments", data=_upload()) as raw:
+                assert raw.status == 200
+            task = await api.get_json(f"/api/tasks/{PROJECT}/NORT-7")
+            url = f"/api/attachments/{PROJECT}/t1/shot.png"
+            async with api.session.get(url) as got:
+                return task, got.status, await got.read()
+
+    task, status, body = run(scenario())
+
+    assert task["content"] == content
+    assert task["displayContent"] == (
+        f"See this:\n\n![shot.png](/api/attachments/{PROJECT}/t1/shot.png)"
+    )
+    assert status == 200
+    assert body == PNG_BYTES
+
+
 def test_a_non_image_upload_is_refused(harness, images):
     async def scenario():
         async with harness.client() as api:

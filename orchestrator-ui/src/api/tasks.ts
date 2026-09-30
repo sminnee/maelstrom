@@ -20,12 +20,15 @@ export function useTasks() {
   });
 }
 
+/** A task's detail: the task, plus its prose with each attachment ref made fetchable. */
+type TaskDetail = Task & { displayContent: string };
+
 /** One task with its prose. The wire id is `<project>/<notebookId>`, two path segments. */
 export function useTask(taskId: TaskId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.tasks.detail(taskId ?? ''),
-    queryFn: () => api.get<Task>(`/api/tasks/${taskId}`),
+    queryFn: () => api.get<TaskDetail>(`/api/tasks/${taskId}`),
     enabled: taskId !== null,
   });
 }

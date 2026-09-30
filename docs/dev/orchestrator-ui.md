@@ -827,6 +827,10 @@ as an ordinary ref in the message text. See `docs/dev/orchestrator-server.md`, "
 a thumbnail capped at 240px tall, and a click opens it full size in a `ui/Dialog`. Every surface
 that renders markdown gets this, not only the transcript.
 
+A surface shows an attachment only if its markdown holds a URL the server serves. For this
+reason the node card renders the task's `displayContent`, not its `content`. A user message
+arrives with the URL already in it. See "Attachments" in `docs/dev/orchestrator-server.md`.
+
 The height cap, the portal to the body, and the `Dialog` `className` each carry their reason at
 their own site.
 

@@ -209,6 +209,16 @@ class TaskRow(TypedDict):
     actionable: bool
 
 
+class TaskDetail(Task):
+    """A task as ``GET /api/tasks/{project}/{id}`` carries it.
+
+    ``displayContent`` is ``content`` with each attachment ref made a URL the
+    browser can fetch. ``content`` stays raw, because an edit saves it back.
+    """
+
+    displayContent: str
+
+
 #: The ``Task`` fields a ``TaskRow`` leaves out.
 TASK_DETAIL_FIELDS = ("content", "log")
 

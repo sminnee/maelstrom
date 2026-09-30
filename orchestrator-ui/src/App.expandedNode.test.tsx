@@ -225,6 +225,25 @@ describe('the expanded node', () => {
     expect(brief).toHaveAttribute('data-expanded', 'false');
   });
 
+  it('shows an image the brief attaches as a thumbnail the browser can fetch', async () => {
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'task', ids: ['NORT-7.1'] }, (w) => {
+        w.tasks['NORT-7.1'] = {
+          ...w.tasks['NORT-7.1']!,
+          content: 'See ![shot]({{MAEL_TASK_DIR}}/images/NORT-7.1/shot.png)',
+        };
+      });
+    });
+    clickNode('NORT-7.1');
+    const brief = await within(expanded()).findByTestId('task-content');
+    const thumb = within(brief).getByRole('button', { name: 'shot — open full size' });
+    expect(within(thumb).getByRole('img')).toHaveAttribute(
+      'src',
+      '/api/attachments/northwind/NORT-7.1/shot.png',
+    );
+  });
+
   it('approving a plan from the expanded node clears the attention on the node and the chip', async () => {
     const user = userEvent.setup();
     await renderApp();

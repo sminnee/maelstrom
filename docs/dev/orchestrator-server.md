@@ -741,7 +741,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
-| `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
+| `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/agents` | `{agents: [Agent]}` |
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
 | `GET /api/agents/{id}/milestones` | The agent's `AgentCost`: its totals, and a `stages` list saying what each stage cost. Served through `agent_cost.build_cost_report`, the report `mael agent cost` prints. An agent that reached no stage gets that report with `stages: []`, not a 404 |
@@ -907,6 +907,23 @@ The reply carries two refs, and they are not interchangeable:
 `say`, and the agent host would read whatever file it named. So a `say` carries attachment
 URLs, and the server resolves each one to a stored file itself. A URL that does not resolve to
 an attachment this server serves is dropped rather than forwarded.
+
+A stored ref is not fetchable, so the server rewrites it before a browser sees it.
+`attachments.attachment_urls` changes the prefix of each ref's target to
+`/api/attachments/<project>/`. It maps two forms:
+
+- The token, which names the project the caller passes. Task content and a message typed in
+  the UI hold this form.
+- The absolute path under `tasks_root()`, which names its project itself. A task's first prompt
+  holds this form, because `build_prompt` expanded the token.
+
+Two readers use it:
+
+- `GET /api/tasks/{project}/{id}` adds `displayContent`, the content with fetchable refs.
+  `content` stays raw, because the task editor saves it back.
+- The server passes it to the normaliser as `show_refs`, which rewrites each user `message`
+  item with the agent's project. `mael agent attach` passes nothing, so a terminal shows the
+  path the agent was given.
 
 An upload is separate from the send. A task edit that is never saved leaves an orphan file
 rather than a half-written task, and all four UI surfaces share one path.
