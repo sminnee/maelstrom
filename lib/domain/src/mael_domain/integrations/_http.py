@@ -22,6 +22,7 @@ def _read_bytes(
     json_body: Any,
     form_body: dict | None,
     params: dict | None,
+    timeout: float | None = None,
 ) -> bytes:
     """Build and send the request, returning the raw response body as bytes.
 
@@ -29,7 +30,8 @@ def _read_bytes(
     should be supplied (or neither for a bodyless request). ``json_body`` sets
     ``Content-Type: application/json`` automatically; ``form_body`` is urlencoded
     and the caller is responsible for the form content-type header. ``params`` is
-    urlencoded onto the URL.
+    urlencoded onto the URL. ``timeout`` bounds the wait in seconds; ``None``
+    waits as long as the socket default allows.
 
     Raises:
         IntegrationHTTPError: On an HTTP error, with the response body inlined.
@@ -48,7 +50,7 @@ def _read_bytes(
     req = urllib.request.Request(url, data=data, method=method, headers=request_headers)
 
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
@@ -63,6 +65,7 @@ def _read_response(
     json_body: Any,
     form_body: dict | None,
     params: dict | None,
+    timeout: float | None = None,
 ) -> str:
     """Build and send the request, returning the raw response body as text.
 
@@ -80,6 +83,7 @@ def _read_response(
         json_body=json_body,
         form_body=form_body,
         params=params,
+        timeout=timeout,
     ).decode("utf-8")
 
 
@@ -91,6 +95,7 @@ def request_json(
     json_body: Any = None,
     form_body: dict | None = None,
     params: dict | None = None,
+    timeout: float | None = None,
 ) -> Any:
     """Make an HTTP request and return the decoded JSON response.
 
@@ -106,6 +111,7 @@ def request_json(
         json_body=json_body,
         form_body=form_body,
         params=params,
+        timeout=timeout,
     )
     return json.loads(body)
 
