@@ -9,6 +9,8 @@ import base64
 import json
 from pathlib import Path
 
+from agent_replay import FIXTURES
+
 from mael_agent.agent_wire import (
     AWAITING_PLAN_REVIEW,
     PendingRequest,
@@ -23,8 +25,6 @@ from mael_agent.agent_wire import (
     set_mode_request,
     user_message,
 )
-
-FIXTURES = Path(__file__).parents[1] / "fixtures" / "agent_events"
 
 
 def recorded_ask(name: str) -> PendingRequest:

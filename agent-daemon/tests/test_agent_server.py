@@ -15,6 +15,7 @@ from typing import Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from agent_replay import FIXTURES, replay
 
 from mael_agent.agent_transport import DaemonPaths
 from mael_agent.agent_wire import (
@@ -49,23 +50,6 @@ from mael_daemon.agent_spec_store import (
     JsonAgentSpecStore,
 )
 from mael_daemon.transcript_store import InMemoryTranscriptStore
-
-FIXTURES = Path(__file__).parents[1] / "fixtures" / "agent_events"
-
-
-def replay(name: str, stop_before_control: bool = False):
-    """Feed one fixture through the reducer and return the final state."""
-    from mael_daemon.agent_model import AgentState
-
-    state = AgentState(agent_id="a1", cwd="/tmp/x")
-    for line in (FIXTURES / name).read_text().splitlines():
-        if not line.strip():
-            continue
-        event = json.loads(line)
-        state = apply_event(state, event)
-        if stop_before_control and event.get("type") == "control_request":
-            break
-    return state
 
 
 def _stub_agent(agent_id: str = "a1", clock: Callable[[], str] | None = None) -> Agent:
