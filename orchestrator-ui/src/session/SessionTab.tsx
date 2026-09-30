@@ -21,6 +21,7 @@ import { answeredOnCanvas } from '../selectors/transcript';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
+import { AgentControls } from './AgentControls';
 import { awaitCompact } from './awaitCompact';
 import { MessageInput } from './MessageInput';
 import { Transcript } from './Transcript';
@@ -61,8 +62,18 @@ function atBottom(el: HTMLElement): boolean {
  *
  * A subagent opens in the same tab, read-only, and a parent lists its
  * subagents in a strip beneath the transcript. See `docs/dev/orchestrator-ui.md`.
+ *
+ * With `onDismissed`, the head also carries Resume and the end-of-work
+ * control, and a dismiss calls it. The panel passes it to close the tab; the
+ * narrow layout does not, and keeps those controls on the node alone.
  */
-export function SessionTab({ agentId }: { agentId: string }) {
+export function SessionTab({
+  agentId,
+  onDismissed,
+}: {
+  agentId: string;
+  onDismissed?: () => void;
+}) {
   const approve = useApprove();
   const deny = useDeny();
   const answer = useAnswer();
@@ -223,6 +234,10 @@ export function SessionTab({ agentId }: { agentId: string }) {
               >
                 Compact
               </AppButton>
+              {/* A subagent has no process of its own, so it gets none. */}
+              {onDismissed && (
+                <AgentControls agent={agent} where={where} onDismissed={onDismissed} />
+              )}
             </span>
           )}
         </div>

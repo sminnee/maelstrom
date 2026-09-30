@@ -87,4 +87,26 @@ describe('the panel sidebar groups tabs by worktree', () => {
     await user.click(worktreeRow('northwind alpha'));
     expect(bar()).toHaveTextContent('feat/orders');
   });
+
+  it('offers Terminate in the session head while the agent is live, and Dismiss closes its tab once it has exited', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openSession(user, 'NORT-7');
+    await openSession(user, 'NORT-9');
+    const head = screen.getByTestId('session-head');
+    expect(within(head).getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
+
+    server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+      w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'exited', exitCode: 0 };
+    });
+    await waitFor(() =>
+      expect(within(head).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument(),
+    );
+    expect(within(head).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+
+    await user.click(within(head).getByRole('button', { name: 'Dismiss' }));
+    // Its own tab goes, and with it its row; the other worktree's tab stays.
+    await waitFor(() => expect(rows()).toEqual(['northwind alpha']));
+    expect(stripKeys()).toEqual(['session:a1f3c9e2']);
+  });
 });
