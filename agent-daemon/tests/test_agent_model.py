@@ -598,8 +598,8 @@ def test_prose_an_agent_wrapped_in_markup_is_kept():
 
     An agent writes HTML in a message — `<details>`, `<section>` — and a cut
     that took a tag's body with it would delete the paragraphs between the
-    halves of a pair. No shape tells such a pair from `<doc-content>`, whose
-    body is arbitrary markdown, so the body is what stays.
+    halves of a pair. No shape tells such a pair from a marker pair whose body
+    is arbitrary markdown, so the body is what stays.
     """
     state = _say(
         AgentState(agent_id="a1", cwd="/tmp/x"),

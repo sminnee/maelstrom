@@ -486,7 +486,10 @@ The panel holds session and document tabs only. It sits beside the canvas and th
 with the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a session or a document as a tab, and opens a collapsed panel
 too; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
-whatever raised it — a plan review, or a tag the agent wrote in its own message.
+whatever raised it — a plan review, or a tag the agent wrote in its own message. It lists them by
+review group (`selectors/documents.ts`): a group of one is one row, and a larger group is its
+title and status over a link per member. A `superseded` member is left out. A member's tab shows
+its place in the group, `2 of 3`, with links to its siblings, so each file reads on its own.
 
 The same links row carries external links, which open a new browser tab instead of a panel
 tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
@@ -544,7 +547,9 @@ why the document's own route is refused.
 A **draft** document draws nothing. It is something to read: nothing waits behind it, so
 `documents/ReviewActions.tsx` returns nothing rather than a bar refusing a review nobody asked
 for. Every other status keeps the bar — `awaiting-review` offers Approve and Request changes, and
-the rest read "This version is {status}." See `CONTEXT.md`, "Document tag", for how an agent asks
+the rest read "This version is {status}." One verdict settles the whole review group, so for a
+group of more than one the labels count it: "Approve all 3", "Approve and create 3 tasks",
+"Request changes on all 3", and "All 3 are {status}." See `CONTEXT.md`, "Document tag", for how an agent asks
 for one status or the other.
 
 `worktree` is the one grouping whose lanes come from the world rather than from the nodes. Every

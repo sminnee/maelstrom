@@ -172,8 +172,9 @@ orchestrator UI, which calls the same step.
 _Avoid_: Proposal, pending task, plan file
 
 **Task set**:
-The drafts of one chain, shown as one document. Its `<doc-file>` tag names every file in chain
-order, and that order is the order approval promotes and chains them in.
+The drafts of one chain, shown as one **Review group**. Its `<doc-file>` tag names every file in
+chain order, and that order is the order approval promotes and chains them in. Each draft is its
+own document.
 _Avoid_: Batch, plan bundle
 
 ## Sessions
@@ -678,21 +679,31 @@ the filters, the expanded node — is not held.
 _Avoid_: Draft (a task file in `.drafts/`), autosave, cache, unsaved changes
 
 **Document**:
-A versioned markdown artefact an agent puts in front of the user: a plan, a task set, a PR
-description, a review, a document bound for the repo. A document that stands at a checkpoint
-awaits review. A document the user was only asked to read is a **draft**, and blocks nothing.
-_Avoid_: Artefact, output, file
+A versioned markdown artefact an agent puts in front of the user: a plan, a task draft, a PR
+description, a review, a document bound for the repo. Every document but a plan is one file, and
+its worktree-relative path is its identity within the task (or within the agent when it has no
+task). Presenting the same path again makes the next version of the same document, whatever its
+status. A document that stands at a checkpoint awaits review. A document the user was only asked
+to read is a **draft**, and blocks nothing.
+_Avoid_: Artefact, output
 
 **Document tag**:
 The marker an agent writes in the text of an ordinary message to put a document in front of the
-user. `<doc-content>` carries the markdown inline; `<doc-file>` names files in the agent's
-worktree, comma-separated, resolved against that directory and nothing outside it. The tag names
-the document's `kind` and `title`, and is cut out of the message the transcript shows. A tag
-opens its document at `draft`; `review="true"` opens it awaiting review instead, which is what
-raises an attention item. One of five markers, with the **Image tag**, the **Note** and the
-**Milestone**. The names
-carry nothing maelstrom-specific, so another frontend may render them its own way.
+user: `<doc-file>`, naming files in the agent's worktree, comma-separated, resolved against that
+directory and nothing outside it. Each file becomes one document, and the files of one tag form a
+**Review group** the tag's `title` names. The tag is cut out of the message the transcript shows.
+A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
+what raises an attention item.
+One of five markers, with the **Image tag**, the **Note** and the **Milestone**. The names carry
+nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
+
+**Review group**:
+The documents one **Document tag** named, settled by one verdict. Approving or sending back any
+member settles every current member, and raises or clears one attention item for the group. Each
+member keeps its own version. A member the agent leaves out when it presents the tag again is
+**superseded**, and drops off the card. A plan is a group of one.
+_Avoid_: Bundle, batch, set (except **Task set**)
 
 **Note**:
 What an agent says it is doing now, written as `<note>Rebasing onto main</note>` in the text of an

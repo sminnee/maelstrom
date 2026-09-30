@@ -600,14 +600,10 @@ def scrub_markers(text: str) -> str:
 
     A marker is not speech, but what a marker wraps may be. The syntax goes and
     the text between the tags stays, so a `<milestone>` leaves the bare word it
-    named and a `<doc-content>` leaves its body.
+    named.
 
-    Keeping the body is what makes this safe without a vocabulary. Cutting it
-    would need to know where each marker ends, and no shape tells a
-    `<doc-content>` — whose body is arbitrary markdown — from a `<section>` an
-    agent wrote as prose. Guessing there deletes the agent's own paragraphs,
-    where guessing here leaves a stray word in a column that is one line long
-    and truncated anyway.
+    Keeping the body is what makes this safe without a vocabulary — see
+    `docs/dev/agent-daemon.md`, where the scrub is described.
 
     Both halves of a pair go: cutting only what looked like an opening tag would
     leave a bare closing tag standing, which is the syntax this removes.

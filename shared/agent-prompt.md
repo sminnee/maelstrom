@@ -13,24 +13,25 @@ summary.
 
 ## Documents
 
-Use `<doc-content>` for markdown you write in the message. Use `<doc-file>` to present an
-existing document to the user, including a document for review or approval:
+Present any file the user should read or decide on as soon as it exists, without being asked. This
+covers task drafts, `.drafts/pr.md`, a review, and a design note. Present it again after each
+revision.
+
+A document is always a file. Write it under `.drafts/`, then show it with `<doc-file>`:
 
 ```
-<doc-content kind="other" title="Changelog draft">
-## 1.4.0
-- The body, inline
-</doc-content>
-
 <doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Iteration 1">
 ```
 
 - `kind` is `tasks`, `pr`, `review`, or `other`. An unknown value is `other`.
-- `title` names the tab. It defaults to the first filename, then to `kind`.
-- `filename` is for `<doc-file>`. Give comma-separated worktree-relative paths. The files open
-  as one document in that order.
-- `review="true"` asks the user to approve the document and raises an attention item. Without it,
-  the document is a draft and blocks nothing.
+- `filename` is comma-separated worktree-relative paths. Each file is its own document, with its
+  own tab and version. Never merge files into one.
+- List several files in one tag when one verdict covers them all, such as a task set. The files
+  of one tag form a review group, and `title` names the group. It defaults to the first filename.
+- `review="true"` asks the user to approve the group and raises an attention item. Without it,
+  the documents are drafts and block nothing.
+- For each revision, use the same path and the same tag title. That replaces the earlier entry
+  with the next version. A new path adds a new entry.
 
 Do not use absolute paths or paths that escape the worktree with `..`. An unreadable file still
 opens a document that says it cannot be read.
