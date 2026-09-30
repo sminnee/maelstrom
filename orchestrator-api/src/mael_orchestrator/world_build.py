@@ -70,8 +70,10 @@ def split_task_key(key: str) -> tuple[str, str]:
     return project, notebook_id
 
 
-def task_entity(task: model.Task, *, actionable: bool) -> Task:
+def task_entity(task: model.Task, *, actionable: bool, started_at: str = "") -> Task:
     """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule.
+
+    ``started_at`` comes from the Agent records; the notebook does not know it.
 
     ``follows`` is qualified with the task's own project: a task only ever
     follows a task beside it in the notebook. ``parent`` is left bare, because
@@ -97,6 +99,7 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
         "created": task.created,
         "updated": task.updated,
         "actionable": actionable,
+        "startedAt": started_at,
     }
 
 

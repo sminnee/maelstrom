@@ -183,6 +183,9 @@ class Task(TypedDict):
     created: str
     updated: str
     actionable: bool
+    #: When the task's first agent started, ISO 8601; ``""`` when none has.
+    #: Unlike an agent's, it outlives the agent.
+    startedAt: str
 
 
 class TaskRow(TypedDict):
@@ -209,6 +212,7 @@ class TaskRow(TypedDict):
     created: str
     updated: str
     actionable: bool
+    startedAt: str
 
 
 class TaskDetail(Task):

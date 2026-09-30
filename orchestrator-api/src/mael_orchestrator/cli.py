@@ -192,10 +192,12 @@ def build_orchestrator(
         cmux = MaelCmux.current()
         return cmux.terminal_urls(worktrees) if cmux else {}
 
+    agent_store = SqliteAgentStore(state_db)
     tasks = NotebookTaskSource(
         table,
         lambda: [path.name for path in find_all_projects(projects_dir)],
         open_worktree=open_worktree,
+        agents=agent_store,
     )
     worktrees = ListAllWorktreeSource(
         projects_dir,
@@ -210,7 +212,7 @@ def build_orchestrator(
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
         CodexDaemonClient(CodexBridge()),
-        SqliteAgentStore(state_db),
+        agent_store,
     )
     return Orchestrator(
         tasks,

@@ -182,19 +182,26 @@ have made it. `selectors/cardPr.ts` holds the rule:
 | The task | Shows |
 |---|---|
 | In the not-started zone | No PR |
-| Its agent started after the PR merged | No PR |
-| Its agent started before the PR merged | The merged PR |
+| It started after the PR merged | No PR |
+| It started before the PR merged | The merged PR |
 | Its branch has an open PR, and the task has started | The open PR |
-| Finished, with no agent | The merged PR |
+| Finished, with no start time | The merged PR |
 
 An open PR is never wrong: a branch has at most one. The rule compares the worktree's
-`prMergedAt` with the agent's `startedAt`. `startedAt` comes from the Agent record, not the
-daemon, because a resume resets the daemon's start time. That reset would hide the agent's own
-PR. The worktree table does not use the rule: it is about the branch, not a session.
+`prMergedAt` with the task's `startedAt`, else the card's agent's `startedAt`.
 
-The rule has two known gaps. A finished task whose agent has left the world shows the branch's
-newest merged PR, which may be a later task's. And an agent the orchestrator adopted rather than
-started has the adoption time as `startedAt`, so a PR that merged before the adoption is hidden.
+A task's `startedAt` is when its first agent started. The task source reads it from the Agent
+records, ended ones included, matched to the task by task session id. So a finished card, whose
+agent has left the world, keeps it, and a task run again after its PR merged still shows that PR.
+The source folds in only the records written since its last read, and sends a task again when its
+first start appears. The agent's start stands in only until that read.
+
+Both times come from Agent records, not the daemon, because a resume resets the daemon's start
+time. That reset would hide the agent's own PR. The worktree table does not use the rule: it is
+about the branch, not a session.
+
+The rule has one known gap. An agent the orchestrator adopted rather than started has the
+adoption time as its start, so a PR that merged before the adoption is hidden.
 
 ### The worktree table
 

@@ -178,6 +178,11 @@ export interface Task {
   updated: string;
   /** Derived by the backend: may maelstrom launch it now. */
   actionable: boolean;
+  /**
+   * When the task's first agent started, ISO 8601, or `''` when none has.
+   * Unlike an agent's, it outlives the agent.
+   */
+  startedAt: string;
 }
 
 /** From `agent_model.py`: every state is observed from an event, never inferred. */
