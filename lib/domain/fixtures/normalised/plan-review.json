@@ -45,6 +45,11 @@
           "type": "plan_review",
           "requestId": "b464dd4e-330c-4b65-9a24-8bf2dc9b7120",
           "planFilePath": ""
+        },
+        "group": {
+          "id": "ag1-4",
+          "title": "Plan",
+          "position": 0
         }
       }
     },

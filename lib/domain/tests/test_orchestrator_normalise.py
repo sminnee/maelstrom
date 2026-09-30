@@ -103,7 +103,8 @@ class Replayed:
 #: The worktree file the ``<doc-file>`` fixtures name. Every other name reads
 #: as missing.
 DRAFT_FILES = {
-    "draft-iter1.md": "# Iteration 1\n\n- Parse the tag.\n- Mint the document.\n"
+    "draft-iter1.md": "# Iteration 1\n\n- Parse the tag.\n- Mint the document.\n",
+    "release-note.md": "The exporter is faster.\n",
 }
 
 
@@ -128,19 +129,16 @@ def fake_reader(files: dict[str, str] | None = None):
     return read
 
 
-def file_ids_of(doc) -> list[str]:
-    """The files a document names, by name alone.
+def file_id_names(doc) -> str:
+    """The file a document's registered id names, by name alone.
 
-    A ``draft_files`` source carries a registered id, which is an item id and
+    A ``draft_file`` source carries a registered id, which is an item id and
     the filename. The id is the registry's business, so a test asks which file
-    the document names, not how the source spells it.
+    the id stands for, not how it is spelled.
     """
     # An id is `<agent>-<n>-<filename>`, and a filename may itself hold a `-`,
     # so only the two id fields are dropped.
-    return [
-        path.rsplit("/", 1)[-1].split("-", 2)[-1] if path.count("-") >= 2 else path
-        for path in doc["source"].get("paths", [])
-    ]
+    return doc["source"]["fileId"].split("-", 2)[-1]
 
 
 def replay(
@@ -1552,33 +1550,13 @@ def documents_of(replayed: Replayed) -> list[dict]:
     return list(replayed.state["world"]["documents"].values())
 
 
-def test_a_doc_content_tag_mints_a_draft_document_from_the_message():
+def test_a_doc_content_tag_mints_nothing_and_stays_in_the_text():
+    """Every document is a file, so an inline body is prose like any other."""
     state = replay("document-content.jsonl")
-    [doc] = documents_of(state)
-    assert doc["kind"] == "other"
-    assert doc["title"] == "Changelog draft"
-    assert doc["markdown"].startswith("## 1.4.0")
-    assert doc["version"] == 1
-    # A draft blocks nothing, so nothing waits on the user.
-    assert doc["status"] == "draft"
-    assert open_attention(state) == []
-
-
-def test_a_doc_content_tag_names_the_message_it_came_from():
-    state = replay("document-content.jsonl")
-    [doc] = documents_of(state)
+    assert documents_of(state) == []
     [message] = items_of(state, "message")
-    assert doc["source"] == {"type": "message", "transcriptItemId": message["id"]}
-
-
-def test_the_tag_is_stripped_from_the_message_the_transcript_shows():
-    """The user reads the document in its tab; the raw tag would be noise."""
-    state = replay("document-content.jsonl")
-    [message] = items_of(state, "message")
-    assert "<doc-content" not in message["markdown"]
-    assert "## 1.4.0" not in message["markdown"]
-    assert message["markdown"].startswith("Here is the changelog")
-    assert message["markdown"].endswith("Tell me what to change.")
+    assert "<doc-content" in message["markdown"]
+    assert "## 1.4.0" in message["markdown"]
 
 
 def test_a_message_that_is_only_a_tag_still_leaves_the_document():
@@ -1593,34 +1571,221 @@ def test_a_doc_file_tag_mints_a_document_holding_the_files_content():
     assert doc["kind"] == "tasks"
     assert doc["title"] == "Iteration 1"
     assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
-    assert doc["source"]["type"] == "draft_files"
-    assert file_ids_of(doc) == ["draft-iter1.md"]
+    assert doc["source"]["type"] == "draft_file"
+    assert doc["source"]["filename"] == "draft-iter1.md"
+    assert file_id_names(doc) == "draft-iter1.md"
 
 
-def test_a_doc_file_tag_may_name_a_whole_set_of_files():
-    """A task set is one document, so one tag names every draft in the chain."""
-    state = seed([make_agent(id="ag1", state="idle")])
-    replayed = Replayed(state)
+def present(replayed: Replayed, ctx, text: str, files: dict[str, str]):
+    """Normalise one tagged message into ``replayed``, and return the new context."""
     out = normalise_stream_event(
-        state,
-        context_for_agent("ag1"),
-        tag_message(
-            '<doc-file kind="tasks" filename="draft-one.md, draft-two.md" '
-            'title="Iteration 1">'
-        ),
-        NOW,
-        read_file=fake_reader({"draft-one.md": "# One\n", "draft-two.md": "# Two\n"}),
+        replayed.state, ctx, tag_message(text), NOW, read_file=fake_reader(files)
     )
     replayed.take(out.events)
-    [doc] = documents_of(replayed)
-    # The order is the order the tag lists, which is the order approve promotes.
-    assert doc["source"] == {
-        "type": "draft_files",
-        "paths": ["draft-one.md", "draft-two.md"],
+    return out.ctx
+
+
+THREE_DRAFTS = {
+    "one.md": task_model.draft_markdown(title="Execute: one", content="First."),
+    "two.md": task_model.draft_markdown(title="Execute: two", content="Second."),
+    "three.md": task_model.draft_markdown(title="Execute: three", content="Third."),
+}
+
+TASK_SET = (
+    '<doc-file kind="tasks" filename="one.md, two.md, three.md" '
+    'title="Iteration 1" review="true">'
+)
+
+
+def test_a_doc_file_tag_naming_three_files_mints_three_documents_in_one_group():
+    """Each file is its own document; the tag makes them one review group."""
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    docs = documents_of(replayed)
+    assert [d["source"]["filename"] for d in docs] == ["one.md", "two.md", "three.md"]
+    # A task file is titled by its draft, not the tag.
+    assert [d["title"] for d in docs] == [
+        "Execute: one",
+        "Execute: two",
+        "Execute: three",
+    ]
+    # One file each: no document holds another's body.
+    assert "First." in docs[0]["markdown"]
+    assert "Second." not in docs[0]["markdown"]
+    assert len({d["group"]["id"] for d in docs}) == 1
+    assert {d["group"]["title"] for d in docs} == {"Iteration 1"}
+    # The tag's order is the chain's order, which approve promotes in.
+    assert [d["group"]["position"] for d in docs] == [0, 1, 2]
+    assert all(d["status"] == "awaiting-review" for d in docs)
+
+
+def test_re_presenting_an_open_file_is_its_next_version():
+    """The path is the identity, whatever the status, so the card holds no duplicate."""
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    first = {d["source"]["filename"]: d for d in documents_of(replayed)}
+    revised = {
+        **THREE_DRAFTS,
+        "two.md": task_model.draft_markdown(title="Execute: two", content="Revised."),
     }
-    # One document to read, so the bodies come through together.
-    assert "# One" in doc["markdown"]
-    assert "# Two" in doc["markdown"]
+    present(replayed, ctx, TASK_SET, revised)
+    docs = {d["source"]["filename"]: d for d in documents_of(replayed)}
+    assert len(docs) == 3
+    assert docs["two.md"]["id"] == first["two.md"]["id"]
+    assert docs["two.md"]["version"] == 2
+    assert "Revised." in docs["two.md"]["markdown"]
+    assert docs["two.md"]["group"]["id"] == first["two.md"]["group"]["id"]
+
+
+def test_a_file_dropped_from_a_re_presented_group_is_superseded():
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    present(
+        replayed,
+        ctx,
+        '<doc-file kind="tasks" filename="one.md, three.md" title="Iteration 1">',
+        THREE_DRAFTS,
+    )
+    status = {d["source"]["filename"]: d["status"] for d in documents_of(replayed)}
+    assert status == {"one.md": "draft", "two.md": "superseded", "three.md": "draft"}
+    # A draft re-present asks for no verdict, so the group's old item goes.
+    assert open_attention(replayed) == []
+
+
+def test_a_group_raises_one_attention_item_and_a_re_present_replaces_it():
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    [first] = open_attention(replayed)
+    head = documents_of(replayed)[0]
+    assert first["documentId"] == head["id"]
+    assert first["summary"] == "Iteration 1 awaiting review"
+    present(replayed, ctx, TASK_SET, THREE_DRAFTS)
+    [again] = open_attention(replayed)
+    assert again["id"] != first["id"]
+
+
+def test_a_path_moved_into_another_group_takes_its_old_group_with_it():
+    """The tag replaces every group a path it names came from."""
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    for tag in (
+        '<doc-file kind="tasks" filename="one.md" title="A" review="true">',
+        '<doc-file kind="tasks" filename="two.md, three.md" title="B" review="true">',
+        '<doc-file kind="tasks" filename="one.md, two.md" title="A" review="true">',
+    ):
+        ctx = present(replayed, ctx, tag, THREE_DRAFTS)
+    status = {d["source"]["filename"]: d["status"] for d in documents_of(replayed)}
+    assert status == {
+        "one.md": "awaiting-review",
+        "two.md": "awaiting-review",
+        "three.md": "superseded",
+    }
+    [item] = open_attention(replayed)
+    assert item["summary"] == "A awaiting review"
+
+
+def test_two_spellings_of_one_path_are_one_document():
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(
+        replayed,
+        context_for_agent("ag1"),
+        '<doc-file kind="other" filename="./notes.md">',
+        {"notes.md": "N.\n"},
+    )
+    present(
+        replayed,
+        ctx,
+        '<doc-file kind="other" filename="notes.md">',
+        {"notes.md": "N.\n"},
+    )
+    [doc] = documents_of(replayed)
+    assert (doc["source"]["filename"], doc["version"]) == ("notes.md", 2)
+
+
+def test_a_doc_file_tag_naming_no_file_stays_in_the_text():
+    """It presents nothing, so cutting it would hide the mistake."""
+    replayed = replay_note('Look: <doc-file kind="other" title="Nothing">')
+    assert documents_of(replayed) == []
+    [message] = items_of(replayed, "message")
+    assert '<doc-file kind="other" title="Nothing">' in message["markdown"]
+
+
+def presented_by(agent: dict, others: list[dict]) -> Replayed:
+    """``agent`` presents the task set into a world already holding ``others``."""
+    replayed = Replayed(seed([agent], others))
+    present(replayed, context_for_agent(agent["id"]), TASK_SET, THREE_DRAFTS)
+    return replayed
+
+
+def an_earlier_one_md(**over) -> dict:
+    """An earlier `one.md` another agent presented, at v1 and approved."""
+    return {
+        "id": "ag0-1",
+        "agentId": "ag0",
+        "taskId": "NORT-7",
+        "kind": "tasks",
+        "title": "Execute: one",
+        "markdown": "",
+        "version": 1,
+        "status": "approved",
+        "source": {"type": "draft_file", "fileId": None, "filename": "one.md"},
+        "group": {"id": "ag0-0", "title": "Iteration 1", "position": 0},
+        **over,
+    }
+
+
+def test_a_second_agent_on_the_same_task_presents_the_same_document():
+    """Scoped to the task, not the agent: a resumed session keeps its entries."""
+    replayed = presented_by(make_agent(id="ag1", state="idle"), [an_earlier_one_md()])
+    one = replayed.state["world"]["documents"]["ag0-1"]
+    assert (one["version"], one["status"]) == (2, "awaiting-review")
+    assert len(documents_of(replayed)) == 3
+
+
+def test_a_file_presented_by_another_task_is_a_different_document():
+    """`.drafts/pr.md` is a new pull request for each task."""
+    earlier = an_earlier_one_md(taskId="NORT-8")
+    replayed = presented_by(make_agent(id="ag1", state="idle"), [earlier])
+    assert replayed.state["world"]["documents"]["ag0-1"] == earlier
+    assert len(documents_of(replayed)) == 4
+
+
+def test_an_agent_with_no_task_scopes_to_itself():
+    """A free agent has no task, so another free agent's path is not its own."""
+    earlier = an_earlier_one_md(taskId="")
+    replayed = presented_by(make_agent(id="ag1", state="idle", taskId=""), [earlier])
+    assert replayed.state["world"]["documents"]["ag0-1"] == earlier
+    assert len(documents_of(replayed)) == 4
+
+
+def test_re_presenting_an_approved_file_reopens_it_as_its_next_version():
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    approved = [
+        {"type": "upsert", "kind": "document", "entity": {**d, "status": "approved"}}
+        for d in documents_of(replayed)
+    ]
+    replayed.take(approved)
+    present(replayed, ctx, TASK_SET, THREE_DRAFTS)
+    assert [(d["version"], d["status"]) for d in documents_of(replayed)] == [
+        (2, "awaiting-review")
+    ] * 3
+
+
+def test_a_reordered_re_present_moves_each_member_to_its_new_place():
+    """The tag's order is the chain's order, whatever order they were first shown in."""
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = present(replayed, context_for_agent("ag1"), TASK_SET, THREE_DRAFTS)
+    present(
+        replayed,
+        ctx,
+        '<doc-file kind="tasks" filename="three.md, one.md, two.md" title="Iteration 1">',
+        THREE_DRAFTS,
+    )
+    position = {
+        d["source"]["filename"]: d["group"]["position"] for d in documents_of(replayed)
+    }
+    assert position == {"three.md": 0, "one.md": 1, "two.md": 2}
 
 
 def show_file(kind: str, filename: str, body: str) -> dict:
@@ -1701,19 +1866,18 @@ def test_a_task_set_whose_draft_will_not_parse_is_still_shown():
     assert "Body." in doc["markdown"]
 
 
-def test_a_set_whose_title_is_unset_falls_back_to_the_first_filename():
-    state = seed([make_agent(id="ag1", state="idle")])
-    replayed = Replayed(state)
-    out = normalise_stream_event(
-        state,
+def test_a_set_whose_title_is_unset_is_titled_by_its_first_filename():
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    present(
+        replayed,
         context_for_agent("ag1"),
-        tag_message('<doc-file kind="tasks" filename="draft-one.md, draft-two.md">'),
-        NOW,
-        read_file=fake_reader({"draft-one.md": "# One\n", "draft-two.md": "# Two\n"}),
+        '<doc-file kind="other" filename="draft-one.md, draft-two.md">',
+        {"draft-one.md": "# One\n", "draft-two.md": "# Two\n"},
     )
-    replayed.take(out.events)
-    [doc] = documents_of(replayed)
-    assert doc["title"] == "draft-one.md"
+    docs = documents_of(replayed)
+    assert {d["group"]["title"] for d in docs} == {"draft-one.md"}
+    # Two files that are not drafts are titled by their names.
+    assert [d["title"] for d in docs] == ["draft-one.md", "draft-two.md"]
 
 
 def test_a_doc_file_tag_naming_a_file_that_cannot_be_read_still_mints_a_document():
@@ -1764,7 +1928,7 @@ def test_an_unrecognised_kind_reads_as_other_rather_than_dropping_the_document()
     out = normalise_stream_event(
         state,
         context_for_agent("ag1"),
-        tag_message('<doc-content kind="taks" title="Typo">\nBody.\n</doc-content>'),
+        tag_message('<doc-file kind="taks" filename="draft-iter1.md" title="Typo">'),
         NOW,
         read_file=fake_reader(),
     )
@@ -1781,33 +1945,11 @@ def tag_message(text: str) -> dict:
     }
 
 
-def test_a_tag_with_no_title_falls_back_to_the_filename_then_the_kind():
-    state = seed([make_agent(id="ag1", state="idle")])
-    replayed = Replayed(state)
-    ctx = context_for_agent("ag1")
-    for text in (
-        '<doc-file kind="tasks" filename="draft-iter1.md">',
-        '<doc-content kind="review">\nBody.\n</doc-content>',
-    ):
-        out = normalise_stream_event(
-            replayed.state, ctx, tag_message(text), NOW, read_file=fake_reader()
-        )
-        ctx = out.ctx
-        replayed.take(out.events)
-    assert [d["title"] for d in documents_of(replayed)] == ["draft-iter1.md", "review"]
-
-
 def test_a_re_mint_versions_a_changes_requested_document_forward():
     """The plan document's rule: the comments stay attached to one document."""
-    state = seed([make_agent(id="ag1", state="idle")])
-    replayed = Replayed(state)
-    ctx = context_for_agent("ag1")
-    tag = '<doc-content kind="tasks" title="Iteration 1">\nDo the first thing.\n</doc-content>'
-    out = normalise_stream_event(
-        replayed.state, ctx, tag_message(tag), NOW, read_file=fake_reader()
-    )
-    ctx = out.ctx
-    replayed.take(out.events)
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    tag = '<doc-file kind="other" filename="notes.md" title="Notes">'
+    ctx = present(replayed, context_for_agent("ag1"), tag, {"notes.md": "First.\n"})
     [first] = documents_of(replayed)
     replayed.take(
         [
@@ -1818,41 +1960,19 @@ def test_a_re_mint_versions_a_changes_requested_document_forward():
             }
         ]
     )
-    again = '<doc-content kind="tasks" title="Iteration 1">\nDo it properly.\n</doc-content>'
-    out = normalise_stream_event(
-        replayed.state, ctx, tag_message(again), NOW, read_file=fake_reader()
-    )
-    replayed.take(out.events)
+    present(replayed, ctx, tag, {"notes.md": "Properly.\n"})
     [doc] = documents_of(replayed)
     assert doc["id"] == first["id"]
     assert doc["version"] == 2
     assert doc["status"] == "draft"
-    assert doc["markdown"].strip() == "Do it properly."
-
-
-def test_a_re_mint_of_a_document_still_open_is_a_new_document():
-    state = seed([make_agent(id="ag1", state="idle")])
-    replayed = Replayed(state)
-    ctx = context_for_agent("ag1")
-    tag = (
-        '<doc-content kind="tasks" title="Iteration 1">\nDo the thing.\n</doc-content>'
-    )
-    for _ in range(2):
-        out = normalise_stream_event(
-            replayed.state, ctx, tag_message(tag), NOW, read_file=fake_reader()
-        )
-        ctx = out.ctx
-        replayed.take(out.events)
-    docs = documents_of(replayed)
-    assert len(docs) == 2
-    assert [d["version"] for d in docs] == [1, 1]
+    assert doc["markdown"].strip() == "Properly."
 
 
 def test_a_subagent_writes_no_document():
     """A subagent's stream is a transcript and its last message, nothing more."""
     state = seed([make_agent(id="ag1", parent="ag0", state="idle")])
     replayed = Replayed(state)
-    tag = '<doc-content kind="other" title="Note">\nBody.\n</doc-content>'
+    tag = '<doc-file kind="other" filename="draft-iter1.md" title="Note">'
     out = normalise_stream_event(
         state, context_for_agent("ag1"), tag_message(tag), NOW, read_file=fake_reader()
     )
@@ -1904,18 +2024,6 @@ def test_the_last_note_in_a_message_wins():
     """Latest only: the note replaces, as the last message does."""
     replayed = replay_note("<note>Reading the test</note>\n<note>Fixing it</note>")
     assert note_of(replayed) == "Fixing it"
-
-
-def test_a_note_inside_a_doc_content_body_stays_that_bodys_text():
-    """The rule `<doc-file>` and `<image>` already follow."""
-    replayed = replay_note(
-        '<doc-content kind="other" title="Guide">\n'
-        "Write <note>like this</note> to report progress.\n"
-        "</doc-content>"
-    )
-    assert note_of(replayed) == ""
-    [doc] = documents_of(replayed)
-    assert "<note>like this</note>" in doc["markdown"]
 
 
 def test_a_message_with_no_note_leaves_the_note_alone():
@@ -2021,7 +2129,7 @@ def test_an_attribute_value_may_hold_an_angle_bracket():
     replayed.take(out.events)
     [doc] = documents_of(replayed)
     assert doc["title"] == "A > B"
-    assert file_ids_of(doc) == ["draft-iter1.md"]
+    assert doc["source"]["filename"] == "draft-iter1.md"
     assert doc["markdown"] == DRAFT_FILES["draft-iter1.md"]
     assert items_of(replayed, "message")[0]["markdown"] == ""
 
@@ -2084,18 +2192,6 @@ def test_the_last_milestone_in_a_message_wins():
         "<milestone>built</milestone>\n<milestone>reviewed</milestone>"
     )
     assert out.milestone.name == "reviewed"
-
-
-def test_a_milestone_inside_a_doc_content_body_stays_that_bodys_text():
-    """The rule every other tag already follows."""
-    replayed, out = replay_milestone(
-        '<doc-content kind="other" title="Guide">\n'
-        "Write <milestone>built</milestone> when the tests pass.\n"
-        "</doc-content>"
-    )
-    assert out.milestone is None
-    [doc] = documents_of(replayed)
-    assert "<milestone>built</milestone>" in doc["markdown"]
 
 
 def test_a_message_with_no_milestone_reports_none():
@@ -2207,7 +2303,7 @@ def test_both_note_patterns_are_still_in_step():
     """Each reader holds its own copy, so neither depends on the other.
 
     The patterns only: what each reader *does* with a match differs on purpose.
-    `read_tags` skips a `<note>` inside a `<doc-content>` body, where this
+    `read_tags` skips a `<note>` inside a tag it has already cut, where this
     module's `read_note` has no spans to skip and takes the last match. Only the
     tag's spelling is shared, and duplicated text drifts silently.
     """

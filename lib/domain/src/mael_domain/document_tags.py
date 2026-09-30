@@ -1,27 +1,23 @@
-"""The document tag an agent writes in its own message, and the file it names.
+"""The document tag an agent writes in its own message, and the files it names.
 
-Two forms::
-
-    <doc-content kind="other" title="Changelog draft">
-    ## 1.4.0
-    - the markdown body, inline
-    </doc-content>
+::
 
     <doc-file kind="tasks" filename=".drafts/iter1.md" title="Iteration 1">
 
-``filename`` may name several files, comma-separated. A task set is one
-document holding the whole chain, so one tag names every draft in it.
+Every document is a file, and its path is its identity. ``filename`` may name
+several files, comma-separated; they form one review group. A task set is such
+a group, so one tag names every draft in the chain.
 
-An agent shows a picture with a third tag, which mints no document at all::
+An agent shows a picture with another tag, which mints no document at all::
 
     <image src="docs/shot.png" alt="The failing dialog">
 
-A fourth says what the agent is doing now, and is a field rather than a
+Another says what the agent is doing now, and is a field rather than a
 document::
 
     <note>Rebasing onto main, then re-running the failing port test</note>
 
-A fifth marks a stage of the work as reached, so a reader can say where the
+A last one marks a stage of the work as reached, so a reader can say where the
 token spend went::
 
     <milestone>built</milestone>
@@ -29,6 +25,7 @@ token spend went::
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
+import posixpath
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,9 +47,6 @@ _ATTRIBUTE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 #: closes it, so a value may hold one — a title reading ``A > B``, or a
 #: placeholder an agent copied out of a skill.
 _ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
-_CONTENT_TAG = re.compile(
-    rf"<doc-content\b{_ATTRIBUTES}>\n?(.*?)\n?</doc-content>", re.DOTALL
-)
 _FILE_TAG = re.compile(rf"<doc-file\b{_ATTRIBUTES}>")
 _IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
 #: What the agent is doing now. No attributes are read; the body is the note.
@@ -84,18 +78,15 @@ FINAL_STAGE = "<final>"
 
 @dataclass(frozen=True)
 class DocumentTag:
-    """One tag: what to call the document, and where its body comes from.
+    """One tag: what to call its review group, and the files it names.
 
-    ``filenames`` is empty for a ``<doc-content>`` tag, whose body is
-    ``markdown``. For a ``<doc-file>`` tag ``markdown`` is empty and the
-    filenames name the files to read, in the order the tag listed them — which
-    for a task set is the order the chain runs in.
+    ``filenames`` are in the order the tag listed them — which for a task set
+    is the order the chain runs in. ``title`` names the group.
     """
 
     kind: str
     title: str
     filenames: tuple[str, ...]
-    markdown: str
     review: bool
 
 
@@ -145,52 +136,31 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     that cut would not survive it. It is required: a default would quietly
     rewrite every image to "could not be shown".
     """
-    tags: list[tuple[int, DocumentTag]] = []
+    tags: list[DocumentTag] = []
     spans: list[tuple[int, int]] = []
 
-    for match in _CONTENT_TAG.finditer(text):
-        attributes = _attributes(match.group(1))
-        tags.append(
-            (
-                match.start(),
-                DocumentTag(
-                    kind=_kind_of(attributes),
-                    title=attributes.get("title", "") or _kind_of(attributes),
-                    filenames=(),
-                    markdown=match.group(2),
-                    review=_review_of(attributes),
-                ),
-            )
-        )
-        spans.append(match.span())
-
     for match in _FILE_TAG.finditer(text):
-        if any(start <= match.start() < end for start, end in spans):
-            # A `<doc-file>` inside a `<doc-content>` body is that body's text.
-            continue
         attributes = _attributes(match.group(1))
         filenames = _filenames_of(attributes)
+        if not filenames:
+            # A tag naming no file presents nothing. Left as text, so the
+            # malformed tag is visible rather than silently gone.
+            continue
         tags.append(
-            (
-                match.start(),
-                DocumentTag(
-                    kind=_kind_of(attributes),
-                    # The first name, not the whole list: a set is titled by
-                    # its head when the agent gave it no name of its own.
-                    title=attributes.get("title", "")
-                    or (filenames[0] if filenames else "")
-                    or _kind_of(attributes),
-                    filenames=filenames,
-                    markdown="",
-                    review=_review_of(attributes),
-                ),
+            DocumentTag(
+                kind=_kind_of(attributes),
+                # The first name, not the whole list: a set is titled by its
+                # head when the agent gave it no name of its own.
+                title=attributes.get("title", "") or filenames[0],
+                filenames=filenames,
+                review=_review_of(attributes),
             )
         )
         spans.append(match.span())
 
     note = ""
     for match in _NOTE_TAG.finditer(text):
-        # A `<note>` inside a `<doc-content>` body is that body's text.
+        # A `<note>` inside a tag already cut is that tag's text.
         if any(start <= match.start() < end for start, end in spans):
             continue
         # The last one wins: a note replaces rather than accumulates, and
@@ -200,7 +170,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
 
     milestone = ""
     for match in _MILESTONE_TAG.finditer(text):
-        # A `<milestone>` inside a `<doc-content>` body is that body's text.
+        # A `<milestone>` inside a tag already cut is that tag's text.
         if any(start <= match.start() < end for start, end in spans):
             continue
         # The last one wins, as a note's does: a message that crosses two
@@ -210,7 +180,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
 
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
-        # An `<image>` inside a `<doc-content>` body is that body's text.
+        # An `<image>` inside a tag already cut is that tag's text.
         if any(start <= match.start() < end for start, end in spans):
             continue
         attributes = _attributes(match.group(1))
@@ -224,10 +194,9 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         shown = show_image(image)
         replacements.append((match.start(), match.end(), shown or _not_shown(src)))
 
-    tags.sort(key=lambda pair: pair[0])
     return TaggedMessage(
         text=_rewritten(text, spans, replacements),
-        tags=tuple(tag for _, tag in tags),
+        tags=tuple(tags),
         note=note,
         milestone=milestone,
     )
@@ -277,7 +246,11 @@ def _filenames_of(attributes: dict[str, str]) -> tuple[str, ...]:
     dropped, so a trailing comma names no extra file.
     """
     raw = attributes.get("filename", "")
-    named = (name.strip() for name in raw.split(",") if name.strip())
+    # Normalised, because the path is the document's identity: `./a.md` and
+    # `a.md` are one file, and must not become two documents.
+    named = (
+        posixpath.normpath(name.strip()) for name in raw.split(",") if name.strip()
+    )
     # De-duped: one file named twice is one draft, and promoting it twice
     # would make two tasks from one plan.
     return tuple(dict.fromkeys(named))

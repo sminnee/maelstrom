@@ -42,10 +42,14 @@
         "version": 1,
         "status": "draft",
         "source": {
-          "type": "draft_files",
-          "paths": [
-            "no-such-draft.md"
-          ]
+          "type": "draft_file",
+          "fileId": null,
+          "filename": "no-such-draft.md"
+        },
+        "group": {
+          "id": "ag1-3",
+          "title": "no-such-draft.md",
+          "position": 0
         }
       }
     },
@@ -78,7 +82,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-5",
+          "id": "ag1-6",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],
