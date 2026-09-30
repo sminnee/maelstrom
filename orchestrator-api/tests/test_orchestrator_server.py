@@ -2222,26 +2222,65 @@ def tag_event(text: str) -> dict:
 
 REVIEW_TAG = (
     "Here is the plan.\n\n"
-    '<doc-content kind="tasks" title="Iteration 1" review="true">\n'
-    "- Do the thing.\n"
-    "</doc-content>"
+    '<doc-file kind="other" filename="iter1.md" title="Iteration 1" review="true">'
 )
-DRAFT_TAG = 'Here is a note.\n\n<doc-content kind="other" title="Note">\nRead this.\n</doc-content>'
+DRAFT_TAG = 'Here is a note.\n\n<doc-file kind="other" filename="note.md" title="Note">'
+#: A review group of three: one verdict covers every file.
+GROUP_TAG = (
+    "Here are the notes.\n\n"
+    '<doc-file kind="other" filename="a.md, b.md, c.md" title="Notes" review="true">'
+)
+#: What the tags above name, written into the agent's worktree.
+TAGGED_FILES = {
+    "iter1.md": "- Do the thing.\n",
+    "note.md": "Read this.\n",
+    "a.md": "A.\n",
+    "b.md": "B.\n",
+    "c.md": "C.\n",
+}
+
+
+@pytest.fixture
+def doc_harness(store, tmp_path):
+    """A harness whose agent works in a real worktree holding the tagged files."""
+    worktree = tmp_path / "northwind-alpha"
+    worktree.mkdir()
+    for name, body in TAGGED_FILES.items():
+        (worktree / name).write_text(body)
+    harness = Harness(store)
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(worktree))
+    return harness
+
+
+async def tagged_documents(
+    stream: EventStream, api: Api, harness, tag: str = REVIEW_TAG
+) -> list[dict]:
+    """Push ``tag`` on ``ag1``'s stream, and return the document rows it minted.
+
+    The route lists documents in the order they were minted, so the new rows
+    are the tail.
+    """
+    before = len((await api.get_json("/api/documents"))["documents"])
+    harness.daemon.push("ag1", tag_event(tag))
+    body = await settled(
+        stream,
+        api,
+        "document",
+        "/api/documents",
+        lambda b: len(b["documents"]) > before,
+    )
+    return body["documents"][before:]
 
 
 async def tagged_document(
     stream: EventStream, api: Api, harness, tag: str = REVIEW_TAG
 ) -> dict:
     """Push ``tag`` on ``ag1``'s stream, and return the document row it minted."""
-    harness.daemon.push("ag1", tag_event(tag))
-    body = await settled(
-        stream, api, "document", "/api/documents", lambda b: b["documents"]
-    )
-    return body["documents"][0]
+    return (await tagged_documents(stream, api, harness, tag))[0]
 
 
-def test_a_tagged_message_mints_a_document_the_documents_route_serves(harness):
-    harness.daemon.rows["ag1"] = agent_row()
+def test_a_tagged_message_mints_a_document_the_documents_route_serves(doc_harness):
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2251,15 +2290,15 @@ def test_a_tagged_message_mints_a_document_the_documents_route_serves(harness):
                 return row, await api.get_json(f"/api/documents/{row['id']}")
 
     row, doc = run(scenario())
-    assert row["kind"] == "tasks"
+    assert row["kind"] == "other"
     assert row["status"] == "awaiting-review"
     # The list ships slim rows; the detail holds the prose.
     assert "markdown" not in row
     assert doc["markdown"].strip() == "- Do the thing."
 
 
-def test_approve_moves_the_document_to_approved_and_tells_nobody_else(harness):
-    harness.daemon.rows["ag1"] = agent_row()
+def test_approve_moves_the_document_to_approved_and_tells_nobody_else(doc_harness):
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2278,8 +2317,8 @@ def test_approve_moves_the_document_to_approved_and_tells_nobody_else(harness):
     assert host_calls(harness) == []
 
 
-def test_approve_clears_the_attention_the_document_raised(harness):
-    harness.daemon.rows["ag1"] = agent_row()
+def test_approve_clears_the_attention_the_document_raised(doc_harness):
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2298,9 +2337,9 @@ def test_approve_clears_the_attention_the_document_raised(harness):
 
 
 def test_request_changes_moves_the_document_and_relays_the_summary_to_the_agent(
-    harness,
+    doc_harness,
 ):
-    harness.daemon.rows["ag1"] = agent_row()
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2323,8 +2362,8 @@ def test_request_changes_moves_the_document_and_relays_the_summary_to_the_agent(
     assert "Iteration 1" in said[0]["text"]
 
 
-def test_a_review_of_a_stale_version_is_refused_and_changes_nothing(harness):
-    harness.daemon.rows["ag1"] = agent_row()
+def test_a_review_of_a_stale_version_is_refused_and_changes_nothing(doc_harness):
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2341,9 +2380,9 @@ def test_a_review_of_a_stale_version_is_refused_and_changes_nothing(harness):
     assert doc["status"] == "awaiting-review"
 
 
-def test_a_draft_document_is_not_a_review_and_is_refused(harness):
+def test_a_draft_document_is_not_a_review_and_is_refused(doc_harness):
     """A draft blocks nothing, so there is no verdict to give on it."""
-    harness.daemon.rows["ag1"] = agent_row()
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2360,9 +2399,9 @@ def test_a_draft_document_is_not_a_review_and_is_refused(harness):
     assert host_calls(harness) == []
 
 
-def test_request_changes_with_no_summary_is_refused(harness):
+def test_request_changes_with_no_summary_is_refused(doc_harness):
     """There are no comments yet, so an empty summary says nothing at all."""
-    harness.daemon.rows["ag1"] = agent_row()
+    harness = doc_harness
 
     async def scenario():
         async with harness.client() as api:
@@ -2380,7 +2419,6 @@ def test_request_changes_with_no_summary_is_refused(harness):
 
 
 def test_a_review_of_a_document_that_does_not_exist_is_unknown_id(harness):
-    harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
         async with harness.client() as api:
@@ -2391,10 +2429,10 @@ def test_a_review_of_a_document_that_does_not_exist_is_unknown_id(harness):
 
 
 def test_a_request_changes_the_host_refuses_leaves_the_document_awaiting_review(
-    harness,
+    doc_harness,
 ):
     """The relay failed, so the agent never heard: the verdict must not stand."""
-    harness.daemon.rows["ag1"] = agent_row()
+    harness = doc_harness
     harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]
 
     async def scenario():
@@ -2411,6 +2449,82 @@ def test_a_request_changes_the_host_refuses_leaves_the_document_awaiting_review(
     reply, doc = run(scenario())
     assert reply.status == 409
     assert doc["status"] == "awaiting-review"
+
+
+def test_approving_one_member_settles_the_whole_group(doc_harness):
+    """One verdict covers every file the tag named, whichever the user clicked."""
+    harness = doc_harness
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                rows = await tagged_documents(stream, api, harness, GROUP_TAG)
+                clicked = rows[1]
+                reply = await api.post(
+                    f"/api/documents/{clicked['id']}/approve",
+                    {"version": clicked["version"]},
+                )
+                return (
+                    reply,
+                    await api.get_json("/api/documents"),
+                    await api.get_json("/api/attention?open=1"),
+                )
+
+    reply, docs, attention = run(scenario())
+    assert reply.status == 200
+    assert [d["status"] for d in docs["documents"]] == ["approved"] * 3
+    assert attention["attention"] == []
+
+
+def test_request_changes_settles_the_group_and_relays_once(doc_harness):
+    harness = doc_harness
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                rows = await tagged_documents(stream, api, harness, GROUP_TAG)
+                reply = await api.post(
+                    f"/api/documents/{rows[2]['id']}/request-changes",
+                    {"version": rows[2]["version"], "summary": "Merge b into a"},
+                )
+                return reply, await api.get_json("/api/documents")
+
+    reply, docs = run(scenario())
+    assert reply.status == 200
+    assert [d["status"] for d in docs["documents"]] == ["changes-requested"] * 3
+    [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
+    assert said["text"] == "Changes requested on Notes: Merge b into a"
+
+
+def test_a_superseded_member_is_left_alone(doc_harness):
+    """A file the agent dropped from the group is not part of the verdict."""
+    harness = doc_harness
+    fewer = GROUP_TAG.replace("a.md, b.md, c.md", "a.md, c.md")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                rows = await tagged_documents(stream, api, harness, GROUP_TAG)
+                harness.daemon.push("ag1", tag_event(fewer))
+                await settled(
+                    stream,
+                    api,
+                    "document",
+                    "/api/documents",
+                    lambda b: any(d["status"] == "superseded" for d in b["documents"]),
+                )
+                head = await api.get_json(f"/api/documents/{rows[0]['id']}")
+                await api.post(
+                    f"/api/documents/{head['id']}/approve", {"version": head["version"]}
+                )
+                return await api.get_json("/api/documents")
+
+    docs = run(scenario())
+    status = {d["source"]["filename"]: d["status"] for d in docs["documents"]}
+    assert status == {"a.md": "approved", "b.md": "superseded", "c.md": "approved"}
 
 
 # --- reads -------------------------------------------------------------------
@@ -4018,13 +4132,19 @@ def tasks_tag(*filenames: str, title: str = "Iteration 1") -> str:
     )
 
 
-async def approve_tasks(api, stream, harness, *filenames: str, title="Iteration 1"):
-    """Tag the drafts as one task-set document, approve it, and return the reply."""
+async def approve_tasks(
+    api, stream, harness, *filenames: str, title="Iteration 1", click: int = 0
+):
+    """Tag the drafts as one task set, approve member ``click``, and return the reply."""
     harness.daemon.push("ag1", tag_event(tasks_tag(*filenames, title=title)))
     body = await settled(
-        stream, api, "document", "/api/documents", lambda b: b["documents"]
+        stream,
+        api,
+        "document",
+        "/api/documents",
+        lambda b: len(b["documents"]) == len(filenames),
     )
-    row = body["documents"][0]
+    row = body["documents"][click]
     reply = await api.post(
         f"/api/documents/{row['id']}/approve", {"version": row["version"]}
     )
@@ -4142,7 +4262,11 @@ def test_approving_anything_but_a_task_set_still_tells_nobody(notebook_harness):
 
 
 def test_the_chain_is_wired_in_document_order(notebook_harness):
-    """The head is actionable; the second waits behind it."""
+    """The head is actionable; the second waits behind it.
+
+    The user approves from the last member: the order is the tag's, not the
+    click's.
+    """
     harness = notebook_harness
     write_draft(harness, "draft-one.md", "First step")
     write_draft(harness, "draft-two.md", "Second step")
@@ -4152,7 +4276,7 @@ def test_the_chain_is_wired_in_document_order(notebook_harness):
             async with api.events() as stream:
                 await stream.next("reset")
                 await approve_tasks(
-                    api, stream, harness, "draft-one.md", "draft-two.md"
+                    api, stream, harness, "draft-one.md", "draft-two.md", click=1
                 )
 
     run(scenario())
@@ -4163,6 +4287,56 @@ def test_the_chain_is_wired_in_document_order(notebook_harness):
     # Asserted through the model's own listing, as `mael task next` reads it.
     assert run(model.is_actionable(first, harness.store))
     assert not run(model.is_actionable(second, harness.store))
+
+
+def test_a_re_presented_task_set_promotes_its_current_members_in_their_new_order(
+    notebook_harness,
+):
+    """The tag's latest order is the chain, and a dropped draft is not promoted."""
+    harness = notebook_harness
+    write_draft(harness, "draft-one.md", "First step")
+    write_draft(harness, "draft-two.md", "Second step")
+    write_draft(harness, "draft-three.md", "Third step")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1",
+                    tag_event(
+                        tasks_tag("draft-one.md", "draft-two.md", "draft-three.md")
+                    ),
+                )
+                await settled(
+                    stream,
+                    api,
+                    "document",
+                    "/api/documents",
+                    lambda b: len(b["documents"]) == 3,
+                )
+                harness.daemon.push(
+                    "ag1", tag_event(tasks_tag("draft-three.md", "draft-one.md"))
+                )
+                body = await settled(
+                    stream,
+                    api,
+                    "document",
+                    "/api/documents",
+                    lambda b: any(d["status"] == "superseded" for d in b["documents"]),
+                )
+                head = next(d for d in body["documents"] if d["status"] != "superseded")
+                return await api.post(
+                    f"/api/documents/{head['id']}/approve", {"version": head["version"]}
+                )
+
+    reply = run(scenario())
+    assert reply.status == 200, reply.body
+    tasks = {t.title: t for t in run(model.list_tasks(harness.store, project=PROJECT))}
+    assert set(tasks) == {"Third step", "First step"}
+    assert tasks["First step"].follows == [tasks["Third step"].id]
+    # A dropped draft is the agent's to delete, not the approve's.
+    assert (harness.worktree / "draft-two.md").exists()
 
 
 def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):

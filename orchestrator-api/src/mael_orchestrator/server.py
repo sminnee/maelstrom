@@ -35,6 +35,7 @@ from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.normalise import (
+    DRAFT_KIND,
     Milestone,
     NormaliseContext,
     Normalised,
@@ -55,6 +56,7 @@ from mael_domain.protocol import (
     ServerEvent,
     TranscriptItem,
     World,
+    group_members,
 )
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task import mode_for_command
@@ -142,15 +144,14 @@ def _stage_total(rows: list[dict[str, Any]]) -> int:
     return int(last["own_total"]) + int(last["sub_total"])
 
 
-def _is_task_set(document: Document) -> bool:
-    """Whether approving this document should promote draft files.
+def _is_task_set(members: list[Document]) -> bool:
+    """Whether approving this review group should promote draft files.
 
-    Only a ``tasks`` document minted from a ``<doc-file>`` tag names drafts. A
-    task set written inline has no files to promote, so approving it is the
-    verdict alone.
+    A task set is a group of ``tasks`` documents, each minted from a draft file.
     """
-    return (
-        document["kind"] == "tasks" and document["source"].get("type") == "draft_files"
+    return all(
+        d["kind"] == DRAFT_KIND and d["source"].get("type") == "draft_file"
+        for d in members
     )
 
 
@@ -1743,12 +1744,13 @@ class Orchestrator:
         approved.
         """
         document = self.world["documents"][command["documentId"]]
+        members = self._group_members(document)
         created: list[str] = []
-        if _is_task_set(document):
-            created, refused = await self._promote_drafts(document)
+        if _is_task_set(members):
+            created, refused = await self._promote_drafts(document, members)
             if refused:
                 return refused
-        self._settle_document(document["id"], "approved")
+        self._settle_group(members, "approved")
         if created:
             await self._tell_agent_of_promote(document, created)
         return {"ok": True, "result": {"taskIds": created}}
@@ -1768,20 +1770,25 @@ class Orchestrator:
                 "cmd": "say",
                 "id": document["agentId"],
                 "text": (
-                    f"Approved {document['title']} in the orchestrator UI, which "
+                    f"Approved {document['group']['title']} in the orchestrator UI, which "
                     f"promoted the drafts. The tasks now exist: {ids}. "
                     f"Do not promote them again."
                 ),
             }
         )
 
+    def _group_members(self, document: Document) -> list[Document]:
+        """The current members of ``document``'s review group, in tag order."""
+        return group_members(self.world["documents"].values(), document["group"]["id"])
+
     async def _promote_drafts(
-        self, document: Document
+        self, document: Document, members: list[Document]
     ) -> tuple[list[str], dict[str, Any] | None]:
         """Promote a task set's drafts, or say which one stopped it.
 
-        The paths resolve against the agent's worktree and nothing outside it,
-        as reading them did.
+        One call for the whole group, in tag order, so the chain runs in the
+        order the agent listed the drafts. The paths resolve against the
+        agent's worktree and nothing outside it, as reading them did.
         """
         agent = self.world["agents"].get(document["agentId"])
         # The agent's project, not the task's: a free agent may plan a chain
@@ -1790,13 +1797,15 @@ class Orchestrator:
         if not project:
             return [], _refused("invalid", "The agent is in no project's worktree")
         paths: list[Path] = []
-        for name in document["source"].get("paths", []):
+        for member in members:
             # A `<doc-file>` registers every file it names, so the id resolves
-            # to the path the registry already validated. A name that is not a
-            # registered id belongs to a document minted before the file was
-            # readable, and there is nothing to promote.
-            found = self.files.resolve(name)
+            # to the path the registry already validated. A member with no id
+            # was minted when its file was not readable, and there is nothing
+            # to promote.
+            source = member["source"]
+            found = self.files.resolve(source["fileId"]) if source["fileId"] else None
             if found is None:
+                name = source["filename"]
                 return [], _refused("invalid", f"{name} is not a file in the worktree")
             paths.append(found)
         try:
@@ -1822,10 +1831,10 @@ class Orchestrator:
         return task["parent"] or task["notebookId"]
 
     async def _request_changes(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Send the document back, and relay the summary to the agent.
+        """Send the review group back, and relay the summary to the agent once.
 
         The relay comes first: a summary the host refuses never reached the
-        agent, so the document has to stay where the user left it, awaiting a
+        agent, so the group has to stay where the user left it, awaiting a
         review nobody has answered.
         """
         document = self.world["documents"][command["documentId"]]
@@ -1834,30 +1843,27 @@ class Orchestrator:
             {
                 "cmd": "say",
                 "id": document["agentId"],
-                "text": f"Changes requested on {document['title']}: {summary}",
+                "text": f"Changes requested on {document['group']['title']}: {summary}",
             }
         )
         if refused:
             return refused
-        self._settle_document(document["id"], "changes-requested")
+        self._settle_group(self._group_members(document), "changes-requested")
         return {"ok": True, "result": {}}
 
-    def _settle_document(self, document_id: str, status: str) -> None:
-        """Move the document, and retire the item that asked for the review.
+    def _settle_group(self, members: list[Document], status: str) -> None:
+        """Move every member, and retire the items that asked for the review.
 
         The document is the server's own table, not the host's, so the change
         is applied here rather than awaited on a stream.
         """
-        document = self.world["documents"][document_id]
+        ids = {d["id"] for d in members}
         events: list[ServerEvent] = [
-            {
-                "type": "upsert",
-                "kind": "document",
-                "entity": {**document, "status": status},
-            }
+            {"type": "upsert", "kind": "document", "entity": {**d, "status": status}}
+            for d in members
         ]
         for item in self.world["attention"].values():
-            if item["documentId"] == document_id and item["clearedAt"] is None:
+            if item["documentId"] in ids and item["clearedAt"] is None:
                 events.append(
                     {
                         "type": "upsert",
