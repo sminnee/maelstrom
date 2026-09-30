@@ -366,6 +366,24 @@ def test_env_marks_driven_children_for_the_daemon():
     assert env["MAEL_HARNESS_TYPE"] == "daemon"
 
 
+def test_env_drops_the_daemons_cmux_pane():
+    # A daemon started in a cmux terminal must not make every agent look like
+    # that terminal.
+    base = {
+        "PATH": "/bin",
+        "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
+        "CMUX_WORKSPACE_ID": "ws-1",
+        "CMUX_SURFACE_ID": "sf-1",
+    }
+    env = build_agent_env(base, None)
+    cmux = {k: v for k, v in env.items() if k.startswith("CMUX_")}
+    # The socket says where cmux listens, not which pane the daemon is in.
+    assert cmux == {
+        "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
+        "CMUX_CLAUDE_HOOKS_DISABLED": "1",
+    }
+
+
 def test_env_drops_the_inherited_virtualenv():
     # The daemon is started as a service from `_main`, so its own VIRTUAL_ENV
     # names `_main`'s venv — the wrong one for an agent in any other worktree.
