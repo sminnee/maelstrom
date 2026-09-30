@@ -566,7 +566,23 @@ head sticks to the top of that scroll. The tab's header and the strip sit outsid
 the heads need no offset.
 
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
-new line numbers. There is no syntax highlighting.
+new line numbers. Each file draws as a card.
+
+Diff rows draw in syntax colour, in the Changes tab and in the Edit card, which takes its path
+from the tool call's `file_path`. `ui/highlight.ts` holds one Shiki highlighter with the
+JavaScript regex engine, so there is no WASM. Shiki's core and each language's grammar are
+separate chunks, fetched when the first diff in that language draws. `languageFor` picks the
+language from the file's path; a file with no known language draws plain. A hunk interleaves two
+files, so the old side (context and remove rows) and the new side (context and add rows) are
+highlighted as two texts. A comment or string that spans lines then keeps one colour. The hunk
+is all the highlighter sees, so a hunk that opens inside a comment or a string draws wrong.
+
+The theme is Shiki's CSS-variable theme, so each token colour is a `var(--syntax-*)`. The
+values are in `styles/tokens.css`, which also sets the light scheme's `--syntax-shade` for
+contrast. A highlighted row keeps its add or remove ground, and only its sign keeps the add or
+remove hue. The rows draw plain first and the colour replaces them when it is ready. A hunk over
+2,000 rows, or with a line over 1,000 characters, stays plain. A failed load leaves the rows
+plain and logs a warning, and the next diff tries again.
 
 The two reads are in `api/worktreeChanges.ts`. A diff has no change notice of its own, so
 `invalidationsFor` refetches a worktree's changes on its `worktree` notice. That notice comes
@@ -1013,5 +1029,5 @@ incidental: view state is not kept, but unsubmitted text is — see "Holding wha
 
 Also out of scope: an embedded terminal, auth, an elk layout, a global keyboard shortcut layer
 (Esc on the card and the question's digit keys are local to their components), syntax
-highlighting in markdown and in the Changes tab, and answering a plan review from the session tab (the expanded node
+highlighting in markdown, and answering a plan review from the session tab (the expanded node
 and the document tab answer it).
