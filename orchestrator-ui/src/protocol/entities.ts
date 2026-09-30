@@ -85,6 +85,61 @@ export interface Worktree {
   shellUrl: string;
 }
 
+/** One **Dirty file**: its path and `git status`'s letter, `?` when untracked. */
+export interface ChangedFile {
+  path: string;
+  status: string;
+}
+
+/** One commit on a worktree's branch that its base does not have. */
+export interface BranchCommit {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  /** ISO 8601, the author date. */
+  date: string;
+  filesChanged: number;
+}
+
+/** `GET /api/worktrees/{id}/changes`: what the Changes tab can show. */
+export interface WorktreeChanges {
+  dirtyFiles: ChangedFile[];
+  /** The **Base** the commits are measured against: `main` when the base was pruned. */
+  base: string;
+  /** Newest first. */
+  commits: BranchCommit[];
+}
+
+export interface DiffLine {
+  kind: 'context' | 'add' | 'remove';
+  text: string;
+  /** `null` on an added line. */
+  oldLine: number | null;
+  /** `null` on a removed line. */
+  newLine: number | null;
+}
+
+export interface DiffHunk {
+  /** The `@@ -a,b +c,d @@` line as git wrote it. */
+  header: string;
+  lines: DiffLine[];
+}
+
+/** One file of `GET /api/worktrees/{id}/diff`. */
+export interface FileDiff {
+  path: string;
+  /** The path before a rename, else `null`. */
+  oldPath: string | null;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  binary: boolean;
+  additions: number;
+  deletions: number;
+  /** The file passed the line cap, so `hunks` holds its first lines only. */
+  truncated: boolean;
+  hunks: DiffHunk[];
+}
+
 export interface TaskLogEntry {
   ts: string;
   text: string;

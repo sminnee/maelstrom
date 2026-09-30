@@ -20,7 +20,7 @@ import { canClose } from '../selectors/worktrees';
 import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
 import { reviewGroups } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
-import { documentTab, sessionTab } from '../selectors/tabs';
+import { changesTab, documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
@@ -289,6 +289,7 @@ export function NodeCardBody({
       <footer className={styles.footer}>
         <div className={styles.actions} data-testid="node-actions">
           {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
+          {where && !where.isClosed && <PanelLink tab={changesTab(where.id)}>Changes</PanelLink>}
           <PrChip worktree={where} size="large" />
           <DevEnvLinks worktree={where} />
           <CmuxControl worktree={where} />

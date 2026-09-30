@@ -40,7 +40,14 @@ export function invalidationsFor(notice: ChangeNotice): QueryKey[] {
     case 'project':
       return [keys.projects()];
     case 'worktree':
-      return [keys.worktrees()];
+      // A diff has no notice of its own. The row moving is the nearest signal;
+      // see docs/dev/orchestrator-ui.md, "The Changes tab".
+      return [
+        keys.worktrees(),
+        ...(notice.ids.length === 0
+          ? [keys.worktreeChanges.all()]
+          : notice.ids.map((id) => keys.worktreeChanges.of(id))),
+      ];
     case 'desk':
       return [keys.desk()];
     case 'host':

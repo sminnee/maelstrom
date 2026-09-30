@@ -4,14 +4,18 @@ import type { ListFilters } from '../selectors/taskList';
 import { noListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
 import { noWorktreeFilters } from '../selectors/worktrees';
-import type { AgentId, DocumentId, TaskId } from '../protocol/ids';
+import type { AgentId, DocumentId, TaskId, WorktreeId } from '../protocol/ids';
 import type { Zone } from '../protocol/progress';
 import type { MobileScreen } from '../selectors/navStack';
 
-/** One tab in the right-hand panel: a session or a document. A task expands on the canvas instead. */
+/**
+ * One tab in the right-hand panel: a session, a document, or a worktree's
+ * changes. A task expands on the canvas instead.
+ */
 export type PanelTab =
   | { key: string; kind: 'session'; agentId: AgentId }
-  | { key: string; kind: 'document'; documentId: DocumentId };
+  | { key: string; kind: 'document'; documentId: DocumentId }
+  | { key: string; kind: 'changes'; worktreeId: WorktreeId };
 
 /**
  * Which main view is showing: the desk, every task, or every worktree.

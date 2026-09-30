@@ -13,12 +13,14 @@ import type { Document } from '../protocol/documents';
 import type {
   Agent,
   DeskEntry,
+  FileDiff,
   Host,
   Project,
   Task,
   TaskMode,
   TaskStatus,
   Worktree,
+  WorktreeChanges,
   WorktreeEnv,
 } from '../protocol/entities';
 import type { AgentId, TaskId } from '../protocol/ids';
@@ -52,12 +54,20 @@ export interface FakeWorld {
    * world it polls, and the route reads them from there.
    */
   milestones: Record<AgentId, Stage[]>;
+  /**
+   * Each worktree's changes and diffs, keyed by worktree id and then by rev.
+   * Beside `milestones` for the same reason: the real server reads them from
+   * git on each request rather than from the world it polls. An open worktree
+   * with no entry reads as clean, with no commits ahead of `main`.
+   */
+  changes: Record<string, { changes: WorktreeChanges; diffs: Record<string, FileDiff[]> }>;
 }
 
 export function emptyFakeWorld(): FakeWorld {
   return {
     linearIssues: {},
     milestones: {},
+    changes: {},
     projects: {},
     worktrees: {},
     tasks: {},
@@ -394,6 +404,23 @@ function read(path: string, server: FakeServer): Reply {
   const params = new URLSearchParams(query);
   if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
   if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
+  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff)$/);
+  if (wt) {
+    const id = decodeURIComponent(wt[1]!);
+    if (!world.worktrees[id] || world.worktrees[id]!.isClosed) {
+      return notFound(`open worktree ${id}`);
+    }
+    const entry = world.changes[id] ?? {
+      changes: { dirtyFiles: [], base: 'main', commits: [] },
+      diffs: {},
+    };
+    if (wt[2] === 'changes') return ok(entry.changes);
+    const rev = params.get('rev') ?? '';
+    const known =
+      rev === 'uncommitted' || rev === 'branch' || entry.changes.commits.some((c) => c.sha === rev);
+    if (!known) return notFound(`rev ${rev} on this branch`);
+    return ok({ rev, files: entry.diffs[rev] ?? [] });
+  }
   if (pathname === '/api/tasks') {
     const tasks = Object.values(world.tasks).map((task) => omit(task, 'content', 'log'));
     return ok({ tasks, version: 'fake' });

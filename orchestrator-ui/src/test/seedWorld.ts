@@ -580,6 +580,8 @@ body rather than the query builder.
 
   const world: FakeWorld = {
     host: { id: 'agent-host', reachable: true, since: T(9), socket: '', usage: null },
+    // Every worktree reads as clean; a test that needs changes seeds them.
+    changes: {},
     // One agent past a stage, the rest with none: the card's band is the
     // exception, not a row every card pays for.
     milestones: {

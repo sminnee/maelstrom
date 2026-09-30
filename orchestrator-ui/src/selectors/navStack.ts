@@ -1,4 +1,4 @@
-import type { AgentId, DocumentId } from '../protocol/ids';
+import type { AgentId, DocumentId, WorktreeId } from '../protocol/ids';
 
 /**
  * One screen in the narrow layout's stack. The wide layout has no stack: a
@@ -7,7 +7,8 @@ import type { AgentId, DocumentId } from '../protocol/ids';
 export type MobileScreen =
   | { kind: 'detail'; nodeId: string }
   | { kind: 'session'; agentId: AgentId }
-  | { kind: 'document'; documentId: DocumentId };
+  | { kind: 'document'; documentId: DocumentId }
+  | { kind: 'changes'; worktreeId: WorktreeId };
 
 /** What makes two screens the same screen. */
 function keyOf(screen: MobileScreen): string {
@@ -18,6 +19,8 @@ function keyOf(screen: MobileScreen): string {
       return `session:${screen.agentId}`;
     case 'document':
       return `document:${screen.documentId}`;
+    case 'changes':
+      return `changes:${screen.worktreeId}`;
   }
 }
 
