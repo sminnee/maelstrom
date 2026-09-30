@@ -350,8 +350,7 @@ def test_show_prints_every_option_with_its_description():
     )
     text = render_agent_detail(detail)
     assert "Which colour do you prefer?" in text
-    assert "Green" in text
-    assert "Natural, calm, fresh." in text
+    assert "\n  Green — Natural, calm, fresh.\n" in text
 
 
 def test_show_ends_with_the_command_that_answers_the_wait():
@@ -360,7 +359,7 @@ def test_show_ends_with_the_command_that_answers_the_wait():
         replay_state("question-unanswered.jsonl", stop_before_control=True)
     )
     text = render_agent_detail(detail)
-    assert "mael agent answer a1 Red" in text
+    assert text.endswith("\nAnswer with:  mael agent answer a1 Red")
 
 
 def test_show_quotes_an_option_a_shell_would_otherwise_read():
@@ -378,7 +377,7 @@ def test_show_names_approve_for_a_plan_review():
         replay_state("plan-review.jsonl", stop_before_control=True)
     )
     text = render_agent_detail(detail)
-    assert "mael agent approve a1" in text
+    assert text.endswith("\nAnswer with:  mael agent approve a1")
 
 
 def test_show_prints_the_plan_in_full():
@@ -429,4 +428,4 @@ def test_show_names_the_subagent_a_wait_came_from():
     )
     text = render_agent_detail(detail)
     assert "Waiting on: WebFetch (from a1.1)" in text
-    assert "mael agent approve a1" in text
+    assert "\nAnswer with:  mael agent approve a1   (or deny)\n" in text
