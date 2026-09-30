@@ -82,7 +82,8 @@ export const changesTab = (worktreeId: WorktreeId): PanelTab => ({
 export interface TabAttribution {
   /**
    * What the tab is, in one string the operator can match against: the
-   * qualified task id, or — for an agent with no task — its own agent id.
+   * task's bare notebook id, or — for an agent with no task — its own agent
+   * id. The panel sidebar names the project, so the id need not.
    * The agent id is the failover task id, not a different kind of thing,
    * so a free agent's tab reads in the same slot and the same register.
    * A changes tab names its worktree instead.
@@ -94,7 +95,7 @@ export interface TabAttribution {
   /**
    * What the tab holds, where that is not already obvious: the document's
    * title, or `changes`. A session has none — its id alone says which session it is, and a
-   * qualified id is long enough that a word beside it wins no reader.
+   * dated id is long enough that a word beside it wins no reader.
    */
   label: string;
   /** The work's own name — the task's title, or a worktree's branch. Empty for a free agent. */
@@ -112,7 +113,7 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
       const agent = world.agents[tab.agentId];
       const task = taskForTab(world, tab);
       return {
-        id: agent?.taskId || tab.agentId,
+        id: task?.notebookId || agent?.taskId || tab.agentId,
         phase: phaseOf(task),
         agentId: tab.agentId,
         label: '',
@@ -125,7 +126,7 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
       return {
         // `tab.documentId` is the last resort, as `tab.agentId` is for a
         // session: a tab the world can tell nothing about still names itself.
-        id: task?.id || doc?.taskId || doc?.agentId || tab.documentId,
+        id: task?.notebookId || doc?.taskId || doc?.agentId || tab.documentId,
         phase: phaseOf(task),
         agentId: doc?.agentId ?? null,
         // `||`, not `??`: a document's title is agent-authored, so an empty

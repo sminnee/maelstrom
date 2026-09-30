@@ -264,10 +264,14 @@ describe('tabAttribution', () => {
     });
   });
 
-  // A session carries no label: the id alone says which session it is, and a
-  // real qualified id is long enough that a word beside it squeezes to nothing.
-  it("a session tab names its task's qualified id and nothing else", () => {
-    expect(tabAttribution(world, sessionTab('agent-1'))).toEqual({
+  // A session carries no label: the id alone says which session it is. The id
+  // is the bare notebook id, because the panel sidebar already names the project.
+  it("a session tab names its task's bare id and nothing else", () => {
+    const qualified = worldWith({
+      tasks: [makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', command: 'plan-task' })],
+      agents: [makeAgent({ id: 'agent-1', taskId: 'northwind/NORT-7' })],
+    });
+    expect(tabAttribution(qualified, sessionTab('agent-1'))).toEqual({
       id: 'NORT-7',
       phase: 'plan',
       agentId: 'agent-1',
