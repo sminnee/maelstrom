@@ -161,6 +161,17 @@ class TestRoundTrip:
         assert back.content == ""
         assert back.log == ""
 
+    @pytest.mark.parametrize(
+        ("log", "body"),
+        [
+            ("", "## Content\n\nc\n"),
+            ("- did it", "## Content\n\nc\n\n## Log\n\n- did it\n"),
+        ],
+    )
+    def test_the_log_heading_is_written_only_with_entries(self, log, body):
+        text = Task(id="x", title="t", project="p", content="c", log=log).to_markdown()
+        assert text.split("---\n\n", 1)[1] == body
+
     def test_an_old_steps_heading_stays_in_content(self):
         # Kept as text, so nothing under an old heading is lost silently.
         text = (

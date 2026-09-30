@@ -34,8 +34,7 @@ A draft is inert: it becomes a real task only when it is promoted into the noteb
 ### Drafts become tasks
 
 Each draft is a task file with its recipe in the frontmatter and the execute session's plan
-in the body (abridged — `mael task draft` emits every frontmatter key and all three body
-sections):
+in the body (abridged — `mael task draft` emits every frontmatter key):
 
 ```markdown
 ---
