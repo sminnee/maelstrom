@@ -21,7 +21,7 @@ finds no root has no daemon to talk to, rather than someone else's.
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -449,6 +449,10 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
     truncated: dict[str, int] = field(default_factory=dict)
     #: Per agent, the epoch its backlog marker carries.
     epochs: dict[str, str] = field(default_factory=dict)
+    #: Awaited once, between building the ``list`` reply and returning it, so
+    #: a test can deliver events the reply does not show. The reply copies
+    #: each row, so a row changed here does not leak into it.
+    before_list_reply: Callable[[], Awaitable[None]] | None = None
     #: Rows a ``stop`` dropped, which a ``resume`` brings back, as the host's
     #: spawn records do.
     _stopped: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -465,7 +469,14 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
         if self.replies.get(command):
             return self.replies[command].pop(0)
         if command == "list":
-            return {"agents": list(self.rows.values()), "usage": self.usage}
+            reply = {
+                "agents": [dict(row) for row in self.rows.values()],
+                "usage": self.usage,
+            }
+            hook, self.before_list_reply = self.before_list_reply, None
+            if hook is not None:
+                await hook()
+            return reply
         echo = self._echo_for(payload, command)
         if echo is not None:
             self.push(str(payload.get("id", "")), echo)
