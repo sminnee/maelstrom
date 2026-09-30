@@ -993,7 +993,7 @@ def stop_shared_services(
 
     :func:`_unsubscribe_shared` only stops them when the *last* subscriber
     leaves, so it cannot help a caller that must guarantee nothing is running —
-    notably ``mael mv-project``, which is about to move the directory the
+    notably ``mael project mv``, which is about to move the directory the
     services run in. Returns one status message per service; a project with no
     shared state returns ``[]``.
     """

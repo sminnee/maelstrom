@@ -223,7 +223,7 @@ def task_key(project: str, status: str, id: str) -> str:
     """Build the export path for a task. Raises ``ValueError`` on an unsafe part.
 
     The markdown export lays tasks out as ``<project>/<status>/<id>.md``, so this
-    survives for the exporter and for ``mael mv-project``. It is not how a task
+    survives for the exporter and for ``mael project mv``. It is not how a task
     is looked up: that is :meth:`~mael_domain.task_table.TaskTable.load`.
 
     All three parts are checked, because all three are joined onto the export

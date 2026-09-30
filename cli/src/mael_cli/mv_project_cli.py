@@ -1,4 +1,4 @@
-"""``mael mv-project`` — rename a project and everything derived from its name.
+"""``mael project mv`` — rename a project and everything derived from its name.
 
 The IO adapter for :mod:`mael_domain.mv_project`. It gathers the facts the pure
 model needs, renders or applies the resulting :class:`~mael_domain.mv_project.MovePlan`,
@@ -401,7 +401,7 @@ async def migrate_tasks(plan: MovePlan) -> int:
     the project's tasks split across two names.
 
     ``session_id`` is derived from the project, so re-keying regenerates it —
-    which is why ``mael mv-project`` warns that the move orphans existing
+    which is why ``mael project mv`` warns that the move orphans existing
     sessions rather than migrating their transcripts.
     """
     table = open_task_table()
@@ -569,7 +569,7 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
         )
 
 
-@click.command("mv-project", cls=AsyncCommand)
+@click.command("mv", cls=AsyncCommand)
 @click.argument("old")
 @click.argument("new")
 @click.option("--dry-run", is_flag=True, help="Show the plan without changing anything")
