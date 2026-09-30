@@ -1,9 +1,10 @@
-"""What `mael agent attach` shows, derived from one agent's raw event stream."""
+"""What the CLI shows of one agent: the `attach` view and the `show` text."""
 
 import json
 from pathlib import Path
 
 from agent_fixtures import FIXTURES
+from agent_replay import replay as replay_state
 
 from mael_agent.agent_wire import (
     AGENT_EXITED,
@@ -18,6 +19,7 @@ from mael_cli.agent_view import (
     mark_stream_ended,
     pending_prompt,
     plan_markdown,
+    render_agent_detail,
     tool_call_title,
     transcript_items,
     turn_result_line,
@@ -25,6 +27,8 @@ from mael_cli.agent_view import (
 from mael_daemon.agent_model import (
     AgentState,
     apply_event,
+    build_agent_detail,
+    build_subagent_detail,
 )
 
 #: The tool-card golden is the orchestrator UI's: its test records it.
@@ -335,3 +339,94 @@ def test_tool_cards_match_the_typescript_reference():
         item = {"type": "tool_call", "tool": row["tool"], "input": row["input"]}
         assert classify_tool_call(item) == row["kind"], row["tool"]
         assert tool_call_title(item) == row["title"], row["tool"]
+
+
+# --- what `mael agent show` prints -----------------------------------------
+
+
+def test_show_prints_every_option_with_its_description():
+    detail = build_agent_detail(
+        replay_state("question-unanswered.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "Which colour do you prefer?" in text
+    assert "Green" in text
+    assert "Natural, calm, fresh." in text
+
+
+def test_show_ends_with_the_command_that_answers_the_wait():
+    """Discoverability is the payoff: the next command is on screen."""
+    detail = build_agent_detail(
+        replay_state("question-unanswered.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "mael agent answer a1 Red" in text
+
+
+def test_show_quotes_an_option_a_shell_would_otherwise_read():
+    """An option label is model-written text, and the hint is made to be pasted."""
+    detail = build_agent_detail(
+        replay_state("question-unanswered.jsonl", stop_before_control=True)
+    )
+    detail["questions"][0]["options"][0]["label"] = 'Say "$(whoami)" now'
+    text = render_agent_detail(detail)
+    assert "answer a1 'Say \"$(whoami)\" now'" in text
+
+
+def test_show_names_approve_for_a_plan_review():
+    detail = build_agent_detail(
+        replay_state("plan-review.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "mael agent approve a1" in text
+
+
+def test_show_prints_the_plan_in_full():
+    detail = build_agent_detail(
+        replay_state("plan-review-with-plan.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "## Verification" in text
+
+
+def test_show_names_the_file_the_plan_was_written_to():
+    detail = build_agent_detail(
+        replay_state("plan-review-with-plan.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "Plan file: " in text
+    assert ".md" in text
+
+
+def test_show_on_a_subagent_prints_the_subagent():
+    detail = build_subagent_detail(replay_state("subagent-turn.jsonl"), "a1.1")
+    text = render_agent_detail(detail)
+    assert "a1.1" in text
+    assert "parent:       a1" in text
+    assert "description:  List and summarise docs/dev" in text
+    assert "`docs/dev` exists" in text
+    assert "Subagents:" not in text
+
+
+def test_show_on_a_parent_lists_its_subagents():
+    detail = build_agent_detail(replay_state("subagent-turn.jsonl"))
+    text = render_agent_detail(detail)
+    assert "Subagents:" in text
+    assert "a1.1" in text
+    assert "exited(0)" in text
+    assert "List and summarise docs/dev" in text
+
+
+def test_show_on_a_parent_with_no_subagents_says_nothing_of_them():
+    detail = build_agent_detail(replay_state("normal-turn.jsonl"))
+    text = render_agent_detail(detail)
+    assert "Subagents:" not in text
+
+
+def test_show_names_the_subagent_a_wait_came_from():
+    detail = build_agent_detail(
+        replay_state("subagent-permission.jsonl", stop_before_control=True)
+    )
+    text = render_agent_detail(detail)
+    assert "Waiting on: WebFetch (from a1.1)" in text
+    assert "mael agent approve a1" in text

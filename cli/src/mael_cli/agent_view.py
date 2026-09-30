@@ -1,4 +1,4 @@
-"""What ``mael agent attach`` shows, derived from one agent's raw event stream.
+"""What the CLI shows of one agent: the ``attach`` view and the ``show`` text.
 
 Pure model layer, per ``docs/dev/architecture-patterns.md``, and the sibling of
 ``session_cli``: a reducer over the attach stream plus the small derivations
@@ -17,8 +17,12 @@ agent did or because the connection went.
 It also keeps its own token total, split by kind for the footer. The agent row
 carries a session total too, summed by ``agent_wire.tokens_of``; this one is
 per attach, and both read the same fields so the two can never disagree.
+
+The ``show`` text renders a detail the daemon built, not the event stream.
 """
 
+import json
+import shlex
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any
@@ -26,6 +30,9 @@ from typing import Any
 from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
+    AWAITING_PERMISSION,
+    AWAITING_PLAN_REVIEW,
+    AWAITING_QUESTION,
     BACKLOG_END,
     PLAN_TOOL,
     QUESTION_TOOL,
@@ -33,6 +40,7 @@ from mael_agent.agent_wire import (
     TokenUsage,
     usage_of,
 )
+from mael_common.table import format_table
 from mael_domain.normalise import NormaliseContext, normalise_stream_event
 from mael_domain.normalise import mark_exited as normalise_exited
 from mael_domain.protocol import (
@@ -346,6 +354,90 @@ def _context(tokens: int) -> str:
     if tokens >= 1000:
         return f"{tokens // 1000}k ctx"
     return f"{tokens} ctx"
+
+
+# --- what `mael agent show` prints ----------------------------------------
+
+#: Columns ``mael agent show`` prints for a parent's subagents, in order. No
+#: ``last_note``: a subagent writes none, so the column would always be empty.
+SUBAGENT_COLUMNS = ["id", "state", "description", "last_message"]
+
+
+def render_agent_detail(detail: dict[str, Any]) -> str:
+    """One detail, an agent's or a subagent's, as ``show`` prints it.
+
+    An agent shows its state, its words, its wait and its subagents. A
+    subagent's detail has the same keys with the last two empty, so it prints
+    its state and its words and stops.
+    """
+    lines: list[str] = []
+    for key in (
+        "id",
+        "parent",
+        "description",
+        "state",
+        "session",
+        "cwd",
+        "model",
+        "cost",
+    ):
+        if detail.get(key):
+            lines.append(f"{key + ':':<13} {detail[key]}")
+
+    if detail.get("message"):
+        lines.append(f"\n{detail['message']}")
+
+    if detail.get("plan"):
+        lines.append(f"\nPlan:\n{detail['plan']}")
+    if detail.get("plan_file"):
+        lines.append(f"\nPlan file: {detail['plan_file']}")
+
+    for question in detail.get("questions", []):
+        header = question.get("header") or "Question"
+        multi = " (choose any)" if question.get("multi_select") else ""
+        lines.append(f"\n{header}{multi}: {question['question']}")
+        for option in question.get("options", []):
+            description = option.get("description", "")
+            suffix = f" — {description}" if description else ""
+            lines.append(f"  {option['label']}{suffix}")
+
+    if detail.get("waiting_tool") and not detail.get("questions"):
+        origin = detail.get("waiting_subagent", "")
+        suffix = f" (from {origin})" if origin else ""
+        lines.append(f"\nWaiting on: {detail['waiting_tool']}{suffix}")
+        if detail.get("waiting_input"):
+            lines.append(f"  {json.dumps(detail['waiting_input'])[:400]}")
+
+    hint = _answer_hint(detail)
+    if hint:
+        lines.append(f"\nAnswer with:  {hint}")
+
+    if detail.get("subagents"):
+        lines.append("\nSubagents:")
+        lines.append(format_table(detail["subagents"], SUBAGENT_COLUMNS))
+
+    return "\n".join(lines)
+
+
+def _answer_hint(detail: dict[str, Any]) -> str:
+    """The command that resolves this agent's wait, or ``""`` when none does."""
+    agent_id = detail["id"]
+    kind = detail.get("waiting_kind", "")
+    if kind == AWAITING_QUESTION:
+        options = [
+            option["label"]
+            for question in detail.get("questions", [])
+            for option in question.get("options", [])
+        ]
+        choice = options[0] if options else "<choice>"
+        # An option label is model-written text. Unquoted, one carrying a `$` or
+        # a backtick becomes a live substitution the moment a user pastes it.
+        return f"mael agent answer {agent_id} {shlex.quote(choice)}"
+    if kind == AWAITING_PLAN_REVIEW:
+        return f"mael agent approve {agent_id}"
+    if kind == AWAITING_PERMISSION:
+        return f"mael agent approve {agent_id}   (or deny)"
+    return ""
 
 
 def _str(value: Any) -> str:

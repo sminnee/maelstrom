@@ -22,10 +22,10 @@ from mael_agent.agent_transport import (
 )
 from mael_agent.agent_wire import AGENT_EXITED
 from mael_cli import admin_cli, agent_cli
+from mael_cli.agent_view import render_agent_detail
 from mael_daemon.agent_model import (
     build_agent_detail,
     build_agent_row,
-    build_subagent_detail,
     build_subagent_rows,
 )
 from mael_daemon.agent_server import Agent, AgentDaemon
@@ -282,63 +282,19 @@ def test_list_shows_what_the_agent_last_said():
     assert "Hello there, friend" in result.output
 
 
-def test_show_prints_every_option_with_its_description():
+def test_show_json_emits_the_detail_as_is():
+    detail = build_agent_detail(replay("normal-turn.jsonl"))
+    result, _ = run_cli(["show", "a1", "--json"], [{"agent": detail}])
+    assert json.loads(result.output) == detail
+
+
+def test_show_prints_the_rendered_detail():
     detail = build_agent_detail(
         replay("question-unanswered.jsonl", stop_before_control=True)
     )
     result, _ = run_cli(["show", "a1"], [{"agent": detail}])
     assert result.exit_code == 0
-    assert "Which colour do you prefer?" in result.output
-    assert "Green" in result.output
-    assert "Natural, calm, fresh." in result.output
-
-
-def test_show_ends_with_the_command_that_answers_the_wait():
-    """Discoverability is the payoff: the next command is on screen."""
-    detail = build_agent_detail(
-        replay("question-unanswered.jsonl", stop_before_control=True)
-    )
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "mael agent answer a1 Red" in result.output
-
-
-def test_show_quotes_an_option_a_shell_would_otherwise_read():
-    """An option label is model-written text, and the hint is made to be pasted."""
-    detail = build_agent_detail(
-        replay("question-unanswered.jsonl", stop_before_control=True)
-    )
-    detail["questions"][0]["options"][0]["label"] = 'Say "$(whoami)" now'
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "answer a1 'Say \"$(whoami)\" now'" in result.output
-
-
-def test_show_names_approve_for_a_plan_review():
-    detail = build_agent_detail(replay("plan-review.jsonl", stop_before_control=True))
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "mael agent approve a1" in result.output
-
-
-def test_show_prints_the_plan_in_full():
-    detail = build_agent_detail(
-        replay("plan-review-with-plan.jsonl", stop_before_control=True)
-    )
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "## Verification" in result.output
-
-
-def test_show_names_the_file_the_plan_was_written_to():
-    detail = build_agent_detail(
-        replay("plan-review-with-plan.jsonl", stop_before_control=True)
-    )
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "Plan file: " in result.output
-    assert ".md" in result.output
-
-
-def test_show_json_emits_the_detail_as_is():
-    detail = build_agent_detail(replay("normal-turn.jsonl"))
-    result, _ = run_cli(["show", "a1", "--json"], [{"agent": detail}])
-    assert json.loads(result.output) == detail
+    assert result.output == render_agent_detail(detail) + "\n"
 
 
 def test_show_sends_the_show_command():
@@ -680,42 +636,6 @@ def test_list_shows_the_parent_column():
     assert result.output.splitlines()[0].split() == agent_cli.LIST_COLUMNS
     assert "a1.1" in result.output
     assert "List and summarise docs/dev" in result.output
-
-
-def test_show_on_a_subagent_prints_the_subagent():
-    detail = build_subagent_detail(replay("subagent-turn.jsonl"), "a1.1")
-    result, client = run_cli(["show", "a1.1"], [{"agent": detail}])
-    assert client.calls == [{"cmd": "show", "id": "a1.1"}]
-    assert result.exit_code == 0
-    assert "a1.1" in result.output
-    assert "parent:       a1" in result.output
-    assert "description:  List and summarise docs/dev" in result.output
-    assert "`docs/dev` exists" in result.output
-    assert "Subagents:" not in result.output
-
-
-def test_show_on_a_parent_lists_its_subagents():
-    detail = build_agent_detail(replay("subagent-turn.jsonl"))
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "Subagents:" in result.output
-    assert "a1.1" in result.output
-    assert "exited(0)" in result.output
-    assert "List and summarise docs/dev" in result.output
-
-
-def test_show_on_a_parent_with_no_subagents_says_nothing_of_them():
-    detail = build_agent_detail(replay("normal-turn.jsonl"))
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "Subagents:" not in result.output
-
-
-def test_show_names_the_subagent_a_wait_came_from():
-    detail = build_agent_detail(
-        replay("subagent-permission.jsonl", stop_before_control=True)
-    )
-    result, _ = run_cli(["show", "a1"], [{"agent": detail}])
-    assert "Waiting on: WebFetch (from a1.1)" in result.output
-    assert "mael agent approve a1" in result.output
 
 
 class TestStopAgentsInWorktree:
