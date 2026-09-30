@@ -13,22 +13,23 @@ function rowsOf(nodes: RowInput[]) {
 describe('assignRows', () => {
   // The cut reads nodes by column, so B continues A although it is listed first.
   it('gives a follower listed before its predecessor the predecessor row', () => {
-    expect(rowsOf([n('S1', 0), n('B', 1, 'A'), n('A', 0)])).toEqual({ S1: 0, B: 1, A: 1 });
+    expect(rowsOf([n('S0', 0), n('S1', 1, 'S0'), n('B', 2, 'A'), n('A', 1)])).toEqual({
+      S0: 0,
+      S1: 0,
+      A: 1,
+      B: 1,
+    });
   });
 
   it('reserves the columns a track passes over', () => {
     expect(rowsOf([n('A', 0), n('B', 2, 'A'), n('S', 1)])).toEqual({ A: 0, B: 0, S: 1 });
   });
 
-  // X holds row 0 of column 0, so A's track starts on row 1.
+  // X's track holds row 0 of A's column, so A's track starts on row 1.
   it('branches a second follower below its parent and fills the cell above', () => {
-    expect(rowsOf([n('X', 0), n('A', 0), n('B', 1, 'A'), n('C', 1, 'A'), n('S', 1)])).toEqual({
-      X: 0,
-      A: 1,
-      B: 1,
-      C: 2,
-      S: 0,
-    });
+    expect(
+      rowsOf([n('X', 0), n('Y', 1, 'X'), n('A', 1), n('B', 2, 'A'), n('C', 2, 'A'), n('S', 2)]),
+    ).toEqual({ X: 0, Y: 0, A: 1, B: 1, C: 2, S: 0 });
   });
 
   // Row 0 is free in column 2, but C there would read as B's follower, and
@@ -67,11 +68,21 @@ describe('assignRows', () => {
     expect(rowsOf([n('B', 1), n('A', 0, 'B'), n('C', 1)])).toEqual({ B: 0, A: 0, C: 1 });
   });
 
-  // T's track comes after R and Q in the input, and it still packs second.
+  // T's head is leftmost, so its track packs before R and Q. Its tail sits
+  // further right than P's, so it packs before P too.
   it('packs tracks leftmost-first, so a later chain does not drop below short tracks', () => {
     expect(
       rowsOf([n('P', 0), n('Q', 2), n('R', 1), n('S', 2, 'R'), n('T', 0), n('U', 1, 'T')]),
-    ).toEqual({ P: 0, T: 1, U: 1, R: 0, S: 0, Q: 1 });
+    ).toEqual({ T: 0, U: 0, P: 1, R: 1, S: 1, Q: 0 });
+  });
+
+  it('packs the longer of two tracks that start in one column first', () => {
+    expect(rowsOf([n('A', 0), n('B', 0), n('C', 1, 'B'), n('D', 2, 'C')])).toEqual({
+      B: 0,
+      C: 0,
+      D: 0,
+      A: 1,
+    });
   });
 
   it('terminates on a cycle', () => {

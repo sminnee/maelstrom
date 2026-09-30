@@ -21,7 +21,8 @@ export interface RowInput {
  * its edges draw straight and never behind a card. Tracks pack first-fit onto
  * the lowest row where that whole interval is free, leftmost head first. Without
  * branches, that order takes the fewest rows: the most tracks on one column.
- * Input order only breaks ties between heads in one column. A node that follows
+ * Between heads in one column, the track whose tail sits furthest right packs
+ * first, and input order breaks what ties remain. A node that follows
  * nothing is a one-cell track. A branch, a second follower of one node, searches
  * from the row below that node.
  */
@@ -49,12 +50,16 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
   // A branch's parent sits in a lower column, so it has a row first.
   const taken = new Map<number, Set<number>>();
   const rows = new Map<string, number>();
-  for (const head of byColumn.filter((n) => !continues.has(n.id))) {
-    const track = [head.id];
-    for (let id = next.get(head.id); id !== undefined; id = next.get(id)) track.push(id);
-    const first = head.column;
-    const last = columnOf.get(track[track.length - 1]!)!;
-    const parent = branchesFrom.get(head.id);
+  const tracks = byColumn
+    .filter((n) => !continues.has(n.id))
+    .map((head) => {
+      const ids = [head.id];
+      for (let id = next.get(head.id); id !== undefined; id = next.get(id)) ids.push(id);
+      return { ids, first: head.column, last: columnOf.get(ids[ids.length - 1]!)! };
+    })
+    .sort((a, b) => a.first - b.first || b.last - a.last);
+  for (const { ids, first, last } of tracks) {
+    const parent = branchesFrom.get(ids[0]!);
     let row = parent === undefined ? 0 : rows.get(parent)! + 1;
     while (!isFree(taken, first, last, row)) row += 1;
     for (let column = first; column <= last; column += 1) {
@@ -62,7 +67,7 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
       used.add(row);
       taken.set(column, used);
     }
-    for (const id of track) rows.set(id, row);
+    for (const id of ids) rows.set(id, row);
   }
   return rows;
 }
