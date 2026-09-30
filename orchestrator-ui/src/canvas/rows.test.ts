@@ -101,6 +101,20 @@ describe('assignRows', () => {
     ).toEqual({ A: 0, B: 0, C: 0, M: 1, S: 2, T: 2, U: 2 });
   });
 
+  // Row 0 is free in column 3, but M there would read as Q's follower.
+  it('packs a merge-in track no higher than its component', () => {
+    expect(
+      rowsOf([
+        n('P', 0),
+        n('Q', 2, 'P'),
+        n('A', 2),
+        n('B', 3, 'A'),
+        n('C', 4, 'B', 'M'),
+        n('M', 3),
+      ]),
+    ).toEqual({ P: 0, Q: 0, A: 1, B: 1, C: 1, M: 2 });
+  });
+
   // A follows B from a lower column, so it cannot continue B's track, but the
   // two still form one component: B packs with A, before C.
   it('packs a backward follower with its component', () => {
