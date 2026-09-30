@@ -24,6 +24,7 @@ from agent_fixtures import (
 from mael_daemon import agent_model
 from mael_domain import document_tags
 from mael_domain import task as task_model
+from mael_domain.attachments import attachment_urls
 from mael_domain.document_tags import read_worktree_file
 from mael_domain.file_registry import FileRegistry
 from mael_domain.normalise import (
@@ -2079,6 +2080,32 @@ def test_an_image_tag_becomes_a_picture_in_the_message_it_was_written_in():
     assert message["markdown"].index("![The failing dialog]") < message[
         "markdown"
     ].index("The button is cut off")
+
+
+TOKEN_REF = "Look: ![shot]({{MAEL_TASK_DIR}}/images/t1/shot.png)"
+
+
+def test_a_user_turn_shows_its_attachment_refs_as_the_caller_rewrites_them():
+    """The server passes ``attachment_urls``, with the agent's project for the token."""
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    out = normalise_stream_event(
+        state.state,
+        context_for_agent("ag1"),
+        user_turn(TOKEN_REF),
+        NOW,
+        show_refs=attachment_urls,
+    )
+    state.take(out.events)
+    [message] = items_of(state, "message")
+    assert (
+        message["markdown"] == "Look: ![shot](/api/attachments/northwind/t1/shot.png)"
+    )
+
+
+def test_a_user_turn_keeps_its_attachment_refs_by_default():
+    """A terminal reader can open the path a first prompt holds; a URL it cannot."""
+    [message] = items_of(replay_turn(TOKEN_REF), "message")
+    assert message["markdown"] == TOKEN_REF
 
 
 def test_an_image_tag_mints_no_document():

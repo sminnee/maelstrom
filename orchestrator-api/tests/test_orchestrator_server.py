@@ -3973,6 +3973,31 @@ def test_an_uploaded_image_is_served_back(harness, images):
     assert content_type == "image/png"
 
 
+def test_a_sent_message_shows_its_attachment_by_a_fetchable_url(harness, images):
+    """The agent reads the token; the transcript shows the route that serves it."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws, lambda m: m["type"] == "transcript.snapshot")
+                harness.daemon.push(
+                    "ag1",
+                    {
+                        "type": "user",
+                        "message": {
+                            "role": "user",
+                            "content": "![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)",
+                        },
+                    },
+                )
+                frame = await ws_next(ws, is_event("transcript.append"))
+                return frame["event"]["item"]
+
+    item = run(scenario())
+    assert item["markdown"] == f"![shot.png](/api/attachments/{PROJECT}/t1/shot.png)"
+
+
 def test_a_non_image_upload_is_refused(harness, images):
     async def scenario():
         async with harness.client() as api:

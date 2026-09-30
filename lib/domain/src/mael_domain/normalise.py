@@ -3,8 +3,9 @@
 A port of ``orchestrator-ui/src/protocol/normalise.ts``. The state machine follows
 :func:`mael_daemon.agent_model.apply_event`: a pending request outranks assistant
 output, a ``control_response`` for the pending request ends the wait, a
-``result`` ends the turn idle. No clock, and the one read it does — the file a
-``<doc-file>`` tag names — is injected, so a test decides what it sees.
+``result`` ends the turn idle. No clock, and what depends on the machine is
+injected: the one read it does — the file a ``<doc-file>`` tag names — and the
+rewrite of a user message's attachment refs. A test decides what each sees.
 
 The TypeScript module is the reference; see "Normaliser parity" in
 ``docs/dev/orchestrator-server.md``.
@@ -95,6 +96,14 @@ def _as_plan(text: str) -> str:
 #: Reads the file a ``<doc-file>`` tag names, given the agent's ``cwd``. The
 #: normaliser's one piece of I/O, injected.
 ReadFile = Callable[[str, str], str | None]
+
+#: Rewrites the attachment refs in a user message, given its markdown and the
+#: agent's project. The server passes ``attachments.attachment_urls``.
+ShowRefs = Callable[[str, str], str]
+
+
+def _as_written(markdown: str, _project: str) -> str:
+    return markdown
 
 
 def _mode_of(raw: Dict) -> str:
@@ -291,6 +300,7 @@ def normalise_stream_event(
     now: str,
     *,
     read_file: ReadFile = read_worktree_file,
+    show_refs: ShowRefs = _as_written,
     files: FileRegistry | None = None,
     replay: bool = False,
 ) -> Normalised:
@@ -308,6 +318,10 @@ def normalise_stream_event(
 
     ``read_file`` reads the file a ``<doc-file>`` tag names, against the
     agent's own ``cwd``.
+
+    ``show_refs`` rewrites the attachment refs in a user message. The default
+    leaves them as written, which is what a terminal reader wants: the path a
+    first prompt holds is one it can open.
 
     ``files`` registers every file an agent names, so an ``<image>`` can be
     served by id later. A caller that passes none gets a registry of its own
@@ -470,7 +484,10 @@ def normalise_stream_event(
                     # readable without burying the boundary it belongs to.
                     out.append({"type": "compact_summary", "markdown": text})
                 else:
-                    out.append({"type": "message", "role": "user", "markdown": text})
+                    markdown = show_refs(text, out.agent_entity["project"])
+                    out.append(
+                        {"type": "message", "role": "user", "markdown": markdown}
+                    )
                 # A message to the agent is the start of a turn. Without this
                 # the UI shows "idle" until the agent's first event lands,
                 # which reads as though nothing was sent.
@@ -486,9 +503,10 @@ def normalise_stream_event(
                 # the world state and pushed to every open socket.
                 #
                 # The surface that attached the image has already saved it and
-                # put an `![…](/api/attachments/…)` ref in the text block
-                # beside this one, and that ref is what the reader sees. The
-                # image block is what the model sees. Do not "fix" this by
+                # put a ref to the saved file in the text block beside this
+                # one. `show_refs` above turns that ref into an
+                # `/api/attachments/…` URL, and that is what the reader sees.
+                # The image block is what the model sees. Do not "fix" this by
                 # inlining the data.
                 continue
 
