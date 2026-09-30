@@ -22,6 +22,10 @@ release while that section is empty, and retitles it to the version it is releas
   sync control. "Sync" runs a plain sync, which aborts on a conflict. Its menu adds
   "Sync & squash" and "Sync & autorepair". `_main` offers "Sync" only.
 
+- **A hovered wire on the canvas draws thicker and darker.** Where wires share a track, the one
+  under the pointer stands out along its whole route. It stays lit while the pointer is on its
+  cut button.
+
 ### Changed
 
 - **Breaking: the project commands moved under `mael project`.** `mael add-project`,

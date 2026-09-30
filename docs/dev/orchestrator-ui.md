@@ -254,8 +254,8 @@ target's `follows` — the direction an edge is built in, followed to follower. 
 server refuses the same pair again along with a cycle. Nothing is optimistic: the wire appears
 when the refetched world carries it, so a refusal simply leaves the board as it was. `follows` is
 the one field the canvas writes that the task editor does not, so it is not part of the editor's
-draft. Hovering a wire offers the button that cuts it, which writes the target's `follows`
-without the id.
+draft. Hovering a wire draws it thicker and darker, and offers the button that cuts it, which
+writes the target's `follows` without the id.
 
 The board draws fewer wires than the notebook holds. `canvas/reduce.ts` drops an edge that a path
 of unfinished work already implies: when C follows both A and B, and B follows A and has still to
