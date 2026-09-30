@@ -1,5 +1,6 @@
 import { useWorld } from '../api/useWorld';
 import { DeckList } from '../deck/DeckList';
+import { ChangesTab } from '../changes/ChangesTab';
 import { DocumentTab } from '../documents/DocumentTab';
 import { NodeCardBody } from '../canvas/NodeCardBody';
 import { NewWork } from '../newwork/NewWork';
@@ -19,7 +20,7 @@ import styles from './MobileShell.module.css';
  * The narrow layout: one screen at a time.
  *
  * There is no canvas and no panel. The deck list is the ground, and a node's
- * detail, a session and a document are pushed over it. Back pops one screen.
+ * detail, a session, a document and a worktree's changes are pushed over it. Back pops one screen.
  * `mobileStack` holds what is pushed; empty is the deck itself.
  */
 export function MobileShell() {
@@ -65,6 +66,8 @@ function Screen({ screen }: { screen: MobileScreen }) {
           <Detail nodeId={screen.nodeId} onDone={popScreen} />
         ) : screen.kind === 'session' ? (
           <SessionTab key={screen.agentId} agentId={screen.agentId} />
+        ) : screen.kind === 'changes' ? (
+          <ChangesTab key={screen.worktreeId} worktreeId={screen.worktreeId} />
         ) : (
           <DocumentTab key={screen.documentId} documentId={screen.documentId} />
         )}

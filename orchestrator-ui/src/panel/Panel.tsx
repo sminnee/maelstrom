@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
+import { ChangesTab } from '../changes/ChangesTab';
 import { DocumentTab } from '../documents/DocumentTab';
 import { SessionTab } from '../session/SessionTab';
 import { PANEL_BODY_ID, PanelTabs } from './PanelTabs';
@@ -80,5 +81,8 @@ function TabBody({ tab }: { tab: PanelTab }) {
       // Keyed: the tab holds per-document mutation state, so a reused
       // fiber would show one document's created tasks under the next.
       return <DocumentTab key={tab.documentId} documentId={tab.documentId} />;
+    case 'changes':
+      // Keyed: the tab holds the rev it shows, which belongs to one worktree.
+      return <ChangesTab key={tab.worktreeId} worktreeId={tab.worktreeId} />;
   }
 }

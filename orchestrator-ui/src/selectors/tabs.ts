@@ -1,7 +1,7 @@
 import type { TaskRow } from '../api/types';
 import type { Phase } from '../protocol/entities';
 import type { WorldView } from './world';
-import type { AgentId, TaskId } from '../protocol/ids';
+import type { AgentId, TaskId, WorktreeId } from '../protocol/ids';
 import { phaseForCommand } from '../protocol/phase';
 import type { PanelTab } from '../store/uiSlice';
 
@@ -35,12 +35,19 @@ export const documentTab = (documentId: string): PanelTab => ({
   documentId,
 });
 
+export const changesTab = (worktreeId: WorktreeId): PanelTab => ({
+  key: `changes:${worktreeId}`,
+  kind: 'changes',
+  worktreeId,
+});
+
 export interface TabAttribution {
   /**
    * What the tab is, in one string the operator can match against: the
    * qualified task id, or — for an agent with no task — its own agent id.
    * The agent id is the failover task id, not a different kind of thing,
    * so a free agent's tab reads in the same slot and the same register.
+   * A changes tab names its worktree instead.
    */
   id: TaskId | AgentId;
   /** Null when the entity has left the world: the chip then draws no phase. */
@@ -48,11 +55,11 @@ export interface TabAttribution {
   agentId: AgentId | null;
   /**
    * What the tab holds, where that is not already obvious: the document's
-   * title. A session has none — its id alone says which session it is, and a
+   * title, or `changes`. A session has none — its id alone says which session it is, and a
    * qualified id is long enough that a word beside it wins no reader.
    */
   label: string;
-  /** The work's own name — the task's title. Empty for a free agent. */
+  /** The work's own name — the task's title, or a worktree's branch. Empty for a free agent. */
   title: string;
 }
 
@@ -89,6 +96,17 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
         title: task?.title ?? '',
       };
     }
+    case 'changes': {
+      // By id, not nato: every project has a delta. See docs/dev/orchestrator-ui.md.
+      const worktree = world.worktrees[tab.worktreeId];
+      return {
+        id: tab.worktreeId,
+        phase: null,
+        agentId: null,
+        label: 'changes',
+        title: worktree?.branch ?? '',
+      };
+    }
   }
 }
 
@@ -109,6 +127,8 @@ function taskForTab(world: WorldView, tab: PanelTab): TaskRow | undefined {
       const agent = world.agents[doc?.agentId ?? ''];
       return world.tasks[doc?.taskId ?? ''] ?? world.tasks[agent?.taskId ?? ''];
     }
+    case 'changes':
+      return undefined;
   }
 }
 

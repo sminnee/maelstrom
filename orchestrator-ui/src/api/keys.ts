@@ -26,6 +26,13 @@ export const keys = {
   linear: {
     issues: (project: string) => ['linear', 'issues', project] as const,
   },
+  worktreeChanges: {
+    all: () => ['worktreeChanges'] as const,
+    of: (worktreeId: string) => ['worktreeChanges', worktreeId] as const,
+    changes: (worktreeId: string) => ['worktreeChanges', worktreeId, 'changes'] as const,
+    diff: (worktreeId: string, rev: string) =>
+      ['worktreeChanges', worktreeId, 'diff', rev] as const,
+  },
   documents: {
     all: () => ['documents'] as const,
     list: () => ['documents', 'list'] as const,

@@ -13,6 +13,8 @@ function screenFor(tab: PanelTab): MobileScreen {
       return { kind: 'session', agentId: tab.agentId };
     case 'document':
       return { kind: 'document', documentId: tab.documentId };
+    case 'changes':
+      return { kind: 'changes', worktreeId: tab.worktreeId };
   }
 }
 
@@ -23,11 +25,13 @@ function hrefFor(tab: PanelTab): string {
       return `#panel/session/${tab.agentId}`;
     case 'document':
       return `#panel/document/${tab.documentId}`;
+    case 'changes':
+      return `#panel/changes/${tab.worktreeId}`;
   }
 }
 
 /**
- * A link that opens a session or a document. Links open more information;
+ * A link that opens a session, a document or a worktree's changes. Links open more information;
  * buttons act. Every panel link carries the open-in-panel icon so the two
  * are told apart at a glance. The click stops there: a link on a canvas node
  * must not also toggle the node.

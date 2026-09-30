@@ -9,7 +9,8 @@ import { invalidationsFor, startChangeStream } from './changeStream';
 describe('invalidationsFor', () => {
   it.each<[ChangeNotice, unknown[]]>([
     [{ kind: 'project', ids: ['p'] }, [keys.projects()]],
-    [{ kind: 'worktree', ids: ['w'] }, [keys.worktrees()]],
+    [{ kind: 'worktree', ids: ['w'] }, [keys.worktrees(), keys.worktreeChanges.of('w')]],
+    [{ kind: 'worktree', ids: [] }, [keys.worktrees(), keys.worktreeChanges.all()]],
     [{ kind: 'desk', ids: ['task:a'] }, [keys.desk()]],
     [{ kind: 'host', ids: ['agent-host'] }, [keys.host()]],
     [{ kind: 'attention', ids: ['at1'] }, [keys.attention()]],
