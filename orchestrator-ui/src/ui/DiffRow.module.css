@@ -1,0 +1,35 @@
+.block {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  overflow-x: auto;
+}
+.row {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  white-space: pre;
+  /* A row as wide as its longest sibling, so the ground runs under a scrolled line. */
+  min-width: max-content;
+}
+.row[data-kind='add'] {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+}
+.row[data-kind='remove'] {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+.sign {
+  width: 1ch;
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
+/* Wide enough for a five-digit line, so a gutter keeps its width down a file. */
+.number {
+  width: 5ch;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint);
+  user-select: none;
+}
