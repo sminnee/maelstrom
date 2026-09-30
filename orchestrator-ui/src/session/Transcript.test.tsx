@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../test/fixtures';
@@ -243,7 +243,7 @@ describe('Transcript', () => {
     expect(within(write).getByText('hi')).toBeInTheDocument();
   });
 
-  it('shows an Edit as diff rows', () => {
+  it("shows an Edit as diff rows, in the edited file's syntax colour", async () => {
     render(
       <Transcript
         truncatedBefore={false}
@@ -262,6 +262,11 @@ describe('Transcript', () => {
     );
     const rows = screen.getAllByTestId('diff-row');
     expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual(['remove', 'add']);
+    await waitFor(() =>
+      screen
+        .getAllByTestId('diff-row')
+        .forEach((row) => expect(row).toHaveAttribute('data-highlighted')),
+    );
   });
 
   it('a plan review nothing answered no longer claims to await review', () => {

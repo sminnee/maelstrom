@@ -47,7 +47,11 @@ function ToolBody({
     case 'edit':
       return (
         <div>
-          <EditCard oldString={s(item.input.old_string)} newString={s(item.input.new_string)} />
+          <EditCard
+            path={s(item.input.file_path)}
+            oldString={s(item.input.old_string)}
+            newString={s(item.input.new_string)}
+          />
           <Failure item={item} />
         </div>
       );

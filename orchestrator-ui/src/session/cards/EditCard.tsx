@@ -1,14 +1,19 @@
-import { DiffBlock, DiffRow } from '../../ui/DiffRow';
+import { DiffBlock, HighlightedRows } from '../../ui/DiffRow';
 import { editToDiffRows } from '../diffRows';
 import styles from './cards.module.css';
 
-export function EditCard({ oldString, newString }: { oldString: string; newString: string }) {
-  const rows = editToDiffRows(oldString, newString);
+export function EditCard({
+  path,
+  oldString,
+  newString,
+}: {
+  path: string;
+  oldString: string;
+  newString: string;
+}) {
   return (
     <DiffBlock className={styles.diff}>
-      {rows.map((row, i) => (
-        <DiffRow key={i} kind={row.kind} text={row.text} />
-      ))}
+      <HighlightedRows rows={editToDiffRows(oldString, newString)} path={path} />
     </DiffBlock>
   );
 }

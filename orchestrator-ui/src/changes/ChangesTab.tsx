@@ -9,7 +9,7 @@ import type { BranchCommit, FileDiff, WorktreeChanges } from '../protocol/entiti
 import type { WorktreeId } from '../protocol/ids';
 import { clockTime } from '../protocol/time';
 import { AppButton } from '../ui/AppButton';
-import { DiffBlock, DiffRow } from '../ui/DiffRow';
+import { DiffBlock, HighlightedRows } from '../ui/DiffRow';
 import { useNow } from '../ui/useNow';
 import styles from './ChangesTab.module.css';
 
@@ -278,14 +278,14 @@ function FileBlock({ file }: { file: FileDiff }) {
           {file.hunks.map((hunk, h) => (
             <div key={h}>
               <div className={styles.hunk}>{hunk.header}</div>
-              {hunk.lines.map((line, i) => (
-                <DiffRow
-                  key={i}
-                  kind={line.kind}
-                  text={line.text}
-                  lineNumbers={{ old: line.oldLine, new: line.newLine }}
-                />
-              ))}
+              <HighlightedRows
+                path={file.path}
+                rows={hunk.lines.map((line) => ({
+                  kind: line.kind,
+                  text: line.text,
+                  lineNumbers: { old: line.oldLine, new: line.newLine },
+                }))}
+              />
             </div>
           ))}
         </DiffBlock>

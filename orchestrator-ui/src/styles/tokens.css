@@ -184,6 +184,39 @@
   --touch: 44px;
 
   --duration-fast: 120ms;
+
+  /*
+   * Syntax colour in a diff; Shiki's CSS-variable theme names these (see
+   * `ui/highlight.ts`). On a light ground a hue is only 3.5:1 on an add or
+   * remove row, so `--syntax-shade` darkens every token to clear 4.5:1. A
+   * comment mixes faint and muted: faint alone is 3.76:1 on a dark add row.
+   */
+  --syntax-shade: 0%;
+  --syntax-foreground: var(--fg);
+  --syntax-token-keyword: color-mix(in srgb, var(--hue-shape), var(--black) var(--syntax-shade));
+  --syntax-token-string: color-mix(in srgb, var(--hue-ok), var(--black) var(--syntax-shade));
+  --syntax-token-string-expression: color-mix(
+    in srgb,
+    var(--hue-build),
+    var(--black) var(--syntax-shade)
+  );
+  --syntax-token-function: color-mix(in srgb, var(--hue-accent), var(--black) var(--syntax-shade));
+  --syntax-token-constant: color-mix(in srgb, var(--hue-land), var(--black) var(--syntax-shade));
+  --syntax-token-parameter: color-mix(in srgb, var(--fg-literal), var(--black) var(--syntax-shade));
+  --syntax-token-punctuation: color-mix(in srgb, var(--fg-muted), var(--black) var(--syntax-shade));
+  --syntax-token-comment: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--fg-faint), var(--fg-muted)),
+    var(--black) var(--syntax-shade)
+  );
+  --syntax-token-link: color-mix(in srgb, var(--hue-accent), var(--black) var(--syntax-shade));
+  --syntax-token-inserted: color-mix(in srgb, var(--hue-ok), var(--black) var(--syntax-shade));
+  --syntax-token-deleted: color-mix(in srgb, var(--hue-danger), var(--black) var(--syntax-shade));
+  --syntax-token-changed: color-mix(
+    in srgb,
+    var(--hue-attention),
+    var(--black) var(--syntax-shade)
+  );
 }
 
 @media (prefers-color-scheme: light) {
@@ -220,6 +253,7 @@
     --hue-plan: #2f6fd0;
     --hue-build: #128274;
     --hue-land: #9e6a10;
+    --syntax-shade: 20%;
 
     --shadow-card: 0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12);
   }

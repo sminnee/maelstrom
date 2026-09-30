@@ -73,8 +73,22 @@ async function openChanges(tweak?: (changes: Changes) => void) {
   clickNode('NORT-12');
   await userEvent.click(within(expanded()).getByRole('link', { name: 'Changes' }));
   const panel = screen.getByTestId('panel');
-  if (!tweak) await within(panel).findByText('new tokens');
+  if (!tweak) await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')).toHaveLength(3));
   return { server, panel };
+}
+
+/** The text of each diff row in a file's card, token spans and all. */
+const rowTexts = (panel: HTMLElement, path: string) =>
+  within(within(panel).getByRole('region', { name: path }))
+    .getAllByTestId('diff-row')
+    .map((row) => row.textContent);
+
+/** Every row of the file's card, once its tokens are drawn. */
+async function highlighted(panel: HTMLElement, path: string) {
+  const rows = () =>
+    within(within(panel).getByRole('region', { name: path })).getAllByTestId('diff-row');
+  await waitFor(() => rows().forEach((row) => expect(row).toHaveAttribute('data-highlighted')));
+  return rows();
 }
 
 /** The strip of revs beside the diff. */
@@ -112,9 +126,11 @@ describe('the Changes tab', () => {
       expect.stringContaining('auth/rotate.py'),
     ]);
     // Old and new line numbers sit beside each row.
-    const removed = within(panel).getByText('old tokens').closest('[data-kind]')!;
-    expect(removed).toHaveAttribute('data-kind', 'remove');
-    expect(removed).toHaveTextContent('5');
+    const rows = within(
+      within(panel).getByRole('region', { name: 'auth/tokens.py' }),
+    ).getAllByTestId('diff-row');
+    expect(rows[1]).toHaveAttribute('data-kind', 'remove');
+    expect(rows[1]).toHaveTextContent('5-old tokens');
   });
 
   it('lists the uncommitted changes, the whole branch and each commit in a strip', async () => {
@@ -122,8 +138,8 @@ describe('the Changes tab', () => {
     expect(entries()).toEqual(['Uncommitted 2', 'All commits 1', 'c0ffee1 feat: rotate on expiry']);
 
     await pick(/rotate on expiry/);
-    await within(panel).findByText('new expiry');
-    expect(within(panel).queryByText('new tokens')).toBeNull();
+    await waitFor(() => expect(rowTexts(panel, 'auth/expiry.py')).toHaveLength(3));
+    expect(within(panel).queryByRole('region', { name: 'auth/tokens.py' })).toBeNull();
     expect(current()).toBe('c0ffee1 feat: rotate on expiry');
     expect(server.requests.map((r) => r.path)).toContain(`/api/worktrees/${DELTA}/diff?rev=${SHA}`);
   });
@@ -160,12 +176,19 @@ describe('the Changes tab', () => {
 
   it('reads the changes again when the worktree changes', async () => {
     const { server, panel } = await openChanges();
+    await highlighted(panel, 'auth/tokens.py');
     act(() => {
       server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
         w.changes[DELTA]!.diffs.uncommitted = [file('auth/tokens.py', 'again')];
       });
     });
-    await within(panel).findByText('new again');
+    await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')[2]).toContain('new again'));
+    await highlighted(panel, 'auth/tokens.py');
+    expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
+      '44 import os',
+      '5-old again',
+      '5+new again',
+    ]);
   });
 
   it.each([
@@ -201,7 +224,7 @@ describe('the Changes tab', () => {
     const { server, panel } = await openChanges();
     server.world.changes[DELTA]!.diffs.uncommitted = [file('auth/tokens.py', 'refreshed')];
     await userEvent.click(within(panel).getByRole('button', { name: 'Refresh' }));
-    await within(panel).findByText('new refreshed');
+    await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')[2]).toContain('new refreshed'));
   });
 
   it('says a binary or a cut file is not shown whole, and names both paths of a rename', async () => {
@@ -217,6 +240,54 @@ describe('the Changes tab', () => {
     expect(region('logo.png')).toHaveTextContent('Binary file, not shown.');
     expect(region('pnpm-lock.yaml')).toHaveTextContent('The rest is cut.');
     expect(region('auth/keys.py')).toHaveTextContent('auth/secrets.py → auth/keys.py');
+  });
+
+  it('draws a known language in syntax colour, and an unknown one or a long line plain', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('src/rotate.ts', 'const ttl = 60; // seconds'),
+        file('notes/rotate.xyz', 'plain'),
+        file('src/min.ts', 'x'.repeat(1001)),
+      ];
+    });
+    const rows = await highlighted(panel, 'src/rotate.ts');
+    // The tokens draw the same text the plain rows did.
+    expect(rowTexts(panel, 'src/rotate.ts')).toEqual([
+      '44 import os',
+      '5-old const ttl = 60; // seconds',
+      '5+new const ttl = 60; // seconds',
+    ]);
+    const comment = within(rows[2]!).getByText('// seconds', { exact: false });
+    expect(comment.style.color).toBe('var(--syntax-token-comment)');
+    for (const path of ['notes/rotate.xyz', 'src/min.ts'])
+      within(within(panel).getByRole('region', { name: path }))
+        .getAllByTestId('diff-row')
+        .forEach((row) => expect(row).not.toHaveAttribute('data-highlighted'));
+  });
+
+  it('highlights each side of a hunk alone, so a comment one side opens does not colour the other', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('src/rotate.ts', '', {
+          hunks: [
+            {
+              header: '@@ -1,3 +1,3 @@',
+              lines: [
+                { kind: 'context', text: 'a();', oldLine: 1, newLine: 1 },
+                { kind: 'remove', text: '/* old', oldLine: 2, newLine: null },
+                { kind: 'add', text: 'const x = 1;', oldLine: null, newLine: 2 },
+                { kind: 'context', text: 'y();', oldLine: 3, newLine: 3 },
+              ],
+            },
+          ],
+        }),
+      ];
+    });
+    const rows = await highlighted(panel, 'src/rotate.ts');
+    const firstColour = (row: HTMLElement) =>
+      row.querySelector<HTMLElement>('[style]')?.style.color;
+    expect(firstColour(rows[1]!)).toBe('var(--syntax-token-comment)');
+    expect(firstColour(rows[3]!)).not.toBe('var(--syntax-token-comment)');
   });
 
   it('opens on all commits when nothing is uncommitted', async () => {
