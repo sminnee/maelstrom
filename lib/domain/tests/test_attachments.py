@@ -153,3 +153,42 @@ class TestBucketDirGuards:
             attachments.save_attachment(
                 "../../../../tmp/pwned", "t1", PNG, name="x.png"
             )
+
+
+class TestAttachmentUrls:
+    """A ref the agent can read becomes a ref the browser can fetch."""
+
+    def test_the_token_form_names_the_given_project(self, tasks):
+        markdown = "See ![shot]({{MAEL_TASK_DIR}}/images/t1/shot.png) here."
+
+        assert (
+            attachments.attachment_urls(markdown, "proj")
+            == "See ![shot](/api/attachments/proj/t1/shot.png) here."
+        )
+
+    def test_the_absolute_form_names_the_project_in_the_path(self, tasks):
+        """A first prompt names any project's root, not only the agent's own."""
+        markdown = (
+            f"![a]({tasks}/proj/images/t1/a.png) ![b]({tasks}/other/images/t2/b.png)"
+        )
+
+        assert attachments.attachment_urls(markdown, "proj") == (
+            "![a](/api/attachments/proj/t1/a.png) ![b](/api/attachments/other/t2/b.png)"
+        )
+
+    def test_a_path_outside_the_task_repo_stays_unchanged(self, tasks, tmp_path):
+        markdown = (
+            f"![x]({tmp_path}/elsewhere/images/t1/x.png) "
+            f"![y]({tasks}/proj/notes/y.png) ![z](docs/images/z.png)"
+        )
+
+        assert attachments.attachment_urls(markdown, "proj") == markdown
+
+    def test_a_path_in_prose_stays_as_written(self, tasks):
+        """The reader sees what was sent, not a URL it never wrote."""
+        markdown = (
+            "The file is at `{{MAEL_TASK_DIR}}/images/t1/x.png` "
+            f"and {tasks}/proj/images/t1/x.png."
+        )
+
+        assert attachments.attachment_urls(markdown, "proj") == markdown
