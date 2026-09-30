@@ -30,8 +30,10 @@ export interface RowInput {
  * Tracks joined by follows edges, read in either direction, form a
  * component. When a component's leading track packs, the rest of the
  * component packs straight after it, in the same order, so a track that
- * merges into another sits near it. The next component packs first-fit from
- * row 0 and fills the gaps.
+ * merges into another sits near it. No track of a component searches above
+ * the row of its leading track, where it would read as the follower of an
+ * unrelated track. The next component packs first-fit from row 0 and fills
+ * the gaps.
  */
 export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, number> {
   const columnOf = new Map(nodes.map((n) => [n.id, n.column]));
@@ -89,10 +91,12 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
   const taken = new Map<number, Set<number>>();
   const rows = new Map<string, number>();
   for (const tracks of components.values()) {
-    for (const { ids, first, last } of tracks) {
+    let floor = 0;
+    for (const [index, { ids, first, last }] of tracks.entries()) {
       const parent = branchesFrom.get(ids[0]!);
-      let row = parent === undefined ? 0 : rows.get(parent)! + 1;
+      let row = Math.max(floor, parent === undefined ? 0 : rows.get(parent)! + 1);
       while (!isFree(taken, first, last, row)) row += 1;
+      if (index === 0) floor = row;
       for (let column = first; column <= last; column += 1) {
         const used = taken.get(column) ?? new Set<number>();
         used.add(row);
