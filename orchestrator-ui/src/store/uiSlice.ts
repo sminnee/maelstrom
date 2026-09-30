@@ -42,6 +42,8 @@ export interface UiState {
   worktreeFilters: WorktreeFilters;
   tabs: PanelTab[];
   activeTabKey: string | null;
+  /** Tab keys, most recently activated first. */
+  tabRecency: string[];
   /** The one node grown into a card on the canvas, if any: a task or an agent. */
   expandedNodeId: string | null;
   /** The task the editor is open on. */
@@ -89,6 +91,7 @@ export function initialUiState(): UiState {
     worktreeFilters: noWorktreeFilters(),
     tabs: [],
     activeTabKey: null,
+    tabRecency: [],
     expandedNodeId: null,
     editingTaskId: null,
     newWorkOpen: false,
