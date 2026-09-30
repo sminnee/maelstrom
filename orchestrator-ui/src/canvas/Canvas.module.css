@@ -2,10 +2,8 @@
   width: 100%;
   height: 100%;
   background: var(--bg);
-}
-.canvas :global(.react-flow__edge-path) {
-  stroke: var(--border-strong);
-  stroke-width: 1.5;
+  --xy-edge-stroke: var(--border-strong);
+  --xy-edge-stroke-width: 1.5;
 }
 /*
  * A rewire re-runs the layout, so cards jump to new columns. React Flow writes
