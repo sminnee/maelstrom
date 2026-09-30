@@ -127,6 +127,11 @@ def codex_thread_start_options(mode: str) -> dict[str, str]:
     return {"sandbox": "workspace-write"}
 
 
+def is_driven_agent() -> bool:
+    """Whether this process runs under the agent daemon, or descends from one."""
+    return os.environ.get(HARNESS_TYPE_ENV) == TRANSPORT_DAEMON
+
+
 def resolve_transport(*, cli: bool = False, daemon: bool = False) -> str:
     """Resolve mutually-exclusive transport flags and inherited transport."""
     if cli and daemon:

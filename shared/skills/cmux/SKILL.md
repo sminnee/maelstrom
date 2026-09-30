@@ -5,7 +5,7 @@ description: "Open browsers and terminals in cmux panes. Use when the user asks 
 
 # cmux
 
-Use cmux only when `CMUX_SOCKET_PATH` is set. Pass `--socket "$CMUX_SOCKET_PATH"` to every command. Commands return `OK` or `OK <ref>`, not JSON.
+Use cmux only when `CMUX_WORKSPACE_ID` is set and `MAEL_HARNESS_TYPE` is not `daemon`. A driven agent is in no cmux pane, even when a cmux app runs. Pass `--socket "$CMUX_SOCKET_PATH"` when it is set. Commands return `OK` or `OK <ref>`, not JSON.
 
 Commands are non-blocking. Do not attempt cmux when the socket is absent or pass `--json`.
 

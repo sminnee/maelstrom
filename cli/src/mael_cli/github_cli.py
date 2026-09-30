@@ -61,8 +61,11 @@ def _handle_wait_for_review(cwd: Path) -> None:
 
 
 def _open_pr_in_cmux(url: str) -> None:
-    """Open a PR URL in a cmux browser, recycling any github.com browser. No-op outside cmux."""
-    cmux = MaelCmux.current()
+    """Open a PR URL in the caller's cmux pane, recycling any github.com browser.
+
+    No-op unless the caller runs in a cmux pane; see ``MaelCmux.for_caller``.
+    """
+    cmux = MaelCmux.for_caller()
     if cmux:
         cmux.show_pr_browser(url)
 

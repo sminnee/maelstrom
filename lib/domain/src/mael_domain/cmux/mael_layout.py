@@ -11,15 +11,22 @@ open it for a shell, link to its terminal. Each intent issues
 :class:`~mael_domain.cmux.model.CmuxLayout` verbs, or reads the API directly
 when it reads more than one workspace or only reads.
 
-``MaelCmux.current()`` is ``None`` outside cmux. After that, every method is
-non-fatal: it returns ``None``, ``False`` or an empty dict.
+``MaelCmux.current()`` and ``MaelCmux.for_caller()`` return ``None`` when cmux
+should not be driven; docs/dev/cmux.md "Outside cmux" says which to use. After
+that, every method is non-fatal: it returns ``None``, ``False`` or an empty dict.
 """
 
+import os
 from collections.abc import Iterable
+
+from mael_agent.harness_model import is_driven_agent
 
 from .api import CliCmuxApi, CmuxApi, Workspace
 from .client import current_client
 from .model import BrowserTab, CmuxLayout, TerminalTab
+
+# cmux sets this in each pane it runs.
+WORKSPACE_ID_ENV = "CMUX_WORKSPACE_ID"
 
 # The standard 3-pane workspace layout.
 CLAUDE_PANE = 0
@@ -53,11 +60,24 @@ class MaelCmux:
 
     @staticmethod
     def current() -> "MaelCmux | None":
-        """The running cmux, or ``None`` outside cmux."""
+        """The running cmux app, or ``None`` when none answers.
+
+        Any process reaches it, in cmux or not; see docs/dev/cmux.md "Outside cmux".
+        """
         client = current_client()
         if client is None:
             return None
         return MaelCmux(CliCmuxApi(client))
+
+    @staticmethod
+    def for_caller() -> "MaelCmux | None":
+        """The running cmux, or ``None`` unless the caller runs in a cmux pane.
+
+        A driven agent is never in a pane, whatever it inherited.
+        """
+        if not os.environ.get(WORKSPACE_ID_ENV) or is_driven_agent():
+            return None
+        return MaelCmux.current()
 
     def worktree(
         self, project: str, worktree: str, path: str | None = None

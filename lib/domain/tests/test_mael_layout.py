@@ -7,6 +7,8 @@ sent in, and what was focused.
 
 from unittest.mock import patch
 
+from domain_fixtures import IN_A_PANE
+
 from mael_domain.cmux import mael_layout
 from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.client import RecordingCmuxClient
@@ -38,6 +40,19 @@ class TestCurrent:
         assert cmux is not None
         assert cmux.worktree("myproject", "alpha").close() is False
         assert client.calls == [("--json", "--id-format", "both", "list-workspaces")]
+
+
+class TestForCaller:
+    """for_caller — only a caller in a cmux pane gets ambient side effects."""
+
+    def test_the_running_cmux_only_in_a_pane(self, caller):
+        expected = MaelCmux.current() if caller == IN_A_PANE else None
+        assert MaelCmux.for_caller() is expected
+
+    def test_none_in_a_pane_when_cmux_is_down(self, monkeypatch):
+        monkeypatch.setenv("CMUX_WORKSPACE_ID", "ws-1")
+        with patch.object(mael_layout, "current_client", lambda: None):
+            assert MaelCmux.for_caller() is None
 
 
 class TestOpenForAgent:

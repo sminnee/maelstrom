@@ -38,6 +38,7 @@ from mael_agent.harness_model import (
     HARNESS_OPENCODE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
+    is_driven_agent,
     resolve_model_reference,
 )
 from mael_common.shell import (
@@ -66,9 +67,10 @@ class AddContext(StrEnum):
 def detect_add_context() -> AddContext:
     """Detect the ``add`` invocation surface.
 
-    A driven agent takes precedence because its children inherit cmux variables.
+    A driven agent takes precedence: ``current_client()`` answers any process on
+    the machine while cmux runs, so it cannot tell a driven agent from a pane.
     """
-    if os.environ.get("MAEL_HARNESS_TYPE") == TRANSPORT_DAEMON:
+    if is_driven_agent():
         return AddContext.DAEMON
     return AddContext.CMUX if current_client() else AddContext.REGULAR
 
