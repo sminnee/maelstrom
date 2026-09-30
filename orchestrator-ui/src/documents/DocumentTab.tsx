@@ -12,8 +12,9 @@ import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { phaseForCommand, phaseLabel } from '../protocol/phase';
+import { groupOf } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
-import { sessionTab } from '../selectors/tabs';
+import { documentTab, sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { CommentMargin } from './comments/CommentMargin';
@@ -59,6 +60,10 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const waiting = agent !== undefined && agent.pendingRequestIds.length > 0 ? agent : null;
   const phase = task ? phaseForCommand(task.command) : null;
   const created = approveDocument.data?.taskIds;
+  // The list row carries the group; the detail may be a version behind it.
+  const row = world.documents[documentId];
+  // A superseded document left its group, so it stands alone.
+  const members = row && row.status !== 'superseded' ? groupOf(world, row) : [];
 
   if (!doc) {
     const gone = document.error instanceof ApiError && document.error.code === 'unknown_id';
@@ -98,6 +103,20 @@ export function DocumentTab({ documentId }: { documentId: string }) {
             </PanelLink>
           )}
         </div>
+        {members.length > 1 && (
+          <nav aria-label={row!.group.title} className={styles.siblings}>
+            <span>
+              {members.findIndex((d) => d.id === documentId) + 1} of {members.length}
+            </span>
+            {members
+              .filter((d) => d.id !== documentId)
+              .map((d) => (
+                <PanelLink key={d.id} tab={documentTab(d.id)}>
+                  {d.title}
+                </PanelLink>
+              ))}
+          </nav>
+        )}
       </header>
       <div className={styles.split}>
         <div className={styles.body} ref={body} data-testid="document-body">
@@ -135,6 +154,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         ) : (
           <ReviewActions
             doc={doc}
+            members={Math.max(members.length, 1)}
             unresolved={0}
             onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
             onRequestChanges={(summary) =>

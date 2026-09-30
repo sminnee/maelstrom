@@ -491,7 +491,8 @@ body rather than the query builder.
       markdown: FREE_NOTES,
       version: 1,
       status: 'draft',
-      source: { type: 'message', transcriptItemId: 'f2c6a9d4-notes' },
+      source: { type: 'draft_file', fileId: 'f2c6a9d4-9-notes.md', filename: '.drafts/notes.md' },
+      group: { id: 'grp-free-notes', title: 'Index reader notes', position: 0 },
     },
     {
       id: 'doc-nort12-notes',
@@ -503,7 +504,8 @@ body rather than the query builder.
       version: 1,
       // A tagged draft: something to read, with no verdict to give on it.
       status: 'draft',
-      source: { type: 'message', transcriptItemId: 'e5b1d8c3-notes' },
+      source: { type: 'draft_file', fileId: 'e5b1d8c3-9-red.md', filename: '.drafts/red.md' },
+      group: { id: 'grp-nort12-notes', title: 'What is red on PR #118', position: 0 },
     },
     {
       id: 'doc-nort12-tasks',
@@ -515,7 +517,12 @@ body rather than the query builder.
       version: 1,
       // The same agent asked for a verdict on this one, so it raises an item.
       status: 'awaiting-review',
-      source: { type: 'draft_files', paths: ['draft-iter2.md'] },
+      source: {
+        type: 'draft_file',
+        fileId: 'e5b1d8c3-12-draft-iter2.md',
+        filename: '.drafts/draft-iter2.md',
+      },
+      group: { id: 'grp-nort12-tasks', title: 'Iteration 2', position: 0 },
     },
     {
       id: 'doc-nort7-plan',
@@ -531,6 +538,7 @@ body rather than the query builder.
         requestId: 'req-nort7-plan',
         planFilePath: '/Users/dev/.claude/plans/order-export.md',
       },
+      group: { id: 'doc-nort7-plan', title: 'Plan', position: 0 },
     },
   ];
 

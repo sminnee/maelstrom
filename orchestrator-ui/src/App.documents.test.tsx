@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { addPlan, chipCount, expanded } from './test/appHelpers';
+import { act } from 'react';
+import { addPlan, addTaskSet, chipCount, expanded } from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
 describe('document tabs', () => {
@@ -237,6 +238,69 @@ describe('a document an agent tagged in its own message', () => {
     expect(failed).toHaveAttribute('title', 'draft-iter2.md: Draft has no title.');
     // Nothing was created, so the document still awaits its verdict.
     expect(screen.getByTestId('document-tab')).toHaveTextContent('awaiting review');
+  });
+
+  it('a review group lists its members under one title on the card', async () => {
+    const { server } = await renderApp();
+    addTaskSet(server);
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    expect(group).toHaveTextContent('Iteration 3 · awaiting review');
+    expect(
+      within(group)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Execute: parse v1', 'Execute: mint v1', 'Execute: show v1']);
+  });
+
+  it('a member shows its own version, and a superseded one leaves the card', async () => {
+    const { server } = await renderApp();
+    addTaskSet(server, { 1: { version: 2 }, 2: { status: 'superseded' } });
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    expect(
+      within(group)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Execute: parse v1', 'Execute: mint v2']);
+  });
+
+  it("a member's tab shows its siblings, and its approve names every task it creates", async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addTaskSet(server);
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    await user.click(within(group).getByRole('link', { name: 'Execute: mint v1' }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Step 2.'));
+    const siblings = within(tab).getByRole('navigation', { name: 'Iteration 3' });
+    expect(siblings).toHaveTextContent('2 of 3');
+    expect(
+      within(siblings)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Execute: parse', 'Execute: show']);
+    await user.click(within(tab).getByRole('button', { name: 'Approve and create 3 tasks' }));
+    expect(await screen.findByTestId('created-tasks')).toHaveTextContent('Created 3 tasks');
+  });
+
+  it('a superseded member stands alone in its tab', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addTaskSet(server);
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    await user.click(within(group).getByRole('link', { name: 'Execute: show v1' }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Step 3.'));
+    act(() => {
+      server.change({ kind: 'document', ids: ['doc-set-2'] }, (w) => {
+        w.documents['doc-set-2'] = { ...w.documents['doc-set-2']!, status: 'superseded' };
+      });
+    });
+    await waitFor(() => expect(tab).toHaveTextContent('This version is superseded.'));
+    expect(within(tab).queryByRole('navigation', { name: 'Iteration 3' })).toBeNull();
   });
 
   it('a document asking for a verdict offers one, and approving moves its status', async () => {

@@ -87,6 +87,7 @@ function planDocument(status: Document['status']): Document {
     version: 1,
     status,
     source: { type: 'plan_review', requestId: 'req-nort9-plan', planFilePath: '' },
+    group: { id: 'doc-nort9-plan', title: 'Plan', position: 0 },
   };
 }
 

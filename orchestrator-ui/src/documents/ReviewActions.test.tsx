@@ -41,7 +41,10 @@ describe('ReviewActions', () => {
   it('names what approving a task set does, because it writes to the notebook', () => {
     render(
       <ReviewActions
-        doc={makeDocument({ kind: 'tasks', source: { type: 'draft_files', paths: ['d.md'] } })}
+        doc={makeDocument({
+          kind: 'tasks',
+          source: { type: 'draft_file', fileId: 'f-d.md', filename: 'd.md' },
+        })}
         unresolved={0}
         onApprove={vi.fn()}
         onRequestChanges={vi.fn()}
@@ -61,5 +64,32 @@ describe('ReviewActions', () => {
       />,
     );
     expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
+  it('counts the group, because one verdict settles every member', () => {
+    render(
+      <ReviewActions
+        doc={makeDocument({ kind: 'other' })}
+        members={3}
+        unresolved={0}
+        onApprove={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Approve all 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Request changes on all 3' })).toBeInTheDocument();
+  });
+
+  it('says a settled group is settled as a whole', () => {
+    render(
+      <ReviewActions
+        doc={makeDocument({ kind: 'other', status: 'approved' })}
+        members={3}
+        unresolved={0}
+        onApprove={vi.fn()}
+        onRequestChanges={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('All 3 are approved.')).toBeInTheDocument();
   });
 });

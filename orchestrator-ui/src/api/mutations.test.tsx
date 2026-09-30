@@ -76,7 +76,7 @@ function harness() {
           id: 'd1',
           agentId: 'ag1',
           kind: 'tasks',
-          source: { type: 'draft_files', paths: ['draft.md'] },
+          source: { type: 'draft_file', fileId: 'ag1-2-draft.md', filename: 'draft.md' },
         }),
       ],
     }),

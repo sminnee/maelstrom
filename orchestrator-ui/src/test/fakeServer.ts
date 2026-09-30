@@ -1,4 +1,5 @@
 import type { AgentCost, Stage } from '../api/milestones';
+import { groupMembers } from '../selectors/documents';
 import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
@@ -713,20 +714,24 @@ function command(
         ts: now(),
         type: 'message',
         role: 'user',
-        markdown: `Changes requested on ${doc.title}: ${str('summary')}`,
+        markdown: `Changes requested on ${doc.group.title}: ${str('summary')}`,
       });
     }
+    // The verdict settles every current member of the clicked document's group.
+    const members = groupMembers(Object.values(world.documents), doc.group.id);
     // Approving a task set promotes its drafts: the gate is structural, so
     // until the user approves, nothing was created.
     const taskIds: TaskId[] = [];
-    if (approving && doc.kind === 'tasks' && doc.source.type === 'draft_files') {
+    if (approving && members.every((d) => d.kind === 'tasks' && d.source.type === 'draft_file')) {
       const agent = world.agents[doc.agentId];
       const project = agent?.project ?? '';
-      for (const [i, path] of doc.source.paths.entries()) {
+      for (const [i, member] of members.entries()) {
+        const path = member.source.type === 'draft_file' ? member.source.filename : '';
+        const name = path.replace(/^.*\//, '').replace(/^draft-|\.md$/g, '');
         const taskId = `${project}/NEW-${mint()}`;
         world.tasks[taskId] = {
-          ...makeNewTask(taskId, project, path.replace(/^draft-|\.md$/g, ''), {}),
-          // Chained in document order, as the notebook wires them.
+          ...makeNewTask(taskId, project, name, {}),
+          // Chained in tag order, as the notebook wires them.
           follows: i === 0 ? [] : [taskIds[i - 1]!],
           actionable: i === 0,
         };
@@ -734,11 +739,17 @@ function command(
       }
       server.change({ kind: 'task', ids: taskIds });
     }
-    world.documents[doc.id] = { ...doc, status: approving ? 'approved' : 'changes-requested' };
-    server.change({ kind: 'document', ids: [doc.id] });
+    const ids = new Set(members.map((d) => d.id));
+    for (const member of members) {
+      world.documents[member.id] = {
+        ...member,
+        status: approving ? 'approved' : 'changes-requested',
+      };
+    }
+    server.change({ kind: 'document', ids: [...ids] });
     const retired: string[] = [];
     for (const item of Object.values(world.attention)) {
-      if (item.documentId === doc.id && item.clearedAt === null) {
+      if (item.documentId && ids.has(item.documentId) && item.clearedAt === null) {
         world.attention[item.id] = { ...item, clearedAt: now() };
         retired.push(item.id);
       }

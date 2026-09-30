@@ -338,14 +338,14 @@ describe('Transcript', () => {
   });
 
   it('a tagged message renders as a message, with the tag stripped out of it', () => {
-    const items = goldenItems('document-content.jsonl');
+    const items = goldenItems('document-both.jsonl');
     render(<Transcript items={items} truncatedBefore={false} />);
     const card = screen
       .getAllByTestId('transcript-card')
       .find((c) => c.getAttribute('data-item-type') === 'message')!;
-    expect(within(card).getByText(/Here is the changelog you asked for/)).toBeInTheDocument();
-    expect(card.textContent).not.toContain('doc-content');
-    expect(card.textContent).not.toContain('1.4.0');
+    expect(within(card).getByText(/Two things to look at/)).toBeInTheDocument();
+    expect(card.textContent).not.toContain('doc-file');
+    expect(card.textContent).not.toContain('release-note.md');
   });
 
   it('an agent message marks quiet self-talk apart from the prose around it', () => {
