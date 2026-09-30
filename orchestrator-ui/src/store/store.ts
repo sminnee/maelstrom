@@ -7,7 +7,12 @@ import type { ListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
 import type { PanelTab, UiState, View } from './uiSlice';
 import { initialUiState } from './uiSlice';
-import { closeTab as closeTabIn, openOrFocusTab } from '../selectors/tabs';
+import {
+  closeTabs as closeTabsIn,
+  mostRecentTab,
+  openOrFocusTab,
+  touchTab,
+} from '../selectors/tabs';
 import type { MobileScreen } from '../selectors/navStack';
 import { popScreen, pushScreen } from '../selectors/navStack';
 import type { Zone } from '../protocol/progress';
@@ -29,7 +34,13 @@ export interface AppStore {
   setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
   openTab(tab: PanelTab): void;
   activateTab(key: string): void;
-  closeTab(key: string): void;
+  /**
+   * Close tabs. `groupOf` names each tab's worktree group, which the store
+   * cannot work out: the world lives in the query cache, not here.
+   */
+  closeTabs(keys: string[], groupOf: (tab: PanelTab) => string): void;
+  /** Show a worktree group: activate the most recent of its tabs. */
+  selectGroup(tabKeys: string[]): void;
   /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
   expandNode(taskId: TaskId, toggle?: boolean): void;
   collapseNode(): void;
@@ -78,13 +89,28 @@ export const useAppStore = create<AppStore>()((set) => ({
     set((s) => {
       const tabs = openOrFocusTab(s.ui.tabs, tab);
       // Opening a tab always shows the panel: a link must show what it opened.
-      return { ui: { ...s.ui, tabs, activeTabKey: tab.key, panelOpen: true } };
+      return {
+        ui: {
+          ...s.ui,
+          tabs,
+          activeTabKey: tab.key,
+          tabRecency: touchTab(s.ui.tabRecency, tab.key),
+          panelOpen: true,
+        },
+      };
     }),
-  activateTab: (key) => set((s) => ({ ui: { ...s.ui, activeTabKey: key } })),
-  closeTab: (key) =>
+  activateTab: (key) =>
+    set((s) => ({
+      ui: { ...s.ui, activeTabKey: key, tabRecency: touchTab(s.ui.tabRecency, key) },
+    })),
+  closeTabs: (keys, groupOf) =>
+    set((s) => ({ ui: { ...s.ui, ...closeTabsIn(s.ui, keys, groupOf) } })),
+  selectGroup: (tabKeys) =>
     set((s) => {
-      const { tabs, activeTabKey } = closeTabIn(s.ui.tabs, s.ui.activeTabKey, key);
-      return { ui: { ...s.ui, tabs, activeTabKey } };
+      const key = mostRecentTab(tabKeys, s.ui.tabRecency);
+      return key
+        ? { ui: { ...s.ui, activeTabKey: key, tabRecency: touchTab(s.ui.tabRecency, key) } }
+        : s;
     }),
   expandNode: (nodeId, toggle = true) =>
     set((s) => ({
