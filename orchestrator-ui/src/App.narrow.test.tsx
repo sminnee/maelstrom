@@ -85,6 +85,10 @@ describe('the narrow layout', () => {
     expect(screen.getByTestId('session-tab')).toBeInTheDocument();
     // No tab strip in the narrow layout: one thing owns the screen.
     expect(screen.queryAllByRole('tab', { name: /session/i })).toHaveLength(0);
+    // The node detail under it carries the end-of-work control, so the head does not.
+    expect(
+      within(screen.getByTestId('session-head')).queryByRole('button', { name: 'Terminate' }),
+    ).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');

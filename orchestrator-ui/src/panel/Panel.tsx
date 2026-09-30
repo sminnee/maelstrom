@@ -77,7 +77,7 @@ export function Panel({ hidden = false }: { hidden?: boolean }) {
         <PanelTabs group={activeGroup} onClose={close} />
         <div className={styles.body} role="tabpanel" id={PANEL_BODY_ID} data-testid="panel-body">
           {active ? (
-            <TabBody tab={active} />
+            <TabBody tab={active} onDismissed={() => close([active.key])} />
           ) : (
             <div className={styles.empty}>Open a session or a document from a node or a task.</div>
           )}
@@ -87,13 +87,13 @@ export function Panel({ hidden = false }: { hidden?: boolean }) {
   );
 }
 
-function TabBody({ tab }: { tab: PanelTab }) {
+function TabBody({ tab, onDismissed }: { tab: PanelTab; onDismissed: () => void }) {
   switch (tab.kind) {
     case 'session':
       // Keyed, as the document tab below is: the tab holds a scroll position,
       // a window floor and a pending compact wait, all of which belong to one
       // agent. A reused fiber opens the next agent at the last one's state.
-      return <SessionTab key={tab.agentId} agentId={tab.agentId} />;
+      return <SessionTab key={tab.agentId} agentId={tab.agentId} onDismissed={onDismissed} />;
     case 'document':
       // Keyed: the tab holds per-document mutation state, so a reused
       // fiber would show one document's created tasks under the next.
