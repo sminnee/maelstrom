@@ -22,7 +22,7 @@ from mael_domain.task_table import TABLE as TASKS_TABLE
 from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 
 from .claude_integration import install_claude_integration
-from .env_cli import env
+from .env_cli import WORKTREE_PARAM, env
 
 
 @click.command("install")
@@ -233,47 +233,51 @@ def cmd_self_update():
 SELF_ENV_PROJECT = "maelstrom"
 SELF_ENV_TARGET = f"{SELF_ENV_PROJECT}.{MAIN_WORKTREE_FOLDER}"
 
-# `mael env`'s verbs, and how each one takes its target: through the `--worktree`
-# option, or as a positional argument.
-_TARGET_AS_OPTION = ("start", "stop", "restart", "logs")
-_TARGET_AS_ARGUMENT = ("status", "reset", "open")
+
+def _targets_a_worktree(command: click.Command) -> bool:
+    """Whether a `mael env` command acts on one worktree, named with -w."""
+    return any(p.name == WORKTREE_PARAM for p in command.params)
 
 
-def _self_env_command(name: str) -> click.Command:
+def _self_env_command(command: click.Command) -> click.Command:
     """Wrap one `mael env` command so it always runs against `maelstrom._main`."""
-    command = env.get_command(None, name)  # type: ignore[arg-type]
-    assert command is not None, f"mael env has no {name!r} command"
-
-    as_option = name in _TARGET_AS_OPTION
-    target_param = "worktree_opt" if as_option else "target"
+    # -w is fixed, so the user cannot give it. A deprecated alias would take a
+    # stray argument as a second target, so it goes too.
+    dropped = [p for p in command.params if p.name == WORKTREE_PARAM or p.deprecated]
 
     class Targeted(click.Command):
         def parse_args(self, ctx, args):
-            # Prepended, so a stray argument is the surplus one the error names.
-            target = ["-w", SELF_ENV_TARGET] if as_option else [SELF_ENV_TARGET]
-            return command.parse_args(ctx, target + list(args))
+            rest = super().parse_args(ctx, args)
+            for p in dropped:
+                assert p.name is not None
+                ctx.params[p.name] = None
+            ctx.params[WORKTREE_PARAM] = SELF_ENV_TARGET
+            return rest
 
-    # The target is fixed, so its parameter is hidden from --help. It stays on
-    # the real command, which is what parses the arguments above.
     return Targeted(
-        name=name,
+        name=command.name,
         callback=command.callback,
-        params=[p for p in command.params if p.name != target_param],
+        params=[p for p in command.params if p not in dropped],
         help=command.help,
         short_help=command.short_help,
     )
 
 
 class SelfEnvGroup(click.Group):
-    """`mael env`'s commands, each aimed at maelstrom's fixed environment."""
+    """`mael env`'s worktree commands, each aimed at maelstrom's fixed environment."""
 
     def list_commands(self, ctx):
-        return sorted(_TARGET_AS_OPTION + _TARGET_AS_ARGUMENT)
+        return sorted(
+            name
+            for name, command in env.commands.items()
+            if _targets_a_worktree(command)
+        )
 
     def get_command(self, ctx, name):
-        if name not in _TARGET_AS_OPTION + _TARGET_AS_ARGUMENT:
+        command = env.commands.get(name)
+        if command is None or not _targets_a_worktree(command):
             return None
-        return _self_env_command(name)
+        return _self_env_command(command)
 
 
 @click.group("self-env", cls=SelfEnvGroup)

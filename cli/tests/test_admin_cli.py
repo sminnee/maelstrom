@@ -6,6 +6,7 @@ import subprocess
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -220,6 +221,33 @@ class TestSelfEnv:
 
         assert result.exit_code == 0, result.output
         assert start.call_args.args[3] == main_path
+
+    def test_it_wraps_exactly_the_verbs_that_take_a_worktree(self):
+        """The `env` verbs with -w, and no others."""
+        from mael_cli.admin_cli import cmd_self_env
+
+        commands = cmd_self_env.list_commands(click.Context(cmd_self_env))
+
+        assert set(commands) == {verb for verb, _ in self.VERBS}
+
+    @pytest.mark.parametrize("verb", [verb for verb, _ in VERBS])
+    def test_help_hides_the_fixed_target(self, verb, tmp_path):
+        """Neither -w nor the deprecated TARGET shows in a wrapped verb's help."""
+        result = self._invoke(["self-env", verb, "--help"], tmp_path)
+
+        assert result.exit_code == 0, result.output
+        assert "-w" not in result.output
+        assert "TARGET" not in result.output
+
+    @pytest.mark.parametrize("verb", [verb for verb, _ in VERBS])
+    def test_the_fixed_target_cannot_be_redirected(self, verb, tmp_path):
+        """A -w of the user's own is refused, not a silent retarget."""
+        with patch("mael_cli.env_cli.resolve_context") as mock_ctx:
+            result = self._invoke(["self-env", verb, "-w", "other.b"], tmp_path)
+
+        assert result.exit_code != 0
+        assert "No such option" in result.output
+        assert not mock_ctx.called
 
     def test_a_stray_argument_names_itself_in_the_error(self, tmp_path):
         """The fixed target must not be blamed for the user's own typo."""
