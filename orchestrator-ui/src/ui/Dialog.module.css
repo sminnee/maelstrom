@@ -74,9 +74,6 @@
 }
 .field textarea {
   font-family: var(--mono);
-  /* Sized to its content: the dialog scrolls, not the textarea. */
-  resize: none;
-  overflow: hidden;
 }
 .kinds {
   display: flex;

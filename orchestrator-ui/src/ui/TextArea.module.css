@@ -1,0 +1,5 @@
+/* Zero specificity, so a caller's class overrides it. */
+:where(.grow) {
+  resize: none;
+  overflow: hidden;
+}
