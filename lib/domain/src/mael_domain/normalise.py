@@ -41,6 +41,7 @@ from .protocol import (
     ClientState,
     Document,
     ServerEvent,
+    group_members,
 )
 from .task import parse_draft
 
@@ -514,7 +515,7 @@ def normalise_stream_event(
                 )
                 if tagged:
                     for tag in tagged.tags:
-                        out.tagged_document(tag, item_id, read_file)
+                        out.tagged_document(tag, read_file)
                 out.ctx = replace(out.ctx, last_assistant_text=text)
                 out.agent(
                     {
@@ -803,11 +804,11 @@ class _Emitter:
         self.ctx = replace(self.ctx, open_tool_calls=open_calls)
 
     def previous_version(self, kind: str, title: str) -> Document | None:
-        """The document this one is the next version of, if there is one.
+        """The plan this one is the next version of, if there is one.
 
-        A document sent back for changes comes around again as the next
-        version of the same document, so its comments stay attached. Anything
-        else — no such document, or one still open — starts at version 1.
+        A plan sent back for changes comes around again as the next version of
+        the same document, so its comments stay attached. Anything else starts
+        at version 1. A tagged document versions by path instead.
         """
         return next(
             (
@@ -821,69 +822,99 @@ class _Emitter:
             None,
         )
 
-    def tagged_document(
-        self, tag: DocumentTag, item_id: str, read_file: ReadFile
-    ) -> None:
-        """Mint the document one ``<doc-content>`` or ``<doc-file>`` tag asks for.
+    def documents(self) -> dict[str, Document]:
+        """Every document, with the ones this batch changed in their new state."""
+        return {**self.state["world"]["documents"], **self.local_documents}
+
+    def _in_scope(self, doc: Document) -> bool:
+        """Whether ``doc`` shares this agent's scope: its task, else the agent itself."""
+        task_id = self.agent_entity["taskId"]
+        if task_id:
+            return doc["taskId"] == task_id
+        return doc["agentId"] == self.ctx.agent_id
+
+    def tagged_document(self, tag: DocumentTag, read_file: ReadFile) -> None:
+        """Mint one document per file a ``<doc-file>`` tag names.
+
+        The path is the document's identity. A path presented before, in the
+        same scope, is that document's next version whatever its status, so a
+        revision replaces its entry rather than adding one.
 
         A tagged document opens at ``draft``: nothing waits behind it, so a
         changelog the user was asked to read must not present as a decision.
         ``review="true"`` is how an agent asks for a verdict, and only that
-        raises an attention item.
+        raises an attention item — one for the group.
         """
-        if tag.filenames:
-            markdown = self._file_bodies(tag.kind, tag.filenames, read_file)
-            # A refused path keeps its own name: a missing id must not read
-            # as a different file.
-            source: Dict = {
-                "type": "draft_files",
-                "paths": [
-                    self.files.register(
+        earlier: dict[str, Document] = {}
+        for doc in self.documents().values():
+            source = doc["source"]
+            if source.get("type") == "draft_file" and self._in_scope(doc):
+                earlier.setdefault(source["filename"], doc)
+        matched = [earlier[name] for name in tag.filenames if name in earlier]
+        group_id = matched[0]["group"]["id"] if matched else self.new_id()
+        # Every group a named path came from is replaced by this tag, not only
+        # the one it joins: a path moved out of a group takes that group's
+        # verdict with it.
+        replaced = {group_id} | {d["group"]["id"] for d in matched}
+        members: list[str] = []
+        for position, filename in enumerate(tag.filenames):
+            previous = earlier.get(filename)
+            document_id = previous["id"] if previous else self.new_id()
+            body = self._file_body(filename, read_file)
+            doc: Document = {
+                "id": document_id,
+                "agentId": self.ctx.agent_id,
+                "taskId": self.agent_entity["taskId"],
+                "kind": tag.kind,
+                "title": self._member_title(tag, filename, body),
+                "markdown": _as_plan(body) if tag.kind == DRAFT_KIND else body,
+                "version": (previous["version"] if previous else 0) + 1,
+                "status": "awaiting-review" if tag.review else "draft",
+                "source": {
+                    "type": "draft_file",
+                    # `None` for a file that cannot be read: there is nothing
+                    # to serve or promote, and the markdown says so.
+                    "fileId": self.files.register(
                         self.new_id(), self.agent_entity["cwd"], filename
-                    )
-                    or filename
-                    for filename in tag.filenames
-                ],
+                    ),
+                    "filename": filename,
+                },
+                "group": {"id": group_id, "title": tag.title, "position": position},
             }
-        else:
-            markdown = tag.markdown
-            source = {"type": "message", "transcriptItemId": item_id}
-        previous = self.previous_version(tag.kind, tag.title)
-        document_id = previous["id"] if previous else self.new_id()
-        doc: Document = {
-            "id": document_id,
-            "agentId": self.ctx.agent_id,
-            "taskId": self.agent_entity["taskId"],
-            "kind": tag.kind,
-            "title": tag.title,
-            "markdown": markdown,
-            "version": (previous["version"] if previous else 0) + 1,
-            "status": "awaiting-review" if tag.review else "draft",
-            "source": source,
+            self.local_documents[document_id] = doc
+            self.events.append({"type": "upsert", "kind": "document", "entity": doc})
+            members.append(document_id)
+        # A member the new tag left out is no longer part of what is decided.
+        for gid in replaced:
+            for doc in group_members(self.documents().values(), gid):
+                if doc["id"] not in members:
+                    self.document_status(doc["id"], "superseded")
+        # A re-present replaces the group's item rather than stacking another.
+        in_group = {
+            d["id"] for d in self.documents().values() if d["group"]["id"] in replaced
         }
-        self.local_documents[document_id] = doc
-        self.events.append({"type": "upsert", "kind": "document", "entity": doc})
+        attention = {**self.state["world"]["attention"], **self.local_attention}
+        for item in attention.values():
+            if (
+                item["kind"] == "document_review"
+                and item["documentId"] in in_group
+                and item["clearedAt"] is None
+            ):
+                self.clear(item["id"])
         if tag.review:
             self.raise_attention(
-                "document_review", f"{tag.title} awaiting review", None, document_id
+                "document_review", f"{tag.title} awaiting review", None, members[0]
             )
 
-    def _file_bodies(
-        self, kind: str, filenames: tuple[str, ...], read_file: ReadFile
-    ) -> str:
-        """Every named file, as one document to read.
-
-        A set of drafts is one chain, so the user reads it as one document
-        rather than opening a tab per file. A ``tasks`` document is rendered as
-        the plan it holds — see :func:`_as_plan`; every other kind is shown as
-        written, because only a task file has a recipe to read off.
-        """
-        bodies = [(name, self._file_body(name, read_file)) for name in filenames]
-        if kind == DRAFT_KIND:
-            return "\n\n".join(_as_plan(body) for _, body in bodies)
-        if len(bodies) == 1:
-            return bodies[0][1]
-        return "\n\n".join(f"## {name}\n\n{body}" for name, body in bodies)
+    @staticmethod
+    def _member_title(tag: DocumentTag, filename: str, body: str) -> str:
+        """A task draft's own title, else the tag's for one file, else the path."""
+        if tag.kind == DRAFT_KIND:
+            try:
+                return parse_draft(body).title
+            except ValueError:
+                pass
+        return tag.title if len(tag.filenames) == 1 else filename
 
     def show_image(self, image: ImageTag) -> str | None:
         """The markdown that shows one ``<image>``, or ``None`` to refuse it.
@@ -941,6 +972,8 @@ class _Emitter:
                     "requestId": request_id,
                     "planFilePath": _str(inp.get("planFilePath")) if plan else "",
                 },
+                # A plan is a group of one.
+                "group": {"id": document_id, "title": "Plan", "position": 0},
             }
             self.local_documents[document_id] = doc
             self.events.append({"type": "upsert", "kind": "document", "entity": doc})

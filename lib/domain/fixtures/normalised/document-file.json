@@ -42,10 +42,14 @@
         "version": 1,
         "status": "draft",
         "source": {
-          "type": "draft_files",
-          "paths": [
-            "ag1-3-draft-iter1.md"
-          ]
+          "type": "draft_file",
+          "fileId": "ag1-5-draft-iter1.md",
+          "filename": "draft-iter1.md"
+        },
+        "group": {
+          "id": "ag1-3",
+          "title": "Iteration 1",
+          "position": 0
         }
       }
     },
@@ -78,7 +82,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-5",
+          "id": "ag1-6",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],

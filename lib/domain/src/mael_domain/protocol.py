@@ -7,6 +7,7 @@ world changes; the normaliser and ``agent_view`` reduce with it too.
 ``docs/dev/orchestrator-server.md`` documents what the routes serve.
 """
 
+from collections.abc import Iterable
 from typing import Any, Literal, TypedDict, cast
 
 Phase = Literal["shaping", "planning", "executing", "finalising"]
@@ -220,6 +221,17 @@ class Attention(TypedDict):
     clearedAt: str | None
 
 
+class DocumentGroup(TypedDict):
+    """The review group a document is a member of — see ``CONTEXT.md``, "Review group".
+
+    ``position`` is the member's place in the tag: a task set's chain order.
+    """
+
+    id: str
+    title: str
+    position: int
+
+
 class Document(TypedDict):
     id: str
     agentId: str
@@ -230,6 +242,7 @@ class Document(TypedDict):
     version: int
     status: str
     source: dict[str, Any]
+    group: DocumentGroup
 
 
 class DocumentRow(TypedDict):
@@ -243,10 +256,27 @@ class DocumentRow(TypedDict):
     version: int
     status: str
     source: dict[str, Any]
+    group: DocumentGroup
 
 
 #: The ``Document`` fields a ``DocumentRow`` leaves out.
 DOCUMENT_DETAIL_FIELDS = ("markdown",)
+
+
+def group_members(documents: Iterable[Document], group_id: str) -> list[Document]:
+    """The current members of review group ``group_id``, in tag order.
+
+    A superseded member was dropped when the agent presented the tag again, so
+    no verdict reaches it.
+    """
+    return sorted(
+        (
+            d
+            for d in documents
+            if d["group"]["id"] == group_id and d["status"] != "superseded"
+        ),
+        key=lambda d: d["group"]["position"],
+    )
 
 
 def document_row(doc: Document) -> DocumentRow:
