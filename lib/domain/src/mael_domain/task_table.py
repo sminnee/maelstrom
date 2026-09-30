@@ -1,9 +1,8 @@
 """Storage layer for the task notebook.
 
-A task is one row, its prose included. The row carries ``content``, ``steps``
-and ``log`` beside the frontmatter fields, so a write is one transaction over
-the whole task and a rollback leaves nothing behind — splitting a task across
-two stores is what made a rollback partial.
+A task is one row, its prose included: ``content`` and ``log`` sit beside the
+frontmatter fields, so a write is one transaction over the whole task — see
+``docs/dev/data-architecture.md``, "Canonical".
 
 Two backends are provided:
 
@@ -59,7 +58,6 @@ _SCALARS = (
     "base",
     "execute_model",
     "content",
-    "steps",
     "log",
 )
 
@@ -91,7 +89,7 @@ class TaskChanges:
 #: them on every write — ``_split_sections`` trims each section — so a caller
 #: handing over a file's trailing newline got it back without one. Keeping that
 #: here means a reader comparing ``content`` need not know where it came from.
-_STRIPPED = ("content", "steps", "log")
+_STRIPPED = ("content", "log")
 
 
 def columns_for(task: Task) -> dict[str, Any]:
