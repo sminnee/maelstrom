@@ -140,8 +140,9 @@ so each firing roots its own chain.
 
 **Qualified id**:
 A task id that names its project: `northwind/NORT-7`, against the bare `NORT-7`. A surface
-shows the qualified id when it must tell two projects' tasks apart — a panel tab — and the bare
-id when something else on screen already names the project, such as a node in its lane.
+shows the qualified id when it must tell two projects' tasks apart, and the bare id when
+something else on screen already names the project, such as a node in its lane or a panel tab
+under the panel sidebar.
 
 **Failover id**:
 The rule that fills an id slot from the next source down. An agent with no task shows its own
@@ -896,10 +897,17 @@ _Avoid_: Action bar, footer
 
 **Panel**:
 The right-hand column of tabs, beside the canvas and the task list. A tab holds a session, a
-document, or a worktree's changes (see **Changes tab**). The worktree table and the narrow layout
-have no panel. The Panel toggle in the top bar collapses it,
-and a panel link opens it again.
-_Avoid_: Sidebar, drawer, detail pane
+document, or a worktree's changes (see **Changes tab**). The panel sidebar on its left edge lists
+the worktree groups, and the tab strip shows the tabs of the group in view. The worktree table and
+the narrow layout have no panel. The Panel toggle in the top bar collapses it, and a panel link
+opens it again.
+_Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
+
+**Worktree group**:
+The open panel tabs of one worktree, shown as one row of the panel sidebar. A worktree group is
+derived from the open tabs and holds no state of its own: it shows while one of its tabs is open,
+and closing it closes all its tabs. Tabs that no worktree holds form a "no worktree" group for
+their project.
 
 **Changes tab**:
 A panel tab that shows one worktree's changes: its **Dirty files**, each commit its branch has
