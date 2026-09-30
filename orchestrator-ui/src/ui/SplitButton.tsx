@@ -9,6 +9,8 @@ import styles from './SplitButton.module.css';
 export interface SplitOption {
   /** The item's whole text, and the main segment's when it is the first option. */
   label: string;
+  /** Drawn before the label, on the main segment and the item. Decorative. */
+  icon?: ReactNode;
   /** Shown on the main segment while this option runs. Defaults to `label`. */
   processing?: ReactNode;
   /** A second line under the item. A disabled item says why here. */
@@ -137,7 +139,10 @@ export function SplitButton({
         ) : state.kind === 'error' ? (
           <span role="alert">Failed</span>
         ) : (
-          main.label
+          <>
+            {main.icon}
+            {main.label}
+          </>
         )}
       </button>
       {split && (
@@ -195,7 +200,10 @@ export function SplitButton({
                     choose(option);
                   }}
                 >
-                  <span>{option.label}</span>
+                  <span className={styles.label}>
+                    {option.icon}
+                    {option.label}
+                  </span>
                   {option.detail && (
                     <span id={detailId} className={styles.detail}>
                       {option.detail}

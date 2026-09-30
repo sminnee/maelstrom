@@ -17,8 +17,12 @@ function deferred<T = void>() {
 function three(over: Partial<Record<number, Partial<SplitOption>>> = {}): SplitOption[] {
   return [
     { label: 'Terminate', run: vi.fn(() => Promise.resolve()), ...over[0] },
-    { label: 'Terminate & dismiss', run: vi.fn(() => Promise.resolve()), ...over[1] },
-    { label: 'Terminate, dismiss & close alpha', run: vi.fn(() => Promise.resolve()), ...over[2] },
+    { label: 'Terminate & take off desk', run: vi.fn(() => Promise.resolve()), ...over[1] },
+    {
+      label: 'Terminate, take off desk & close alpha',
+      run: vi.fn(() => Promise.resolve()),
+      ...over[2],
+    },
   ];
 }
 
@@ -49,11 +53,11 @@ describe('SplitButton', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((i) => i.getAttribute('aria-label')),
-    ).toEqual(['Terminate', 'Terminate & dismiss', 'Terminate, dismiss & close alpha']);
+    ).toEqual(['Terminate', 'Terminate & take off desk', 'Terminate, take off desk & close alpha']);
     // Opening puts the focus on the first item, so the keyboard can go on.
     expect(screen.getByRole('menuitem', { name: 'Terminate' })).toHaveFocus();
 
-    await user.click(screen.getByRole('menuitem', { name: 'Terminate & dismiss' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Terminate & take off desk' }));
     expect(options[1]!.run).toHaveBeenCalledOnce();
     expect(options[0]!.run).not.toHaveBeenCalled();
     expect(chevron()).toHaveAttribute('aria-expanded', 'false');
@@ -71,7 +75,7 @@ describe('SplitButton', () => {
     const user = userEvent.setup();
     render(<SplitButton options={three({ 0: { disabled: true } })} />);
     await user.click(chevron());
-    expect(screen.getByRole('menuitem', { name: 'Terminate & dismiss' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Terminate & take off desk' })).toHaveFocus();
   });
 
   it('does not run a disabled item, and says why it is disabled', async () => {
@@ -81,7 +85,7 @@ describe('SplitButton', () => {
     });
     render(<SplitButton options={options} />);
     await user.click(chevron());
-    const item = screen.getByRole('menuitem', { name: 'Terminate, dismiss & close alpha' });
+    const item = screen.getByRole('menuitem', { name: 'Terminate, take off desk & close alpha' });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveAccessibleDescription('1 other agent still running in alpha');
 
@@ -97,13 +101,13 @@ describe('SplitButton', () => {
     await user.click(chevron());
     const item = (name: string) => screen.getByRole('menuitem', { name });
     await user.keyboard('{ArrowDown}');
-    expect(item('Terminate & dismiss')).toHaveFocus();
+    expect(item('Terminate & take off desk')).toHaveFocus();
     await user.keyboard('{End}');
-    expect(item('Terminate, dismiss & close alpha')).toHaveFocus();
+    expect(item('Terminate, take off desk & close alpha')).toHaveFocus();
     await user.keyboard('{ArrowDown}');
     expect(item('Terminate')).toHaveFocus();
     await user.keyboard('{ArrowUp}');
-    expect(item('Terminate, dismiss & close alpha')).toHaveFocus();
+    expect(item('Terminate, take off desk & close alpha')).toHaveFocus();
     await user.keyboard('{Home}');
     expect(item('Terminate')).toHaveFocus();
   });
@@ -128,7 +132,9 @@ describe('SplitButton', () => {
     const options = three({ 2: { run: () => pending.promise, processing: 'Closing' } });
     render(<SplitButton options={options} />);
     await user.click(chevron());
-    await user.click(screen.getByRole('menuitem', { name: 'Terminate, dismiss & close alpha' }));
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Terminate, take off desk & close alpha' }),
+    );
 
     const main = screen.getByRole('button', { name: 'Closing' });
     expect(main).toBeDisabled();
@@ -149,7 +155,9 @@ describe('SplitButton', () => {
     });
     render(<SplitButton options={options} onError={onError} errorResetMs={0} />);
     await user.click(chevron());
-    await user.click(screen.getByRole('menuitem', { name: 'Terminate, dismiss & close alpha' }));
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Terminate, take off desk & close alpha' }),
+    );
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Failed');
@@ -163,6 +171,23 @@ describe('SplitButton', () => {
     render(<SplitButton options={three().slice(0, 1)} />);
     expect(screen.getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+  });
+
+  it('draws an option icon on the main segment and its menu item, and the label stays the name', async () => {
+    const user = userEvent.setup();
+    const icon = <svg data-testid="icon" aria-hidden="true" />;
+    render(<SplitButton options={three({ 0: { icon } })} />);
+    const main = screen.getByRole('button', { name: 'Terminate' });
+    expect(within(main).getByTestId('icon')).toBeInTheDocument();
+
+    await user.click(chevron());
+    const item = screen.getByRole('menuitem', { name: 'Terminate' });
+    expect(within(item).getByTestId('icon')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('menuitem', { name: 'Terminate & take off desk' })).queryByTestId(
+        'icon',
+      ),
+    ).toBeNull();
   });
 
   it('names the chevron with menuLabel, so two controls in one row stay apart', () => {
@@ -182,7 +207,7 @@ describe('SplitButton', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Terminate' })));
     fireEvent.click(chevron());
     await act(async () =>
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Terminate & dismiss' })),
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Terminate & take off desk' })),
     );
     expect(behind).not.toHaveBeenCalled();
   });
