@@ -45,11 +45,6 @@ base: feat/base
 
 Do the export.
 
-## Steps
-
-- [x] Write the test
-- [ ] Make it pass
-
 ## Log
 
 - 2026-09-01T10:00:00 started
@@ -72,10 +67,6 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     assert entity["model"] == "claude-opus-5"
     assert entity["base"] == "feat/base"
     assert entity["content"] == "Do the export."
-    assert entity["steps"] == [
-        {"text": "Write the test", "done": True},
-        {"text": "Make it pass", "done": False},
-    ]
     assert entity["log"] == [
         {"ts": "2026-09-01T10:00:00", "text": "started"},
         {"ts": "2026-09-01T11:00:00", "text": "blocked on CI"},
@@ -84,8 +75,8 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     assert entity["updated"] == "2026-09-02T00:00:00"
 
 
-def test_a_wrapped_log_line_continues_its_entry_and_prose_steps_stay_open():
-    from mael_orchestrator.world_build import parse_log, parse_steps
+def test_a_wrapped_log_line_continues_its_entry():
+    from mael_orchestrator.world_build import parse_log
 
     assert parse_log(
         "- 2026-09-01T10:00:00 started the\n  long job\n- 2026-09-01T11:00:00 done"
@@ -94,10 +85,6 @@ def test_a_wrapped_log_line_continues_its_entry_and_prose_steps_stay_open():
         {"ts": "2026-09-01T11:00:00", "text": "done"},
     ]
     assert parse_log("no timestamp here") == [{"ts": "", "text": "no timestamp here"}]
-    assert parse_steps("Just prose\n- [x] Done one") == [
-        {"text": "Just prose", "done": False},
-        {"text": "Done one", "done": True},
-    ]
 
 
 def test_task_entity_defaults_a_missing_branch_to_the_default_branch():

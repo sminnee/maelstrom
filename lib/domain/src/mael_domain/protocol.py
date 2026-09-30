@@ -84,11 +84,6 @@ class Worktree(TypedDict):
     shellUrl: str
 
 
-class TaskStep(TypedDict):
-    text: str
-    done: bool
-
-
 class TaskLogEntry(TypedDict):
     ts: str
     text: str
@@ -116,7 +111,6 @@ class Task(TypedDict):
     base: str
     executeModel: str
     content: str
-    steps: list[TaskStep]
     log: list[TaskLogEntry]
     created: str
     updated: str
@@ -144,7 +138,6 @@ class TaskRow(TypedDict):
     model: str
     base: str
     executeModel: str
-    steps: list[TaskStep]
     created: str
     updated: str
     actionable: bool

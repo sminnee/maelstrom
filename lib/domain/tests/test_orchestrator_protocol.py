@@ -29,7 +29,6 @@ def make_task(**over):
         "base": "",
         "executeModel": "",
         "content": "",
-        "steps": [],
         "log": [],
         "created": NOW,
         "updated": NOW,
