@@ -13,6 +13,7 @@ from mael_cli.git_cli import (
     get_diff_stat_summary,
     get_recent_commits,
     get_worktree_file_status,
+    git_status,
 )
 
 
@@ -317,8 +318,9 @@ class TestGitStatusCommand:
         mock_diff.return_value = None
         mock_commits.return_value = []
 
+        # Invoked without the root group, so ctx.obj is None.
         runner = CliRunner()
-        result = runner.invoke(cli, ["git", "status"])
+        result = runner.invoke(git_status, [])
         assert result.exit_code == 0
         assert "Clean working tree, no commits ahead of main." in result.output
 

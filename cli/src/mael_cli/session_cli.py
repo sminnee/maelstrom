@@ -19,6 +19,7 @@ from mael_domain.context import resolve_context
 from mael_domain.env import stop_sessions
 from mael_domain.task_table import SqliteTaskTable
 
+from .json_flag import wants_json
 from .table_cli import draw_table
 from .task_cli import open_task_table
 
@@ -200,8 +201,7 @@ async def _find_session(id: str | None) -> session_discovery.LiveSession:
 
 @session.command("info")
 @click.argument("id", required=False)
-@click.pass_context
-async def session_info(ctx, id: str | None) -> None:
+async def session_info(id: str | None) -> None:
     """Show the fields of one live session.
 
     ID is a session id, a unique prefix of one, or a pid — the ID and PID columns
@@ -214,7 +214,7 @@ async def session_info(ctx, id: str | None) -> None:
     sess = await _find_session(id)
     row = await build_session_row(sess, _task_table())
 
-    if ctx.obj.get("json", False) if ctx.obj else False:
+    if wants_json():
         click.echo(json.dumps(row, indent=2))
         return
 

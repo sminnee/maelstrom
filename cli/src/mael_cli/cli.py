@@ -90,6 +90,7 @@ from .integrations.linear_cli import linear_group
 from .integrations.sentry_cli import sentry_group
 from .integrations.slack_cli import slack_group
 from .integrations.uptimerobot_cli import uptimerobot_group
+from .json_flag import wants_json
 from .project_cli import project as project_cli
 from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
@@ -847,7 +848,7 @@ def _list_all_row(project_name: str, wt: dict) -> dict:
 @cli.command("list-all")
 async def cmd_list_all():
     """List all worktrees across all projects."""
-    output_json = click.get_current_context().obj.get("json", False)
+    output_json = wants_json()
     global_config = load_global_config()
 
     data = await build_list_all_data(global_config.projects_dir)

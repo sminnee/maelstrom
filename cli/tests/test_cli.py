@@ -13,7 +13,7 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from mael_cli.cli import cli, pr_display
+from mael_cli.cli import cli, cmd_list_all, pr_display
 from mael_domain.github_model import PrState, PrStatus, PullRequestNotMergeable
 from mael_domain.list_all import resolve_pr
 from mael_domain.project_scaffold import scaffold_files
@@ -68,6 +68,19 @@ class TestNonProductionWarning:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == {"projects": []}
         assert "Warning: non-production mael environment" in result.stderr
+
+
+class TestListAllCommand:
+    def test_invoked_without_the_root_group_prints_text_not_json(self):
+        with (
+            patch("mael_cli.cli.load_global_config") as config,
+            patch("mael_domain.list_all.find_all_projects", return_value=[]),
+        ):
+            config.return_value = MagicMock(projects_dir=Path("/tmp/projects"))
+            result = CliRunner().invoke(cmd_list_all, [])
+
+        assert result.exception is None
+        assert result.output.strip() == "No projects found."
 
 
 def _pr(number, *, commits=1, state: PrState = "ready"):
