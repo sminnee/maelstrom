@@ -220,6 +220,11 @@ export interface Agent {
   lastNote: string;
   /** When the agent wrote that note, ISO 8601; `''` until it writes one. */
   lastNoteAt: string;
+  /**
+   * When the orchestrator started the agent, or first saw one it did not
+   * start, ISO 8601, or `''` with no Agent record. A resume keeps it.
+   */
+  startedAt: string;
   costUsd: number;
   /**
    * Tokens the session has consumed, summed over its turns: how much work it

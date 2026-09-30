@@ -18,6 +18,7 @@
         "lastMessageAt": "2026-09-05T05:00:04.000Z",
         "lastNote": "",
         "lastNoteAt": "",
+        "startedAt": "",
         "costUsd": 0.0312,
         "totalTokens": 0,
         "subagentTokens": 0,

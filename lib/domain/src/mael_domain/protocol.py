@@ -250,6 +250,9 @@ class Agent(TypedDict):
     lastNote: str
     #: When the agent wrote that note, ISO 8601; ``""`` until it writes one.
     lastNoteAt: str
+    #: When the orchestrator started the agent, or first saw one it did not
+    #: start, ISO 8601; ``""`` with no Agent record. A resume keeps it.
+    startedAt: str
     costUsd: float
     #: Tokens the session has consumed, summed over its turns: how much work it
     #: has done. Not how full its context is — a turn re-reads its prompt from

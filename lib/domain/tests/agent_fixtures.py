@@ -44,6 +44,7 @@ def make_agent(**over) -> dict:
         "lastMessageAt": "",
         "lastNote": "",
         "lastNoteAt": "",
+        "startedAt": "",
         "costUsd": 0,
         "totalTokens": 0,
         "subagentTokens": 0,
