@@ -10,12 +10,12 @@ Run `mael --help` or `mael <group> --help` to see the same information in the te
 | Option | Description |
 |---|---|
 | `--version` | Print the version and exit. |
-| `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all`, `mael project list` and `mael git status` only; every other command ignores it. |
+| `--json` | Print machine-readable JSON instead of a table. Honoured by `mael list-all`, `mael project list`, `mael git status` and `mael session info` only; every other command ignores it. |
 | `--help` | Print help and exit. |
 
 ```bash
 mael --version
-mael --json list-all         # one of the three commands that honour --json
+mael --json list-all         # one of the four commands that honour --json
 mael task add --help         # per-command flags, straight from the source
 ```
 
@@ -928,7 +928,7 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its base tip, keeping a working history. |
 
 ```bash
-mael git status              # compact summary; the only other --json consumer
+mael git status              # compact summary; also honours --json
 mael git merge --close       # merge, then close the worktree
 mael git squash-branch       # collapse the commits into one, still committed
 mael git squash-branch --local   # collapse only the commits never pushed
