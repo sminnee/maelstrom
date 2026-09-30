@@ -19,10 +19,19 @@
   background: color-mix(in srgb, var(--danger) 15%, transparent);
   color: var(--danger);
 }
+.row[data-highlighted] {
+  color: var(--syntax-foreground);
+}
 .sign {
   width: 1ch;
   flex-shrink: 0;
   color: var(--fg-faint);
+}
+.row[data-kind='add'] .sign {
+  color: var(--ok);
+}
+.row[data-kind='remove'] .sign {
+  color: var(--danger);
 }
 /* Wide enough for a five-digit line, so a gutter keeps its width down a file. */
 .number {
