@@ -124,6 +124,7 @@ LIST_ALL_ROW = {
     "pr_url": "https://github.com/acme/northwind/pull/42",
     "pr_state": "ready",
     "pr_draft": False,
+    "pr_merged_at": "2026-09-01T10:00:00Z",
 }
 
 
@@ -145,6 +146,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "prUrl": "https://github.com/acme/northwind/pull/42",
         "prState": "ready",
         "prDraft": False,
+        "prMergedAt": "2026-09-01T10:00:00Z",
         "env": {
             "state": "running",
             "services": [
@@ -210,7 +212,11 @@ def test_worktree_entity_carries_the_prs_state():
 def test_worktree_entity_without_a_pr_carries_no_state():
     """A row with no PR carries no state, so the card draws no chip at all."""
     entity = worktree_entity("northwind", {"name": "alpha", "path": "/p"})
-    assert (entity["prState"], entity["prDraft"]) == ("", False)
+    assert (entity["prState"], entity["prDraft"], entity["prMergedAt"]) == (
+        "",
+        False,
+        "",
+    )
 
 
 def test_worktree_entity_without_a_pr_url_carries_an_empty_string():

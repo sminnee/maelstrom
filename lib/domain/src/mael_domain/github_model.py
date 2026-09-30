@@ -248,6 +248,7 @@ def pr_from_row(row: dict) -> "PrStatus | None":
         url=row["pr_url"] or "",
         state=row["pr_state"] or "unknown",
         is_draft=bool(row["pr_draft"]),
+        merged_at=row["pr_merged_at"] or "",
     )
 
 
@@ -273,6 +274,8 @@ class PrStatus:
     url: str
     state: PrState
     is_draft: bool
+    #: When the PR merged, ISO 8601; ``""`` for one that has not.
+    merged_at: str = ""
 
 
 def parse_pr_info(payload: str) -> PRInfo:
@@ -578,6 +581,7 @@ def _pr_status(
         url=node.get("url") or "",
         state=_pr_state(node, rollup_readable=rollup_readable, run_states=run_states),
         is_draft=bool(node.get("isDraft")),
+        merged_at=node.get("mergedAt") or "",
     )
 
 

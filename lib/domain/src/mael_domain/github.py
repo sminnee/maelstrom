@@ -248,7 +248,7 @@ def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None
 # would read as merged while work is still live.
 _PR_FIELDS = """
       nodes {
-        number headRefName url isDraft state mergeable
+        number headRefName url isDraft state mergeable mergedAt
         commits(last: 1) {
           totalCount
           nodes { commit { oid statusCheckRollup { state } } }

@@ -82,6 +82,7 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     prUrl: 'https://github.com/acme/northwind/pull/118',
     prState,
     prDraft,
+    prMergedAt: '',
     env: { state: 'stopped', services: [] },
     shellUrl: '',
     sessionCount: 0,

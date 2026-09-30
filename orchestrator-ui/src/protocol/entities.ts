@@ -78,6 +78,8 @@ export interface Worktree {
   /** How close the PR is to merging, or `''` when there is no PR. */
   prState: PrState | '';
   prDraft: boolean;
+  /** When the PR merged, ISO 8601, or `''` when there is no PR or it is open. */
+  prMergedAt: string;
   /** Absent from a server older than the UI; read it as stopped with no services. */
   env?: WorktreeEnv;
   sessionCount: number;

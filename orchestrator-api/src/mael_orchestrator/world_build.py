@@ -124,6 +124,7 @@ def worktree_entity(
         "prUrl": row.get("pr_url") or "",
         "prState": row.get("pr_state") or "",
         "prDraft": bool(row.get("pr_draft")),
+        "prMergedAt": row.get("pr_merged_at") or "",
         "env": row.get("env") or {"state": "stopped", "services": []},
         "sessionCount": int(row.get("session_count") or 0),
         "shellUrl": shell_url,
