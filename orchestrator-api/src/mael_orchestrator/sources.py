@@ -17,6 +17,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,6 +26,7 @@ from mael_agent.harness_model import resolve_execute_model
 from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
 from mael_domain import task_actions
+from mael_domain.agent_store import AgentStore
 from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
 from mael_domain.list_all import build_list_all_data
 from mael_domain.protocol import Project, Task, Worktree
@@ -342,8 +344,14 @@ class NotebookTaskSource:
         open_worktree: OpenWorktree | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
+        agents: AgentStore | None = None,
     ) -> None:
         self.table = table
+        self.agents = agents
+        #: Task session id -> when its first agent started, folded from the
+        #: Agent records a revision at a time.
+        self._first_starts: dict[str, str] = {}
+        self._agents_revision = 0
         self.projects = projects
         self._version = version
         self.open_worktree = open_worktree
@@ -371,13 +379,50 @@ class NotebookTaskSource:
 
     async def read(self) -> list[Task]:
         entities: list[Task] = []
+        await self._fold_starts()
         for project in self.projects():
             # Whole rows: the row carries the prose, so this is one query per
             # project rather than a parse of every file.
             for task in await model.list_tasks(self.table, project=project):
-                actionable = await model.is_actionable(task, self.table)
-                entities.append(task_entity(task, actionable=actionable))
+                entities.append(await self._entity(task))
         return entities
+
+    async def _fold_starts(self) -> set[str]:
+        """Fold the Agent records written since the last read into the first
+        starts, and return the task sessions whose first start moved.
+
+        Ended records count: the start must outlive the agent, which leaves the
+        world when it ends. A record with no session, or no readable aware
+        start, says nothing.
+        """
+        if self.agents is None:
+            return set()
+        records, self._agents_revision = await self.agents.changed_since(
+            self._agents_revision
+        )
+        moved: set[str] = set()
+        for record in records:
+            session = record.get("task_session_id") or ""
+            stamp = record.get("started_at") or ""
+            try:
+                at = datetime.fromisoformat(stamp)
+            except ValueError:
+                continue
+            if not session or at.tzinfo is None:
+                continue
+            known = self._first_starts.get(session)
+            if known is None or at < datetime.fromisoformat(known):
+                self._first_starts[session] = stamp
+                moved.add(session)
+        return moved
+
+    async def _entity(self, task: model.Task) -> Task:
+        session = model.session_id_for(task.project, task.id)
+        return task_entity(
+            task,
+            actionable=await model.is_actionable(task, self.table),
+            started_at=self._first_starts.get(session, ""),
+        )
 
     async def read_since(self, since: int) -> TaskReading:
         """The tasks that moved after ``since``, and the ids that went.
@@ -392,12 +437,19 @@ class NotebookTaskSource:
         """
         wanted = set(self.projects())
         changed = await self.table.changed_since(since)
+        # An Agent record does not move its task's row, so a task whose first
+        # start just appeared is read here by its session.
+        moved = await self._fold_starts()
+        tasks = list(changed.tasks)
+        moved -= {model.session_id_for(t.project, t.id) for t in tasks}
+        for session in sorted(moved):
+            if (task := await self.table.find_by_session_id(session)) is not None:
+                tasks.append(task)
         entities: list[Task] = []
-        for task in changed.tasks:
+        for task in tasks:
             if task.project not in wanted:
                 continue
-            actionable = await model.is_actionable(task, self.table)
-            entities.append(task_entity(task, actionable=actionable))
+            entities.append(await self._entity(task))
         removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 

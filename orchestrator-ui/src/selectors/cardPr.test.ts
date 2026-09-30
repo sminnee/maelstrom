@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { NodeState } from '../protocol/progress';
-import { makeAgent, makeWorktree } from '../test/fixtures';
+import { makeAgent, makeTask, makeWorktree } from '../test/fixtures';
 import { cardPr, type CardPrFacts } from './cardPr';
 
 const STARTED = '2026-09-21T10:00:00+00:00';
@@ -9,6 +9,7 @@ const STARTED = '2026-09-21T10:00:00+00:00';
 function node(state: NodeState, over: Partial<CardPrFacts> = {}): CardPrFacts {
   return {
     kind: 'task',
+    task: makeTask(),
     agent: undefined,
     worktree: makeWorktree({ prNumber: 42, prState: 'ready' }),
     progress: { state, words: '', drift: null, fixStatus: null, echoesStatus: false },
@@ -44,9 +45,27 @@ describe('cardPr', () => {
     expect(cardPr(card)).toBe(card.worktree);
   });
 
-  it('shows the merged PR on a finished card with no agent', () => {
+  it('shows the merged PR on a finished card with no start time', () => {
     const card = node('done', { worktree: merged('2026-09-20T10:00:00Z') });
     expect(cardPr(card)).toBe(card.worktree);
+  });
+
+  it('hides a PR that merged before the task started, once its agent has gone', () => {
+    const card = node('done', {
+      task: makeTask({ startedAt: STARTED }),
+      worktree: merged('2026-09-20T10:00:00Z'),
+    });
+    expect(cardPr(card)).toBeUndefined();
+  });
+
+  it('keeps the PR a re-run task’s first agent made', () => {
+    const worktree = merged('2026-09-22T10:00:00Z');
+    const card = node('working', {
+      task: makeTask({ startedAt: STARTED }),
+      agent: makeAgent({ startedAt: '2026-09-23T10:00:00+00:00' }),
+      worktree,
+    });
+    expect(cardPr(card)).toBe(worktree);
   });
 
   it('shows the merged PR when either time is unknown', () => {

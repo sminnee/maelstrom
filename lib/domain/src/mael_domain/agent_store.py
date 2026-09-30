@@ -13,6 +13,10 @@ from .state_db.db import StateDb
 AGENT_RUNNING = "running"
 AGENT_ENDED = "ended"
 
+#: A batch of Agent records. Named here because each store's own ``list``
+#: method shadows the builtin inside its class body.
+Records = list[dict[str, Any]]
+
 
 class AgentStore(Protocol):
     """The canonical records for Agents Maelstrom has started."""
@@ -22,6 +26,11 @@ class AgentStore(Protocol):
     async def list(self) -> list[dict[str, Any]]: ...
 
     async def read(self, agent_id: str) -> dict[str, Any] | None: ...
+
+    async def changed_since(self, since: int) -> tuple[Records, int]:
+        """The records written after revision ``since``, and the revision to
+        ask from next time."""
+        ...
 
 
 class SqliteAgentStore:
@@ -50,6 +59,17 @@ class SqliteAgentStore:
         """
         row = await self._db.read("agents", agent_id)
         return _decoded(row) if row is not None else None
+
+    async def changed_since(self, since: int) -> tuple[Records, int]:
+        """The records written after revision ``since``, and the revision read.
+
+        A poller's read: it costs the records that moved, not the lifetime
+        count. The revision is read first, so a record written between the two
+        reads comes back again next time rather than never.
+        """
+        revision = await self._db.revision()
+        rows = await self._db.changed_since("agents", since)
+        return [a for row in rows if (a := _decoded(row)) is not None], revision
 
 
 def _decoded(row: Any) -> dict[str, Any] | None:

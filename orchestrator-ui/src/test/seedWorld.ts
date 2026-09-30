@@ -94,6 +94,7 @@ function task(spec: TaskSpec): Task {
     created,
     updated: created,
     actionable: false,
+    startedAt: '',
   };
 }
 

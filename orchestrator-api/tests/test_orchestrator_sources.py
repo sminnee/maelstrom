@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from mael_domain import task as model
+from mael_domain.agent_store import SqliteAgentStore, new_agent_record
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_launch import LaunchBlocked
@@ -72,6 +73,70 @@ async def test_only_the_task_that_moved_comes_back(table):
     assert [t["id"] for t in changed.tasks] == [f"{PROJECT}/NORT-7"]
     assert changed.tasks[0]["status"] == model.STATUS_IN_PROGRESS
     assert changed.revision > before
+
+
+@pytest.fixture
+async def agents():
+    """A real Agent store, on its own state database."""
+    db = open_state_db(":memory:")
+    await db.migrate()
+    yield SqliteAgentStore(db)
+    db.close()
+
+
+async def an_agent(agents, task_id: str, started_at: str, **over) -> None:
+    """Save one Agent record for ``task_id``'s session."""
+    record = new_agent_record(
+        f"agent-{task_id}-{started_at}",
+        harness="claude",
+        task_session_id=model.session_id_for(PROJECT, task_id),
+        task_id="",
+        cwd="/worktree",
+        model="claude:opus",
+        mode="auto",
+        started_at=started_at,
+    )
+    await agents.save({**record, **over})
+
+
+async def test_a_task_starts_when_its_first_agent_did(table, agents):
+    """Ended records count, and the earliest wins, so a re-run keeps the
+    task's own PR. A record with no readable start or no session says nothing."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Not yet", id="NORT-8")
+    await an_agent(agents, "NORT-7", "2026-09-22T10:00:00+00:00")
+    await an_agent(agents, "NORT-7", "2026-09-21T10:00:00+00:00", status="ended")
+    await an_agent(agents, "NORT-7", "")
+    await an_agent(agents, "NORT-7", "2026-09-20T10:00:00")
+    await an_agent(agents, "NORT-8", "2026-09-19T10:00:00+00:00", task_session_id="")
+    source = NotebookTaskSource(table, lambda: [PROJECT], agents=agents)
+
+    read = {t["id"]: t["startedAt"] for t in await source.read()}
+
+    assert read == {
+        f"{PROJECT}/NORT-7": "2026-09-21T10:00:00+00:00",
+        f"{PROJECT}/NORT-8": "",
+    }
+
+
+async def test_a_task_comes_back_when_its_first_agent_starts(table, agents):
+    """An Agent record does not move the task row, so the source names the
+    task itself. A later agent moves nothing: the first start stands."""
+    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
+    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    source = NotebookTaskSource(table, lambda: [PROJECT], agents=agents)
+    await source.read()
+    before = await table.revision()
+
+    await an_agent(agents, "NORT-7", "2026-09-21T10:00:00+00:00")
+    started = await source.read_since(before)
+    await an_agent(agents, "NORT-7", "2026-09-22T10:00:00+00:00")
+    again = await source.read_since(started.revision)
+
+    assert {t["id"]: t["startedAt"] for t in started.tasks} == {
+        f"{PROJECT}/NORT-7": "2026-09-21T10:00:00+00:00"
+    }
+    assert again.tasks == []
 
 
 async def test_a_deleted_task_comes_back_as_a_removal(table):

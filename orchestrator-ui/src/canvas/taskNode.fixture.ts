@@ -39,6 +39,7 @@ function task(over: Partial<Task> = {}): Task {
     created: '2026-09-07T09:00:00Z',
     updated: '2026-09-08T11:00:00Z',
     actionable: true,
+    startedAt: '',
     ...over,
   };
 }

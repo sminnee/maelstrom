@@ -33,6 +33,7 @@ def make_task(**over):
         "created": NOW,
         "updated": NOW,
         "actionable": True,
+        "startedAt": "",
     }
     task.update(over)
     return task

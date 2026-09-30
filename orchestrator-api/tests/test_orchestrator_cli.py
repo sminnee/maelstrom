@@ -108,6 +108,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.table is table.return_value
+    # One store: a task's start comes from the records the router writes.
+    assert orchestrator.tasks.agents is orchestrator.daemon.agents
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, SqliteDeskStore)
     assert orchestrator.worktrees.projects_dir == projects_dir

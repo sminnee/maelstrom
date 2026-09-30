@@ -767,6 +767,7 @@ function command(
           // Chained in tag order, as the notebook wires them.
           follows: i === 0 ? [] : [taskIds[i - 1]!],
           actionable: i === 0,
+          startedAt: '',
         };
         taskIds.push(taskId);
       }
@@ -1187,6 +1188,7 @@ function makeNewTask(
     follows: [],
     base: '',
     actionable: true,
+    startedAt: '',
     log: [],
     created: new Date().toISOString(),
     updated: new Date().toISOString(),
