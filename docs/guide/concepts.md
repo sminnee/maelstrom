@@ -70,7 +70,7 @@ it. So `myproject-bravo` is a durable slot, and its ports never change.
 `mael list` is how you see every worktree at once — see [reading `mael list`](listing.md).
 
 The **project name is load-bearing** too: the worktree folders, task directories, port
-allocations and each task's Claude session id all derive from it. `mael mv-project` is the
+allocations and each task's Claude session id all derive from it. `mael project mv` is the
 only safe way to change it — see [troubleshooting](troubleshooting.md#renaming-a-project).
 
 ### Agent harnesses

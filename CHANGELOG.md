@@ -24,6 +24,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Breaking: the project commands moved under `mael project`.** `mael add-project`,
+  `mael create-project` and `mael mv-project` are now `mael project add`, `mael project create`
+  and `mael project mv`, beside `mael project list`. The old names are removed, with no aliases.
+  Update scripts that call them.
+
 - **Scheduled runs start on the agent daemon, with no cmux workspace.** `mael task
   add-scheduled --run` launches each due run as a driven agent, and the orchestrator UI shows
   it. `--cli` opens a cmux workspace as before. `MAEL_HARNESS_TYPE` does not change the

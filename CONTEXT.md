@@ -8,7 +8,8 @@ This file defines the domain terms. Use these words, in these meanings, in code 
 **Project**:
 One repository maelstrom manages, held as a bare clone at `~/Projects/<name>/.git` and marked
 by a `.mael` file. The project name is load-bearing: worktree folders, port allocations, task
-ids and session ids all derive from it.
+ids and session ids all derive from it. The `mael project` group holds the commands that add, create,
+rename (`mv`) and list projects.
 _Avoid_: Repo, codebase
 
 **Worktree**:

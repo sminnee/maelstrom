@@ -98,7 +98,7 @@ mael add feature/x --no-agent     # prepare the worktree and open a shell
 
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
 and starts the configured installer asynchronously. It then starts an agent or a shell.
-Alpha is created for you by `mael add-project`.
+Alpha is created for you by `mael project add`.
 
 `--model` accepts a **Model reference**. A bare value selects Claude. A qualified
 value selects its CLI harness. The default is `claude:opus`. `--model` cannot

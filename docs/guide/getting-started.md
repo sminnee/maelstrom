@@ -47,7 +47,7 @@ projects_dir: ~/Code
 open_command: cursor      # optional; default is "code"
 ```
 
-Set this **before** you add a project. `mael add-project --projects-dir` only affects the
+Set this **before** you add a project. `mael project add --projects-dir` only affects the
 clone; every other command reads `projects_dir` from this file.
 
 ## 3. Add a project
@@ -55,7 +55,7 @@ clone; every other command reads `projects_dir` from this file.
 ### A new project
 
 ```bash
-mael create-project repo
+mael project create repo
 ```
 
 This creates `github.com/<you>/repo`, checks it out, and opens a worktree on
@@ -74,11 +74,11 @@ The first commit holds the files a maelstrom project needs:
 ### An existing repository
 
 ```bash
-mael add-project https://github.com/org/repo.git
+mael project add https://github.com/org/repo.git
 ```
 
 Use the HTTPS URL. Agents push with a token over HTTPS, so an SSH remote breaks an
-unattended session. `mael add-project` clones the URL you give it and does not rewrite
+unattended session. `mael project add` clones the URL you give it and does not rewrite
 the protocol.
 
 This clones the repository into a bare-like layout, checks main out into `_main`, and
@@ -97,7 +97,7 @@ worktree is free for feature work. See
 [worktrees.md](worktrees.md).
 
 Add `.env`, `.claude/CLAUDE.local.md` and `AGENTS.md` to the repository's `.gitignore`. Maelstrom
-generates all three per worktree. `mael create-project` does this for you.
+generates all three per worktree. `mael project create` does this for you.
 
 ## 4. Describe the project's services
 

@@ -42,64 +42,36 @@ directory.
 
 ---
 
-## Worktrees
+## Projects
+
+The `mael project` group adds, creates, renames and lists projects.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
-| `mael add-project GIT_URL` | Clone a repository and set it up for maelstrom. |
-| `mael create-project NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
-| `mael mv-project OLD NEW` | Rename a project and everything derived from its name. |
-| `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
-| `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
+| `mael project add GIT_URL` | Clone a repository and set it up for maelstrom. |
+| `mael project create NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
+| `mael project mv OLD NEW` | Rename a project and everything derived from its name. |
 | `mael project list` | List every project under the projects directory, with its path and worktree count. Reads no git status, no ports and no sessions, so it stays fast where `mael list-all` does not. Supports `mael --json project list`. |
-| `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
-| `mael remove TARGETS...` | Delete one or more worktrees. |
-| `mael rm TARGETS...` | Alias for `mael remove`. |
-| `mael sync [TARGET]` | Rebase the worktree against its base (`origin/main` unless the branch is stacked). |
-| `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
-| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. Deletes each deleted branch's working history. |
-| `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
-| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` is the default tip; passing it resets. |
-| `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
-| `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
 
 ```bash
-mael add-project https://github.com/org/repo.git  # clone into maelstrom's layout
-mael add feature/avatar-upload                 # worktree for a branch, ports allocated
+mael project add https://github.com/org/repo.git  # clone into maelstrom's layout
 mael project list
-mael close                                        # done: reset, keep name and ports
 ```
 
-**`mael add`**
-
-On checkout, `mael add` (re)generates the worktree's `.claude/CLAUDE.local.md` and `AGENTS.md`
-(same content, with `@` imports inlined so opencode can read it — opencode reads only `AGENTS.md`
-and does not resolve `@` imports). Both are gitignored per worktree.
-
-| Option | Description |
-|---|---|
-| `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
-| `--model TEXT` | Model reference. A bare value selects Claude. A qualified value selects its CLI harness. Default: `claude:opus`. |
-| `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
-| `--open` | Open the configured editor instead of a Claude session. |
-| `--no-recycle` | Always create a new worktree, even when closed ones exist. |
-| `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
-
-**`mael add-project`**
+**`mael project add`**
 
 | Option | Description |
 |---|---|
 | `--projects-dir TEXT` | Base directory for projects. Default: from `~/.maelstrom/config.yaml`, else `~/Projects`. |
 
-**`mael create-project`**
+**`mael project create`**
 
 `NAME` is the repository name. Use `owner/name` to create the repository in an
 organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env` and
 `.claude/CLAUDE.local.md` and `AGENTS.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
 
 The project is cloned over HTTPS, whatever `gh config get git_protocol` reports. Agents push
-with a token over HTTPS, so an SSH remote breaks an unattended session. `mael add-project`
+with a token over HTTPS, so an SSH remote breaks an unattended session. `mael project add`
 takes the URL you give it and does not rewrite the protocol.
 
 | Option | Description |
@@ -108,7 +80,7 @@ takes the URL you give it and does not rewrite the protocol.
 | `--description TEXT` | Repository description. |
 | `--projects-dir TEXT` | Base directory for projects. Default: from `~/.maelstrom/config.yaml`, else `~/Projects`. With a directory other than the configured one, no worktree is opened: `mael add` finds projects only in the configured directory. |
 
-**`mael mv-project`**
+**`mael project mv`**
 
 A project name is load-bearing. The name is not stored as a field — it *is* the
 directory name. The worktree folders, task and env directories, port allocations
@@ -135,6 +107,46 @@ Out of scope — these are not changed:
 - **Committed files.** A project name in `README.md` or `CLAUDE.md` stays as it is.
 
 Run `mael doctor NEW` afterwards.
+
+---
+
+## Worktrees
+
+| Command | Description |
+|---|---|
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
+| `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
+| `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
+| `mael remove TARGETS...` | Delete one or more worktrees. |
+| `mael rm TARGETS...` | Alias for `mael remove`. |
+| `mael sync [TARGET]` | Rebase the worktree against its base (`origin/main` unless the branch is stacked). |
+| `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
+| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. Deletes each deleted branch's working history. |
+| `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
+| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` is the default tip; passing it resets. |
+| `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
+| `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
+
+```bash
+mael add feature/avatar-upload  # worktree for a branch, ports allocated
+mael close                      # done: reset, keep name and ports
+```
+
+**`mael add`**
+
+On checkout, `mael add` (re)generates the worktree's `.claude/CLAUDE.local.md` and `AGENTS.md`
+(same content, with `@` imports inlined so opencode can read it — opencode reads only `AGENTS.md`
+and does not resolve `@` imports). Both are gitignored per worktree.
+
+| Option | Description |
+|---|---|
+| `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
+| `--model TEXT` | Model reference. A bare value selects Claude. A qualified value selects its CLI harness. Default: `claude:opus`. |
+| `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
+| `--open` | Open the configured editor instead of a Claude session. |
+| `--no-recycle` | Always create a new worktree, even when closed ones exist. |
+| `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
 
 **`mael close`**
 
