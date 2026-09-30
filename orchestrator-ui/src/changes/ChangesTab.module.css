@@ -187,10 +187,19 @@
 }
 
 /* -- one file -- */
+/* `clip`, not `hidden`: `hidden` makes the section a scroll container
+   and the header stops sticking. */
 .file {
-  border-bottom: 1px solid var(--border);
+  margin: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: clip;
+}
+.file + .file {
+  margin-block-start: 0;
 }
 .fileHead {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   position: sticky;
   top: 0;
   z-index: 1;
