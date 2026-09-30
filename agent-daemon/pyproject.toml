@@ -5,7 +5,7 @@ description = "Maelstrom's agent daemon: drives agents over a stream-json pipe"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Sam Minnee" }]
-dependencies = ["mael-common", "mael-agent", "click>=8.0"]
+dependencies = ["mael-common", "mael-agent", "click>=8.2"]
 
 [project.scripts]
 mael-agent-daemon = "mael_daemon.cli:main"

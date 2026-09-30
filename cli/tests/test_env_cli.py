@@ -1404,3 +1404,47 @@ class TestEnvTargetsMain:
             skip_install=False,
             services=None,
         )
+
+
+class TestEnvWorktreeTarget:
+    """`status`, `reset` and `open` take the target with -w, as the other verbs do.
+
+    Their positional TARGET stays as a deprecated alias.
+    """
+
+    VERBS = ["status", "reset", "open"]
+
+    def _invoke(self, args):
+        # Stop at the resolve: the target it was given is the observable.
+        with patch(
+            "mael_cli.env_cli.resolve_context", side_effect=ValueError("resolved")
+        ) as mock_ctx:
+            result = CliRunner().invoke(cli, ["env", *args])
+        return result, mock_ctx
+
+    @pytest.mark.parametrize("verb", VERBS)
+    def test_w_names_the_target(self, verb):
+        result, mock_ctx = self._invoke([verb, "-w", "proj.b"])
+
+        assert "resolved" in result.output
+        assert mock_ctx.call_args.args[0] == "proj.b"
+        assert "deprecated" not in result.stderr
+
+    @pytest.mark.parametrize("verb", VERBS)
+    def test_positional_target_still_works_with_a_warning(self, verb):
+        result, mock_ctx = self._invoke([verb, "proj.b"])
+
+        assert mock_ctx.call_args.args[0] == "proj.b"
+        assert (
+            "DeprecationWarning: The argument 'TARGET' is deprecated. Use -w TARGET."
+            in result.stderr
+        )
+        assert "deprecated" not in result.stdout
+
+    @pytest.mark.parametrize("verb", VERBS)
+    def test_both_forms_at_once_is_a_usage_error(self, verb):
+        result, mock_ctx = self._invoke([verb, "-w", "proj.b", "proj.c"])
+
+        assert result.exit_code != 0
+        assert "Give the target once" in result.output
+        assert not mock_ctx.called
