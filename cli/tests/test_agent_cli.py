@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from agent_cli_support import drive, unreachable
-from agent_fixtures import FIXTURES
+from agent_replay import replay
 from click.testing import CliRunner
 
 from mael_agent import agent_transport
@@ -23,7 +23,6 @@ from mael_agent.agent_transport import (
 from mael_agent.agent_wire import AGENT_EXITED
 from mael_cli import admin_cli, agent_cli
 from mael_daemon.agent_model import (
-    apply_event,
     build_agent_detail,
     build_agent_row,
     build_subagent_detail,
@@ -72,21 +71,6 @@ def prompt_file(monkeypatch, tmp_path):
     path = tmp_path / "agent-prompt.md"
     monkeypatch.setattr(agent_cli, "agent_prompt_file", lambda: path)
     return path
-
-
-def replay(name: str, stop_before_control: bool = False):
-    """Feed one fixture through the reducer and return the final state."""
-    from mael_daemon.agent_model import AgentState
-
-    state = AgentState(agent_id="a1", cwd="/tmp/x")
-    for line in (FIXTURES / name).read_text().splitlines():
-        if not line.strip():
-            continue
-        event = json.loads(line)
-        state = apply_event(state, event)
-        if stop_before_control and event.get("type") == "control_request":
-            break
-    return state
 
 
 def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
