@@ -64,7 +64,7 @@ function atBottom(el: HTMLElement): boolean {
  * subagents in a strip beneath the transcript. See `docs/dev/orchestrator-ui.md`.
  *
  * With `onTakenOffDesk`, the head also carries Resume and the end-of-work
- * control, and a dismiss calls it. The panel passes it to close the tab; the
+ * control, and Off desk calls it. The panel passes it to close the tab; the
  * narrow layout does not, and keeps those controls on the node alone.
  */
 export function SessionTab({

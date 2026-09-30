@@ -97,7 +97,7 @@ describe('the task list', () => {
     expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'false');
 
     await user.click(
-      within(listRow('NORT-3') as HTMLElement).getByRole('button', { name: 'Add to desk' }),
+      within(listRow('NORT-3') as HTMLElement).getByRole('button', { name: 'On desk' }),
     );
     await waitFor(() => expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true'));
 
@@ -112,7 +112,7 @@ describe('the task list', () => {
 
     await goToList(user);
     await user.click(
-      within(listRow('NORT-9.1') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
+      within(listRow('NORT-9.1') as HTMLElement).getByRole('button', { name: 'Off desk' }),
     );
     await waitFor(() => expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false'));
 
@@ -126,7 +126,7 @@ describe('the task list', () => {
 
     await goToList(user);
     await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Remove from desk' }),
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Off desk' }),
     );
     await waitFor(() => expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false'));
     // The toggle is the row's control, not a way into the task.
@@ -678,7 +678,7 @@ describe('the task list', () => {
       expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'true');
       for (const id of ['NORT-3', 'NORT-5', 'NORT-9']) await tick(user, id);
 
-      await user.click(within(bar()).getByRole('button', { name: 'Add to desk' }));
+      await user.click(within(bar()).getByRole('button', { name: 'On desk' }));
 
       // The bar goes once every row went through, so the run is over.
       await waitFor(noBar);
@@ -696,7 +696,7 @@ describe('the task list', () => {
       // NORT-3 is off the desk.
       for (const id of ['NORT-3', 'NORT-9.1']) await tick(user, id);
 
-      await user.click(within(bar()).getByRole('button', { name: 'Remove from desk' }));
+      await user.click(within(bar()).getByRole('button', { name: 'Off desk' }));
 
       await waitFor(noBar);
       expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false');
@@ -812,7 +812,7 @@ describe('the task list', () => {
     for (const r of Array.from(
       document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),
     )) {
-      await user.click(within(r as HTMLElement).getByRole('button', { name: 'Remove from desk' }));
+      await user.click(within(r as HTMLElement).getByRole('button', { name: 'Off desk' }));
     }
     await waitFor(() => expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0));
     expect(chipCount()).toBe(before);
