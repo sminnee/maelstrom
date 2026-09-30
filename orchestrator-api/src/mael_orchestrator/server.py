@@ -28,6 +28,7 @@ from mael_agent.agent_wire import (
 )
 from mael_common.util import now_iso
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
+from mael_domain.attachments import attachment_urls
 from mael_domain.branch_name import lead_with_number
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
@@ -1204,6 +1205,7 @@ class Orchestrator:
             raw,
             self.clock(),
             files=self.files,
+            show_refs=attachment_urls,
             # A replayed turn is already in the row's own totals: the host
             # summed it before it handed the row over. Only a live turn adds.
             replay=not watch.caught_up.is_set(),
