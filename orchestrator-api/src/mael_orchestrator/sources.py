@@ -25,7 +25,6 @@ from mael_agent.harness_model import resolve_execute_model
 from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
 from mael_domain import task_actions
-from mael_domain.branch_name import TaskNames, infer_task_names
 from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
 from mael_domain.list_all import build_list_all_data
 from mael_domain.protocol import Project, Task, Worktree
@@ -37,6 +36,7 @@ from mael_domain.task_launch import (
     check_synced,
     plan_launch,
 )
+from mael_domain.task_metadata_generator import TaskNames, infer_task_names
 from mael_domain.task_table import TaskTable
 from mael_domain.worktree import WorktreeSetup
 
@@ -233,7 +233,7 @@ class TaskSource(Protocol):
     def infer(self, draft: str) -> TaskNames:
         """Read a title, a branch and a command off a draft's prose.
 
-        Blocking: it shells out to ``claude -p``.
+        Blocking: it calls the task metadata generator, which makes HTTP calls.
         """
         ...
 

@@ -191,7 +191,7 @@ Three commands qualify, all of them already running on the server's executor:
 |---|---|
 | `agent.launch`, `agent.start` | `setup_worktree_for_branch` runs git, rebases, and allocates ports |
 | `worktree.close` | Stops the environment, the agents and the sessions, then runs git |
-| `task.infer` | Two 20-second `claude -p` attempts |
+| `task.infer` | Up to two 15-second HTTP calls to OpenAI |
 
 ## What the patterns share
 

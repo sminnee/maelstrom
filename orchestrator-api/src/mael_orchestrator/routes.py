@@ -681,7 +681,7 @@ async def _create_worktree_terminal(request: web.Request) -> web.StreamResponse:
 
 
 async def _infer_task(request: web.Request) -> web.StreamResponse:
-    """Name a task from its prose. Slow: it shells out to ``claude -p``."""
+    """Name a task from its prose. Slow: it calls the task metadata generator."""
     return await _command(
         request,
         lambda body: {

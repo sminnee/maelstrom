@@ -1003,9 +1003,9 @@ class TestLoadList:
 
 class TestBranchDefault:
     # The conftest autouse fixture forces branch generation down the
-    # deterministic fallback (the ``claude`` CLI is blocked in tests), so these
-    # assertions cover the offline shapes. Model-path generation is covered in
-    # ``test_branch_name.py`` with an injected fake runner.
+    # deterministic fallback (the naming model is a SlugGenerator in tests), so
+    # these assertions cover the offline shapes. Model-path generation is
+    # covered in ``test_task_metadata_generator.py`` with a fake generator.
 
     async def test_branch_defaults_to_generated_slug(self, store):
         # With the model call failing (autouse fixture), an orphan task falls

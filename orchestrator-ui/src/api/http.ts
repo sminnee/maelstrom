@@ -29,7 +29,7 @@ export class ApiError extends Error {
 
 /**
  * How long a call that opens a worktree may take. The host provisions one
- * before it starts an agent, and inference shells out to `claude -p`, so the
+ * before it starts an agent, and inference calls the task metadata generator, so the
  * three calls that can do either wait far longer than a read.
  */
 export const SLOW_CALL_TIMEOUT_MS = 120_000;

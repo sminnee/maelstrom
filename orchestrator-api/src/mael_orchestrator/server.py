@@ -29,7 +29,6 @@ from mael_agent.agent_wire import (
 from mael_common.util import now_iso
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
 from mael_domain.attachments import attachment_urls
-from mael_domain.branch_name import lead_with_number
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.file_registry import FileRegistry
@@ -64,6 +63,7 @@ from mael_domain.task import mode_for_command
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
+from mael_domain.task_metadata_generator import lead_with_number
 
 from . import desk as desk_model
 from . import linear_source
@@ -1591,7 +1591,7 @@ class Orchestrator:
     async def _infer_task(self, command: dict[str, Any]) -> dict[str, Any]:
         """Name a task from its prose. Reads only — nothing is written.
 
-        The inference shells out to ``claude -p``, so it runs on the executor
+        The inference calls the task metadata generator, so it runs on the executor
         like every other blocking source call. It is slow enough that the UI
         shows a wait for it.
         """

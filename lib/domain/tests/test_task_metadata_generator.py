@@ -1,38 +1,58 @@
-"""Tests for descriptive branch-name generation (``mael_domain.branch_name``)."""
+"""Tests for the task metadata generator (``mael_domain.task_metadata_generator``)."""
 
-from mael_domain import branch_name
+from collections.abc import Callable
+from unittest.mock import ANY
+
 from mael_domain import task as model
+from mael_domain import task_metadata_generator as tmg
+
+# Held before the autouse fixture swaps it for a SlugGenerator.
+_REAL_DEFAULT_GENERATOR = tmg.default_generator
+
+
+class _Fake:
+    """A generator whose reply comes from ``reply``, called with the prompt.
+
+    ``systems`` records the system prompt of each call.
+    """
+
+    def __init__(self, reply: Callable[[str], str]) -> None:
+        self._reply = reply
+        self.systems: list[str] = []
+
+    def complete(self, prompt: str, system: str) -> str:
+        self.systems.append(system)
+        return self._reply(prompt)
+
 
 # --- slugify (deterministic fallback) ---
 
 
 class TestSlugify:
     def test_lowercases_and_kebab_cases(self):
-        assert branch_name.slugify("Flaky Port Test") == "flaky-port-test"
+        assert tmg.slugify("Flaky Port Test") == "flaky-port-test"
 
     def test_strips_stopwords(self):
         # "the", "a", "in" are dropped; meaningful words survive in order.
-        assert branch_name.slugify("Fix the bug in a parser") == "fix-bug-parser"
+        assert tmg.slugify("Fix the bug in a parser") == "fix-bug-parser"
 
     def test_drops_punctuation(self):
-        assert branch_name.slugify("Add scheduled / repeating tasks!") == (
+        assert tmg.slugify("Add scheduled / repeating tasks!") == (
             "add-scheduled-repeating-tasks"
         )
 
     def test_caps_at_max_words(self):
-        assert branch_name.slugify("one two three four five six") == (
-            "one-two-three-four"
-        )
+        assert tmg.slugify("one two three four five six") == ("one-two-three-four")
 
     def test_respects_explicit_max_words(self):
-        assert branch_name.slugify("one two three four", max_words=2) == "one-two"
+        assert tmg.slugify("one two three four", max_words=2) == "one-two"
 
     def test_all_stopwords_falls_back_to_raw_words(self):
         # Nothing meaningful survives stripping → keep the raw words.
-        assert branch_name.slugify("the and of") == "the-and-of"
+        assert tmg.slugify("the and of") == "the-and-of"
 
     def test_empty_text(self):
-        assert branch_name.slugify("") == ""
+        assert tmg.slugify("") == ""
 
 
 # --- generate_branch_name ---
@@ -40,47 +60,49 @@ class TestSlugify:
 
 class TestGenerateBranchName:
     def test_valid_model_line_is_parsed(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port allocation test",
-            runner=lambda _prompt: "fix/flaky-port-test",
+            generator=_Fake(lambda _prompt: "fix/flaky-port-test"),
         )
         assert result == "fix/flaky-port-test"
 
     def test_prefix_leads_the_desc(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port test",
-            runner=lambda _prompt: "fix/flaky-port-test",
+            generator=_Fake(lambda _prompt: "fix/flaky-port-test"),
             prefix="123",
         )
         assert result == "fix/123-flaky-port-test"
 
     def test_model_output_with_trailing_prose_is_used_first_line(self):
         # The model returns the answer on line 1, then chatter — we take line 1.
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Add templates",
-            runner=lambda _prompt: "feat/scheduled-templates\nHope that helps!",
+            generator=_Fake(
+                lambda _prompt: "feat/scheduled-templates\nHope that helps!"
+            ),
         )
         assert result == "feat/scheduled-templates"
 
     def test_junk_output_falls_back_to_slug(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port test",
-            runner=lambda _prompt: "here is a branch name for you",
+            generator=_Fake(lambda _prompt: "here is a branch name for you"),
         )
         assert result == "feat/fix-flaky-port-test"
 
     def test_wrong_type_falls_back_to_slug(self):
         # "wip" is not an allowed type → validation fails → fallback.
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port test",
-            runner=lambda _prompt: "wip/flaky-port-test",
+            generator=_Fake(lambda _prompt: "wip/flaky-port-test"),
         )
         assert result == "feat/fix-flaky-port-test"
 
     def test_empty_output_falls_back_to_slug(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port test",
-            runner=lambda _prompt: "",
+            generator=_Fake(lambda _prompt: ""),
         )
         assert result == "feat/fix-flaky-port-test"
 
@@ -88,22 +110,22 @@ class TestGenerateBranchName:
         def _boom(_prompt: str) -> str:
             raise FileNotFoundError("claude")
 
-        result = branch_name.generate_branch_name("Fix flaky port test", runner=_boom)
+        result = tmg.generate_branch_name("Fix flaky port test", generator=_Fake(_boom))
         assert result == "feat/fix-flaky-port-test"
 
     def test_fallback_preserves_prefix(self):
         def _boom(_prompt: str) -> str:
             raise TimeoutError()
 
-        result = branch_name.generate_branch_name(
-            "Fix flaky port test", runner=_boom, prefix="123"
+        result = tmg.generate_branch_name(
+            "Fix flaky port test", generator=_Fake(_boom), prefix="123"
         )
         assert result == "feat/123-fix-flaky-port-test"
 
     def test_custom_default_type_used_on_fallback(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port test",
-            runner=lambda _prompt: "garbage",
+            generator=_Fake(lambda _prompt: "garbage"),
             default_type="fix",
         )
         assert result == "fix/fix-flaky-port-test"
@@ -115,31 +137,31 @@ class TestGenerateBranchName:
             calls.append(prompt)
             return "feat/should-not-be-used"
 
-        result = branch_name.generate_branch_name("   ", runner=_runner, prefix="123")
+        result = tmg.generate_branch_name("   ", generator=_Fake(_runner), prefix="123")
         # The model is never consulted for an empty title.
         assert calls == []
         # Title produced no meaningful words → desc is "task", not a bare prefix.
         assert result == "feat/123-task"
 
     def test_empty_title_no_prefix_uses_task_slug(self):
-        result = branch_name.generate_branch_name("", runner=lambda _prompt: "feat/x")
+        result = tmg.generate_branch_name("", generator=_Fake(lambda _prompt: "feat/x"))
         assert result == "feat/task"
 
     def test_unrelated_slug_is_rejected_and_falls_back(self):
         # Regression for NORT-907: the model returned a well-formed but unrelated
         # slug ("not applicable" refusal) for "Mermaid charts". Shares no token
         # with the title → rejected → deterministic fallback.
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Mermaid charts",
-            runner=lambda _prompt: "fix/branch-name-not-applicable",
+            generator=_Fake(lambda _prompt: "fix/branch-name-not-applicable"),
             prefix="907",
         )
         assert result == "feat/907-mermaid-charts"
 
     def test_unknown_sentinel_falls_back_to_slug(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Mermaid charts",
-            runner=lambda _prompt: "unknown",
+            generator=_Fake(lambda _prompt: "unknown"),
             prefix="907",
         )
         assert result == "feat/907-mermaid-charts"
@@ -153,23 +175,23 @@ class TestGenerateBranchName:
             calls.append(_prompt)
             return "unknown" if len(calls) == 1 else "feat/mermaid-charts"
 
-        result = branch_name.generate_branch_name(
-            "Mermaid charts", runner=_runner, prefix="907"
+        result = tmg.generate_branch_name(
+            "Mermaid charts", generator=_Fake(_runner), prefix="907"
         )
         assert len(calls) == 2
         assert result == "feat/907-mermaid-charts"
 
     def test_token_overlap_accepts_related_slug(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port allocation test",
-            runner=lambda _prompt: "fix/flaky-port-test",
+            generator=_Fake(lambda _prompt: "fix/flaky-port-test"),
         )
         assert result == "fix/flaky-port-test"
 
     def test_token_overlap_rejects_unrelated_slug(self):
-        result = branch_name.generate_branch_name(
+        result = tmg.generate_branch_name(
             "Fix flaky port allocation test",
-            runner=lambda _prompt: "fix/totally-unrelated-words",
+            generator=_Fake(lambda _prompt: "fix/totally-unrelated-words"),
         )
         assert result == "feat/fix-flaky-port-allocation"
 
@@ -178,12 +200,12 @@ class TestGenerateBranchName:
 
 
 class TestDefaultBranchGeneration:
-    def _runner(self, line: str):
-        return lambda _prompt: line
+    def _generator(self, line: str):
+        return lambda: _Fake(lambda _prompt: line)
 
     def test_orphan_generate_produces_descriptive_branch(self, monkeypatch):
         monkeypatch.setattr(
-            branch_name, "_run_claude", self._runner("fix/flaky-port-test")
+            tmg, "default_generator", self._generator("fix/flaky-port-test")
         )
         assert (
             model.default_branch("x", title="Fix flaky port test", generate=True)
@@ -195,7 +217,7 @@ class TestDefaultBranchGeneration:
 
     def test_linear_parent_generate_prepends_number(self, monkeypatch):
         monkeypatch.setattr(
-            branch_name, "_run_claude", self._runner("fix/flaky-port-test")
+            tmg, "default_generator", self._generator("fix/flaky-port-test")
         )
         assert (
             model.default_branch(
@@ -226,11 +248,13 @@ class TestDefaultBranchGeneration:
 
 class TestInferTaskNames:
     def test_three_line_output_is_parsed(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "The port allocator hands out the same port twice when two "
             "worktrees open at once.",
-            runner=lambda _p: (
-                "Fix duplicate port allocation\nfix/duplicate-port-allocation\n"
+            generator=_Fake(
+                lambda _p: (
+                    "Fix duplicate port allocation\nfix/duplicate-port-allocation\n"
+                )
             ),
         )
         assert result.title == "Fix duplicate port allocation"
@@ -238,29 +262,35 @@ class TestInferTaskNames:
         assert result.command == ""
 
     def test_command_line_is_kept_when_known(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "Work out how to split the transcript store into its own module.",
-            runner=lambda _p: (
-                "Split the transcript store\nrefactor/split-transcript-store\nplan-task"
+            generator=_Fake(
+                lambda _p: (
+                    "Split the transcript store\nrefactor/split-transcript-store\nplan-task"
+                )
             ),
         )
         assert result.command == "plan-task"
 
     def test_unknown_command_falls_back_to_empty(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "Fix the duplicate port allocation bug",
-            runner=lambda _p: (
-                "Fix duplicate port allocation\nfix/duplicate-port-allocation\ndeploy"
+            generator=_Fake(
+                lambda _p: (
+                    "Fix duplicate port allocation\nfix/duplicate-port-allocation\ndeploy"
+                )
             ),
         )
         assert result.command == ""
 
     def test_json_output_is_parsed(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "The port allocator hands out the same port twice.",
-            runner=lambda _p: (
-                '{"title": "Fix duplicate port allocation", '
-                '"branch": "fix/duplicate-port-allocation", "command": ""}'
+            generator=_Fake(
+                lambda _p: (
+                    '{"title": "Fix duplicate port allocation", '
+                    '"branch": "fix/duplicate-port-allocation", "command": ""}'
+                )
             ),
         )
         assert result.title == "Fix duplicate port allocation"
@@ -270,11 +300,13 @@ class TestInferTaskNames:
         # Per-field validation: a malformed branch does not throw away the
         # title. JSON is the form this holds in — it identifies itself, so a
         # bad branch inside it is a bad field, not a sign the reply is prose.
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "The port allocator hands out the same port twice.",
-            runner=lambda _p: (
-                '{"title": "Fix duplicate port allocation", '
-                '"branch": "not a branch name", "command": ""}'
+            generator=_Fake(
+                lambda _p: (
+                    '{"title": "Fix duplicate port allocation", '
+                    '"branch": "not a branch name", "command": ""}'
+                )
             ),
         )
         assert result.title == "Fix duplicate port allocation"
@@ -282,27 +314,31 @@ class TestInferTaskNames:
 
     def test_a_json_field_that_is_not_a_string_is_no_field(self):
         # Without this, a number or an object lands its Python repr in a field.
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "Fix the duplicate port allocation",
-            runner=lambda _p: '{"title": {"a": 1}, "branch": null, "command": 5}',
+            generator=_Fake(
+                lambda _p: '{"title": {"a": 1}, "branch": null, "command": 5}'
+            ),
         )
         assert result.title == "Fix the duplicate port allocation"
         assert result.branch == "feat/fix-duplicate-port-allocation"
         assert result.command == ""
 
     def test_unrelated_branch_is_rejected(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "The port allocator hands out the same port twice.",
-            runner=lambda _p: (
-                "Fix duplicate port allocation\nfix/totally-unrelated-words\n"
+            generator=_Fake(
+                lambda _p: (
+                    "Fix duplicate port allocation\nfix/totally-unrelated-words\n"
+                )
             ),
         )
         assert result.branch == "feat/fix-duplicate-port-allocation"
 
     def test_junk_output_falls_back_to_the_drafts_first_line(self):
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "Fix the duplicate port allocation\n\nMore detail here.",
-            runner=lambda _p: "I'm sorry, I can't help with that.",
+            generator=_Fake(lambda _p: "I'm sorry, I can't help with that."),
         )
         assert result.title == "Fix the duplicate port allocation"
         assert result.branch == "feat/fix-duplicate-port-allocation"
@@ -311,10 +347,12 @@ class TestInferTaskNames:
     def test_multi_line_refusal_is_not_a_title(self):
         # A refusal runs to more than one line as often as one, so line count
         # cannot be what tells a reply from prose.
-        result = branch_name.infer_task_names(
+        result = tmg.infer_task_names(
             "Fix the duplicate port allocation",
-            runner=lambda _p: (
-                "I cannot help with that request.\nPlease rephrase your question."
+            generator=_Fake(
+                lambda _p: (
+                    "I cannot help with that request.\nPlease rephrase your question."
+                )
             ),
         )
         assert result.title == "Fix the duplicate port allocation"
@@ -324,7 +362,7 @@ class TestInferTaskNames:
         def _boom(_p: str) -> str:
             raise FileNotFoundError("claude")
 
-        result = branch_name.infer_task_names("Fix the port bug", runner=_boom)
+        result = tmg.infer_task_names("Fix the port bug", generator=_Fake(_boom))
         assert result.title == "Fix the port bug"
         assert result.branch == "feat/fix-port-bug"
 
@@ -337,8 +375,8 @@ class TestInferTaskNames:
                 return "I cannot help with that.\nPlease rephrase your question."
             return "Fix duplicate port allocation\nfix/duplicate-port-allocation\n"
 
-        result = branch_name.infer_task_names(
-            "The port allocator duplicates a port", runner=_runner
+        result = tmg.infer_task_names(
+            "The port allocator duplicates a port", generator=_Fake(_runner)
         )
         assert len(calls) == 2
         assert result.branch == "fix/duplicate-port-allocation"
@@ -350,7 +388,7 @@ class TestInferTaskNames:
             calls.append(prompt)
             return "Title\nfeat/x\n"
 
-        result = branch_name.infer_task_names("   ", runner=_runner)
+        result = tmg.infer_task_names("   ", generator=_Fake(_runner))
         assert calls == []
         assert result.title == ""
         assert result.branch == "feat/task"
@@ -358,24 +396,77 @@ class TestInferTaskNames:
 
     def test_long_first_line_is_trimmed_for_the_fallback_title(self):
         draft = "word " * 40
-        result = branch_name.infer_task_names(draft, runner=lambda _p: "junk")
-        assert len(result.title) <= branch_name.MAX_TITLE
+        result = tmg.infer_task_names(draft, generator=_Fake(lambda _p: "junk"))
+        assert len(result.title) <= tmg.MAX_TITLE
 
 
 class TestLeadWithNumber:
     """Numbering a composed branch, for a caller that has no parts to compose."""
 
     def test_leads_the_description_with_the_number(self):
-        assert (
-            branch_name.lead_with_number("feat/order-export", "99")
-            == "feat/99-order-export"
-        )
+        assert tmg.lead_with_number("feat/order-export", "99") == "feat/99-order-export"
 
     def test_a_branch_already_numbered_is_left_alone(self):
         assert (
-            branch_name.lead_with_number("feat/99-order-export", "99")
-            == "feat/99-order-export"
+            tmg.lead_with_number("feat/99-order-export", "99") == "feat/99-order-export"
         )
 
     def test_a_branch_with_no_type_prefix_is_left_alone(self):
-        assert branch_name.lead_with_number("order-export", "99") == "order-export"
+        assert tmg.lead_with_number("order-export", "99") == "order-export"
+
+
+class TestDefaultGenerator:
+    """Which generator names the work, and what the OpenAI one sends."""
+
+    def test_no_key_names_the_work_with_the_slug(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(tmg, "default_generator", _REAL_DEFAULT_GENERATOR)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "mael_domain.integrations._auth.load_global_config",
+            lambda: type("C", (), {"openai_api_key": None})(),
+        )
+        assert isinstance(tmg.default_generator(), tmg.SlugGenerator)
+        result = tmg.infer_task_names("Fix the port bug")
+        assert result.title == "Fix the port bug"
+        assert result.branch == "feat/fix-port-bug"
+
+    def test_a_key_calls_luna_over_http(self, monkeypatch):
+        monkeypatch.setattr(tmg, "default_generator", _REAL_DEFAULT_GENERATOR)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        calls: list[dict] = []
+
+        def _request_json(url, **kwargs):
+            calls.append({"url": url, **kwargs})
+            return {"choices": [{"message": {"content": "  fix/port-bug\n"}}]}
+
+        monkeypatch.setattr(
+            "mael_domain.integrations.openai.request_json", _request_json
+        )
+        result = tmg.generate_branch_name("Fix the port bug")
+
+        assert result == "fix/port-bug"
+        assert calls == [
+            {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "method": "POST",
+                "headers": {"Authorization": "Bearer sk-test"},
+                "json_body": {
+                    "model": "gpt-6-luna",
+                    "messages": [
+                        {"role": "system", "content": tmg._SYSTEM_PROMPT},
+                        {"role": "user", "content": ANY},
+                    ],
+                },
+                "timeout": 15,
+            }
+        ]
+
+    def test_each_path_sends_its_own_system_prompt(self):
+        branch = _Fake(lambda _p: "fix/port-bug")
+        tmg.generate_branch_name("Fix the port bug", generator=branch)
+        names = _Fake(lambda _p: "Fix the port bug\nfix/port-bug\n")
+        tmg.infer_task_names("Fix the port bug", generator=names)
+
+        assert branch.systems == [tmg._SYSTEM_PROMPT]
+        assert names.systems == [tmg._INFER_SYSTEM_PROMPT]

@@ -200,7 +200,7 @@ class TestCmdPlan:
     def test_plan_explicit_branch_skips_generation(
         self, mock_get, mock_add, monkeypatch
     ):
-        # Branch generation shells out to `claude -p`; an explicit --branch must
+        # Branch generation calls the task metadata generator; an explicit --branch must
         # skip it entirely rather than generate-then-discard.
         mock_get.return_value = {
             "identifier": "ME-99",
@@ -209,7 +209,7 @@ class TestCmdPlan:
         }
         calls = []
         monkeypatch.setattr(
-            "mael_domain.branch_name.generate_branch_name",
+            "mael_domain.task_metadata_generator.generate_branch_name",
             lambda *a, **k: calls.append(a) or "generated",
         )
         result = ThreadedCliRunner().invoke(
