@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Anchor, Comment } from '../../protocol/documents';
 import { describeError } from '../../api/http';
 import { AppButton } from '../../ui/AppButton';
+import { TextArea } from '../../ui/TextArea';
 import type { Placed } from './useSelectionComment';
 import styles from './CommentMargin.module.css';
 
@@ -37,7 +38,8 @@ export function CommentMargin({
   const composer = pending && (
     <div key="composer" className={styles.composer}>
       <blockquote className={styles.quote}>{pending.anchor.quote}</blockquote>
-      <textarea
+      <TextArea
+        grow
         aria-label="Comment"
         rows={3}
         value={body}

@@ -4,6 +4,7 @@ import { useLayoutMode } from '../layout/useLayoutMode';
 import { AppButton } from '../ui/AppButton';
 import { AttachField } from '../ui/AttachField';
 import { retainedKey } from '../ui/retained';
+import { TextArea } from '../ui/TextArea';
 import { useRetained } from '../ui/useRetained';
 import styles from './MessageInput.module.css';
 
@@ -104,7 +105,8 @@ export function MessageInput({
           setText((was) => withoutRef(was, image));
         }}
       >
-        <textarea
+        <TextArea
+          grow
           className={styles.input}
           aria-label="Message to agent"
           placeholder={

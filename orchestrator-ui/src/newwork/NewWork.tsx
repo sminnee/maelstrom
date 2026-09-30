@@ -30,6 +30,7 @@ import { PlanningLevelField } from '../tasklist/PlanningLevelField';
 import { ProjectField } from './ProjectField';
 import { Spinner } from '../ui/Spinner';
 import { retainedKey } from '../ui/retained';
+import { TextArea } from '../ui/TextArea';
 import { useRetained } from '../ui/useRetained';
 import dialog from '../ui/Dialog.module.css';
 import styles from './NewWork.module.css';
@@ -578,10 +579,11 @@ function Capture({
             }}
             onRemove={onRemoved}
           >
-            <textarea
+            <TextArea
+              grow
               id={draftId}
               className={styles.draft}
-              rows={8}
+              rows={1}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />

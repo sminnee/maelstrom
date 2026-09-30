@@ -23,6 +23,19 @@ describe('DecideRow', () => {
     expect(onDecide).toHaveBeenCalledWith('deny', 'too risky');
   });
 
+  it('keeps the line breaks of a reason over several lines', async () => {
+    const onDecide = vi.fn();
+    render(<DecideRow onDecide={onDecide} />);
+
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Deny reason' }),
+      'too risky{Enter}try a dry run',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
+
+    expect(onDecide).toHaveBeenCalledWith('deny', 'too risky\ntry a dry run');
+  });
+
   it('counts whitespace as no reason', async () => {
     render(<DecideRow onDecide={vi.fn()} />);
 

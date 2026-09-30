@@ -33,6 +33,11 @@ release while that section is empty, and retitles it to the version it is releas
   slug of its prose's first line. In the New work form, Save and Start name an empty title or
   branch through the model. A free agent's Start no longer needs a typed branch.
 
+- **Text fields in the orchestrator grow to fit their text.** New work, task content, the
+  comment composer, the deny reason and the request-changes summary grow as you type, and the
+  dialog or panel around them scrolls. The deny reason and the summary now take line breaks. The
+  conversation input grows to half the screen, then scrolls. The resize handles are gone.
+
 - **Breaking: the project commands moved under `mael project`.** `mael add-project`,
   `mael create-project` and `mael mv-project` are now `mael project add`, `mael project create`
   and `mael project mv`, beside `mael project list`. The old names are removed, with no aliases.
