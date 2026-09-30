@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { tabStrip } from '../test/appHelpers';
 import { renderApp, VIEWPORTS } from '../test/renderApp';
 
 const panelWidth = () => Number.parseFloat(screen.getByTestId('panel').style.width);
@@ -54,6 +55,6 @@ describe('the panel beside each view', () => {
     const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
     await user.click(within(row as HTMLElement).getByRole('link'));
     expect(screen.getByTestId('panel')).toBeVisible();
-    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
+    expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
   });
 });

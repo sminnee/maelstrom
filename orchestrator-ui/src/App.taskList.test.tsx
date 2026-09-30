@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { chipCount } from './test/appHelpers';
+import { chipCount, tabStrip } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
 
@@ -440,7 +440,7 @@ describe('the task list', () => {
     await renderApp();
     await goToList(user);
     await user.click(within(listRow('NORT-7') as HTMLElement).getByRole('link'));
-    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
+    expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
     expect(screen.queryByRole('dialog')).toBeNull();
     // NORT-9.1 has no agent, so its state is words only.
     expect(within(listRow('NORT-9.1') as HTMLElement).queryByRole('link')).toBeNull();

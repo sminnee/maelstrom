@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expanded, nodeState } from './test/appHelpers';
+import { expanded, nodeState, tabBody, tabStrip, worktreeRow } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /*
@@ -44,7 +44,7 @@ describe('the session tab', () => {
     await renderApp();
     clickNode('NORT-9');
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
-    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    expect(within(tabStrip()).getAllByRole('tab')).toHaveLength(1);
     const input = screen.getByRole('textbox', { name: 'Message to agent' });
     await user.type(input, 'Prefer the ICU collation.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -193,15 +193,15 @@ describe('the session tab', () => {
     expect(within(strip).getAllByRole('link')).toHaveLength(1);
     expect(link.querySelector('[data-state]')).toHaveAttribute('data-state', 'processing');
     // The parent's own transcript shows the call, folded, and none of the chatter under it.
-    const parentPanel = screen.getByRole('tabpanel');
+    const parentPanel = tabBody();
     expect(within(parentPanel).queryByText('Grep for ORDER BY name.')).not.toBeInTheDocument();
 
     await user.click(link);
-    const keys = [...document.querySelectorAll('[role="tab"]')].map((t) =>
-      t.getAttribute('data-tab-key'),
-    );
+    const keys = within(tabStrip())
+      .getAllByRole('tab')
+      .map((t) => t.getAttribute('data-tab-key'));
     expect(keys).toEqual(['session:d9a4c7f1', 'session:d9a4c7f1.1']);
-    const panel = screen.getByRole('tabpanel');
+    const panel = tabBody();
     await within(panel).findByText('Three queries order by name without a collation.');
     expect(within(panel).getByText('Grep for ORDER BY name.')).toBeInTheDocument();
     expect(panel).toHaveTextContent('d9a4c7f1.1 · Find every collation-sensitive query');
@@ -277,7 +277,7 @@ describe('the session tab', () => {
     expect(fold).toHaveAttribute('open');
     const link = within(fold).getByRole('link', { name: /Find every collation-sensitive query/ });
     await user.click(link);
-    const panel = screen.getByRole('tabpanel');
+    const panel = tabBody();
     await within(panel).findByText('Three queries order by name without a collation.');
   });
 
@@ -307,8 +307,8 @@ describe('the session tab', () => {
     // shared key.
     expect(screen.getByRole('textbox', { name: 'Message to agent' })).toHaveValue('');
 
-    // Back to the first tab: the reply is where it was left.
-    await user.click(document.querySelector('[role="tab"][data-tab-key="session:d9a4c7f1"]')!);
+    // Back to the first tab, in its own worktree: the reply is where it was left.
+    await user.click(worktreeRow('northwind bravo'));
     expect(screen.getByRole('textbox', { name: 'Message to agent' })).toHaveValue(
       'Prefer the ICU collation.',
     );

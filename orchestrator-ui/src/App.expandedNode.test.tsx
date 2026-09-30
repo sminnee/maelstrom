@@ -6,7 +6,7 @@ import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { FakeServer } from './test/fakeServer';
 import type { TranscriptItem } from './protocol/transcript';
-import { askQuestion, chipCount, expanded, nodeState } from './test/appHelpers';
+import { askQuestion, chipCount, expanded, nodeState, tabBody } from './test/appHelpers';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
 import { T } from './test/seedWorld';
 
@@ -566,9 +566,7 @@ describe('the state in words', () => {
     askQuestion(server);
     clickNode('NORT-9');
     await userEvent.setup().click(await within(expanded()).findByRole('link', { name: 'Session' }));
-    await waitFor(() =>
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('Needs you · question'),
-    );
+    await waitFor(() => expect(tabBody()).toHaveTextContent('Needs you · question'));
   });
 });
 

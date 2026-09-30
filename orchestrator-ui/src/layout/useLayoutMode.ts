@@ -9,8 +9,8 @@ export type LayoutMode = 'narrow' | 'wide';
 
 /**
  * The widest viewport that still reads as narrow. The canvas needs room for a
- * 220px node, a 440px card beside it and a 320px panel; below that the board
- * is a sliver rather than a board, so the break sits above the sum.
+ * 220px node, a 440px card beside it and a 480px panel; below 840px the board
+ * is a sliver rather than a board.
  */
 const NARROW_MAX = 839;
 

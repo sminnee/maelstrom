@@ -1,13 +1,13 @@
 import type { PanelTab } from '../store/uiSlice';
 import { documentTab, sessionTab } from '../selectors/tabs';
-import { makeAgent, makeDocument, makeTask, worldWith } from '../test/fixtures';
+import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../test/fixtures';
 
 /**
  * Strips to look at without a server.
  *
  * The strip's hardest problems are visual — whether the tab in view reads as
  * in view beside its neighbours, whether its phase edge is legible at the
- * strip's scale, whether four tabs at the panel's 320px minimum truncate
+ * strip's scale, whether four tabs in a narrow panel truncate
  * usefully — and jsdom computes no layout, so tests cannot answer them.
  *
  * Only the tab in view draws a phase edge, so `fourPhases` is read by arrowing
@@ -21,7 +21,7 @@ import { makeAgent, makeDocument, makeTask, worldWith } from '../test/fixtures';
 /** A task, its agent and its plan: the trio one row of the strip is built from. */
 function chain(id: string, title: string, agentId: string, command: string) {
   return {
-    task: makeTask({ id, notebookId: id, title, command }),
+    task: makeTask({ id, notebookId: id.split('/').at(-1)!, title, command }),
     agent: makeAgent({ id: agentId, taskId: id }),
     document: makeDocument({ id: `doc-${agentId}`, agentId, taskId: id, title: 'Plan' }),
   };
@@ -42,7 +42,8 @@ const landing = chain('NORT-3', 'Ship the export endpoint', 'b7e1c0a2', 'watch-p
 /**
  * A dated id at full length, as the maelstrom notebook writes them. Short
  * `NORT-7` ids flatter the strip: this is the width the tab has to hold, and
- * it is why a session tab carries no word beside its id.
+ * it is why a session tab carries no word beside its id. The tab shows the
+ * bare `2026-09-22.1`; the sidebar carries the project.
  */
 const dated = chain(
   'maelstrom/2026-09-22.1',
@@ -121,5 +122,68 @@ export const longTitle: Strip = {
  */
 export const realWidths: Strip = {
   tabs: [sessionTab(dated.agent.id), documentTab(dated.document.id), sessionTab(free.id)],
+  activeTabKey: `document:${dated.document.id}`,
+};
+
+/**
+ * Tabs across two projects and four worktrees, for the sidebar: `_main`
+ * sorts first, a tab with no worktree last, and each project under its name.
+ */
+const worktrees = [
+  makeWorktree({
+    id: 'northwind-alpha',
+    project: 'northwind',
+    nato: 'alpha',
+    branch: 'feat/orders',
+  }),
+  makeWorktree({
+    id: 'northwind-bravo',
+    project: 'northwind',
+    nato: 'bravo',
+    branch: 'feat/db-migrate',
+  }),
+  makeWorktree({ id: '_main', project: 'maelstrom', nato: '_main', branch: 'main' }),
+  makeWorktree({
+    id: 'maelstrom-charlie',
+    project: 'maelstrom',
+    nato: 'charlie',
+    branch: 'feat/worktree-tab-sidebar',
+  }),
+];
+const placed = [
+  makeAgent({ id: planning.agent.id, taskId: planning.task.id, worktreeId: 'northwind-alpha' }),
+  makeAgent({ id: building.agent.id, taskId: building.task.id, worktreeId: 'northwind-bravo' }),
+  makeAgent({
+    id: shaping.agent.id,
+    taskId: shaping.task.id,
+    project: 'maelstrom',
+    worktreeId: '_main',
+  }),
+  makeAgent({
+    id: dated.agent.id,
+    taskId: dated.task.id,
+    project: 'maelstrom',
+    worktreeId: 'maelstrom-charlie',
+  }),
+  makeAgent({ id: free.id, taskId: '', worktreeId: 'northwind-gone' }),
+];
+
+export const sidebarWorld = worldWith({
+  worktrees,
+  tasks: [planning.task, building.task, shaping.task, dated.task],
+  agents: placed,
+  documents: [planning.document, building.document, dated.document],
+});
+
+export const sidebar: Strip = {
+  tabs: [
+    sessionTab(building.agent.id),
+    sessionTab(planning.agent.id),
+    documentTab(planning.document.id),
+    sessionTab(dated.agent.id),
+    documentTab(dated.document.id),
+    sessionTab(shaping.agent.id),
+    sessionTab(free.id),
+  ],
   activeTabKey: `document:${dated.document.id}`,
 };

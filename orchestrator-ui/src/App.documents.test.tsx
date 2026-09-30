@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import { addPlan, addTaskSet, chipCount, expanded } from './test/appHelpers';
+import {
+  addPlan,
+  addTaskSet,
+  chipCount,
+  expanded,
+  tabBody,
+  tabStrip,
+  worktreeRow,
+} from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
 describe('document tabs', () => {
@@ -16,29 +24,25 @@ describe('document tabs', () => {
     await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
     clickNode('NORT-9');
     await user.click(await within(expanded()).findByRole('link', { name: /Plan v1/ }));
-    const chips = () =>
-      [...document.querySelectorAll('[role="tab"] [data-testid="tab-chip"]')].map(
-        (c) => c.textContent,
-      );
-    const docTabs = () => [...document.querySelectorAll('[role="tab"][data-tab-key^="document:"]')];
-    expect(
-      docTabs()
-        .map((t) => t.querySelector('[data-testid="tab-chip"]')?.textContent)
-        .sort(),
-    ).toEqual(['NORT-7', 'NORT-9']);
-    await waitFor(() =>
-      expect(screen.getByRole('tabpanel')).toHaveTextContent('Migrate to Postgres 16'),
-    );
+    const strip = () =>
+      within(tabStrip())
+        .getAllByRole('tab')
+        .map((t) => [
+          t.getAttribute('data-tab-key'),
+          t.querySelector('[data-testid="tab-chip"]')?.textContent,
+        ]);
+    // The two agents run in two worktrees, so the strip shows the one in view.
+    expect(strip()).toEqual([['document:doc-nort9-plan', 'NORT-9']]);
+    await waitFor(() => expect(tabBody()).toHaveTextContent('Migrate to Postgres 16'));
 
-    // NORT-9 is still expanded: a third tab from the same card.
+    // NORT-9 is still expanded: a third tab from the same card, in the same worktree.
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
-    const keys = [...document.querySelectorAll('[role="tab"]')].map((t) =>
-      t.getAttribute('data-tab-key'),
-    );
-    expect(keys).toHaveLength(3);
-    expect(keys.filter((k) => k?.startsWith('document:'))).toHaveLength(2);
-    expect(keys).toContain('session:d9a4c7f1');
-    expect(chips()).toHaveLength(3);
+    expect(strip()).toEqual([
+      ['document:doc-nort9-plan', 'NORT-9'],
+      ['session:d9a4c7f1', 'NORT-9'],
+    ]);
+    await user.click(worktreeRow('northwind alpha'));
+    expect(strip()).toEqual([['document:doc-nort7-plan', 'NORT-7']]);
   });
 
   it('the active tab focuses its node; expanding another node does not move the focus', async () => {
@@ -53,7 +57,8 @@ describe('document tabs', () => {
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
     expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute('data-focused');
-    await user.click(screen.getByRole('tab', { name: /Plan/ }));
+    // The plan is in another worktree: its row brings back the tab last in view there.
+    await user.click(worktreeRow('northwind alpha'));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
     // A collapsed panel shows nothing, so no node is marked as its source.
     await user.click(screen.getByRole('button', { name: 'Panel' }));
@@ -67,7 +72,7 @@ describe('document tabs', () => {
     const badge = (taskId: string) =>
       document.querySelector(`[data-task-id="${taskId}"] [aria-label^="needs attention"]`)!;
     fireEvent.click(badge('NORT-7'));
-    expect(screen.getByRole('tab', { selected: true })).toHaveAttribute(
+    expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAttribute(
       'data-tab-key',
       'document:doc-nort7-plan',
     );
@@ -334,12 +339,12 @@ describe('a document an agent tagged in its own message', () => {
     const { server } = await renderApp();
     addPlan(server);
 
-    clickNode('NORT-7');
-    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
+    // Two tabs in one worktree, so both are in the strip at once.
     clickNode('NORT-9');
     await user.click(await within(expanded()).findByRole('link', { name: /Plan v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
 
-    const tabs = () => [...document.querySelectorAll('[role="tab"]')];
+    const tabs = () => within(tabStrip()).getAllByRole('tab');
     const inactive = tabs().find((t) => !t.hasAttribute('data-active'))!;
     const key = inactive.getAttribute('data-tab-key');
     const close = within(inactive as HTMLElement).getByRole('button', { name: /^Close/ });

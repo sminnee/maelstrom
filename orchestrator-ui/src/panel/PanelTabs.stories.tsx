@@ -5,6 +5,7 @@ import { ApiProvider } from '../api/ApiProvider';
 import { useAppStore } from '../store/store';
 import { createFakeServer } from '../test/fakeServer';
 import { PanelTabs } from './PanelTabs';
+import { usePanelGroups } from './usePanelGroups';
 import {
   type Strip,
   freeAgent,
@@ -38,13 +39,13 @@ const queryClient = new QueryClient({
  * The strip over the ground it heads, at the width the story is asked for.
  *
  * `PanelTabs` reads the app's one store, so a story sets that store's tabs
- * before it draws — which is why one story draws one strip. Ladle's width
- * control drives the rest: drag it to 320px for the panel's minimum.
+ * before it draws — which is why one story draws one strip. The strip shows
+ * the tabs of one worktree group. Ladle's width control drives the rest.
  */
 function Strip({ strip, width }: { strip: Strip; width?: number }) {
   useState(() => {
     useAppStore.setState((s) => ({
-      ui: { ...s.ui, tabs: strip.tabs, activeTabKey: strip.activeTabKey },
+      ui: { ...s.ui, tabs: strip.tabs, activeTabKey: strip.activeTabKey, tabRecency: [] },
     }));
   });
   return (
@@ -60,7 +61,7 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
           maxWidth: '100%',
         }}
       >
-        <PanelTabs />
+        <GroupTabs />
         {/*
           The shape `Panel.tsx` builds: a scrolling box holding a status row
           and the reading under it. Keep the nesting, or the story stops
@@ -97,6 +98,12 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
   );
 }
 
+/** The strip as `Panel` feeds it: the active tab's group. Under the provider, which the hook reads. */
+function GroupTabs() {
+  const { activeGroup, close } = usePanelGroups();
+  return <PanelTabs group={activeGroup} onClose={close} />;
+}
+
 /** One tab. Nothing to rank against, so the active state has to stand alone. */
 export const OneTab: Story = () => <Strip strip={single} />;
 
@@ -118,7 +125,7 @@ export const EntityGone: Story = () => <Strip strip={gone} />;
 /** A long label. The id holds — Mono Means Literal — and the label takes the ellipsis. */
 export const LongLabel: Story = () => <Strip strip={longTitle} />;
 
-/** Four tabs at the panel's 320px minimum: the width the truncation is for. */
+/** Four tabs in 320px: the strip's share of a panel at its minimum, beside the sidebar. */
 export const NarrowPanel: Story = () => <Strip strip={fourPhases} width={320} />;
 
 /**

@@ -1,7 +1,9 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
+import type { UserEvent } from '@testing-library/user-event';
 import type { FakeServer } from './fakeServer';
+import { clickNode } from './renderApp';
 
 /**
  * Reading and moving a rendered app, for the `App*.test.tsx` files.
@@ -12,6 +14,31 @@ import type { FakeServer } from './fakeServer';
 
 /** The one expanded node, as the card it grew into. */
 export const expanded = () => screen.getByRole('dialog');
+
+/** The panel's tab strip: the tabs of the worktree in view. */
+export const tabStrip = () => screen.getByRole('tablist', { name: 'Open tabs' });
+
+/** The panel's sidebar row for a worktree, named `<project> <nato>`. */
+export const worktreeRow = (name: string) =>
+  within(screen.getByRole('tablist', { name: 'Worktrees' })).getByRole('tab', { name });
+
+/**
+ * The active tab's body. Not found by role alone: the worktree group around it
+ * is the sidebar's tabpanel, so the page holds two.
+ */
+export const tabBody = () => screen.getByTestId('panel-body');
+
+/** The keys of the tabs in the strip, in strip order. */
+export const stripKeys = () =>
+  within(tabStrip())
+    .getAllByRole('tab')
+    .map((t) => t.getAttribute('data-tab-key'));
+
+/** Open a node's session from its expanded card. */
+export async function openSession(user: UserEvent, taskId: string) {
+  clickNode(taskId);
+  await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+}
 
 /** How many items the attention chip counts. */
 export const chipCount = () =>
