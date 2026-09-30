@@ -420,7 +420,7 @@ other.
 ### The narrow layout
 
 One breakpoint, at 840px. Below it the board does not fit: the canvas needs room for a node, a
-card beside it and a 480px panel, and under 840px it is a sliver rather than a board. So the
+card beside it and a 320px panel, and under 840px it is a sliver rather than a board. So the
 narrow layout does not shrink the wide one — it replaces it.
 
 The deck list takes the canvas's place. The three zones run left to right on a board as vertical
@@ -674,25 +674,12 @@ age: see **Node Card**.
 
 ### Panel Tabs
 
-The panel's tabs have two levels. The sidebar on the panel's left edge lists worktree groups,
-and the strip shows the tabs of the group in view.
+A horizontally scrolling strip of tabs on `--bg-raised`, divided by hairlines, 32px minimum
+height, each tab as wide as what it holds. A tab leads with its identity: the qualified task id,
+mono at `--text-xs`, or a free agent's own id in the same slot.
 
-The sidebar is a vertical tablist about 150px wide, on the strip's own `--bg-raised`, so the two
-levels frame the body together. Each project has a tracked uppercase heading at `--text-xs`.
-Under it, each worktree group is one row: the nato name in mono, the tab count, and a close
-cross. The row in view takes the body's `--bg` and a 3px `--accent` left edge. A group of tabs
-that no worktree holds reads "no worktree", in italics, last in its project.
-
-Above the strip, the worktree bar carries the group's branch and its controls: the Changes
-link, the PR chip, the dev env links, cmux, Sync and Env, as on the expanded card.
-
-The strip scrolls horizontally on `--bg-raised`, divided by hairlines, 32px minimum height, each
-tab as wide as what it holds. A tab leads with its identity: the task's bare id, mono at
-`--text-xs`, or a free agent's own id in the same slot. The sidebar names the project, so the
-tab does not.
-
-A session tab carries nothing else. The id alone says which session it is, and a dated id —
-`2026-09-22.1` — is long enough that a word beside it squeezes to a letter. Only
+A session tab carries nothing else. The id alone says which session it is, and a real qualified
+id — `maelstrom/2026-09-22.1` — is long enough that a word beside it squeezes to a letter. Only
 a document adds a label, its own title, in the interface face at `--text-sm`. The id never
 truncates, by the Mono Means Literal Rule, so a long document title takes the ellipsis; neither
 ever wraps, because a wrapped tab costs the strip its height.
@@ -765,16 +752,14 @@ One mono line above the transcript, on a hairline, holding two groups. The live 
 first: the agent id, its state in words, the permission chip, and what it waits on — the state
 takes the accent, a wait takes Alert Amber. Standing context follows in faint text: worktree,
 branch, model, context size and cost, dot-joined, with quiet Stop and Compact buttons at the
-right, in that order — Stop is the more urgent act and reads first. In the panel, the agent's
-Resume and end-of-work control follow them, as the expanded card draws them. The narrow layout
-leaves these two out, because its node detail already carries them. An empty field drops out
+right, in that order — Stop is the more urgent act and reads first. An empty field drops out
 rather than showing a zero. The model reads as its alias, as on the node
 card.
 
 The rank is the point, not the row count. A reader watches the live reading and consults the
 standing context, so the second group recedes a step in colour and never competes for the same
-glance. Below 30rem the row breaks into two, live reading above: at the panel's 480px minimum,
-about 330px beside the sidebar, one row would truncate both groups to nothing. 30rem is the Transcript's breakpoint, so the panel
+glance. Below 30rem the row breaks into two, live reading above: at the panel's 320px minimum one
+row would truncate both groups to nothing. 30rem is the Transcript's breakpoint, so the panel
 changes shape once rather than twice. Everything truncates rather than wraps: a wrapped head
 would push the transcript down.
 
@@ -783,7 +768,7 @@ which cannot answer whether to compact. See `docs/dev/agent-daemon.md`, "A turn"
 it is what says how much work the session has done.
 
 The break is a container query, so jsdom cannot compute it. Verify it by dragging the panel to
-its 480px minimum in a browser.
+its 320px minimum in a browser.
 
 ### Table (task list)
 
@@ -799,7 +784,8 @@ the interface font — a form control never falls back to the browser's own.
 
 A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its container scrolls.
 A field with no scrolling container, such as the conversation input or a review dock field, caps
-at 50dvh and scrolls itself.
+at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
+the visual viewport's height there, because a soft keyboard does not shrink `dvh`.
 
 ### Decision
 
@@ -920,8 +906,7 @@ gap sizes end to end, and an answered question, a stale question and a real user
 side so the two washes can be compared directly. For the tab strip: one tab, four tabs of
 different phase — arrow along them, because only the tab in view draws its edge — a session
 beside its own plan, a free agent beside a task's, a tab whose entity has gone, a long label
-truncating, and four tabs in 320px, about the strip's share of a panel at its minimum, where the label
-truncates away entirely
+truncating, and four tabs at the panel's 320px minimum, where the label truncates away entirely
 and the ids alone tell four agents apart. Hover an inactive tab: its close control overlays the
 id rather than widening the tab, so watch that the tab does not move.
 

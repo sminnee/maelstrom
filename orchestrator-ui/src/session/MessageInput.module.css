@@ -30,14 +30,15 @@
   padding: 6px 8px;
   /* It shares the panel's height with the transcript, so it grows to half
      the screen and no further. */
-  max-height: 50dvh;
+  max-height: calc(var(--vvh, 100dvh) / 2);
   overflow-y: auto;
 }
-/* A phone shows one thing at a time: the field may take the whole screen,
-   less what stays in view around it. Measured at 390x844: 235px above it (the
-   app bar, Back, the session header, a subagent row) and 38px below (Attach). */
+/* A phone shows one thing at a time: the field may take the whole screen
+   above the keyboard, less what stays in view around it. Measured at 390x844:
+   235px above it (the app bar, Back, the session header, a subagent row) and
+   38px below (Attach). */
 @media (max-width: 839px) {
   .input {
-    max-height: calc(100dvh - 18rem);
+    max-height: calc(var(--vvh, 100dvh) - 18rem);
   }
 }

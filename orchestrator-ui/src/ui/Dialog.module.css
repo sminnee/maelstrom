@@ -133,14 +133,14 @@
 /*
  * On a narrow screen the dialog is the screen. Centred with a margin, it spends
  * a fifth of a phone's width on chrome, and a soft keyboard pushes the focused
- * field out of sight. Top-anchored and full-bleed instead, measured in `dvh` so
- * the keyboard shrinks the box rather than covering it.
+ * field out of sight. Top-anchored and full-bleed instead, measured in `--vvh`
+ * so the keyboard shrinks the box rather than covering it.
  */
 @media (max-width: 839px) {
   .dialog {
     width: 100%;
     max-width: none;
-    max-height: 100dvh;
+    max-height: var(--vvh, 100dvh);
     /* Top-anchored and full-bleed, so the UA's centring margin goes. */
     margin: 0;
     border: none;

@@ -131,7 +131,7 @@
   flex: 1;
   min-width: 0;
   /* Nothing around the review dock scrolls, so a long reason scrolls itself. */
-  max-height: 50dvh;
+  max-height: calc(var(--vvh, 100dvh) / 2);
   overflow-y: auto;
 }
 /* The anchor the sheet lifts from. */
