@@ -20,6 +20,6 @@
   border-radius: var(--radius);
   padding: 3px 6px;
   /* Nothing around the review dock scrolls, so a long summary scrolls itself. */
-  max-height: 50dvh;
+  max-height: calc(var(--vvh, 100dvh) / 2);
   overflow-y: auto;
 }
