@@ -85,6 +85,45 @@ describe('assignRows', () => {
     });
   });
 
+  // M merges into C, but C continues B, so M is a track of its own. It packs
+  // straight after its component, not after S's longer track in the same column.
+  it('packs a merge-in track straight after its component', () => {
+    expect(
+      rowsOf([
+        n('A', 0),
+        n('B', 1, 'A'),
+        n('C', 2, 'B', 'M'),
+        n('S', 0),
+        n('T', 1, 'S'),
+        n('U', 2, 'T'),
+        n('M', 0),
+      ]),
+    ).toEqual({ A: 0, B: 0, C: 0, M: 1, S: 2, T: 2, U: 2 });
+  });
+
+  // A follows B from a lower column, so it cannot continue B's track, but the
+  // two still form one component: B packs with A, before C.
+  it('packs a backward follower with its component', () => {
+    expect(
+      rowsOf([
+        n('X0', 0),
+        n('X1', 1, 'X0'),
+        n('X2', 2, 'X1'),
+        n('A', 0, 'B'),
+        n('C', 1),
+        n('B', 1),
+      ]),
+    ).toEqual({ X0: 0, X1: 0, X2: 0, A: 1, B: 1, C: 2 });
+  });
+
+  // P and Q follow ids from another lane. Those ids join nothing, so C packs
+  // before Q.
+  it('does not join two tracks through ids outside the input', () => {
+    expect(
+      rowsOf([n('L0', 0), n('L1', 1, 'L0'), n('P', 0, 'gone1'), n('C', 1), n('Q', 1, 'gone2')]),
+    ).toEqual({ L0: 0, L1: 0, P: 1, C: 1, Q: 2 });
+  });
+
   it('terminates on a cycle', () => {
     expect(rowsOf([n('A', 1, 'B'), n('B', 0, 'A')])).toEqual({ A: 0, B: 0 });
   });
