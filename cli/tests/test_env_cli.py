@@ -5,6 +5,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from domain_fixtures import IN_A_PANE
 
 from mael_cli.cli import cli
 from mael_cli.env_cli import (
@@ -196,7 +197,7 @@ class TestEnvStartBrowserDedup:
     @patch("mael_cli.env_cli.get_env_status")
     @patch("mael_cli.env_cli.start_env")
     @patch("mael_cli.env_cli.resolve_context")
-    def test_shows_app_browser(
+    def test_shows_app_browser_only_in_a_pane(
         self,
         mock_ctx,
         mock_start,
@@ -206,8 +207,12 @@ class TestEnvStartBrowserDedup:
         mock_save,
         tmp_path,
         fake_cmux,
+        caller,
     ):
-        """The app URL opens in the browser pane, and its surface is stored."""
+        """The app URL opens in the caller's pane, and its surface is stored.
+
+        cmux runs in every case. Only a caller in one of its panes gets a browser.
+        """
         fake_cmux.with_workspace("proj-bravo", [["Claude"], ["Terminal"]])
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
@@ -218,9 +223,11 @@ class TestEnvStartBrowserDedup:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "start"])
         assert result.exit_code == 0
-        assert fake_cmux.tabs("proj-bravo")[2] == ["http://localhost:3000"]
-        stored = mock_save.call_args.args[1].cmux_browser_surface
-        assert stored == fake_cmux.surface_ref("proj-bravo", 2)
+        in_a_pane = caller == IN_A_PANE
+        browser = [["http://localhost:3000"]] if in_a_pane else []
+        assert fake_cmux.tabs("proj-bravo") == [["Claude"], ["Terminal"], *browser]
+        stored = [c.args[1].cmux_browser_surface for c in mock_save.call_args_list]
+        assert stored == ([fake_cmux.surface_ref("proj-bravo", 2)] if in_a_pane else [])
 
     @patch("mael_cli.env_cli.save_env_state")
     @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
@@ -255,11 +262,12 @@ class TestEnvStopBrowser:
     @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.stop_env")
     @patch("mael_cli.env_cli.resolve_context")
-    def test_closes_browser_on_stop(self, mock_ctx, mock_stop, mock_app, fake_cmux):
-        """The app's browser tab closes."""
-        fake_cmux.with_workspace(
-            "proj-bravo", [["Claude"], [("browser", "http://localhost:3000")]]
-        )
+    def test_closes_browser_on_stop_only_in_a_pane(
+        self, mock_ctx, mock_stop, mock_app, fake_cmux, caller
+    ):
+        """The app's browser tab closes, but only for a caller in a cmux pane."""
+        browser = [("browser", "http://localhost:3000")]
+        fake_cmux.with_workspace("proj-bravo", [["Claude"], browser])
         mock_ctx.return_value = MagicMock(
             project="proj", worktree="bravo", project_path=Path("/proj")
         )
@@ -268,7 +276,8 @@ class TestEnvStopBrowser:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "stop"])
         assert result.exit_code == 0
-        assert fake_cmux.tabs("proj-bravo") == [["Claude"]]
+        kept = [] if caller == IN_A_PANE else [["http://localhost:3000"]]
+        assert fake_cmux.tabs("proj-bravo") == [["Claude"], *kept]
 
 
 class TestEnvStatus:

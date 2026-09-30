@@ -155,7 +155,7 @@ def ensure_cmux_browser(
     url, _ = app_info
     port = int(url.rsplit(":", 1)[1])
     wait_for_port(port)
-    cmux = MaelCmux.current()
+    cmux = MaelCmux.for_caller()
     ref = cmux.worktree(state.project, worktree).show_app_browser(url) if cmux else None
     if ref:
         state.cmux_browser_surface = ref
@@ -386,7 +386,7 @@ def env_stop(service, worktree_opt):
     # leave the pane showing the main app alone.
     if service_name is None:
         app_info = get_app_url(ctx.project_path, ctx.worktree)
-        cmux = MaelCmux.current() if app_info else None
+        cmux = MaelCmux.for_caller() if app_info else None
         if app_info and cmux:
             cmux.worktree(ctx.project, ctx.worktree).hide_app_browser(app_info[0])
 
