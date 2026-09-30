@@ -19,21 +19,20 @@ export interface RowInput {
  *
  * A track reserves every cell from its head's column to its tail's column, so
  * its edges draw straight and never behind a card. Tracks pack first-fit onto
- * the lowest row where that whole interval is free, in the order of their heads
- * in the input. A node that follows nothing is a one-cell track.
- * A branch, a second follower of one node, packs after that node's track and
- * searches from the row below that node.
- *
- * The caller must pass nodes in the order the rows are packed in. Only the
- * cut into tracks reads them by column.
+ * the lowest row where that whole interval is free, leftmost head first. Without
+ * branches, that order takes the fewest rows: the most tracks on one column.
+ * Input order only breaks ties between heads in one column. A node that follows
+ * nothing is a one-cell track. A branch, a second follower of one node, searches
+ * from the row below that node.
  */
 export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, number> {
   const columnOf = new Map(nodes.map((n) => [n.id, n.column]));
   const next = new Map<string, string>();
   const continues = new Set<string>();
   const branchesFrom = new Map<string, string>();
-  // A stable sort, so followers in one column keep their input order.
-  for (const node of [...nodes].sort((a, b) => a.column - b.column)) {
+  // A stable sort, so nodes in one column keep their input order.
+  const byColumn = [...nodes].sort((a, b) => a.column - b.column);
+  for (const node of byColumn) {
     const lower = node.follows
       .filter((id) => (columnOf.get(id) ?? node.column) < node.column)
       .sort((a, b) => columnOf.get(b)! - columnOf.get(a)!);
@@ -47,11 +46,10 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
   }
 
   // A continuation always sits in a higher column, so a track cannot loop.
+  // A branch's parent sits in a lower column, so it has a row first.
   const taken = new Map<number, Set<number>>();
   const rows = new Map<string, number>();
-  // Branches waiting for their parent's row, keyed by the parent.
-  const waiting = new Map<string, RowInput[]>();
-  const pack = (head: RowInput) => {
+  for (const head of byColumn.filter((n) => !continues.has(n.id))) {
     const track = [head.id];
     for (let id = next.get(head.id); id !== undefined; id = next.get(id)) track.push(id);
     const first = head.column;
@@ -64,20 +62,7 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
       used.add(row);
       taken.set(column, used);
     }
-    for (const id of track) {
-      rows.set(id, row);
-      for (const branch of waiting.get(id) ?? []) pack(branch);
-      waiting.delete(id);
-    }
-  };
-  for (const head of nodes) {
-    if (continues.has(head.id)) continue;
-    const parent = branchesFrom.get(head.id);
-    if (parent !== undefined && !rows.has(parent)) {
-      waiting.set(parent, [...(waiting.get(parent) ?? []), head]);
-    } else {
-      pack(head);
-    }
+    for (const id of track) rows.set(id, row);
   }
   return rows;
 }

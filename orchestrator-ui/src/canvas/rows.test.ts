@@ -11,19 +11,7 @@ function rowsOf(nodes: RowInput[]) {
 }
 
 describe('assignRows', () => {
-  // A done head in column 0 and a not-started follower in column 1, with
-  // three not-started singletons already filling column 1's first rows.
-  it('puts a follower in another zone on its predecessor row', () => {
-    expect(rowsOf([n('S1', 1), n('S2', 1), n('S3', 1), n('A', 0), n('B', 1, 'A')])).toEqual({
-      S1: 0,
-      S2: 1,
-      S3: 2,
-      A: 3,
-      B: 3,
-    });
-  });
-
-  // Packed one node at a time, B would take row 0 before A had a row.
+  // The cut reads nodes by column, so B continues A although it is listed first.
   it('gives a follower listed before its predecessor the predecessor row', () => {
     expect(rowsOf([n('S1', 0), n('B', 1, 'A'), n('A', 0)])).toEqual({ S1: 0, B: 1, A: 1 });
   });
@@ -49,8 +37,8 @@ describe('assignRows', () => {
     expect(rowsOf([n('A', 0), n('B', 1, 'A'), n('C', 2, 'A')])).toEqual({ A: 0, B: 0, C: 1 });
   });
 
-  // X and C branch off B, which has no row until A's track packs.
-  it('packs a branch listed before its parent once the parent has a row', () => {
+  // X continues B's track; C branches off B, whose row comes from A's track.
+  it('puts a branch off a continuation below it, whatever the input order', () => {
     expect(rowsOf([n('X', 2, 'B'), n('C', 2, 'B'), n('A', 0), n('B', 1, 'A')])).toEqual({
       X: 0,
       C: 1,
@@ -77,6 +65,13 @@ describe('assignRows', () => {
   // draws backwards and the two share no track.
   it('starts a new track on a backward edge and overlaps nothing', () => {
     expect(rowsOf([n('B', 1), n('A', 0, 'B'), n('C', 1)])).toEqual({ B: 0, A: 0, C: 1 });
+  });
+
+  // T's track comes after R and Q in the input, and it still packs second.
+  it('packs tracks leftmost-first, so a later chain does not drop below short tracks', () => {
+    expect(
+      rowsOf([n('P', 0), n('Q', 2), n('R', 1), n('S', 2, 'R'), n('T', 0), n('U', 1, 'T')]),
+    ).toEqual({ P: 0, T: 1, U: 1, R: 0, S: 0, Q: 1 });
   });
 
   it('terminates on a cycle', () => {

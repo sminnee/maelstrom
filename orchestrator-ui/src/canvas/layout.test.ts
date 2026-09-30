@@ -102,7 +102,6 @@ describe('layoutSwimlanes', () => {
         makeTask({ id: 'U', project: 'p1', follows: ['T'] }),
       ]),
     );
-    // The graph orders by id, so the three singletons pack first.
     expect(layout.nodes['U']!.y).toBe(layout.nodes['T']!.y);
     expect(layout.nodes['U']!.x).toBe(layout.nodes['S1']!.x);
     expect(layout.nodes['T']!.x).toBeLessThan(layout.nodes['U']!.x);
