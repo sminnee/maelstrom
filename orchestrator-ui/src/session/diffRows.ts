@@ -1,13 +1,9 @@
 import { diffLines } from 'diff';
-
-export interface DiffRow {
-  kind: 'context' | 'add' | 'remove';
-  text: string;
-}
+import type { DiffRowData } from '../ui/DiffRow';
 
 /** The rows an Edit card draws, from its old and new strings. */
-export function editToDiffRows(oldString: string, newString: string): DiffRow[] {
-  const rows: DiffRow[] = [];
+export function editToDiffRows(oldString: string, newString: string): DiffRowData[] {
+  const rows: DiffRowData[] = [];
   for (const change of diffLines(oldString, newString)) {
     const kind = change.added ? 'add' : change.removed ? 'remove' : 'context';
     const lines = change.value.split('\n');
