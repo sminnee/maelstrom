@@ -58,6 +58,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     lastMessageAt: '',
     lastNote: '',
     lastNoteAt: '',
+    startedAt: '',
     costUsd: 4.2,
     totalTokens: 148_000,
     subagentTokens: 0,

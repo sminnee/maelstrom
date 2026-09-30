@@ -74,6 +74,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     lastMessageAt: '',
     lastNote: '',
     lastNoteAt: '',
+    startedAt: '',
     costUsd: 0,
     totalTokens: 0,
     subagentTokens: 0,

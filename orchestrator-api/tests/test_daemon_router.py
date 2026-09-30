@@ -161,6 +161,21 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
     }
 
 
+def test_a_listed_row_carries_the_records_start_time() -> None:
+    """The record's start, not the daemon's: a resume resets the daemon's."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", started_at=STAMP)
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        return await router.request({"cmd": "list"})
+
+    listed = asyncio.run(scenario())
+
+    assert listed["agents"][0]["started_at"] == LONG_AGO
+
+
 def test_list_passes_through_a_live_subagent_of_a_stored_agent() -> None:
     async def scenario():
         claude = ScriptedAsyncDaemonClient()
@@ -237,6 +252,7 @@ def test_a_stored_agent_reads_as_exited_only_once_it_is_retired() -> None:
             "cwd": "/worktree",
             "model": "claude:opus",
             "mode": "normal",
+            "started_at": LONG_AGO,
         }
     ]
     assert last["agents"][0]["state"] == "exited"

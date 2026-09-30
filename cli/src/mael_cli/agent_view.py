@@ -102,6 +102,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "lastMessageAt": "",
         "lastNote": "",
         "lastNoteAt": "",
+        "startedAt": "",
         "costUsd": 0.0,
         "totalTokens": 0,
         "subagentTokens": 0,

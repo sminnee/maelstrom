@@ -310,6 +310,16 @@ def test_agent_entity_carries_the_rows_background_shells():
     assert entity["backgroundShells"] == []
 
 
+def test_agent_entity_carries_the_rows_start_time():
+    started = "2026-09-21T10:00:00+00:00"
+    row = {**build_agent_row(replay("normal-turn.jsonl")), "started_at": started}
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["startedAt"] == started
+    row.pop("started_at")
+    entity = agent_entity(row, task_id="", project="", worktree_id="")
+    assert entity["startedAt"] == ""
+
+
 def test_agent_entity_parses_the_exit_code_out_of_the_row_state():
     row = build_agent_row(mark_exited(replay("normal-turn.jsonl"), 3))
     entity = agent_entity(row, task_id="", project="", worktree_id="")

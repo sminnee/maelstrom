@@ -183,6 +183,7 @@ def agent_entity(
         "lastMessageAt": row.get("last_message_at") or "",
         "lastNote": row.get("last_note") or "",
         "lastNoteAt": row.get("last_note_at") or "",
+        "startedAt": row.get("started_at") or "",
         **row_totals(row),
         "taskId": task_id,
         "project": project,
