@@ -5,7 +5,7 @@ import { progressOf, zoneForState } from '../protocol/progress';
 import { nextAttentionTask, openAttention } from '../selectors/attention';
 import { agentsByTask, filteredTasks } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
-import { useAddToDesk } from '../api/desk';
+import { usePutOnDesk } from '../api/desk';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
@@ -40,7 +40,7 @@ function NarrowChip() {
   const setDeckZone = useAppStore((s) => s.setDeckZone);
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
-  const addToDesk = useAddToDesk();
+  const putOnDesk = usePutOnDesk();
   const top = stack[stack.length - 1];
 
   const go = async () => {
@@ -55,7 +55,7 @@ function NarrowChip() {
     const attention = Object.values(world.attention);
     setDeckZone(zoneForState(progressOf(task, agent, attention).state));
     if (!(deskIdForTask(next) in world.desk)) {
-      await addToDesk.mutateAsync({ id: deskIdForTask(next) });
+      await putOnDesk.mutateAsync({ id: deskIdForTask(next) });
     }
     // From the task list, the deck has to be showing for Back to land on it.
     if (view !== 'canvas') setView('canvas');
@@ -75,7 +75,7 @@ function WideChip() {
   const view = useAppStore((s) => s.ui.view);
   const setView = useAppStore((s) => s.setView);
   const { fitView } = useReactFlow();
-  const addToDesk = useAddToDesk();
+  const putOnDesk = usePutOnDesk();
 
   const go = async () => {
     const current = expandedNodeId ?? focusedTaskId(world, tabs, activeTabKey);
@@ -83,7 +83,7 @@ function WideChip() {
     if (!next) return;
     // The canvas draws the desk, so a task off it has no node to expand.
     if (!(deskIdForTask(next) in world.desk)) {
-      await addToDesk.mutateAsync({ id: deskIdForTask(next) });
+      await putOnDesk.mutateAsync({ id: deskIdForTask(next) });
     }
     // From the task list, the canvas has to be showing before it can be
     // fitted, so the fit waits for the frame that draws it.

@@ -1,5 +1,5 @@
 import { useResume, useStop } from '../api/agents';
-import { useRemoveFromDesk } from '../api/desk';
+import { useTakeOffDesk } from '../api/desk';
 import { useCloseWorktree } from '../api/worktrees';
 import { useWorld } from '../api/useWorld';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
@@ -18,24 +18,24 @@ import { SplitButton, type SplitOption } from '../ui/SplitButton';
  * agent's task, else — for a free agent — the agent itself. A task with no
  * agent still dismisses, so `agent` is optional.
  *
- * `onDismissed` runs once a dismiss has taken the entry off the desk: the
+ * `onTakenOffDesk` runs once a dismiss has taken the entry off the desk: the
  * card collapses, and the panel closes the session tab.
  */
 export function AgentControls({
   agent,
   taskId,
   where,
-  onDismissed,
+  onTakenOffDesk,
 }: {
   agent: Agent | undefined;
   taskId?: TaskId;
   where: Worktree | undefined;
-  onDismissed: () => void;
+  onTakenOffDesk: () => void;
 }) {
   const { world } = useWorld();
   const stop = useStop();
   const resume = useResume();
-  const removeFromDesk = useRemoveFromDesk();
+  const offDesk = useTakeOffDesk();
   const closeWorktree = useCloseWorktree();
   const task = taskId || agent?.taskId;
   const endOfWork = endOfWorkOptions({
@@ -45,11 +45,11 @@ export function AgentControls({
     // Terminate ends the process; the session tab's Stop only abandons the
     // turn — see CONTEXT.md, "Interrupt".
     stop: () => stop.mutateAsync({ agentId: agent!.id }),
-    dismiss: async () => {
+    takeOffDesk: async () => {
       const id = task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
       // A live node draws with no desk entry, so there may be none to take.
-      if (id in world.desk) await removeFromDesk.mutateAsync({ id });
-      onDismissed();
+      if (id in world.desk) await offDesk.mutateAsync({ id });
+      onTakenOffDesk();
     },
     close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
   });
@@ -79,7 +79,7 @@ function endOfWorkOptions({
   where,
   others,
   stop,
-  dismiss,
+  takeOffDesk,
   close,
 }: {
   live: boolean;
@@ -87,7 +87,7 @@ function endOfWorkOptions({
   /** Live agents in `where` other than this node's own. */
   others: number;
   stop: () => Promise<unknown>;
-  dismiss: () => Promise<unknown>;
+  takeOffDesk: () => Promise<unknown>;
   close: () => Promise<unknown>;
 }): SplitOption[] {
   const options: SplitOption[] = live
@@ -98,11 +98,11 @@ function endOfWorkOptions({
           processing: 'Terminating…',
           run: async () => {
             await stop();
-            await dismiss();
+            await takeOffDesk();
           },
         },
       ]
-    : [{ label: 'Dismiss', run: dismiss }];
+    : [{ label: 'Dismiss', run: takeOffDesk }];
   if (where && canClose(where)) {
     options.push({
       label: `${live ? 'Terminate, dismiss' : 'Dismiss'} & close ${where.nato}`,
@@ -114,7 +114,7 @@ function endOfWorkOptions({
           : undefined,
       run: async () => {
         await close();
-        await dismiss();
+        await takeOffDesk();
       },
     });
   }
