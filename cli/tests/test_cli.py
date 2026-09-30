@@ -1621,8 +1621,30 @@ class TestCmuxStatus:
             assert "not reachable" in result.output
 
 
+class TestProjectAdd:
+    """Tests for `mael project add`."""
+
+    def test_hands_the_url_to_add_project_and_reports_the_paths(self, tmp_path):
+        url = "https://github.com/org/proj.git"
+        with (
+            patch("mael_cli.cli.load_global_config") as mock_config,
+            patch("mael_cli.cli.add_project") as mock_add_project,
+        ):
+            mock_config.return_value = MagicMock(projects_dir=tmp_path)
+            mock_add_project.return_value = tmp_path / "proj"
+            result = CliRunner().invoke(cli, ["project", "add", url])
+
+        assert result.exit_code == 0, result.output
+        mock_add_project.assert_called_once_with(url, tmp_path)
+        assert result.output == (
+            f"Cloning {url}...\n"
+            f"Project created at: {tmp_path / 'proj'}\n"
+            f"Alpha worktree at: {tmp_path / 'proj' / 'proj-alpha'}\n"
+        )
+
+
 class TestCreateProject:
-    """Tests for `mael create-project`."""
+    """Tests for `mael project create`."""
 
     def _invoke(
         self,
@@ -1632,22 +1654,22 @@ class TestCreateProject:
         url="git@github.com:me/proj.git",
         add_project_error=None,
     ):
-        """Run create-project with the remote and checkout halves mocked."""
+        """Run project create with the remote and checkout halves mocked."""
         with (
             patch("mael_cli.cli.load_global_config") as mock_config,
             patch("mael_cli.cli.create_project_repo", return_value=url) as mock_create,
             patch("mael_cli.cli.add_project") as mock_add_project,
             patch("mael_cli.cli.cmd_add") as mock_add,
         ):
-            # `cmd_add` is a coroutine command now, and create-project awaits
-            # what `ctx.invoke` hands back, so the stand-in has to be awaitable.
+            # `cmd_add` is a coroutine command and project create awaits what
+            # `ctx.invoke` returns, so the stand-in must be awaitable.
             mock_add.return_value = None
             mock_add.side_effect = lambda *a, **k: _completed(None)
             mock_config.return_value = MagicMock(projects_dir=tmp_path)
             mock_add_project.return_value = tmp_path / "proj"
             if add_project_error is not None:
                 mock_add_project.side_effect = add_project_error
-            result = CliRunner().invoke(cli, ["create-project"] + args)
+            result = CliRunner().invoke(cli, ["project", "create"] + args)
         return result, mock_create, mock_add_project, mock_add
 
     def test_threads_the_url_from_repo_creation_into_checkout(self, tmp_path):
@@ -1691,7 +1713,7 @@ class TestCreateProject:
 
         assert result.exit_code != 0
         assert "git@github.com:me/proj.git" in result.output
-        assert "mael add-project" in result.output
+        assert "mael project add" in result.output
 
     def test_checkout_failure_reports_the_git_error_not_just_the_exit_code(
         self, tmp_path
@@ -1731,10 +1753,10 @@ class TestCreateProject:
 
 
 class TestCreateProjectIntegration:
-    """`mael create-project` against real git repos, with only gh and the launch mocked."""
+    """`mael project create` against real git repos, with only gh and the launch mocked."""
 
     def _run(self, tmp_path, repo_name="demo", url_name=None):
-        """Seed a bare upstream, then run create-project end to end.
+        """Seed a bare upstream, then run project create end to end.
 
         ``url_name`` names the upstream repo when it differs from the requested
         name, so the test can tell which of the two the command actually used.
@@ -1788,7 +1810,7 @@ class TestCreateProjectIntegration:
             patch("mael_cli.cli.launch_add_in_worktree", side_effect=fake_launch),
             patch("mael_cli.cli.start_install_async", return_value=False),
         ):
-            result = CliRunner().invoke(cli, ["create-project", repo_name])
+            result = CliRunner().invoke(cli, ["project", "create", repo_name])
         return result, projects, launched
 
     def test_checks_out_the_project_and_opens_a_start_branch_worktree(self, tmp_path):
@@ -1856,7 +1878,7 @@ class TestCreateProjectIntegration:
 
 
 class TestMvProjectIntegration:
-    """`mael mv-project` against a real git repo, with only global state mocked."""
+    """`mael project mv` against a real git repo, with only global state mocked."""
 
     def _build(self, tmp_path, project_name="old"):
         """Build a bare-ish project with a nato worktree and a `_main` worktree."""
@@ -1906,7 +1928,7 @@ class TestMvProjectIntegration:
             capture_output=True,
         )
         # A bare clone has no remote-tracking refs; fetch them so the project
-        # looks like one `mael add-project` made (and `mael doctor` accepts).
+        # looks like one `mael project add` made (and `mael doctor` accepts).
         for cmd in (
             [
                 "git",
@@ -1918,7 +1940,7 @@ class TestMvProjectIntegration:
         ):
             subprocess.run(cmd, cwd=project, check=True, capture_output=True)
         # Detach the repo's own HEAD so `_main` can hold `main`, which is the
-        # layout `mael add-project` produces and `mael doctor` checks for.
+        # layout `mael project add` produces and `mael doctor` checks for.
         subprocess.run(
             ["git", "checkout", "--detach", "main"],
             cwd=project,
@@ -1949,7 +1971,7 @@ class TestMvProjectIntegration:
         return projects, project
 
     def _run(self, tmp_path, projects, args, home=None):
-        """Invoke mv-project with global state redirected into tmp_path."""
+        """Invoke `project mv` with global state redirected into tmp_path."""
         home = home or (tmp_path / "home")
         home.mkdir(exist_ok=True)
         mael_dir = home / ".maelstrom"
@@ -1983,7 +2005,7 @@ class TestMvProjectIntegration:
             patch("mael_cli.mv_project_cli.all_live_sessions", _async_none),
             patch("mael_cli.mv_project_cli.update_claude_local_md"),
         ):
-            return CliRunner().invoke(cli, ["mv-project"] + args)
+            return CliRunner().invoke(cli, ["project", "mv"] + args)
 
     def test_git_works_inside_the_moved_worktree(self, tmp_path):
         """The `.git`-file direction: worktree -> admin dir."""
@@ -2319,11 +2341,15 @@ class TestMainExitCodes:
         [
             (["agent", "daemon", "status"], "daemon"),
             (["orchestrator", "serve"], "orchestrator"),
+            (["add-project", "x"], "add-project"),
+            (["create-project", "x"], "create-project"),
+            (["mv-project", "x", "y"], "mv-project"),
         ],
     )
     def test_an_unknown_command_exits_two(self, argv, unknown, capsys):
         """The daemon and the orchestrator server are console scripts of their
-        own, `mael-agent-daemon` and `mael-orchestrator`, not `mael` groups."""
+        own, `mael-agent-daemon` and `mael-orchestrator`, not `mael` groups.
+        The project commands live under `mael project` only, with no aliases."""
         from mael_cli.cli import main
 
         assert main(argv) == 2

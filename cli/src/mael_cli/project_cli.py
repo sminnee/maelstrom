@@ -1,19 +1,21 @@
-"""CLI commands for inspecting maelstrom-aware projects."""
+"""CLI commands for maelstrom-aware projects."""
 
 import json
 
 import click
 
+from mael_common.cli_async import AsyncGroup
 from mael_common.util import abbreviate_home
 from mael_domain.context import load_global_config
 from mael_domain.worktree import list_projects
 
+from .mv_project_cli import cmd_mv_project
 from .table_cli import draw_table
 
 
-@click.group("project")
+@click.group("project", cls=AsyncGroup)
 def project() -> None:
-    """Inspect maelstrom-aware projects."""
+    """Add, create, rename and list maelstrom-aware projects."""
 
 
 @project.command("list")
@@ -54,3 +56,6 @@ def project_list() -> None:
         for p in projects
     ]
     draw_table(rows, ["PROJECT", "PATH", "WORKTREES"])
+
+
+project.add_command(cmd_mv_project)

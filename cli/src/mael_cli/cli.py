@@ -90,7 +90,6 @@ from .integrations.linear_cli import linear_group
 from .integrations.sentry_cli import sentry_group
 from .integrations.slack_cli import slack_group
 from .integrations.uptimerobot_cli import uptimerobot_group
-from .mv_project_cli import cmd_mv_project
 from .project_cli import project as project_cli
 from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
@@ -108,7 +107,7 @@ from .worktree_launcher import (
     start_install_async,
 )
 
-# The branch `mael create-project` opens its first worktree on, so a new project
+# The branch `mael project create` opens its first worktree on, so a new project
 # starts on a feature branch rather than on main.
 START_BRANCH = "feat/start-project"
 
@@ -209,10 +208,11 @@ def cli(ctx, output_json):
         )
 
 
-# --- Core worktree commands ---
+# --- mael project commands ---
+# Registered here: create invokes cmd_add, which project_cli.py cannot import.
 
 
-@cli.command("add-project")
+@project_cli.command("add")
 @click.argument("git_url")
 @click.option(
     "--projects-dir",
@@ -238,7 +238,7 @@ def cmd_add_project(git_url, projects_dir):
         raise click.ClickException(str(e))
 
 
-@cli.command("create-project")
+@project_cli.command("create")
 @click.argument("name")
 @click.option(
     "--public", is_flag=True, help="Create a public repository (default: private)"
@@ -296,7 +296,7 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
             reason = e.stderr.strip()
         raise click.ClickException(
             f"Repository created at {git_url}, but checkout failed: {reason}\n"
-            f"Retry the checkout with: mael add-project {git_url}"
+            f"Retry the checkout with: mael project add {git_url}"
         )
 
     # Name the project after the directory add_project actually made. It derives
@@ -328,6 +328,9 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
             f"failed: {e}\n"
             f"Retry with: mael add {START_BRANCH} -p {project_name}"
         )
+
+
+# --- Core worktree commands ---
 
 
 @cli.command("add")
@@ -1779,7 +1782,6 @@ cli.add_command(task_cli)
 cli.add_command(wiki_cli)
 cli.add_command(schedule_group)
 cli.add_command(project_cli)
-cli.add_command(cmd_mv_project)
 cli.add_command(cmd_admin)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)

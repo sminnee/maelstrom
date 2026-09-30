@@ -1,4 +1,4 @@
-"""Tests for the `mael mv-project` CLI adapter, with git and state mocked."""
+"""Tests for the `mael project mv` CLI adapter, with git and state mocked."""
 
 from contextlib import ExitStack
 from pathlib import Path
@@ -28,7 +28,7 @@ def _make_project(tmp_path: Path, name: str = "old") -> Path:
 
 
 class MvProjectHarness:
-    """Runs `mv-project` with every external dependency mocked out."""
+    """Runs `project mv` with every external dependency mocked out."""
 
     def __init__(
         self,
@@ -110,7 +110,7 @@ class MvProjectHarness:
             # allocations keyed by a path that no longer exists.
             mock("mael_cli.doctor.run_doctor")
 
-            result = CliRunner().invoke(cli, ["mv-project"] + args)
+            result = CliRunner().invoke(cli, ["project", "mv"] + args)
         return result
 
 
