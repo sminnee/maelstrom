@@ -138,24 +138,23 @@ assistant message. The normaliser reads that marker and mints a document, exactl
 plan document from `ExitPlanMode`. **The agent host does not change**: it relays assistant
 messages untouched already, so it carries no document payload and learns nothing new.
 
-Two forms of document tag, both read by `document_tags.read_tags`:
+One document tag, read by `document_tags.read_tags`:
 
 ```
-<doc-content kind="other" title="Changelog draft">
-## 1.4.0
-- the markdown body, inline
-</doc-content>
-
 <doc-file kind="tasks" filename=".drafts/iter1.md, .drafts/tail.md" title="Iteration 1">
 ```
 
-`<doc-content>` carries the body inline, so the server reads no file and the form works for a
-document that is not a file at all. `<doc-file>` names files the server reads, comma-separated.
-Several names make **one** document holding the set, bodies headed by filename, and the order is
-kept: a task set is one chain, and approving it promotes in that order. `kind` is one of `plan`,
-`tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo shows a
-document rather than dropping it. `title` defaults to the first filename, then to the kind. One
-message may carry several tags, and each yields one document.
+Every document is a file. `<doc-file>` names files the server reads, comma-separated, and each
+file becomes **one document** with a `draft_file` source: its registry id and its path. The files
+of one tag form a **review group** — `group: {id, title, position}` on each member — and the order
+is kept: a task set is one chain, and approving it promotes in that order. The tag's `title` names
+the group, and defaults to the first filename. A member's own title is its draft's `title:` for a
+`tasks` file, the tag title when the tag names one file, and the path otherwise. `kind` is one of
+`plan`, `tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo
+shows a document rather than dropping it. One message may carry several tags.
+
+There is no inline form. A `<doc-content>` is left in the text as written: a document with no path
+cannot be presented again, so it cannot be versioned.
 
 The tag names are **frontend-agnostic**: another frontend may render these its own way, so
 nothing in a tag name is maelstrom's. Only a `kind` value may be.
@@ -163,7 +162,7 @@ nothing in a tag name is maelstrom's. Only a `kind` value may be.
 Every tag is cut out of the message the transcript shows. The user reads a document in its own
 tab, so raw tag syntax on the transcript would only be noise.
 
-A fourth marker mints no document at all:
+Another marker mints no document at all:
 
 ```
 <note>Rebasing onto main, then re-running the failing port test</note>
@@ -180,7 +179,7 @@ agent's last message, and the orchestrator cuts it here so the transcript shows 
 holds its own copy of the pattern rather than sharing one: the daemon sits below the orchestrator,
 and a shared module would invert that. A test asserts the two patterns still agree.
 
-A fifth marker mints no document either:
+Another mints no document either:
 
 ```
 <milestone>built</milestone>
@@ -246,12 +245,16 @@ a blind frontmatter strip.
 A tagged document opens at `draft`, not `awaiting-review`: a plan review is `awaiting-review`
 because a real wait blocks behind it, and a tag blocks nothing. A changelog the user was asked to
 read must not present as a decision. `review="true"` is how an agent asks for a verdict, and only
-that raises an attention item, of kind `document_review`.
+that raises an attention item, of kind `document_review` — one per group, on its first member.
+A re-present clears the group's open item before it raises the next, so items do not stack.
 
-A document minted again by the same agent with the same `kind` and `title`, while the previous
-one is `changes-requested`, becomes the **next version of the same document**, so its comments
-stay attached. That is the plan document's rule, shared as `_Emitter.previous_version`. Anything
-else starts at version 1.
+The path is the identity. A path presented again, in the same scope, becomes the **next version
+of the same document** whatever its status, so a revision replaces its card entry rather than
+adding one. The scope is the agent's task, or the agent when it has none: `.drafts/pr.md` is a
+new pull request for each task. The re-present joins the group of the first path that matched,
+and a member of that group the new tag leaves out becomes `superseded`. The plan document keeps
+its own rule, `_Emitter.previous_version`: a plan re-sent after `changes-requested` is its next
+version, and a plan is a group of one.
 
 A document is **not persisted**. It lives in the world and dies with a server restart, exactly as
 a plan document does. A document store is out of scope.
@@ -262,9 +265,12 @@ A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A cmux s
 user saying yes in the chat. The orchestrator UI has no chat, so the document's Approve button is
 what runs the promote; otherwise approval would be advice the agent may ignore rather than a gate.
 
-So approving a `tasks` document whose `source` is `draft_files` promotes every path it names, in
-order, and every other kind stays the verdict alone. A `source` names registry ids, so the paths
-come back from the registry that validated them when the tag was read — see "The file registry".
+A verdict names the document the user clicked, and settles every current member of its review
+group. So approving a member of a group whose members are all `tasks` documents with a
+`draft_file` source promotes every member, in `group.position` order, in one call. Every other
+group stays the verdict alone. A `source` names a registry id, so the paths come back from the
+registry that validated them when the tag was read — see "The file registry". A member with no id
+was unreadable, and refuses the promote with its path.
 The first task follows the end of its parent's child-chain — `--follow-end '*'`, as the skill
 wires it by hand — and each later one follows the one before, so the chain lands as the document
 listed it. The reply carries the created ids,
@@ -294,7 +300,7 @@ away, and the user who approved would otherwise see nothing until it came round.
 
 ## A shown image
 
-An agent shows the user a picture with a third tag, which mints no document:
+An agent shows the user a picture with another tag, which mints no document:
 
 ```
 <image src="docs/shot.png" alt="The failing dialog">
@@ -887,11 +893,13 @@ as `mael task status` fires them, and a patch writes the fields it is given. Bot
 refresh, as a launch does, so the change is in the world before the reply.
 
 The two document commands are the server's own too: a document lives in the world, not in the
-notebook and not on the host. **Approve** moves the document to `approved` and tells nobody — the
-agent asked for a verdict, and the answer is on the document. **Request changes** moves it to
-`changes-requested` and relays the summary to the agent as an `agent.say`, so the agent hears what
-to fix. The relay comes first: a summary the host refuses never reached the agent, so the document
-stays awaiting a review nobody has answered. Both retire the attention item the document raised.
+notebook and not on the host. Each names one document and acts on its review group's current
+members — every member not `superseded`. **Approve** moves them to `approved` and tells nobody —
+the agent asked for a verdict, and the answer is on the documents. **Request changes** moves them
+to `changes-requested` and relays the summary to the agent once, as an `agent.say` naming the
+group title, so the agent hears what to fix. The relay comes first: a summary the host refuses
+never reached the agent, so the group stays awaiting a review nobody has answered. Both retire the
+attention items the members raised.
 Neither touches the notebook. Both **refuse a plan document**: a plan review is the agent's own
 wait, ended by `agent.approve` or `agent.deny` on the request it blocks. Settling the document
 instead would flip its status, retire the attention item pointing the user at it, and leave the

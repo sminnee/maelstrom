@@ -22,10 +22,11 @@ format, in the worktree's `.drafts/` directory. A draft is not in the notebook. 
 promote it.
 
 The planning skills show the drafts in the orchestrator UI as soon as they write them, so you
-read the plan formatted. The agent does this by writing a marker in its message; the whole set
-opens as one document on the task's card. Later edits are shown the same way.
+read the plan formatted. The agent does this by writing a marker in its message. Each draft opens
+as its own document, and the task's card lists the set under one title. A later edit is the next
+version of the same document.
 
-That document is also where you approve the plan — see [Approving in the orchestrator
+Those documents are also where you approve the plan — see [Approving in the orchestrator
 UI](#approving-in-the-orchestrator-ui).
 
 ## Starting a plan
@@ -109,18 +110,19 @@ no title — the file is left untouched and no task is created.
 ### Approving in the orchestrator UI
 
 A cmux session promotes because you told it to in the chat. The orchestrator UI has no chat, so
-the document does it: its button reads **Approve and create tasks**, and pressing it promotes
-every draft the tag named, in the order it named them.
+the drafts' tab does it. Its button reads **Approve and create 3 tasks**, one per draft. Pressing
+it on any draft promotes every draft the tag named, in the order it named them.
 
 The whole set is one notebook write. A draft that will not parse creates nothing, deletes
-nothing, and leaves the document awaiting review with a message naming the file to fix. On
-success the tab lists the ids it created and the document moves to approved.
+nothing, and leaves the drafts awaiting review with a message naming the file to fix. On success
+the tab lists the ids it created and every draft moves to approved.
 
 The tasks are created, not started. Approving a plan and starting work are two decisions, so
 launch the head yourself from its node card or the task list.
 
 To send the plan back instead, use **Request changes**. The summary reaches the agent as a
-message; it revises the drafts and re-tags them, and the document comes back as version 2.
+message. It revises the drafts and tags them again, and each draft comes back as version 2. A
+draft the agent leaves out drops off the card.
 
 ## Single-session vs multi-session
 

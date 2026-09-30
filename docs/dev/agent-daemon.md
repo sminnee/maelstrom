@@ -42,7 +42,7 @@ Seven flags matter, and two of them are easy to miss:
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
-| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-content>`, `<doc-file>`, `<image>`, `<milestone>`. The client names the file in `start` or `resume`. Omitted when no file is named. |
+| `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-file>`, `<image>`, `<milestone>`, `<user-attention>`. The client names the file in `start` or `resume`. Omitted when no file is named. |
 
 The markers are taught on the launch rather than in a general skill because only a driven agent
 has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to
@@ -655,7 +655,7 @@ orchestrator UI.
 says when. A note answers what a last message only hints at, so the column stands beside it. See
 `CONTEXT.md`, **Note**.
 
-`<note>` is the one marker the daemon reads. It scrubs the syntax of the rest — `<doc-content>`,
+`<note>` is the one marker the daemon reads. It scrubs the syntax of the rest —
 `<doc-file>`, `<image>`, `<milestone>`, `<user-attention>` — by shape, without knowing a single
 name: any lowercase tag, opening or closing, outside a fenced code block. The vocabulary belongs
 to the orchestrator, which owns the business model, so a name list here would leak every marker
@@ -664,9 +664,9 @@ because `last_note` is a daemon row field, and reaching the orchestrator for a c
 renders itself would invert the layering it protects.
 
 The scrub takes the tags and keeps what they wrapped, so a `<milestone>` leaves the bare word it
-named and a `<doc-content>` leaves its body. Keeping the body is what makes a nameless scrub safe:
-cutting it would need to know where each marker ends, and no shape tells a `<doc-content>`, whose
-body is arbitrary markdown, from a `<section>` an agent wrote as prose. Guessing there deletes the
+named and a `<details>` leaves its body. Keeping the body is what makes a nameless scrub safe:
+cutting it would need to know where each marker ends, and no shape tells a marker pair whose body
+is arbitrary markdown from a `<section>` an agent wrote as prose. Guessing there deletes the
 agent's own paragraphs. The residue is a stray word in a column that is one line long and
 truncated anyway.
 
