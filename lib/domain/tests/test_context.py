@@ -51,10 +51,12 @@ class TestGlobalConfig:
             {
                 "projects_dir": "/custom/path",
                 "open_command": "vim",
+                "openai": {"api_key": "sk-test"},
             }
         )
         assert config.projects_dir == Path("/custom/path")
         assert config.open_command == "vim"
+        assert config.openai_api_key == "sk-test"
 
 
 class TestLoadGlobalConfigDoesNotChmod:
