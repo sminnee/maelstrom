@@ -1,4 +1,4 @@
-import type { AgentId, CommentId, DocumentId, RequestId, TaskId, TranscriptItemId } from './ids';
+import type { AgentId, CommentId, DocumentId, RequestId, TaskId } from './ids';
 
 export type DocumentKind = 'plan' | 'tasks' | 'pr' | 'review' | 'other';
 
@@ -17,9 +17,20 @@ export type DocumentStatus =
  */
 export type DocumentSource =
   | { type: 'plan_review'; requestId: RequestId; planFilePath: string }
-  | { type: 'draft_files'; paths: string[] }
-  | { type: 'pr'; number: number }
-  | { type: 'message'; transcriptItemId: TranscriptItemId };
+  /**
+   * One file a `<doc-file>` tag named. `filename` is the worktree-relative
+   * path and the document's identity; `fileId` is the file registry's id, and
+   * null when the file could not be read.
+   */
+  | { type: 'draft_file'; fileId: string | null; filename: string };
+
+/** The review group a document is a member of — see `CONTEXT.md`, "Review group". */
+export interface DocumentGroup {
+  id: string;
+  title: string;
+  /** The member's place in the tag, which for a task set is the chain's order. */
+  position: number;
+}
 
 export interface Document {
   id: DocumentId;
@@ -31,6 +42,7 @@ export interface Document {
   version: number;
   status: DocumentStatus;
   source: DocumentSource;
+  group: DocumentGroup;
 }
 
 /**

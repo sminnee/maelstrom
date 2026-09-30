@@ -18,6 +18,7 @@ import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { canClose } from '../selectors/worktrees';
 import { isLive, nodeIdLine, nodeTitle } from '../selectors/graph';
+import { reviewGroups } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { toolCallTitle } from '../session/toolCards';
@@ -88,8 +89,10 @@ export function NodeCardBody({
 
   // A plan document is found by its task; a free agent has no task, so a
   // document it tagged is found by its agent alone.
-  const documents = Object.values(world.documents).filter(
-    (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
+  const documents = reviewGroups(
+    Object.values(world.documents).filter(
+      (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
+    ),
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
@@ -324,11 +327,25 @@ export function NodeCardBody({
         </div>
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
-            {documents.map((d) => (
-              <PanelLink key={d.id} tab={documentTab(d.id)}>
-                {d.title} v{d.version} · {describeDocumentStatus(d.status)}
-              </PanelLink>
-            ))}
+            {documents.map((g) =>
+              g.members.length === 1 ? (
+                <PanelLink key={g.id} tab={documentTab(g.members[0]!.id)}>
+                  {g.members[0]!.title} v{g.members[0]!.version} ·{' '}
+                  {describeDocumentStatus(g.status)}
+                </PanelLink>
+              ) : (
+                <div key={g.id} role="group" aria-label={g.title} className={styles.documentGroup}>
+                  <span className={styles.documentGroupHead}>
+                    {g.title} · {describeDocumentStatus(g.status)}
+                  </span>
+                  {g.members.map((d) => (
+                    <PanelLink key={d.id} tab={documentTab(d.id)}>
+                      {d.title} v{d.version}
+                    </PanelLink>
+                  ))}
+                </div>
+              ),
+            )}
           </div>
         )}
       </footer>

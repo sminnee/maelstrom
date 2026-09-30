@@ -85,9 +85,34 @@ export function addPlan(server: FakeServer, status: Document['status'] = 'approv
     version: 1,
     status,
     source: { type: 'plan_review', requestId: 'req-nort9-plan', planFilePath: '' },
+    group: { id: 'doc-nort9-plan', title: 'Plan', position: 0 },
   };
   server.change({ kind: 'document', ids: [doc.id] }, (w) => {
     w.documents[doc.id] = doc;
+  });
+}
+
+/** NORT-12's agent presents a three-draft task set as one tag, as review group `grp-set`. */
+export function addTaskSet(
+  server: FakeServer,
+  over: Partial<Record<number, Partial<Document>>> = {},
+) {
+  const names = ['Execute: parse', 'Execute: mint', 'Execute: show'];
+  const docs: Document[] = names.map((title, i) => ({
+    id: `doc-set-${i}`,
+    agentId: 'e5b1d8c3',
+    taskId: 'NORT-12',
+    kind: 'tasks',
+    title,
+    markdown: `## ${title}\n\nStep ${i + 1}.\n`,
+    version: 1,
+    status: 'awaiting-review',
+    source: { type: 'draft_file', fileId: `set-${i}`, filename: `.drafts/set-${i}.md` },
+    group: { id: 'grp-set', title: 'Iteration 3', position: i },
+    ...over[i],
+  }));
+  server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {
+    for (const d of docs) w.documents[d.id] = d;
   });
 }
 

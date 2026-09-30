@@ -362,3 +362,16 @@
   width: fit-content;
   max-width: 100%;
 }
+/* A review group: its title and status, then one link per member, indented. */
+.documentGroup {
+  display: grid;
+  gap: var(--space-1);
+}
+.documentGroup > a {
+  width: fit-content;
+  max-width: 100%;
+  padding-left: var(--space-3);
+}
+.documentGroupHead {
+  color: var(--fg-muted);
+}
