@@ -287,8 +287,9 @@ class Task:
     def to_markdown(self) -> str:
         """Render the task as markdown with YAML frontmatter.
 
-        All ten frontmatter keys are always emitted (in a fixed order) and the
-        two body sections always appear, so files round-trip with stable diffs.
+        All ten frontmatter keys are always emitted (in a fixed order), so files
+        round-trip with stable diffs. ``## Content`` always appears; ``## Log``
+        appears only when the log has entries.
         """
         lines = ["---"]
         for k in FRONTMATTER_KEYS:
@@ -302,10 +303,11 @@ class Task:
         lines.append("## Content")
         lines.append("")
         lines.append(self.content.strip())
-        lines.append("")
-        lines.append("## Log")
-        lines.append("")
-        lines.append(self.log.strip())
+        if self.log.strip():
+            lines.append("")
+            lines.append("## Log")
+            lines.append("")
+            lines.append(self.log.strip())
         # Normalise to a single trailing newline.
         return "\n".join(lines).rstrip("\n") + "\n"
 

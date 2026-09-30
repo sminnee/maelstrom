@@ -1711,7 +1711,7 @@ class TestPromote:
     ):
         f = self._draft(runner, tmp_path)
         text = f.read_text().replace(
-            "## Content\n\n", "## Content\n\nThe sculpted plan.\n"
+            "## Content\n", "## Content\n\nThe sculpted plan.\n"
         )
         f.write_text(text)
         result = runner.invoke(task_cli.task, ["promote", str(f)])
