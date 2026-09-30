@@ -38,6 +38,10 @@ release while that section is empty, and retitles it to the version it is releas
   dialog or panel around them scrolls. The deny reason and the summary now take line breaks. The
   conversation input grows to half the screen, then scrolls. The resize handles are gone.
 
+- **The desk buttons say On desk and Off desk.** The node card's "Dismiss" and the task list's
+  "Add to desk" and "Remove from desk" are now one pair, each with a tray icon. A menu item
+  that joins the desk act to another uses the verb: "Terminate & take off desk".
+
 - **Breaking: the project commands moved under `mael project`.** `mael add-project`,
   `mael create-project` and `mael mv-project` are now `mael project add`, `mael project create`
   and `mael project mv`, beside `mael project list`. The old names are removed, with no aliases.
@@ -75,7 +79,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **A task node's card lists what its task follows and what follows it.** The expanded card has
   a Follows group and a Followed by group, direct and indirect, nearest first. Each row has the
-  task list's Add to desk or Remove from desk button, so a related task joins the desk without a
+  task list's On desk or Off desk button, so a related task joins the desk without a
   trip to the task list.
 
 - **Resume a terminated or crashed agent from its node card.** Once an agent has exited, its node

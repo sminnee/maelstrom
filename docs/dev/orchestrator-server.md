@@ -622,13 +622,13 @@ started is drawn on the canvas.
 A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
 does not. The canvas draws running work whether or not the desk names it, so the entry is not
 what makes an agent visible — it is what keeps it visible after the agent stops, until the user
-dismisses it. The join runs once, at adoption, so a later poll cannot re-add an entry the user
-has dismissed.
+takes it **Off desk**. The join runs once, at adoption, so a later poll cannot re-add an entry the
+user has taken off the desk.
 
 An `agent:` entry is never pruned during a run: an agent stays in the world once seen, so the
 entry always has an entity to draw. A restart is the exception. The world's agents are rebuilt
 from the host, so `_load_desk` drops a stored `agent:` entry naming an agent the host no longer
-lists — it would draw nothing, and the user could never dismiss it. That is why the desk loads
+lists — it would draw nothing, and the user could never take it off the desk. That is why the desk loads
 after the first agent read.
 
 ## Creating work
