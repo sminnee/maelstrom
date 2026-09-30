@@ -85,11 +85,6 @@ export interface Worktree {
   shellUrl: string;
 }
 
-export interface TaskStep {
-  text: string;
-  done: boolean;
-}
-
 export interface TaskLogEntry {
   ts: string;
   text: string;
@@ -119,7 +114,6 @@ export interface Task {
   /** The model the session switches to when its plan is approved; '' = no switch. */
   executeModel: string;
   content: string;
-  steps: TaskStep[];
   log: TaskLogEntry[];
   created: string;
   updated: string;

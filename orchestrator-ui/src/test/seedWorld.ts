@@ -89,7 +89,6 @@ function task(spec: TaskSpec): Task {
     base: '',
     executeModel: '',
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
-    steps: [],
     log: [],
     created,
     updated: created,
@@ -341,11 +340,6 @@ export function seedWorld(): Seed {
 
 The HTTP endpoint. One fixture per column type, asserted through the response
 body rather than the query builder.
-
-## Steps
-
-- Add the route and its serialiser.
-- Stream the rows so a large export holds memory flat.
 `,
     }),
     task({

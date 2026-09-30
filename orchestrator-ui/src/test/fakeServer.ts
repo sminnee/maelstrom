@@ -1142,7 +1142,6 @@ function makeNewTask(
     follows: [],
     base: '',
     actionable: true,
-    steps: [],
     log: [],
     created: new Date().toISOString(),
     updated: new Date().toISOString(),

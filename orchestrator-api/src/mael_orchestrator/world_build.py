@@ -20,30 +20,12 @@ from mael_domain.protocol import (
     ServerEvent,
     Task,
     TaskLogEntry,
-    TaskStep,
     UsageWindow,
     Worktree,
 )
 from mael_domain.worktree_model import get_worktree_folder_name
 
-_STEP_RE = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s*(.*)$")
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")
-
-
-def parse_steps(text: str) -> list[TaskStep]:
-    """The ``## Steps`` checklist as items. A line without a checkbox is an open step."""
-    steps: list[TaskStep] = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        match = _STEP_RE.match(line)
-        if match:
-            steps.append(
-                {"text": match.group(2).strip(), "done": match.group(1) != " "}
-            )
-        else:
-            steps.append({"text": line.strip().lstrip("-* ").strip(), "done": False})
-    return steps
 
 
 def parse_log(text: str) -> list[TaskLogEntry]:
@@ -111,7 +93,6 @@ def task_entity(task: model.Task, *, actionable: bool) -> Task:
         "base": task.base,
         "executeModel": task.execute_model,
         "content": task.content.strip(),
-        "steps": parse_steps(task.steps),
         "log": parse_log(task.log),
         "created": task.created,
         "updated": task.updated,
