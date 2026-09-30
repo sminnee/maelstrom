@@ -259,9 +259,9 @@ _Avoid_: Restored, resurrected, reopened.
 
 **Driven agent**:
 A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
-launches is a driven agent, so a driven agent normally has a workspace whose pane 0 runs
-`mael agent attach` as a client of the daemon. The daemon owns the pipe, not the pane: the
-agent runs whether a pane watches it or not.
+launches is a driven agent. One that a person launches from a terminal has a workspace whose pane
+0 runs `mael agent attach` as a client of the daemon. Any other has no pane, and the orchestrator
+shows it. The daemon owns the pipe, not the pane: the agent runs whether a pane watches it or not.
 
 **Subagent**:
 A driven agent's child, spawned by its `Agent` tool and held by the agent daemon as a stream of

@@ -50,7 +50,8 @@ It behaves as real cmux does where the layers depend on it:
 `sent` logs `(surface ref, text)` for each text typed into a terminal. `focused` logs each ref
 that a select or focus command names. `tabs`, `texts`, `workspace_ref`, `surface_ref` and
 `pane_link` read the state back. The suites get a `fake_cmux` fixture that makes
-`MaelCmux.current()` answer over one.
+`MaelCmux.current()` and `MaelCmux.for_caller()` answer over one. The fixture puts the caller in a
+pane: a test that sets `MAEL_HARNESS_TYPE=daemon` or clears `CMUX_WORKSPACE_ID` takes it out.
 
 `RecordingCmuxClient` remains for the API's own parsing tests in `test_cmux_api.py`.
 
@@ -64,8 +65,27 @@ leaves every other pane, tab, and browser the user opened undisturbed.
 
 ## Outside cmux
 
-`current_client()` and `MaelCmux.current()` return `None` outside cmux.
-A call site checks for `None` once. After that, every method degrades silently.
+A call site gets its `MaelCmux` from one of two guards. It checks for `None` once. After that,
+every method degrades silently.
+
+| Guard | Returns `None` when | Use it for |
+|---|---|---|
+| `MaelCmux.current()` | No cmux app answers on the socket | Placement a person asked for, and acts on a named workspace: `mael task run` from a terminal, `mael add`, `mael close`, the orchestrator's terminal links |
+| `MaelCmux.for_caller()` | The caller is not in a cmux pane | Side effects nobody asked cmux for: the PR browser, the app browser, hiding the app browser |
+
+`current()` does not tell you the caller is in cmux. The socket path falls back to
+`~/.local/state/cmux/cmux.sock`, so every process on the machine reaches a running app.
+
+`for_caller()` needs three things. `CMUX_WORKSPACE_ID` is set, `MAEL_HARNESS_TYPE` is not
+`daemon`, and the socket answers. The browser verbs pass no `--workspace`, so cmux uses
+`CMUX_WORKSPACE_ID`. A caller without it would get the focused workspace, which is often another
+worktree.
+
+A driven agent never gets a cmux side effect, and it places a pane only when it passes `--cli`.
+The agent daemon removes the `CMUX_` variables of its own pane from its agents' environment. It
+keeps `CMUX_SOCKET_PATH` and `CMUX_SOCKET_PASSWORD`, which say where cmux listens. A task that a
+driven agent launches starts as a daemon agent with no pane, and the orchestrator shows it. A
+driven agent with an attach pane open is no exception: only the daemon knows a client is attached.
 
 ## The pane convention
 

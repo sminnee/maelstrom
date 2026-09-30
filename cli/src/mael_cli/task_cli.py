@@ -17,6 +17,7 @@ from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
+    is_driven_agent,
     resolve_execute_model,
     resolve_model_reference,
     resolve_transport,
@@ -207,7 +208,8 @@ async def _run_task(
     """Mark a task in-progress and launch its Claude session.
 
     ``attach=False`` starts a daemon agent with no cmux pane; see
-    :func:`launch_agent_in_worktree`.
+    :func:`launch_agent_in_worktree`. A driven agent's daemon launch places no
+    pane: the orchestrator shows the agent it starts. ``--cli`` still places one.
 
     With ``here=True`` the session runs in the current shell via
     ``exec_cmd`` — an ``execvp`` that never returns — so every write MUST
@@ -228,6 +230,8 @@ async def _run_task(
     # The plan settles the session id, env, permission mode and branch once,
     # the same way the orchestrator server does. Harnesses without task-session
     # support cannot pin, resume, or guard their own session ids.
+    if is_driven_agent():
+        attach = False
     plan = plan_launch(project, task)
     ref = resolve_model_reference(plan.model, task.mode)
     if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
@@ -825,7 +829,8 @@ async def add_task(
         except RuntimeError as e:
             raise click.ClickException(str(e))
     if run:
-        await _run_task(table, proj, new, here=here, fresh=True)
+        harness = TRANSPORT_CLI if here else resolve_harness_or_fail()
+        await _run_task(table, proj, new, here=here, fresh=True, harness=harness)
     return new
 
 
@@ -1028,9 +1033,13 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
         return
     # Start the cmux app once for the whole batch; each _run_task still guards
     # liveness individually and rolls its own task back to TODO on a failed
-    # placement. Sequential, never parallel: worktree-name and port-base
-    # allocation are unlocked, so concurrent launches would race.
-    ensure_cmux_running()
+    # placement. A daemon batch from a driven agent places no pane, so it needs
+    # no cmux.
+    # Sequential, never parallel: worktree-name and port-base allocation are
+    # unlocked, so concurrent launches would race.
+    harness = resolve_harness_or_fail()
+    if harness == TRANSPORT_CLI:
+        ensure_cmux_running()
     failed = 0
     for t in launch:
         click.echo(
@@ -1044,7 +1053,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
         # raised before the status move, so the task is still in todo/ and stays
         # re-runnable via `mael task next --run`.
         try:
-            await _run_task(table, proj, t, here=False, fresh=True)
+            await _run_task(table, proj, t, here=False, fresh=True, harness=harness)
         except click.ClickException as e:
             failed += 1
             click.echo(f"warning: {t.id} — {e.format_message()}", err=True)

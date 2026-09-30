@@ -268,6 +268,9 @@ runs in the worktree, and `--no-agent` starts a temporary child shell. In cmux,
 maelstrom creates or focuses the worktree workspace. Pane 0 runs the agent and
 pane 1 shows the installer. With `--no-agent`, pane 0 is the installer shell.
 A driven agent starts a child driven agent by default.
+From a driven agent, `mael task run`, `task next --run`, `task add --run` and
+`task load-many --run` also start that child with no cmux pane, and the
+orchestrator shows it.
 Explicit `--cli` asks cmux for a CLI workspace. If cmux cannot start, the prepared
 worktree remains available.
 
