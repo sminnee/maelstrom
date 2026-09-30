@@ -731,6 +731,8 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/projects` | `{projects: [Project]}` |
 | `GET /api/linear/issues?project=` | `{issues: [{id, title, status}]}` — the project's current Linear cycle. Refused unless the project sets `linear.team_id` |
 | `GET /api/worktrees` | `{worktrees: [Worktree]}`. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
+| `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
+| `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | The whole `Task`, prose included |
 | `GET /api/agents` | `{agents: [Agent]}` |
@@ -741,6 +743,34 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/host` | `{host: Host \| null}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled |
+
+### A worktree's changes
+
+The two changes routes are **Pass-through** (see [data-architecture.md](data-architecture.md)).
+Each request runs git in the worktree, with `--no-optional-locks`, so a read never takes the
+index lock from an agent's commit. `mael_domain.worktree_changes` holds the reads and the diff
+parser.
+
+A rev is one of three values:
+
+| Rev | The diff |
+|---|---|
+| `uncommitted` | The working tree against `HEAD`, with each untracked file as an addition |
+| `branch` | The merge-base with the **Base** to `HEAD`: every commit on the branch as one diff |
+| A commit sha | That commit against its first parent |
+
+The **Base** resolves as it does for a review: `origin/<base>` first, then `origin/main` when the
+base has merged and been pruned. `base` in the reply is the branch that resolved. `dirtyFiles` and
+the uncommitted diff hold **Dirty files** only.
+
+Both routes answer 404 `unknown_id` for a worktree the world does not hold, and for a **Closed**
+worktree, which has a detached HEAD and so no branch. The diff route also answers 404 for a sha
+that is not in `commits`, so the route cannot read arbitrary history, and 400 `invalid` with no
+`rev`. A git read that fails answers 400 `invalid` with git's message, never an empty diff.
+
+A file keeps its first 5,000 lines. A longer file is marked `truncated: true`, and its
+`additions` and `deletions` still count every line. A binary file is marked `binary: true` and
+has no hunks.
 
 The task list ships every task as a slim row and the client filters. The list already filters in
 memory, and a server-side filter would fragment the client's cache.
@@ -765,6 +795,7 @@ data: {"kind": "task", "ids": ["northwind/NORT-7"]}
 ```
 
 The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document` and `desk`. A
+worktree's changes have no kind of their own; see orchestrator-ui.md, "The Changes tab". A
 notice names what changed and nothing else: no entity travels on it. A remove and an upsert both
 put the id in `ids`, and the client refetches and finds the entity present or gone. Transcript
 events raise no notice; they have their own stream.

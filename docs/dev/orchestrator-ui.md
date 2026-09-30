@@ -481,10 +481,10 @@ The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` 
 prompt in full. `selectors/transcript.ts` skips the same call when it builds the context before a
 wait.
 
-The panel holds session and document tabs only. It sits beside the canvas and the task list —
+The panel holds three tab kinds: session, document and changes. It sits beside the canvas and the task list —
 `hasPanel` in `store/uiSlice.ts` names the views. The Panel toggle in the top bar collapses it
-with the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a session or a document as a tab, and opens a collapsed panel
-too; `shell/PanelLink.tsx` says why links, not buttons. Every tab carries a phase chip and
+with the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and opens a collapsed panel
+too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
 whatever raised it — a plan review, or a tag the agent wrote in its own message. It lists them by
 review group (`selectors/documents.ts`): a group of one is one row, and a larger group is its
@@ -497,6 +497,28 @@ difference a reader sees. The wire carries a ready `prUrl`, so the card links a 
 without joining two fields; a worktree with no PR draws none. `worktrees/DevEnvLinks.tsx` draws
 a link per running web-facing service, and the worktree poll makes each appear and disappear on
 its own.
+
+### The Changes tab
+
+`changes/ChangesTab.tsx` draws the **Changes tab**. The expanded node's `Changes` link opens it
+while the worktree is open. The tab chip names the
+worktree by its id, `<project>-<nato> changes`, because every project has a `delta`. It draws
+no phase, because a worktree has no task of its own.
+
+A picker at the top chooses the rev: "Uncommitted (N)", "All commits (M)", then one entry per
+commit. The tab opens on Uncommitted when there are **Dirty files**, else on All commits. Under
+the picker, a collapsible file list jumps to each file, and every file follows in one scroll.
+Each file's head sticks to the top of that scroll. The tab's header sits outside the scroll, so
+the heads need no offset.
+
+The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
+new line numbers. There is no syntax highlighting.
+
+The two reads are in `api/worktreeChanges.ts`. A diff has no change notice of its own, so
+`invalidationsFor` refetches a worktree's changes on its `worktree` notice. That notice comes
+from the worktree poll, up to 60 s late, and only when a row field moves: a new dirty file or a
+new commit. A second edit to a file that is already dirty moves no field, so the tab keeps the
+old diff until Refresh reads it again.
 
 The row ends with `worktrees/CmuxControl.tsx`, the worktree's terminal in cmux. While
 `shellUrl` is set it is an `ExternalLink` with `newTab={false}`. With `shellUrl` empty it is a button that makes the terminal, then
@@ -933,5 +955,5 @@ incidental: view state is not kept, but unsubmitted text is — see "Holding wha
 
 Also out of scope: an embedded terminal, auth, an elk layout, a global keyboard shortcut layer
 (Esc on the card and the question's digit keys are local to their components), syntax
-highlighting in markdown, and answering a plan review from the session tab (the expanded node
+highlighting in markdown and in the Changes tab, and answering a plan review from the session tab (the expanded node
 and the document tab answer it).
