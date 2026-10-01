@@ -78,7 +78,8 @@ quote the `*`: unquoted it is a YAML alias, and `"\*"` is a bad escape. Both fai
 
 Dots in an **id** capture nesting, independently of grouping:
 
-- `PROJ-12.3` — a numeric child of `PROJ-12`.
+- `k3f9` — a new top-level task: 4 random characters.
+- `k3f9.1`, `PROJ-12.3` — a numeric child of `k3f9`, of `PROJ-12`.
 - `maintenance.2026-07-02` — a scheduled run of the `maintenance` template.
 
 ### Why separable matters
@@ -212,7 +213,8 @@ mael task run <id>                   # launch a specific task
 By default `next` prefers a task on the current git branch, then falls back to the global
 next task. `--branch` removes the fallback.
 
-Ordering is by priority (critical → low), then by dependency.
+Ordering is by priority (critical → low), then oldest first. A task is a candidate only when
+everything it follows is done.
 
 Launching a task opens its worktree, which rebases the branch onto its base first. If
 that rebase fails — a conflict the headless repair session could not resolve, or an offline

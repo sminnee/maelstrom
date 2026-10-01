@@ -433,6 +433,8 @@ Every task command takes `--project TEXT` (default: from the current directory).
 
 **`mael task add`**
 
+A task with no parent gets a random 4-character id, such as `k3f9`. A child gets `<parent>.<n>`.
+
 | Option | Description |
 |---|---|
 | `-p`, `--project TEXT` | Project name. |
@@ -529,6 +531,8 @@ Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--b
 
 **`mael task list`**
 
+Rows are in priority order. Within one priority, the oldest task is first.
+
 | Option | Description |
 |---|---|
 | `--status TEXT` | Filter by status (folder). |
@@ -546,8 +550,8 @@ Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--b
 | `--here` | With `--run`, launch in the current shell. |
 | `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`. |
 
-By default `next` prefers a task on the current git branch, then falls back to the global
-next task.
+`next` picks by priority. Within one priority, it picks the oldest task. By default `next`
+prefers a task on the current git branch, then falls back to the global next task.
 
 **`mael task run`**
 
