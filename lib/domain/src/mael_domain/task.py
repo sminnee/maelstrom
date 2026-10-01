@@ -1408,7 +1408,7 @@ async def list_tasks(
 ) -> list[Task]:
     """List tasks under ``project``, optionally filtered by status and parent.
 
-    One indexed query, id-sorted. Every task comes back whole — the row carries
+    One indexed query, oldest first. Every task comes back whole — the row carries
     the prose — so there is no metadata-only variant to fall back from.
     """
     return await table.list(project, status=status, parent=parent)
@@ -1715,6 +1715,16 @@ async def reconcile(
     return rows
 
 
+def creation_order(task: Task) -> tuple[str, str]:
+    """The sort key that puts tasks oldest first.
+
+    A top-level id is random, so it holds no order: ``created`` does. The id
+    is the tie-break, which keeps the order stable for tasks created in the
+    same instant. A task with an empty ``created`` sorts first.
+    """
+    return (task.created, task.id)
+
+
 async def next_task(
     table: "TaskTable",
     project: str,
@@ -1725,7 +1735,7 @@ async def next_task(
 ) -> Task | None:
     """Return the next actionable task, or ``None`` if there isn't one.
 
-    Considers only ``todo`` tasks (id-sorted), optionally filtered to a
+    Considers only ``todo`` tasks (oldest first), optionally filtered to a
     ``parent``. When ``branch`` is given, prefers actionable tasks whose
     ``branch`` matches; if none and ``fallback`` is true, falls back to the
     next actionable task on any branch. In-progress tasks are **excluded** so
@@ -1734,7 +1744,7 @@ async def next_task(
     candidates = await list_tasks(
         table, project=project, status=STATUS_TODO, parent=parent
     )
-    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
+    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
     actionable = [t for t in candidates if await is_actionable(t, table)]
     if branch is not None:
         on_branch = next((t for t in actionable if t.branch == branch), None)
@@ -1754,14 +1764,14 @@ async def next_follower(
 
     A *direct follower* is a todo task whose ``follows`` list contains
     ``done_id`` and that is now actionable (all of its dependencies are done).
-    Returns the id-sorted first such task, or ``None`` when nothing actionable
+    Returns the oldest such task, or ``None`` when nothing actionable
     directly follows ``done_id``. Unlike :func:`next_task`, this is scoped to the
     completed task's own successors — it never falls back to unrelated global work.
     Followers are matched across all parents: a ``follows`` edge is not constrained
     to a single parent, so no ``parent`` filter is applied.
     """
     candidates = await list_tasks(table, project=project, status=STATUS_TODO)
-    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
+    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
     for t in candidates:
         if done_id in t.follows and await is_actionable(t, table):
             return t
@@ -1777,11 +1787,11 @@ async def running_follower(
 
     A *direct follower* whose ``follows`` list contains ``done_id`` and which is
     already ``in-progress`` — i.e. its session is already running, so a new one
-    should **not** be launched. Returns the id-sorted first such task, or
+    should **not** be launched. Returns the oldest such task, or
     ``None`` when no direct follower is in progress.
     """
     candidates = await list_tasks(table, project=project, status=STATUS_IN_PROGRESS)
-    candidates.sort(key=lambda t: (priority_rank(t.priority), t.id))
+    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
     for t in candidates:
         if done_id in t.follows:
             return t

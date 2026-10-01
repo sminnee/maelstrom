@@ -14,6 +14,12 @@ from mael_domain.task_table import InMemoryTaskTable
 NOW = "2026-06-08T12:00:00+00:00"
 NOW2 = "2026-06-09T12:00:00+00:00"
 
+# Both id orders for a pair of tasks: order comes from ``created``, so the
+# older task must win whichever way the two ids sort.
+BOTH_ID_ORDERS = pytest.mark.parametrize(
+    ("older_id", "newer_id"), [("aaaa", "zzzz"), ("zzzz", "aaaa")]
+)
+
 
 # --- frontmatter round-trip ---
 
@@ -537,13 +543,18 @@ class TestNextFollower:
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert await model.next_follower(store, "p", a.id) is None
 
-    async def test_branching_returns_id_sorted_first(self, store):
+    @BOTH_ID_ORDERS
+    async def test_branching_returns_oldest_first(self, store, older_id, newer_id):
         a = await model.create(store, project="p", title="a", now=NOW)
-        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
-        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
+        await model.create(
+            store, project="p", title="c", id=newer_id, follows=[a.id], now=NOW2
+        )
+        await model.create(
+            store, project="p", title="b", id=older_id, follows=[a.id], now=NOW
+        )
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = await model.next_follower(store, "p", a.id)
-        assert nxt is not None and nxt.id == sorted([b.id, c.id])[0]
+        assert nxt is not None and nxt.id == older_id
 
     async def test_non_todo_follower_excluded(self, store):
         # A follower already in-progress is not a todo, so next_follower skips it.
@@ -576,15 +587,20 @@ class TestRunningFollower:
         await model.move(store, "p", other.id, model.STATUS_IN_PROGRESS, now=NOW2)
         assert await model.running_follower(store, "p", a.id) is None
 
-    async def test_branching_returns_id_sorted_first(self, store):
+    @BOTH_ID_ORDERS
+    async def test_branching_returns_oldest_first(self, store, older_id, newer_id):
         a = await model.create(store, project="p", title="a", now=NOW)
-        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
-        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
+        await model.create(
+            store, project="p", title="c", id=newer_id, follows=[a.id], now=NOW2
+        )
+        await model.create(
+            store, project="p", title="b", id=older_id, follows=[a.id], now=NOW
+        )
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
-        await model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
-        await model.move(store, "p", c.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        await model.move(store, "p", older_id, model.STATUS_IN_PROGRESS, now=NOW2)
+        await model.move(store, "p", newer_id, model.STATUS_IN_PROGRESS, now=NOW2)
         running = await model.running_follower(store, "p", a.id)
-        assert running is not None and running.id == sorted([b.id, c.id])[0]
+        assert running is not None and running.id == older_id
 
 
 # --- is_actionable / terminal ---
@@ -1194,10 +1210,11 @@ class TestNextTask:
     async def test_none_when_empty(self, store):
         assert await model.next_task(store, "p") is None
 
-    async def test_returns_first_actionable_by_id(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW)
-        await model.create(store, project="p", title="b", now=NOW)
-        assert (await model.next_task(store, "p")).id == a.id
+    @BOTH_ID_ORDERS
+    async def test_returns_oldest_actionable(self, store, older_id, newer_id):
+        await model.create(store, project="p", title="b", id=newer_id, now=NOW2)
+        await model.create(store, project="p", title="a", id=older_id, now=NOW)
+        assert (await model.next_task(store, "p")).id == older_id
 
     async def test_skips_blocked_by_unfinished_dep(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
@@ -1227,15 +1244,15 @@ class TestNextTask:
         child = await model.create(
             store, project="p", title="child", parent=p.id, now=NOW
         )
-        # Without filter, the (lower-id) parent comes first.
+        # Without filter, the parent comes first: same ``created``, shorter id.
         assert (await model.next_task(store, "p")).id == p.id
         # Filtered to the parent's children, only the child qualifies.
         assert (await model.next_task(store, "p", parent=p.id)).id == child.id
 
-    async def test_branch_match_beats_lower_id_on_other_branch(self, store):
-        # a has the lower id but is on another branch; b is on the wanted one.
+    async def test_branch_match_beats_older_task_on_other_branch(self, store):
+        # a is older but is on another branch; b is on the wanted one.
         await model.create(store, project="p", title="a", branch="other", now=NOW)
-        b = await model.create(store, project="p", title="b", branch="feat/x", now=NOW)
+        b = await model.create(store, project="p", title="b", branch="feat/x", now=NOW2)
         assert (await model.next_task(store, "p", branch="feat/x")).id == b.id
 
     async def test_branch_no_match_falls_back_to_global(self, store):
@@ -1253,8 +1270,8 @@ class TestNextTask:
 
     async def test_branch_none_unchanged(self, store):
         a = await model.create(store, project="p", title="a", branch="other", now=NOW)
-        await model.create(store, project="p", title="b", branch="feat/x", now=NOW)
-        # No branch preference -> first actionable, id-sorted.
+        await model.create(store, project="p", title="b", branch="feat/x", now=NOW2)
+        # No branch preference -> the oldest actionable.
         assert (await model.next_task(store, "p", branch=None)).id == a.id
 
 
@@ -1263,18 +1280,17 @@ class TestNextTask:
 
 class TestPriorityOrdering:
     async def test_next_task_prefers_higher_priority(self, store):
-        # low is created first (lower id), but critical outranks it.
+        # low is created first, but critical outranks it.
         await model.create(store, project="p", title="low", priority="low", now=NOW)
         crit = await model.create(
-            store, project="p", title="crit", priority="critical", now=NOW
+            store, project="p", title="crit", priority="critical", now=NOW2
         )
         assert (await model.next_task(store, "p")).id == crit.id
 
-    async def test_next_task_ties_broken_by_id(self, store):
-        # Two same-priority tasks: the lower id wins (chronological tie-break).
-        a = await model.create(store, project="p", title="a", priority="high", now=NOW)
-        await model.create(store, project="p", title="b", priority="high", now=NOW)
-        assert (await model.next_task(store, "p")).id == a.id
+    async def test_next_task_same_created_broken_by_id(self, store):
+        await model.create(store, project="p", title="b", id="zzzz", now=NOW)
+        await model.create(store, project="p", title="a", id="aaaa", now=NOW)
+        assert (await model.next_task(store, "p")).id == "aaaa"
 
     async def test_default_medium_outranks_low(self, store):
         await model.create(store, project="p", title="low", priority="low", now=NOW)
