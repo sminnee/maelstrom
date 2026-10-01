@@ -1,14 +1,19 @@
 """Tests for the `mael project mv` CLI adapter, with git and state mocked."""
 
+import asyncio
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import click
 from click.testing import CliRunner
 
 from mael_cli.cli import cli
 from mael_cli.mv_project_cli import _rewrite_path_string
+from mael_domain.agent_store import InMemoryAgentStore
 from mael_domain.mv_project import build_move_plan
+from mael_domain.task import Task
+from mael_domain.task_table import InMemoryTaskTable
 
 
 class _FakeWorktree:
@@ -38,13 +43,21 @@ class MvProjectHarness:
         env_state=None,
         shared_state=None,
         tasks=None,
+        records=None,
     ):
         self.tmp_path = tmp_path
         self.live_sessions = live_sessions or []
         self.env_state = env_state
         self.shared_state = shared_state
-        self.tasks = tasks or []
+        #: The notebook and the Agent records, real and in memory, so the
+        #: re-key is the production one.
+        self.table = InMemoryTaskTable()
+        self.agents = InMemoryAgentStore(records)
+        for task in tasks or []:
+            asyncio.run(self.table.save(task))
         self.port_error: Exception | None = None
+        #: What the schema gate raises, for a database behind this build.
+        self.schema_error: Exception | None = None
         self.mocks: dict = {}
 
     def run(self, args):
@@ -98,11 +111,12 @@ class MvProjectHarness:
                 "mael_cli.mv_project_cli.rename_project_allocations",
                 side_effect=self.port_error,
             )
-            mock("mael_cli.mv_project_cli.open_task_table")
+            mock("mael_cli.mv_project_cli.open_task_table", return_value=self.table)
+            mock("mael_cli.mv_project_cli.open_agent_store", return_value=self.agents)
             mock(
-                "mael_cli.mv_project_cli.task_model.list_tasks",
+                "mael_cli.mv_project_cli.agent_store",
                 new_callable=AsyncMock,
-                return_value=self.tasks,
+                side_effect=self.schema_error,
             )
             mock("mael_cli.mv_project_cli.setup_claude_memory_symlink")
             mock("mael_cli.mv_project_cli.update_claude_local_md")
@@ -295,6 +309,45 @@ class TestMigration:
         assert (tmp_path / "new" / "new-alpha").is_dir()
         assert not (tmp_path / "old").exists()
 
+    def test_a_task_keeps_its_sessions_under_the_new_name(self, tmp_path):
+        """The record names its task by row id, which holds the project."""
+        _make_project(tmp_path)
+        harness = MvProjectHarness(
+            tmp_path,
+            tasks=[Task(id="t1", title="One", project="old", status="in-progress")],
+            records=[
+                {"id": "a1", "task": "old/t1", "session_id": "s-1"},
+                {"id": "b1", "task": "other/t1", "session_id": "s-2"},
+            ],
+        )
+
+        result = harness.run(["old", "new"])
+
+        assert result.exit_code == 0, result.output
+        assert asyncio.run(harness.table.load("new", "t1")) is not None
+        assert asyncio.run(harness.table.load("old", "t1")) is None
+        assert harness.agents.records == {
+            "a1": {"id": "a1", "task": "new/t1", "session_id": "s-1"},
+            # Another project's task with the same id is left alone.
+            "b1": {"id": "b1", "task": "other/t1", "session_id": "s-2"},
+        }
+        assert "orphan" not in result.output
+
+    def test_a_database_behind_this_build_is_refused_before_anything_moves(
+        self, tmp_path
+    ):
+        """The task re-key runs after the directory move, so the gate cannot."""
+        _make_project(tmp_path)
+        harness = MvProjectHarness(tmp_path)
+        harness.schema_error = click.ClickException("Run `mael admin migrate`.")
+
+        result = harness.run(["old", "new"])
+
+        assert result.exit_code != 0
+        assert "mael admin migrate" in result.output
+        assert (tmp_path / "old").is_dir()
+        assert not (tmp_path / "new").exists()
+
     def test_keeps_the_main_worktree_name(self, tmp_path):
         _make_project(tmp_path)
 
@@ -405,7 +458,6 @@ class TestRewritePathString:
             projects_dir=tmp_path,
             worktree_folders=["old-alpha", "_main"],
             task_ids=[],
-            ran_task_ids=set(),
             home=tmp_path / "home",
         )
 
