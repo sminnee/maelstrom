@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { App } from '../App';
 import { keys } from '../api/keys';
 import { useAppStore } from '../store/store';
-import { createFakeServer, type FakeServer } from './fakeServer';
+import { createFakeServer, type FakeServer, type FakeServerOptions } from './fakeServer';
 import { seedWorld } from './seedWorld';
 import { setViewportWidth } from './setup';
 
@@ -38,7 +38,13 @@ const LIST_KEYS = [
  * defaults to `wide`.
  */
 export async function renderApp(
-  opts: { ready?: boolean; strict?: boolean; viewport?: keyof typeof VIEWPORTS } = {},
+  opts: {
+    ready?: boolean;
+    strict?: boolean;
+    viewport?: keyof typeof VIEWPORTS;
+    /** In place of the seeded transcripts. `{}` gives every agent an empty one. */
+    transcripts?: FakeServerOptions['transcripts'];
+  } = {},
 ): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient }> {
   // Before the render: the layout is read on the first pass, not in an effect.
   setViewportWidth(VIEWPORTS[opts.viewport ?? 'wide']);
@@ -46,7 +52,10 @@ export async function renderApp(
   // filters or the tabs the one before it left.
   useAppStore.getState().reset();
   const seed = seedWorld();
-  const server = createFakeServer({ world: seed.world, transcripts: seed.transcripts });
+  const server = createFakeServer({
+    world: seed.world,
+    transcripts: opts.transcripts ?? seed.transcripts,
+  });
   // No retries: a refused request must fail the test now, not after backoff.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },

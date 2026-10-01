@@ -629,9 +629,9 @@ drift is a bookkeeping note — only the caret is amber.
 When the node needs attention the card's border takes Alert Amber — but the left edge stays
 the phase hue. Two channels, two edges, no conflict.
 
-An unanswered node's card replaces the Now line with the agent's last three messages, behind a
-2px `--unanswered` rule. The list scrolls past 22em, so three long messages cannot push the
-footer out of reach.
+An unanswered node's card takes a Reply Yellow border, and replaces the Now line with a box on
+the chassis of a decision's prompt: a 1px `--unanswered` border and an 8% wash. The box holds
+the heading `Last said`, the agent's last three messages, and a reply field. The list scrolls past 22em, so three long messages cannot push the reply out of reach.
 
 ### Buttons
 

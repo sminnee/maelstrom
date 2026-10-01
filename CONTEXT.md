@@ -464,8 +464,8 @@ _Avoid_: Stale (a stale prompt is a different thing), stalled, hung
 **Unanswered agent**:
 An idle agent on a task that is not `done` or `cancelled`, where the agent has a last message.
 The agent ended its turn on unfinished work, so the message is usually for the user. The node
-draws in a yellow weaker than the amber of an **Attention item**, and the attention chip counts
-it apart. The UI derives this state; no attention item exists for it. A free agent, and an agent
+draws as a node with an **Attention item** does, in yellow in place of amber, and the attention
+chip counts it apart. Its expanded card takes a reply. The UI derives this state; no attention item exists for it. A free agent, and an agent
 that has said nothing, stay idle.
 _Avoid_: Comment, Waiting, Blocked
 

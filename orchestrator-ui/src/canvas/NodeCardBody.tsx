@@ -9,8 +9,9 @@ import { Markdown } from '../markdown/Markdown';
 import { deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
-import type { DeskEntry } from '../protocol/entities';
+import type { Agent, DeskEntry } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
+import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
@@ -19,7 +20,9 @@ import { documentsByKind } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
+import { MessageInput } from '../session/MessageInput';
 import { RecentMessages } from '../session/RecentMessages';
+import { useSendMessage } from '../session/useSendMessage';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { DeskToggle } from '../tasklist/DeskToggle';
@@ -113,8 +116,7 @@ export function NodeCardBody({
   // display exists to show.
   const quiet = silentFor(spokeAt, clock);
   const silent = agent?.state === 'processing' && quiet !== null && quiet >= SILENT_MS;
-  // Empty until the transcript arrives; the Now block stands in.
-  const said = node.progress.state === 'unanswered' ? recentMessages(transcript.items) : [];
+  const unanswered = node.progress.state === 'unanswered';
   // The last stage only. See `docs/dev/orchestrator-ui.md`.
   const stage = milestones.data?.stages.at(-1);
   const stageAge = stage ? ago(stage.at, clock) : '';
@@ -234,15 +236,13 @@ export function NodeCardBody({
 
       {deciding && agent ? (
         <DecisionCard agent={agent} />
+      ) : unanswered && agent ? (
+        <UnansweredBox agent={agent} items={transcript.items} age={age} clock={clock} />
       ) : (
         (now || running) && (
-          <div
-            className={styles.now}
-            data-silent={(age && silent) || undefined}
-            data-unanswered={said.length > 0 ? '' : undefined}
-          >
+          <div className={styles.now} data-silent={(age && silent) || undefined}>
             <div className={styles.nowBand}>
-              <span className={styles.nowHead}>{said.length > 0 ? 'Last said' : 'Now'}</span>
+              <span className={styles.nowHead}>Now</span>
               {age && (
                 <time
                   className={styles.nowAge}
@@ -254,20 +254,14 @@ export function NodeCardBody({
                 </time>
               )}
             </div>
-            {said.length > 0 ? (
-              <div className={styles.said} data-testid="recent-messages">
-                <RecentMessages items={said} />
-              </div>
-            ) : (
-              <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
-                {now}
-                {running && running.type === 'tool_call' && (
-                  <span className={styles.running}>
-                    {running.tool} {toolCallTitle(running)}
-                  </span>
-                )}
-              </span>
-            )}
+            <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
+              {now}
+              {running && running.type === 'tool_call' && (
+                <span className={styles.running}>
+                  {running.tool} {toolCallTitle(running)}
+                </span>
+              )}
+            </span>
           </div>
         )
       )}
@@ -336,6 +330,68 @@ export function NodeCardBody({
         )}
       </footer>
     </>
+  );
+}
+
+/**
+ * What an unanswered agent last said, and the reply to it. The reply goes to
+ * the session from here, so the session need not be open.
+ *
+ * See `orchestrator-ui/DESIGN.md`, "Node Card".
+ */
+function UnansweredBox({
+  agent,
+  items,
+  age,
+  clock,
+}: {
+  agent: Agent;
+  items: TranscriptItem[];
+  age: string;
+  clock: number;
+}) {
+  const send = useSendMessage(agent.id);
+  const recent = recentMessages(items);
+  // Until the transcript arrives the agent's `lastMessage` stands in. It is
+  // one message, and the server cuts it short.
+  const said: MessageItem[] =
+    recent.length > 0
+      ? recent
+      : [
+          {
+            id: `${agent.id}-last`,
+            ts: agent.lastMessageAt,
+            type: 'message',
+            role: 'assistant',
+            markdown: agent.lastMessage,
+          },
+        ];
+  return (
+    <section className={styles.unanswered} data-testid="unanswered">
+      <div className={styles.nowBand}>
+        <span className={styles.unansweredHead}>Last said</span>
+        {age && (
+          <time
+            className={styles.nowAge}
+            data-testid="now-age"
+            dateTime={agent.lastMessageAt}
+            title={clockTime(agent.lastMessageAt, clock)}
+          >
+            {age} ago
+          </time>
+        )}
+      </div>
+      <div className={styles.said} data-testid="recent-messages">
+        <RecentMessages items={said} />
+      </div>
+      <MessageInput
+        inline
+        project={agent.project}
+        bucket={`agent-${agent.id}`}
+        agentId={agent.id}
+        {...send}
+      />
+    </section>
   );
 }
 
