@@ -122,9 +122,7 @@ class TestRunAction:
 
 class TestMoveWithActions:
     async def _seed(self, store, **kwargs):
-        return await model.create(
-            store, project="p", title="t", now=NOW, today="2026-06-08", **kwargs
-        )
+        return await model.create(store, project="p", title="t", now=NOW, **kwargs)
 
     async def test_move_to_done_fires_post_action(self, monkeypatch, store):
         calls = []
