@@ -1,0 +1,9 @@
+/* This list reads at 12px, where a 24px paragraph gap is two full lines. */
+.said {
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
+
+  --prose-gap: 12px;
+  --prose-gap-tight: 6px;
+  --prose-gap-loose: 24px;
+}

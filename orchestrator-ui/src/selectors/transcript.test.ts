@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptItem } from '../protocol/transcript';
-import { answeredOnCanvas, contextBefore } from './transcript';
+import { answeredOnCanvas, recentMessages } from './transcript';
 
 const said = (id: string, role: 'user' | 'assistant', markdown: string): TranscriptItem => ({
   id,
@@ -30,34 +30,30 @@ const items: TranscriptItem[] = [
   said('m3', 'assistant', 'After the wait.'),
 ];
 
-describe('presenting a wait', () => {
-  describe('the context before it', () => {
-    it('returns the last n assistant messages and tool calls before the wait, in order', () => {
-      expect(contextBefore(items, 'req-1', 2).map((i) => i.id)).toEqual(['m2', 't2']);
-      expect(contextBefore(items, 'req-1', 3).map((i) => i.id)).toEqual(['t1', 'm2', 't2']);
-    });
+describe('the recent messages', () => {
+  const ids = (opts?: Parameters<typeof recentMessages>[1]) =>
+    recentMessages(items, opts).map((i) => i.id);
 
-    it('skips the tool call that raised the wait and everything after it', () => {
-      const ids = contextBefore(items, 'req-1', 10).map((i) => i.id);
-      expect(ids).not.toContain('t3');
-      expect(ids).not.toContain('m3');
-      expect(ids).not.toContain('u1');
-    });
-
-    it('keeps a tool call before a wait that no tool call raised', () => {
-      const bare: TranscriptItem[] = [
-        said('m1', 'assistant', 'Reading the model.'),
-        called('t1', 'Read'),
-        { id: 'q2', ts: '', type: 'question', requestId: 'req-2', questions: [] },
-      ];
-      expect(contextBefore(bare, 'req-2').map((i) => i.id)).toEqual(['m1', 't1']);
-    });
-
-    it('is empty when the request is unknown', () => {
-      expect(contextBefore(items, 'req-9')).toEqual([]);
-    });
+  it('returns the last three agent messages, in order', () => {
+    const long = [said('m0', 'assistant', 'Starting.'), ...items];
+    expect(recentMessages(long).map((i) => i.id)).toEqual(['m1', 'm2', 'm3']);
   });
 
+  // `items` holds three tool calls and a user message among its messages.
+  it('leaves out tool calls and what the user said', () => {
+    expect(ids()).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('stops at the wait when one is named', () => {
+    expect(ids({ before: 'req-1' })).toEqual(['m1', 'm2']);
+  });
+
+  it('is empty when the named wait is unknown', () => {
+    expect(ids({ before: 'req-9' })).toEqual([]);
+  });
+});
+
+describe('presenting a wait', () => {
   describe('which surface answers it', () => {
     it('gives the wait to the expanded card when the card shows the waiting task', () => {
       expect(answeredOnCanvas('MAEL-52', 'MAEL-52')).toBe(true);

@@ -4,9 +4,9 @@
   gap: var(--space-2);
 }
 /*
- * What the agent said and did before it asked. This is context for the
+ * What the agent said before it asked. This is context for the
  * decision, so it must never outrank the decision or the document under it.
- * `contextBefore` caps it at three items, but one item can be a whole message,
+ * `recentMessages` caps it at three items, but one item can be a whole message,
  * so the count alone does not bound the height — the clamp below does.
  */
 .context {
@@ -58,26 +58,6 @@
   margin-bottom: var(--space-2);
   font-size: var(--text-xs);
 }
-/* This rail reads at 12px, where a 24px paragraph gap is two full lines. */
-.said {
-  font-size: var(--text-sm);
-  line-height: var(--leading-prose);
-
-  --prose-gap: 12px;
-  --prose-gap-tight: 6px;
-  --prose-gap-loose: 24px;
-}
-.did {
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tool {
-  font-weight: var(--weight-semibold);
-}
-
 /* The dock register: one band, laid out across rather than down. */
 .decision[data-variant='dock'][data-binary] {
   flex-direction: row;

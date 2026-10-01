@@ -278,6 +278,8 @@ describe('the expanded node', () => {
     const prompt = await within(card).findByTestId('question-prompt');
     expect(card).toHaveTextContent('Before this');
     expect(card).toHaveTextContent('Two grouping defaults are plausible');
+    // The Read call before that message: a decision shows what was said only.
+    expect(card).not.toHaveTextContent('orchestrator-ui/PRODUCT.md');
     await user.click(within(prompt).getAllByRole('radio')[0]!);
     await user.click(within(prompt).getByRole('button', { name: 'Answer' }));
     await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));

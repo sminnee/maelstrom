@@ -807,9 +807,8 @@ so the two can never drift, but each reads it for a different reason. A card is 
 acted on. The variant says which.
 
 **On a card** the decision is the reading. A context rail — 2px strong hairline on the left,
-muted text — carries the last three things the agent said or did, under an uppercase micro
-heading. Said lines are prose; did lines are mono with a bolded tool name and ellipsis
-truncation. The prompt follows, in its bordered amber box.
+muted text — carries the last three things the agent said, under an uppercase micro
+heading. Each is prose. The prompt follows, in its bordered amber box.
 
 The rail is context, so it never outranks what it is context for. Three items is a small count,
 but one item may be a whole message, so the count alone does not bound the height: the rail
