@@ -130,7 +130,7 @@ light and dark, because the same surface is seen in both on the same day.
 - Colour is a channel, never a finish — a grey field is what makes a signal readable.
 - Phase is a hue, set once from a data attribute and inherited everywhere beneath it.
 - Flat by default; a shadow is earned by overlapping other content, not by importance.
-- Dense and quiet at rest — one attention state is allowed to be loud.
+- Dense and quiet at rest — only the two calls on the operator are allowed to be loud.
 - Light and dark are equal citizens, both driven from one semantic token layer.
 
 ## Colors
@@ -149,11 +149,11 @@ so a task's position in its life is readable from hue alone.
 
 The state channel. These never decorate; each one means one thing.
 
-- **Alert Amber** (`--attention`): the only colour permitted to interrupt. A node that needs
-  the operator, the attention chip, the count badge, comment highlights.
+- **Alert Amber** (`--attention`): a node that needs the operator, the attention chip, the count
+  badge, comment highlights.
 - **Reply Yellow** (`--unanswered`): an idle agent that left a message on unfinished work. It
-  has less chroma than Alert Amber and never takes a ring, a glow or a wash, so it cannot
-  compete with an ask.
+  takes the same ring, glow and wash as Alert Amber, so the two differ by colour alone. Only
+  the ask takes the count badge.
 - **Fault Rose** (`--danger`): an agent that exited or a failed command. Fault, not warning.
 - **Clear Green** (`--ok`): finished and correct. Deliberately quiet — done work should recede.
   A cancelled task never takes it: cancelled work is terminal but not a success, so it draws
@@ -210,8 +210,9 @@ not a colour promoted out of the state channel. One exception: the arrow of a de
 the direction of the act, not state. It is `--accent` onto the desk and `--tone-archival` off it,
 and both sit only in a control the user can click.
 
-**The Single Interrupt Rule.** Alert Amber is the only channel allowed to escalate itself with
-a glow. If a second thing starts glowing, the design has stopped ranking and started shouting.
+**The Two Calls Rule.** Alert Amber and Reply Yellow are the only channels allowed to escalate
+themselves with a glow. Both call the operator: one holds an ask, the other waits on a reply.
+If a third thing starts glowing, the design has stopped ranking and started shouting.
 
 ## Typography
 
@@ -457,8 +458,8 @@ field in a dialog goes to 16px, because iOS zooms the page on a smaller one and 
 back; the other fields have not been brought to that floor yet.
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
-draws as a field wash and an amber rule rather than the board's glow. It is still the one loud
-state, and still the only interrupt.
+draws as a field wash and an amber rule rather than the board's glow. An unanswered row draws
+the same in Reply Yellow.
 
 **The Nothing Hidden Rule.** Every command the wide layout offers stays reachable: approve, deny,
 answer, set status, launch, add to and remove from the desk, edit, and start new work. The one
@@ -559,12 +560,13 @@ told apart by where they run, so the worktree sits beside the id rather than onl
 - **Rest:** hairline border, full opacity.
 - **Working:** border takes the phase hue and a 2.4s box-shadow pulse breathes outward. Under
   `prefers-reduced-motion` the pulse becomes a static 2px phase ring.
-- **Needs attention:** Alert Amber border, a 1px ring and a 14px amber glow. The one loud state.
+- **Needs attention:** Alert Amber border, a 1px ring and a 14px amber glow.
 - **Ready:** a hollow dot in the phase hue. Hollow means the work has not started and filled
   means it runs, so the shape tells ready from working even though both take the phase hue.
 - **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity.
-- **Unanswered:** full opacity, with the border, the dot and the status words in Reply Yellow.
-  No ring and no glow. The words say `Unanswered`, so the state does not depend on colour alone.
+- **Unanswered:** the needs-attention treatment in Reply Yellow: border, 1px ring and 14px glow.
+  It has no count badge. The words say `Unanswered`, so the state does not depend on colour
+  alone.
 - **Stopped:** the surface drops to `--bg-sunken`, the phase bar drains to `--phase-dormant`, the
   dot goes hollow in `--tone-dormant` and the title steps to `--fg-muted`. It recedes by sinking
   rather than by fading, because a stopped session is resumable: fading it to done's 0.5 would
@@ -585,8 +587,8 @@ and neither alone is load-bearing.
 
 - **Drift:** a small amber caret beside the state, never a border or a glow — a note on the
   state, not a state of its own. A second amber dot would read as a competing state; a different
-  shape reads as a note. The Single Interrupt Rule keeps the border and the glow for work that
-  is really blocked, and the card carries the explanation.
+  shape reads as a note. The Two Calls Rule keeps the border and the glow for work that
+  calls the operator, and the card carries the explanation.
 
 ### Node Card (expanded node)
 
@@ -685,7 +687,7 @@ for the stage name, with the figures left muted so the stage leads.
 `--ok` rather than a new token, because a closed stage is exactly what Clear Green already means,
 and because done work should recede. The Reporting Rule allows the hue only as a report of state,
 and "which stage closed" is state. A milestone is never permitted Signal Amber and never a glow:
-the Single Interrupt Rule keeps both for the one thing asking to be acted on, and a milestone asks
+the Two Calls Rule keeps both for a node that calls the operator, and a milestone asks
 for nothing. Beside an amber attention prompt it must read as a boundary, not a second alert.
 
 The figures are the stage's own delta, not the running total the session header already carries. A
@@ -961,7 +963,7 @@ browser with the scheme forced — rather than trusting the toggle.
 
 - **Don't** name a colour outside `tokens.css` — no hex, no `rgb()`, no named CSS colour.
 - **Don't** colour anything that is not reporting state. Emphasis is weight, size and space.
-- **Don't** let a second channel glow. One interrupt at a time.
+- **Don't** let a third channel glow. Alert Amber and Reply Yellow are the two calls.
 - **Don't** add a shadow to something that does not overlap other content.
 - **Don't** use a pill radius for anything but a dot or a count badge.
 - **Don't** put the phase hue on any edge but the left one.

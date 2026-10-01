@@ -41,11 +41,13 @@
 .node[data-state='idle'] {
   opacity: 0.8;
 }
-/* A border and nothing more: the glow and the ring belong to Alert Amber. See
-   DESIGN.md, the Single Interrupt Rule. */
+/* The ask's ring and glow, in Reply Yellow: the two differ by hue alone. See
+   DESIGN.md, the Two Calls Rule. */
 .node[data-state='unanswered'] {
   border-color: var(--unanswered);
-  border-left-color: var(--phase);
+  box-shadow:
+    0 0 0 1px var(--unanswered),
+    0 0 14px 2px color-mix(in srgb, var(--unanswered) 55%, transparent);
 }
 .node[data-state='unanswered'] .status {
   color: var(--unanswered);

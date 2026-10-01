@@ -11,7 +11,7 @@
 .chip[data-count='0'] .asks {
   color: var(--fg-faint);
 }
-/* The weaker count: the dot the unanswered node carries, then the number. */
+/* The second count: the dot the unanswered node carries, then the number. */
 .unanswered {
   display: inline-flex;
   align-items: center;

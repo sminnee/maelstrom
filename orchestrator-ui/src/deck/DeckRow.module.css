@@ -136,15 +136,17 @@
   color: var(--attention);
   font-weight: 500;
 }
-/* A rule and the words, with no wash: the wash is the ask's. */
+/* The ask's wash and rule, in Reply Yellow. */
 .row[data-state='unanswered'] .dot {
   background: var(--unanswered);
 }
 .row[data-state='unanswered'] {
+  background: color-mix(in srgb, var(--unanswered) 8%, var(--bg-raised));
   border-bottom-color: color-mix(in srgb, var(--unanswered) 40%, var(--border));
 }
 .row[data-state='unanswered'] .state {
   color: var(--unanswered);
+  font-weight: 500;
 }
 .row[data-state='idle'] {
   opacity: 0.8;
