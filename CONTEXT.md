@@ -34,7 +34,8 @@ names and ports stay stable over time.
 
 ## Worktree lifecycle
 
-The three verbs differ in what they preserve. Close preserves, remove deletes.
+The verbs differ in what they preserve. Close preserves and remove deletes. Trash is a close
+that sets unmerged work aside.
 
 **Open**:
 Put a branch into a worktree ready to work in: create the worktree, recycle a closed one, or
@@ -76,6 +77,13 @@ commits and ignored files.
 Delete the worktree folder and free its port allocation. The branch survives. Remove runs the
 same teardown as close first — stop the environment, the agents and the sessions — so a removed
 worktree leaves nothing of its own running.
+
+**Trash**:
+A close that sets unmerged work aside without deleting it: `mael close --trash`. The branch
+becomes `trash/<branch>` locally and on origin, and its open PR closes. Outstanding work is
+committed as `wip: uncommitted changes` first. A trashed branch has no base, so it leaves its
+stack.
+_Avoid_: Archive, abandon, discard
 
 **Closed**:
 The state that makes a worktree available for recycling: detached HEAD, no dirty files, and no

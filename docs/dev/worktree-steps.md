@@ -6,8 +6,9 @@ cmux workspace. Remove is that list with a different git step, a dirty-file guar
 The open path is not a sequence — see "What stays whole" — but it takes the same scopes.
 
 `lib/domain/src/mael_domain/worktree_steps.py` holds that vocabulary once, so a sequence is a list rather than
-a function each caller writes out. `worktree_close.py` builds close and remove over it, and
-`worktree_ops.py` builds sync and the environment — every operation the orchestrator offers.
+a function each caller writes out. `worktree_close.py` builds close and remove over it,
+`worktree_trash.py` builds trash, and `worktree_ops.py` builds sync and the environment — every
+operation the orchestrator offers.
 
 ## Why it is shared
 
@@ -45,6 +46,12 @@ built in `worktree_close.py`; `worktree_steps.py` holds `Step`, `StepOutcome` an
 | `git_close` | `worktree.close_worktree` | worktree |
 | `git_remove` | `worktree.remove_worktree_by_path` | repo + worktree |
 | `close_workspace` | `cmux.mael_layout.WorktreeWorkspace.close` | none |
+| `guard` | `worktree.trash_refusal` | none |
+| `commit_wip` | `worktree.commit_wip` | worktree |
+| `close_pr` | `github.find_open_pr` + `github.close_pr` | none |
+| `rename_remote` | `worktree.rename_remote_branch` | repo |
+| `detach` | `worktree.detach_and_free_ports` | worktree |
+| `rename` | `worktree.rename_branch` | repo |
 | `rebase` | `worktree.sync_worktree` / `sync_worktree_with_autorepair` | worktree |
 | `start_env` | `env.start_env` | worktree |
 | `stop_env` (as an operation) | `env.stop_env` | worktree |
