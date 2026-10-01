@@ -82,13 +82,15 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  /* 50vh trailing, so the last paragraph can be scrolled clear of the bottom
-     edge rather than being read at it. */
-  padding: var(--prose-gap-loose) var(--space-4) 50vh;
+  padding: var(--prose-gap-loose) var(--space-4) 0;
 }
 .prose {
   max-width: var(--measure-prose);
   margin-inline: auto;
+  /* 50vh trailing, so the last paragraph scrolls clear of the bottom edge.
+     On the content, not `.body`: padding is a floor on height, and a `.body`
+     that cannot shrink below 50vh overhangs the dock on a phone. */
+  padding-bottom: 50vh;
 }
 .empty {
   padding: 24px;
