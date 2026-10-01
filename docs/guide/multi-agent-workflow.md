@@ -191,6 +191,12 @@ them:
 6. Close the task: `mael task status done`.
 7. Run `/watch-pr` to take CI (continuous integration) to green.
 
+When the work has a result you can see, the session also writes a **verification** at
+`.drafts/verification.md`. It says what the session checked, with screenshots and Playwright
+video in the body. Open it from the Verifications heading on the task's expanded node. Maelstrom
+attaches a verification and an approved plan to the task. You can read both after the agent
+stops, after the worktree closes, and after the orchestrator server restarts.
+
 The session writes a `<milestone>` marker as it passes each stage — `built`, `reviewed`
 and `presented`. Maelstrom writes `planned` itself when you approve a plan, and closes the
 ledger with a `<final>` row for what the agent spent after its last stage. It snapshots the
