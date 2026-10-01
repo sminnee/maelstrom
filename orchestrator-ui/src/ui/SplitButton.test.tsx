@@ -167,6 +167,53 @@ describe('SplitButton', () => {
     expect(onError).toHaveBeenCalledOnce();
   });
 
+  it('asks before it runs an option that needs a confirm', async () => {
+    const user = userEvent.setup();
+    const options = three({
+      2: {
+        label: 'Terminate, dismiss & trash alpha',
+        confirm: { question: 'Trash feature/x?', confirm: 'Trash it' },
+      },
+    });
+    render(<SplitButton options={options} />);
+    const pick = async () => {
+      await user.click(chevron());
+      await user.click(screen.getByRole('menuitem', { name: 'Terminate, dismiss & trash alpha' }));
+    };
+
+    await pick();
+    const ask = screen.getByRole('alertdialog', { name: 'Trash feature/x?' });
+    expect(options[2]!.run).not.toHaveBeenCalled();
+    // No second option can start while the question is open.
+    expect(screen.getByRole('button', { name: 'Terminate' })).toBeDisabled();
+    expect(chevron()).toBeDisabled();
+
+    await user.click(within(ask).getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(options[2]!.run).not.toHaveBeenCalled();
+
+    await pick();
+    await user.click(screen.getByRole('button', { name: 'Trash it' }));
+    expect(options[2]!.run).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('shows the failure of a confirmed option on the main segment', async () => {
+    const user = userEvent.setup();
+    const options = three({
+      0: {
+        confirm: { question: 'Really?', confirm: 'Do it' },
+        run: vi.fn(() => Promise.reject(new Error('trash/feature/x already exists'))),
+      },
+    });
+    render(<SplitButton options={options} />);
+
+    await user.click(screen.getByRole('button', { name: 'Terminate' }));
+    await user.click(screen.getByRole('button', { name: 'Do it' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.closest('button')).toHaveAttribute('title', 'trash/feature/x already exists');
+  });
+
   it('draws a plain button with no chevron when there is one option', () => {
     render(<SplitButton options={three().slice(0, 1)} />);
     expect(screen.getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
