@@ -9,6 +9,7 @@ import {
   makePermissionRequest,
   makeQuestionItem,
   makeTask,
+  makeWorktree,
   worldWith,
 } from '../test/fixtures';
 import { createFakeServer } from '../test/fakeServer';
@@ -34,6 +35,7 @@ import {
 } from './documents';
 import { useCreateLinearTask } from './linear';
 import { ApiError } from './http';
+import { usePostChangeComments } from './worktreeChanges';
 import { keys } from './keys';
 import type { TaskId } from '../protocol/ids';
 import {
@@ -44,6 +46,17 @@ import {
   useSetStatus,
   useUpdateTask,
 } from './tasks';
+
+const CHANGE_COMMENT = {
+  id: 'c1',
+  rev: 'uncommitted',
+  path: 'auth/tokens.py',
+  side: 'new' as const,
+  startLine: 5,
+  endLine: 5,
+  lines: ['+new tokens'],
+  body: 'rotate the old one too',
+};
 
 const ANCHOR = { quote: 'q', prefix: '', suffix: '', start: 0, end: 1 };
 
@@ -56,6 +69,8 @@ function harness() {
       // The create and start hooks name a project, so the world holds one.
       // It names a Linear team too, so the Linear hooks reach their routes.
       projects: [makeProject({ hasLinear: true })],
+      // The agents run in this worktree, so a post of change comments reaches them.
+      worktrees: [makeWorktree()],
       // NORT-9 is the one a rewire writes: it follows nothing, so a wire to
       // NORT-7 is a real edit rather than a no-op.
       tasks: [makeTask({ id: 'northwind/NORT-7' }), makeTask({ id: 'northwind/NORT-9' })],
@@ -327,6 +342,14 @@ describe('the mutation hooks', () => {
       'POST /api/documents/d1/request-changes',
       { version: 1, summary: 'Tighten it' },
       [keys.documents.list(), keys.documents.detail('d1')],
+    ],
+    [
+      'usePostChangeComments',
+      usePostChangeComments,
+      { worktreeId: 'northwind-alpha', comments: [CHANGE_COMMENT] },
+      'POST /api/worktrees/northwind-alpha/comments',
+      { comments: [CHANGE_COMMENT] },
+      [keys.agents.list(), keys.attention()],
     ],
   ])(
     '%s sends %s and invalidates what it touched',

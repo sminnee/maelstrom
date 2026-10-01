@@ -144,6 +144,22 @@ export interface FileDiff {
   hunks: DiffHunk[];
 }
 
+/** One comment of `POST /api/worktrees/{id}/comments`. See CONTEXT.md, "Change comment". */
+export interface ChangeComment {
+  /** Made by the client, which keys its own list on it. */
+  id: string;
+  /** `uncommitted`, `branch` or a commit sha, as the diff route names it. */
+  rev: string;
+  path: string;
+  /** `old` only when no selected row has a new line number. */
+  side: 'new' | 'old';
+  startLine: number;
+  endLine: number;
+  /** The selected rows, each with its sign, as the user saw them. */
+  lines: string[];
+  body: string;
+}
+
 export interface TaskLogEntry {
   ts: string;
   text: string;
