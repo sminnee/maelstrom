@@ -136,6 +136,16 @@
   color: var(--attention);
   font-weight: 500;
 }
+/* A rule and the words, with no wash: the wash is the ask's. */
+.row[data-state='unanswered'] .dot {
+  background: var(--unanswered);
+}
+.row[data-state='unanswered'] {
+  border-bottom-color: color-mix(in srgb, var(--unanswered) 40%, var(--border));
+}
+.row[data-state='unanswered'] .state {
+  color: var(--unanswered);
+}
 .row[data-state='idle'] {
   opacity: 0.8;
 }

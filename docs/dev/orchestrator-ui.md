@@ -58,7 +58,8 @@ The ordinary run through them, in order:
 | Subagents working | `in-progress` | delegating | running |
 | Background tasks working | `in-progress` | background | running |
 | Needs you · … | `in-progress` | awaiting, with an open attention item | running |
-| Idle | `in-progress` | idle | running |
+| Unanswered | `in-progress` | idle, with a last message | running |
+| Idle | `in-progress` | idle, with no message | running |
 | Finalising | `done` | still running | running |
 | Done | `done` | stopped, or none | done |
 

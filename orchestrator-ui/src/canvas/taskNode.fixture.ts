@@ -149,8 +149,19 @@ export const byState: { state: NodeState; label: string; node: GraphNode }[] = [
     node: needsAttention(),
   },
   {
+    state: 'unanswered',
+    label: 'Turn ended with a message, task unfinished',
+    node: node({
+      agent: agent({
+        state: 'idle',
+        lastMessage: 'Two defaults are plausible. Which do you want?',
+        lastMessageAt: '2026-09-08T10:40:00Z',
+      }),
+    }),
+  },
+  {
     state: 'idle',
-    label: 'Process up, waiting at a prompt',
+    label: 'Process up, nothing said yet',
     node: node({ agent: agent({ state: 'idle' }) }),
   },
   {

@@ -15,6 +15,7 @@ export type NodeState =
   | 'working'
   | 'needs-attention'
   | 'idle'
+  | 'unanswered'
   | 'stopped'
   | 'finalising'
   | 'done'
@@ -96,6 +97,8 @@ function nodeState(
   if (!agent) return task?.actionable ? 'ready' : 'queued';
   if (agent.state === 'exited') return 'stopped';
   if (isWorking(agent)) return 'working';
+  // An Unanswered agent: see CONTEXT.md.
+  if (task && agent.state === 'idle' && agent.lastMessage !== '') return 'unanswered';
   return 'idle';
 }
 
@@ -136,6 +139,8 @@ function describeState(
       // finish — and this state offers to mark the task done, so the words must
       // not claim a completion no one witnessed.
       return agent?.exitCode === 0 ? 'Finished' : 'Stopped';
+    case 'unanswered':
+      return 'Unanswered';
     case 'idle':
       return 'Idle';
   }
@@ -306,6 +311,7 @@ export function zoneForState(state: NodeState): Zone {
     case 'working':
     case 'needs-attention':
     case 'idle':
+    case 'unanswered':
     case 'stopped':
     case 'finalising':
     case 'exited':
