@@ -891,6 +891,23 @@ request-changes route. `Read the plan` is dropped where it would point at the do
 open: in the plan's own tab the link leads nowhere, and on a phone it pushes a second copy of
 that screen onto the stack.
 
+### Comment Dock
+
+The band under the Changes tab while change comments are held. It takes the Review Dock's chassis
+in its settled state: the plain hairline and the raised ground. Nothing waits on the operator
+here, so the dock takes no amber.
+
+**Post comments leads, as the primary.** Then the count and the agents that the post reaches, then
+Clear. The dock names the recipients because the post goes to every agent in the worktree, and
+the operator must see that before the click. With no agent in the worktree, the dock says so and
+Post is disabled.
+
+The dock is absent when no comment is held. An empty band under a diff reads as a control that
+does nothing.
+
+A comment box sits in the diff, below the last line of its range. A selected row takes an accent
+wash over its add or remove ground, so the row keeps its kind.
+
 ## Seeing a change
 
 `pnpm ladle`, or `mael env start ladle`, serves a workbench of the components. It needs no
