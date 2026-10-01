@@ -305,6 +305,11 @@ ended a turn. The block is still dated from the last message, never the note, be
 drives the silent-agent colouring and silence means the agent said nothing. An agent that noted
 once would otherwise look alive for ever.
 
+An unanswered node replaces the one line with the agent's recent messages, under the heading
+`Last said`. `recentMessages` in `selectors/transcript.ts` selects them: the last three agent
+messages, of any rank, with no tool calls. `session/RecentMessages.tsx` draws them, and a decision
+shows the same list. Until the transcript arrives, the Now block stands in.
+
 Under the status band the card shows the stage the agent last reached, its cost, and how long ago it
 closed. The latest stage only, and nothing when the agent has reached none. See
 `orchestrator-ui/DESIGN.md`, "Node Card".
