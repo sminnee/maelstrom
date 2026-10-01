@@ -1111,7 +1111,7 @@ The world is validated before the host is asked.
 | `agent_exited` | The agent has exited |
 | `not_waiting` | The agent has no pending request |
 | `stale_request` | The request id is not the pending one |
-| `wrong_wait_kind` | An answer to a permission, or an approve of a question |
+| `wrong_wait_kind` | An answer to a permission, or an approve of a question. A deny suits every kind |
 | `stale_version` | The document version is not current |
 | `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 
