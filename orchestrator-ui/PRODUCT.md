@@ -70,8 +70,8 @@ Confirmed, and documented in `docs/dev/orchestrator-ui.md` and `docs/dev/orchest
   Clicking a node expands it in place; one node is expanded at a time.
 - **Task list** — a view of every task the server knows, filtered by status, project,
   branch and text. Each row toggles that task on or off the desk.
-- **Panel** — a right-hand panel holding session and document tabs, opened by panel links.
-  It sits beside the canvas and the task list, and the top bar collapses it.
+- **Panel** — the session and document tabs, opened by panel links. The top bar labels it
+  `Tabs`. On a wide screen it shows beside a main view; below 1600px it takes the main view's place.
 - **Decision** — the block shown when an agent waits on the user: the last three things the
   agent said or did, then the prompt. Three wait kinds: a question, a permission, a plan review.
   Deny sends the reason back as the tool result and the agent carries on with it.
