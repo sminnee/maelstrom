@@ -142,7 +142,7 @@ so a task's position in its life is readable from hue alone.
 ### Primary
 
 - **Signal Blue** (`--accent`): interactive affordance and nothing else. Links, panel links,
-  the focus ring, the running-command line, the text selection wash.
+  the focus ring, the running-command line, the text selection wash, the On desk arrow.
   If it is blue, it can be clicked or it has the operator's focus.
 
 ### Secondary
@@ -203,7 +203,9 @@ have adds it to the semantic layer.
 
 **The Reporting Rule.** Every hue on screen reports state. Nothing is coloured because it looks
 better coloured. When a new element needs emphasis, the answer is weight, size or space —
-not a colour promoted out of the state channel.
+not a colour promoted out of the state channel. One exception: the arrow of a desk icon reports
+the direction of the act, not state. It is `--accent` onto the desk and `--tone-archival` off it,
+and both sit only in a control the user can click.
 
 **The Single Interrupt Rule.** Alert Amber is the only channel allowed to escalate itself with
 a glow. If a second thing starts glowing, the design has stopped ranking and started shouting.
