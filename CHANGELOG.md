@@ -28,6 +28,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The Changes tab lists commits oldest first, and keeps its place in a long diff.** The strip
+  draws the changed files as a tree, and a click on a file scrolls to it. Prev and Next step
+  through the commits. The commit's subject and the file totals stay at the top while the diff
+  scrolls.
+
 - **Task naming uses OpenAI `gpt-6-luna`, not `claude -p`.** Set `OPENAI_API_KEY`, or
   `openai.api_key` in `~/.maelstrom/config.yaml`. With no key, a task's title and branch are a
   slug of its prose's first line. In the New work form, Save and Start name an empty title or

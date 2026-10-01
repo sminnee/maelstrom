@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useId, useRef, useState } from 'react';
 import { ApiError } from '../api/http';
 import { keys } from '../api/keys';
 import { useWorld } from '../api/useWorld';
@@ -11,6 +11,8 @@ import { clockTime } from '../protocol/time';
 import { AppButton } from '../ui/AppButton';
 import { DiffBlock, HighlightedRows } from '../ui/DiffRow';
 import { useNow } from '../ui/useNow';
+import { STATUS_LETTER } from './fileStatus';
+import { FileTree } from './FileTree';
 import styles from './ChangesTab.module.css';
 
 const UNCOMMITTED = 'uncommitted';
@@ -32,7 +34,7 @@ function revToShow(changes: WorktreeChanges, picked: string | null): string {
 /**
  * A worktree's changes: its dirty files, each commit its branch has over its
  * base, and the branch as one diff. The strip chooses which; the file list
- * jumps to a file; every file follows as one continuous list.
+ * and the file tree jump to a file; every file follows as one continuous list.
  */
 export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const { world } = useWorld();
@@ -42,6 +44,17 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const rev = changes.data ? revToShow(changes.data, picked) : null;
   const diff = useWorktreeDiff(worktreeId, rev);
   const worktree = world.worktrees[worktreeId];
+  // The folds live here, not beside the lines they fold: the scroll is keyed
+  // on the rev, and a fold stays from one commit to the next.
+  const [messageOpen, setMessageOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(true);
+  const blocks = useRef(new Map<string, HTMLElement>());
+  const holdFile = (path: string, el: HTMLElement | null) => {
+    if (el) blocks.current.set(path, el);
+    else blocks.current.delete(path);
+  };
+  const scrollToFile = (path: string) =>
+    blocks.current.get(path)?.scrollIntoView({ block: 'start' });
 
   if (!changes.data) {
     const gone = changes.error instanceof ApiError && changes.error.code === 'unknown_id';
@@ -62,6 +75,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   }
 
   const { dirtyFiles, commits, base } = changes.data;
+  const at = commits.findIndex((c) => c.sha === rev);
   return (
     <div className={styles.tab} data-testid="changes-tab">
       <header className={styles.header}>
@@ -112,13 +126,27 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
                 ))}
               </ul>
             )}
+            {diff.data && diff.data.files.length > 0 && (
+              <FileTree key={rev} files={diff.data.files} onPick={scrollToFile} />
+            )}
           </nav>
         )}
         {diff.data ? (
           <Files
+            // A new rev opens at the top, not at the last rev's scroll position.
+            key={rev}
             files={diff.data.files}
             empty={emptyText(rev, base)}
-            commit={commits.find((c) => c.sha === rev)}
+            commit={commits[at]}
+            prev={commits[at - 1]?.sha}
+            next={commits[at + 1]?.sha}
+            onPick={setPicked}
+            holdFile={holdFile}
+            scrollToFile={scrollToFile}
+            messageOpen={messageOpen}
+            onMessageOpen={setMessageOpen}
+            listOpen={listOpen}
+            onListOpen={setListOpen}
           />
         ) : (
           <div className={styles.empty} role={diff.isError ? 'alert' : undefined}>
@@ -158,23 +186,45 @@ function RevEntry({
   );
 }
 
+/** A button that folds the region `controls` names. The chevron is drawn in CSS. */
+function Fold({
+  open,
+  onOpen,
+  controls,
+  children,
+}: {
+  open: boolean;
+  onOpen: (open: boolean) => void;
+  controls: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={styles.fold}
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={() => onOpen(!open)}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
- * A commit's subject, its body, and who wrote it when. The body is drawn as
- * Markdown: that joins git's hard wraps and draws the lists and code spans
- * agents write.
+ * A commit's body, and who wrote it when. The subject is on the title line
+ * above. The body is drawn as Markdown: that joins git's hard wraps and draws
+ * the lists and code spans agents write.
  */
-function CommitMessage({ commit }: { commit: BranchCommit }) {
+function CommitMessage({ commit, id, open }: { commit: BranchCommit; id: string; open: boolean }) {
   const now = useNow();
   return (
-    <article className={styles.message} aria-label="Commit message">
-      <details open>
-        <summary className={styles.subject}>{commit.subject}</summary>
-        {commit.body && <Markdown source={commit.body} className={styles.messageBody} />}
-        <p className={styles.byline}>
-          <span className={styles.sha}>{commit.shortSha}</span> {commit.author},{' '}
-          <time dateTime={commit.date}>{clockTime(commit.date, now)}</time>
-        </p>
-      </details>
+    <article id={id} className={styles.message} aria-label="Commit message" hidden={!open}>
+      {commit.body && <Markdown source={commit.body} className={styles.messageBody} />}
+      <p className={styles.byline}>
+        <span className={styles.sha}>{commit.shortSha}</span> {commit.author},{' '}
+        <time dateTime={commit.date}>{clockTime(commit.date, now)}</time>
+      </p>
     </article>
   );
 }
@@ -185,37 +235,88 @@ function emptyText(rev: string | null, base: string): string {
   return 'This commit changes no files';
 }
 
-/** The commit message, the file list, then every file's diff, in one scroll. */
+/**
+ * One scroll: the commit, the file list, then every file's diff. The title
+ * line and the stats line are direct children of the scroll, because a sticky
+ * element holds only inside its parent.
+ */
 function Files({
   files,
   empty,
   commit,
+  prev,
+  next,
+  onPick,
+  holdFile,
+  scrollToFile,
+  messageOpen,
+  onMessageOpen,
+  listOpen,
+  onListOpen,
 }: {
   files: FileDiff[];
   empty: string;
   commit: BranchCommit | undefined;
+  /** The shas of the commit before and the commit after, where there is one. */
+  prev: string | undefined;
+  next: string | undefined;
+  onPick: (rev: string) => void;
+  holdFile: (path: string, el: HTMLElement | null) => void;
+  scrollToFile: (path: string) => void;
+  messageOpen: boolean;
+  onMessageOpen: (open: boolean) => void;
+  listOpen: boolean;
+  onListOpen: (open: boolean) => void;
 }) {
-  const blocks = useRef(new Map<string, HTMLElement>());
+  const messageId = useId();
+  const listId = useId();
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   return (
-    <div className={styles.scroll}>
-      {commit && <CommitMessage commit={commit} />}
+    <div className={styles.scroll} data-commit={commit !== undefined}>
+      {commit && (
+        <>
+          <div className={styles.titleLine}>
+            <Fold open={messageOpen} onOpen={onMessageOpen} controls={messageId}>
+              <span className={styles.subject}>{commit.subject}</span>
+            </Fold>
+            <AppButton
+              variant="quiet"
+              aria-label="Previous commit"
+              disabled={!prev}
+              onClick={() => {
+                if (prev) onPick(prev);
+              }}
+            >
+              Prev
+            </AppButton>
+            <AppButton
+              variant="quiet"
+              aria-label="Next commit"
+              disabled={!next}
+              onClick={() => {
+                if (next) onPick(next);
+              }}
+            >
+              Next
+            </AppButton>
+          </div>
+          <CommitMessage commit={commit} id={messageId} open={messageOpen} />
+        </>
+      )}
       {files.length === 0 && <div className={styles.empty}>{empty}</div>}
       {files.length > 0 && (
-        <details className={styles.list} open>
-          <summary className={styles.summary}>
-            {files.length} {files.length === 1 ? 'file' : 'files'}{' '}
-            <Counts add={additions} remove={deletions} />
-          </summary>
-          <ul aria-label="Files">
+        <>
+          <div className={styles.statsLine}>
+            <Fold open={listOpen} onOpen={onListOpen} controls={listId}>
+              {files.length} {files.length === 1 ? 'file' : 'files'}{' '}
+              <Counts add={additions} remove={deletions} />
+            </Fold>
+          </div>
+          <ul id={listId} className={styles.list} aria-label="Files" hidden={!listOpen}>
             {files.map((f) => (
               <li key={f.path}>
-                <button
-                  type="button"
-                  className={styles.entry}
-                  onClick={() => blocks.current.get(f.path)?.scrollIntoView({ block: 'start' })}
-                >
+                <button type="button" className={styles.entry} onClick={() => scrollToFile(f.path)}>
                   <span className={styles.status} data-status={f.status}>
                     {STATUS_LETTER[f.status]}
                   </span>
@@ -225,17 +326,14 @@ function Files({
               </li>
             ))}
           </ul>
-        </details>
+        </>
       )}
       {files.map((f) => (
         <section
           key={f.path}
           aria-label={f.path}
           className={styles.file}
-          ref={(el) => {
-            if (el) blocks.current.set(f.path, el);
-            else blocks.current.delete(f.path);
-          }}
+          ref={(el) => holdFile(f.path, el)}
         >
           <FileBlock file={f} />
         </section>
@@ -243,13 +341,6 @@ function Files({
     </div>
   );
 }
-
-const STATUS_LETTER: Record<FileDiff['status'], string> = {
-  added: 'A',
-  modified: 'M',
-  deleted: 'D',
-  renamed: 'R',
-};
 
 function Counts({ add, remove }: { add: number; remove: number }) {
   return (
