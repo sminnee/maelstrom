@@ -75,7 +75,7 @@ from mael_domain.worktree_changes import format_change_comments
 
 from . import desk as desk_model
 from . import linear_source
-from .daemon_bridge import AsyncDaemonClient
+from .daemon_bridge import TASK_FIELD, AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .notices import notices_for
@@ -2346,6 +2346,9 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         # pins no session and a launch that named no model carries none. The
         # host fills both in, and the next ``list`` carries them.
         "session": payload.get("session", ""),
+        # The task the launch named for the agent's record, so the agent links
+        # before the host's own row arrives.
+        TASK_FIELD: payload.get(TASK_FIELD, ""),
         "cwd": payload["cwd"],
         "model": payload.get("model", ""),
         # The child announces its mode in `system`/`init`, so a launched agent

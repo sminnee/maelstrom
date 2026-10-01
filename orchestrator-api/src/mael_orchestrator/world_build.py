@@ -256,23 +256,14 @@ def link_agent(
     """Link an agent row to its worktree, project and task.
 
     The worktree is the one whose path is the agent's ``cwd``, and the project
-    follows from it. The task is the one whose task session id the agent
-    reports as its session: a launch pins ``session_id_for(project, task.id)``
-    on the agent, so the reverse lookup is exact. No match leaves the ids empty.
+    follows from it. The task is the one the row names as ``task``: the agent
+    host copies it from the agent's Agent record, where the launch wrote it. A
+    row that names none, or a task the world does not hold, leaves the id empty.
     """
     cwd = row.get("cwd") or ""
-    session = row.get("session") or ""
     worktree = next((w for w in worktrees.values() if w["path"] == cwd), None)
     project = worktree["project"] if worktree else ""
-    task = next(
-        (
-            t
-            for t in tasks.values()
-            if session
-            and model.session_id_for(t["project"], t["notebookId"]) == session
-        ),
-        None,
-    )
+    task = tasks.get(row.get("task") or "")
     if task is not None:
         project = project or task["project"]
     return AgentLink(
