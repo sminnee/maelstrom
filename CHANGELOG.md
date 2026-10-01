@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Set unmerged work aside with `mael close --trash`.** The branch moves to `trash/<branch>`,
+  locally and on origin, its open PR closes with a comment, and the worktree closes. Uncommitted
+  changes are committed first. The orchestrator's end-of-work control offers the same as
+  "… & trash `<nato>`", behind a confirm.
+
 - **Control a task's dev environment from its node card.** The expanded card and the worktree
   view share one environment control. Its button reads the env state: Stop when every core
   service runs, Start when some or none do. Its menu adds Restart, and a Start or Stop for each

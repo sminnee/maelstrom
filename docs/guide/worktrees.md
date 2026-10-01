@@ -210,6 +210,21 @@ mael close --discard
 
 Use it only when the worktree files must not be kept.
 
+### `close --trash` sets work aside
+
+```bash
+mael close --trash                # this worktree
+mael close --trash myproject.b    # a named one
+```
+
+Use `--trash` for work that will never merge. It does not sync and creates no Reopen task.
+
+- The branch moves to `trash/<branch>`, locally and on origin.
+- Its open pull request closes.
+- Uncommitted changes are committed as `wip: uncommitted changes` first.
+
+See [`mael close`](../reference/cli.md) for what it refuses.
+
 ### Remove
 
 ```bash
