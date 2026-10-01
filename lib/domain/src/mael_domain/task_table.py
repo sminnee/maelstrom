@@ -32,7 +32,7 @@ from mael_common.util import now_iso
 
 from . import task_export as export
 from .state_db.db import StateDb, Txn
-from .task import Task, session_id_for, task_key
+from .task import Task, creation_order, session_id_for, task_key
 
 #: The table this store writes, as declared in
 #: :data:`mael_domain.state_db.migrate.TABLES`.
@@ -151,7 +151,10 @@ class TaskTable(ABC):
     async def list(
         self, project: str, *, status: str | None = None, parent: str | None = None
     ) -> list[Task]:
-        """``project``'s tasks, id-sorted, optionally filtered."""
+        """``project``'s tasks, oldest first, optionally filtered.
+
+        The order is ``created``, then id.
+        """
 
     @abstractmethod
     async def save(self, task: Task) -> None:
@@ -241,7 +244,7 @@ class InMemoryTaskTable(TaskTable):
             and (status is None or row["status"] == status)
             and (parent is None or row["parent"] == parent)
         ]
-        found.sort(key=lambda t: t.id)
+        found.sort(key=creation_order)
         return found
 
     async def save(self, task: Task) -> None:
@@ -359,7 +362,7 @@ class SqliteTaskTable(TaskTable):
         where = " AND ".join(clauses)
         rows = await self._db._call(
             lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE {where} ORDER BY task_id",  # noqa: S608 — the table name is this module's own and the clauses are bound
+                f"SELECT * FROM {TABLE} WHERE {where} ORDER BY created, task_id",  # noqa: S608 — the table name is this module's own and the clauses are bound
                 params,
             ).fetchall()
         )

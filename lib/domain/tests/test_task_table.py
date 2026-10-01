@@ -105,15 +105,25 @@ class TestTaskTableContract:
         await table.delete("maelstrom", "never")
         assert await table.load("maelstrom", "2026-06-11.1") is not None
 
-    async def test_list_is_id_sorted(self, table):
-        for id in ("2026-06-11.3", "2026-06-11.1", "2026-06-11.2"):
-            await table.save(a_task(id=id))
+    async def test_list_is_oldest_first(self, table):
+        # The ids sort against the creation order, so the id cannot give a pass.
+        await table.save(a_task(id="aaaa", created="2026-06-13T00:00:00+00:00"))
+        await table.save(a_task(id="zzzz", created="2026-06-11T00:00:00+00:00"))
+        await table.save(a_task(id="mmmm", created="2026-06-12T00:00:00+00:00"))
         listed = await table.list("maelstrom")
-        assert [t.id for t in listed] == [
-            "2026-06-11.1",
-            "2026-06-11.2",
-            "2026-06-11.3",
-        ]
+        assert [t.id for t in listed] == ["zzzz", "mmmm", "aaaa"]
+
+    async def test_list_puts_an_empty_created_first(self, table):
+        await table.save(a_task(id="aaaa", created="2026-06-11T00:00:00+00:00"))
+        await table.save(a_task(id="zzzz", created=""))
+        listed = await table.list("maelstrom")
+        assert [t.id for t in listed] == ["zzzz", "aaaa"]
+
+    async def test_list_breaks_a_created_tie_by_id(self, table):
+        for id in ("cccc", "aaaa", "bbbb"):
+            await table.save(a_task(id=id, created="2026-06-11T00:00:00+00:00"))
+        listed = await table.list("maelstrom")
+        assert [t.id for t in listed] == ["aaaa", "bbbb", "cccc"]
 
     async def test_list_is_scoped_to_one_project(self, table):
         await table.save(a_task(id="1", project="alpha"))
