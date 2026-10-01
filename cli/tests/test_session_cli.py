@@ -1,6 +1,5 @@
 """Tests for mael_cli.session_cli module."""
 
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -10,9 +9,7 @@ from click.testing import CliRunner
 
 from mael_cli import session_cli
 from mael_cli.cli import cli
-from mael_domain import task as model
-from mael_domain.task import Task
-from mael_domain.task_table import InMemoryTaskTable
+from mael_domain.agent_store import InMemoryAgentStore, new_agent_record
 
 
 def _patch_live(sessions):
@@ -50,25 +47,37 @@ def _live(pid, cwd):
     return LiveSession(pid=pid, cwd=Path(cwd))
 
 
-def _table_holding(*tasks: Task) -> InMemoryTaskTable:
-    """A task table already holding ``tasks``.
+def _records(*records: dict):
+    """A stand-in for the Agent store seam, holding ``records``."""
+    store = InMemoryAgentStore(list(records))
 
-    ``session_id`` is derived from the project and id, so a task saved here
-    resolves through ``find_by_session_id`` exactly as a real one does.
-    """
-    table = InMemoryTaskTable()
-    for task in tasks:
-        asyncio.run(table.save(task))
-    return table
+    async def open_store() -> InMemoryAgentStore:
+        return store
+
+    return open_store
+
+
+def _launched(agent_id: str, task: str, session_id: str) -> dict:
+    """The record a launch of ``task`` wrote for one session."""
+    return new_agent_record(
+        agent_id,
+        harness="claude",
+        session_id=session_id,
+        task=task,
+        cwd="/w/delta",
+        model="opus",
+        mode="auto",
+        started_at="2026-07-03T10:00:00+00:00",
+    )
 
 
 class TestSessionList:
     @pytest.fixture(autouse=True)
     def _fresh_table(self, monkeypatch):
-        # Default every session-list test to an empty in-memory table so none
-        # touches the real notebook. Tests that assert a lookup hit override
-        # this with their own populated table.
-        monkeypatch.setattr(session_cli, "_task_table", InMemoryTaskTable)
+        # Default every session-list test to an empty in-memory store so none
+        # touches the real state database. Tests that assert a lookup hit
+        # override this with their own populated store.
+        monkeypatch.setattr(session_cli, "_agent_store", _records())
 
     def test_empty_when_no_live_processes(self, tmp_path):
         with _patch_live([]):
@@ -87,20 +96,25 @@ class TestSessionList:
         assert "4242" in result.output
         assert "/w/alpha" in result.output
 
-    def test_task_column_from_session_id_index_lookup(self, tmp_path, monkeypatch):
-        # A live session whose --session-id resolves via the task table shows TASK.
-        sid = model.session_id_for("askastro", "daily.maintenance.2026-07-03.2")
+    def test_task_column_from_the_sessions_agent_record(self, tmp_path, monkeypatch):
+        # A live session whose --session-id an Agent record names shows TASK.
+        # The adopted record of the same session names no task, and is newer:
+        # it must not blank the column.
+        sid = "0d0e3f6a-7c1b-4a52-9c0e-2f4f6f1f8a11"
         sess = _live(4242, "/w/delta")
         sess.session_id = sid
-        table = _table_holding(
-            Task(
-                id="daily.maintenance.2026-07-03.2",
-                title="",
-                project="askastro",
-                status="in-progress",
-            )
+        adopted = {
+            **_launched("a2", "", sid),
+            "started_at": "2026-07-03T11:00:00+00:00",
+        }
+        monkeypatch.setattr(
+            session_cli,
+            "_agent_store",
+            _records(
+                _launched("a1", "askastro/daily.maintenance.2026-07-03.2", sid),
+                adopted,
+            ),
         )
-        monkeypatch.setattr(session_cli, "_task_table", lambda: table)
         with _patch_live([sess]):
             runner = CliRunner()
             result = runner.invoke(cli, ["session", "list"])
@@ -152,7 +166,7 @@ class TestSessionInfo:
 
     @pytest.fixture(autouse=True)
     def _fresh_table(self, monkeypatch):
-        monkeypatch.setattr(session_cli, "_task_table", InMemoryTaskTable)
+        monkeypatch.setattr(session_cli, "_agent_store", _records())
         # A session command must never read the ambient session env of the
         # process running the tests.
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
@@ -278,16 +292,12 @@ class TestSessionInfo:
         assert data["cwd"] == "/w/alpha"
 
     def test_shows_the_task_when_the_index_resolves_it(self, tmp_path, monkeypatch):
-        sid = model.session_id_for("askastro", "2026-07-03.7")
-        table = _table_holding(
-            Task(
-                id="2026-07-03.7",
-                title="",
-                project="askastro",
-                status="in-progress",
-            )
+        sid = "5a1c9d3e-2b4f-4e6a-8c7d-9e0f1a2b3c4d"
+        monkeypatch.setattr(
+            session_cli,
+            "_agent_store",
+            _records(_launched("a1", "askastro/2026-07-03.7", sid)),
         )
-        monkeypatch.setattr(session_cli, "_task_table", lambda: table)
         with _patch_live([self._sess(session_id=sid)]):
             result = CliRunner().invoke(cli, ["session", "info", sid])
         assert result.exit_code == 0, result.output

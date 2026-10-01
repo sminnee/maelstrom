@@ -48,6 +48,7 @@ from mael_domain.agent_store import (
     SqliteAgentStore,
     SqliteMilestoneStore,
     register_agent,
+    task_of_session,
 )
 from mael_domain.context import resolve_context
 from mael_domain.notebook_root import NotebookRootUnset
@@ -55,10 +56,11 @@ from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
+from mael_domain.task_table import row_id, split_row_id
 
 from .agent_view import render_agent_detail
 from .table_cli import draw_table
-from .task_cli import open_task_table
+from .task_cli import agent_store
 
 #: Columns ``mael agent list`` prints, in order.
 LIST_COLUMNS = [
@@ -208,12 +210,12 @@ def _is_stopped(row: dict[str, Any]) -> bool:
 async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """``rows`` with the task each stopped session ran for, as ``task``.
 
-    The daemon knows no tasks, so the join is here. A running row is left as
-    it is. The table is opened once for
-    the whole listing: a per-session open would build a connection hundreds of
-    times.
+    The daemon knows no tasks, so the join is here, on the Agent record that
+    names each session. A running row is left as it is. The store is opened
+    once for the whole listing: a per-session open would build a connection
+    hundreds of times.
 
-    A listing is worth more than its task column, so a table failure blanks the
+    A listing is worth more than its task column, so a store failure blanks the
     column and says why on stderr. A missing notebook root fails the command:
     a blank column would hide a misconfigured root behind a listing that works.
     """
@@ -222,14 +224,14 @@ async def _with_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return rows
     tasks: dict[str, str] = {}
     try:
-        table = open_task_table()
+        agents = await agent_store()
         for row in stopped:
-            found = await table.find_by_session_id(row["session"])
-            tasks[row["session"]] = found.id if found else ""
+            task = await task_of_session(agents, row["session"])
+            tasks[row["session"]] = split_row_id(task)[1]
     except NotebookRootUnset as exc:
         raise click.ClickException(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        click.echo(f"Warning: could not read the task table: {exc}", err=True)
+        click.echo(f"Warning: could not read the Agent records: {exc}", err=True)
         tasks = {}
     return [
         {**row, "task": tasks.get(row["session"], "")} if _is_stopped(row) else row
@@ -419,7 +421,12 @@ async def cmd_stop(agent_id: str) -> None:
     default="",
     help="The Task id this agent belongs to.",
 )
-async def cmd_register(agent_id: str, task_id: str) -> None:
+@click.option(
+    "--project",
+    default=None,
+    help="The task's project (default: from the agent's working directory).",
+)
+async def cmd_register(agent_id: str, task_id: str, project: str | None) -> None:
     """Adopt a live agent that has no Agent record, by hand.
 
     The orchestrator's own `list` adopts such an agent — see
@@ -433,6 +440,9 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
     This socket is the Claude agent daemon, the only harness `mael agent`
     reaches, so the harness is always ``claude`` — see
     :func:`mael_domain.agent_store.register_agent`.
+
+    The record names its task by row id, which holds the project. The agent's
+    working directory says which project that is, unless ``--project`` does.
     """
     reply = await daemon_client().request({"cmd": "list"})
     if "error" in reply:
@@ -442,6 +452,15 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
     if row is None:
         click.echo(f"Error: no live agent {agent_id!r}.", err=True)
         sys.exit(1)
+    task = ""
+    if task_id:
+        project = project or _project_of(str(row.get("cwd") or ""))
+        if not project:
+            raise click.ClickException(
+                f"Cannot tell which project task {task_id} is in: the agent's "
+                "working directory is in none. Name it with --project."
+            )
+        task = row_id(project, task_id)
     path = get_state_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = open_state_db(path)
@@ -451,10 +470,23 @@ async def cmd_register(agent_id: str, task_id: str) -> None:
         except StateDbError as exc:
             raise click.ClickException(str(exc)) from exc
         await register_agent(
-            SqliteAgentStore(db), agent_id, row, task_id, started_at=now_iso()
+            SqliteAgentStore(db), agent_id, row, task, started_at=now_iso()
         )
     finally:
         db.close()
+
+
+def _project_of(cwd: str) -> str:
+    """The project ``cwd`` is in, or ``""`` when it is in none."""
+    if not cwd:
+        return ""
+    try:
+        context = resolve_context(
+            None, require_project=False, require_worktree=False, cwd=Path(cwd)
+        )
+    except ValueError:
+        return ""
+    return context.project or ""
 
 
 @agent.command("resume")
