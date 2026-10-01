@@ -700,10 +700,11 @@ really is happening then.
 | Field | From |
 |---|---|
 | `worktreeId` | The worktree whose path is the agent's `cwd`. The project follows from it |
-| `taskId` | The task whose task session id the agent reports as its session |
+| `taskId` | The task the agent's row names as `task` |
 
-A launch pins `session_id_for(project, task.id)` on the agent, so the task lookup is exact. An
-agent started outside the server links to a task only if it was started with that session id.
+The agent host copies `task` onto each row from the agent's Agent record, which the launch wrote.
+A subagent's row takes its parent's. An agent started outside the server links to a task when its
+launch wrote a record that names one, as `mael task run` does. An adopted agent names none.
 Links are re-resolved on every reconciliation, so a task or worktree that arrives after the agent
 still finds it.
 

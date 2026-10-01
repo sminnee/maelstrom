@@ -94,9 +94,9 @@ Tasks, the desk and agents are canonical. A task's row carries its prose, not a 
 elsewhere: splitting a row across two stores is what makes a rollback partial.
 
 An **Agent record** (see `CONTEXT.md`) is canonical for the same reason a task is: it is the
-only copy of the harness, mode, model and task an agent started with. Losing it loses that
-history. It differs from a task in what it is not: it does not describe the agent's live state,
-only what started it. The live session that state belongs to is PUSHED, below.
+only copy of the harness, mode, model, task and session id an agent started with. Losing it loses
+that history, and with it the link between a task and its sessions. It differs from a task in
+what it is not: it does not describe the agent's live state, only what started it. The live session that state belongs to is PUSHED, below.
 
 The record outlives the agent: `stop` writes `status: ended` rather than deleting the row, so the
 spend recorded against it survives. `DaemonRouter` restores only live records, because an ended
@@ -307,6 +307,9 @@ handed the raw connection rather than a transaction object, because **a migratio
 the revision counter**: its rows name `revision = 0` themselves, so a client polling
 `changed_since` reads them as the state it started from rather than as a change. The rung runs
 inside the migration's own transaction, so a rung that raises rolls the whole run back with it.
+
+The ladders climb in the order `LADDERS` lists them. The comment on `LADDERS` in
+`state_db/migrate.py` names the one pair that depends on that order.
 
 Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
 background process that rewrote the schema under a running server is worse than a stop with a

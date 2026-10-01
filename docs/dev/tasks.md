@@ -110,20 +110,33 @@ firing mechanics.
 
 ## Session discovery — one live session per task
 
-Each task maps to a **deterministic Claude session id**: `session_id_for(project,
-task_id)` (a `uuid5` over `project` and `task_id`). `mael task run` passes it as
-`claude --session-id <id>`, so the same task always resolves to the same session.
+A task's sessions are its **Agent records** (see `CONTEXT.md`). Every launch of a task
+writes one. `AgentStore.for_task` reads a task's records, and `AgentStore.for_session`
+reads the records of one session id.
 
-Claude Code's own uniqueness rule for that id is **file-based**: it stores the
-session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` and
-**refuses to start** `claude --session-id <id>` when that file already exists for
-the cwd. So a task whose session has run before relaunches with
-`claude --resume <id>` instead, which reattaches the existing conversation.
+| Launch path | Writer of the record | Record key |
+|---|---|---|
+| The orchestrator UI | `DaemonRouter`, from the `task` field of the `start` payload | The agent id |
+| `mael task run` on the daemon | `start_agent_in_worktree`, after the daemon names the agent | The agent id |
+| `mael task run --cli` and `--here` | The launcher, once the pane is placed or before the exec | `cli-<random>` |
 
-Because the id derives from the **project name**, renaming a project changes every
-id. This orphans the existing sessions by design: `mael project mv` warns about it
-rather than migrating transcripts, and `mael task run` then starts a fresh session
-instead of resuming.
+A launch chooses its session with `choose_session`, after it opens the worktree:
+
+1. It resumes the newest session of the task that has a transcript in that worktree, with
+   `claude --resume <id>`.
+2. With no such session, it mints a random id and starts with `claude --session-id <id>`.
+
+The transcript test needs the worktree path, because Claude Code stores a transcript at
+`~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl`. Claude Code refuses
+`--session-id <id>` when that file exists, which is why a new session never reuses an id.
+
+A task with no record has nothing to resume. That is the case for a task that last ran
+through a path that wrote no record: its next launch starts a new session, and the old
+transcript stays on disk.
+
+A task rename and `mael project mv` re-key the records with the task, so a renamed task
+keeps its sessions. Both refuse while a session of the task is live, because the live
+session holds the old id in `MAEL_TASK_ID`.
 
 `session_discovery.py` answers "is there a **live** session?" from the running
 `claude` processes themselves, not from any file. A live session's **cwd is the

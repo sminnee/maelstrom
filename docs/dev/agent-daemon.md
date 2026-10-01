@@ -808,7 +808,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 
 `start` merges `env` over the daemon's own environment for that child, with no allowlist: a
 client of the socket can set any variable. The socket's file permissions are the trust boundary.
-A task launch passes `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and `MAEL_TASK_SESSION_ID` this way.
+A task launch passes `MAEL_TASK_ID` and `MAEL_TASK_PARENT` this way.
 
 `say` takes `attachments` as `[{"path": "/…/shot.png"}]`. The daemon reads each file and sends
 it as an image block. Paths rather than base64 keep the socket line small, and the daemon runs on

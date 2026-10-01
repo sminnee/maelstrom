@@ -98,11 +98,12 @@ Run it with `--dry-run` first to see the full plan.
 The command refuses to run while the project has a running environment or a live
 Claude session. Dirty worktrees are allowed.
 
+A task keeps its sessions across the rename. The command re-keys each task's Agent
+records with the task, and Claude Code's transcripts move with its state, so
+`mael task run` resumes as before.
+
 Out of scope — these are not changed:
 
-- **Claude session ids.** They derive from the project name, so a rename orphans
-  every existing session. `mael task run` starts a fresh session instead of
-  resuming. The plan reports how many tasks this affects.
 - **`remote.origin.url`**, unless you pass `--git-url`.
 - **Committed files.** A project name in `README.md` or `CLAUDE.md` stays as it is.
 
@@ -512,7 +513,7 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 
 | Option | Description |
 |---|---|
-| `--id TEXT` | Re-key the task to a new id, rewriting `follows` and `parent` references that point at it. Applied first; the other flags then apply to the new id. |
+| `--id TEXT` | Re-key the task to a new id, rewriting `follows` and `parent` references that point at it. The task's Agent records move with it, so the task keeps its sessions. Applied first; the other flags then apply to the new id. |
 | `--project TEXT` | Project name. Default: from the current directory. |
 | `--command TEXT` | Skill the launched session runs. May carry arguments, e.g. `"impeccable shape"`. |
 | `--mode TEXT` | Session mode, e.g. `plan`, `auto`, `normal`. |
@@ -699,7 +700,7 @@ all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 | `mael agent stop ID` | Stop an agent. No daemon start brings a stopped agent back, but its spawn record is kept, so `mael agent resume ID` still works. |
 | `mael agent resume ID` | Start an exited agent again, keeping its id and its conversation. `--text TEXT` replaces the default first turn. |
 | `mael agent cost [ID]` | Show what each agent spent and which stage of its work spent it, from the milestone ledger. Reads the state database, not the daemon, so a stopped agent still reports. An exited agent carries a **closing row** named `<final>` for what it spent after its last marker. Per stage: the tokens it consumed, split own and subagent, and the running total. `$` covers the agent's own requests alone — a subagent's spend is reported in tokens, because there is no price table. With no ID, every agent. `--json` emits the report as JSON. |
-| `mael agent register ID` | Adopt an agent already live on a daemon with no Agent record: read its row from the daemon's own `list` and write a record by hand. The orchestrator's `list` adopts such an agent on its own, so this is for when it has not. `--task-id ID` names the Task it belongs to. |
+| `mael agent register ID` | Adopt an agent already live on a daemon with no Agent record: read its row from the daemon's own `list` and write a record by hand. The orchestrator's `list` adopts such an agent on its own, so this is for when it has not. `--task-id ID` names the Task it belongs to. The task's project is the one the agent's working directory is in, unless `--project NAME` names it. |
 
 ```bash
 mael agent start . --prompt "run the tests"     # starts the daemon too; prints the agent id

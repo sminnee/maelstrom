@@ -106,16 +106,14 @@ A **task-backed** launch — `mael task run` or `mael task next --run` — expor
 |---|---|
 | `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael task current` reports it as `ID:STATUS`. |
 | `MAEL_TASK_PARENT` | The launching task's `parent`, or its own id when it has none. New tasks default their `--parent` to it, so a session's follow-ups continue the same chain and land in the same PR. |
-| `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. Exported so a session can name the key it was launched under; nothing in maelstrom reads it back. |
 
-`MAEL_TASK_SESSION_ID` rides on the `claude` command line rather than in the environment dict
-beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any of the three.
+A task-backed launch is the only path that sets either of them.
 
-**Two session ids answer two different questions.** Use the one that matches your question:
+**The task and the conversation have separate variables:**
 
-| Question | Variable | Behaviour |
+| Question | Answer | Behaviour |
 |---|---|---|
-| Which task is this? | `MAEL_TASK_SESSION_ID` | Derived from the task. Set before the session starts, and never changes. |
+| Which task is this? | `MAEL_TASK_ID` | Set before the session starts, and never changes. |
 | Which conversation is running now? | `CLAUDE_CODE_SESSION_ID` | Set by Claude Code. A `/clear` starts a new conversation and moves it. |
 
 `CLAUDE_CODE_SESSION_ID` is Claude Code's own variable, not maelstrom's, and every session has it.
@@ -123,8 +121,7 @@ beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any o
 commands fall back to `CLAUDE_PID` — also Claude Code's — because a `/clear` leaves the live id in
 no command line, so the pid is the only handle that always resolves.
 
-Do not use `MAEL_TASK_SESSION_ID` to name the session you are in. It holds the id the session
-started with, which is right until a `/clear` and points at a finished transcript after one.
+The session id of a launch is in no variable. The task's Agent record holds it.
 
 **`mael add` sets none of them for a plain CLI session.** It launches with
 no task attached. `mael task status done` in such a session fails with "No task id given and

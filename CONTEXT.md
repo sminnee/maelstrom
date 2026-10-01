@@ -7,8 +7,8 @@ This file defines the domain terms. Use these words, in these meanings, in code 
 
 **Project**:
 One repository maelstrom manages, held as a bare clone at `~/Projects/<name>/.git` and marked
-by a `.mael` file. The project name is load-bearing: worktree folders, port allocations, task
-ids and session ids all derive from it. The `mael project` group holds the commands that add, create,
+by a `.mael` file. The project name is load-bearing: worktree folders, port allocations and task
+row ids all derive from it. The `mael project` group holds the commands that add, create,
 rename (`mv`) and list projects.
 _Avoid_: Repo, codebase
 
@@ -118,8 +118,9 @@ _Avoid_: Unpushed commit, commit ahead
 
 **Task**:
 One unit of agent work, stored as one row in the **State database**. A task carries a plan in
-its body and launches exactly one Claude session. The row carries the prose, so a task is read
-and written whole.
+its body. The row carries the prose, so a task is read and written whole. A task has one session
+for each launch that did not resume, and its **Agent records** name them. At most one session of
+a task is live at a time.
 _Avoid_: Ticket, issue, job
 
 **Status**:
@@ -195,7 +196,8 @@ _Avoid_: Batch, plan bundle
 ## Sessions
 
 **Session**:
-One Claude Code conversation. A session maelstrom launches is tied to exactly one task.
+One Claude Code conversation. A session maelstrom launches for a task belongs to that task alone:
+the **Agent record** of the launch names both.
 
 **Live session**:
 A session whose `claude` process is currently running, established from the running processes
@@ -208,18 +210,13 @@ transcript, which says what it was doing. A session started by hand has no recor
 stopped session. `mael agent list --stopped` lists them.
 _Avoid_: Closed session (a closed worktree is a different thing), ended session, dead session
 
-**Task session id**:
-The session id derived from the project name and the task id. The task session id exists before
-the session is launched and never changes, so it is what links a session back to its task. The
-task table keys on it, an agent row reports it, and it rides into the session as
-`MAEL_TASK_SESSION_ID`. Use the task session id to answer "which task is this?".
-_Avoid_: Session id (for this concept)
-
 **Session id**:
-The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
-`/clear` starts a new conversation and moves the session id, so it is not stable and cannot key
-a task. Use the session id to answer "which conversation am I in now?". A session starts with
-its task session id as its session id, so the two agree until the first `/clear`.
+The id of one session. A launch mints a random one for a new session, and passes the stored one
+to resume. Nothing derives a session id from a task: the **Agent record** holds the id a launch
+used, and that record answers "which task is this session's?". Claude Code reports the id of the
+conversation running now as `CLAUDE_CODE_SESSION_ID`. A `/clear` starts a new conversation and
+moves that id away from the one the record holds.
+_Avoid_: Task session id, derived session id
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`. An agent workspace holds three panes: pane 0 the
@@ -249,18 +246,24 @@ reference**. `daemon` starts a driven Claude agent. Daemon agents export
 `MAEL_HARNESS_TYPE=daemon` to their children.
 
 **Agent record**:
-The canonical row for an agent maelstrom started: its harness, mode, model, and task, stored so
-it survives an orchestrator restart. `DaemonRouter` writes one at start, and reads every record
-back to restore Codex threads and rebuild `list`. A live subagent has no record of its own; it
-rides through on its parent's. An agent live on a daemon with no record is **adopted** by the next
-`list`, which writes one for it; `mael agent register` writes one by hand when that has not
-happened.
+The canonical row for one launch: its harness, mode, model, task and session id, stored so it
+survives an orchestrator restart. The record is the only link between a task and its sessions.
+It names the task by row id, `<project>/<task id>`, and a task's records are its sessions, newest
+first.
+
+Every task launch writes one. `DaemonRouter` writes it for a launch from the orchestrator, and
+`mael task run` writes it for a launch from a terminal. A `cli` session has no agent id, so its
+record takes a key of its own, `cli-<random>`. `DaemonRouter` reads every record back to restore
+Codex threads and rebuild `list`. A live subagent has no record of its own; it rides through on
+its parent's. An agent live on a daemon with no record is **adopted** by the next `list`, which
+writes one for it; `mael agent register` writes one by hand when that has not happened.
 _Avoid_: Agent session, binding.
 
 **Adopted**:
 A live top-level agent with no Agent record, given one by the next `list`. `mael add` and
 `mael agent start` reach the daemon socket without the router, so their agents arrive with no
-record; adoption is what makes them visible to every reader. A subagent is never adopted.
+record; adoption is what makes them visible to every reader. An adopted record names no task. A
+subagent is never adopted.
 _Avoid_: Claimed, imported, registered.
 
 **Swept**:
@@ -870,11 +873,11 @@ read saw, rather than reading as having none.
 _Avoid_: Watched branch, live branch
 
 **Free agent**:
-An agent with no task. A launch pins a task session id on the agent, so an agent that carries
-none matches no task. A free agent is started by hand in a worktree, or from the orchestrator
-UI's new-work form. A free agent takes its name, branch and lane from the worktree it runs in;
-an agent whose worktree the world has not read yet falls back to its own project and a generic
-name. A free agent has no task list row, so its node is the only place to take it **Off desk**.
+An agent with no task: its **Agent record** names none. A free agent is started by hand in a
+worktree, or from the orchestrator UI's new-work form. A free agent takes its name, branch and
+lane from the worktree it runs in; an agent whose worktree the world has not read yet falls back
+to its own project and a generic name. A free agent has no task list row, so its node is the
+only place to take it **Off desk**.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
 **Canvas**:

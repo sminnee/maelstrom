@@ -37,6 +37,25 @@ release while that section is empty, and retitles it to the version it is releas
   in place of `2026-10-01.14`. A child is `k3f9.1`. Existing tasks keep their ids. `mael task
   list`, `mael task next` and the task list in the orchestrator order tasks by creation time.
 
+- **A task's sessions are stored, not derived.** The Agent record of each launch names its task
+  and its session id, and that record is the only link between the two. A session id is no
+  longer computed from the project name and the task id. `mael project mv` and
+  `mael task update --id` now keep a task's sessions: `mael task run` resumes them under the new
+  name. `mael project mv` no longer warns about orphaned sessions.
+
+  Run `mael admin migrate` once. It links each stored Agent record to its task, and drops the
+  `session_id` column from the task table.
+
+  A task that last ran through `mael task run --cli` or `--here` before this change has no Agent
+  record. Its next launch starts a new session and does not resume the old transcript. The old
+  transcript stays on disk.
+
+- **`MAEL_TASK_SESSION_ID` is removed.** Nothing read it. `MAEL_TASK_ID` names the task a session
+  runs, and `CLAUDE_CODE_SESSION_ID` names the conversation.
+
+- **`mael agent register --task-id` takes the task's project from the agent's working
+  directory.** Pass `--project NAME` when that directory is in no project.
+
 - **The Changes tab lists commits oldest first, and keeps its place in a long diff.** The strip
   draws the changed files as a tree, and a click on a file scrolls to it. Prev and Next step
   through the commits. The commit's subject and the file totals stay at the top while the diff

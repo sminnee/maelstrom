@@ -80,8 +80,8 @@ example:
 
 - [`task_table.py`](../../lib/domain/src/mael_domain/task_table.py) — storage. Defines the
   `TaskTable` abstract base class
-  (`load` / `list` / `save` / `delete` / `find_by_session_id` / `transact` /
-  `changed_since` / `revision`), with `InMemoryTaskTable` and `SqliteTaskTable`
+  (`load` / `list` / `save` / `delete` / `transact` / `changed_since` /
+  `revision`), with `InMemoryTaskTable` and `SqliteTaskTable`
   backends.
 - [`task.py`](../../lib/domain/src/mael_domain/task.py) — the pure model.
 - [`task_cli.py`](../../cli/src/mael_cli/task_cli.py) — the thin CLI.
