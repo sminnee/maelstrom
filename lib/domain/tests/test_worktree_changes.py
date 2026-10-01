@@ -5,11 +5,13 @@ of git's own output: a faked ``git diff`` would test the fake.
 """
 
 import pytest
+from agent_fixtures import make_change_comment
 from git_helpers import create_commit, run_git, setup_git_repo, setup_origin_main
 
 from mael_domain.worktree_changes import (
     MAX_LINES_PER_FILE,
     UnknownRev,
+    format_change_comments,
     list_changes,
     read_diff,
 )
@@ -249,3 +251,62 @@ async def test_a_sha_outside_the_branch_is_refused(repo):
 
     with pytest.raises(UnknownRev):
         await read_diff(repo, on_main)
+
+
+# -- change comments ----------------------------------------------------------
+
+
+def test_a_range_names_both_ends_and_comments_are_set_apart():
+    text = format_change_comments(
+        "feat/work",
+        [
+            make_change_comment(
+                endLine=14,
+                lines=["+    with open(path) as f:", "+        return f.read()"],
+            ),
+            make_change_comment(
+                path="b.py", startLine=2, endLine=2, lines=[" x"], body="why"
+            ),
+        ],
+    )
+    assert text == (
+        "Comments on the changes in feat/work, from the orchestrator UI:\n"
+        "\n"
+        "src/read.py lines 13-14 (uncommitted):\n"
+        "> +    with open(path) as f:\n"
+        "> +        return f.read()\n"
+        "close the file on error too\n"
+        "\n"
+        "b.py line 2 (uncommitted):\n"
+        ">  x\n"
+        "why"
+    )
+
+
+def test_an_old_side_range_says_its_numbers_are_the_old_ones():
+    text = format_change_comments(
+        "feat/work",
+        [
+            make_change_comment(
+                side="old",
+                startLine=40,
+                endLine=41,
+                lines=["-    if x:", "-        return None"],
+                body="keep this guard",
+            )
+        ],
+    )
+    assert "src/read.py old lines 40-41 (uncommitted):\n" in text
+
+
+@pytest.mark.parametrize(
+    ("rev", "label"),
+    [
+        ("uncommitted", "(uncommitted)"),
+        ("branch", "(branch)"),
+        ("0a3e3a3a5c1f4a3b9d0e7f6a5b4c3d2e1f0a9b8c", "(commit 0a3e3a3)"),
+    ],
+)
+def test_each_rev_has_its_label(rev, label):
+    text = format_change_comments("feat/work", [make_change_comment(rev=rev)])
+    assert f"src/read.py line 13 {label}:\n" in text
