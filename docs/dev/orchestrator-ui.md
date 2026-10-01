@@ -643,6 +643,49 @@ sticks at zero.
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
 new line numbers.
 
+#### Change comments
+
+The user selects lines, writes a **Change comment** on them, and posts every comment in one
+message. The code is in `changes/comments/`.
+
+| Step | What the user does | Code |
+|---|---|---|
+| Select | Drags down the line numbers, clicks one, or Shift+clicks to extend | `useLineSelection` |
+| Write | Types in the box below the last selected row, then **Add comment** | `ChangeCommentBox` |
+| Post | **Post comments** in the dock, or **Clear** | `CommentDock` |
+
+Each row's line numbers are one button. The handlers read the row that an event is on and no
+coordinates, so jsdom can drive a drag. The window hears the pointer-up, because the pointer can
+come up anywhere. Shift extends on the click and not on the pointer-down. The mouse-down that
+follows a pointer-down moves focus to the button, away from a box opened that early. A touch pointer is captured by the element it starts on, so a touch drag does
+not extend. A tap and Shift+click still select.
+
+A span counts in new line numbers, because those are the lines an agent can open. A selection of
+removed rows alone has no new number, so it counts in old ones and the message says `old line`.
+
+The comments and the open box are **Held text**: one set per worktree, under
+`retainedKey.changeComments`. The set is not per rev, because one post carries the comments of
+every rev. A post that the server accepts removes the comments it sent, and **Clear** removes
+everything. A refused post keeps the set.
+
+`comments/held.ts` holds every change to the set, as pure functions. There is one open box, and
+it keeps its text until **Add comment** or **Cancel**. A new selection moves the box with its
+text. **Edit** is disabled while another box holds text. A post leaves the open box in place.
+
+`placeOf` in `selection.ts` puts a held comment on the diff in view. `FileBlock` passes it only
+the comments of the rev and the file in view. It needs the same line numbers, and rows that read
+as the quoted lines do. A comment with no place is not drawn. It stays in the dock's count and it is posted, and its quoted lines keep it
+readable. Line numbers alone would draw a comment on whatever now has that number.
+
+The dock shows only while comments are held. It names the agents that the post reaches, which
+`trackedAgents` selects by the same rule as the server. With no agent in the worktree, the
+button is disabled and the comments stay held. When some agents refuse the message, the post
+still clears the set, and a line under the diff names the agents it did not reach.
+
+The comment box sits inside a block that scrolls sideways. The block is a size container, and
+the box is `position: sticky; left: 0` with a width of `100cqi`, so it keeps the block's width
+and its place while a long line scrolls. jsdom computes no layout, so no test covers this.
+
 Diff rows draw in syntax colour, in the Changes tab and in the Edit card, which takes its path
 from the tool call's `file_path`. `ui/highlight.ts` holds one Shiki highlighter with the
 JavaScript regex engine, so there is no WASM. Shiki's core and each language's grammar are
