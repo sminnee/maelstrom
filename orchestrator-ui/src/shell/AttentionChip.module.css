@@ -1,9 +1,28 @@
 .chip {
   font-weight: 600;
-  color: var(--attention);
   border-color: color-mix(in srgb, var(--attention) 50%, transparent);
 }
+.asks {
+  color: var(--attention);
+}
 .chip[data-count='0'] {
-  color: var(--fg-faint);
   border-color: var(--border);
+}
+.chip[data-count='0'] .asks {
+  color: var(--fg-faint);
+}
+/* The weaker count: the dot the unanswered node carries, then the number. */
+.unanswered {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-1);
+  color: var(--unanswered);
+}
+.unanswered::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--unanswered);
 }

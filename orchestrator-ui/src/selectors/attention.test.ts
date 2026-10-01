@@ -20,6 +20,20 @@ function asking(id: string, kind: AttentionKind, second: number) {
   };
 }
 
+/** A task on the desk whose agent ended its turn with a message. */
+function spoke(id: string, second: number) {
+  return {
+    task: makeTask({ id, status: 'in-progress' }),
+    agent: makeAgent({
+      id: `agent-${id}`,
+      taskId: id,
+      state: 'idle',
+      lastMessage: 'Which default do you want?',
+      lastMessageAt: `2026-09-01T00:00:0${second}Z`,
+    }),
+  };
+}
+
 function nodesOf(parts: Parameters<typeof worldWith>[0]) {
   const world = worldWith({ ...parts, desk: onDesk(parts.tasks ?? []) });
   return deriveGraph(world, { filters: noFilters(), groupBy: 'none' }).nodes;
@@ -110,6 +124,21 @@ describe('nextAttentionNode', () => {
     expect(nextAttentionNode(nodes, null)).toBe('T2');
     expect(nextAttentionNode(nodes, 'T2')).toBe('T1');
     expect(nextAttentionNode(nodes, 'T1')).toBe('T2');
+  });
+
+  it('visits the unanswered nodes after the asking ones, then starts again', () => {
+    const waiting = [spoke('T8', 7), spoke('T9', 3)];
+    const mixed = nodesOf({
+      tasks: [...waiting, ...cases].map((c) => c.task),
+      agents: [...waiting, ...cases].map((c) => c.agent),
+      attention: cases.map((c) => c.item),
+    });
+    const visited: (string | null)[] = [];
+    let at: string | null = null;
+    for (let i = 0; i < 5; i += 1) visited.push((at = nextAttentionNode(mixed, at)));
+    // T9 spoke before T8, so it leads the unanswered nodes.
+    expect(visited).toEqual(['T2', 'T1', 'T9', 'T8', 'T2']);
+    expect(attentionNodes(mixed).map((n) => n.id)).toEqual(['T2', 'T1']);
   });
 
   it('is null when no node needs the user', () => {

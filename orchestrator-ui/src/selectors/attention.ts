@@ -26,12 +26,26 @@ export function attentionNodes(nodes: readonly GraphNode[]): GraphNode[] {
   );
 }
 
-/** The node the attention chip should take the user to next, cycling from `current`. */
+/**
+ * The nodes in state `unanswered`, oldest last message first: the agent that
+ * has waited longest for a reply leads.
+ */
+export function unansweredNodes(nodes: readonly GraphNode[]): GraphNode[] {
+  const spokeAt = (n: GraphNode) => n.agent?.lastMessageAt ?? '';
+  return nodes
+    .filter((n) => n.progress.state === 'unanswered')
+    .sort((a, b) => spokeAt(a).localeCompare(spokeAt(b)));
+}
+
+/**
+ * The node the attention chip should take the user to next, cycling from
+ * `current`. The asking nodes come first, then the unanswered ones.
+ */
 export function nextAttentionNode(
   nodes: readonly GraphNode[],
   current: string | null,
 ): string | null {
-  const ids = attentionNodes(nodes).map((n) => n.id);
+  const ids = [...attentionNodes(nodes), ...unansweredNodes(nodes)].map((n) => n.id);
   if (ids.length === 0) return null;
   const index = current ? ids.indexOf(current) : -1;
   return ids[(index + 1) % ids.length] ?? null;
