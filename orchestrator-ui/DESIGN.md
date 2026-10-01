@@ -629,7 +629,8 @@ the phase hue. Two channels, two edges, no conflict.
 ### Chips
 
 - **Attention chip:** a button in Alert Amber at 600 weight with a 50%-mixed amber border.
-  At zero it drops to faint text and a plain hairline — present, unlit, not hidden.
+  At zero it drops to faint text and a plain hairline — present, unlit, not hidden. Its count
+  is the number of `needs-attention` nodes drawn.
 - **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
