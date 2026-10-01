@@ -30,6 +30,7 @@ from mael_domain import task as model
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
 from mael_orchestrator import linear_source, server
@@ -6301,3 +6302,398 @@ def test_the_ledger_closes_only_after_the_exit_is_applied(harness):
     rows = run(scenario())
     assert [row["name"] for row in rows] == ["<final>"]
     assert seen == ["exited"]
+
+
+# --- attached documents ----------------------------------------------------------
+
+WEBM_BYTES = b"\x1a\x45\xdf\xa3\x00\x00fakewebmdata"
+VERIFICATION_PATH = ".drafts/verification.md"
+VERIFICATION_TAG = (
+    "The login flow works.\n\n"
+    f'<doc-file kind="verification" filename="{VERIFICATION_PATH}" title="Login flow">'
+)
+VERIFICATION_BODY = (
+    "# Login flow\n\n![The dashboard](docs/shot.png)\n\n![The flow](docs/flow.webm)\n"
+)
+
+
+#: The bucket names of the two media files: the stem, then a digest of the bytes.
+ATTACHED_SHOT = "shot-ae4a7e43881f.png"
+ATTACHED_FLOW = "flow-440431cef497.webm"
+
+
+def is_verification(row: dict) -> bool:
+    return row["source"].get("filename") == VERIFICATION_PATH
+
+
+async def attach_settled(api: Api, harness, marker: str = "Marker.") -> None:
+    """Wait until the server has finished with every event pushed so far.
+
+    The stream is read one event at a time, and an event's attach is awaited
+    before the next event is read. So a later message showing on the agent
+    proves that every earlier attach has finished, or was never started.
+    """
+    harness.daemon.push("ag1", tag_event(marker))
+    await until(api, "/api/agents/ag1", lambda a: a["lastMessage"] == marker)
+
+
+@pytest.fixture
+def attach_harness(store, tmp_path, images):
+    """Builds harnesses over one task-attachment table and one real worktree.
+
+    Each harness is a server life: building a second one over the same table is
+    a restart. ``agent`` says whether the host still runs ``ag1``, which works
+    on task ``NORT-7`` unless ``linked`` says otherwise.
+    """
+    worktree = tmp_path / "northwind-alpha"
+    (worktree / ".drafts").mkdir(parents=True)
+    (worktree / "docs").mkdir()
+    (worktree / VERIFICATION_PATH).write_text(VERIFICATION_BODY)
+    (worktree / "docs" / "shot.png").write_bytes(PNG_BYTES)
+    (worktree / "docs" / "flow.webm").write_bytes(WEBM_BYTES)
+    table = InMemoryTaskAttachmentTable()
+    seeded = []
+
+    def build(*, agent: bool = True, linked: bool = True) -> Harness:
+        harness = Harness(store, task_attachments=table)
+        if not seeded:
+            harness.add_task("NORT-7")
+            seeded.append(True)
+        if agent:
+            session = model.session_id_for(PROJECT, "NORT-7") if linked else ""
+            harness.daemon.rows["ag1"] = agent_row(cwd=str(worktree), session=session)
+        return harness
+
+    build.table = table
+    build.worktree = worktree
+    return build
+
+
+async def present_verification(stream: EventStream, api: Api, harness) -> dict:
+    """Push the verification tag, and return its row once the server attached it."""
+    harness.daemon.push("ag1", tag_event(VERIFICATION_TAG))
+    body = await settled(
+        stream,
+        api,
+        "document",
+        "/api/documents",
+        lambda b: any(is_verification(d) and d["version"] == 1 for d in b["documents"]),
+    )
+    [row] = [d for d in body["documents"] if is_verification(d)]
+    await until(
+        api,
+        f"/api/documents/{row['id']}",
+        lambda d: "/api/attachments/" in d["markdown"],
+    )
+    return row
+
+
+def test_a_presented_verification_is_attached_with_its_media(attach_harness):
+    harness = attach_harness()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await present_verification(stream, api, harness)
+                doc = await api.get_json(f"/api/documents/{row['id']}")
+                return doc, await attach_harness.table.list()
+
+    doc, rows = run(scenario())
+
+    [attached] = rows
+    assert (attached.task_key, attached.kind, attached.path, attached.version) == (
+        f"{PROJECT}/NORT-7",
+        "verification",
+        VERIFICATION_PATH,
+        1,
+    )
+    # The document reads from the notebook, so it outlives the worktree.
+    assert doc["markdown"] == (
+        "# Login flow\n\n"
+        f"![The dashboard](/api/attachments/{PROJECT}/NORT-7/{ATTACHED_SHOT})\n\n"
+        f"![The flow](/api/attachments/{PROJECT}/NORT-7/{ATTACHED_FLOW})\n"
+    )
+
+
+def test_a_free_agents_verification_is_not_attached(attach_harness):
+    harness = attach_harness(linked=False)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(VERIFICATION_TAG))
+                body = await settled(
+                    stream, api, "document", "/api/documents", lambda b: b["documents"]
+                )
+                [row] = body["documents"]
+                await attach_settled(api, harness)
+                doc = await api.get_json(f"/api/documents/{row['id']}")
+                return doc, await attach_harness.table.list()
+
+    doc, rows = run(scenario())
+
+    assert rows == []
+    assert "/api/files/" in doc["markdown"]
+
+
+def test_a_document_of_another_kind_is_not_attached(attach_harness):
+    harness = attach_harness()
+    tag = f'<doc-file kind="other" filename="{VERIFICATION_PATH}" title="Notes">'
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(tag))
+                await settled(
+                    stream, api, "document", "/api/documents", lambda b: b["documents"]
+                )
+                await attach_settled(api, harness)
+                return await attach_harness.table.list()
+
+    assert run(scenario()) == []
+
+
+def test_a_keep_that_fails_leaves_the_document_and_the_stream_standing(attach_harness):
+    """The notebook refusing a write must not stop the agent's stream."""
+    harness = attach_harness()
+
+    async def refuse(**fields):
+        raise OSError("the notebook is read-only")
+
+    attach_harness.table.upsert = refuse
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(VERIFICATION_TAG))
+                body = await settled(
+                    stream, api, "document", "/api/documents", lambda b: b["documents"]
+                )
+                # A later event still arrives: the stream outlived the failure.
+                await attach_settled(api, harness)
+                [row] = body["documents"]
+                return await api.get_json(f"/api/documents/{row['id']}")
+
+    doc = run(scenario())
+
+    assert (doc["kind"], doc["version"]) == ("verification", 1)
+    assert "/api/files/" in doc["markdown"]
+
+
+def test_a_restarted_server_lists_the_attached_document_and_plays_its_video(
+    attach_harness,
+):
+    """The agent is gone and so is the first server; the notebook still answers."""
+    first = attach_harness()
+
+    async def present():
+        async with first.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await present_verification(stream, api, first)
+
+    run(present())
+    second = attach_harness(agent=False)
+
+    async def scenario():
+        async with second.client() as api:
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            doc = await api.get_json(f"/api/documents/{row['id']}")
+            url = f"/api/attachments/{PROJECT}/NORT-7/{ATTACHED_FLOW}"
+            async with api.session.get(url, headers={"Range": "bytes=0-3"}) as got:
+                return row, doc, got.status, await got.read()
+
+    row, doc, status, body = run(scenario())
+
+    assert (row["kind"], row["title"], row["version"], row["status"]) == (
+        "verification",
+        "Login flow",
+        1,
+        "draft",
+    )
+    assert (row["taskId"], row["agentId"]) == (f"{PROJECT}/NORT-7", "")
+    assert f"/api/attachments/{PROJECT}/NORT-7/{ATTACHED_SHOT}" in doc["markdown"]
+    # A browser seeks a video by range request.
+    assert (status, body) == (206, WEBM_BYTES[:4])
+
+
+def test_a_live_agent_after_a_restart_gives_one_document_per_path(attach_harness):
+    """The attach replays the tag; it is the attached document, not a second one."""
+    first = attach_harness()
+
+    async def present():
+        async with first.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await present_verification(stream, api, first)
+
+    run(present())
+    second = attach_harness()
+    second.daemon.backlog["ag1"] = [tag_event(VERIFICATION_TAG)]
+
+    async def scenario():
+        async with second.client() as api:
+            await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["agentId"] == "ag1" for d in b["documents"]),
+            )
+            await attach_settled(api, second)
+            body = await api.get_json("/api/documents")
+            return body["documents"], await attach_harness.table.list()
+
+    documents, rows = run(scenario())
+
+    assert [(d["source"]["filename"], d["version"]) for d in documents] == [
+        (VERIFICATION_PATH, 1)
+    ]
+    assert [d.version for d in rows] == [1]
+
+
+def test_a_replay_does_not_keep_what_the_agent_never_showed(attach_harness):
+    """The file changed after the agent showed it, and the agent did not show it again.
+
+    A replay reads the worktree as it stands now, so it must not replace the row.
+    """
+    first = attach_harness()
+
+    async def present():
+        async with first.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await present_verification(stream, api, first)
+
+    run(present())
+    (attach_harness.worktree / VERIFICATION_PATH).write_text("Unfinished edit.\n")
+    second = attach_harness()
+    second.daemon.backlog["ag1"] = [tag_event(VERIFICATION_TAG)]
+
+    async def scenario():
+        async with second.client() as api:
+            await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["agentId"] == "ag1" for d in b["documents"]),
+            )
+            await attach_settled(api, second)
+            return await attach_harness.table.list()
+
+    [attached] = run(scenario())
+
+    assert attached.version == 1
+    assert "Unfinished edit." not in attached.body
+
+
+def test_a_revised_verification_is_the_next_version_of_the_attached_document(
+    attach_harness,
+):
+    harness = attach_harness()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                first = await present_verification(stream, api, harness)
+                (attach_harness.worktree / VERIFICATION_PATH).write_text("Reworked.\n")
+                harness.daemon.push("ag1", tag_event(VERIFICATION_TAG))
+                await attach_settled(api, harness)
+                return await api.get_json(f"/api/documents/{first['id']}")
+
+    doc = run(scenario())
+
+    assert (doc["version"], doc["markdown"]) == (2, "Reworked.\n")
+
+
+def test_an_approved_plan_is_attached_and_a_restarted_server_still_shows_it(
+    store, images
+):
+    table = InMemoryTaskAttachmentTable()
+    first = Harness(store, task_attachments=table)
+    first.add_task("NORT-7")
+    waiting_on(
+        first,
+        "plan-review-with-plan.jsonl",
+        session=model.session_id_for(PROJECT, "NORT-7"),
+    )
+
+    async def approve():
+        async with first.client() as api:
+            body = await until(api, "/api/documents", lambda b: b["documents"])
+            [row] = body["documents"]
+            await attach_settled(api, first)
+            before = await table.list()
+            request_id = row["source"]["requestId"]
+            await api.post("/api/agents/ag1/approve", {"requestId": request_id})
+            await until(
+                api, f"/api/documents/{row['id']}", lambda d: d["status"] == "approved"
+            )
+            plan = await api.get_json(f"/api/documents/{row['id']}")
+            while not await table.list():
+                await asyncio.sleep(0.02)
+            return before, plan
+
+    before, plan = run(asyncio.wait_for(approve(), 5))
+    second = Harness(store, task_attachments=table)
+
+    async def scenario():
+        async with second.client() as api:
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            return row, await api.get_json(f"/api/documents/{row['id']}")
+
+    row, doc = run(scenario())
+
+    # A plan still under review is not attached: the user may send it back.
+    assert before == []
+    assert (row["kind"], row["status"], row["source"]["type"]) == (
+        "plan",
+        "approved",
+        "attached",
+    )
+    assert row["taskId"] == f"{PROJECT}/NORT-7"
+    assert doc["markdown"] == plan["markdown"]
+
+
+def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
+    """The replay mints the live plan, so the entry seeded at start goes."""
+    table = InMemoryTaskAttachmentTable()
+    session = model.session_id_for(PROJECT, "NORT-7")
+    first = Harness(store, task_attachments=table)
+    first.add_task("NORT-7")
+    backlog, _ = waiting_on(first, "plan-review-with-plan.jsonl", session=session)
+
+    async def approve():
+        async with first.client() as api:
+            body = await until(api, "/api/documents", lambda b: b["documents"])
+            [row] = body["documents"]
+            request_id = row["source"]["requestId"]
+            await api.post("/api/agents/ag1/approve", {"requestId": request_id})
+            await until(
+                api, f"/api/documents/{row['id']}", lambda d: d["status"] == "approved"
+            )
+            await attach_settled(api, first)
+
+    run(approve())
+    approval = reply_for_approval(pending_from(backlog))
+    second = Harness(store, task_attachments=table)
+    second.daemon.rows["ag1"] = agent_row(session=session)
+    second.daemon.backlog["ag1"] = [*backlog, approval]
+
+    async def scenario():
+        async with second.client() as api:
+            await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["agentId"] == "ag1" for d in b["documents"]),
+            )
+            await attach_settled(api, second)
+            return (await api.get_json("/api/documents"))["documents"]
+
+    documents = run(scenario())
+
+    assert [(d["kind"], d["agentId"], d["status"]) for d in documents] == [
+        ("plan", "ag1", "approved")
+    ]

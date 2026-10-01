@@ -81,6 +81,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     from unittest.mock import patch
 
     from mael_domain.desk_store import SqliteDeskStore
+    from mael_domain.task_attachments import SqliteTaskAttachmentTable
     from mael_domain.worktree import WorktreeSetup
     from mael_orchestrator.sources import NotebookTaskSource
 
@@ -112,6 +113,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert orchestrator.tasks.agents is orchestrator.daemon.agents
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, SqliteDeskStore)
+    # Not the in-memory default, which would lose every attached document at a restart.
+    assert isinstance(orchestrator.task_attachments, SqliteTaskAttachmentTable)
     assert orchestrator.worktrees.projects_dir == projects_dir
     assert orchestrator.daemon.claude.socket_path == (
         f"{tmp_path / 'root'}/agent-daemon.sock"
