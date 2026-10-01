@@ -156,12 +156,37 @@ and does not resolve `@` imports). Both are gitignored per worktree.
 | `--timeout INTEGER` | Maximum seconds to wait for the merge. Default: 3600. |
 | `--interval INTEGER` | Poll interval in seconds. Default: 30. |
 | `--force` | Close incomplete work too. Aborts an in-progress sync, commits uncommitted changes as `wip: uncommitted changes`, keeps the branch and PR, and creates a "Reopen" task. |
-| `--discard` | Discard tracked, staged, and non-ignored untracked files, then close without syncing. Branch commits and ignored files remain. Cannot combine with `--force` or `--wait`. |
+| `--discard` | Discard tracked, staged, and non-ignored untracked files, then close without syncing. Branch commits and ignored files remain. Cannot combine with `--force`, `--trash` or `--wait`. |
+| `--trash` | Set unmerged work aside. Moves the branch to `trash/<branch>` locally and on origin, and closes its open PR. Cannot combine with `--force`, `--discard` or `--wait`. |
 
 `mael close` stops the worktree's sessions before it tears the worktree down. It asks the agent
 daemon to stop the agents running there, then signals any remaining `claude` process. The daemon
 records those as stopped, not crashed, so a closed worktree leaves nothing in `mael agent list
 --all`.
+
+`mael close --trash` runs that teardown, then commits uncommitted changes as
+`wip: uncommitted changes`. It does not sync. The PR closes with the comment `Trashed: branch moved
+to trash/<branch>`.
+
+The push sends everything on the branch to origin, the wip commit included. That holds for a
+branch that was never pushed too.
+
+`--trash` refuses, and changes nothing, when:
+
+- the target is `_main`, or the branch is `main`;
+- the worktree is not on a branch;
+- the branch is already under `trash/`;
+- `trash/<branch>` already exists locally, or exists on origin at a different commit;
+- another branch is stacked on the branch.
+
+It stops, with the worktree still on its branch, when:
+
+- the PR lookup or the PR close fails;
+- `origin/<branch>` has commits that the local branch lacks;
+- the push fails.
+
+Run the same command again after the cause is fixed. The branch's stored base is cleared, and its
+working history moves to the new name.
 
 **`mael remove` / `mael rm`**
 

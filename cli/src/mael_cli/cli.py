@@ -71,6 +71,7 @@ from mael_domain.worktree_model import (
     order_by_stack,
     validate_base,
 )
+from mael_domain.worktree_trash import trash_worktree_fully
 
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
@@ -1314,7 +1315,12 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
     is_flag=True,
     help="Discard dirty files and close without syncing. Keeps branch commits and ignored files.",
 )
-async def cmd_close(targets, wait, timeout, interval, force, discard):
+@click.option(
+    "--trash",
+    is_flag=True,
+    help="Set unmerged work aside: move the branch to trash/<branch> and close its PR.",
+)
+async def cmd_close(targets, wait, timeout, interval, force, discard, trash):
     """Close one or more worktrees (sync, verify clean, checkout main).
 
     Closes a worktree by:
@@ -1338,7 +1344,18 @@ async def cmd_close(targets, wait, timeout, interval, force, discard):
 
     With --discard, removes tracked, staged, and non-ignored untracked files,
     then closes without syncing. Branch commits and ignored files remain.
+
+    With --trash, sets unmerged work aside without syncing. The branch moves to
+    trash/<branch>, locally and on origin, and its open PR is closed with a
+    comment. Uncommitted changes are committed as 'wip: uncommitted changes'
+    first. No 'Reopen <branch>' task is created.
     """
+    if trash and force:
+        raise click.UsageError("--trash cannot be used with --force")
+    if trash and discard:
+        raise click.UsageError("--trash cannot be used with --discard")
+    if trash and wait:
+        raise click.UsageError("--trash cannot be used with --wait")
     if discard and force:
         raise click.UsageError("--discard cannot be used with --force")
     if discard and wait:
@@ -1389,14 +1406,20 @@ async def cmd_close(targets, wait, timeout, interval, force, discard):
                 continue
 
         # In the model, so the orchestrator server runs the same close.
-        outcome = await close_worktree_fully(
-            ctx.project,
-            ctx.worktree,
-            worktree_path,
-            ctx.project_path,
-            force=force,
-            discard=discard,
-        )
+        if trash:
+            assert ctx.project_path is not None
+            outcome = await trash_worktree_fully(
+                ctx.project, ctx.worktree, worktree_path, ctx.project_path
+            )
+        else:
+            outcome = await close_worktree_fully(
+                ctx.project,
+                ctx.worktree,
+                worktree_path,
+                ctx.project_path,
+                force=force,
+                discard=discard,
+            )
         # The rescue is reported where it ran, before the close is announced.
         split = outcome.messages_before_copy_back
         for line in outcome.messages[:split]:
