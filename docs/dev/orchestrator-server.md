@@ -773,7 +773,8 @@ A rev is one of three values:
 
 The **Base** resolves as it does for a review: `origin/<base>` first, then `origin/main` when the
 base has merged and been pruned. `base` in the reply is the branch that resolved. `dirtyFiles` and
-the uncommitted diff hold **Dirty files** only.
+the uncommitted diff hold **Dirty files** only. `commits` is oldest first, the order the work was
+done in.
 
 Both routes answer 404 `unknown_id` for a worktree the world does not hold, and for a **Closed**
 worktree, which has a detached HEAD and so no branch. The diff route also answers 404 for a sha

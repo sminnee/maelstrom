@@ -111,7 +111,7 @@ export interface WorktreeChanges {
   dirtyFiles: ChangedFile[];
   /** The **Base** the commits are measured against: `main` when the base was pruned. */
   base: string;
-  /** Newest first. */
+  /** Oldest first. */
   commits: BranchCommit[];
 }
 

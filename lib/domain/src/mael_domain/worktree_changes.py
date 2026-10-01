@@ -81,7 +81,7 @@ def resolve_base_branch(cwd: Path) -> str:
 
 
 async def list_changes(path: Path) -> WorktreeChanges:
-    """The dirty files, the base, and the commits ahead of it, newest first."""
+    """The dirty files, the base, and the commits ahead of it, oldest first."""
     base, merge_base = await _merge_base(path)
     return {
         "dirtyFiles": await _dirty_files(path),
@@ -151,6 +151,7 @@ async def _commits(path: Path, merge_base: str) -> list[BranchCommit]:
         [
             *_GIT_OPTIONS,
             "log",
+            "--reverse",
             # The body ends in its own separator, because it holds newlines
             # and the --shortstat line follows it.
             f"--format={_RECORD}%H{_FIELD}%h{_FIELD}%s{_FIELD}%an{_FIELD}%aI{_FIELD}%b{_FIELD}",
