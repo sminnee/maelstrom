@@ -15,6 +15,7 @@ Files are written untracked; the caller's next notebook commit sweeps them in
 via ``git add -A``.
 """
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -87,6 +88,79 @@ def save_attachment(project: str, bucket: str, data: bytes, *, name: str = "") -
     filename = _free_name(directory, stem, ext)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / filename).write_bytes(data)
+    return f"{MAEL_TASK_DIR_TOKEN}/images/{bucket}/{filename}"
+
+
+#: The largest image or video an attached document stores. A short screen recording
+#: is under this; the cap is here so one capture cannot fill the notebook repo.
+MAX_MEDIA_BYTES = 50 * 1024 * 1024
+
+
+#: ISO-BMFF major brands that are still images. They share the ``ftyp`` box
+#: with MP4 and QuickTime, and a browser's ``<video>`` cannot play them.
+_IMAGE_BRANDS = (
+    b"heic",
+    b"heix",
+    b"hevc",
+    b"heim",
+    b"heis",
+    b"mif1",
+    b"msf1",
+    b"avif",
+    b"avis",
+)
+
+
+def _video_extension(name: str, data: bytes) -> str | None:
+    """The extension of a video sniffed from its bytes, or ``None`` for no video.
+
+    WebM is EBML-framed. MP4 and QuickTime share the ``ftyp`` box, so the
+    source's own extension tells them apart.
+    """
+    if data.startswith(b"\x1a\x45\xdf\xa3"):
+        return ".webm"
+    if data[4:8] == b"ftyp" and data[8:12] not in _IMAGE_BRANDS:
+        suffix = Path(name).suffix.lower()
+        return suffix if suffix in (".mp4", ".mov") else ".mp4"
+    return None
+
+
+def save_media(project: str, bucket: str, source: Path) -> str:
+    """Copy one image or video into the task repo and return its portable token.
+
+    :func:`save_attachment` takes the bytes of an upload: an image, up to
+    5 MB. This takes a file an attached document names: an image or a video, up
+    to :data:`MAX_MEDIA_BYTES`.
+
+    The filename carries a digest of the bytes. A document is attached once per
+    version, so an unchanged file is found under its name and stored once,
+    and two files that share a name, as every Playwright ``video.webm`` does,
+    do not collide.
+
+    Raises:
+        ValueError: the file is too large, or is neither an image nor a video.
+        OSError: the file cannot be read.
+    """
+    from .task import MAEL_TASK_DIR_TOKEN
+
+    size = source.stat().st_size
+    if size > MAX_MEDIA_BYTES:
+        raise ValueError(f"media is too large: {size} bytes, limit {MAX_MEDIA_BYTES}")
+    data = source.read_bytes()
+    if is_image(data):
+        ext = image_extension(source.name, data)
+    else:
+        video = _video_extension(source.name, data)
+        if video is None:
+            raise ValueError("media is neither an image nor a video")
+        ext = video
+
+    digest = hashlib.sha256(data).hexdigest()[:12]
+    filename = f"{source.stem or 'media'}-{digest}{ext}"
+    directory = bucket_dir(project, bucket)
+    if not (directory / filename).is_file():
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / filename).write_bytes(data)
     return f"{MAEL_TASK_DIR_TOKEN}/images/{bucket}/{filename}"
 
 

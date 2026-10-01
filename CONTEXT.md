@@ -702,6 +702,19 @@ status. A document that stands at a checkpoint awaits review. A document the use
 to read is a **draft**, and blocks nothing.
 _Avoid_: Artefact, output
 
+**Verification**:
+A **Document** of kind `verification`. It holds the evidence that the work is complete: prose,
+images and video. An agent writes it at `.drafts/verification.md` after the gates pass.
+_Avoid_: Proof, evidence document, demo
+
+**Attached document**:
+A **Document** that the task notebook stores as an **Attachment** of its task. The row is in the
+`task_attachments` table of the **State database**, and the media are in the task's **Bucket**.
+An attached document outlives its agent, its worktree and the server. A verification is attached
+when the agent shows it with a **Document tag**, and a plan when the user approves it. Only a
+document of an agent with a task is attached.
+_Avoid_: Kept document, saved document, persisted document, archived document
+
 **Document tag**:
 The marker an agent writes in the text of an ordinary message to put a document in front of the
 user: `<doc-file>`, naming files in the agent's worktree, comma-separated, resolved against that
@@ -1096,9 +1109,11 @@ Curated markdown pages for design patterns that apply to more than one project. 
 the gap that per-project memory and a repo's own `docs/` both leave open.
 
 **Attachment**:
-An image stored in the task notebook under `<project>/images/<bucket>/`, referenced from task
-content by a `{{MAEL_TASK_DIR}}` token that expands to an absolute path at launch. A brief from
-Linear and a screenshot pasted into the orchestrator UI both land here.
+Something the task notebook stores for one task. There are two kinds. A media attachment is an
+image or a video under `<project>/images/<bucket>/`. An **Attached document** is a row in the
+`task_attachments` table. Task content and the body of an attached document reference a media
+attachment by a `{{MAEL_TASK_DIR}}` token, which expands to an absolute path at launch. A brief
+from Linear and a screenshot pasted into the orchestrator UI are both media attachments.
 _Avoid_: Upload, file, asset
 
 **Bucket**:

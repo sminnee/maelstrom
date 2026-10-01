@@ -11,6 +11,7 @@ from .db import StateDb
 from .migrations.agents import AGENTS
 from .migrations.desk import DESK
 from .migrations.spine import SPINE
+from .migrations.task_attachments import TASK_ATTACHMENTS
 from .migrations.task_export import TASK_EXPORT
 from .migrations.tasks import TASKS
 from .types import Rung, TableSpec
@@ -22,6 +23,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "tasks": TASKS,
     "task_export": TASK_EXPORT,
     "agents": AGENTS,
+    "task_attachments": TASK_ATTACHMENTS,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
@@ -37,6 +39,9 @@ TABLES: dict[str, TableSpec] = {
     # The ledger the cost report reads. Nothing in the UI draws it, so a write
     # is not news for a client — as for `agents` itself.
     "agent_milestones": TableSpec("agent_milestones", notifies=False),
+    # The server seeds the world from these rows at start and upserts the
+    # document itself when it attaches one, so a write is not news for a client.
+    "task_attachments": TableSpec("task_attachments", notifies=False),
 }
 
 
