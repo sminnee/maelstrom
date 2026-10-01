@@ -122,6 +122,10 @@ an agent had spent at each stage, and no transcript can rebuild it. The **closin
 writes is one of these, so the ledger is whole on disk. It carries no `fetched_at` and
 nothing draws it, so a write to it is not news for a client.
 
+An **Attached document** is canonical too. Its row in `task_attachments` carries the markdown, and no
+source can rebuild it once the worktree that held the file is closed. Its media are files in the
+task's **Bucket**, which the notebook's git tree holds.
+
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
 prose queries the table.
