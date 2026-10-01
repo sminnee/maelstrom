@@ -1,0 +1,56 @@
+/* The changed files as a tree, in the Changes tab's strip. */
+.tree,
+.tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tree {
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--border);
+}
+/* The Changes tab is the container. Its narrow strip is short, and the file
+   list in the scroll already jumps to a file. */
+@container (max-width: 40rem) {
+  .tree {
+    display: none;
+  }
+}
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 2px var(--space-3);
+  padding-left: calc(var(--space-3) + var(--depth) * var(--space-3));
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.item:hover,
+.item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status,
+.chevron {
+  width: 1ch;
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
+.chevron::before {
+  content: '▸';
+}
+.item[aria-expanded='true'] .chevron::before {
+  content: '▾';
+}
