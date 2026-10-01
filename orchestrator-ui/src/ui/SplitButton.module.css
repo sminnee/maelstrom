@@ -41,15 +41,23 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
-  /* Near the bottom of the screen the menu opens upward instead. */
-  position-try-fallbacks: flip-block;
+  /* Near the bottom of the screen the menu opens upward instead. With no
+     room to its left, it pins to the screen's left edge. */
+  position-try-fallbacks:
+    flip-block,
+    --pin-left,
+    --pin-left flip-block;
+}
+@position-try --pin-left {
+  right: auto;
+  left: var(--space-2);
 }
 /* Offsets at (0,2,0) — see `anchoredPopover.module.css`. */
 .menu:popover-open {
   display: flex;
   top: calc(anchor(bottom) + 2px);
-  /* Right-aligned to the trigger: the control ends its row, so growing
-     leftward keeps the menu on screen. */
+  /* Right-aligned to the trigger: a control that ends its row grows
+     leftward. `--pin-left` covers a control that starts its row. */
   right: anchor(right);
 }
 
