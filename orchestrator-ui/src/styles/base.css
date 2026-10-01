@@ -15,8 +15,10 @@ html {
 }
 /* The app is a fixed viewport: scrolling belongs to the two inner boxes, not to
    the document. Clipping here stops a tall panel child putting a scrollbar on
-   the page. */
+   the page. `position` is part of the clip: `overflow` does not clip an absolute
+   box whose containing block is outside this box. */
 #root {
+  position: relative;
   overflow: hidden;
 }
 body {
