@@ -111,7 +111,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
             {members
               .filter((d) => d.id !== documentId)
               .map((d) => (
-                <PanelLink key={d.id} tab={documentTab(d.id)}>
+                <PanelLink key={d.id} tab={documentTab(d.id)} className={styles.siblingLink}>
                   {d.title}
                 </PanelLink>
               ))}
