@@ -307,6 +307,10 @@ class WorktreeSource(Protocol):
     #: task — that belongs to ``mael close --force`` alone.
     force_close: CloseWorktree | None
 
+    #: Trashes a worktree's branch and closes the worktree, or ``None`` on a
+    #: source that cannot.
+    trash: CloseWorktree | None
+
     #: Rebases a worktree, or ``None`` on a source that cannot.
     sync: SyncWorktree | None
 
@@ -604,6 +608,7 @@ class InMemoryWorktreeSource:
         worktrees: list[Worktree] | None = None,
         close: CloseWorktree | None = None,
         force_close: CloseWorktree | None = None,
+        trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
@@ -613,6 +618,7 @@ class InMemoryWorktreeSource:
         self.worktrees = list(worktrees or [])
         self.close = close
         self.force_close = force_close
+        self.trash = trash
         self.sync = sync
         self.remove = remove
         self.env = env
@@ -654,6 +660,7 @@ class ListAllWorktreeSource:
         projects_dir: Path,
         close: CloseWorktree | None = None,
         force_close: CloseWorktree | None = None,
+        trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
@@ -672,6 +679,7 @@ class ListAllWorktreeSource:
         self.rate_limited = False
         self.close = close
         self.force_close = force_close
+        self.trash = trash
         self.sync = sync
         self.remove = remove
         self.env = env

@@ -1381,6 +1381,7 @@ class Orchestrator:
             "document.requestChanges": self._request_changes,
             "worktree.close": self._close_worktree,
             "worktree.forceClose": self._force_close_worktree,
+            "worktree.trash": self._trash_worktree,
             "worktree.remove": self._remove_worktree,
             "worktree.sync": self._sync_worktree,
             "worktree.env": self._env_worktree,
@@ -1944,6 +1945,28 @@ class Orchestrator:
             return _refused("invalid", f"Could not close the worktree: {exc}")
         finally:
             # A close that fails partway has still stopped agents and freed
+            # ports, so the world is stale whichever way this ends.
+            await self.refresh_worktrees()
+            await self.refresh_agents()
+        return {"ok": True, "result": {}}
+
+    async def _trash_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Trash a worktree's branch and close the worktree."""
+        trash = self.worktrees.trash
+        if trash is None:
+            return _refused("invalid", "This server cannot trash worktrees")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        try:
+            await self._run_worktree(trash, row["project"], row["nato"], row["path"])
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not trash worktree %s", worktree_id)
+            return _refused("invalid", f"Could not trash the worktree: {exc}")
+        finally:
+            # A trash that fails partway has still stopped agents and freed
             # ports, so the world is stale whichever way this ends.
             await self.refresh_worktrees()
             await self.refresh_agents()

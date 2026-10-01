@@ -767,6 +767,26 @@ class TestForceClose:
         assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
 
 
+class TestTrash:
+    """Trash takes the worktree away, so it refuses where a close does."""
+
+    def test_trashing_main_is_refused(self):
+        world = world_with(
+            worktrees=[make_worktree(id="_main", nato="_main", branch="main")]
+        )
+        error = validate_command(world, worktree_cmd("worktree.trash", "_main"))
+        assert code(error) == "invalid"
+        assert "main checkout" in error["message"]
+
+    def test_trashing_a_closed_worktree_is_refused(self):
+        world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
+        error = validate_command(
+            world, worktree_cmd("worktree.trash", "northwind-alpha")
+        )
+        assert code(error) == "invalid"
+        assert "is closed" in error["message"]
+
+
 class TestRemove:
     def test_removing_an_open_worktree_is_allowed(self):
         world = world_with(worktrees=[make_worktree()])

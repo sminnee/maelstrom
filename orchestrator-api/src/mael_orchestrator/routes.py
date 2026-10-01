@@ -118,6 +118,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
     app.router.add_post("/api/worktrees/{id}/force-close", _force_close_worktree)
+    app.router.add_post("/api/worktrees/{id}/trash", _trash_worktree)
     app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
@@ -629,6 +630,15 @@ async def _force_close_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.forceClose", "worktreeId": worktree_id},
+    )
+
+
+async def _trash_worktree(request: web.Request) -> web.StreamResponse:
+    """Trash a worktree's branch and close it. It pushes, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.trash", "worktreeId": worktree_id},
     )
 
 

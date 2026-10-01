@@ -5590,6 +5590,63 @@ def test_force_closing_main_is_refused(harness):
     assert "main checkout" in reply.body["error"]["message"]
 
 
+def test_trashing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
+    trashed: list[str] = []
+
+    def trash(project: str, nato: str, path: str) -> None:
+        trashed.append(f"{project}/{nato}")
+        harness.worktrees.worktrees[0] = {
+            **harness.worktrees.worktrees[0],
+            "isClosed": True,
+            "branch": "",
+        }
+
+    harness.worktrees.trash = trash
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/trash")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 200
+    assert trashed == ["northwind/alpha"]
+    assert worktrees["worktrees"][0]["isClosed"] is True
+
+
+def test_a_refused_trash_says_what_the_model_said_and_still_refreshes(harness):
+    def trash(project: str, nato: str, path: str) -> None:
+        # A trash that stops partway has already committed the dirty files.
+        harness.worktrees.worktrees[0] = {
+            **harness.worktrees.worktrees[0],
+            "dirtyFiles": 0,
+            "localCommits": 9,
+        }
+        raise CloseBlocked("Could not move feature/x on origin")
+
+    harness.worktrees.trash = trash
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/trash")
+            return reply, await api.get_json("/api/worktrees")
+
+    reply, worktrees = run(scenario())
+    assert reply.status == 400
+    assert "on origin" in reply.body["error"]["message"]
+    assert worktrees["worktrees"][0]["localCommits"] == 9
+
+
+def test_a_server_that_cannot_trash_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/trash")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot trash worktrees" in reply.body["error"]["message"]
+
+
 def test_removing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
     removed: list[str] = []
 

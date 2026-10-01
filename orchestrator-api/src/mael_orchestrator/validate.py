@@ -73,6 +73,7 @@ DRIVING_COMMANDS = (
 WORKTREE_COMMANDS = (
     "worktree.close",
     "worktree.forceClose",
+    "worktree.trash",
     "worktree.remove",
     "worktree.sync",
     "worktree.env",
@@ -81,13 +82,19 @@ WORKTREE_COMMANDS = (
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
 #: an environment on ``_main`` is ordinary work.
-TEARDOWN_COMMANDS = ("worktree.close", "worktree.forceClose", "worktree.remove")
+TEARDOWN_COMMANDS = (
+    "worktree.close",
+    "worktree.forceClose",
+    "worktree.trash",
+    "worktree.remove",
+)
 
 #: The commands needing a worktree that still holds a branch and a checkout. A
 #: remove is the exception: deleting a parked worktree is the point of it.
 NEEDS_OPEN_COMMANDS = (
     "worktree.close",
     "worktree.forceClose",
+    "worktree.trash",
     "worktree.sync",
     "worktree.env",
     "worktree.createTerminal",
