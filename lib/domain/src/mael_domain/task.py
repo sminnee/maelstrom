@@ -24,12 +24,14 @@ no longer the storage format.
 
 import os
 import re
+import secrets
+import string
 import subprocess
 import tempfile
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -196,13 +198,6 @@ FRONTMATTER_KEYS = tuple(f.key for f in TASK_FIELDS)
 # Frontmatter keys whose name differs from the dataclass attr (kebab vs snake) —
 # just the kebab-case ones. Any key absent here uses its own name as the attr.
 _FRONTMATTER_ATTR = {f.key: f.attr for f in TASK_FIELDS if f.attr != f.key}
-
-
-def _today() -> str:
-    # Local calendar date: .astimezone() yields an aware datetime in the
-    # machine's local zone, so the ID date prefix follows the user's day rather
-    # than UTC.
-    return datetime.now().astimezone().date().isoformat()
 
 
 # --- safety / key construction ---
@@ -478,18 +473,33 @@ def _split_sections(body: str) -> dict[str, str]:
 # --- id allocation ---
 
 
-async def allocate_orphan_id(
-    table: "TaskTable", project: str, *, today: str | None = None
-) -> str:
-    """Allocate a top-level (orphan) id of the form ``YYYY-MM-DD.<n>``.
+_ORPHAN_ID_ALPHABET = string.ascii_lowercase + string.digits
+_ORPHAN_ID_LENGTH = 4
 
-    ``<n>`` is one more than the highest existing counter for ``today`` across
-    all statuses. The dot before the counter keeps every id uniformly
-    dot-segmented.
+
+def _random_id() -> str:
+    return "".join(
+        secrets.choice(_ORPHAN_ID_ALPHABET) for _ in range(_ORPHAN_ID_LENGTH)
+    )
+
+
+async def allocate_orphan_id(
+    table: "TaskTable", project: str, *, draw: Callable[[], str] = _random_id
+) -> str:
+    """Allocate a top-level (orphan) id: 4 random characters from ``a-z0-9``.
+
+    An id that ``project`` already has is drawn again: the table save is an
+    upsert, so a collision would overwrite that task. An id that YAML reads as
+    a non-string (``0123``, ``true``) is drawn again too: a task draft names
+    its ``parent`` and ``follow`` ids in YAML. ``draw`` is the test seam for
+    both.
     """
-    date = today if today is not None else _today()
-    pattern = re.compile(rf"^{re.escape(date)}\.(\d+)$")
-    return f"{date}.{await _next_counter(table, project, pattern)}"
+    while True:
+        id = draw()
+        if _is_yaml_autotyped(id):
+            continue
+        if await table.load(project, id) is None:
+            return id
 
 
 async def allocate_child_id(table: "TaskTable", project: str, parent: str) -> str:
@@ -641,7 +651,6 @@ async def create(
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
-    today: str | None = None,
 ) -> Task:
     """Create a new task and write its row (one write).
 
@@ -661,7 +670,7 @@ async def create(
         if parent:
             id = await allocate_child_id(table, project, parent)
         else:
-            id = await allocate_orphan_id(table, project, today=today)
+            id = await allocate_orphan_id(table, project)
     # When mode is left unset, fall back to the global default; an explicit
     # ``mode`` always wins.
     resolved_mode = mode or DEFAULT_MODE
@@ -729,7 +738,6 @@ async def duplicate(
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
-    today: str | None = None,
 ) -> Task:
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
@@ -769,7 +777,6 @@ async def duplicate(
         status=status,
         id=id,
         now=now,
-        today=today,
     )
 
 
@@ -1072,7 +1079,6 @@ async def load_many(
     blocks: list[dict],
     default_parent: str = "",
     now: str | None = None,
-    today: str | None = None,
 ) -> list[Task]:
     """Create every block as a task in one transaction (a single commit).
 
@@ -1121,7 +1127,6 @@ async def load_many(
                 follows=deduped,
                 content=b["content"],
                 now=now,
-                today=today,
             )
             created[b["name"]] = t
     return list(created.values())

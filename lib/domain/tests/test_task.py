@@ -1,5 +1,7 @@
 """Tests for the task notebook core model, against an InMemoryTaskTable."""
 
+import re
+
 import pytest
 
 from mael_domain import task as model
@@ -11,7 +13,6 @@ from mael_domain.task_table import InMemoryTaskTable
 
 NOW = "2026-06-08T12:00:00+00:00"
 NOW2 = "2026-06-09T12:00:00+00:00"
-TODAY = "2026-06-08"
 
 
 # --- frontmatter round-trip ---
@@ -376,29 +377,39 @@ class TestPromoteDraft:
 
 
 class TestIdAllocation:
-    async def test_orphan_first_id(self, store):
-        assert await model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.1"
+    async def test_orphan_id_is_four_lowercase_alphanumerics(self, store):
+        t = await model.create(store, project="p", title="a", now=NOW)
+        assert re.fullmatch(r"[a-z0-9]{4}", t.id)
 
-    async def test_orphan_increments(self, store):
-        await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(store, project="p", title="b", now=NOW, today=TODAY)
-        assert await model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.3"
+    async def test_orphan_id_skips_a_taken_id(self, store):
+        await model.create(store, project="p", title="first", id="k3f9", now=NOW)
+        draws = iter(["k3f9", "x7q2"])
+        id = await model.allocate_orphan_id(store, "p", draw=lambda: next(draws))
+        assert id == "x7q2"
 
-    async def test_orphan_counts_across_statuses(self, store):
-        t = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.move(store, "p", t.id, "done", now=NOW)
-        # The done task still counts toward the next counter.
-        assert await model.allocate_orphan_id(store, "p", today=TODAY) == "2026-06-08.2"
+    @pytest.mark.parametrize("misread", ["0123", "0x1f", "true", "null", "1234"])
+    async def test_orphan_id_skips_an_id_yaml_reads_as_a_non_string(
+        self, store, misread
+    ):
+        # A task draft passes ``parent:`` and ``follow:`` through YAML, which
+        # reads ``0123`` as 83 and ``true`` as a bool.
+        draws = iter([misread, "x7q2"])
+        id = await model.allocate_orphan_id(store, "p", draw=lambda: next(draws))
+        assert id == "x7q2"
+
+    async def test_orphan_id_is_free_in_another_project(self, store):
+        await model.create(store, project="other", title="a", id="k3f9", now=NOW)
+        assert await model.allocate_orphan_id(store, "p", draw=lambda: "k3f9") == "k3f9"
 
     async def test_child_id(self, store):
-        parent = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        parent = await model.create(store, project="p", title="a", now=NOW)
         child = await model.create(
             store, project="p", title="b", parent=parent.id, now=NOW
         )
         assert child.id == f"{parent.id}.1"
 
     async def test_nested_child_counters_independent(self, store):
-        p = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        p = await model.create(store, project="p", title="a", now=NOW)
         c1 = await model.create(store, project="p", title="b", parent=p.id, now=NOW)
         c2 = await model.create(store, project="p", title="c", parent=p.id, now=NOW)
         assert c2.id == f"{p.id}.2"
@@ -415,52 +426,25 @@ class TestIdAllocation:
         )
         assert child.id == "linear.NORT-123.1"
 
-    def test_today_uses_local_date(self, monkeypatch):
-        # The id date prefix follows the machine's *local* calendar day, not
-        # UTC — so near midnight the id doesn't jump to the wrong day. Freeze a
-        # UTC instant that is a *different* calendar day locally (23:30 UTC ->
-        # next day in any positive-offset zone) and assert the local date wins.
-        from datetime import datetime, timezone
-
-        real_dt = datetime
-        # 2026-06-08 23:30 UTC — in +12 (NZ) this is 2026-06-09 local.
-        frozen_utc = real_dt(2026, 6, 8, 23, 30, tzinfo=timezone.utc)
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return frozen_utc
-
-        monkeypatch.setattr(model, "datetime", FrozenDateTime)
-        assert model._today() == frozen_utc.astimezone().date().isoformat()
-
 
 # --- follow_end_leaves ---
 
 
 class TestFollowEndLeaves:
     async def test_no_followers_returns_self(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         assert await model.follow_end_leaves(store, "p", a.id) == [a.id]
 
     async def test_linear_chain(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        c = await model.create(
-            store, project="p", title="c", follows=[b.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        c = await model.create(store, project="p", title="c", follows=[b.id], now=NOW)
         assert await model.follow_end_leaves(store, "p", a.id) == [c.id]
 
     async def test_branched_chain(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        c = await model.create(
-            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
         assert await model.follow_end_leaves(store, "p", a.id) == sorted([b.id, c.id])
 
     async def test_cycle_safe(self, store):
@@ -531,50 +515,40 @@ class TestChildChainLeaves:
 
 class TestNextFollower:
     async def test_linear_chain_returns_follower(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = await model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == b.id
 
     async def test_follower_not_actionable_returns_none(self, store):
         # b follows a and a second dep that is still todo -> not actionable.
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        dep2 = await model.create(
-            store, project="p", title="dep2", now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        dep2 = await model.create(store, project="p", title="dep2", now=NOW)
         await model.create(
-            store, project="p", title="b", follows=[a.id, dep2.id], now=NOW, today=TODAY
+            store, project="p", title="b", follows=[a.id, dep2.id], now=NOW
         )
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert await model.next_follower(store, "p", a.id) is None
 
     async def test_nothing_follows_returns_none(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.create(store, project="p", title="b", now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert await model.next_follower(store, "p", a.id) is None
 
     async def test_branching_returns_id_sorted_first(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        c = await model.create(
-            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         nxt = await model.next_follower(store, "p", a.id)
         assert nxt is not None and nxt.id == sorted([b.id, c.id])[0]
 
     async def test_non_todo_follower_excluded(self, store):
         # A follower already in-progress is not a todo, so next_follower skips it.
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         await model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         assert await model.next_follower(store, "p", a.id) is None
@@ -582,40 +556,30 @@ class TestNextFollower:
 
 class TestRunningFollower:
     async def test_returns_in_progress_follower(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         await model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         running = await model.running_follower(store, "p", a.id)
         assert running is not None and running.id == b.id
 
     async def test_todo_follower_not_returned(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert await model.running_follower(store, "p", a.id) is None
 
     async def test_unrelated_in_progress_not_returned(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        other = await model.create(
-            store, project="p", title="other", now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        other = await model.create(store, project="p", title="other", now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         await model.move(store, "p", other.id, model.STATUS_IN_PROGRESS, now=NOW2)
         assert await model.running_follower(store, "p", a.id) is None
 
     async def test_branching_returns_id_sorted_first(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        c = await model.create(
-            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         await model.move(store, "p", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
         await model.move(store, "p", c.id, model.STATUS_IN_PROGRESS, now=NOW2)
@@ -628,26 +592,22 @@ class TestRunningFollower:
 
 class TestActionable:
     async def test_no_deps_is_actionable(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         assert await model.is_actionable(await model.load(store, "p", a.id), store)
 
     async def test_blocked_by_undone_dep(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         assert not await model.is_actionable(await model.load(store, "p", b.id), store)
 
     async def test_unblocked_when_dep_done(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         assert await model.is_actionable(await model.load(store, "p", b.id), store)
 
     async def test_terminal_not_actionable(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         assert not await model.is_actionable(await model.load(store, "p", a.id), store)
         await model.move(store, "p", a.id, "cancelled", now=NOW)
@@ -655,7 +615,7 @@ class TestActionable:
 
     async def test_blocked_status_not_actionable(self, store):
         """A task parked in ``blocked/`` never launches, deps satisfied or not."""
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.move(store, "p", a.id, model.STATUS_BLOCKED, now=NOW)
         assert not await model.is_actionable(await model.load(store, "p", a.id), store)
 
@@ -666,7 +626,7 @@ class TestActionable:
 class TestMove:
     async def test_move_changes_the_status_column(self, store):
         """Status is a column, so a move is an update rather than a relocation."""
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         assert (await model.load(store, "p", a.id)).status == "todo"
         await model.move(
             store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00"
@@ -675,7 +635,7 @@ class TestMove:
         assert [t.id for t in await model.list_tasks(store, project="p")] == [a.id]
 
     async def test_move_bumps_updated(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         moved = await model.move(
             store, "p", a.id, "in-progress", now="2026-06-09T00:00:00+00:00"
         )
@@ -683,7 +643,7 @@ class TestMove:
         assert moved.created == NOW
 
     async def test_move_invalid_status_rejected(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         with pytest.raises(ValueError):
             await model.move(store, "p", a.id, "bogus", now=NOW)
 
@@ -731,30 +691,30 @@ class TestMutationAccounting:
 
     async def test_create_is_one_revision(self, store):
         before = await store.revision()
-        await model.create(store, project="p", title="hi", now=NOW, today=TODAY)
+        await model.create(store, project="p", title="hi", now=NOW)
         assert await store.revision() == before + 1
 
     async def test_append_log_is_one_revision(self, store):
-        t = await model.create(store, project="p", title="hi", now=NOW, today=TODAY)
+        t = await model.create(store, project="p", title="hi", now=NOW)
         before = await store.revision()
         await model.append_log(store, "p", t.id, "a note", now=NOW)
         assert await store.revision() == before + 1
 
     async def test_append_log_records_message(self, store):
-        t = await model.create(store, project="p", title="hi", now=NOW, today=TODAY)
+        t = await model.create(store, project="p", title="hi", now=NOW)
         logged = await model.append_log(store, "p", t.id, "a note", now=NOW)
         assert "a note" in logged.log
         assert NOW in logged.log
 
     async def test_move_is_one_revision_not_a_write_and_a_delete(self, store):
-        t = await model.create(store, project="p", title="hi", now=NOW, today=TODAY)
+        t = await model.create(store, project="p", title="hi", now=NOW)
         before = await store.revision()
         await model.move(store, "p", t.id, "done", now=NOW)
         assert await store.revision() == before + 1
         assert (await model.load(store, "p", t.id)).status == "done"
 
     async def test_move_noop_when_same_status(self, store):
-        t = await model.create(store, project="p", title="hi", now=NOW, today=TODAY)
+        t = await model.create(store, project="p", title="hi", now=NOW)
         before = await store.revision()
         await model.move(store, "p", t.id, "todo", now=NOW)
         assert await store.revision() == before
@@ -765,13 +725,13 @@ class TestMutationAccounting:
 
 class TestDelete:
     async def test_delete_removes_the_row(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.delete(store, "p", a.id)
         with pytest.raises(KeyError):
             await model.load(store, "p", a.id)
 
     async def test_delete_returns_task(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         deleted = await model.delete(store, "p", a.id)
         assert deleted.id == a.id
         assert deleted.title == "a"
@@ -781,33 +741,29 @@ class TestDelete:
             await model.delete(store, "p", "nope")
 
     async def test_delete_finds_task_in_any_status(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.move(store, "p", a.id, "in-progress", now=NOW)
         await model.delete(store, "p", a.id)
         assert await store.load("p", a.id) is None
 
     async def test_delete_strips_dep_from_dependent(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.delete(store, "p", a.id)
         assert (await model.load(store, "p", b.id)).follows == []
 
     async def test_delete_keeps_other_deps(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", now=NOW)
         c = await model.create(
-            store, project="p", title="c", follows=[a.id, b.id], now=NOW, today=TODAY
+            store, project="p", title="c", follows=[a.id, b.id], now=NOW
         )
         await model.delete(store, "p", a.id)
         assert (await model.load(store, "p", c.id)).follows == [b.id]
 
     async def test_delete_unblocks_dependent(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         # b is blocked while a (undone) exists; deleting a makes b actionable.
         assert not await model.is_actionable(await model.load(store, "p", b.id), store)
         await model.delete(store, "p", a.id)
@@ -815,10 +771,8 @@ class TestDelete:
 
     async def test_delete_ignores_terminal_dependents(self, store):
         # A done task that follows the deleted id is left untouched.
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", b.id, "done", now=NOW)
         await model.delete(store, "p", a.id)
         # b is terminal; its historical follows is preserved.
@@ -826,21 +780,17 @@ class TestDelete:
 
     async def test_delete_rewrites_every_dependent(self, store):
         """The row goes, and every non-terminal dependent loses the edge."""
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        c = await model.create(
-            store, project="p", title="c", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        c = await model.create(store, project="p", title="c", follows=[a.id], now=NOW)
         await model.delete(store, "p", a.id)
         assert await store.load("p", a.id) is None
         assert (await model.load(store, "p", b.id)).follows == []
         assert (await model.load(store, "p", c.id)).follows == []
 
     async def test_delete_leaves_an_unrelated_task_alone(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", now=NOW)
         before = await model.load(store, "p", b.id)
         await model.delete(store, "p", a.id)
         assert await model.load(store, "p", b.id) == before
@@ -851,7 +801,7 @@ class TestDelete:
 
 class TestRename:
     async def test_rename_re_keys_the_row(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         renamed = await model.rename(store, "p", a.id, "new-id")
         assert await store.load("p", a.id) is None
         assert await store.load("p", "new-id") is not None
@@ -861,7 +811,7 @@ class TestRename:
 
     async def test_rename_preserves_status_content_log(self, store):
         a = await model.create(
-            store, project="p", title="a", content="body text", now=NOW, today=TODAY
+            store, project="p", title="a", content="body text", now=NOW
         )
         await model.move(store, "p", a.id, "in-progress", now=NOW)
         await model.append_log(store, "p", a.id, "did a thing", now=NOW)
@@ -872,34 +822,30 @@ class TestRename:
         assert "did a thing" in loaded.log
 
     async def test_rename_bumps_updated(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         later = "2026-07-02T00:00:00Z"
         await model.rename(store, "p", a.id, "new-id", now=later)
         assert (await model.load(store, "p", "new-id")).updated == later
 
     async def test_rename_rewrites_dependent_follows(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.rename(store, "p", a.id, "new-id")
         assert (await model.load(store, "p", b.id)).follows == ["new-id"]
 
     async def test_rename_keeps_other_follows_entries(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", now=NOW)
         c = await model.create(
-            store, project="p", title="c", follows=[a.id, b.id], now=NOW, today=TODAY
+            store, project="p", title="c", follows=[a.id, b.id], now=NOW
         )
         await model.rename(store, "p", a.id, "new-id")
         assert (await model.load(store, "p", c.id)).follows == ["new-id", b.id]
 
     async def test_rename_reparents_child(self, store):
-        parent = await model.create(
-            store, project="p", title="parent", now=NOW, today=TODAY
-        )
+        parent = await model.create(store, project="p", title="parent", now=NOW)
         child = await model.create(
-            store, project="p", title="child", parent=parent.id, now=NOW, today=TODAY
+            store, project="p", title="child", parent=parent.id, now=NOW
         )
         await model.rename(store, "p", parent.id, "new-parent")
         loaded = await model.load(store, "p", child.id)
@@ -908,10 +854,8 @@ class TestRename:
         assert loaded.id == child.id
 
     async def test_rename_ignores_terminal_dependents(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", b.id, "done", now=NOW)
         await model.rename(store, "p", a.id, "new-id")
         # b is terminal; its historical follows is preserved.
@@ -922,18 +866,18 @@ class TestRename:
             await model.rename(store, "p", "nope", "new-id")
 
     async def test_rename_unsafe_new_id_raises_valueerror(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         with pytest.raises(ValueError):
             await model.rename(store, "p", a.id, "../escape")
 
     async def test_rename_collision_raises_valueerror(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", now=NOW)
         with pytest.raises(ValueError):
             await model.rename(store, "p", a.id, b.id)
 
     async def test_rename_same_id_is_noop(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         before = await store.revision()
         result = await model.rename(store, "p", a.id, a.id)
         assert result.id == a.id
@@ -941,13 +885,9 @@ class TestRename:
 
     async def test_rename_fixes_every_reference(self, store):
         """The row re-keys, and both kinds of reference follow it."""
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
-        child = await model.create(
-            store, project="p", title="c", parent=a.id, now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        child = await model.create(store, project="p", title="c", parent=a.id, now=NOW)
         await model.rename(store, "p", a.id, "new-id")
         assert await store.load("p", a.id) is None
         assert (await model.load(store, "p", b.id)).follows == ["new-id"]
@@ -961,7 +901,7 @@ class TestRename:
 class TestLoadList:
     async def test_load_round_trip(self, store):
         t = await model.create(
-            store, project="p", title="hi", command="claude", now=NOW, today=TODAY
+            store, project="p", title="hi", command="claude", now=NOW
         )
         loaded = await model.load(store, "p", t.id)
         assert loaded.id == t.id
@@ -974,8 +914,8 @@ class TestLoadList:
             await model.load(store, "p", "nope")
 
     async def test_list_filters_by_status(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.create(store, project="p", title="b", now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         todo = await model.list_tasks(store, project="p", status="todo")
         done = await model.list_tasks(store, project="p", status="done")
@@ -985,16 +925,16 @@ class TestLoadList:
         assert done[0].id == a.id
 
     async def test_list_filters_by_parent(self, store):
-        p = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        p = await model.create(store, project="p", title="a", now=NOW)
         await model.create(store, project="p", title="b", parent=p.id, now=NOW)
-        await model.create(store, project="p", title="c", now=NOW, today=TODAY)
+        await model.create(store, project="p", title="c", now=NOW)
         children = await model.list_tasks(store, project="p", parent=p.id)
         assert len(children) == 1
         assert children[0].parent == p.id
 
     async def test_list_does_not_leak_across_projects(self, store):
-        await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(store, project="other", title="b", now=NOW, today=TODAY)
+        await model.create(store, project="p", title="a", now=NOW)
+        await model.create(store, project="other", title="b", now=NOW)
         assert len(await model.list_tasks(store, project="p")) == 1
 
 
@@ -1010,15 +950,13 @@ class TestBranchDefault:
     async def test_branch_defaults_to_generated_slug(self, store):
         # With the model call failing (autouse fixture), an orphan task falls
         # back to ``<default_type>/<slugify(title)>``.
-        t = await model.create(
-            store, project="p", title="Fix flaky port test", now=NOW, today=TODAY
-        )
+        t = await model.create(store, project="p", title="Fix flaky port test", now=NOW)
         assert t.branch == "feat/fix-flaky-port-test"
         assert (await model.load(store, "p", t.id)).branch == "feat/fix-flaky-port-test"
 
     async def test_branch_override_respected(self, store):
         t = await model.create(
-            store, project="p", title="a", branch="fix/login", now=NOW, today=TODAY
+            store, project="p", title="a", branch="fix/login", now=NOW
         )
         assert t.branch == "fix/login"
         assert (await model.load(store, "p", t.id)).branch == "fix/login"
@@ -1032,7 +970,6 @@ class TestBranchDefault:
             title="a",
             parent="linear.NORT-123",
             now=NOW,
-            today=TODAY,
         )
         assert t.branch == "feat/123-a"
         assert (await model.load(store, "p", t.id)).branch == "feat/123-a"
@@ -1044,7 +981,6 @@ class TestBranchDefault:
             title="a",
             parent="linear.NORT-123",
             now=NOW,
-            today=TODAY,
         )
         b = await model.create(
             store,
@@ -1052,7 +988,6 @@ class TestBranchDefault:
             title="b",
             parent="linear.NORT-123",
             now=NOW,
-            today=TODAY,
         )
         # Both fall back to the same number-led branch (one PR per parent).
         assert a.branch == b.branch == "feat/123-a"
@@ -1064,7 +999,6 @@ class TestBranchDefault:
             title="a",
             parent="2026-06-09.3",
             now=NOW,
-            today=TODAY,
         )
         b = await model.create(
             store,
@@ -1072,7 +1006,6 @@ class TestBranchDefault:
             title="b",
             parent="2026-06-09.3",
             now=NOW,
-            today=TODAY,
         )
         assert a.branch == b.branch == "task/2026-06-09.3"
 
@@ -1084,7 +1017,6 @@ class TestBranchDefault:
             parent="linear.NORT-123",
             branch="fix/login",
             now=NOW,
-            today=TODAY,
         )
         assert t.branch == "fix/login"
 
@@ -1099,7 +1031,6 @@ class TestBranchDefault:
             id="daily.maintenance.2026-07-03",
             branch="chore/daily-maintenance",
             now=NOW,
-            today=TODAY,
         )
         child = await model.create(
             store,
@@ -1107,7 +1038,6 @@ class TestBranchDefault:
             title="warehouse writes",
             parent=parent.id,
             now=NOW,
-            today=TODAY,
         )
         assert child.branch == "chore/daily-maintenance"
         assert (
@@ -1125,14 +1055,9 @@ class TestBranchDefault:
             id="run.2026-07-03",
             branch="chore/run",
             now=NOW,
-            today=TODAY,
         )
-        a = await model.create(
-            store, project="p", title="a", parent=parent.id, now=NOW, today=TODAY
-        )
-        b = await model.create(
-            store, project="p", title="b", parent=parent.id, now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", parent=parent.id, now=NOW)
+        b = await model.create(store, project="p", title="b", parent=parent.id, now=NOW)
         assert a.branch == b.branch == "chore/run"
 
     async def test_linear_virtual_parent_with_no_task_file_still_derives_feat(self):
@@ -1145,7 +1070,6 @@ class TestBranchDefault:
             title="a",
             parent="linear.NORT-123",
             now=NOW,
-            today=TODAY,
         )
         assert t.branch == "feat/123-a"
 
@@ -1158,7 +1082,6 @@ class TestBranchDefault:
             id="grp.2",
             branch="chore/grp",
             now=NOW,
-            today=TODAY,
         )
         child = await model.create(
             store,
@@ -1167,7 +1090,6 @@ class TestBranchDefault:
             parent="grp.2",
             branch="fix/override",
             now=NOW,
-            today=TODAY,
         )
         assert child.branch == "fix/override"
 
@@ -1273,15 +1195,13 @@ class TestNextTask:
         assert await model.next_task(store, "p") is None
 
     async def test_returns_first_actionable_by_id(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.create(store, project="p", title="b", now=NOW)
         assert (await model.next_task(store, "p")).id == a.id
 
     async def test_skips_blocked_by_unfinished_dep(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
-        b = await model.create(
-            store, project="p", title="b", follows=[a.id], now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         # a is actionable, b is not (follows undone a) -> next is a.
         assert (await model.next_task(store, "p")).id == a.id
         # With a done, b becomes the next actionable.
@@ -1289,21 +1209,21 @@ class TestNextTask:
         assert (await model.next_task(store, "p")).id == b.id
 
     async def test_excludes_in_progress(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.move(store, "p", a.id, "in-progress", now=NOW)
         # An in-progress (already-running) task is not re-offered.
         assert await model.next_task(store, "p") is None
         # A todo task is still returned alongside an unrelated in-progress one.
-        b = await model.create(store, project="p", title="b", now=NOW, today=TODAY)
+        b = await model.create(store, project="p", title="b", now=NOW)
         assert (await model.next_task(store, "p")).id == b.id
 
     async def test_excludes_terminal(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         assert await model.next_task(store, "p") is None
 
     async def test_filters_by_parent(self, store):
-        p = await model.create(store, project="p", title="parent", now=NOW, today=TODAY)
+        p = await model.create(store, project="p", title="parent", now=NOW)
         child = await model.create(
             store, project="p", title="child", parent=p.id, now=NOW
         )
@@ -1314,38 +1234,26 @@ class TestNextTask:
 
     async def test_branch_match_beats_lower_id_on_other_branch(self, store):
         # a has the lower id but is on another branch; b is on the wanted one.
-        await model.create(
-            store, project="p", title="a", branch="other", now=NOW, today=TODAY
-        )
-        b = await model.create(
-            store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY
-        )
+        await model.create(store, project="p", title="a", branch="other", now=NOW)
+        b = await model.create(store, project="p", title="b", branch="feat/x", now=NOW)
         assert (await model.next_task(store, "p", branch="feat/x")).id == b.id
 
     async def test_branch_no_match_falls_back_to_global(self, store):
-        a = await model.create(
-            store, project="p", title="a", branch="other", now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", branch="other", now=NOW)
         # No actionable task on feat/x -> fall back to the global next (a).
         assert (
             await model.next_task(store, "p", branch="feat/x", fallback=True)
         ).id == a.id
 
     async def test_branch_no_match_no_fallback_returns_none(self, store):
-        await model.create(
-            store, project="p", title="a", branch="other", now=NOW, today=TODAY
-        )
+        await model.create(store, project="p", title="a", branch="other", now=NOW)
         assert (
             await model.next_task(store, "p", branch="feat/x", fallback=False) is None
         )
 
     async def test_branch_none_unchanged(self, store):
-        a = await model.create(
-            store, project="p", title="a", branch="other", now=NOW, today=TODAY
-        )
-        await model.create(
-            store, project="p", title="b", branch="feat/x", now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", branch="other", now=NOW)
+        await model.create(store, project="p", title="b", branch="feat/x", now=NOW)
         # No branch preference -> first actionable, id-sorted.
         assert (await model.next_task(store, "p", branch=None)).id == a.id
 
@@ -1356,33 +1264,25 @@ class TestNextTask:
 class TestPriorityOrdering:
     async def test_next_task_prefers_higher_priority(self, store):
         # low is created first (lower id), but critical outranks it.
-        await model.create(
-            store, project="p", title="low", priority="low", now=NOW, today=TODAY
-        )
+        await model.create(store, project="p", title="low", priority="low", now=NOW)
         crit = await model.create(
-            store, project="p", title="crit", priority="critical", now=NOW, today=TODAY
+            store, project="p", title="crit", priority="critical", now=NOW
         )
         assert (await model.next_task(store, "p")).id == crit.id
 
     async def test_next_task_ties_broken_by_id(self, store):
         # Two same-priority tasks: the lower id wins (chronological tie-break).
-        a = await model.create(
-            store, project="p", title="a", priority="high", now=NOW, today=TODAY
-        )
-        await model.create(
-            store, project="p", title="b", priority="high", now=NOW, today=TODAY
-        )
+        a = await model.create(store, project="p", title="a", priority="high", now=NOW)
+        await model.create(store, project="p", title="b", priority="high", now=NOW)
         assert (await model.next_task(store, "p")).id == a.id
 
     async def test_default_medium_outranks_low(self, store):
-        await model.create(
-            store, project="p", title="low", priority="low", now=NOW, today=TODAY
-        )
-        med = await model.create(store, project="p", title="med", now=NOW, today=TODAY)
+        await model.create(store, project="p", title="low", priority="low", now=NOW)
+        med = await model.create(store, project="p", title="med", now=NOW)
         assert (await model.next_task(store, "p")).id == med.id
 
     async def test_next_follower_prefers_higher_priority(self, store):
-        a = await model.create(store, project="p", title="a", now=NOW, today=TODAY)
+        a = await model.create(store, project="p", title="a", now=NOW)
         # Two followers of a, differing priority; the higher one is chosen.
         await model.create(
             store,
@@ -1391,7 +1291,6 @@ class TestPriorityOrdering:
             priority="low",
             follows=[a.id],
             now=NOW,
-            today=TODAY,
         )
         hi = await model.create(
             store,
@@ -1400,7 +1299,6 @@ class TestPriorityOrdering:
             priority="high",
             follows=[a.id],
             now=NOW,
-            today=TODAY,
         )
         await model.move(store, "p", a.id, "done", now=NOW)
         assert (await model.next_follower(store, "p", a.id)).id == hi.id
@@ -1595,9 +1493,7 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A"}, "content": "ca"},
             {"name": "b", "args": {"title": "B", "follow": "a"}, "content": "cb"},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert len(created) == 2
         a, b = created
         # B's follows points at A's allocated id, not the block name "a".
@@ -1615,23 +1511,17 @@ class TestLoadMany:
                 "content": "c2",
             },
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         one, two = created
         assert two.follows == [one.id]
         assert "iter-1" not in two.follows
 
     async def test_follow_end_resolves_against_live_store(self, store):
-        seed = await model.create(
-            store, project="p", title="seed", now=NOW, today=TODAY
-        )
+        seed = await model.create(store, project="p", title="seed", now=NOW)
         blocks = [
             {"name": "x", "args": {"title": "X", "follow-end": seed.id}, "content": ""},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].follows == [seed.id]
 
     async def test_block_model_reaches_the_created_task(self, store):
@@ -1639,9 +1529,7 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A", "model": "opus"}, "content": ""},
             {"name": "b", "args": {"title": "B"}, "content": ""},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         a, b = created
         assert a.model == "opus"
         # An omitted key leaves the task inheriting the user's default.
@@ -1659,9 +1547,7 @@ class TestLoadMany:
                 "content": "",
             },
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].pre_action == "linear.in-progress"
         assert created[0].post_action == "linear.done"
 
@@ -1669,16 +1555,14 @@ class TestLoadMany:
         blocks = [
             {"name": "a", "args": {"title": "A", "branch": "my-branch"}, "content": ""}
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].branch == "my-branch"
 
     async def test_block_branch_overrides_sibling_inheritance(self, store):
         # A sibling under the same parent already owns a branch (one PR per
         # parent), but an explicit `branch:` opts this task out of it.
         sibling = await model.create(
-            store, project="p", title="sib", parent="par", now=NOW, today=TODAY
+            store, project="p", title="sib", parent="par", now=NOW
         )
         assert sibling.branch
         blocks = [
@@ -1688,27 +1572,21 @@ class TestLoadMany:
                 "content": "",
             }
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].branch == "own-branch"
         assert created[0].branch != sibling.branch
 
     async def test_block_without_branch_still_inherits_sibling_branch(self, store):
         sibling = await model.create(
-            store, project="p", title="sib", parent="par", now=NOW, today=TODAY
+            store, project="p", title="sib", parent="par", now=NOW
         )
         blocks = [{"name": "a", "args": {"title": "A", "parent": "par"}, "content": ""}]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].branch == sibling.branch
 
     async def test_block_actions_default_empty(self, store):
         blocks = [{"name": "a", "args": {"title": "A"}, "content": ""}]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].pre_action == ""
         assert created[0].post_action == ""
 
@@ -1717,23 +1595,17 @@ class TestLoadMany:
             {"name": "exec", "args": {"title": "E", "mode": "normal"}, "content": ""},
             {"name": "plan", "args": {"title": "P"}, "content": ""},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         by_title = {t.title: t for t in created}
         assert by_title["E"].mode == "normal"  # explicit wins
         assert by_title["P"].mode == model.DEFAULT_MODE  # omitted falls through to plan
 
     async def test_passthrough_real_id_follow(self, store):
-        seed = await model.create(
-            store, project="p", title="seed", now=NOW, today=TODAY
-        )
+        seed = await model.create(store, project="p", title="seed", now=NOW)
         blocks = [
             {"name": "x", "args": {"title": "X", "follow": seed.id}, "content": ""},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].follows == [seed.id]
 
     async def test_child_id_allocation_increments_across_batch(self, store):
@@ -1741,17 +1613,13 @@ class TestLoadMany:
             {"name": "a", "args": {"title": "A", "parent": "linear.X"}, "content": ""},
             {"name": "b", "args": {"title": "B", "parent": "linear.X"}, "content": ""},
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         ids = [t.id for t in created]
         assert ids == ["linear.X.1", "linear.X.2"]
 
     async def test_follow_list_value(self, store):
         # A list-valued follow with one block-name and one real id.
-        seed = await model.create(
-            store, project="p", title="seed", now=NOW, today=TODAY
-        )
+        seed = await model.create(store, project="p", title="seed", now=NOW)
         blocks = [
             {"name": "a", "args": {"title": "A"}, "content": ""},
             {
@@ -1760,9 +1628,7 @@ class TestLoadMany:
                 "content": "",
             },
         ]
-        created = await model.load_many(
-            store, project="p", blocks=blocks, now=NOW, today=TODAY
-        )
+        created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         a, b = created
         assert b.follows == [a.id, seed.id]
 
