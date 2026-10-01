@@ -1,5 +1,6 @@
 import type { AgentCost, Stage } from '../api/milestones';
 import { groupMembers } from '../selectors/documents';
+import { trackedAgents } from '../selectors/worktrees';
 import type { ApiClient } from '../api/http';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
@@ -12,6 +13,7 @@ import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
 import type {
   Agent,
+  ChangeComment,
   DeskEntry,
   FileDiff,
   Host,
@@ -112,6 +114,8 @@ export interface FakeServer {
   world: FakeWorld;
   transcripts: Record<AgentId, Transcript>;
   requests: FakeRequest[];
+  /** Agents whose host refuses a relayed message, each with the host's words. */
+  hostRefuses: Record<AgentId, string>;
   sources: FakeEventSource[];
   /** Every transcript socket opened so far, closed ones included. */
   sockets: FakeSocket[];
@@ -207,6 +211,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     world: opts.world ?? emptyFakeWorld(),
     transcripts: opts.transcripts ?? {},
     requests,
+    hostRefuses: {},
     sources,
     sockets,
     api: createApiClient({ fetch: fetchImpl }),
@@ -1122,6 +1127,44 @@ function command(
     // so a test can see the call landed.
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});
+  }
+
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/comments$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    const comments = Array.isArray(b.comments) ? (b.comments as ChangeComment[]) : [];
+    if (comments.length === 0) return error(400, 'invalid', 'No comments to post');
+    if (comments.some((c) => !String(c.body ?? '').trim())) {
+      return error(400, 'invalid', 'A comment is empty');
+    }
+    const agents = trackedAgents(world, id);
+    if (agents.length === 0) return error(400, 'invalid', `No agent is running in ${id}`);
+    // The server's own wording is `format_change_comments`; the fake states
+    // the result, one user turn per agent.
+    const markdown = [
+      `Comments on the changes in ${worktree.branch}, from the orchestrator UI:`,
+      ...comments.map((c) => `${c.path}: ${c.body}`),
+    ].join('\n\n');
+    const refused = agents.filter((a) => a.id in server.hostRefuses);
+    const told = agents.filter((a) => !(a.id in server.hostRefuses));
+    // As the server does: the first refusal when nobody took the message.
+    if (told.length === 0) return error(409, 'agent_exited', server.hostRefuses[refused[0]!.id]!);
+    for (const agent of told) {
+      server.append(agent.id, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'message',
+        role: 'user',
+        markdown,
+      });
+    }
+    return ok({
+      agentIds: told.map((a) => a.id),
+      refused: refused.map((a) => ({ agentId: a.id, message: server.hostRefuses[a.id] })),
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/env$/);

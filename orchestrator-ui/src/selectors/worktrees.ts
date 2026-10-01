@@ -37,7 +37,7 @@ export interface WorktreeGroup {
  * A subagent runs in its parent's worktree and an exited row lingers in the
  * world, so neither counts as work happening here.
  */
-function trackedAgents(world: WorldView, worktreeId: string): Agent[] {
+export function trackedAgents(world: WorldView, worktreeId: string): Agent[] {
   return Object.values(world.agents).filter(
     (a) => a.worktreeId === worktreeId && !a.parent && a.state !== 'exited',
   );
