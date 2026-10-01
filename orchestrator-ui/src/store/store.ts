@@ -5,7 +5,7 @@ import type { AgentId, TaskId } from '../protocol/ids';
 import type { Filters, GroupBy } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
-import type { PanelTab, UiState, View } from './uiSlice';
+import type { Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
   closeTabs as closeTabsIn,
@@ -15,6 +15,11 @@ import {
 } from '../selectors/tabs';
 import type { MobileScreen } from '../selectors/navStack';
 import { popScreen, pushScreen } from '../selectors/navStack';
+import {
+  moveAnchor as moveAnchorIn,
+  showPane as showPaneIn,
+  togglePane as togglePaneIn,
+} from '../selectors/slots';
 import type { Zone } from '../protocol/progress';
 
 export interface AppStore {
@@ -27,7 +32,12 @@ export interface AppStore {
   setTranscript(agentId: AgentId, state: TranscriptState): void;
   dropTranscript(agentId: AgentId): void;
   reset(): void;
-  setView(view: View): void;
+  /** Show a pane in the slot of its anchor. */
+  showPane(pane: Pane): void;
+  /** Show a pane, or close the slot of one that is showing. Wide layout only. */
+  togglePane(pane: Pane): void;
+  /** Move a pane's anchor to the other side. Wide layout only. */
+  moveAnchor(pane: Pane): void;
   setGroupBy(groupBy: GroupBy): void;
   setFilters(patch: Partial<Filters>): void;
   setListFilters(patch: Partial<ListFilters>): void;
@@ -48,7 +58,6 @@ export interface AppStore {
   setEditingTask(taskId: TaskId | null): void;
   setNewWorkOpen(open: boolean): void;
   setPanelWidth(width: number): void;
-  setPanelOpen(open: boolean): void;
   /** Which zone the deck list shows. Narrow layout only. */
   setDeckZone(zone: Zone): void;
   /** Push a screen over the deck list, or return to it if it is already open. */
@@ -78,7 +87,9 @@ export const useAppStore = create<AppStore>()((set) => ({
       return { transcripts };
     }),
   reset: () => set({ ui: initialUiState(), transcripts: {}, connection: 'connecting' }),
-  setView: (view) => set((s) => ({ ui: { ...s.ui, view } })),
+  showPane: (pane) => set((s) => ({ ui: { ...s.ui, ...showPaneIn(s.ui, pane) } })),
+  togglePane: (pane) => set((s) => ({ ui: { ...s.ui, ...togglePaneIn(s.ui, pane) } })),
+  moveAnchor: (pane) => set((s) => ({ ui: { ...s.ui, ...moveAnchorIn(s.ui, pane) } })),
   setGroupBy: (groupBy) => set((s) => ({ ui: { ...s.ui, groupBy } })),
   setFilters: (patch) => set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),
   setListFilters: (patch) =>
@@ -92,10 +103,10 @@ export const useAppStore = create<AppStore>()((set) => ({
       return {
         ui: {
           ...s.ui,
+          ...showPaneIn(s.ui, 'tabs'),
           tabs,
           activeTabKey: tab.key,
           tabRecency: touchTab(s.ui.tabRecency, tab.key),
-          panelOpen: true,
         },
       };
     }),
@@ -121,7 +132,6 @@ export const useAppStore = create<AppStore>()((set) => ({
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setNewWorkOpen: (newWorkOpen) => set((s) => ({ ui: { ...s.ui, newWorkOpen } })),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
-  setPanelOpen: (panelOpen) => set((s) => ({ ui: { ...s.ui, panelOpen } })),
   setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
   pushScreen: (screen) =>
     set((s) => ({ ui: { ...s.ui, mobileStack: pushScreen(s.ui.mobileStack, screen) } })),

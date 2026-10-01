@@ -1,27 +1,14 @@
 /* A row, not a grid: the sidebar is absent with no tabs open, and a grid
    would then drop the group into the sidebar's column. */
 .panel {
-  position: relative;
   display: flex;
-  border-left: 1px solid var(--border);
+  flex: 1;
+  min-width: 0;
   background: var(--bg);
-  flex-shrink: 0;
 }
 /* The display above outranks the attribute's own. */
 .panel[hidden] {
   display: none;
-}
-.grip {
-  position: absolute;
-  left: -3px;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-  z-index: 2;
-}
-.grip:hover {
-  background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .group {
   flex: 1;

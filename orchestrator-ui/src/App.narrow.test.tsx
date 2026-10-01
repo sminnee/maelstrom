@@ -17,7 +17,7 @@ describe('the narrow layout', () => {
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('panel')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Panel' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Tabs' })).toBeNull();
   });
 
   it('reads the PR number on a deck row, as the canvas node does', async () => {

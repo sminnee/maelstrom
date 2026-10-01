@@ -3,6 +3,7 @@ import type { AgentStatusFilter, GroupBy } from '../selectors/filters';
 import { filterOptions } from '../selectors/filters';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
+import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
 
@@ -16,10 +17,10 @@ const AGENT_STATUS_OPTIONS: { value: AgentStatusFilter; label: string }[] = [
   { value: 'planned', label: 'Planned' },
 ];
 
-/** The shared filters, plus controls only the current view can use. */
+/** The shared filters, plus the controls of each main view on screen. */
 export function FilterBar() {
   const { world } = useWorld();
-  const view = useAppStore((s) => s.ui.view);
+  const showing = useShowing();
   const filters = useAppStore((s) => s.ui.filters);
   const listFilters = useAppStore((s) => s.ui.listFilters);
   const worktreeFilters = useAppStore((s) => s.ui.worktreeFilters);
@@ -59,10 +60,10 @@ export function FilterBar() {
           ))}
         </select>
       </label>
-      {/* Not on the worktrees view: the branch options are built from tasks,
-          so a worktree on a branch no task names would vanish from a table
-          that is meant to show every one of them. */}
-      {view !== 'worktrees' && (
+      {/* Only for the views that draw tasks: the branch options are built from
+          tasks, so a worktree on a branch no task names would vanish from a
+          table that is meant to show every one of them. */}
+      {(showing.includes('canvas') || showing.includes('list')) && (
         <label className={styles.field}>
           <span>Branch</span>
           <select
@@ -78,7 +79,7 @@ export function FilterBar() {
           </select>
         </label>
       )}
-      {view === 'worktrees' ? (
+      {showing.includes('worktrees') && (
         <label className={styles.check}>
           <input
             type="checkbox"
@@ -87,7 +88,8 @@ export function FilterBar() {
           />
           <span>show closed</span>
         </label>
-      ) : view === 'canvas' ? (
+      )}
+      {showing.includes('canvas') && (
         <>
           <label className={styles.field}>
             <span>Agent status</span>
@@ -113,7 +115,8 @@ export function FilterBar() {
             </select>
           </label>
         </>
-      ) : (
+      )}
+      {showing.includes('list') && (
         <>
           {TASK_STATUSES.map((status) => (
             <label key={status} className={styles.check}>

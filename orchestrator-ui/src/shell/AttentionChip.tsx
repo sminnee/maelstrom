@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { useLayoutMode } from '../layout/useLayoutMode';
+import { useShowing } from '../layout/useShowing';
 import { zoneForState } from '../protocol/progress';
 import { attentionNodes, nextAttentionNode } from '../selectors/attention';
 import { deriveGraph } from '../selectors/graph';
@@ -42,8 +43,8 @@ function NarrowChip() {
   const stack = useAppStore((s) => s.ui.mobileStack);
   const pushScreen = useAppStore((s) => s.pushScreen);
   const setDeckZone = useAppStore((s) => s.setDeckZone);
-  const view = useAppStore((s) => s.ui.view);
-  const setView = useAppStore((s) => s.setView);
+  const deckShowing = useShowing().includes('canvas');
+  const showPane = useAppStore((s) => s.showPane);
   const top = stack[stack.length - 1];
 
   const go = () => {
@@ -53,7 +54,7 @@ function NarrowChip() {
     // Back from the detail screen lands on the list that holds the node.
     setDeckZone(zoneForState('needs-attention'));
     // From the task list, the deck has to be showing for Back to land on it.
-    if (view !== 'canvas') setView('canvas');
+    if (!deckShowing) showPane('canvas');
     pushScreen({ kind: 'detail', nodeId: next });
   };
 
@@ -67,17 +68,17 @@ function WideChip() {
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
   const expandNode = useAppStore((s) => s.expandNode);
-  const view = useAppStore((s) => s.ui.view);
-  const setView = useAppStore((s) => s.setView);
+  const canvasShowing = useShowing().includes('canvas');
+  const showPane = useAppStore((s) => s.showPane);
   const { fitView } = useReactFlow();
 
   const go = () => {
     const current = expandedNodeId ?? focusedTaskId(world, tabs, activeTabKey);
     const next = nextAttentionNode(nodes, current);
     if (!next) return;
-    // From the task list, the canvas has to be showing before it can be
-    // fitted, so the fit waits for the frame that draws it.
-    if (view !== 'canvas') setView('canvas');
+    // The canvas has to be showing before it can be fitted, so the fit waits
+    // for the frame that draws it.
+    if (!canvasShowing) showPane('canvas');
     expandNode(next, false);
     requestAnimationFrame(() => {
       void fitView({ nodes: [{ id: next }], duration: 300, maxZoom: 1.2 });

@@ -1,9 +1,12 @@
+/* The bar grows rather than clips: two main views can show together, and each
+   brings its own filters. */
 .bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
-  height: 40px;
-  padding: 0 12px;
+  min-height: 40px;
+  padding: var(--space-1) 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
 }
@@ -61,19 +64,8 @@
   background: var(--bg-raised);
 }
 
-/* Keep the complete filter group visible between the narrow and wide layouts. */
-@media (max-width: 1280px) {
-  .bar {
-    height: auto;
-    min-height: 40px;
-    flex-wrap: wrap;
-    padding-top: var(--space-1);
-    padding-bottom: var(--space-1);
-  }
-}
-
 /*
- * On a phone the bar carries the brand, the view switch, New and the chip.
+ * On a phone the bar carries the brand, the menu, New and the chip.
  * It wraps rather than overflows, and every control clears the touch floor.
  */
 @media (max-width: 839px) {
