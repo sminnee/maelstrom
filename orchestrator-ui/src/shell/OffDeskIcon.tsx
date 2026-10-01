@@ -1,4 +1,4 @@
-/** A tray with an arrow going up and out of it: "takes off the desk". Decorative; the button names itself. */
+/** A desk with an arrow going up from it: "takes off the desk". Decorative; the button names itself. */
 export function OffDeskIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -8,15 +8,14 @@ export function OffDeskIcon({ className }: { className?: string }) {
       viewBox="0 0 12 12"
       aria-hidden="true"
       focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <path
-        d="M2 8v2h8V8M6 7V1.5M3.8 3.7 6 1.5l2.2 2.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M3.6 8h4.8l1.6 2.5H2z" />
+      <path d="M6 6V1.2M3.8 3.4 6 1.2l2.2 2.2" />
     </svg>
   );
 }
