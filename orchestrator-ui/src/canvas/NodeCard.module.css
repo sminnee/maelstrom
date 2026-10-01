@@ -362,6 +362,22 @@
   width: fit-content;
   max-width: 100%;
 }
+/* One kind of document: its heading, then its documents and review groups. */
+.documentKind {
+  display: grid;
+  gap: var(--space-1);
+}
+.documentKind > * {
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+.documentKindHead {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 /* A review group: its title and status, then one link per member, indented. */
 .documentGroup {
   display: grid;
