@@ -58,7 +58,7 @@ stack tip. See [`stacking.md`](stacking.md).
 
 Dots in an **id** capture *lineage / nesting*, independently of chain-grouping:
 
-- `<parent>.<n>` — a numeric child (e.g. `PROJ-12.3`).
+- `<parent>.<n>` — a numeric child (e.g. `k3f9.1`, `PROJ-12.3`).
 - `<template>.<date>` — a scheduled run (e.g. `maintenance.2026-07-02`).
 
 The id is where nesting is expressed; `parent` is where PR-grouping is expressed —
@@ -66,6 +66,16 @@ and they are separable. A run named `maintenance.2026-07-02` can have an **empty
 `parent`** yet still read as descended from `maintenance` via its id. That exact
 separation is what keeps scheduled runs clean: the dot-id names and dedups the
 run under its template, while the empty `parent` lets the run root its own chain.
+
+A new top-level task gets a random id: 4 characters from `a-z0-9`, such as `k3f9`. The
+allocator draws again when the project already has the id, or when YAML reads the id as a
+non-string, such as `0123` or `true`: a task draft names ids in YAML. An older task can have a
+`YYYY-MM-DD.<n>` id.
+
+A random id holds no date, so the order of tasks comes from the `created` field, oldest first.
+The id is the tie-break. `creation_order` in `task.py` is that key. `mael task next`, `mael task
+list`, `TaskTable.list` and the task list in the orchestrator UI all use this order. A child
+therefore sorts by the time it was created, not next to its parent.
 
 ## `follows` vs `parent`
 

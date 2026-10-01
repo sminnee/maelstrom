@@ -33,6 +33,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A new top-level task gets a short random id.** `mael task add` prints an id such as `k3f9`
+  in place of `2026-10-01.14`. A child is `k3f9.1`. Existing tasks keep their ids. `mael task
+  list`, `mael task next` and the task list in the orchestrator order tasks by creation time.
+
 - **The Changes tab lists commits oldest first, and keeps its place in a long diff.** The strip
   draws the changed files as a tree, and a click on a file scrolls to it. Prev and Next step
   through the commits. The commit's subject and the file totals stay at the top while the diff
