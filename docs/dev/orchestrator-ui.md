@@ -946,9 +946,10 @@ Images travel the other way too. An agent writes an `<image>` tag and the server
 markdown ref, so a picture an agent showed and one the user pasted reach the browser the same way —
 as an ordinary ref in the message text. See `docs/dev/orchestrator-server.md`, "A shown image".
 
-`markdown/Markdown.tsx` gives `react-markdown` its own `img`, which draws `ui/ImageLightbox.tsx`:
-a thumbnail capped at 240px tall, and a click opens it full size in a `ui/Dialog`. Every surface
-that renders markdown gets this, not only the transcript.
+`markdown/Markdown.tsx` gives `react-markdown` its own `img`. A path that ends in `.webm`, `.mp4`
+or `.mov` draws `<video controls>`. Every other path draws `ui/ImageLightbox.tsx`: a thumbnail
+capped at 240px tall, and a click opens it full size in a `ui/Dialog`. Every surface that renders
+markdown gets this, not only the transcript.
 
 A surface shows an attachment only if its markdown holds a URL the server serves. For this
 reason the node card renders the task's `displayContent`, not its `content`. A user message

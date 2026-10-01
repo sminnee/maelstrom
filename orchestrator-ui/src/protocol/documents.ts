@@ -1,6 +1,6 @@
 import type { AgentId, CommentId, DocumentId, RequestId, TaskId } from './ids';
 
-export type DocumentKind = 'plan' | 'tasks' | 'pr' | 'review' | 'other';
+export type DocumentKind = 'plan' | 'tasks' | 'pr' | 'review' | 'verification' | 'other';
 
 export type DocumentStatus =
   | 'draft'

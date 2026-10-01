@@ -150,7 +150,7 @@ of one tag form a **review group** — `group: {id, title, position}` on each me
 is kept: a task set is one chain, and approving it promotes in that order. The tag's `title` names
 the group, and defaults to the first filename. A member's own title is its draft's `title:` for a
 `tasks` file, the tag title when the tag names one file, and the path otherwise. `kind` is one of
-`plan`, `tasks`, `pr`, `review` and `other`; an unrecognised kind reads as `other`, so a typo
+`plan`, `tasks`, `pr`, `review`, `verification` and `other`; an unrecognised kind reads as `other`, so a typo
 shows a document rather than dropping it. One message may carry several tags.
 
 There is no inline form. A `<doc-content>` is left in the text as written: a document with no path

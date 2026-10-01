@@ -1,0 +1,93 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5",
+        "permissionMode": "normal",
+        "waitingOn": "",
+        "lastMessage": "The login flow works.",
+        "lastMessageAt": "2026-09-05T03:00:04.000Z",
+        "lastNote": "",
+        "lastNoteAt": "",
+        "startedAt": "",
+        "costUsd": 0.0312,
+        "totalTokens": 0,
+        "subagentTokens": 0,
+        "contextTokens": 0,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null,
+        "backgroundShells": []
+      }
+    },
+    "documents": {
+      "ag1-4": {
+        "id": "ag1-4",
+        "agentId": "ag1",
+        "taskId": "NORT-7",
+        "kind": "verification",
+        "title": "Login flow",
+        "markdown": "# Login flow\n\n![The dashboard](/api/files/ag1-5-shot.png)\n\n![The flow](/api/files/ag1-6-login.webm)\n\n_`../../../etc/passwd` could not be shown._\n",
+        "version": 1,
+        "status": "draft",
+        "source": {
+          "type": "draft_file",
+          "fileId": "ag1-8-verification.md",
+          "filename": ".drafts/verification.md"
+        },
+        "group": {
+          "id": "ag1-3",
+          "title": "Login flow",
+          "position": 0
+        }
+      }
+    },
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "7f1c2a90-8b34-4d6e-9a12-5c7e0d3b4f68",
+          "model": "claude-opus-5",
+          "id": "ag1-1",
+          "ts": "2026-09-05T03:00:00.000Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "The login flow works.",
+          "id": "ag1-2",
+          "ts": "2026-09-05T03:00:04.000Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.0312,
+          "durationMs": 1500,
+          "id": "ag1-9",
+          "ts": "2026-09-05T03:00:05.000Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}
