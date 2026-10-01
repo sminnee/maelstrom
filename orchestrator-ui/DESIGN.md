@@ -378,14 +378,17 @@ state.
 
 ## Layout
 
-Two surfaces side by side under one bar. A 40px top bar holds the brand, the view switch, the
-attention chip and the Panel toggle. Beneath it the body splits: the main view takes the
-remaining width, and the panel is a resizable right-hand column with a 6px drag grip on its left
-edge. The Panel toggle collapses the panel, and the main view takes its width.
+Two slots side by side under one bar. A 40px top bar holds the brand, the menu and the attention
+chip. The menu has four items: Desk, Tasks, Worktrees and Tabs. Each item has an anchor, left or
+right, and shows in the slot of its anchor. The bar draws the left-anchored items beside the
+brand and the right-anchored items at its right edge, so each group sits over its slot.
 
-The main view is the canvas, the task list or the worktree table; the top bar switches between
-them. The panel sits beside the canvas and the task list. The worktree table takes the full
-width. The canvas draws the desk as horizontal lanes, one per group when grouped by project or
+Beneath the bar the body splits. The left slot takes the remaining width, and the right slot is
+resizable, with a 6px drag grip on its left edge. A click closes a slot and a shift-click moves
+an anchor; see **Slot** and **Anchor** in `CONTEXT.md`. Tabs starts on the right and the three main views start on the left, so the opening layout
+is a main view with the panel beside it.
+
+The main views are the canvas, the task list and the worktree table. The canvas draws the desk as horizontal lanes, one per group when grouped by project or
 branch, and none when grouped by `none`. The task list is a table with a sticky filter row.
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
@@ -416,14 +419,21 @@ Spacing runs on a 4px base with four steps in use: 4, 8, 12, 16. Component paddi
 scale; the canvas uses its own constants because it positions in absolute pixels.
 
 Density is the point. The operator wants many units visible at once, so containers are tight
-and gaps are small. The panel's drag grip is how the operator trades one surface against the
-other.
+and gaps are small. The drag grip between the two slots is how the operator trades one slot against
+the other.
+
+### The medium layout
+
+The upper breakpoint is 1600px. Below it a main view and the panel do not both fit at a width
+each can be read at. So the medium layout, from 840px to 1599px, has one slot. The menu is one
+group of four items beside the brand, and a click shows the item in place of the one in front. A
+panel link brings Tabs to the front. No item has a side, so there is no shift-click and no grip.
 
 ### The narrow layout
 
-One breakpoint, at 840px. Below it the board does not fit: the canvas needs room for a node, a
-card beside it and a 320px panel, and under 840px it is a sliver rather than a board. So the
-narrow layout does not shrink the wide one — it replaces it.
+The lower breakpoint is 840px. Below it the board does not fit: the canvas needs room for a node
+and a card beside it, and under 840px it is a sliver rather than a board. So the narrow layout
+does not shrink the wide one — it replaces it.
 
 The deck list takes the canvas's place. The three zones run left to right on a board as vertical
 stripes; on a phone the same three run as tabs, opening on running. The model does not change

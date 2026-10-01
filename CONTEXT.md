@@ -917,12 +917,32 @@ document's own review route. One dock, so a reader answers in one place whoever 
 _Avoid_: Action bar, footer
 
 **Panel**:
-The right-hand column of tabs, beside the canvas and the task list. A tab holds a session, a
-document, or a worktree's changes (see **Changes tab**). The panel sidebar on its left edge lists
-the worktree groups, and the tab strip shows the tabs of the group in view. The worktree table and
-the narrow layout have no panel. The Panel toggle in the top bar collapses it, and a panel link
-opens it again.
+The tabs, drawn in one slot. A tab holds a session, a document, or a worktree's changes (see
+**Changes tab**). The panel sidebar on its left edge lists the worktree groups, and the tab strip
+shows the tabs of the group in view. The top bar labels the panel `Tabs`, and its anchor starts on
+the right. In the wide layout a click on `Tabs` closes the panel's slot, and a panel link shows the
+panel again. The narrow layout has no panel.
 _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
+
+**Slot**:
+One of the two places in the body, left and right, that draws a top bar item: the desk, the task
+list, the worktree table or the panel. The wide layout draws both slots. A click on a showing item
+closes its slot, and the other slot takes the full width. The body is never empty: closing the
+last open slot reopens the left slot on its most recent item. The code calls a top bar item a
+pane.
+_Avoid_: Column, region, split
+
+**Anchor**:
+The side, left or right, that a top bar item shows on. The three main views start anchored left
+and the panel starts anchored right. A shift-click on the item moves its anchor to the other
+side. The top bar draws each item in the group of its anchor.
+_Avoid_: Dock, pin
+
+**Medium layout**:
+The layout from 840px to 1599px. A main view and the panel do not both fit, so the body has one
+slot and the top bar has one menu of four items. A click shows the item in place of the one in
+front. Above it is the wide layout, with two slots; below it is the narrow layout.
+_Avoid_: Tablet layout, laptop layout
 
 **Worktree group**:
 The open panel tabs of one worktree, shown as one row of the panel sidebar. A worktree group is

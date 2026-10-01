@@ -164,7 +164,9 @@ what makes running work always visible: an agent shows the moment it starts, bef
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar switches between Desk, Tasks and Worktrees. Project applies to all three.
+the desk. The top bar shows Desk, Tasks, Worktrees and Tabs; see "The three layouts". There is one
+filter bar, and it draws the controls of each main view on screen. Project applies to all three
+main views and is always drawn.
 Branch applies to Desk and Tasks only: its options are built from tasks, so a worktree on a branch
 no task names would silently vanish from a table meant to show every one of them. Desk has Agent
 status and Group by controls, Tasks has status and text controls, and Worktrees has "show closed".
@@ -532,10 +534,10 @@ The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` 
 prompt in full. `selectors/transcript.ts` skips the same call when it builds the context before a
 wait.
 
-The panel holds three tab kinds: session, document and changes. It sits beside the canvas and the task list —
-`hasPanel` in `store/uiSlice.ts` names the views. The Panel toggle in the top bar collapses it
-with the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and opens a collapsed panel
-too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
+The panel holds three tab kinds: session, document and changes. It is the top bar item `Tabs`, and
+it shows in a slot as a main view does; see "The three layouts". A panel off screen is hidden with
+the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and
+shows the panel too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
 its task id, so two agents' tabs are told apart. A node card lists every document its node has,
 whatever raised it — a plan review, or a tag the agent wrote in its own message. It lists them by
 review group (`selectors/documents.ts`): a group of one is one row, and a larger group is its
@@ -955,23 +957,45 @@ arrives with the URL already in it. See "Attachments" in `docs/dev/orchestrator-
 The height cap, the portal to the body, and the `Dialog` `className` each carry their reason at
 their own site.
 
-## The two layouts
+## The three layouts
 
-The app draws one of two layouts, chosen by viewport width. At 840px and wider it is the
-main-monitor tool this document describes: the canvas or the task list, with the panel beside it.
-Below 840px it is the deck list, one screen at a time. `orchestrator-ui/DESIGN.md` says why the
-break sits there.
+The app draws one of three layouts, chosen by viewport width.
+
+| Layout | Width | Body |
+| --- | --- | --- |
+| Wide | 1600px and wider | Two slots, left and right |
+| Medium | 840px to 1599px | One slot |
+| Narrow | below 840px | The deck list, one screen at a time |
+
+`orchestrator-ui/DESIGN.md` says why each break sits there.
+
+**Slots and anchors.** The top bar has four items: Desk, Tasks, Worktrees and Tabs. Each item has
+an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
+`ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
+first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
+`moveAnchor` and `showing`.
+
+The wide layout calls `togglePane` on a click and `moveAnchor` on a shift-click. The medium layout
+has one slot that cannot close, so a click calls `showPane`. The medium layout draws the front of
+`paneRecency`, and the narrow layout draws its first main view.
+
+`SlotShell` in `shell/AppShell.tsx` draws the wide and the medium layout. It places each item with
+the CSS `order` property, not by JSX position, so an item that changes side moves and does not
+remount. The left slot takes the remaining width. The right slot takes `ui.panelWidth` when both
+slots are open, and the full width when it is alone. The shell owns the drag grip and the width
+clamp, because the right slot can hold any item.
 
 `layout/useLayoutMode.ts` makes the choice. The decision is read in TypeScript rather than only in a
 media query, because `orchestrator-ui/vite.config.ts` sets `css: false` — a media query is invisible
 to the suite, and a hook the components branch on is a decision the app-boundary tests can assert.
 The CSS carries cosmetic sizing only. `renderApp({ viewport: 'narrow' })` renders the narrow layout,
-and `test/setup.ts` stubs `matchMedia` from one settable width.
+`viewport: 'medium'` the medium layout, and the default is the wide layout. `test/setup.ts` stubs
+`matchMedia` from one settable width.
 
 `AppShell` branches first, so the narrow layout mounts no `ReactFlowProvider`, no canvas and no
 panel. React Flow is absent rather than hidden: a phone renders no board it cannot use, and
 d3-zoom never competes with the page for a touch. Any component calling `useReactFlow` must
-therefore be wide-only. `AttentionChip` is split into `NarrowChip` and `WideChip` for that reason
+therefore be absent from the narrow layout. `AttentionChip` is split into `NarrowChip` and `WideChip` for that reason
 rather than branching inside one component.
 
 **The deck list** (`deck/`) tabs the desk by zone and opens on running. `selectors/deck.ts`
@@ -988,7 +1012,7 @@ The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also 
 shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
 width and the grow animation.
 
-Three things differ below the break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and top-anchored, measured in `dvh` so a soft keyboard shrinks the
+Three things differ below the 840px break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and top-anchored, measured in `dvh` so a soft keyboard shrinks the
 box rather than covering the focused field. And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 
