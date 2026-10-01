@@ -192,7 +192,9 @@
             }
           ],
           "id": "ag1-7",
-          "ts": "2026-09-02T00:00:00Z"
+          "ts": "2026-09-02T00:00:00Z",
+          "declined": true,
+          "reason": "Interrupted by user"
         },
         {
           "type": "message",

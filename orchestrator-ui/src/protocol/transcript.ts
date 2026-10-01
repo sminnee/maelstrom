@@ -52,6 +52,10 @@ export interface QuestionItem extends Base {
   questions: Question[];
   /** Keyed by question text, as the daemon files them. */
   answers?: Record<string, string>;
+  /** The user refused the question — see `CONTEXT.md`, "Decline". */
+  declined?: true;
+  /** The reason the deny carried, when declined. */
+  reason?: string;
   /** The wait ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
   stale?: true;
 }

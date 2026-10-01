@@ -801,6 +801,15 @@ def test_a_request_the_user_interrupts_is_marked_stale():
     assert "decision" not in bash
 
 
+def test_a_question_the_interrupt_denies_is_declined_not_stale():
+    # A deny is a reply, and the interrupt sends one to every open ask.
+    state = replay("interrupt-while-waiting.jsonl")
+    question = items_of(state, "question")[0]
+    assert question["declined"] is True
+    assert question["reason"] == "Interrupted by user"
+    assert "stale" not in question
+
+
 def test_a_request_that_was_answered_is_never_marked_stale():
     request = items_of(replay("permission-request.jsonl"), "permission_request")[0]
     assert request["decision"] == "allow"
