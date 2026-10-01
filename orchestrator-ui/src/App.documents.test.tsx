@@ -60,10 +60,10 @@ describe('document tabs', () => {
     // The plan is in another worktree: its row brings back the tab last in view there.
     await user.click(worktreeRow('northwind alpha'));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
-    // A collapsed panel shows nothing, so no node is marked as its source.
-    await user.click(screen.getByRole('button', { name: 'Panel' }));
+    // A panel off screen shows no tab, so no node is marked as its source.
+    await user.click(screen.getByRole('button', { name: 'Tabs' }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
-    await user.click(screen.getByRole('button', { name: 'Panel' }));
+    await user.click(screen.getByRole('button', { name: 'Tabs' }));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
   });
 

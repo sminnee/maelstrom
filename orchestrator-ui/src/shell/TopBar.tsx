@@ -1,47 +1,28 @@
 import { useLayoutMode } from '../layout/useLayoutMode';
+import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
-import { hasPanel, type View } from '../store/uiSlice';
+import type { Pane, Side } from '../store/uiSlice';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
 import { UsageChips } from './UsageChips';
 import styles from './TopBar.module.css';
 
-const VIEWS: { view: View; label: string }[] = [
-  { view: 'canvas', label: 'Desk' },
-  { view: 'list', label: 'Tasks' },
-  { view: 'worktrees', label: 'Worktrees' },
+const PANES: { pane: Pane; label: string }[] = [
+  { pane: 'canvas', label: 'Desk' },
+  { pane: 'list', label: 'Tasks' },
+  { pane: 'worktrees', label: 'Worktrees' },
+  { pane: 'tabs', label: 'Tabs' },
 ];
 
 export function TopBar() {
-  const view = useAppStore((s) => s.ui.view);
-  const setView = useAppStore((s) => s.setView);
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
-  const clearStack = useAppStore((s) => s.clearStack);
-  const panelOpen = useAppStore((s) => s.ui.panelOpen);
-  const setPanelOpen = useAppStore((s) => s.setPanelOpen);
-  const narrow = useLayoutMode() === 'narrow';
+  const mode = useLayoutMode();
+  const narrow = mode === 'narrow';
   return (
     <header className={styles.bar} data-narrow={narrow || undefined}>
       <h1 className={styles.brand}>maelstrom</h1>
-      <div className={styles.views}>
-        {VIEWS.map((v) => (
-          <button
-            key={v.view}
-            type="button"
-            className={styles.view}
-            aria-pressed={view === v.view}
-            onClick={() => {
-              setView(v.view);
-              // The stack sits over the view it was pushed from, so a switch
-              // that left it standing would draw the old screen under a new view.
-              clearStack();
-            }}
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
+      <PaneMenu side={mode === 'wide' ? 'left' : null} />
       {/* The narrow layout has no Desk canvas and no room for filters. */}
       {!narrow && <FilterBar />}
       <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
@@ -57,19 +38,61 @@ export function TopBar() {
         <AgentsChip />
       </div>
       <AttentionChip />
-      {/* At the right edge, over the panel it shows and hides. */}
-      {!narrow && hasPanel(view) && (
-        <div className={styles.views}>
-          <button
-            type="button"
-            className={styles.view}
-            aria-pressed={panelOpen}
-            onClick={() => setPanelOpen(!panelOpen)}
-          >
-            Panel
-          </button>
-        </div>
-      )}
+      {/* At the right edge, over the slot its items show in. */}
+      {mode === 'wide' && <PaneMenu side="right" />}
     </header>
   );
 }
+
+/**
+ * One group of menu items. The wide layout draws one group for each side, with
+ * the items anchored there. The other layouts have one slot, so they pass
+ * `null` and get one group.
+ */
+function PaneMenu({ side }: { side: Side | null }) {
+  const mode = useLayoutMode();
+  const showing = useShowing();
+  const anchors = useAppStore((s) => s.ui.anchors);
+  const showPane = useAppStore((s) => s.showPane);
+  const togglePane = useAppStore((s) => s.togglePane);
+  const moveAnchor = useAppStore((s) => s.moveAnchor);
+  const clearStack = useAppStore((s) => s.clearStack);
+  const panes = PANES.filter(({ pane }) =>
+    // The narrow layout has no panel.
+    side === null ? mode !== 'narrow' || pane !== 'tabs' : anchors[pane] === side,
+  );
+  // An empty group would draw as a bare border.
+  if (panes.length === 0) return null;
+  return (
+    <div
+      className={styles.views}
+      role="group"
+      aria-label={side === null ? 'Views' : side === 'left' ? 'Left slot' : 'Right slot'}
+    >
+      {panes.map(({ pane, label }) => (
+        <button
+          key={pane}
+          type="button"
+          className={styles.view}
+          aria-pressed={showing.includes(pane)}
+          title={
+            side === null ? undefined : `Shift-click to move ${label} to the ${otherSide(side)}`
+          }
+          onClick={(e) => {
+            // One slot cannot close, and has no other side to move to.
+            if (side === null) showPane(pane);
+            else if (e.shiftKey) moveAnchor(pane);
+            else togglePane(pane);
+            // The stack sits over the view it was pushed from, so a switch
+            // that left it standing would draw the old screen under a new view.
+            clearStack();
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const otherSide = (side: Side): Side => (side === 'left' ? 'right' : 'left');

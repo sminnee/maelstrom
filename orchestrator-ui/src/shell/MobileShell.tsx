@@ -7,6 +7,7 @@ import { NewWork } from '../newwork/NewWork';
 import { useDeck } from '../deck/useDeck';
 import { nodeTitle } from '../selectors/graph';
 import type { MobileScreen } from '../selectors/navStack';
+import { mainView } from '../selectors/slots';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
@@ -24,7 +25,8 @@ import styles from './MobileShell.module.css';
  * `mobileStack` holds what is pushed; empty is the deck itself.
  */
 export function MobileShell() {
-  const view = useAppStore((s) => s.ui.view);
+  // The panel has no place here, so the view is the most recent main view.
+  const view = useAppStore((s) => mainView(s.ui));
   const stack = useAppStore((s) => s.ui.mobileStack);
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);

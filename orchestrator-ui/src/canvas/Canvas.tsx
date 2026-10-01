@@ -14,6 +14,7 @@ import type { TaskId } from '../protocol/ids';
 import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
+import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import { layoutSwimlanes } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
@@ -55,9 +56,9 @@ export function Canvas() {
   const collapseNode = useAppStore((s) => s.collapseNode);
   const { getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();
-  const panelOpen = useAppStore((s) => s.ui.panelOpen);
-  // A collapsed panel shows no tab, so no node is marked as its source.
-  const focused = panelOpen ? focusedTaskId(world, tabs, activeTabKey) : null;
+  const panelShowing = useShowing().includes('tabs');
+  // A panel off screen shows no tab, so no node is marked as its source.
+  const focused = panelShowing ? focusedTaskId(world, tabs, activeTabKey) : null;
 
   const { nodes, edges, byId, positions } = useMemo(() => {
     const graph = deriveGraph(world, { groupBy, filters });

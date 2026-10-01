@@ -9,31 +9,35 @@ import type { Zone } from '../protocol/progress';
 import type { MobileScreen } from '../selectors/navStack';
 
 /**
- * One tab in the right-hand panel: a session, a document, or a worktree's
- * changes. A task expands on the canvas instead.
+ * One tab in the panel: a session, a document, or a worktree's changes. A task expands on the canvas instead.
  */
 export type PanelTab =
   | { key: string; kind: 'session'; agentId: AgentId }
   | { key: string; kind: 'document'; documentId: DocumentId }
   | { key: string; kind: 'changes'; worktreeId: WorktreeId };
 
+/** One item of the top bar's menu: a main view, or the panel, labelled `Tabs`. */
+export type Pane = 'canvas' | 'list' | 'worktrees' | 'tabs';
+
+/** One of the two slots the body draws a pane in. */
+export type Side = 'left' | 'right';
+
 /**
- * Which main view is showing: the desk, every task, or every worktree.
+ * A main view: the desk, every task, or every worktree.
  *
  * Nothing switches on this exhaustively, so widening it compiles clean —
  * every branch site must be edited by hand. They are AppShell, MobileShell
  * and FilterBar.
  */
-export type View = 'canvas' | 'list' | 'worktrees';
-
-/** A record, not a comparison, so a new view does not compile until it answers. */
-const PANEL_BESIDE: Record<View, boolean> = { canvas: true, list: true, worktrees: false };
-
-/** Whether the wide layout puts the panel beside this view. */
-export const hasPanel = (view: View) => PANEL_BESIDE[view];
+export type View = Exclude<Pane, 'tabs'>;
 
 export interface UiState {
-  view: View;
+  /** The side each pane shows on. Shift-click on a top bar item moves it. */
+  anchors: Record<Pane, Side>;
+  /** The pane in each slot. `null` is a closed slot. See `selectors/slots.ts`. */
+  slots: Record<Side, Pane | null>;
+  /** Panes, most recently selected first. The front one is always showing. */
+  paneRecency: Pane[];
   groupBy: GroupBy;
   filters: Filters;
   /** The task list's own filters. */
@@ -55,10 +59,11 @@ export interface UiState {
    * the form does not lose it. See `ui/useRetained.ts`.
    */
   newWorkOpen: boolean;
-  /** How wide the panel is, in px. Set by a drag; not persisted across a reload. */
+  /**
+   * The right slot's width in px while both slots are open. Set by a drag; not
+   * persisted across a reload.
+   */
   panelWidth: number;
-  /** Whether the panel is showing, or collapsed from the top bar. Not persisted across a reload. */
-  panelOpen: boolean;
   /**
    * Which zone the deck list is showing. Narrow layout only: the canvas draws
    * every zone at once, so it has no such choice to make.
@@ -76,7 +81,7 @@ export interface UiState {
  *
  * Half the window, because the canvas and the panel are both being read; and
  * never past 980px, because a transcript is prose and prose stops getting
- * easier to read once the line runs long. `Panel` clamps this again against its
+ * easier to read once the line runs long. The shell clamps this again against its
  * own floor, so a window too narrow to halve still leaves the grip reachable.
  */
 const openingWidth = () =>
@@ -84,7 +89,10 @@ const openingWidth = () =>
 
 export function initialUiState(): UiState {
   return {
-    view: 'canvas',
+    anchors: { canvas: 'left', list: 'left', worktrees: 'left', tabs: 'right' },
+    slots: { left: 'canvas', right: 'tabs' },
+    // Every pane, so the left slot can reopen on one that was never selected.
+    paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
     groupBy: 'project',
     filters: noFilters(),
     listFilters: noListFilters(),
@@ -96,7 +104,6 @@ export function initialUiState(): UiState {
     editingTaskId: null,
     newWorkOpen: false,
     panelWidth: openingWidth(),
-    panelOpen: true,
     // Running is where the work the user can act on is.
     deckZone: 'running',
     mobileStack: [],
