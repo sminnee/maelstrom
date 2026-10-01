@@ -7,6 +7,12 @@ body,
   height: 100%;
   margin: 0;
 }
+/* A phone browser enlarges the text of a block wider than the screen. 100% stops that. Not
+   none: none stops user zoom in old WebKit. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 /* The app is a fixed viewport: scrolling belongs to the two inner boxes, not to
    the document. Clipping here stops a tall panel child putting a scrollbar on
    the page. */
