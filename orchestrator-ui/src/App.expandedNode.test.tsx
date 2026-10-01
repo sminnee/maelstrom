@@ -6,7 +6,7 @@ import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { FakeServer } from './test/fakeServer';
 import type { TranscriptItem } from './protocol/transcript';
-import { askQuestion, chipCount, expanded, nodeState, tabBody } from './test/appHelpers';
+import { askQuestion, chipCount, endTurn, expanded, nodeState, tabBody } from './test/appHelpers';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
 import { T } from './test/seedWorld';
 
@@ -488,6 +488,41 @@ describe('how long since the agent spoke', () => {
       expect(age).toHaveTextContent('4h ago');
       expect(age.closest('[data-silent]')).toBeNull();
     });
+  });
+});
+
+describe('what an unanswered agent last said', () => {
+  it('shows its recent messages in place of the one-line Now block', async () => {
+    const { server } = await renderApp();
+    server.append('c3e8f1b5', {
+      id: 'c3e8f1b5-m9',
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      markdown: 'The tests pass. Do you want the restamp on every HEAD move?',
+    });
+    act(() => endTurn(server));
+    clickNode('MAEL-40.1');
+
+    const list = await within(expanded()).findByTestId('recent-messages');
+    // The earlier message is not the agent's `lastMessage`: only the
+    // transcript holds it.
+    expect(list).toHaveTextContent('Adding the HEAD staleness check to the index reader.');
+    expect(list).toHaveTextContent('Do you want the restamp on every HEAD move?');
+    const card = expanded();
+    expect(card).toHaveTextContent('Unanswered');
+    expect(card).toHaveTextContent('Last said');
+    expect(within(card).getByTestId('now-age')).toBeInTheDocument();
+
+    // A reply starts a turn, and the transcript is loaded by now: the list
+    // goes because of the state, not because there is nothing to list.
+    act(() => {
+      server.change({ kind: 'agent', ids: ['c3e8f1b5'] }, (w) => {
+        w.agents['c3e8f1b5'] = { ...w.agents['c3e8f1b5']!, state: 'processing' };
+      });
+    });
+    await waitFor(() => expect(within(expanded()).queryByTestId('recent-messages')).toBeNull());
+    expect(expanded()).toHaveTextContent('Now');
   });
 });
 

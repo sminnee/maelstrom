@@ -18,6 +18,8 @@ import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { reviewGroups } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
+import { recentMessages } from '../selectors/transcript';
+import { RecentMessages } from '../session/RecentMessages';
 import { toolCallTitle } from '../session/toolCards';
 import { PanelLink } from '../shell/PanelLink';
 import { DeskToggle } from '../tasklist/DeskToggle';
@@ -111,6 +113,8 @@ export function NodeCardBody({
   // display exists to show.
   const quiet = silentFor(spokeAt, clock);
   const silent = agent?.state === 'processing' && quiet !== null && quiet >= SILENT_MS;
+  // Empty until the transcript arrives; the Now block stands in.
+  const said = node.progress.state === 'unanswered' ? recentMessages(transcript.items) : [];
   // The last stage only. See `docs/dev/orchestrator-ui.md`.
   const stage = milestones.data?.stages.at(-1);
   const stageAge = stage ? ago(stage.at, clock) : '';
@@ -232,9 +236,13 @@ export function NodeCardBody({
         <DecisionCard agent={agent} />
       ) : (
         (now || running) && (
-          <div className={styles.now} data-silent={(age && silent) || undefined}>
+          <div
+            className={styles.now}
+            data-silent={(age && silent) || undefined}
+            data-unanswered={said.length > 0 ? '' : undefined}
+          >
             <div className={styles.nowBand}>
-              <span className={styles.nowHead}>Now</span>
+              <span className={styles.nowHead}>{said.length > 0 ? 'Last said' : 'Now'}</span>
               {age && (
                 <time
                   className={styles.nowAge}
@@ -246,14 +254,20 @@ export function NodeCardBody({
                 </time>
               )}
             </div>
-            <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
-              {now}
-              {running && running.type === 'tool_call' && (
-                <span className={styles.running}>
-                  {running.tool} {toolCallTitle(running)}
-                </span>
-              )}
-            </span>
+            {said.length > 0 ? (
+              <div className={styles.said} data-testid="recent-messages">
+                <RecentMessages items={said} />
+              </div>
+            ) : (
+              <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
+                {now}
+                {running && running.type === 'tool_call' && (
+                  <span className={styles.running}>
+                    {running.tool} {toolCallTitle(running)}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         )
       )}

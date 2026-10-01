@@ -296,6 +296,19 @@
 .nowText[data-note] {
   color: var(--fg);
 }
+/* What an unanswered agent last said. */
+.now[data-unanswered] {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--unanswered);
+}
+.said {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 22em;
+  overflow: auto;
+  color: var(--fg);
+}
 .follows {
   display: grid;
   gap: var(--space-3);
