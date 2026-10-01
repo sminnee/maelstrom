@@ -32,15 +32,15 @@ from mael_common.util import now_iso
 
 from . import task_export as export
 from .state_db.db import StateDb, Txn
-from .task import Task, creation_order, session_id_for, task_key
+from .task import Task, creation_order, task_key
 
 #: The table this store writes, as declared in
 #: :data:`mael_domain.state_db.migrate.TABLES`.
 TABLE = "tasks"
 
 #: Every scalar column a row carries, and the :class:`~mael_domain.task.Task`
-#: attribute it holds. ``follows`` is JSON text and handled apart; ``project``,
-#: ``status`` and ``session_id`` are derived on the way in.
+#: attribute it holds. ``follows`` is JSON text and handled apart; ``project``
+#: and ``status`` are derived on the way in.
 _SCALARS = (
     "title",
     "command",
@@ -105,15 +105,13 @@ _STRIPPED = ("content", "log")
 def columns_for(task: Task) -> dict[str, Any]:
     """``task`` as the columns a row carries.
 
-    ``session_id`` is derived rather than stored on the task: it is a pure
-    function of the project and the id, and a column free to disagree with
-    :func:`~mael_domain.task.session_id_for` would break the reverse lookup.
+    No session is here. A task's sessions are its Agent records — see
+    :class:`mael_domain.agent_store.AgentStore`.
     """
     columns: dict[str, Any] = {
         "project": task.project,
         "task_id": task.id,
         "status": task.status,
-        "session_id": session_id_for(task.project, task.id),
         "follows": json.dumps(list(task.follows)),
     }
     for name in _SCALARS:
@@ -173,14 +171,6 @@ class TaskTable(ABC):
     @abstractmethod
     async def delete(self, project: str, id: str) -> None:
         """Remove one task. Removing what is absent changes nothing."""
-
-    @abstractmethod
-    async def find_by_session_id(self, session_id: str) -> Task | None:
-        """The task a session runs, or ``None`` when none does.
-
-        A blank never resolves: ``""`` is the default for a never-launched row,
-        so a falsy query must not match one of them.
-        """
 
     @abstractmethod
     def transact(self) -> Any:
@@ -288,14 +278,6 @@ class InMemoryTaskTable(TaskTable):
             key for key, revision in self._removals.items() if revision > since
         )
         return TaskChanges(tasks=tasks, removed=removed, revision=self._revision)
-
-    async def find_by_session_id(self, session_id: str) -> Task | None:
-        if not session_id:
-            return None
-        for row in self._rows.values():
-            if row["session_id"] == session_id:
-                return task_from_row(row)  # type: ignore[arg-type]
-        return None
 
     @asynccontextmanager
     async def transact(self) -> AsyncGenerator[None]:
@@ -461,17 +443,6 @@ class SqliteTaskTable(TaskTable):
                 deleted=True,
                 queued_at=now_iso(),
             )
-
-    async def find_by_session_id(self, session_id: str) -> Task | None:
-        if not session_id:
-            return None
-        row = await self._db._call(
-            lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE session_id = ? LIMIT 1",  # noqa: S608 — the table name is this module's own
-                (session_id,),
-            ).fetchone()
-        )
-        return task_from_row(row) if row is not None else None
 
     def transact(self) -> Any:
         """The database's own transaction, so every write inside is one cut."""

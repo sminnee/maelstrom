@@ -1918,8 +1918,8 @@ def _specs_by_session(specs: list[AgentSpec]) -> dict[str, AgentSpec]:
     """Records keyed by session id, one per session.
 
     Records are stored per agent id, but a session id can carry several. A task
-    keeps its task session id for life, so every relaunch of one task writes
-    another record against it.
+    that resumes keeps its session, so every relaunch of it writes another
+    record against the same id.
 
     A ``stopped`` record wins, because a stop is deliberate and an ``exited``
     one is a crash. Without a rule the winner would be whatever the store

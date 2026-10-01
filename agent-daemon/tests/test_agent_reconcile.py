@@ -217,7 +217,7 @@ def test_a_driven_claude_no_record_here_claims_is_unknown_and_left_alone():
 
 def test_a_driven_claude_on_an_exited_records_session_is_unknown_not_a_duplicate():
     """Only a running record claims a session. An exited one owns nothing now,
-    and a task relaunched under another root reuses its task session id."""
+    and a task relaunched under another root resumes the same session."""
     exited = running("a1", S1, None, status=SPEC_EXITED)
     result = reconcile([exited], [driven(100, S1)], set(), resume_strays=True)
     assert kinds(result) == {"100": UNKNOWN}

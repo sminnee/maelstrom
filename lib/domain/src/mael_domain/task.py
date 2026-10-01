@@ -28,7 +28,6 @@ import secrets
 import string
 import subprocess
 import tempfile
-import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -1571,24 +1570,6 @@ def permission_mode_for(mode: str) -> str | None:
     unattended mode); anything else uses Claude's default (None, no flag).
     """
     return mode if mode in {"plan", "auto"} else None
-
-
-# Fixed namespace UUID for deriving per-task session ids. Generated once and
-# frozen here so the mapping (project, task-id) → session-id is stable across
-# machines and over time; changing it would orphan every existing session.
-_SESSION_NS = uuid.UUID("5b970d0a-51ab-49ae-ba93-0f7b0f615908")
-
-
-def session_id_for(project: str, task_id: str) -> str:
-    """Stable Claude ``--session-id`` for a task (same task → same id).
-
-    Deterministic uuid5 over ``project`` and ``task_id`` (NUL-separated so no
-    pair of distinct ids can collide by concatenation). This is the
-    first-class link between a task and its session: ``mael task run`` passes
-    it to ``claude --session-id``, the session channel records it, and
-    ``reconcile`` matches a live session back to its task by recomputing it.
-    """
-    return str(uuid.uuid5(_SESSION_NS, f"{project}\x00{task_id}"))
 
 
 # Reconcile classifications. Each in-progress task / live session is sorted into
