@@ -626,8 +626,8 @@ describe('drift between the task file and the agent', () => {
     stopAgent(server);
     await waitFor(() => expect(node().querySelector('[data-drift]')).not.toBeNull());
     expect(node().querySelector('[data-drift]')).toHaveAttribute('data-drift', 'finished');
-    // Drift is a channel, not a state of its own: the Single Interrupt Rule
-    // keeps the amber border and glow for work that is really blocked.
+    // Drift is a channel, not a state of its own: the Two Calls Rule
+    // keeps the border and glow for work that calls the user.
     expect(nodeState('MAEL-40.1')).toBe('stopped');
   });
 
