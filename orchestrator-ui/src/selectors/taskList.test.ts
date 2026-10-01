@@ -37,8 +37,28 @@ describe('listTasks', () => {
     expect(rows()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7']);
   });
 
-  it('lists every task, project first then id, when no status is ticked', () => {
+  it('lists every task when no status is ticked', () => {
     expect(anyStatus()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7', 'northwind/NORT-9']);
+  });
+
+  it('orders by project, then oldest first, then id', () => {
+    // The ids sort against the creation order, so the id cannot give a pass.
+    const dated = worldWith({
+      tasks: [
+        makeTask({ id: 'northwind/aaaa', created: '2026-06-13T00:00:00+00:00' }),
+        makeTask({ id: 'northwind/zzzz', created: '2026-06-11T00:00:00+00:00' }),
+        makeTask({ id: 'northwind/mmmm', created: '2026-06-13T00:00:00+00:00' }),
+        makeTask({
+          id: 'maelstrom/k3f9',
+          project: 'maelstrom',
+          created: '2026-06-14T00:00:00+00:00',
+        }),
+      ],
+    });
+    const ids = listTasks(dated, noFilters(), { ...noListFilters(), statuses: [] }).map(
+      (r) => r.task.id,
+    );
+    expect(ids).toEqual(['maelstrom/k3f9', 'northwind/zzzz', 'northwind/aaaa', 'northwind/mmmm']);
   });
 
   it('narrows by status', () => {

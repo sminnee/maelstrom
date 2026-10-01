@@ -13,12 +13,13 @@ describe('the task list', () => {
   };
   const listRow = (taskId: string) =>
     document.querySelector(`[data-testid="task-list"] [data-task-id="${taskId}"]`)!;
-  const listedIds = () =>
+  /** The listed ids, top to bottom as the list draws them. */
+  const rowOrder = () =>
     within(screen.getByTestId('task-list'))
       .getAllByRole('row')
       .map((r) => r.getAttribute('data-task-id'))
-      .filter(Boolean)
-      .sort();
+      .filter(Boolean);
+  const listedIds = () => rowOrder().sort();
   /** Tick every status back on, so finished tasks are listed too. */
   const showEveryStatus = async (user: ReturnType<typeof userEvent.setup>) => {
     for (const status of ['done', 'cancelled', 'template']) {
@@ -499,8 +500,8 @@ describe('the task list', () => {
     await renderApp();
     await goToList(user);
 
-    // NORT-9 sits between NORT-7.1 and NORT-9.1 in the live-status, id-sorted
-    // order the list itself uses.
+    // NORT-9.1 is the row after NORT-9 in the live-status, oldest-first order
+    // the list itself uses.
     let editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
     await user.click(within(editor).getByRole('button', { name: 'Next ›' }));
     editor = await screen.findByRole('dialog', { name: 'Watch the migration PR' });
@@ -518,7 +519,7 @@ describe('the task list', () => {
     const { server } = await renderApp();
     await goToList(user);
 
-    const ids = listedIds();
+    const ids = rowOrder();
     const titleOf = (id: string) => server.world.tasks[id]!.title;
 
     const openFirst = await openTask(user, ids[0]!, titleOf(ids[0]!));

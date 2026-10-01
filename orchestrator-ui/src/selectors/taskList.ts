@@ -27,7 +27,7 @@ export interface ListRow {
   agent?: Agent;
 }
 
-/** The rows the task list shows, sorted by project then id. */
+/** The rows the task list shows: by project, then oldest first, then id. */
 export function listTasks(world: WorldView, filters: Filters, listFilters: ListFilters): ListRow[] {
   const text = listFilters.text.trim().toLowerCase();
   // Built once, not per row: the task list exists for the scale that broke
@@ -38,7 +38,12 @@ export function listTasks(world: WorldView, filters: Filters, listFilters: ListF
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
     .filter((t) => listFilters.statuses.length === 0 || listFilters.statuses.includes(t.status))
     .filter((t) => !text || matches(t, text))
-    .sort((a, b) => a.project.localeCompare(b.project) || a.id.localeCompare(b.id))
+    .sort(
+      (a, b) =>
+        a.project.localeCompare(b.project) ||
+        a.created.localeCompare(b.created) ||
+        a.id.localeCompare(b.id),
+    )
     .map((task) => ({
       task,
       onDesk: deskIdForTask(task.id) in world.desk,
