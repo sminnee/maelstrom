@@ -569,20 +569,50 @@ worktree by its id, `<project>-<nato> changes`, because every project has a `del
 no phase, because a worktree has no task of its own.
 
 A strip beside the diff chooses the rev: "Uncommitted" when there are **Dirty files**, "All
-commits" when the branch has commits, then one entry per commit, newest first. With neither,
-there is no strip. The tab opens on Uncommitted when there are dirty files, else on All commits.
-A picked entry that is no longer drawn gives way to that default. In a panel narrower than 40rem,
-the strip stacks above the diff. A container query sets this, because the panel's width, not the
-window's, decides.
+commits" when the branch has commits, then one entry per commit, oldest first. The server sends
+the commits in that order, and the tab does not sort them. With neither, there is no strip. The
+tab opens on Uncommitted when there are dirty files, else on All commits. A picked entry that is
+no longer drawn gives way to that default.
 
-A commit's message opens the scroll: its subject, its body and its author. The body is drawn as
-Markdown, which joins git's hard wraps. The reader can fold the message away, and it stays folded
-from one commit to the next. Under it, a collapsible file list jumps to each file, and every file follows. Each file's
-head sticks to the top of that scroll. The tab's header and the strip sit outside the scroll, so
-the heads need no offset.
+Under the commits, the strip draws the files of the diff in view as a tree. `fileTree` in
+`changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A click on a directory
+folds it, and a click on a file scrolls the diff to that file. A directory fold lasts for one
+rev: the tree is keyed on the rev, so each rev opens with every directory open.
+
+In a panel narrower than 40rem, the strip stacks above the diff and hides the tree. The strip is
+short there, and the file list in the scroll already jumps to a file. A container query sets
+this, because the panel's width, not the window's, decides.
+
+The scroll holds five parts, in this order:
+
+| Part | Content | Sticks |
+|---|---|---|
+| Title line | The commit's subject, then Prev and Next | Yes, at the top |
+| Commit message | The body and the author. The body is drawn as Markdown, which joins git's hard wraps | No |
+| Stats line | The file count and the line totals | Yes, under the title line |
+| File list | One entry per file, which jumps to that file | No |
+| Files | Each file as a card, with a head | The head, under both lines |
+
+Uncommitted and All commits name no single commit, so they draw no title line and no commit
+message.
+
+Prev and Next step through the commits only. Prev goes to the earlier commit, which is up the
+strip. Each button is disabled where there is no commit to go to.
+
+The subject is a button that folds the commit message, and the stats line is a button that folds
+the file list. `ChangesTab` holds both fold states, so a fold stays from one commit to the next.
+The scroll is keyed on the rev, so each rev opens at the top, and state inside the scroll would
+open again.
+
+The title line and the stats line are direct children of the scroll. A sticky element holds only
+inside its parent, so a line inside a foldable parent would leave the view with that parent. Each
+line has a fixed height, which `--title-h` and `--stats-h` hold. A file head sticks at the sum of
+the two, and `scroll-margin-top` lands a jump at the same offset. With no title line,
+`--title-h` is zero. The tab's header and the strip sit outside the scroll, so the title line
+sticks at zero.
 
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
-new line numbers. Each file draws as a card.
+new line numbers.
 
 Diff rows draw in syntax colour, in the Changes tab and in the Edit card, which takes its path
 from the tool call's `file_path`. `ui/highlight.ts` holds one Shiki highlighter with the

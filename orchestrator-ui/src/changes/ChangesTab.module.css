@@ -110,19 +110,80 @@
   }
 }
 
+/* -- the scroll, and the two lines that stick to its top -- */
+/* The lines have fixed heights, so each sticky offset below is known. A rev
+   that is not a commit draws no title line, and the offset drops to zero. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+
+  --title-h: 2.25rem;
+  --stats-h: 1.75rem;
+}
+.scroll[data-commit='false'] {
+  --title-h: 0px;
+}
+.titleLine,
+.statsLine {
+  position: sticky;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.titleLine {
+  top: 0;
+  height: var(--title-h);
+}
+.statsLine {
+  top: var(--title-h);
+  height: var(--stats-h);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.fold {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fold::before {
+  content: '▸';
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
+.fold[aria-expanded='true']::before {
+  content: '▾';
+}
+.subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-semibold);
+}
+
 /* -- the commit message -- */
 .message {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
-.subject {
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
-}
 /* The Markdown surface sizes for a document; a message sits at the diff's
    size, with the Decision card's tighter gaps. */
 .messageBody {
-  margin: var(--space-2) 0 0;
+  margin: 0 0 var(--space-2);
   max-width: var(--measure-prose);
   color: var(--fg);
   font-size: var(--text-sm);
@@ -133,16 +194,11 @@
   --prose-gap-loose: 24px;
 }
 .byline {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 
-.scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
 .empty {
   padding: var(--space-5);
   color: var(--fg-faint);
@@ -151,18 +207,10 @@
 
 /* -- the file list -- */
 .list {
-  border-bottom: 1px solid var(--border);
-}
-.summary {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-.list ul {
   list-style: none;
   margin: 0;
-  padding: 0 0 var(--space-1);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border);
 }
 .entry {
   display: flex;
@@ -190,6 +238,8 @@
 /* `clip`, not `hidden`: `hidden` makes the section a scroll container
    and the header stops sticking. */
 .file {
+  /* A jump from the list or the tree lands the head below the two lines. */
+  scroll-margin-top: calc(var(--title-h) + var(--stats-h));
   margin: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -201,7 +251,7 @@
 .fileHead {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   position: sticky;
-  top: 0;
+  top: calc(var(--title-h) + var(--stats-h));
   z-index: 1;
   display: flex;
   align-items: baseline;

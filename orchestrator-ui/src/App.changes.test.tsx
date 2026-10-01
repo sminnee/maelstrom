@@ -10,6 +10,7 @@ import { clickNode, renderApp } from './test/renderApp';
 /** NORT-12's agent runs in delta, so its expanded node reaches delta's changes. */
 const DELTA = 'northwind-delta';
 const SHA = 'c0ffee1234567890c0ffee1234567890c0ffee12';
+const LATER_SHA = 'decade1234567890decade1234567890decade12';
 
 const file = (path: string, text: string, over: Partial<FileDiff> = {}): FileDiff => ({
   path,
@@ -50,6 +51,15 @@ function seedChanges(server: FakeServer) {
           date: '2026-09-02T09:00:00+12:00',
           filesChanged: 1,
         },
+        {
+          sha: LATER_SHA,
+          shortSha: 'decade1',
+          subject: 'fix: keep the old token a minute',
+          body: '',
+          author: 'Sam',
+          date: '2026-09-02T10:00:00+12:00',
+          filesChanged: 1,
+        },
       ],
     },
     diffs: {
@@ -57,8 +67,9 @@ function seedChanges(server: FakeServer) {
         file('auth/tokens.py', 'tokens'),
         file('auth/rotate.py', 'rotate', { status: 'added' }),
       ],
-      branch: [file('auth/expiry.py', 'expiry')],
+      branch: [file('auth/expiry.py', 'expiry'), file('auth/grace.py', 'grace')],
       [SHA]: [file('auth/expiry.py', 'expiry')],
+      [LATER_SHA]: [file('auth/grace.py', 'grace')],
     },
   };
 }
@@ -135,7 +146,13 @@ describe('the Changes tab', () => {
 
   it('lists the uncommitted changes, the whole branch and each commit in a strip', async () => {
     const { server, panel } = await openChanges();
-    expect(entries()).toEqual(['Uncommitted 2', 'All commits 1', 'c0ffee1 feat: rotate on expiry']);
+    // The commits keep the order the server sent: oldest first.
+    expect(entries()).toEqual([
+      'Uncommitted 2',
+      'All commits 2',
+      'c0ffee1 feat: rotate on expiry',
+      'decade1 fix: keep the old token a minute',
+    ]);
 
     await pick(/rotate on expiry/);
     await waitFor(() => expect(rowTexts(panel, 'auth/expiry.py')).toHaveLength(3));
@@ -150,7 +167,6 @@ describe('the Changes tab', () => {
 
     await pick(/rotate on expiry/);
     const message = await within(panel).findByRole('article', { name: 'Commit message' });
-    expect(message).toHaveTextContent('feat: rotate on expiry');
     // The body is Markdown: git's hard wraps join, and lists and code spans draw.
     const body = within(message).getByText(/A token past its expiry now rotates/);
     expect(body).toBeVisible();
@@ -161,8 +177,107 @@ describe('the Changes tab', () => {
         .map((li) => li.textContent),
     ).toEqual(['for a minute', 'once']);
 
-    await userEvent.click(within(message).getByText('feat: rotate on expiry'));
+    // The subject is the fold button, on a line that stays above the message.
+    const fold = within(panel).getByRole('button', { name: 'feat: rotate on expiry' });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
     expect(body).not.toBeVisible();
+
+    // The message stays folded on the next commit.
+    await userEvent.click(within(panel).getByRole('button', { name: 'Next commit' }));
+    await waitFor(() => expect(rowTexts(panel, 'auth/grace.py')).toHaveLength(3));
+    expect(
+      within(panel).getByRole('button', { name: 'fix: keep the old token a minute' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('folds the file list away under its totals', async () => {
+    const { panel } = await openChanges();
+    const fold = within(panel).getByRole('button', { name: /^2 files/ });
+    expect(fold).toHaveTextContent('2 files +2 −2');
+    const files = within(panel).getByRole('list', { name: 'Files' });
+    expect(files).toBeVisible();
+
+    await userEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(files).not.toBeVisible();
+    expect(within(panel).getByRole('region', { name: 'auth/tokens.py' })).toBeVisible();
+
+    // The list stays folded on another rev.
+    await pick(/rotate on expiry/);
+    expect(await within(panel).findByRole('button', { name: /^1 file/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('steps through the commits with Previous and Next, and stops at each end', async () => {
+    const { server, panel } = await openChanges();
+    // Uncommitted and All commits are not steps.
+    expect(within(panel).queryByRole('button', { name: 'Next commit' })).toBeNull();
+    await pick(/All commits/);
+    await waitFor(() => expect(rowTexts(panel, 'auth/grace.py')).toHaveLength(3));
+    expect(within(panel).queryByRole('button', { name: 'Previous commit' })).toBeNull();
+
+    await pick(/rotate on expiry/);
+    const prev = () => within(panel).getByRole('button', { name: 'Previous commit' });
+    const next = () => within(panel).getByRole('button', { name: 'Next commit' });
+    await waitFor(() => expect(prev()).toBeDisabled());
+    expect(next()).toBeEnabled();
+
+    await userEvent.click(next());
+    await waitFor(() => expect(rowTexts(panel, 'auth/grace.py')).toHaveLength(3));
+    expect(current()).toBe('decade1 fix: keep the old token a minute');
+    expect(server.requests.map((r) => r.path)).toContain(
+      `/api/worktrees/${DELTA}/diff?rev=${LATER_SHA}`,
+    );
+    expect(next()).toBeDisabled();
+
+    // A commit seen before opens at the top, not where the last one was scrolled to.
+    const scroll = (path: string) =>
+      within(panel).getByRole('region', { name: path }).parentElement!;
+    scroll('auth/grace.py').scrollTop = 300;
+    await userEvent.click(prev());
+    await waitFor(() => expect(current()).toBe('c0ffee1 feat: rotate on expiry'));
+    expect(scroll('auth/expiry.py').scrollTop).toBe(0);
+  });
+
+  it('draws the changed files as a tree in the strip, which folds and jumps', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('docs/specs/agent/stream.md', 'stream'),
+        file('docs/specs/agent/reply.md', 'reply', { status: 'added' }),
+        file('auth/tokens.py', 'tokens'),
+        file('README.md', 'readme'),
+      ];
+    });
+    const tree = await within(strip()).findByRole('tree', { name: 'Changed files' });
+    const items = () =>
+      within(tree)
+        .getAllByRole('treeitem')
+        .map((item) => item.textContent);
+    // The order and the joined chain are `fileTree`'s rules; see tree.test.ts.
+    expect(items()).toEqual([
+      'auth',
+      'Mtokens.py',
+      'docs/specs/agent',
+      'Areply.md',
+      'Mstream.md',
+      'MREADME.md',
+    ]);
+
+    const dir = within(tree).getByRole('treeitem', { name: 'docs/specs/agent' });
+    expect(dir).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(dir);
+    expect(dir).toHaveAttribute('aria-expanded', 'false');
+    expect(items()).toEqual(['auth', 'Mtokens.py', 'docs/specs/agent', 'MREADME.md']);
+
+    await userEvent.click(within(tree).getByRole('treeitem', { name: /tokens\.py/ }));
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(scrolled.mock.contexts[0]).toBe(
+      within(panel).getByRole('region', { name: 'auth/tokens.py' }),
+    );
   });
 
   it('scrolls to a file when its entry in the file list is clicked', async () => {
@@ -208,7 +323,7 @@ describe('the Changes tab', () => {
       picked: /Uncommitted/,
       why: 'the agent committed everything',
       change: (c: Changes) => (c.changes.dirtyFiles = []),
-      then: 'All commits 1',
+      then: 'All commits 2',
     },
   ])('falls back to the default rev when $why', async ({ picked, change, then }) => {
     const { server } = await openChanges();
@@ -295,8 +410,12 @@ describe('the Changes tab', () => {
       c.changes.dirtyFiles = [];
     });
     await within(panel).findByText('new expiry');
-    expect(entries()).toEqual(['All commits 1', 'c0ffee1 feat: rotate on expiry']);
-    expect(current()).toBe('All commits 1');
+    expect(entries()).toEqual([
+      'All commits 2',
+      'c0ffee1 feat: rotate on expiry',
+      'decade1 fix: keep the old token a minute',
+    ]);
+    expect(current()).toBe('All commits 2');
   });
 
   it('draws no strip, and says so, when there are no changes', async () => {
