@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
+import { useAgent, useAnswer, useApprove, useDeny, useInterrupt } from '../api/agents';
 import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
@@ -8,7 +8,7 @@ import { documentTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
 import { DecideRow } from '../session/cards/DecideRow';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
-import { QuestionPrompt } from '../session/cards/QuestionPrompt';
+import { DECLINE_REASON, QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { RecentMessages } from '../session/RecentMessages';
 import { PanelLink } from '../shell/PanelLink';
 import { AppButton } from '../ui/AppButton';
@@ -72,6 +72,7 @@ function OneDecision({
   const approve = useApprove();
   const deny = useDeny();
   const answer = useAnswer();
+  const interrupt = useInterrupt();
   const requestId = wait.requestId;
   const before = recentMessages(items, { before: requestId });
   const decide = (decision: 'approve' | 'deny', reason: string) =>
@@ -95,6 +96,8 @@ function OneDecision({
         <QuestionPrompt
           item={wait}
           onAnswer={(answers) => answer.mutateAsync({ agentId: agent.id, requestId, answers })}
+          onDecline={() => decide('deny', DECLINE_REASON)}
+          onDeclineAndStop={() => interrupt.mutateAsync({ agentId: agent.id })}
         />
       )}
       {wait.type === 'permission_request' && <PermissionPrompt item={wait} onDecide={decide} />}

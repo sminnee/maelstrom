@@ -1,9 +1,13 @@
 import { useId, useState } from 'react';
 import type { Question, QuestionItem } from '../../protocol/transcript';
 import { AppButton } from '../../ui/AppButton';
+import { SplitButton, type SplitOption } from '../../ui/SplitButton';
 import styles from './cards.module.css';
 
 const OTHER = '__other__';
+
+/** The reason a Decline sends: the server requires one, and the agent reads it. */
+export const DECLINE_REASON = 'The user declined to answer.';
 
 interface Draft {
   /** Chosen option labels per question, or [OTHER] when the free text is the answer. */
@@ -31,24 +35,32 @@ function answerFor(draft: Draft, q: Question): string {
  * sends on click; the last question's Answer sends every answer keyed by
  * question text, as the daemon files them, because the daemon resolves the
  * request on the first answer it gets.
+ *
+ * Decline refuses the questions on any step — see `CONTEXT.md`, "Decline".
  */
 export function QuestionPrompt({
   item,
   onAnswer,
+  onDecline,
+  onDeclineAndStop,
 }: {
   item: QuestionItem;
   onAnswer?: (answers: Record<string, string>) => void | Promise<unknown>;
+  /** Deny the question. Absent on a surface that cannot reply. */
+  onDecline?: () => Promise<unknown>;
+  /** Interrupt the agent, which denies the question and ends the turn. */
+  onDeclineAndStop?: () => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<Draft>({ chosen: {}, other: {} });
   const [step, setStep] = useState(0);
   const groupId = useId();
   const answered = item.answers !== undefined && Object.keys(item.answers).length > 0;
 
-  // Answered outranks stale: the normaliser marks an item stale only when
-  // nothing answered it, so an item carrying answers was answered here.
-  if (answered || item.stale) {
-    return <ReadOnly item={item} answered={answered} />;
-  }
+  // Answered and declined outrank stale: the normaliser marks an item stale
+  // only when nothing replied to it.
+  if (answered) return <Answered item={item} />;
+  if (item.declined) return <Declined item={item} />;
+  if (item.stale) return <Stale item={item} />;
 
   const questions = item.questions;
   const current = questions[step];
@@ -96,6 +108,21 @@ export function QuestionPrompt({
     e.preventDefault();
     choose(option.label);
   };
+
+  const declines: SplitOption[] = onDecline
+    ? [
+        { label: 'Decline', detail: 'The agent continues without an answer.', run: onDecline },
+        ...(onDeclineAndStop
+          ? [
+              {
+                label: 'Decline & stop',
+                detail: 'Ends the turn. The agent waits for your next message.',
+                run: onDeclineAndStop,
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   const otherChosen = chosen.includes(OTHER);
   const inputType = current.multiSelect ? 'checkbox' : 'radio';
@@ -201,14 +228,12 @@ export function QuestionPrompt({
         <AppButton variant="primary" disabled={!onAnswer || !complete} onClick={submit}>
           {last ? 'Answer' : 'Next'}
         </AppButton>
+        {declines.length > 0 && (
+          <SplitButton variant="plain" menuLabel="More ways to decline" options={declines} />
+        )}
       </div>
     </div>
   );
-}
-
-/** The questions with no controls: answered, or stale with nothing to show but the ask. */
-function ReadOnly({ item, answered }: { item: QuestionItem; answered: boolean }) {
-  return answered ? <Answered item={item} /> : <Stale item={item} />;
 }
 
 /** A settled question takes the operator's wash, not the `.prompt` chassis — see `orchestrator-ui/DESIGN.md`, § Components, "Question". */
@@ -225,6 +250,29 @@ function Answered({ item }: { item: QuestionItem }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A declined question is settled too, so it takes the same wash as an answer.
+ * The daemon also denies a question on the operator's behalf, as an interrupt
+ * does, so a reason that is not the Decline button's own is shown.
+ */
+function Declined({ item }: { item: QuestionItem }) {
+  return (
+    <div className={styles.settled} data-testid="question-declined">
+      {item.questions.map((q) => (
+        <div key={q.question} className={styles.settledQuestion}>
+          {headerOf(q)}: {q.question}
+        </div>
+      ))}
+      <span className={styles.settledAnswer}>
+        Declined
+        {item.reason && item.reason !== DECLINE_REASON && (
+          <span className={styles.settledQuestion}> · {item.reason}</span>
+        )}
+      </span>
     </div>
   );
 }

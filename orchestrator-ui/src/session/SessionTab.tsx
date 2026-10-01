@@ -15,6 +15,7 @@ import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
 import { awaitCompact } from './awaitCompact';
+import { DECLINE_REASON } from './cards/QuestionPrompt';
 import { MessageInput } from './MessageInput';
 import { useSendMessage } from './useSendMessage';
 import { Transcript } from './Transcript';
@@ -268,6 +269,9 @@ export function SessionTab({
               : {
                   onAnswer: (requestId, answers) =>
                     answer.mutateAsync({ agentId, requestId, answers }),
+                  onDecline: (requestId) =>
+                    deny.mutateAsync({ agentId, requestId, reason: DECLINE_REASON }),
+                  onDeclineAndStop: () => interrupt.mutateAsync({ agentId }),
                   onDecide: (requestId, decision, reason) =>
                     decision === 'approve'
                       ? approve.mutateAsync({ agentId, requestId })

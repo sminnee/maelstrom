@@ -430,8 +430,15 @@ Which of three things a driven agent is blocked on: `awaiting-question`, `awaiti
 or `awaiting-permission`. All three arrive as the same `can_use_tool` event, so the wait kind
 comes from the tool name. An agent can hold several waits at once, its own and its subagents',
 and each is answered on its own; its state names the oldest. The wait kind is what makes an answer possible — it says which of
-`answer`, `approve` or `deny` applies.
+`answer`, `approve` or `deny` applies. A question takes `answer` or `deny`. A plan review and a
+permission take `approve` or `deny`.
 _Avoid_: Blocked, stuck
+
+**Decline**:
+The UI's word for a `deny` of a question. The agent gets the refusal as the tool result and
+continues its turn. **Decline & stop** is an **Interrupt** instead: it denies every open ask and
+ends the turn. Either way the question is declined, which is a settled state, not a stale one.
+_Avoid_: Skip, dismiss, cancel
 
 **Stale prompt**:
 A prompt whose wait ended, and which nobody answered through the orchestrator. The tool was
@@ -439,7 +446,7 @@ approved in the cmux pane, by `mael agent approve`, or by auto-accept; the host 
 request and sends no `control_response`. The user can also interrupt the wait, or the agent can
 stop, before any answer arrives. A wait also ends when the agent host stops reporting it. The
 normaliser marks the item stale when the wait ends. A stale prompt shows what was asked. It
-never offers a decision. A stale plan review takes its plan document to the `stale` status, so
+never offers a decision. A declined question is not stale — see "Decline". A stale plan review takes its plan document to the `stale` status, so
 the document's review bar stops offering one too. Stale means
 the outcome is unknown, not that the answer was no: a tool approved in the cmux pane went ahead,
 and the orchestrator only knows it never saw the answer.
@@ -447,8 +454,8 @@ _Avoid_: Abandoned, orphaned, expired
 
 **Interrupt**:
 Abandoning the turn an agent is running, and leaving the agent alive to take the next message.
-Three surfaces offer it to the user: `mael agent interrupt`, Esc in teleport, and the session
-tab's **Stop** button. An interrupt of a waiting agent denies the open ask first, with the
+Four surfaces offer it to the user: `mael agent interrupt`, Esc in teleport, the session tab's
+**Stop** button, and a question prompt's **Decline & stop**. An interrupt of a waiting agent denies the open ask first, with the
 reason `Interrupted by user`; answer or deny the ask instead. This is not **stop**, which ends
 the agent's process group and is terminal — the node card labels that button **Terminate**. The
 wire says what the daemon says; the UI says what the user means.

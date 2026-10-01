@@ -498,7 +498,7 @@ const NOT_IMPLEMENTED = [/^POST \/api\/documents\/[^/]+\/comments/, /^POST \/api
 /** The wait tables, mirroring `orchestrator/validate.py`. */
 const WAIT_FOR_ACTION: Record<string, readonly string[]> = {
   approve: ['permission_request', 'plan_review'],
-  deny: ['permission_request', 'plan_review'],
+  deny: ['permission_request', 'plan_review', 'question'],
   answer: ['question'],
 };
 
@@ -634,6 +634,13 @@ function command(
       }
       const denied = agent.pendingRequestIds;
       world.agents[agentId] = { ...agent, state: 'idle', pendingRequestIds: [], waitingOn: '' };
+      // The daemon denies each open ask, and the normaliser files a denied
+      // question as declined.
+      for (const item of server.transcripts[agentId]?.items ?? []) {
+        if (item.type === 'question' && denied.includes(item.requestId)) {
+          server.patch(agentId, item.id, { declined: true, reason: 'Interrupted by user' });
+        }
+      }
       const retired: string[] = [];
       for (const item of Object.values(world.attention)) {
         if (item.requestId && denied.includes(item.requestId) && item.clearedAt === null) {
@@ -682,7 +689,9 @@ function command(
             ? wait.type === 'permission_request'
               ? { decision: 'allow' }
               : { decision: 'approve' }
-            : { decision: 'deny', reason: str('reason') };
+            : wait.type === 'question'
+              ? { declined: true, reason: str('reason') }
+              : { decision: 'deny', reason: str('reason') };
       server.patch(agentId, wait.id, patch);
     }
     // Only the answered ask ends; the others stand, as `normalise.end_wait` does

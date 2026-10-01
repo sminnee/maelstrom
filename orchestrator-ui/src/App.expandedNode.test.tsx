@@ -288,6 +288,38 @@ describe('the expanded node', () => {
     await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
   });
 
+  it('Decline denies the question with the fixed reason and clears the attention', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('MAEL-52');
+    const prompt = await within(expanded()).findByTestId('question-prompt');
+    await user.click(within(prompt).getByRole('button', { name: 'Decline' }));
+    await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
+    const deny = server.requests.find((r) => r.path.endsWith('/deny'));
+    // The one question now filed as declined is the one the deny named.
+    const declined = Object.values(server.transcripts)
+      .flatMap((t) => t.items)
+      .filter((i) => i.type === 'question' && i.declined);
+    expect(declined).toHaveLength(1);
+    expect(deny?.body).toEqual({
+      requestId: (declined[0] as { requestId: string }).requestId,
+      reason: 'The user declined to answer.',
+    });
+    expect(server.requests.some((r) => r.path.endsWith('/interrupt'))).toBe(false);
+  });
+
+  it('Decline & stop interrupts the agent, and the attention clears', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('MAEL-52');
+    const prompt = await within(expanded()).findByTestId('question-prompt');
+    await user.click(within(prompt).getByRole('button', { name: 'More ways to decline' }));
+    await user.click(within(prompt).getByRole('menuitem', { name: 'Decline & stop' }));
+    await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
+    expect(server.requests.some((r) => r.path.endsWith('/interrupt'))).toBe(true);
+    expect(server.requests.some((r) => r.path.endsWith('/deny'))).toBe(false);
+  });
+
   it('answers a question that sits behind a newer permission, and approves the permission', async () => {
     // The agent reports the newer permission while the question is still open,
     // so each reply must be judged by the request it names — see CONTEXT.md,
@@ -660,6 +692,38 @@ describe('the state in words', () => {
     clickNode('NORT-9');
     await userEvent.setup().click(await within(expanded()).findByRole('link', { name: 'Session' }));
     await waitFor(() => expect(tabBody()).toHaveTextContent('Needs you · question'));
+  });
+
+  it('the session tab declines its question, and the transcript then reads Declined', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    askQuestion(server);
+    clickNode('NORT-9');
+    await user.click(await within(expanded()).findByRole('link', { name: 'Session' }));
+    // The tab owns the prompt only while no node is expanded on its agent.
+    pressKey('Escape');
+    await user.click(await within(tabBody()).findByRole('button', { name: 'Decline' }));
+    expect(await within(tabBody()).findByTestId('question-declined')).toHaveTextContent('Declined');
+    expect(server.requests.find((r) => r.path.endsWith('/deny'))?.body).toEqual({
+      requestId: 'req-nort9-q',
+      reason: 'The user declined to answer.',
+    });
+  });
+
+  it('Decline & stop from the session tab settles the question as interrupted', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    askQuestion(server);
+    clickNode('NORT-9');
+    await user.click(await within(expanded()).findByRole('link', { name: 'Session' }));
+    pressKey('Escape');
+    await user.click(
+      await within(tabBody()).findByRole('button', { name: 'More ways to decline' }),
+    );
+    await user.click(within(tabBody()).getByRole('menuitem', { name: 'Decline & stop' }));
+    expect(await within(tabBody()).findByTestId('question-declined')).toHaveTextContent(
+      'Declined · Interrupted by user',
+    );
   });
 });
 
