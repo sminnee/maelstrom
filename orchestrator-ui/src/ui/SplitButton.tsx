@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AppButtonProps } from './AppButton';
 import { Spinner } from './Spinner';
 import { useAnchorName } from './useAnchorName';
 import { useClickLifecycle } from './useClickLifecycle';
 import buttonStyles from './AppButton.module.css';
+import confirmStyles from './ConfirmButton.module.css';
 import styles from './SplitButton.module.css';
 
 export interface SplitOption {
@@ -16,6 +17,8 @@ export interface SplitOption {
   /** A second line under the item. A disabled item says why here. */
   detail?: ReactNode;
   disabled?: boolean;
+  /** Ask this first, beside the control. Only the `confirm` answer runs the option. */
+  confirm?: { question: string; confirm: ReactNode };
   run: () => Promise<unknown>;
 }
 
@@ -32,6 +35,11 @@ export interface SplitOption {
  *
  * The menu is a `popover="auto"`, so a click outside or Escape closes it. It is
  * anchored as every popover here is — see `anchoredPopover.module.css`.
+ *
+ * An option with a `confirm` opens a question in the menu's place, drawn as
+ * `ConfirmButton` draws its own. Its answer runs the option through the same
+ * lifecycle, so the progress still shows on the main segment. Both segments
+ * are held while the question is open, so no second option can start under it.
  */
 export function SplitButton({
   options,
@@ -47,6 +55,7 @@ export function SplitButton({
   const { state, run } = useClickLifecycle({ errorResetMs, onError });
   const [running, setRunning] = useState<SplitOption | null>(null);
   const [open, setOpen] = useState(false);
+  const [asking, setAsking] = useState<SplitOption | null>(null);
   const openRef = useRef(false);
   const openAtPress = useRef<boolean | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -83,9 +92,24 @@ export function SplitButton({
   };
 
   const choose = (option: SplitOption) => {
+    if (option.confirm) {
+      setAsking(option);
+      return;
+    }
+    go(option);
+  };
+
+  const go = (option: SplitOption) => {
+    setAsking(null);
     setRunning(option);
     void run(option.run);
   };
+
+  // As in `ConfirmButton`: the node exists only while asking, so it is always
+  // freshly mounted here and never already open.
+  const showAsk = useCallback((el: HTMLDivElement | null) => {
+    el?.showPopover();
+  }, []);
 
   const onMenuKey = (e: React.KeyboardEvent) => {
     const all = items();
@@ -125,7 +149,7 @@ export function SplitButton({
       <button
         type="button"
         className={`${segment} ${styles.main}`}
-        disabled={main.disabled || processing}
+        disabled={main.disabled || processing || asking !== null}
         aria-busy={processing || undefined}
         data-state={state.kind}
         title={state.kind === 'error' ? state.message : undefined}
@@ -156,7 +180,7 @@ export function SplitButton({
             aria-haspopup="menu"
             aria-expanded={open}
             aria-controls={menuId}
-            disabled={processing}
+            disabled={processing || asking !== null}
             // A click outside an open popover closes it before `click` fires,
             // so the chevron reads the state as the press began: a click that
             // closed the menu must not open it again.
@@ -214,6 +238,28 @@ export function SplitButton({
             })}
           </div>
         </>
+      )}
+      {asking?.confirm && (
+        <div
+          ref={showAsk}
+          className={confirmStyles.ask}
+          style={anchorStyle}
+          role="alertdialog"
+          aria-label={asking.confirm.question}
+          popover="manual"
+        >
+          <span>{asking.confirm.question}</span>
+          <button type="button" onClick={() => setAsking(null)}>
+            Keep it
+          </button>
+          <button
+            type="button"
+            className={[buttonStyles.button, buttonStyles.primary].join(' ')}
+            onClick={() => go(asking)}
+          >
+            {asking.confirm.confirm}
+          </button>
+        </div>
       )}
     </span>
   );
