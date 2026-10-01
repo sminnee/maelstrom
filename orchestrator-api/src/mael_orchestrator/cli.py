@@ -26,6 +26,7 @@ from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
 from mael_domain.state_db.types import StateDbError
+from mael_domain.task_attachments import SqliteTaskAttachmentTable
 from mael_domain.task_export import SqliteExportQueue, TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_store import GitFileStore
@@ -233,6 +234,7 @@ def build_orchestrator(
         daemon,
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
+        task_attachments=SqliteTaskAttachmentTable(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.

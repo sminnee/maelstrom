@@ -61,6 +61,13 @@ from mael_domain.protocol import (
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task import mode_for_command
 from mael_domain.task import permission_mode_for as model_permission_mode
+from mael_domain.task_attachments import (
+    InMemoryTaskAttachmentTable,
+    TaskAttachment,
+    TaskAttachmentTable,
+    attach,
+    task_key,
+)
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
@@ -83,6 +90,7 @@ from .world import WorldState
 from .world_build import (
     AgentLink,
     agent_entity,
+    attached_document_entity,
     diff_kind,
     host_usage,
     link_agent,
@@ -190,6 +198,7 @@ class Orchestrator:
         *,
         desk: DeskStore | None = None,
         milestones: MilestoneStore | None = None,
+        task_attachments: TaskAttachmentTable | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -214,6 +223,13 @@ class Orchestrator:
         #: is a pure function and the database is the server's.
         self.milestones = (
             milestones if milestones is not None else InMemoryMilestoneStore()
+        )
+        #: The attached documents — see ``CONTEXT.md``, "Attached document". Read once,
+        #: at start.
+        self.task_attachments = (
+            task_attachments
+            if task_attachments is not None
+            else InMemoryTaskAttachmentTable()
         )
         #: Writes the markdown export, or ``None`` when this server keeps none.
         #: A task write queues its export whatever runs; the server is what
@@ -294,6 +310,7 @@ class Orchestrator:
     async def start(self) -> None:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
+        await self._load_attached()
         await self._load_desk()
         try:
             await self.refresh_worktrees()
@@ -1199,6 +1216,7 @@ class Orchestrator:
         await self._emit(watch, out)
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
+        replay = not watch.caught_up.is_set()
         out = normalise_stream_event(
             self.state.state,
             watch.ctx,
@@ -1208,9 +1226,10 @@ class Orchestrator:
             show_refs=attachment_urls,
             # A replayed turn is already in the row's own totals: the host
             # summed it before it handed the row over. Only a live turn adds.
-            replay=not watch.caught_up.is_set(),
+            replay=replay,
         )
         await self._emit(watch, out)
+        await self._attach_documents(out.events, replay=replay)
         if out.milestone is not None:
             if raw.get("type") == "control_response":
                 # Recorded at once, not parked: no `result` for the planning
@@ -1231,6 +1250,114 @@ class Orchestrator:
             # 0, because no tokens were spent between the two writes.
             if watch.caught_up.is_set():
                 await self._record_milestone(watch, milestone)
+
+    async def _load_attached(self) -> None:
+        """Put every attached document in the world, before any agent is read.
+
+        Before, so an agent whose backlog presents an attached path finds the
+        document there and makes its next version, not a second entry.
+        """
+        rows = await self.task_attachments.list()
+        self._apply(
+            [
+                {
+                    "type": "upsert",
+                    "kind": "document",
+                    "entity": attached_document_entity(row),
+                }
+                for row in rows
+            ]
+        )
+
+    async def _attach_documents(
+        self, events: list[ServerEvent], *, replay: bool
+    ) -> None:
+        """Attach each verification and approved plan that ``events`` upserts.
+
+        A failure is logged and goes no further: the document is still in the
+        world, and a stream must not stop because the notebook refused a file.
+        """
+        for event in events:
+            if event.get("type") != "upsert" or event.get("kind") != "document":
+                continue
+            document: Document = event["entity"]  # type: ignore[typeddict-item]
+            try:
+                await self._attach_document(document, replay=replay)
+            except Exception:  # noqa: BLE001 — see the docstring
+                log.exception("attaching document %s failed", document["id"])
+
+    async def _attach_document(self, document: Document, *, replay: bool) -> None:
+        """Attach ``document`` when it is a verification or an approved plan.
+
+        A replayed event only repairs: it attaches a document that has no row,
+        and leaves a row that exists alone. A verification is read from the
+        worktree as it stands now, which is not what the agent showed when the
+        event first ran. Only a live event may replace what is attached.
+        """
+        task = self.world["tasks"].get(document["taskId"])
+        if task is None:
+            return
+        source = document["source"]
+        body: str | None = None
+        if document["kind"] == "verification" and source.get("type") == "draft_file":
+            path = str(source["filename"])
+        elif (
+            document["kind"] == "plan"
+            and source.get("type") == "plan_review"
+            and document["status"] == "approved"
+        ):
+            path = str(source.get("planFilePath") or "plan")
+            body = document["markdown"]
+        else:
+            return
+        project, notebook_id = task["project"], task["notebookId"]
+        row = (
+            await self.task_attachments.read(task_key(project, notebook_id), path)
+            if replay
+            else None
+        )
+        if row is None:
+            agent = self.world["agents"].get(document["agentId"])
+            row = await attach(
+                self.task_attachments,
+                project=project,
+                task_id=notebook_id,
+                cwd=agent["cwd"] if agent else "",
+                path=path,
+                kind=document["kind"],
+                title=document["title"],
+                now=self.clock(),
+                body=body,
+            )
+        # No row: the file could not be read. The document says so, and it stays.
+        if row is not None:
+            self._show_attached(document["id"], row)
+
+    def _show_attached(self, document_id: str, row: TaskAttachment) -> None:
+        """Make the world's document agree with the row that stores it.
+
+        A verification takes the row's version and reads its media from the
+        bucket. A plan keeps its own text and id, and the entry seeded for it
+        at start is removed. See ``docs/dev/orchestrator-server.md``, "An attached
+        document".
+        """
+        current = self.world["documents"].get(document_id)
+        if current is None:
+            return
+        seeded = attached_document_entity(row)
+        if row.kind == "plan":
+            if seeded["id"] != document_id and seeded["id"] in self.world["documents"]:
+                self._apply(
+                    [{"type": "remove", "kind": "document", "id": seeded["id"]}]
+                )
+            return
+        shown: Document = {
+            **current,
+            "version": row.version,
+            "markdown": seeded["markdown"],
+        }
+        if shown != current:
+            self._apply([{"type": "upsert", "kind": "document", "entity": shown}])
 
     async def _record_milestone(self, watch: AgentWatch, milestone: Milestone) -> None:
         """Snapshot what the agent had spent when it marked a stage reached.

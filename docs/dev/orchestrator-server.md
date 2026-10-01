@@ -346,8 +346,9 @@ Ids are guessable on purpose. An id is a counter and a name, not a secret. A gue
 some agent already chose to show, and no id can name a file nobody registered. Do not make ids
 random and then rely on them being unguessable.
 
-The registry is not persisted. It dies with a server restart, exactly as a document does, and a
-re-normalised transcript registers its files again. An image URL from before a restart is a 404.
+The registry is not persisted. It dies with a server restart, and a re-normalised transcript
+registers its files again. An image URL from before a restart is a 404. An **Attached document** does
+not depend on the registry: its media are served from the notebook.
 
 | Route | Serves |
 | --- | --- |
@@ -355,6 +356,108 @@ re-normalised transcript registers its files again. An image URL from before a r
 
 The lookup is the whole authorisation step: the handler parses no path and joins no string. A file
 since deleted reads as `unknown_id` too — the id was real, the bytes are not.
+
+## Media in a document
+
+A document body names an image or a video as a markdown image ref with a worktree-relative
+target:
+
+```
+![The login flow](test-results/login/video.webm)
+```
+
+`document_tags.media_refs` finds these refs. `tagged_document` registers each target with the file
+registry and points the ref at `/api/files/{id}`, exactly as `show_image` does for an `<image>`
+tag. A target the registry refuses becomes the same "could not be shown" prose. This applies to
+every `<doc-file>` kind.
+
+The target resolves against the worktree root, as `<image src>` does. It does not resolve against
+the document's directory.
+
+`media_refs` reads the markdown with two regular expressions, not with a markdown parser. It
+skips a URL, an absolute path, a ref inside a closed fence that starts at column 0, and a ref
+inside a single-backtick code span. It does not know an indented fence, an indented code block or
+a double-backtick span, and it does not match a target that holds a space or a `)`.
+
+Video takes image syntax, so no new marker is needed. See `docs/dev/orchestrator-ui.md` for how
+the UI draws it.
+
+## An attached document
+
+A document lives in the server's memory, and the media it names live in a worktree. A
+**Attached document** outlives both: `task_attachments.attach` copies it into the notebook.
+
+```
+agent                 normaliser              server                  notebook
+  | <doc-file kind="verification">               |                        |
+  |--------------------->| upsert document ----->| attach() ------------->| media into the bucket
+  |                      |                       |                        | row into task_attachments
+  |                      |                       |<-- stored row ---------|
+  |                      |                       | upsert: row version,   |
+  |                      |                       | media from the bucket  |
+  |          (server restart, or the agent ends) |                        |
+  |                      |                       |<-- every row, at start-|
+```
+
+Two events attach a document, and both arrive as a document upsert from the normaliser:
+
+| Document | Attached when | Body | Path |
+| --- | --- | --- | --- |
+| Verification | The agent's document tag shows it | Read from the worktree file | The file's worktree-relative path |
+| Plan | The user approves it | The document's markdown | `planFilePath` |
+
+Only a document with a task is attached. The task's notebook id is the **Bucket** its media go
+to, and a free agent has no bucket that outlives it.
+
+`attach` does three things:
+
+1. It takes a digest of the source body and of the bytes of each media file the body names. When
+   the stored row has the same digest, kind and title, `attach` returns that row and writes nothing.
+   A recording made again under the same name changes the digest, so it is a new version.
+2. It copies each media file into the bucket with `attachments.save_media`, which accepts an image
+   or a video up to 50 MB. The bucket filename carries a digest of the bytes, so an unchanged file
+   is stored once and two files of one name do not collide.
+3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token and upserts the row. A file that is refused
+   becomes "could not be shown" prose, and the log holds the reason.
+
+`attach` returns `None` only when the document's file cannot be read. The world's document then
+keeps the "could not be read" prose the normaliser gave it.
+
+The row's id is a digest of `(task_key, path)`. One row holds one document: a new version replaces
+the body and raises `version`. History is not stored, and no code removes a row.
+
+### A replay only repairs
+
+After a restart the server attaches to each agent again and the backlog replays, so the same tag
+reaches the server a second time.
+A verification is read from the worktree as it stands at that moment, which is not what the agent
+showed when the event first ran. So a replayed event attaches a document only when it has no
+row. A row that exists is replaced only by a live event.
+
+### The row is the authority
+
+After it attaches a verification, the server upserts the world's verification again with two fields from the row:
+
+- **`version`.** At start the server seeds each row into the world as a document. A replayed tag
+  then finds that document by path and counts one more version. The server writes the row's
+  version back.
+- **`markdown`.** The body reads its media from `/api/attachments/…`, not from `/api/files/…`. The
+  document then stays readable when the worktree closes while the server runs.
+
+This second upsert follows the normaliser's by one `await`, which can copy tens of megabytes. In
+that interval a client holds the normaliser's version.
+
+A seeded verification has the `draft_file` source, which is what lets `tagged_document` match it
+by path. A seeded plan has the `attached` source, so nothing offers a review for it. When a
+replayed plan review mints the live plan again, the server removes the seeded entry.
+
+A document that fails to attach is logged, and the stream continues. The document is still in the world.
+
+`GET /api/attachments/{project}/{bucket}/{name}` returns a `web.FileResponse`, which answers a
+range request with `206`, so a browser can seek a video.
+
+A bucket file is swept into the next notebook commit. The 50 MB cap limits one file and not the
+total, and a superseded version's media stay in the bucket. Video grows the notebook's git tree.
 
 ## Keeping the world fresh
 
@@ -898,7 +1001,7 @@ Two routes carry the bytes. Neither is a command: nothing about the world change
 | Route | Body | Returns |
 |---|---|---|
 | `POST /api/attachments` | multipart: `project`, `bucket`, `file` | `{markdown, url}` |
-| `GET /api/attachments/{project}/{bucket}/{name}` | | the image bytes |
+| `GET /api/attachments/{project}/{bucket}/{name}` | | the image or video bytes |
 
 Multipart, because the payload is bytes. Base64 in a JSON body would inflate it by a third for
 nothing.

@@ -12,9 +12,11 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from mael_domain import task as model
+from mael_domain.attachments import attachment_urls
 from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
     Agent,
+    Document,
     HostUsage,
     Project,
     ServerEvent,
@@ -23,6 +25,7 @@ from mael_domain.protocol import (
     UsageWindow,
     Worktree,
 )
+from mael_domain.task_attachments import TaskAttachment
 from mael_domain.worktree_model import get_worktree_folder_name
 
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")
@@ -327,3 +330,37 @@ def diff_kind(kind: str, old: dict[str, Any], new: dict[str, Any]) -> list[Serve
         if entity_id not in new:
             events.append({"type": "remove", "kind": kind, "id": entity_id})
     return events
+
+
+#: The id prefix of a document seeded from an attached row, where a live document
+#: takes an agent's item id.
+ATTACHED_ID_PREFIX = "attached-"
+
+
+def attached_document_entity(row: TaskAttachment) -> Document:
+    """An attached row as the document the world holds before any agent presents it.
+
+    A verification takes the ``draft_file`` source, so the normaliser's path
+    match reads a later present as the next version of this document and not as
+    a second entry. A plan takes the ``attached`` source: its review is over, and
+    nothing may offer one.
+    """
+    project, _ = split_task_key(row.task_key)
+    document_id = f"{ATTACHED_ID_PREFIX}{row.id}"
+    source: dict[str, Any] = (
+        {"type": "attached", "path": row.path}
+        if row.kind == "plan"
+        else {"type": "draft_file", "fileId": None, "filename": row.path}
+    )
+    return {
+        "id": document_id,
+        "agentId": "",
+        "taskId": row.task_key,
+        "kind": row.kind,
+        "title": row.title,
+        "markdown": attachment_urls(row.body, project),
+        "version": row.version,
+        "status": "approved" if row.kind == "plan" else "draft",
+        "source": source,
+        "group": {"id": document_id, "title": row.title, "position": 0},
+    }
