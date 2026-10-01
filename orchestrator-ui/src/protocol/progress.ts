@@ -77,9 +77,9 @@ function nodeState(
   // state rather than reading as a task status fighting its agent. Once
   // nothing is running the task is history, and an item still open against it
   // is stale bookkeeping rather than the user's turn.
-  // A dead agent is the stronger signal: its attention item still counts in
-  // the chip, but the node draws red rather than orange. Only an observed
-  // nonzero code is a fault — see `mark_exited` in `normalise.py`.
+  // A dead agent is the stronger signal: the node draws red rather than
+  // orange, whatever items it holds. Only an observed nonzero code is a
+  // fault — see `mark_exited` in `normalise.py`.
   const live = agent !== undefined && isTurning(agent);
   const terminal = task?.status === 'done' || task?.status === 'cancelled';
   if (terminal && !live) return task?.status === 'done' ? 'done' : 'cancelled';

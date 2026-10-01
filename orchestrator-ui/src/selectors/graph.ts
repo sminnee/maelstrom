@@ -156,13 +156,8 @@ function attentionFrom(
   return [...items.values()].sort((a, b) => a.raisedAt.localeCompare(b.raisedAt));
 }
 
-/**
- * The tasks the canvas filters allow, whether or not they are on the desk.
- *
- * The attention chip counts against this rather than the drawn nodes: an
- * agent blocked on a task the user has not put on the desk still needs them.
- */
-export function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
+/** The tasks the canvas filters allow, whether or not they are on the desk. */
+function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
   return Object.values(world.tasks)
     .filter((t) => t.status !== 'template')
     .filter((t) => !filters.project || t.project === filters.project)

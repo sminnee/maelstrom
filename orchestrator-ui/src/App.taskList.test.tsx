@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
+import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { chipCount, tabStrip } from './test/appHelpers';
+import { chipCount, nodeState, tabStrip } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
 
@@ -801,13 +802,20 @@ describe('the task list', () => {
     });
   });
 
-  it('the attention chip still counts an agent blocked on an off-desk task', async () => {
+  it('the attention chip drops a task taken off desk with no live agent', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    const before = chipCount();
-    expect(before).toBeGreaterThan(0);
+    const { server } = await renderApp();
+    expect(chipCount()).toBe(3);
+    // NORT-7's agent ends cleanly with its plan review still open. The node
+    // stays orange while the desk holds it.
+    act(() => {
+      server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
+        w.agents['a1f3c9e2'] = { ...w.agents['a1f3c9e2']!, state: 'exited', exitCode: 0 };
+      });
+    });
+    await waitFor(() => expect(nodeState('NORT-7')).toBe('needs-attention'));
+    expect(chipCount()).toBe(3);
 
-    // Clear the desk, so the chip is counted against off-desk work.
     await goToList(user);
     for (const r of Array.from(
       document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),
@@ -815,11 +823,8 @@ describe('the task list', () => {
       await user.click(within(r as HTMLElement).getByRole('button', { name: 'Off desk' }));
     }
     await waitFor(() => expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0));
-    expect(chipCount()).toBe(before);
-
-    // Following the chip puts its task back on the desk so it has a node.
-    await user.click(screen.getByTestId('attention-chip'));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    // The two live agents still draw their nodes; NORT-7 has none.
+    expect(chipCount()).toBe(2);
   });
 
   it('the attention chip returns to the canvas and expands the node', async () => {

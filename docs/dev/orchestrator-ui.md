@@ -368,10 +368,13 @@ the user can set from there. Where the words would only restate the status — `
 and `blocked` with no agent — the card drops them and the status stands alone. The collapsed node
 keeps them: it has no status control, so there the words are the only reading. A free agent has
 no task, so its card has no status control. Esc, the close button and a click on the canvas
-collapse it — but with the status picker open, Esc closes the picker only. The attention chip
-expands the next node that needs the user. `selectors/attention.ts` ranks the open items: plan
+collapse it — but with the status picker open, Esc closes the picker only.
+
+The attention chip reads the drawn nodes, so the chip and the canvas show one reading. Its count
+is the number of nodes in state `needs-attention` under the current filters, and a click expands
+the next one. `selectors/attention.ts` orders them by each node's best-ranked open item: plan
 reviews, then document reviews, then questions, then permissions, then the rest, oldest first
-within each.
+within each. A task off the desk with no live agent draws no node, so the chip does not count it.
 
 The session tab head carries a mode chip naming the agent's permission mode. A click moves the
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last

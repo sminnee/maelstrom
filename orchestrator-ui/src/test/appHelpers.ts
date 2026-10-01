@@ -40,7 +40,7 @@ export async function openSession(user: UserEvent, taskId: string) {
   await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
 }
 
-/** How many items the attention chip counts. */
+/** The count the attention chip shows. */
 export const chipCount = () =>
   Number(screen.getByTestId('attention-chip').textContent?.replace(/\D/g, ''));
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { expanded } from './test/appHelpers';
+import { chipCount, expanded } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the usage and agent chips', () => {
@@ -63,10 +63,72 @@ describe('the attention chip', () => {
     ]);
   });
 
-  it('counts only the nodes the filters leave on the canvas', async () => {
+  /** The nodes the canvas draws orange, by id. */
+  const orange = () =>
+    Array.from(document.querySelectorAll('[data-testid="task-node"][data-state="needs-attention"]'))
+      .map((n) => n.getAttribute('data-task-id'))
+      .sort();
+
+  it('counts the orange nodes, under a filter too', async () => {
     const user = userEvent.setup();
     await renderApp();
+    expect(orange()).toEqual(['MAEL-52', 'NORT-12', 'NORT-7']);
+    expect(chipCount()).toBe(3);
+
     await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
-    expect(screen.getByTestId('attention-chip')).toHaveAttribute('data-count', '1');
+    expect(orange()).toEqual(['MAEL-52']);
+    expect(chipCount()).toBe(1);
+
+    // The agent status filter draws no waiting agent, so nothing is orange.
+    await user.selectOptions(screen.getByLabelText('Project'), '');
+    await user.selectOptions(screen.getByLabelText('Agent status'), 'planned');
+    expect(orange()).toEqual([]);
+    expect(chipCount()).toBe(0);
+  });
+
+  it('leaves out a node whose agent exited nonzero, and never lands on it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // NORT-7 holds the top-ranked item, so the old reading went there first.
+    act(() => {
+      server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
+        w.agents['a1f3c9e2'] = { ...w.agents['a1f3c9e2']!, state: 'exited', exitCode: 1 };
+      });
+    });
+    await waitFor(() => expect(orange()).toEqual(['MAEL-52', 'NORT-12']));
+    expect(chipCount()).toBe(2);
+
+    const seen: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByTestId('attention-chip'));
+      seen.push(expanded().getAttribute('aria-label'));
+    }
+    expect(seen).toEqual(['Rotate auth tokens', 'Shape the orchestrator UI', 'Rotate auth tokens']);
+  });
+
+  it('counts a free agent that waits on the user, and lands on it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'attention', ids: ['att-free-plan'] }, (w) => {
+        w.attention['att-free-plan'] = {
+          id: 'att-free-plan',
+          kind: 'plan_review',
+          agentId: 'f2c6a9d4',
+          taskId: null,
+          documentId: null,
+          requestId: 'req-free-plan',
+          summary: 'Plan awaiting review',
+          // Older than NORT-7's plan review, so it ranks first.
+          raisedAt: '2000-01-01T00:00:00Z',
+          clearedAt: null,
+        };
+      });
+    });
+    await waitFor(() => expect(orange()).toContain('f2c6a9d4'));
+    expect(chipCount()).toBe(4);
+
+    await user.click(screen.getByTestId('attention-chip'));
+    expect(expanded()).toHaveAccessibleName('bravo · feat/task-index');
   });
 });

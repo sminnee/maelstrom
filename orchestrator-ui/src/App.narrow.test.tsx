@@ -116,6 +116,31 @@ describe('the narrow layout', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Plan the order export');
   });
 
+  it('takes the attention chip to a free agent that waits on the user', async () => {
+    const { server } = await renderApp({ viewport: 'narrow' });
+    act(() => {
+      server.change({ kind: 'attention', ids: ['att-free-plan'] }, (w) => {
+        w.attention['att-free-plan'] = {
+          id: 'att-free-plan',
+          kind: 'plan_review',
+          agentId: 'f2c6a9d4',
+          taskId: null,
+          documentId: null,
+          requestId: 'req-free-plan',
+          summary: 'Plan awaiting review',
+          // Older than NORT-7's plan review, so it ranks first.
+          raisedAt: '2000-01-01T00:00:00Z',
+          clearedAt: null,
+        };
+      });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('attention-chip')).toHaveAttribute('data-count', '4'),
+    );
+    await userEvent.click(screen.getByTestId('attention-chip'));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('bravo · feat/task-index');
+  });
+
   it('opens the deck on the zone of the task the chip goes to', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
