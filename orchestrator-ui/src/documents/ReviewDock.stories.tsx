@@ -19,7 +19,7 @@ export default { title: 'Documents / Review dock' };
  * draws the narrow layout, so 390px is the phone. See `orchestrator-ui/DESIGN.md`,
  * "Seeing a change".
  *
- * Approve must sit in the same place, drawn the same way, in all three stories.
+ * Approve must sit in the same place, drawn the same way, in every story.
  * Switching between them is how that is read.
  */
 
@@ -91,8 +91,68 @@ function planDocument(status: Document['status']): Document {
   };
 }
 
+/** A task id of real length. `NORT-9` flatters the header line. */
+const GROUP_TASK = 'askastro/daily.maintenance.2026-10-02';
+
 /**
- * The app on a fake server, opened at the plan document.
+ * A member of a task set is titled by its filename, so a title is one token
+ * with no space to break at.
+ */
+const GROUP_FILES = [
+  '.drafts/rebuild-nightly-ephemeris-cache.md',
+  '.drafts/rotate-observatory-api-credentials.md',
+  '.drafts/prune-stale-session-transcripts.md',
+  '.drafts/rerun-failed-horoscope-renders.md',
+];
+
+/** A body longer than one screen, with a long `code` token and a long `pre` line. */
+const GROUP_BODY = [
+  '# Rebuild the nightly ephemeris cache',
+  '',
+  'The cache is built from the upstream feed once a night. A partial feed leaves',
+  'a partial cache, and the readers do not know the difference.',
+  '',
+  '## Steps',
+  '',
+  '1. Fetch the feed and check its row count against the manifest.',
+  '2. Write the new cache to `var/cache/ephemeris/2026-10-02T00-00-00Z/planetary_positions_by_julian_day.partial.sqlite3`.',
+  '3. Swap the symlink only when the row count matches.',
+  '4. Delete every cache but the last three.',
+  '',
+  '```sh',
+  'uv run astro cache rebuild --feed https://feeds.example.org/ephemeris/v4/daily.json --manifest var/manifests/2026-10-02.json --keep 3',
+  '```',
+  '',
+  ...Array.from({ length: 12 }, (_, i) => [
+    `## Check ${i + 1}`,
+    '',
+    'The reader opens the cache read-only and compares a sample of rows with the',
+    'feed. A mismatch stops the swap and leaves the old cache in place.',
+    '',
+  ]).flat(),
+  '## Seams under test',
+  '',
+  'The cache directory. One fixture per feed shape, asserted through the reader.',
+].join('\n');
+
+/** A task set of four, as a planner presents it: one tag, one verdict. */
+function taskGroup(): Document[] {
+  return GROUP_FILES.map((filename, position) => ({
+    id: `doc-group-${position}`,
+    agentId: AGENT,
+    taskId: GROUP_TASK,
+    kind: 'tasks',
+    title: filename,
+    markdown: GROUP_BODY,
+    version: 1,
+    status: 'awaiting-review',
+    source: { type: 'draft_file', fileId: null, filename },
+    group: { id: 'doc-group-0', title: 'Daily maintenance', position },
+  }));
+}
+
+/**
+ * The app on a fake server, with the story's documents seeded.
  *
  * `deps` is the same injection point `renderApp` uses, so a story runs the
  * production tree rather than a stand-in that can drift from it.
@@ -100,13 +160,28 @@ function planDocument(status: Document['status']): Document {
 function Harness({
   status = 'awaiting-review',
   wait = planReviewItem,
+  documents,
 }: {
   status?: Document['status'];
+  /** The documents to seed. The plan document at `status` when left out. */
+  documents?: () => Document[];
   /** The request the agent waits on, or null for the document's own route. */
   wait?: (() => DockWait) | null;
 }) {
+  const [seeded] = useState(() => (documents ? documents() : [planDocument(status)]));
   const [deps] = useState(() => {
     const seed = seedWorld();
+    // In the world before the first fetch. The effect below sends a change
+    // notice, and a notice sent before the event stream opens reaches nobody.
+    for (const doc of seeded) {
+      seed.world.documents[doc.id] = doc;
+      // The header draws a phase and a task title only for a task it can find.
+      seed.world.tasks[doc.taskId] ??= {
+        ...seed.world.tasks['NORT-7']!,
+        id: doc.taskId,
+        title: 'Plan the daily maintenance run',
+      };
+    }
     const server = createFakeServer({ world: seed.world, transcripts: seed.transcripts });
     return {
       deps: {
@@ -124,9 +199,10 @@ function Harness({
 
   useEffect(() => {
     const { server } = deps;
-    const doc = planDocument(status);
-    server.change({ kind: 'document', ids: [doc.id] }, (w) => {
-      w.documents[doc.id] = doc;
+    // Seeded above already; this write is for a Fast Refresh with an edited fixture.
+    const docs = documents ? documents() : [planDocument(status)];
+    server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {
+      for (const doc of docs) w.documents[doc.id] = doc;
     });
     // A request the agent still waits on. Without one the dock draws the
     // document's own review route instead, which is the contrast the Settled
@@ -146,7 +222,7 @@ function Harness({
         };
       });
     }
-  }, [deps, status, wait]);
+  }, [deps, status, wait, documents]);
 
   return (
     <div style={{ height: '100vh' }}>
@@ -182,3 +258,14 @@ export const AwaitingPermission: Story = () => <Harness wait={permissionItem} />
  * Approve leads here too, drawn as the primary.
  */
 export const Settled: Story = () => <Harness status="approved" wait={null} />;
+
+/**
+ * A task set of four awaiting review, with no wait on the agent. Open NORT-9
+ * and follow the first document under `Daily maintenance`.
+ *
+ * What to look at, at 390px: the dock wraps to more than one row, and the body
+ * still ends above it. Nothing is wider than the screen — not the header line,
+ * the sibling links, the code block or the summary field. Scroll to the end and
+ * the last paragraph clears the dock.
+ */
+export const AwaitingGroupReview: Story = () => <Harness wait={null} documents={taskGroup} />;
