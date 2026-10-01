@@ -71,6 +71,7 @@ from mael_domain.task_attachments import (
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
+from mael_domain.worktree_changes import format_change_comments
 
 from . import desk as desk_model
 from . import linear_source
@@ -85,7 +86,12 @@ from .transcript_log import (
     TranscriptLog,
     TranscriptSnapshot,
 )
-from .validate import WAIT_ITEM_FOR_STATE, check_linear_project, validate_command
+from .validate import (
+    WAIT_ITEM_FOR_STATE,
+    agents_in_worktree,
+    check_linear_project,
+    validate_command,
+)
 from .world import WorldState
 from .world_build import (
     AgentLink,
@@ -1513,6 +1519,7 @@ class Orchestrator:
             "worktree.sync": self._sync_worktree,
             "worktree.env": self._env_worktree,
             "worktree.createTerminal": self._create_worktree_terminal,
+            "worktree.comment": self._comment_on_changes,
             "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
@@ -1995,6 +2002,38 @@ class Orchestrator:
             return refused
         self._settle_group(self._group_members(document), "changes-requested")
         return {"ok": True, "result": {}}
+
+    async def _comment_on_changes(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Send the change comments to each agent in the worktree, as one message.
+
+        Ok when one agent or more took it. See orchestrator-server.md, "Commands".
+        """
+        worktree_id = command["worktreeId"]
+        text = format_change_comments(
+            self.world["worktrees"][worktree_id]["branch"], command["comments"]
+        )
+        delivered: list[str] = []
+        refusals: list[tuple[str, dict[str, Any]]] = []
+        for agent in agents_in_worktree(self.world, worktree_id):
+            refused = await self._ask_host(
+                {"cmd": "say", "id": agent["id"], "text": text}
+            )
+            if refused:
+                refusals.append((agent["id"], refused))
+            else:
+                delivered.append(agent["id"])
+        if not delivered:
+            return refusals[0][1]
+        return {
+            "ok": True,
+            "result": {
+                "agentIds": delivered,
+                "refused": [
+                    {"agentId": agent_id, "message": refused["error"]["message"]}
+                    for agent_id, refused in refusals
+                ],
+            },
+        }
 
     def _settle_group(self, members: list[Document], status: str) -> None:
         """Move every member, and retire the items that asked for the review.
