@@ -89,8 +89,8 @@ describe('review in a document tab', () => {
    * review-dock answering is uncovered until it comes back.
    *
    * The symptom, from the CI DOM dump: the decision card rendered with its
-   * question chips, and only the context rail was missing. `contextBefore`
-   * (`selectors/transcript.ts:18`) returns `[]` when no item carries the
+   * question chips, and only the context rail was missing. `recentMessages`
+   * (`selectors/transcript.ts`) returns `[]` when no item carries the
    * request id, and `DecisionCard.tsx:63` draws the rail only when it gets
    * items — so the appended *question* item had not arrived, rather than the
    * items seeded before it.

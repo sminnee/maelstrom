@@ -504,7 +504,7 @@ notification draws as a bare line instead of a fold, because the fold keeps only
 summary and leaves no body to hide — see
 [orchestrator-server.md](orchestrator-server.md#a-task-notification).
 
-A decision shows the last three things the agent said or did, then the prompt. A question
+A decision shows the last three things the agent said, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
 sends together. A permission shows the tool input with Approve and Deny. A plan review links
 to the plan with Approve and Deny. Both use one control, `session/cards/DecideRow.tsx`. Deny
@@ -531,8 +531,7 @@ carries its controls. `selectors/transcript.ts` decides which surface owns the p
 
 The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` classify as the
 `wait` kind, and the transcript gives them no row: the wait item that follows renders the same
-prompt in full. `selectors/transcript.ts` skips the same call when it builds the context before a
-wait.
+prompt in full.
 
 The panel holds three tab kinds: session, document and changes. It is the top bar item `Tabs`, and
 it shows in a slot as a main view does; see "The three layouts". A panel off screen is hidden with

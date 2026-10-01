@@ -665,6 +665,7 @@ body rather than the query builder.
     b7d2e4a0: transcript('b7d2e4a0', [
       init('b7d2e4a0', 40),
       message('b7d2e4a0', 'user', 'Shape the orchestrator UI from the brief.', 39),
+      tool('b7d2e4a0', 'Read', { file_path: 'orchestrator-ui/PRODUCT.md' }, '# Product', 11),
       message('b7d2e4a0', 'assistant', 'Two grouping defaults are plausible; I need a steer.', 10),
       {
         id: 'b7d2e4a0-q',

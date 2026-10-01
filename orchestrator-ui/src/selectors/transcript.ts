@@ -1,35 +1,24 @@
 import type { RequestId } from '../protocol/ids';
-import {
-  PLAN_TOOL,
-  QUESTION_TOOL,
-  type MessageItem,
-  type ToolCallItem,
-  type TranscriptItem,
-} from '../protocol/transcript';
-
-export type ContextItem = MessageItem | ToolCallItem;
+import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 
 /**
- * The last `n` things the agent said or did before it raised `requestId`:
- * assistant messages and tool calls, in order. The tool call that raised the
- * request is skipped: the prompt shows it in full. Empty when no item carries
- * the request.
+ * The last three assistant messages, in order, of any rank. No tool calls.
+ *
+ * `before` names a wait, and the list then stops at it. Empty when no item
+ * carries that request.
  */
-export function contextBefore(items: TranscriptItem[], requestId: RequestId, n = 3): ContextItem[] {
-  const at = items.findIndex((i) => 'requestId' in i && i.requestId === requestId);
-  if (at === -1) return [];
-  const wait = items[at]!;
-  let end = at;
-  const previous = items[end - 1];
-  if (previous?.type === 'tool_call' && previous.tool === raisingTool(wait)) end -= 1;
-  const context: ContextItem[] = [];
-  for (let i = end - 1; i >= 0 && context.length < n; i -= 1) {
-    const item = items[i]!;
-    if (item.type === 'tool_call' || (item.type === 'message' && item.role === 'assistant')) {
-      context.unshift(item);
-    }
-  }
-  return context;
+export function recentMessages(
+  items: TranscriptItem[],
+  { before }: { before?: RequestId } = {},
+): MessageItem[] {
+  const end =
+    before === undefined
+      ? items.length
+      : items.findIndex((i) => 'requestId' in i && i.requestId === before);
+  return items
+    .slice(0, Math.max(end, 0))
+    .filter((i): i is MessageItem => i.type === 'message' && i.role === 'assistant')
+    .slice(-3);
 }
 
 /**
@@ -41,18 +30,4 @@ export function contextBefore(items: TranscriptItem[], requestId: RequestId, n =
  */
 export function answeredOnCanvas(expandedNodeId: string | null, waitingNodeId: string): boolean {
   return expandedNodeId !== null && expandedNodeId === waitingNodeId;
-}
-
-/** The tool whose `tool_use` raised this wait, or '' for an item that is not a wait. */
-function raisingTool(item: TranscriptItem): string {
-  switch (item.type) {
-    case 'question':
-      return QUESTION_TOOL;
-    case 'plan_review':
-      return PLAN_TOOL;
-    case 'permission_request':
-      return item.tool;
-    default:
-      return '';
-  }
 }

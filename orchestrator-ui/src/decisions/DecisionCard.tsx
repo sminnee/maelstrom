@@ -2,15 +2,14 @@ import { useEffect, useId, useState } from 'react';
 import { useAgent, useAnswer, useApprove, useDeny } from '../api/agents';
 import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
-import { Markdown } from '../markdown/Markdown';
 import type { Agent } from '../protocol/entities';
-import type { PlanReviewItem, TranscriptItem } from '../protocol/transcript';
+import type { MessageItem, PlanReviewItem, TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
-import { contextBefore, type ContextItem } from '../selectors/transcript';
+import { recentMessages } from '../selectors/transcript';
 import { DecideRow } from '../session/cards/DecideRow';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { QuestionPrompt } from '../session/cards/QuestionPrompt';
-import { toolCallTitle } from '../session/toolCards';
+import { RecentMessages } from '../session/RecentMessages';
 import { PanelLink } from '../shell/PanelLink';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
@@ -74,7 +73,7 @@ function OneDecision({
   const deny = useDeny();
   const answer = useAnswer();
   const requestId = wait.requestId;
-  const before = contextBefore(items, requestId);
+  const before = recentMessages(items, { before: requestId });
   const decide = (decision: 'approve' | 'deny', reason: string) =>
     decision === 'approve'
       ? approve.mutateAsync({ agentId: agent.id, requestId })
@@ -114,9 +113,9 @@ function OneDecision({
 type Variant = 'block' | 'dock';
 
 /**
- * The context before a wait: the last things the agent said or did.
+ * The context before a wait: the last things the agent said.
  *
- * `contextBefore` caps this at three items, but an item may be a whole message,
+ * `recentMessages` caps this at three items, but an item may be a whole message,
  * so three items can still fill the pane. Each surface bounds that differently
  * — see `orchestrator-ui/DESIGN.md`, "Decision" and "Review Dock".
  *
@@ -124,21 +123,8 @@ type Variant = 'block' | 'dock';
  * not: view state is not held. Unsent input is — see `docs/dev/orchestrator-ui.md`,
  * "Holding what was typed".
  */
-function ContextRail({ items, variant }: { items: ContextItem[]; variant: Variant }) {
+function ContextRail({ items, variant }: { items: MessageItem[]; variant: Variant }) {
   return variant === 'dock' ? <DockedContext items={items} /> : <InlineContext items={items} />;
-}
-
-/** The items themselves, in the one shape both surfaces draw them in. */
-function ContextItems({ items }: { items: ContextItem[] }) {
-  return items.map((item) =>
-    item.type === 'message' ? (
-      <Markdown key={item.id} source={item.markdown} className={styles.said} />
-    ) : (
-      <div key={item.id} className={styles.did}>
-        <span className={styles.tool}>{item.tool}</span> {toolCallTitle(item)}
-      </div>
-    ),
-  );
 }
 
 /**
@@ -148,7 +134,7 @@ function ContextItems({ items }: { items: ContextItem[] }) {
  * Overlap Test. Escape closes it, because anything that covers the page must
  * give the page back from the keyboard.
  */
-function DockedContext({ items }: { items: ContextItem[] }) {
+function DockedContext({ items }: { items: MessageItem[] }) {
   const [open, setOpen] = useState(false);
   const sheetId = useId();
 
@@ -179,7 +165,7 @@ function DockedContext({ items }: { items: ContextItem[] }) {
       </AppButton>
       {open && (
         <div className={styles.sheet} id={sheetId} data-testid="decision-context">
-          <ContextItems items={items} />
+          <RecentMessages items={items} />
         </div>
       )}
     </div>
@@ -193,7 +179,7 @@ function DockedContext({ items }: { items: ContextItem[] }) {
  * `<details>` removes context they have already read. Distinct from expanding
  * the clamp, which `useExpandableClamp` owns.
  */
-function InlineContext({ items }: { items: ContextItem[] }) {
+function InlineContext({ items }: { items: MessageItem[] }) {
   const { expanded, collapse, bodyProps } = useExpandableClamp([items]);
 
   return (
@@ -207,7 +193,7 @@ function InlineContext({ items }: { items: ContextItem[] }) {
     >
       <summary className={styles.contextHead}>Before this</summary>
       <div className={styles.contextBody} {...bodyProps}>
-        <ContextItems items={items} />
+        <RecentMessages items={items} />
       </div>
       {expanded && (
         <AppButton
