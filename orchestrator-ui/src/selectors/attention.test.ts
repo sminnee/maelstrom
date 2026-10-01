@@ -1,74 +1,118 @@
 import { describe, expect, it } from 'vitest';
-import { nextAttentionTask, openAttention } from './attention';
-import { makeAttention, worldWith } from '../test/fixtures';
+import type { AttentionKind } from '../protocol/attention';
+import { attentionNodes, nextAttentionNode } from './attention';
+import { noFilters } from './filters';
+import { deriveGraph } from './graph';
+import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../test/fixtures';
 
-const world = worldWith({
-  attention: [
-    makeAttention({
-      id: 'q-old',
-      kind: 'question',
-      taskId: 'T1',
-      raisedAt: '2026-09-01T00:00:01Z',
+/** A task on the desk whose turning agent holds one open item. */
+function asking(id: string, kind: AttentionKind, second: number) {
+  return {
+    task: makeTask({ id, status: 'in-progress' }),
+    agent: makeAgent({ id: `agent-${id}`, taskId: id }),
+    item: makeAttention({
+      id: `att-${id}`,
+      kind,
+      taskId: id,
+      agentId: `agent-${id}`,
+      raisedAt: `2026-09-01T00:00:0${second}Z`,
     }),
-    makeAttention({
-      id: 'p-new',
+  };
+}
+
+function nodesOf(parts: Parameters<typeof worldWith>[0]) {
+  const world = worldWith({ ...parts, desk: onDesk(parts.tasks ?? []) });
+  return deriveGraph(world, { filters: noFilters(), groupBy: 'none' }).nodes;
+}
+
+const ids = (parts: Parameters<typeof worldWith>[0]) =>
+  attentionNodes(nodesOf(parts)).map((n) => n.id);
+
+describe('attentionNodes', () => {
+  it('orders plan reviews, document reviews, questions, permissions, then the rest, oldest first', () => {
+    const cases = [
+      asking('T5', 'agent_exited', 0),
+      asking('T6', 'document_review', 8),
+      asking('T1', 'question', 1),
+      asking('T2', 'plan_review', 9),
+      asking('T3', 'permission', 2),
+      asking('T4', 'plan_review', 3),
+    ];
+    expect(
+      ids({
+        tasks: cases.map((c) => c.task),
+        agents: cases.map((c) => c.agent),
+        attention: cases.map((c) => c.item),
+      }),
+    ).toEqual(['T4', 'T2', 'T6', 'T1', 'T3', 'T5']);
+  });
+
+  it('ranks a node by its best item, not its oldest', () => {
+    const early = asking('T1', 'question', 2);
+    const late = asking('T2', 'permission', 1);
+    const review = makeAttention({
+      id: 'att-T2-plan',
       kind: 'plan_review',
       taskId: 'T2',
-      raisedAt: '2026-09-01T00:00:09Z',
-    }),
-    makeAttention({
-      id: 'perm',
-      kind: 'permission',
-      taskId: 'T3',
-      raisedAt: '2026-09-01T00:00:02Z',
-    }),
-    makeAttention({
-      id: 'p-old',
-      kind: 'plan_review',
-      taskId: 'T4',
-      raisedAt: '2026-09-01T00:00:03Z',
-    }),
-    makeAttention({
-      id: 'gone',
-      kind: 'question',
-      taskId: 'T5',
-      clearedAt: '2026-09-01T00:01:00Z',
-    }),
-    makeAttention({
-      id: 'exit',
-      kind: 'agent_exited',
-      taskId: 'T6',
-      raisedAt: '2026-09-01T00:00:00Z',
-    }),
-  ],
-});
+      agentId: 'agent-T2',
+      raisedAt: '2026-09-01T00:00:08Z',
+    });
+    expect(
+      ids({
+        tasks: [early.task, late.task],
+        agents: [early.agent, late.agent],
+        attention: [early.item, late.item, review],
+      }),
+    ).toEqual(['T2', 'T1']);
+  });
 
-describe('openAttention', () => {
-  it('orders plan reviews, then questions, then permissions, then the rest, oldest first', () => {
-    expect(openAttention(world).map((a) => a.id)).toEqual([
-      'p-old',
-      'p-new',
-      'q-old',
-      'perm',
-      'exit',
-    ]);
+  it('leaves out a done task whose item is still open', () => {
+    const done = asking('T1', 'question', 1);
+    expect(
+      ids({
+        tasks: [{ ...done.task, status: 'done' }],
+        agents: [{ ...done.agent, state: 'exited', exitCode: 0 }],
+        attention: [done.item],
+      }),
+    ).toEqual([]);
+  });
+
+  it('leaves out a node whose agent exited nonzero', () => {
+    const dead = asking('T1', 'question', 1);
+    expect(
+      ids({
+        tasks: [dead.task],
+        agents: [{ ...dead.agent, state: 'exited', exitCode: 1 }],
+        attention: [dead.item],
+      }),
+    ).toEqual([]);
+  });
+
+  it('keeps a free agent that waits on the user', () => {
+    expect(
+      ids({
+        agents: [makeAgent({ id: 'free-1', taskId: '' })],
+        attention: [makeAttention({ kind: 'question', taskId: null, agentId: 'free-1' })],
+      }),
+    ).toEqual(['free-1']);
   });
 });
 
-describe('nextAttentionTask', () => {
-  it('starts at the top and cycles through the open items', () => {
-    expect(nextAttentionTask(world, null)).toBe('T4');
-    expect(nextAttentionTask(world, 'T4')).toBe('T2');
-    expect(nextAttentionTask(world, 'T6')).toBe('T4');
+describe('nextAttentionNode', () => {
+  const cases = [asking('T1', 'question', 1), asking('T2', 'plan_review', 2)];
+  const nodes = nodesOf({
+    tasks: cases.map((c) => c.task),
+    agents: cases.map((c) => c.agent),
+    attention: cases.map((c) => c.item),
   });
 
-  it('skips items on tasks the canvas does not show', () => {
-    const visible = new Set(['T2', 'T6']);
-    expect(openAttention(world, visible).map((a) => a.id)).toEqual(['p-new', 'exit']);
-    expect(nextAttentionTask(world, 'T2', visible)).toBe('T6');
+  it('starts at the top and cycles', () => {
+    expect(nextAttentionNode(nodes, null)).toBe('T2');
+    expect(nextAttentionNode(nodes, 'T2')).toBe('T1');
+    expect(nextAttentionNode(nodes, 'T1')).toBe('T2');
   });
 
-  it('is null when nothing is open', () => {
-    expect(nextAttentionTask(worldWith({}), null)).toBeNull();
+  it('is null when no node needs the user', () => {
+    expect(nextAttentionNode(nodesOf({}), null)).toBeNull();
   });
 });
