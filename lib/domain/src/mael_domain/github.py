@@ -200,6 +200,30 @@ async def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
         return None
 
 
+async def find_open_pr(cwd: Path, branch: str) -> PrStatus | None:
+    """``branch``'s open pull request, for a caller that must not guess.
+
+    :func:`get_pr_for_branch` reads a failed lookup as "no PR", which suits a
+    table cell. A caller about to delete the branch needs the difference.
+
+    Raises:
+        GitHubCliMissing: If ``gh`` is not installed.
+        GitHubCommandFailed: If the lookup failed or its output was unreadable.
+    """
+    try:
+        result = await run_cmd_async(
+            _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
+        )
+    except FileNotFoundError:
+        raise GitHubCliMissing("gh")
+    if result.returncode != 0:
+        raise GitHubCommandFailed(f"look up the PR for {branch}", result.stderr)
+    try:
+        return _parse_pr_for_branch(result)
+    except (ValueError, TypeError) as e:
+        raise GitHubCommandFailed(f"look up the PR for {branch}", str(e))
+
+
 def _pr_for_branch_argv(branch: str) -> list[str]:
     """The ``gh pr list`` argv that asks for one branch's newest pull request."""
     return [
@@ -233,6 +257,26 @@ def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None
         state="unknown",
         is_draft=bool(data.get("isDraft")),
     )
+
+
+def close_pr(cwd: Path, number: int, comment: str) -> None:
+    """Close pull request ``number`` without merging it, leaving ``comment``.
+
+    Raises:
+        GitHubCliMissing: If ``gh`` is not installed.
+        GitHubCommandFailed: If ``gh`` refused.
+    """
+    try:
+        run_cmd(_close_pr_argv(number, comment), cwd=cwd, quiet=True)
+    except subprocess.CalledProcessError as e:
+        raise GitHubCommandFailed(f"close PR #{number}", e.stderr)
+    except FileNotFoundError:
+        raise GitHubCliMissing("gh")
+
+
+def _close_pr_argv(number: int, comment: str) -> list[str]:
+    """The ``gh pr close`` argv that closes ``number`` with ``comment``."""
+    return ["gh", "pr", "close", str(number), "--comment", comment]
 
 
 # Each named branch's most recent pull requests, in one round trip.

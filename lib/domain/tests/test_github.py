@@ -12,8 +12,10 @@ import pytest
 from mael_domain import github
 from mael_domain.base_store import InMemoryBaseStore
 from mael_domain.github import (
+    close_pr,
     create_pr,
     create_project_repo,
+    find_open_pr,
     get_open_prs,
     get_pr_checks,
     get_pr_comments,
@@ -507,6 +509,46 @@ class TestGetPrForBranch:
         """
         with patch("mael_domain.github.run_cmd_async", side_effect=FileNotFoundError):
             assert await get_pr_for_branch(Path("."), "feat/a") is None
+
+
+class TestFindOpenPr:
+    """The lookup for a caller about to delete the branch: it must not guess."""
+
+    async def test_a_branch_with_no_pr_answers_nothing(self):
+        empty = json.dumps({"number": None, "commits": 0, "url": None})
+        with patch("mael_domain.github.run_cmd_async", return_value=_ok(empty)):
+            assert await find_open_pr(Path("."), "feat/a") is None
+
+    async def test_a_failed_lookup_raises_rather_than_answering_no_pr(self):
+        failed = SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502")
+        with patch("mael_domain.github.run_cmd_async", return_value=failed):
+            with pytest.raises(GitHubCommandFailed):
+                await find_open_pr(Path("."), "feat/a")
+
+    async def test_a_missing_gh_raises(self):
+        with patch("mael_domain.github.run_cmd_async", side_effect=FileNotFoundError):
+            with pytest.raises(GitHubCliMissing):
+                await find_open_pr(Path("."), "feat/a")
+
+
+class TestClosePr:
+    def test_it_closes_the_pr_with_the_comment(self):
+        with patch("mael_domain.github.run_cmd") as run:
+            close_pr(Path("."), 42, "Trashed: branch moved to trash/feat/a")
+        assert run.call_args.args[0] == [
+            "gh",
+            "pr",
+            "close",
+            "42",
+            "--comment",
+            "Trashed: branch moved to trash/feat/a",
+        ]
+
+    def test_a_refusal_is_a_command_failure(self):
+        refused = subprocess.CalledProcessError(1, "gh", stderr="not found")
+        with patch("mael_domain.github.run_cmd", side_effect=refused):
+            with pytest.raises(GitHubCommandFailed):
+                close_pr(Path("."), 42, "x")
 
 
 class TestGetOpenPrs:
