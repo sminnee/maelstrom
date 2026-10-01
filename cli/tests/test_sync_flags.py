@@ -30,8 +30,8 @@ from mael_domain.task_launch import LaunchBlocked, check_synced
 from mael_domain.worktree import (
     CloseResult,
     SyncResult,
-    _detach_and_free_ports,
     close_worktree,
+    detach_and_free_ports,
     get_current_branch,
     rebase_worktree,
     rebase_worktree_with_autorepair,
@@ -1028,18 +1028,18 @@ class TestSetupWorktreeSyncOnOpen:
 
 
 # ---------------------------------------------------------------------------
-# Refactor regression: _detach_and_free_ports + close_worktree
+# Refactor regression: detach_and_free_ports + close_worktree
 # ---------------------------------------------------------------------------
 
 
 class TestDetachAndFreePorts:
-    """`_detach_and_free_ports` and the refactored `close_worktree` tail."""
+    """`detach_and_free_ports` and the refactored `close_worktree` tail."""
 
     def test_detach_and_free_ports_direct(self, project_with_worktree):
         project_path, worktree_path, remote_path = project_with_worktree
         record_port_allocation(project_path, "alpha", 350)
 
-        result = _detach_and_free_ports(worktree_path)
+        result = detach_and_free_ports(worktree_path)
 
         assert isinstance(result, CloseResult)
         assert result.success is True

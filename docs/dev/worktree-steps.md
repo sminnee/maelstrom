@@ -57,7 +57,7 @@ fault behind a running service.
 
 ## Two ordering rules
 
-Both are encoded in `_teardown_steps` rather than remembered at each caller.
+Both are encoded in `teardown_steps` rather than remembered at each caller.
 
 **`stop_agents` runs before `stop_sessions`.** Signalling the pids first makes the daemon record a
 deliberate stop as a crash. This is the rule `mael remove` broke.
