@@ -42,3 +42,29 @@
   color: var(--fg-faint);
   user-select: none;
 }
+/* The numbers as one button: it selects the row, for a change comment. */
+.gutter {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.gutter:hover .number,
+.gutter:focus-visible .number {
+  color: var(--fg);
+}
+/* A wash over the add or remove ground, so a selected row keeps its kind. */
+.row[data-selected] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent) 18%, transparent),
+    color-mix(in srgb, var(--accent) 18%, transparent)
+  );
+}
+.row[data-selected] .number {
+  color: var(--accent);
+}
