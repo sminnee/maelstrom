@@ -1068,6 +1068,12 @@ class _Emitter:
             answers = _dict(_dict(payload.get("updatedInput")).get("answers"))
             if answers:
                 self.update(pending.item_id, {"answers": answers})
+            elif not allow:
+                # A deny is a reply: the question is settled, not stale.
+                self.update(
+                    pending.item_id,
+                    {"declined": True, "reason": _str(payload.get("message"))},
+                )
         elif pending.tool == PLAN_TOOL:
             patch: Dict = {"decision": "approve" if allow else "deny"}
             if not allow:
