@@ -414,8 +414,12 @@ class TestNext:
         assert "No actionable task" in result.output
 
     async def test_prints_first_actionable(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        await model.create(store, project="p", title="b")
+        a = await model.create(
+            store, project="p", title="a", now="2026-06-08T12:00:00+00:00"
+        )
+        await model.create(
+            store, project="p", title="b", now="2026-06-09T12:00:00+00:00"
+        )
         result = runner.invoke(task_cli.task, ["next"])
         assert result.exit_code == 0, result.output
         assert result.output.strip() == a.id
@@ -1992,7 +1996,8 @@ class TestLoadMany:
             # the table this reads is in memory, so there is nothing to await.
             # Unfiltered by status: earlier tasks in the batch have already moved
             # out of todo/ by the time later ones sweep.
-            all_ids = sorted(store._rows[k]["task_id"] for k in store._rows)
+            rows = sorted(store._rows.values(), key=lambda r: r["created"])
+            all_ids = [r["task_id"] for r in rows]
             second = all_ids[1:2]
             return [
                 _live_session(pid=77, session_id=model.session_id_for("p", i))
@@ -2500,6 +2505,30 @@ class TestPriority:
         assert "PRIORITY" in result.output
         # The critical task's row must appear before the low one's.
         assert result.output.index(crit.id) < result.output.index(low.id)
+
+    @pytest.mark.parametrize(
+        ("older_id", "newer_id"), [("aaaa", "zzzz"), ("zzzz", "aaaa")]
+    )
+    async def test_list_orders_a_priority_band_oldest_first(
+        self, runner, store, older_id, newer_id
+    ):
+        await model.create(
+            store,
+            project="p",
+            title="new one",
+            id=newer_id,
+            now="2026-06-09T12:00:00+00:00",
+        )
+        await model.create(
+            store,
+            project="p",
+            title="old one",
+            id=older_id,
+            now="2026-06-08T12:00:00+00:00",
+        )
+        result = runner.invoke(task_cli.task, ["list"])
+        assert result.exit_code == 0, result.output
+        assert result.output.index(older_id) < result.output.index(newer_id)
 
 
 # --- templates + schedule metadata ---
