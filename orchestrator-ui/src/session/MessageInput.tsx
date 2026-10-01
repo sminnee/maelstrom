@@ -59,7 +59,7 @@ export function MessageInput({
   const sendButton = useRef<HTMLButtonElement>(null);
   // A soft keyboard's Enter means a newline, so only the button sends there.
   // On a hardware keyboard Enter sends, which is what a power tool wants.
-  const enterSends = useLayoutMode() === 'wide';
+  const enterSends = useLayoutMode() !== 'narrow';
   const trimmed = text.trim();
   // An image with no words is a message in its own right, so either one is
   // enough to send. The server's own rule says the same.

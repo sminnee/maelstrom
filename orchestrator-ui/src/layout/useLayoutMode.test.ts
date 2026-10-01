@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { NARROW_QUERY, useLayoutMode } from './useLayoutMode';
+import { useLayoutMode } from './useLayoutMode';
 
 /** Point `window.matchMedia` at a fake, or remove it entirely with `undefined`. */
 function setMatchMedia(factory: ((query: string) => unknown) | undefined) {
@@ -13,33 +13,42 @@ function setMatchMedia(factory: ((query: string) => unknown) | undefined) {
 
 afterEach(() => setMatchMedia(undefined));
 
-describe('the breakpoint', () => {
-  it('breaks at 839px, so 840 is the narrowest wide viewport', () => {
-    expect(NARROW_QUERY).toBe('(max-width: 839px)');
-  });
-});
-
 describe('useLayoutMode', () => {
-  it('reads the mode from matchMedia, and follows a change', () => {
-    const listeners = new Set<() => void>();
-    let narrow = true;
+  it('reads the mode from matchMedia, and follows a change across each breakpoint', () => {
+    // Listeners are held per query, as a browser holds them: a query tells
+    // only its own listeners, and only when its answer changes.
+    const listeners = new Map<string, Set<() => void>>();
+    const maxOf = (query: string) => Number(/max-width: (\d+)px/.exec(query)![1]);
+    let width = 390;
     setMatchMedia((query) => {
-      expect(query).toBe(NARROW_QUERY);
+      const own = listeners.get(query) ?? new Set<() => void>();
+      listeners.set(query, own);
       return {
         get matches() {
-          return narrow;
+          return width <= maxOf(query);
         },
-        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
-        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+        addEventListener: (_: string, fn: () => void) => own.add(fn),
+        removeEventListener: (_: string, fn: () => void) => own.delete(fn),
       };
     });
     const { result } = renderHook(() => useLayoutMode());
     expect(result.current).toBe('narrow');
 
-    act(() => {
-      narrow = false;
-      for (const fn of listeners) fn();
-    });
+    const resize = (to: number) =>
+      act(() => {
+        const from = width;
+        width = to;
+        for (const [query, own] of listeners) {
+          if (from <= maxOf(query) !== to <= maxOf(query)) for (const fn of own) fn();
+        }
+      });
+    resize(839);
+    expect(result.current).toBe('narrow');
+    resize(840);
+    expect(result.current).toBe('medium');
+    resize(1599);
+    expect(result.current).toBe('medium');
+    resize(1600);
     expect(result.current).toBe('wide');
   });
 
