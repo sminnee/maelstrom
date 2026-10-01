@@ -37,6 +37,14 @@ After green gates, run this unattended sequence:
 6. Run `mael task status done`.
 7. Run `/watch-pr` until CI passes or times out.
 
+When the work has a result the user can see, write a verification after step 1:
+
+- Write `.drafts/verification.md`. Say what you checked and how.
+- Put each screenshot and Playwright video in the body as a markdown image ref.
+- When the project runs Ladle, link a story as plain markdown: `http://localhost:<Ladle port>/?story=<title-id>--<export>&mode=preview`.
+- Show it with `<doc-file kind="verification" filename=".drafts/verification.md" title="...">`.
+- When a review fix changes what the verification shows, update the file and write the tag again.
+
 Run waits in the background and read their body, not only exit status.
 
 `mael gh read-pr --wait` can report success before substantive CI starts, or hide its exit status through a pipe or background shell. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
