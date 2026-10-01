@@ -1066,7 +1066,7 @@ def sync_worktree(
     )
 
     if decision.action == SYNC_CLOSE_KEEP_BRANCH:
-        detach_result = _detach_and_free_ports(worktree_path)
+        detach_result = detach_and_free_ports(worktree_path)
         if not detach_result.success:
             return SyncResult(
                 success=False, branch=branch, message=detach_result.message
@@ -1087,7 +1087,7 @@ def sync_worktree(
         delete_remote = branch_exists_on_remote(
             project_path, branch
         )  # compute before detach
-        detach_result = _detach_and_free_ports(
+        detach_result = detach_and_free_ports(
             worktree_path
         )  # frees the branch + ports first
         if not detach_result.success:
@@ -1902,7 +1902,7 @@ def close_worktree(
         # that reset removes when it restores HEAD.
         run_git(["clean", "-ffd"], cwd=worktree_path)
         run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
-        result = _detach_and_free_ports(worktree_path)
+        result = detach_and_free_ports(worktree_path)
         result.branch = branch
         return result
 
@@ -1946,14 +1946,14 @@ def close_worktree(
 
     # --force (or clean) → tear down. Branch is preserved (only HEAD detaches).
     # Tree is clean by now (wip committed), so the normal detach works.
-    result = _detach_and_free_ports(worktree_path)
+    result = detach_and_free_ports(worktree_path)
     # Surface what the caller needs to create a reopen task.
     result.branch = branch
     result.had_unmerged_work = had_unmerged
     return result
 
 
-def _detach_and_free_ports(worktree_path: Path) -> CloseResult:
+def detach_and_free_ports(worktree_path: Path) -> CloseResult:
     """Detach HEAD at origin/main and free the worktree's port allocation.
 
     Shared tail of close_worktree() and the sync --close path. Assumes the caller

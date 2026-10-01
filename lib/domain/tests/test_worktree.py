@@ -20,7 +20,6 @@ from mael_domain.worktree import (
     WorktreeInfo,
     _build_env_file,
     _commits_ahead_batch,
-    _detach_and_free_ports,
     _write_agents_md,
     add_project,
     close_worktree,
@@ -28,6 +27,7 @@ from mael_domain.worktree import (
     closed_worktrees_async,
     copy_back_new_env_vars,
     create_worktree,
+    detach_and_free_ports,
     find_closed_worktree,
     find_worktree_by_branch,
     get_commits_ahead,
@@ -2356,7 +2356,7 @@ class TestAddProjectLayout:
 
     def test_sync_close_refuses_main(self, project):
         """`_main` sits on main, so `sync --close` reads it as empty. Refuse it."""
-        result = _detach_and_free_ports(project / "_main")
+        result = detach_and_free_ports(project / "_main")
 
         assert result.success is False
         assert self._branch_of(project / "_main") == "main"

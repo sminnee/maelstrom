@@ -123,7 +123,7 @@ class FullCloseResult:
     messages_before_copy_back: int = 0
 
 
-def _teardown_steps(
+def teardown_steps(
     steps: CloseSteps,
     project: str,
     worktree: str,
@@ -227,7 +227,7 @@ async def close_worktree_fully(
         name = mael_layout.workspace_name(project, worktree)
         return StepOutcome(messages=[f"Closed cmux workspace '{name}'."])
 
-    sequence = _teardown_steps(steps, project, worktree, worktree_path)
+    sequence = teardown_steps(steps, project, worktree, worktree_path)
     sequence += [
         Step(name="rescue_env_vars", run=copy_back, scopes=(Scope.WORKTREE,)),
         # Worktree only. close_worktree fetches, but it takes the repo scope
@@ -331,7 +331,7 @@ async def remove_worktree_fully(
     # The guard runs before the teardown: refusing after the agents are
     # stopped would leave the worktree worse off for a removal that never ran.
     sequence = [Step(name="check_dirty", run=check_dirty, scopes=(Scope.WORKTREE,))]
-    sequence += _teardown_steps(steps, project, worktree, worktree_path)
+    sequence += teardown_steps(steps, project, worktree, worktree_path)
     sequence += [
         # Both scopes, unlike `git_close`: the removal rewrites the shared
         # worktree list under `.git` and frees the port allocation, and it
