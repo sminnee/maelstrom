@@ -147,7 +147,7 @@ def test_wrong_wait_kind_when_answering_a_permission_request():
     )
 
 
-def test_wrong_wait_kind_when_approving_a_question():
+def test_a_question_refuses_an_approve_and_takes_a_deny():
     # The daemon does not guard this one: approving a question sends an allow
     # with no ``answers`` key, which the agent reads as no answer at all. This
     # check is the only thing standing between a user and a silently lost
@@ -157,6 +157,9 @@ def test_wrong_wait_kind_when_approving_a_question():
     )
     cmd = {"type": "agent.approve", "agentId": "agent-1", "requestId": "req-2"}
     assert code(validate_command(world, cmd, wait_kind="question")) == "wrong_wait_kind"
+    # A deny is the other reply a question takes: the user declines it.
+    deny = {**cmd, "type": "agent.deny", "reason": "The user declined to answer."}
+    assert validate_command(world, deny, wait_kind="question") is None
 
 
 def test_a_reply_suiting_its_own_request_is_allowed_whatever_the_state_says():

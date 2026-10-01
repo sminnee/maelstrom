@@ -369,7 +369,7 @@ async def cmd_approve(agent_id: str, request_id: str) -> None:
     help="Which wait to answer. Needed only when several are open.",
 )
 async def cmd_deny(agent_id: str, reason: str, request_id: str) -> None:
-    """Deny an agent's pending plan or tool call."""
+    """Deny an agent's pending plan or tool call, or decline its question."""
     await _send(
         {"cmd": "deny", "id": agent_id, "reason": reason, "request": request_id}
     )

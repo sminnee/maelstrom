@@ -213,13 +213,16 @@ which kind of wait it is:
 
 | `tool_name` | State | Answer with |
 |---|---|---|
-| `AskUserQuestion` | `awaiting-question` | `mael agent answer <id> <choice>` |
+| `AskUserQuestion` | `awaiting-question` | `mael agent answer <id> <choice>` / `deny <id>` |
 | `ExitPlanMode` | `awaiting-plan-review` | `mael agent approve <id>` |
 | anything else | `awaiting-permission` | `mael agent approve` / `deny <id>` |
 
 `answer` works only on `awaiting-question`. A non-question wait carries no question text, so an
 answer would go out as an empty map, which the agent reads as no answer at all. The daemon
 refuses instead of resolving the wait wrongly.
+
+`deny` works on every kind. A denied question reaches the agent as a refused tool call, and the
+agent continues its turn without an answer.
 
 A question and a plan review also carry `requires_user_interaction: true`. A plain permission ask
 does not.

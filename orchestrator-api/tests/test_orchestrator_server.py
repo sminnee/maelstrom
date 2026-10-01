@@ -1060,6 +1060,41 @@ def test_deny_sends_the_reason_and_records_it(harness):
     assert request["reason"] == "not on this network"
 
 
+def test_deny_declines_a_question(harness):
+    waiting_on(harness, "question-unanswered.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                request_id = await pending_id(api)
+                reply = await api.post(
+                    "/api/agents/ag1/deny",
+                    {"requestId": request_id, "reason": "The user declined to answer."},
+                )
+                await settled(
+                    stream,
+                    api,
+                    "agent",
+                    "/api/agents/ag1",
+                    lambda a: a["state"] == "processing",
+                )
+                return reply, (await transcript_of(api))["items"], request_id
+
+    reply, items, request_id = run(scenario())
+    assert reply.status == 200
+    assert {
+        "cmd": "deny",
+        "id": "ag1",
+        "request": request_id,
+        "reason": "The user declined to answer.",
+    } in harness.daemon.calls
+    question = next(i for i in items if i["type"] == "question")
+    assert question["declined"] is True
+    assert question["reason"] == "The user declined to answer."
+    assert "stale" not in question
+
+
 def test_answer_sends_the_answers_map_and_files_it_on_the_question(harness):
     waiting_on(harness, "question-unanswered.jsonl")
     answers = {"Which colour do you prefer?": "Blue"}

@@ -112,7 +112,7 @@ ENV_ACTIONS = ("start", "stop", "restart")
 #: describe several waits at once — see CONTEXT.md, "Wait kind".
 WAIT_FOR_COMMAND = {
     "agent.approve": ("permission_request", "plan_review"),
-    "agent.deny": ("permission_request", "plan_review"),
+    "agent.deny": ("permission_request", "plan_review", "question"),
     "agent.answer": ("question",),
 }
 
