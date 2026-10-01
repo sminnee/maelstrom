@@ -39,8 +39,11 @@ describe('the expanded node', () => {
 
       const documents = within(card).getByTestId('node-documents');
       expect(within(documents).getAllByRole('link')).toHaveLength(2);
-      expect(within(documents).getAllByRole('link')[0]!.parentElement).toBe(documents);
-      expect(within(documents).getAllByRole('link')[1]!.parentElement).toBe(documents);
+      // Each link is listed under a kind heading, not on the action line.
+      const listed = within(documents)
+        .getAllByRole('region')
+        .flatMap((section) => within(section).getAllByRole('link'));
+      expect(listed).toEqual(within(documents).getAllByRole('link'));
     });
 
     it('links the PR at its own URL, saying its state, in a new tab', async () => {

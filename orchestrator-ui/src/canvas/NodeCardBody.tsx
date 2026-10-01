@@ -15,7 +15,7 @@ import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
 import { nodeIdLine, nodeTitle } from '../selectors/graph';
-import { reviewGroups } from '../selectors/documents';
+import { documentsByKind } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
@@ -80,7 +80,7 @@ export function NodeCardBody({
 
   // A plan document is found by its task; a free agent has no task, so a
   // document it tagged is found by its agent alone.
-  const documents = reviewGroups(
+  const documents = documentsByKind(
     Object.values(world.documents).filter(
       (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
     ),
@@ -299,25 +299,39 @@ export function NodeCardBody({
         </div>
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
-            {documents.map((g) =>
-              g.members.length === 1 ? (
-                <PanelLink key={g.id} tab={documentTab(g.members[0]!.id)}>
-                  {g.members[0]!.title} v{g.members[0]!.version} ·{' '}
-                  {describeDocumentStatus(g.status)}
-                </PanelLink>
-              ) : (
-                <div key={g.id} role="group" aria-label={g.title} className={styles.documentGroup}>
-                  <span className={styles.documentGroupHead}>
-                    {g.title} · {describeDocumentStatus(g.status)}
-                  </span>
-                  {g.members.map((d) => (
-                    <PanelLink key={d.id} tab={documentTab(d.id)}>
-                      {d.title} v{d.version}
+            {documents.map((section) => (
+              <section
+                key={section.heading}
+                aria-label={section.heading}
+                className={styles.documentKind}
+              >
+                <span className={styles.documentKindHead}>{section.heading}</span>
+                {section.groups.map((g) =>
+                  g.members.length === 1 ? (
+                    <PanelLink key={g.id} tab={documentTab(g.members[0]!.id)}>
+                      {g.members[0]!.title} v{g.members[0]!.version} ·{' '}
+                      {describeDocumentStatus(g.status)}
                     </PanelLink>
-                  ))}
-                </div>
-              ),
-            )}
+                  ) : (
+                    <div
+                      key={g.id}
+                      role="group"
+                      aria-label={g.title}
+                      className={styles.documentGroup}
+                    >
+                      <span className={styles.documentGroupHead}>
+                        {g.title} · {describeDocumentStatus(g.status)}
+                      </span>
+                      {g.members.map((d) => (
+                        <PanelLink key={d.id} tab={documentTab(d.id)}>
+                          {d.title} v{d.version}
+                        </PanelLink>
+                      ))}
+                    </div>
+                  ),
+                )}
+              </section>
+            ))}
           </div>
         )}
       </footer>

@@ -3,6 +3,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import {
+  addAttachedVerification,
+  addNote,
   addPlan,
   addTaskSet,
   chipCount,
@@ -256,6 +258,58 @@ describe('a document an agent tagged in its own message', () => {
         .getAllByRole('link')
         .map((l) => l.textContent),
     ).toEqual(['Execute: parse v1', 'Execute: mint v1', 'Execute: show v1']);
+  });
+
+  it('the card lists documents under a heading per kind, and draws no empty heading', async () => {
+    const { server } = await renderApp();
+    addAttachedVerification(server);
+    clickNode('NORT-7');
+    const verifications = await within(expanded()).findByRole('region', {
+      name: 'Verifications',
+    });
+    expect(
+      within(verifications)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Login flow v1 · draft']);
+    const plans = within(expanded()).getByRole('region', { name: 'Plans' });
+    expect(within(plans).getByRole('link', { name: /Plan v1/ })).toBeInTheDocument();
+    const headings = () =>
+      within(within(expanded()).getByTestId('node-documents'))
+        .getAllByRole('region')
+        .map((r) => r.getAttribute('aria-label'));
+    // NORT-7 has no document of another kind yet, so that heading is not drawn.
+    expect(headings()).toEqual(['Plans', 'Verifications']);
+
+    // Presented last, and still listed last: the order is the kind's, not the arrival's.
+    addNote(server);
+    await waitFor(() => expect(headings()).toEqual(['Plans', 'Verifications', 'Other']));
+    const other = within(expanded()).getByRole('region', { name: 'Other' });
+    expect(within(other).getByRole('link', { name: /Release note v1/ })).toBeInTheDocument();
+  });
+
+  it('a review group sits under the heading of its kind', async () => {
+    const { server } = await renderApp();
+    addTaskSet(server);
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    expect(within(expanded()).getByRole('region', { name: 'Other' })).toContainElement(group);
+  });
+
+  it('an attached document opens in a tab that plays its video and links no session', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addAttachedVerification(server);
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('link', { name: /Login flow v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('It works.'));
+    expect(tab.querySelector('video')).toHaveAttribute(
+      'src',
+      '/api/attachments/northwind/NORT-7/flow.webm',
+    );
+    // Its agent is gone, so there is no session to open.
+    expect(within(tab).queryByRole('link', { name: 'Session' })).not.toBeInTheDocument();
   });
 
   it('a member shows its own version, and a superseded one leaves the card', async () => {

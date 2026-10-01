@@ -133,6 +133,49 @@ export function addPlan(server: FakeServer, status: Document['status'] = 'approv
   });
 }
 
+/** A release note on NORT-7: a document that is neither a plan nor a verification. */
+export function addNote(server: FakeServer) {
+  const doc: Document = {
+    id: 'doc-new-note',
+    agentId: 'a1f3c9e2',
+    taskId: 'NORT-7',
+    kind: 'other',
+    title: 'Release note',
+    markdown: 'The exporter is faster.\n',
+    version: 1,
+    status: 'draft',
+    source: { type: 'draft_file', fileId: 'new-note', filename: '.drafts/note.md' },
+    group: { id: 'doc-new-note', title: 'Release note', position: 0 },
+  };
+  server.change({ kind: 'document', ids: [doc.id] }, (w) => {
+    w.documents[doc.id] = doc;
+  });
+}
+
+/**
+ * An attached verification on NORT-7, as a restarted server seeds one: no agent, and
+ * media served from the notebook. The id carries `new`, so a test finds this
+ * document and not one the seed holds.
+ */
+export function addAttachedVerification(server: FakeServer) {
+  const doc: Document = {
+    id: 'attached-new-verification',
+    agentId: '',
+    taskId: 'NORT-7',
+    kind: 'verification',
+    title: 'Login flow',
+    markdown:
+      '# Login flow\n\n![The flow](/api/attachments/northwind/NORT-7/flow.webm)\n\nIt works.\n',
+    version: 1,
+    status: 'draft',
+    source: { type: 'draft_file', fileId: null, filename: '.drafts/verification.md' },
+    group: { id: 'attached-new-verification', title: 'Login flow', position: 0 },
+  };
+  server.change({ kind: 'document', ids: [doc.id] }, (w) => {
+    w.documents[doc.id] = doc;
+  });
+}
+
 /** NORT-12's agent presents a three-draft task set as one tag, as review group `grp-set`. */
 export function addTaskSet(
   server: FakeServer,
