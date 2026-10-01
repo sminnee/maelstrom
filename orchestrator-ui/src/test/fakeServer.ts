@@ -1079,6 +1079,21 @@ function command(
     return ok({});
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/trash$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.nato === '_main') {
+      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
+    }
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    // Uncommitted work is committed as wip, so nothing here refuses it.
+    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
   m = pathname.match(/^\/api\/worktrees\/([^/]+)$/);
   if (m && method === 'DELETE') {
     const id = decodeURIComponent(m[1]!);

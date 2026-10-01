@@ -74,10 +74,17 @@ describe('App', () => {
     );
     expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    expect(menuLabels(card)).toEqual(['Off desk', 'Take off desk & close bravo']);
+    expect(menuLabels(card)).toEqual([
+      'Off desk',
+      'Take off desk & close bravo',
+      'Take off desk & trash bravo',
+    ]);
     // c3e8f1b5 still runs in maelstrom-bravo.
     expect(
       within(card).getByRole('menuitem', { name: 'Take off desk & close bravo' }),
+    ).toHaveAttribute('aria-disabled', 'true');
+    expect(
+      within(card).getByRole('menuitem', { name: 'Take off desk & trash bravo' }),
     ).toHaveAttribute('aria-disabled', 'true');
     await user.keyboard('{Escape}');
 
@@ -125,6 +132,43 @@ describe('App', () => {
     );
     expect(commandsSince(server, before)).toEqual([
       'POST /api/worktrees/northwind-alpha/close',
+      'DELETE /api/desk/task:NORT-7',
+    ]);
+  });
+
+  it('asks before it trashes a worktree, then trashes and takes it off the desk', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
+      w.agents['a1f3c9e2'] = {
+        ...w.agents['a1f3c9e2']!,
+        state: 'exited',
+        exitCode: 0,
+        pendingRequestIds: [],
+      };
+    });
+    clickNode('NORT-7');
+    const card = screen.getByRole('dialog', { name: 'Plan the order export' });
+    await commands(card).findByRole('button', { name: 'Off desk' });
+    const before = server.requests.length;
+
+    // Picking it asks, and sends nothing.
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & trash alpha' }));
+    const ask = within(card).getByRole('alertdialog', {
+      name: 'Trash feat/orders? Its PR closes and the branch moves to trash/.',
+    });
+    await user.click(within(ask).getByRole('button', { name: 'Keep it' }));
+    expect(commandsSince(server, before)).toEqual([]);
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & trash alpha' }));
+    await user.click(within(card).getByRole('button', { name: 'Trash it' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
+    );
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/worktrees/northwind-alpha/trash',
       'DELETE /api/desk/task:NORT-7',
     ]);
   });
@@ -187,6 +231,7 @@ describe('App', () => {
       'Terminate',
       'Terminate & take off desk',
       'Terminate, take off desk & close bravo',
+      'Terminate, take off desk & trash bravo',
     ]);
     const before = server.requests.length;
     await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));

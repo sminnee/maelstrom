@@ -324,24 +324,29 @@ chains:
 
 | Node state | Click | Menu |
 |---|---|---|
-| Live agent | Terminate | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` |
-| No live agent | Off desk | Off desk · Take off desk & close `<nato>` |
+| Live agent | Terminate | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` · Terminate, take off desk & trash `<nato>` |
+| No live agent | Off desk | Off desk · Take off desk & close `<nato>` · Take off desk & trash `<nato>` |
 
 Every desk act draws a tray icon before its label, with an arrow down into the tray for On desk
 and up out of it for Off desk (`shell/OnDeskIcon.tsx`, `shell/OffDeskIcon.tsx`). In the menu,
 each item that takes the node off the desk draws the Off desk icon; plain Terminate draws none.
 
-The close item is left out when the worktree is `_main`, is closed, or does not exist. With one
-item left, the control is a plain button. The close item is disabled while another top-level agent
-runs in the same worktree, and its second line says how many. A subagent is not counted, because
-it stops with its parent.
+The close and trash items are left out when the worktree is `_main`, is closed, or does not exist.
+With one item left, the control is a plain button. The close and trash items are disabled while
+another top-level agent runs in the same worktree, and the second line says how many. A subagent
+is not counted, because it stops with its parent.
 
-A chain with a close sends the close first and no stop, because the server's close stops every
-agent in the worktree. The close is also the step that can refuse, on a dirty tree or unmerged
-commits. Sent first, a refusal leaves the node on the desk, and the control shows the reason in
-its title. A live node can draw with no desk entry, so a chain skips Off desk when there
-is none to take. "Terminate & take off desk" sends the stop first: `agent.stop` records the exit
-before it replies, so the node can go off the desk at once.
+The trash item asks first, beside the control, because it closes a PR and renames a branch. Only
+the confirming answer sends anything. A `SplitOption` with `confirm` draws the question, in the
+style of `ui/ConfirmButton.tsx`, and holds both segments while it is open.
+
+A chain with a close or a trash sends that command first and no stop, because the server stops
+every agent in the worktree. That command is also the step that can refuse: a close on a dirty
+tree or unmerged commits, a trash on a stacked branch or an existing `trash/<branch>`. Sent
+first, a refusal leaves the node on the desk, and the control shows the reason in its title. A
+live node can draw with no desk entry, so a chain skips Off desk when there is none to take.
+"Terminate & take off desk" sends the stop first: `agent.stop` records the exit before it
+replies, so the node can go off the desk at once.
 
 The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
 desk also closes the session tab. The agent's document tabs stay open.
