@@ -1255,9 +1255,10 @@ async def task_list(
     # but asking for the folder by name should list them.
     show_all_in_folder = status == model.STATUS_TEMPLATE
 
-    # Display order is priority-first (id as the within-band tie-break); the
-    # gatherer stays id-sorted for dependency resolution, so sort here.
-    tasks.sort(key=lambda t: (model.priority_rank(t.priority), t.id))
+    # The same order ``mael task next`` picks by.
+    tasks.sort(
+        key=lambda t: (model.priority_rank(t.priority), *model.creation_order(t))
+    )
 
     rows = []
     for t in tasks:
