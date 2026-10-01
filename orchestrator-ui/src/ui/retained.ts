@@ -23,6 +23,12 @@ export const retainedKey = {
    * by id, so the id is the identity that exists to key by.
    */
   message: (agentId: string) => `${PREFIX}.message.${agentId}`,
+  /**
+   * The reply on an unanswered node's card. Its own key: the card and the
+   * session tab can be mounted together, and two fields on one key each keep
+   * their own state, so a send from one would leave its text in the other.
+   */
+  reply: (agentId: string) => `${PREFIX}.reply.${agentId}`,
 };
 
 /** Whether a stored key belongs to a version other than the current one. */

@@ -1,13 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import {
-  useAnswer,
-  useApprove,
-  useDeny,
-  useInterrupt,
-  useRun,
-  useSay,
-  useSetMode,
-} from '../api/agents';
+import { useAnswer, useApprove, useDeny, useInterrupt, useSay, useSetMode } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
 import type { Agent, BackgroundShell } from '../protocol/entities';
@@ -24,6 +16,7 @@ import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
 import { awaitCompact } from './awaitCompact';
 import { MessageInput } from './MessageInput';
+import { useSendMessage } from './useSendMessage';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
 
@@ -78,7 +71,7 @@ export function SessionTab({
   const deny = useDeny();
   const answer = useAnswer();
   const say = useSay();
-  const run = useRun();
+  const send = useSendMessage(agentId);
   const setMode = useSetMode();
   const interrupt = useInterrupt();
   const streams = useContext(AgentStreamsContext);
@@ -293,14 +286,7 @@ export function SessionTab({
           bucket={`agent-${agentId}`}
           agentId={agentId}
           disabled={agent.state === 'exited'}
-          onSend={(text, attachments) => {
-            const removeLocal = text ? streams.sendLocal(agentId, text) : undefined;
-            return say.mutateAsync({ agentId, text, attachments }).catch((err) => {
-              removeLocal?.();
-              throw err;
-            });
-          }}
-          onRun={(command) => run.mutateAsync({ agentId, command })}
+          {...send}
         />
       )}
     </div>

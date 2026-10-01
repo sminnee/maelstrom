@@ -498,7 +498,7 @@ describe('what an unanswered agent last said', () => {
   it('shows its recent messages in place of the one-line Now block', async () => {
     const { server } = await renderApp();
     server.append('c3e8f1b5', {
-      id: 'c3e8f1b5-m9',
+      id: 'c3e8f1b5-asks',
       ts: '',
       type: 'message',
       role: 'assistant',
@@ -526,6 +526,59 @@ describe('what an unanswered agent last said', () => {
     });
     await waitFor(() => expect(within(expanded()).queryByTestId('recent-messages')).toBeNull());
     expect(expanded()).toHaveTextContent('Now');
+  });
+
+  it('takes a reply on the card, with no session open', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    act(() => endTurn(server));
+    clickNode('MAEL-40.1');
+
+    const box = await within(expanded()).findByTestId('unanswered');
+    const field = within(box).getByRole('textbox', { name: 'Reply to agent' });
+    await user.type(field, 'Restamp on every move.');
+    await user.click(within(box).getByRole('button', { name: 'Send' }));
+
+    await waitFor(() =>
+      expect(server.requests.find((r) => r.path === '/api/agents/c3e8f1b5/say')?.body).toEqual({
+        text: 'Restamp on every move.',
+      }),
+    );
+    expect(screen.queryByTestId('session-tab')).toBeNull();
+    // The fake's `say` starts no turn, so the box is still here to read.
+    await waitFor(() => expect(field).toHaveValue(''));
+  });
+
+  it('holds the reply apart from the message typed in the session tab', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    act(() => endTurn(server));
+    clickNode('MAEL-40.1');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    const message = screen.getByRole('textbox', { name: 'Message to agent' });
+    await user.type(message, 'A draft.');
+    // Past the write delay, so the draft is in storage when the card mounts.
+    await new Promise((r) => setTimeout(r, 400));
+    clickNode('MAEL-40.1');
+    clickNode('MAEL-40.1');
+
+    // Both are mounted for one agent. On one key the card would open with
+    // the draft, and a send from it would leave the draft in the session tab.
+    const box = await within(expanded()).findByTestId('unanswered');
+    expect(within(box).getByRole('textbox', { name: 'Reply to agent' })).toHaveValue('');
+    expect(message).toHaveValue('A draft.');
+  });
+
+  it('shows the last message in the box until the transcript arrives', async () => {
+    const { server } = await renderApp({ transcripts: {} });
+    act(() => endTurn(server));
+    clickNode('MAEL-40.1');
+
+    const box = await within(expanded()).findByTestId('unanswered');
+    expect(within(box).getByTestId('recent-messages')).toHaveTextContent(
+      'Adding the HEAD staleness check',
+    );
+    expect(within(box).getByRole('textbox', { name: 'Reply to agent' })).toBeInTheDocument();
   });
 });
 

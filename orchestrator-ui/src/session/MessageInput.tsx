@@ -23,6 +23,7 @@ export function MessageInput({
   onSend,
   onRun,
   disabled,
+  inline,
 }: {
   project: string;
   /** Groups this agent's images in the task repo. */
@@ -37,12 +38,18 @@ export function MessageInput({
   /** Resolves once the host ran the command of a `!` line. */
   onRun: (command: string) => void | Promise<unknown>;
   disabled?: boolean;
+  /**
+   * Drawn inside a card, as a reply to what the agent last said, rather than
+   * as the foot of the session tab. It takes its own accessible name and
+   * holds its own text, so the two can be on the page at once.
+   */
+  inline?: boolean;
 }) {
   // The text and its attachments move together: an image's ref lives in the
   // text, so holding one without the other would restore a ref to an image the
   // strip no longer offers to remove.
   const [held, setHeld, release] = useRetained(
-    agentId ? retainedKey.message(agentId) : null,
+    agentId ? (inline ? retainedKey.reply(agentId) : retainedKey.message(agentId)) : null,
     EMPTY,
   );
   const { text, attached } = held;
@@ -87,7 +94,7 @@ export function MessageInput({
     release();
   };
   return (
-    <div className={styles.form}>
+    <div className={styles.form} data-inline={inline ? '' : undefined}>
       <AttachField
         className={styles.attach}
         project={project}
@@ -108,17 +115,19 @@ export function MessageInput({
         <TextArea
           grow
           className={styles.input}
-          aria-label="Message to agent"
+          aria-label={inline ? 'Reply to agent' : 'Message to agent'}
           placeholder={
             disabled
               ? 'The agent has exited.'
-              : enterSends
-                ? 'Say something to the agent, or !run a command… (Enter to send)'
-                : 'Say something to the agent, or !run a command…'
+              : inline
+                ? 'Reply to the agent…'
+                : enterSends
+                  ? 'Say something to the agent, or !run a command… (Enter to send)'
+                  : 'Say something to the agent, or !run a command…'
           }
           value={text}
           disabled={disabled}
-          rows={2}
+          rows={inline ? 1 : 2}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (enterSends && e.key === 'Enter' && !e.shiftKey) {

@@ -10,6 +10,12 @@
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
 }
+/* In a card the box around it is the card's, so the form brings none. */
+.form[data-inline] {
+  padding: 0;
+  border-top: none;
+  background: none;
+}
 /* The composer is a row, so the attach wrapper is the part that grows.
    `min-width: 0` defeats the automatic minimum: without it the textarea's
    intrinsic `cols` width becomes a floor and the row cannot shrink. */
