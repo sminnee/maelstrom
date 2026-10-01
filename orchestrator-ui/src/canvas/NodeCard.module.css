@@ -121,6 +121,9 @@
 .status[data-state='needs-attention'] .dot {
   background: var(--attention);
 }
+.status[data-state='unanswered'] .dot {
+  background: var(--unanswered);
+}
 .status[data-state='ready'] .dot {
   background: transparent;
   box-shadow: inset 0 0 0 2px var(--phase);
@@ -181,6 +184,9 @@
 }
 .status[data-state='needs-attention'] .stateText {
   color: var(--attention);
+}
+.status[data-state='unanswered'] .stateText {
+  color: var(--unanswered);
 }
 .reason {
   color: var(--fg-muted);

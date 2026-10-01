@@ -7,7 +7,8 @@ import { progressOf, zoneForState, type DriftKind, type NodeState } from './prog
 const AGENTS = {
   none: undefined,
   live: makeAgent({ state: 'processing' }),
-  idle: makeAgent({ state: 'idle' }),
+  // An idle agent on the matrix has ended a turn, so it has said something.
+  idle: makeAgent({ state: 'idle', lastMessage: 'Which default do you want?' }),
   finished: makeAgent({ state: 'exited', exitCode: 0 }),
   fault: makeAgent({ state: 'exited', exitCode: 1 }),
 } satisfies Record<string, Agent | undefined>;
@@ -48,8 +49,8 @@ const rows: Row[] = [
     status: 'todo',
     actionable: true,
     agent: 'idle',
-    state: 'idle',
-    words: 'Idle',
+    state: 'unanswered',
+    words: 'Unanswered',
     drift: 'orphan-session',
     fixStatus: 'in-progress',
   },
@@ -97,8 +98,8 @@ const rows: Row[] = [
     status: 'todo',
     actionable: false,
     agent: 'idle',
-    state: 'idle',
-    words: 'Idle',
+    state: 'unanswered',
+    words: 'Unanswered',
     drift: 'orphan-session',
     fixStatus: 'in-progress',
   },
@@ -156,8 +157,8 @@ const rows: Row[] = [
     status: 'in-progress',
     actionable: true,
     agent: 'idle',
-    state: 'idle',
-    words: 'Idle',
+    state: 'unanswered',
+    words: 'Unanswered',
     drift: null,
     fixStatus: null,
   },
@@ -203,8 +204,8 @@ const rows: Row[] = [
     status: 'blocked',
     actionable: false,
     agent: 'idle',
-    state: 'idle',
-    words: 'Idle',
+    state: 'unanswered',
+    words: 'Unanswered',
     drift: 'orphan-session',
     fixStatus: 'in-progress',
   },
@@ -345,8 +346,8 @@ const rows: Row[] = [
     status: 'template',
     actionable: false,
     agent: 'idle',
-    state: 'idle',
-    words: 'Idle',
+    state: 'unanswered',
+    words: 'Unanswered',
     drift: 'orphan-session',
     fixStatus: 'in-progress',
   },
@@ -406,11 +407,31 @@ describe('progressOf', () => {
   // The bug this collapse exists to fix: the two readings agreed only by
   // accident. Now "Needs you" appears exactly when the state does.
   it('reads an awaiting agent as idle when no attention item is open', () => {
-    const agent = makeAgent({ state: 'awaiting-question' });
+    const agent = makeAgent({ state: 'awaiting-question', lastMessage: 'Which default?' });
     expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
       state: 'idle',
       words: 'Idle',
     });
+  });
+
+  it('reads an idle agent that has said nothing as idle', () => {
+    const agent = makeAgent({ state: 'idle', lastMessage: '' });
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
+      state: 'idle',
+      words: 'Idle',
+    });
+  });
+
+  // A free agent has no task to finish, so its last message asks for nothing.
+  it('reads an idle free agent as idle, whatever it said', () => {
+    expect(progressOf(undefined, AGENTS.idle, [])).toMatchObject({ state: 'idle', words: 'Idle' });
+  });
+
+  it('lets an open attention item outrank an unanswered message', () => {
+    const progress = progressOf(makeTask({ status: 'in-progress' }), AGENTS.idle, [
+      makeAttention(),
+    ]);
+    expect(progress).toMatchObject({ state: 'needs-attention' });
   });
 
   it('ignores a cleared attention item', () => {

@@ -147,10 +147,13 @@ so a task's position in its life is readable from hue alone.
 
 ### Secondary
 
-The state channel. These four never decorate; each one means one thing.
+The state channel. These never decorate; each one means one thing.
 
 - **Alert Amber** (`--attention`): the only colour permitted to interrupt. A node that needs
   the operator, the attention chip, the count badge, comment highlights.
+- **Reply Yellow** (`--unanswered`): an idle agent that left a message on unfinished work. It
+  has less chroma than Alert Amber and never takes a ring, a glow or a wash, so it cannot
+  compete with an ask.
 - **Fault Rose** (`--danger`): an agent that exited or a failed command. Fault, not warning.
 - **Clear Green** (`--ok`): finished and correct. Deliberately quiet — done work should recede.
   A cancelled task never takes it: cancelled work is terminal but not a success, so it draws
@@ -560,6 +563,8 @@ told apart by where they run, so the worktree sits beside the id rather than onl
 - **Ready:** a hollow dot in the phase hue. Hollow means the work has not started and filled
   means it runs, so the shape tells ready from working even though both take the phase hue.
 - **Idle:** 0.8 opacity. **Queued:** dashed border, 0.65 opacity.
+- **Unanswered:** full opacity, with the border, the dot and the status words in Reply Yellow.
+  No ring and no glow. The words say `Unanswered`, so the state does not depend on colour alone.
 - **Stopped:** the surface drops to `--bg-sunken`, the phase bar drains to `--phase-dormant`, the
   dot goes hollow in `--tone-dormant` and the title steps to `--fg-muted`. It recedes by sinking
   rather than by fading, because a stopped session is resumable: fading it to done's 0.5 would

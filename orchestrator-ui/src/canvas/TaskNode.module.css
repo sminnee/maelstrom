@@ -41,6 +41,15 @@
 .node[data-state='idle'] {
   opacity: 0.8;
 }
+/* A border and nothing more: the glow and the ring belong to Alert Amber. See
+   DESIGN.md, the Single Interrupt Rule. */
+.node[data-state='unanswered'] {
+  border-color: var(--unanswered);
+  border-left-color: var(--phase);
+}
+.node[data-state='unanswered'] .status {
+  color: var(--unanswered);
+}
 /* Parked. Recedes by sinking, not fading — see DESIGN.md, "Stopped". */
 .node[data-state='stopped'] {
   opacity: 0.9;
@@ -110,6 +119,9 @@
 }
 .node[data-state='needs-attention'] .dot {
   background: var(--attention);
+}
+.node[data-state='unanswered'] .dot {
+  background: var(--unanswered);
 }
 /* Hollow means the work has not started; filled means it is running. Both take
    the phase hue, so shape alone carries the difference. */

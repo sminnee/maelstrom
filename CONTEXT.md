@@ -457,8 +457,17 @@ _Avoid_: Cancel, abort, kill
 **Silent agent**:
 A working agent that has said nothing for ten minutes. The node card colours the age of its last
 message, because past that point the age is the signal and the message is not. An idle agent is
-never silent in this sense — an idle agent has nothing to say, and its age is not alarming.
+never silent in this sense — its turn has ended, and its age is not alarming. An idle agent that
+left a message is an **Unanswered agent**.
 _Avoid_: Stale (a stale prompt is a different thing), stalled, hung
+
+**Unanswered agent**:
+An idle agent on a task that is not `done` or `cancelled`, where the agent has a last message.
+The agent ended its turn on unfinished work, so the message is usually for the user. The node
+draws in a yellow weaker than the amber of an **Attention item**, and the attention chip counts
+it apart. The UI derives this state; no attention item exists for it. A free agent, and an agent
+that has said nothing, stay idle.
+_Avoid_: Comment, Waiting, Blocked
 
 **Drift**:
 A task status that disagrees with the agent observed on the task. Three kinds, the same three
@@ -798,7 +807,7 @@ comments back to the agent.
 
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
-and cleared by the backend, never inferred by the UI.
+and cleared by the backend, never inferred by the UI. An **Unanswered agent** is not one.
 
 **Brief**:
 The free-text starting point for shaping.

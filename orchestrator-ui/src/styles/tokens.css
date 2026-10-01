@@ -31,6 +31,8 @@
   /* Primitives: hues on a dark ground. */
   --hue-accent: #7aa2f7;
   --hue-attention: #ff9f43;
+  /* Reply Yellow. Its own hue, not `--hue-land`, which is a phase. */
+  --hue-unanswered: #d9c36a;
   --hue-danger: #f7768e;
   --hue-ok: #9ece6a;
   --hue-shape: #b58cf6;
@@ -77,6 +79,7 @@
   /* Semantic: meaning. */
   --accent: var(--hue-accent);
   --attention: var(--hue-attention);
+  --unanswered: var(--hue-unanswered);
   --danger: var(--hue-danger);
   --ok: var(--hue-ok);
   --phase-shape: var(--hue-shape);
@@ -243,6 +246,7 @@
 
     --hue-accent: #3b6fd6;
     --hue-attention: #b65b0b;
+    --hue-unanswered: #7d6a0a;
     --hue-danger: #c8324f;
     --hue-ok: #46821d;
     --hue-shape: #7c4fd6;
