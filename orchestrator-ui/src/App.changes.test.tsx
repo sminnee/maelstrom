@@ -437,3 +437,255 @@ describe('the Changes tab', () => {
     expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
   });
 });
+
+describe('change comments', () => {
+  const AGENT = 'e5b1d8c3';
+  const region = (panel: HTMLElement, path = 'auth/tokens.py') =>
+    within(panel).getByRole('region', { name: path });
+  const line = (panel: HTMLElement, name: string, path?: string) =>
+    within(region(panel, path)).getByRole('button', { name });
+  const selected = (panel: HTMLElement, path?: string) =>
+    within(region(panel, path))
+      .getAllByTestId('diff-row')
+      .filter((row) => row.hasAttribute('data-selected'))
+      .map((row) => row.textContent);
+  const dock = () => screen.getByRole('region', { name: 'Change comments' });
+
+  /** Select `name`'s line and add a comment that says `body`. */
+  async function addComment(panel: HTMLElement, name: string, body: string) {
+    await userEvent.click(line(panel, name));
+    await userEvent.type(within(panel).getByRole('textbox'), body);
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+  }
+
+  it('opens a comment box below a line whose number is clicked', async () => {
+    const { panel } = await openChanges();
+    expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull();
+
+    await userEvent.click(line(panel, 'Line 5'));
+    expect(within(panel).getByRole('textbox', { name: 'Comment on line 5' })).toHaveFocus();
+    expect(selected(panel)).toEqual(['5+new tokens']);
+
+    // Cancel puts the box away, and the selection with it.
+    await userEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    expect(within(panel).queryByRole('textbox')).toBeNull();
+    expect(selected(panel)).toEqual([]);
+  });
+
+  it('selects a line from the keyboard, and Escape puts the box away', async () => {
+    const { panel } = await openChanges();
+    line(panel, 'Line 4').focus();
+    await userEvent.keyboard('{Enter}');
+    const box = within(panel).getByRole('textbox', { name: 'Comment on line 4' });
+    expect(box).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(within(panel).queryByRole('textbox')).toBeNull();
+    expect(selected(panel)).toEqual([]);
+  });
+
+  it('selects a range with a pointer drag down the numbers', async () => {
+    const { panel } = await openChanges();
+    const rows = within(region(panel)).getAllByTestId('diff-row');
+    await userEvent.pointer([
+      { keys: '[MouseLeft>]', target: line(panel, 'Line 4') },
+      { target: rows[1]! },
+      { target: rows[2]! },
+      { keys: '[/MouseLeft]' },
+    ]);
+    expect(selected(panel)).toEqual(['44 import os', '5-old tokens', '5+new tokens']);
+    expect(within(panel).getByRole('textbox', { name: 'Comment on lines 4-5' })).toBeVisible();
+  });
+
+  it('extends the selection with Shift and a click, and names an old line as one', async () => {
+    const { panel } = await openChanges();
+    await userEvent.click(line(panel, 'Old line 5'));
+    expect(within(panel).getByRole('textbox', { name: 'Comment on old line 5' })).toBeVisible();
+
+    const user = userEvent.setup();
+    await user.keyboard('{Shift>}');
+    await user.click(line(panel, 'Line 4'));
+    await user.keyboard('{/Shift}');
+    expect(selected(panel)).toEqual(['44 import os', '5-old tokens']);
+    expect(within(panel).getByRole('textbox', { name: 'Comment on line 4' })).toBeVisible();
+  });
+
+  it('keeps an added comment below its lines, and counts it in the dock', async () => {
+    const { panel } = await openChanges();
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    expect(within(panel).queryByRole('textbox')).toBeNull();
+    expect(within(region(panel)).getByText('rotate the old one too')).toBeVisible();
+    expect(dock()).toHaveTextContent('1 comment to Rotate auth tokens');
+
+    // Edit opens the box on the same lines, with the text.
+    await userEvent.click(within(region(panel)).getByRole('button', { name: 'Edit' }));
+    const box = within(panel).getByRole('textbox', { name: 'Comment on line 5' });
+    expect(box).toHaveValue('rotate the old one too');
+    await userEvent.type(box, ', please');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+    expect(within(region(panel)).getByText('rotate the old one too, please')).toBeVisible();
+    expect(dock()).toHaveTextContent('1 comment');
+
+    await userEvent.click(within(region(panel)).getByRole('button', { name: 'Delete' }));
+    expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull();
+  });
+
+  it('holds the comments and the open box through a tab close, and counts those out of view', async () => {
+    // The commit changes the same file and the same lines as the uncommitted work.
+    const { panel } = await openChanges((c) => {
+      c.diffs[SHA] = [file('auth/tokens.py', 'tokens')];
+    });
+    await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')).toHaveLength(3));
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    await userEvent.click(line(panel, 'Line 4'));
+    await userEvent.type(within(panel).getByRole('textbox'), 'half a thought');
+    // A second try at the range keeps what was typed.
+    await userEvent.click(line(panel, 'Old line 5'));
+    expect(within(panel).getByRole('textbox')).toHaveValue('half a thought');
+    await userEvent.click(line(panel, 'Line 4'));
+
+    // The node stays expanded behind the panel, so its link opens the tab again.
+    await userEvent.click(screen.getByRole('button', { name: /^Close northwind delta/ }));
+    expect(screen.queryByTestId('changes-tab')).toBeNull();
+    await userEvent.click(within(expanded()).getByRole('link', { name: 'Changes' }));
+    const again = screen.getByTestId('panel');
+    await waitFor(() => expect(rowTexts(again, 'auth/tokens.py')).toHaveLength(3));
+    expect(within(region(again)).getByText('rotate the old one too')).toBeVisible();
+    expect(within(again).getByRole('textbox', { name: 'Comment on line 4' })).toHaveValue(
+      'half a thought',
+    );
+
+    // Another rev draws neither, on the same lines of the same file. The dock
+    // still counts the comment.
+    await pick(/rotate on expiry/);
+    await waitFor(() => expect(current()).toBe('c0ffee1 feat: rotate on expiry'));
+    await waitFor(() => expect(rowTexts(again, 'auth/tokens.py')).toHaveLength(3));
+    expect(within(again).queryByText('rotate the old one too')).toBeNull();
+    expect(within(again).queryByRole('textbox')).toBeNull();
+    expect(dock()).toHaveTextContent('1 comment');
+  });
+
+  it('does not draw a comment on lines that no longer read as they did', async () => {
+    const { server, panel } = await openChanges();
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    // The agent edits the line. Its number stays, and its text does not.
+    act(() => {
+      server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
+        w.changes[DELTA]!.diffs.uncommitted = [file('auth/tokens.py', 'again')];
+      });
+    });
+    await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')[2]).toContain('new again'));
+    expect(within(panel).queryByText('rotate the old one too')).toBeNull();
+    expect(dock()).toHaveTextContent('1 comment');
+  });
+
+  it('posts every comment in one request, and clears the set', async () => {
+    const { server, panel } = await openChanges();
+    await userEvent.pointer([
+      { keys: '[MouseLeft>]', target: line(panel, 'Line 4') },
+      { target: within(region(panel)).getAllByTestId('diff-row')[2]! },
+      { keys: '[/MouseLeft]' },
+    ]);
+    await userEvent.type(within(panel).getByRole('textbox'), 'why both?');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+    await pick(/rotate on expiry/);
+    await waitFor(() => expect(rowTexts(panel, 'auth/expiry.py')).toHaveLength(3));
+    await userEvent.click(line(panel, 'Old line 5', 'auth/expiry.py'));
+    await userEvent.type(within(panel).getByRole('textbox'), 'keep this');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+    expect(dock()).toHaveTextContent('2 comments');
+    // A box still open is not part of the post, and the post does not take it.
+    await userEvent.click(line(panel, 'Line 4', 'auth/expiry.py'));
+    await userEvent.type(within(panel).getByRole('textbox'), 'not yet');
+    expect(
+      within(region(panel, 'auth/expiry.py')).getByRole('button', { name: 'Edit' }),
+    ).toBeDisabled();
+
+    await userEvent.click(within(dock()).getByRole('button', { name: 'Post comments' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull(),
+    );
+
+    const sent = server.requests.find((r) => r.path === `/api/worktrees/${DELTA}/comments`);
+    expect(sent?.method).toBe('POST');
+    expect(sent?.body).toEqual({
+      comments: [
+        {
+          id: expect.any(String),
+          rev: 'uncommitted',
+          path: 'auth/tokens.py',
+          side: 'new',
+          startLine: 4,
+          endLine: 5,
+          lines: [' import os', '-old tokens', '+new tokens'],
+          body: 'why both?',
+        },
+        {
+          id: expect.any(String),
+          rev: SHA,
+          path: 'auth/expiry.py',
+          side: 'old',
+          startLine: 5,
+          endLine: 5,
+          lines: ['-old expiry'],
+          body: 'keep this',
+        },
+      ],
+    });
+    expect(within(panel).queryByText('keep this')).toBeNull();
+    expect(within(panel).getByRole('textbox')).toHaveValue('not yet');
+  });
+
+  it('cannot post, and says why, when no agent runs in the worktree', async () => {
+    const { server, panel } = await openChanges();
+    act(() => {
+      server.change({ kind: 'agent', ids: [AGENT] }, (w) => {
+        w.agents[AGENT] = { ...w.agents[AGENT]!, state: 'exited' };
+      });
+    });
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    await waitFor(() =>
+      expect(dock()).toHaveTextContent('1 comment. No agent is running in this worktree.'),
+    );
+    expect(within(dock()).getByRole('button', { name: 'Post comments' })).toBeDisabled();
+
+    // Clear is the other way out.
+    await userEvent.click(within(dock()).getByRole('button', { name: 'Clear' }));
+    expect(within(panel).queryByText('rotate the old one too')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull();
+  });
+
+  it('clears the set and names the agent a post did not reach', async () => {
+    const { server, panel } = await openChanges();
+    act(() => {
+      server.change({ kind: 'agent', ids: ['free1'] }, (w) => {
+        w.agents.free1 = { ...w.agents[AGENT]!, id: 'free1', taskId: '' };
+      });
+    });
+    server.hostRefuses.free1 = 'agent free1 has exited';
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    await waitFor(() => expect(dock()).toHaveTextContent('1 comment to Rotate auth tokens, free1'));
+
+    await userEvent.click(within(dock()).getByRole('button', { name: 'Post comments' }));
+    const notice = await within(panel).findByRole('status');
+    expect(notice).toHaveTextContent('Posted, but not to free1 (agent free1 has exited).');
+    expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull();
+
+    await userEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+    expect(within(panel).queryByRole('status')).toBeNull();
+  });
+
+  it('keeps the comments when the post is refused', async () => {
+    const { server, panel } = await openChanges();
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    server.refuse(/POST \/api\/worktrees\/[^/]+\/comments/, {
+      status: 409,
+      code: 'agent_exited',
+      message: 'Agent e5b1d8c3 has exited',
+    });
+    await userEvent.click(within(dock()).getByRole('button', { name: 'Post comments' }));
+    expect(await within(dock()).findByRole('alert')).toHaveTextContent(/exited/);
+    expect(within(region(panel)).getByText('rotate the old one too')).toBeVisible();
+    expect(dock()).toHaveTextContent('1 comment');
+  });
+});
