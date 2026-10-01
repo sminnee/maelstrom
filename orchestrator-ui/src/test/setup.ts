@@ -55,10 +55,10 @@ if (!('getBBox' in SVGElement.prototype)) {
   });
 }
 
-// jsdom has no matchMedia. The app reads two queries through it: the layout
-// mode, and `prefers-reduced-motion` in the node card. The stub answers both
+// jsdom has no matchMedia. The app reads the two layout queries through it,
+// and `prefers-reduced-motion` in the node card. The stub answers all three
 // from one settable width.
-const DEFAULT_VIEWPORT = 1440;
+const DEFAULT_VIEWPORT = 1920;
 let viewportWidth: number = DEFAULT_VIEWPORT;
 
 /**

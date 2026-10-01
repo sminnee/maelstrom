@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
+import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { QueryClient } from '@tanstack/react-query';
 import { App } from '../App';
@@ -8,8 +8,8 @@ import { createFakeServer, type FakeServer } from './fakeServer';
 import { seedWorld } from './seedWorld';
 import { setViewportWidth } from './setup';
 
-/** The two viewports the app draws for. `narrow` is a phone; `wide` is the main monitor. */
-export const VIEWPORTS = { narrow: 390, wide: 1440 } as const;
+/** The three viewports the app draws for: a phone, a laptop and the main monitor. */
+export const VIEWPORTS = { narrow: 390, medium: 1440, wide: 1920 } as const;
 
 /** The seven list queries the world is read from. */
 const LIST_KEYS = [
@@ -34,7 +34,8 @@ const LIST_KEYS = [
  * mounts it, so the test sees the remount.
  *
  * With `viewport: 'narrow'` the app draws the narrow layout: the deck list in
- * place of the canvas, and no panel. It defaults to `wide`.
+ * place of the canvas, and no panel. `'medium'` draws the medium layout. It
+ * defaults to `wide`.
  */
 export async function renderApp(
   opts: { ready?: boolean; strict?: boolean; viewport?: keyof typeof VIEWPORTS } = {},
@@ -74,6 +75,11 @@ export async function renderApp(
     }
   });
   return { server, queryClient, ...utils };
+}
+
+/** Resize the window of a mounted app, as a drag of its edge does. */
+export function resizeTo(viewport: keyof typeof VIEWPORTS) {
+  act(() => setViewportWidth(VIEWPORTS[viewport]));
 }
 
 /**
