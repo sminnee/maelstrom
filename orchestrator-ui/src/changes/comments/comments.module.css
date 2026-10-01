@@ -1,0 +1,75 @@
+/* A comment below its lines. The block scrolls sideways, so the box holds to
+   the block's left edge and takes the block's width, not the longest line's. */
+.box {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100cqi;
+  padding: var(--space-2) var(--space-3);
+  border-block: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-family: var(--font);
+  white-space: normal;
+}
+.box textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--measure-prose);
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-field);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+}
+.body {
+  margin: 0;
+  max-width: var(--measure-prose);
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* The dock: the Review Dock's chassis, settled, because nothing waits on the user. */
+.dock {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding: var(--space-2) var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+}
+.summary {
+  flex: 1 1 12ch;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+@media (max-width: 839px) {
+  .dock button,
+  .box button {
+    min-height: var(--touch);
+  }
+  .box textarea {
+    font-size: 16px;
+  }
+}

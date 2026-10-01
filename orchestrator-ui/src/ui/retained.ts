@@ -29,6 +29,8 @@ export const retainedKey = {
    * their own state, so a send from one would leave its text in the other.
    */
   reply: (agentId: string) => `${PREFIX}.reply.${agentId}`,
+  /** One set of change comments per worktree: one post carries every rev's comments. */
+  changeComments: (worktreeId: string) => `${PREFIX}.change-comments.${worktreeId}`,
 };
 
 /** Whether a stored key belongs to a version other than the current one. */

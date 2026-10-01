@@ -1,16 +1,48 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useId, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { ApiError } from '../api/http';
 import { keys } from '../api/keys';
 import { useWorld } from '../api/useWorld';
-import { useWorktreeChanges, useWorktreeDiff } from '../api/worktreeChanges';
+import {
+  type PostedComments,
+  usePostChangeComments,
+  useWorktreeChanges,
+  useWorktreeDiff,
+} from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
 import type { BranchCommit, FileDiff, WorktreeChanges } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { clockTime } from '../protocol/time';
 import { AppButton } from '../ui/AppButton';
-import { DiffBlock, HighlightedRows } from '../ui/DiffRow';
+import { trackedAgents } from '../selectors/worktrees';
+import { DiffBlock, type DiffRowData, HighlightedRows } from '../ui/DiffRow';
+import { retainedKey } from '../ui/retained';
+import { useRetained } from '../ui/useRetained';
 import { useNow } from '../ui/useNow';
+import { ChangeCommentBox } from './comments/ChangeCommentBox';
+import { CommentDock } from './comments/CommentDock';
+import {
+  cancelled,
+  editing,
+  editWouldDiscard,
+  NO_COMMENTS,
+  openOn,
+  withBody,
+  withOpenAdded,
+  without,
+} from './comments/held';
+import { fileRows, type HeldComments, placeOf, spanLabel, spanOf } from './comments/selection';
+import { useLineSelection } from './comments/useLineSelection';
+import commentStyles from './comments/comments.module.css';
 import { STATUS_LETTER } from './fileStatus';
 import { FileTree } from './FileTree';
 import styles from './ChangesTab.module.css';
@@ -35,6 +67,8 @@ function revToShow(changes: WorktreeChanges, picked: string | null): string {
  * A worktree's changes: its dirty files, each commit its branch has over its
  * base, and the branch as one diff. The strip chooses which; the file list
  * and the file tree jump to a file; every file follows as one continuous list.
+ * The user comments on lines of any rev, and one post sends every comment to
+ * the agents in the worktree.
  */
 export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const { world } = useWorld();
@@ -55,6 +89,22 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   };
   const scrollToFile = (path: string) =>
     blocks.current.get(path)?.scrollIntoView({ block: 'start' });
+  const [held, setHeld, clear] = useRetained(retainedKey.changeComments(worktreeId), NO_COMMENTS);
+  const post = usePostChangeComments();
+  // The agents a post did not reach. The comments are gone by then, so the dock is too.
+  const [missed, setMissed] = useState<PostedComments['refused']>([]);
+  // The user knows the task, not the agent id. A free agent has only its id.
+  const nameOf = (agentId: string) =>
+    world.tasks[world.agents[agentId]?.taskId ?? '']?.title || agentId;
+  const recipients = trackedAgents(world, worktreeId).map((agent) => nameOf(agent.id));
+  const postComments = async () => {
+    const sent = held.comments;
+    const posted = await post.mutateAsync({ worktreeId, comments: sent });
+    // Only what was sent goes. The user can write while the post runs.
+    const ids = sent.map((c) => c.id);
+    setHeld((h) => without(h, ids));
+    setMissed(posted.refused);
+  };
 
   if (!changes.data) {
     const gone = changes.error instanceof ApiError && changes.error.code === 'unknown_id';
@@ -135,6 +185,9 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
           <Files
             // A new rev opens at the top, not at the last rev's scroll position.
             key={rev}
+            rev={diff.data.rev}
+            held={held}
+            setHeld={setHeld}
             files={diff.data.files}
             empty={emptyText(rev, base)}
             commit={commits[at]}
@@ -154,6 +207,25 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
           </div>
         )}
       </div>
+      {held.comments.length > 0 && (
+        <CommentDock
+          count={held.comments.length}
+          recipients={recipients}
+          onPost={postComments}
+          onClear={clear}
+        />
+      )}
+      {missed.length > 0 && held.comments.length === 0 && (
+        <div className={commentStyles.notice} role="status">
+          <span>
+            Posted, but not to {missed.map((m) => `${nameOf(m.agentId)} (${m.message})`).join(', ')}
+            .
+          </span>
+          <AppButton variant="quiet" onClick={() => setMissed([])}>
+            Dismiss
+          </AppButton>
+        </div>
+      )}
     </div>
   );
 }
@@ -241,6 +313,9 @@ function emptyText(rev: string | null, base: string): string {
  * element holds only inside its parent.
  */
 function Files({
+  rev,
+  held,
+  setHeld,
   files,
   empty,
   commit,
@@ -254,6 +329,9 @@ function Files({
   listOpen,
   onListOpen,
 }: {
+  rev: string;
+  held: HeldComments;
+  setHeld: Dispatch<SetStateAction<HeldComments>>;
   files: FileDiff[];
   empty: string;
   commit: BranchCommit | undefined;
@@ -272,8 +350,23 @@ function Files({
   const listId = useId();
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
+  const rows = useMemo(() => new Map(files.map((f) => [f.path, fileRows(f)])), [files]);
+  const select = useCallback(
+    (path: string, from: number, to: number) => {
+      const span = spanOf(rows.get(path) ?? [], from, to);
+      if (!span) return;
+      setHeld((h) => openOn(h, rev, path, span));
+    },
+    [rows, rev, setHeld],
+  );
+  const cancel = useCallback(() => setHeld(cancelled), [setHeld]);
+  const selection = useLineSelection(select, cancel);
   return (
-    <div className={styles.scroll} data-commit={commit !== undefined}>
+    <div
+      className={styles.scroll}
+      data-commit={commit !== undefined}
+      data-selecting={selection.dragging || undefined}
+    >
       {commit && (
         <>
           <div className={styles.titleLine}>
@@ -335,7 +428,15 @@ function Files({
           className={styles.file}
           ref={(el) => holdFile(f.path, el)}
         >
-          <FileBlock file={f} />
+          <FileBlock
+            file={f}
+            rows={rows.get(f.path) ?? []}
+            rev={rev}
+            held={held}
+            setHeld={setHeld}
+            dragged={selection.dragged(f.path)}
+            handlers={selection.handlers}
+          />
         </section>
       ))}
     </div>
@@ -350,7 +451,71 @@ function Counts({ add, remove }: { add: number; remove: number }) {
   );
 }
 
-function FileBlock({ file }: { file: FileDiff }) {
+function FileBlock({
+  file,
+  rows,
+  rev,
+  held,
+  setHeld,
+  dragged,
+  handlers,
+}: {
+  file: FileDiff;
+  /** Every row of the file, across its hunks. A selection counts rows in this list. */
+  rows: DiffRowData[];
+  rev: string;
+  held: HeldComments;
+  setHeld: Dispatch<SetStateAction<HeldComments>>;
+  /** The rows the drag in progress covers, when it is in this file. */
+  dragged: [number, number] | null;
+  handlers: ReturnType<typeof useLineSelection>['handlers'];
+}) {
+  // A comment draws below its last row. One whose lines are not in this diff
+  // has no place, and stays in the dock's count only.
+  const here = <T extends { rev: string; path: string }>(c: T | null): c is T =>
+    c !== null && c.rev === rev && c.path === file.path;
+  const open = here(held.open) ? held.open : null;
+  const openAt = open && placeOf(rows, open);
+  const added = held.comments
+    .filter((c) => here(c) && c.id !== held.open?.id)
+    .flatMap((c) => {
+      const at = placeOf(rows, c);
+      return at ? [{ comment: c, last: at[1] }] : [];
+    });
+  const lit = dragged ?? openAt;
+  const gutter = (i: number) => ({
+    selected: lit !== null && i >= lit[0] && i <= lit[1],
+    handlers: handlers(file.path, i),
+  });
+  const after = (i: number) => (
+    <>
+      {added
+        .filter((a) => a.last === i)
+        .map(({ comment }) => (
+          <ChangeCommentBox
+            key={comment.id}
+            label={spanLabel(comment)}
+            body={comment.body}
+            editDisabled={editWouldDiscard(held, comment.id)}
+            onEdit={() => setHeld((h) => editing(h, comment))}
+            onDelete={() => setHeld((h) => without(h, [comment.id]))}
+          />
+        ))}
+      {open && openAt?.[1] === i && (
+        <ChangeCommentBox
+          label={spanLabel(open)}
+          body={open.body}
+          onBody={(body) => setHeld((h) => withBody(h, body))}
+          onAdd={() => setHeld(withOpenAdded)}
+          onCancel={() => setHeld(cancelled)}
+        />
+      )}
+    </>
+  );
+  // Where each hunk's rows begin in `rows`.
+  const starts = file.hunks.map((_, h) =>
+    file.hunks.slice(0, h).reduce((n, hunk) => n + hunk.lines.length, 0),
+  );
   return (
     <>
       <h3 className={styles.fileHead}>
@@ -365,20 +530,23 @@ function FileBlock({ file }: { file: FileDiff }) {
       {file.binary ? (
         <p className={styles.note}>Binary file, not shown.</p>
       ) : (
-        <DiffBlock>
-          {file.hunks.map((hunk, h) => (
-            <div key={h}>
-              <div className={styles.hunk}>{hunk.header}</div>
-              <HighlightedRows
-                path={file.path}
-                rows={hunk.lines.map((line) => ({
-                  kind: line.kind,
-                  text: line.text,
-                  lineNumbers: { old: line.oldLine, new: line.newLine },
-                }))}
-              />
-            </div>
-          ))}
+        <DiffBlock className={styles.diff}>
+          <div className={styles.rows}>
+            {file.hunks.map((hunk, h) => {
+              const first = starts[h]!;
+              return (
+                <div key={h}>
+                  <div className={styles.hunk}>{hunk.header}</div>
+                  <HighlightedRows
+                    path={file.path}
+                    rows={rows.slice(first, first + hunk.lines.length)}
+                    gutter={(i) => gutter(first + i)}
+                    after={(i) => after(first + i)}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </DiffBlock>
       )}
       {file.truncated && (

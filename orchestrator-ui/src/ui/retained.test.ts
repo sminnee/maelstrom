@@ -14,6 +14,13 @@ describe('the held-text keys', () => {
     expect(retainedKey.message('a')).not.toBe(retainedKey.message('b'));
   });
 
+  it('keys the change comments per worktree', () => {
+    expect(retainedKey.changeComments('northwind-delta')).toBe(
+      'mael.retained.v2.change-comments.northwind-delta',
+    );
+    expect(retainedKey.changeComments('a')).not.toBe(retainedKey.changeComments('b'));
+  });
+
   it('reads a key of another version as stale, and a current one as live', () => {
     // What the lazy sweep rests on: bumping the version must make every older
     // key collectable without a migration, and must spare the live ones.

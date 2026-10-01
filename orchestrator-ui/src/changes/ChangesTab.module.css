@@ -295,6 +295,18 @@
   white-space: pre;
   min-width: max-content;
 }
+/* A size container, so a comment box takes the block's width, not the longest line's. */
+.diff {
+  container-type: inline-size;
+}
+.rows {
+  width: max-content;
+  min-width: 100%;
+}
+/* A drag down the numbers must not select the text it crosses. */
+.scroll[data-selecting] {
+  user-select: none;
+}
 .note {
   margin: 0;
   padding: var(--space-2) var(--space-3);
