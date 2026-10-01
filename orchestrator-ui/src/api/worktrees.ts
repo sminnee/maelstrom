@@ -64,6 +64,27 @@ export function useForceCloseWorktree() {
 }
 
 /**
+ * Trash a worktree. It tears down what a close does, so it clears the same
+ * queries.
+ */
+export function useTrashWorktree() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/trash`, undefined, {
+        timeoutMs: SLOW_CALL_TIMEOUT_MS,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
+      void queryClient.invalidateQueries({ queryKey: keys.attention() });
+      void queryClient.invalidateQueries({ queryKey: keys.desk() });
+    },
+  });
+}
+
+/**
  * Remove a worktree: the folder and the record both go. It stops whatever is
  * still there first, so it clears what a close clears.
  */

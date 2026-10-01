@@ -1,6 +1,6 @@
 import { useResume, useStop } from '../api/agents';
 import { useTakeOffDesk } from '../api/desk';
-import { useCloseWorktree } from '../api/worktrees';
+import { useCloseWorktree, useTrashWorktree } from '../api/worktrees';
 import { useWorld } from '../api/useWorld';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Agent, Worktree } from '../protocol/entities';
@@ -38,6 +38,7 @@ export function AgentControls({
   const resume = useResume();
   const offDesk = useTakeOffDesk();
   const closeWorktree = useCloseWorktree();
+  const trashWorktree = useTrashWorktree();
   const task = taskId || agent?.taskId;
   const endOfWork = endOfWorkOptions({
     live: isLive(agent),
@@ -53,6 +54,7 @@ export function AgentControls({
       onTakenOffDesk();
     },
     close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
+    trash: () => trashWorktree.mutateAsync({ worktreeId: where!.id }),
   });
   return (
     <>
@@ -72,8 +74,8 @@ export function AgentControls({
 
 /**
  * The end-of-work control's options, the usual one first: Terminate while the
- * agent is live, Off desk once it is not. A close runs first in its chain and
- * sends no stop — see `docs/dev/orchestrator-ui.md`.
+ * agent is live, Off desk once it is not. A close or a trash runs first in its
+ * chain and sends no stop — see `docs/dev/orchestrator-ui.md`.
  */
 function endOfWorkOptions({
   live,
@@ -82,6 +84,7 @@ function endOfWorkOptions({
   stop,
   takeOffDesk,
   close,
+  trash,
 }: {
   live: boolean;
   where: Worktree | undefined;
@@ -90,6 +93,7 @@ function endOfWorkOptions({
   stop: () => Promise<unknown>;
   takeOffDesk: () => Promise<unknown>;
   close: () => Promise<unknown>;
+  trash: () => Promise<unknown>;
 }): SplitOption[] {
   const options: SplitOption[] = live
     ? [
@@ -106,20 +110,39 @@ function endOfWorkOptions({
       ]
     : [{ label: 'Off desk', icon: <OffDeskIcon />, run: takeOffDesk }];
   if (where && canClose(where)) {
-    options.push({
-      label: `${live ? 'Terminate, take off desk' : 'Take off desk'} & close ${where.nato}`,
+    const lead = live ? 'Terminate, take off desk' : 'Take off desk';
+    const held = {
       icon: <OffDeskIcon />,
-      processing: 'Closing…',
       disabled: others > 0,
       detail:
         others > 0
           ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
           : undefined,
-      run: async () => {
-        await close();
-        await takeOffDesk();
+    };
+    options.push(
+      {
+        label: `${lead} & close ${where.nato}`,
+        processing: 'Closing…',
+        ...held,
+        run: async () => {
+          await close();
+          await takeOffDesk();
+        },
       },
-    });
+      {
+        label: `${lead} & trash ${where.nato}`,
+        processing: 'Trashing…',
+        ...held,
+        confirm: {
+          question: `Trash ${where.branch}? Its PR closes and the branch moves to trash/.`,
+          confirm: 'Trash it',
+        },
+        run: async () => {
+          await trash();
+          await takeOffDesk();
+        },
+      },
+    );
   }
   return options;
 }
