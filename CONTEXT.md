@@ -823,7 +823,14 @@ _Avoid_: File table, allow-list, handle
 
 **Comment**:
 Feedback anchored to a span of one document version. Requesting changes sends the unresolved
-comments back to the agent.
+comments back to the agent. For feedback on a diff, see **Change comment**.
+
+**Change comment**:
+Feedback on a range of lines in the **Changes tab**. A change comment names its rev, its file and
+its lines, and it quotes the lines as the user saw them. The comments of one worktree are **Held
+text** until the user posts them. One post sends them all, as one message, to every top-level
+agent in the worktree that has not exited.
+_Avoid_: Review comment, line note, inline comment, feedback (alone)
 
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
@@ -982,6 +989,7 @@ their project.
 **Changes tab**:
 A panel tab that shows one worktree's changes: its **Dirty files**, each commit its branch has
 over its **Base**, or the whole branch as one diff. The expanded node's `Changes` link opens it.
+The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 
 **Panel link**:

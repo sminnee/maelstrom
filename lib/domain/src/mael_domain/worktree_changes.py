@@ -12,6 +12,7 @@ from pathlib import Path
 from .base_store import GitConfigBaseStore
 from .protocol import (
     BranchCommit,
+    ChangeComment,
     ChangedFile,
     DiffHunk,
     DiffLine,
@@ -316,3 +317,32 @@ def _read_header_line(file: FileDiff, line: str) -> None:
     elif line.startswith("+++ b/"):
         # git ends the line with a tab when the path holds a space.
         file["path"] = line.removeprefix("+++ b/").removesuffix("\t")
+
+
+def format_change_comments(branch: str, comments: list[ChangeComment]) -> str:
+    """The one message that carries ``comments`` to the agents of a worktree.
+
+    Each comment quotes the rows the user selected, so it stays readable when
+    the lines have moved since.
+    """
+    blocks = [f"Comments on the changes in {branch}, from the orchestrator UI:"]
+    for comment in comments:
+        start, end = comment["startLine"], comment["endLine"]
+        span = f"line {start}" if start == end else f"lines {start}-{end}"
+        if comment["side"] == "old":
+            span = f"old {span}"
+        quoted = [f"> {line}" for line in comment["lines"]]
+        blocks.append(
+            "\n".join(
+                [
+                    f"{comment['path']} {span} ({_rev_label(comment['rev'])}):",
+                    *quoted,
+                    comment["body"].strip(),
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def _rev_label(rev: str) -> str:
+    return rev if rev in (UNCOMMITTED, BRANCH) else f"commit {rev[:7]}"

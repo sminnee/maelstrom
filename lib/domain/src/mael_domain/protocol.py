@@ -152,6 +152,23 @@ class FileDiff(TypedDict):
     hunks: list[DiffHunk]
 
 
+class ChangeComment(TypedDict):
+    """One comment of ``POST /api/worktrees/{id}/comments``. See CONTEXT.md."""
+
+    #: Made by the client, which keys its own list on it.
+    id: str
+    #: ``uncommitted``, ``branch`` or a commit sha, as the diff route names it.
+    rev: str
+    path: str
+    #: ``old`` only when no selected row has a new line number.
+    side: Literal["new", "old"]
+    startLine: int
+    endLine: int
+    #: The selected rows, each with its sign, as the user saw them.
+    lines: list[str]
+    body: str
+
+
 class TaskLogEntry(TypedDict):
     ts: str
     text: str

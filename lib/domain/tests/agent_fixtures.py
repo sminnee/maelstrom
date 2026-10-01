@@ -61,6 +61,21 @@ def make_agent(**over) -> dict:
     return agent
 
 
+def make_change_comment(**over) -> dict:
+    """One change comment, on one added line of the uncommitted changes."""
+    return {
+        "id": "c1",
+        "rev": "uncommitted",
+        "path": "src/read.py",
+        "side": "new",
+        "startLine": 13,
+        "endLine": 13,
+        "lines": ["+    return f.read()"],
+        "body": "close the file on error too",
+        **over,
+    }
+
+
 def make_document(**over) -> dict:
     doc = {
         "id": "doc-1",
