@@ -67,6 +67,16 @@ def row_id(project: str, id: str) -> str:
     return f"{project}/{id}"
 
 
+def split_row_id(key: str) -> tuple[str, str]:
+    """The project and the task id a row key holds. The reverse of :func:`row_id`.
+
+    Split at the first ``/``: a project is one path segment, and a task id may
+    hold more.
+    """
+    project, _, id = key.partition("/")
+    return project, id
+
+
 @dataclass(frozen=True)
 class TaskChanges:
     """What moved since some revision, and the revision to ask from next.

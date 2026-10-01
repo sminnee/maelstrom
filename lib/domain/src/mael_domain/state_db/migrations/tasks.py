@@ -60,8 +60,8 @@ _COLUMNS = (
     "priority TEXT NOT NULL DEFAULT ''",
     "model TEXT NOT NULL DEFAULT ''",
     "base TEXT NOT NULL DEFAULT ''",
-    # The deterministic uuid5 link a session is found by; see
-    # :func:`mael_domain.task.session_id_for`.
+    # The uuid5 a session was once found by, derived from the project and the
+    # task id. Dropped by a later rung: the Agent record is the link now.
     "session_id TEXT NOT NULL DEFAULT ''",
     # The prose. What makes the row whole, and the rollback total.
     "content TEXT NOT NULL DEFAULT ''",
@@ -103,6 +103,16 @@ TASKS: tuple[Rung, ...] = (
             "CASE WHEN content = '' THEN '' ELSE content || char(10, 10) END "
             "|| '## Steps' || char(10, 10) || steps WHERE steps != ''",
             "ALTER TABLE tasks DROP COLUMN steps",
+        )
+    ),
+    # Drops ``session_id``, which rung 1 still declares and rung 2 still fills.
+    # The agents ladder reads it first: see
+    # :data:`~mael_domain.state_db.migrate.LADDERS`. The index goes first,
+    # because SQLite refuses to drop an indexed column.
+    Migration(
+        (
+            "DROP INDEX tasks_session_id",
+            "ALTER TABLE tasks DROP COLUMN session_id",
         )
     ),
 )

@@ -200,7 +200,8 @@ class TestTheTasksLadderUpgrade:
             await db.write_all([Write("agents", "a1", {"body": '{"id": "a1"}'})])
             assert not await db.has_table("agent_milestones")
 
-            db.ladders["agents"] = full
+            # The milestone rung alone: a later rung rewrites the record.
+            db.ladders["agents"] = full[:2]
             await db.migrate()
 
             assert await db.has_table("agent_milestones")

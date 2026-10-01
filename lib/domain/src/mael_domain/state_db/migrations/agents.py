@@ -1,6 +1,62 @@
 """The canonical Agents Maelstrom has started, and what each one spent."""
 
-from ..types import Migration, Rung
+import json
+import sqlite3
+
+from ..types import Migration, PythonMigration, Rung
+
+
+def _link_records_to_tasks(conn: sqlite3.Connection) -> None:
+    """Give each Agent record the task row id and the session id, as columns.
+
+    The released record held ``task_session_id`` and, from the router alone, a
+    bare ``task_id``. Neither names the project. ``tasks.session_id`` does: it
+    is the same derived id, on a row whose id is ``<project>/<task_id>``. So the
+    join gives the row id, for an adopted record too.
+
+    The body is rewritten as well as the columns, because a record is read
+    whole from its body and the two must agree.
+
+    This rung must run before the tasks ladder drops ``tasks.session_id`` — see
+    :data:`~mael_domain.state_db.migrate.LADDERS`. A database with no such
+    column has no released records to link, and the join is skipped.
+    """
+    conn.execute("ALTER TABLE agents ADD COLUMN task TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE agents ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX agents_task ON agents (task)")
+    conn.execute("CREATE INDEX agents_session_id ON agents (session_id)")
+    task_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM pragma_table_info('tasks')"
+        ).fetchall()
+    }
+    by_session: dict[str, str] = {}
+    if "session_id" in task_columns:
+        by_session = {
+            row[1]: row[0]
+            for row in conn.execute(
+                "SELECT id, session_id FROM tasks WHERE session_id != ''"
+            ).fetchall()
+        }
+    for agent_id, body in conn.execute("SELECT id, body FROM agents").fetchall():
+        try:
+            agent = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(agent, dict):
+            continue
+        session_id = str(agent.pop("task_session_id", "") or "")
+        agent.pop("task_id", None)
+        agent["session_id"] = session_id
+        agent["task"] = by_session.get(session_id, "")
+        # `revision` is left alone, as every migration leaves it: the record
+        # did not move, only its shape.
+        conn.execute(
+            "UPDATE agents SET body = ?, task = ?, session_id = ? WHERE id = ?",
+            (json.dumps(agent, sort_keys=True), agent["task"], session_id, agent_id),
+        )
+
 
 AGENTS: tuple[Rung, ...] = (
     Migration(
@@ -44,5 +100,11 @@ AGENTS: tuple[Rung, ...] = (
             "CREATE INDEX agent_milestones_revision ON agent_milestones (revision)",
             "CREATE INDEX agent_milestones_agent ON agent_milestones (agent_id)",
         )
+    ),
+    # The Agent record is the link between a task and its sessions, so both
+    # ends are columns a query can use.
+    PythonMigration(
+        run=_link_records_to_tasks,
+        description="link each Agent record to its task and its session",
     ),
 )

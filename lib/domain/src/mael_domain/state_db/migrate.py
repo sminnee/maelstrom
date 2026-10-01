@@ -18,11 +18,15 @@ from .types import Rung, TableSpec
 
 #: Every subsystem's ladder, by name. A subsystem's schema moves without
 #: dragging the others.
+#:
+#: The order is the order a migration climbs them in, and one pair depends on
+#: it: ``agents`` reads ``tasks.session_id`` to link each record to its task,
+#: and ``tasks`` then drops that column. So ``agents`` comes first.
 LADDERS: dict[str, tuple[Rung, ...]] = {
     "desk": DESK,
+    "agents": AGENTS,
     "tasks": TASKS,
     "task_export": TASK_EXPORT,
-    "agents": AGENTS,
     "task_attachments": TASK_ATTACHMENTS,
 }
 
