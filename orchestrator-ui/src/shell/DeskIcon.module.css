@@ -1,0 +1,11 @@
+/* The hue reports direction: see the Reporting Rule in DESIGN.md. */
+.on .arrow {
+  color: var(--accent);
+}
+.off .arrow {
+  color: var(--tone-archival);
+}
+/* A disabled menu item mutes its text, and the arrow follows it. Keep this rule last: it wins by order. */
+:global([aria-disabled='true']) .arrow {
+  color: inherit;
+}

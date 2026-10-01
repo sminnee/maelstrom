@@ -49,8 +49,9 @@ release while that section is empty, and retitles it to the version it is releas
   conversation input grows to half the screen, then scrolls. The resize handles are gone.
 
 - **The desk buttons say On desk and Off desk.** The node card's "Dismiss" and the task list's
-  "Add to desk" and "Remove from desk" are now one pair, each with a tray icon. A menu item
-  that joins the desk act to another uses the verb: "Terminate & take off desk".
+  "Add to desk" and "Remove from desk" are now one pair, each with a desk icon. The arrow of
+  the icon is blue for On desk and violet for Off desk. A menu item that joins the desk act to
+  another uses the verb: "Terminate & take off desk".
 
 - **Breaking: the project commands moved under `mael project`.** `mael add-project`,
   `mael create-project` and `mael mv-project` are now `mael project add`, `mael project create`

@@ -327,9 +327,14 @@ chains:
 | Live agent | Terminate | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` · Terminate, take off desk & trash `<nato>` |
 | No live agent | Off desk | Off desk · Take off desk & close `<nato>` · Take off desk & trash `<nato>` |
 
-Every desk act draws a tray icon before its label, with an arrow down into the tray for On desk
-and up out of it for Off desk (`shell/OnDeskIcon.tsx`, `shell/OffDeskIcon.tsx`). In the menu,
-each item that takes the node off the desk draws the Off desk icon; plain Terminate draws none.
+Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
+`shell/OffDeskIcon.tsx`):
+
+- The arrow points down for On desk and up for Off desk.
+- The arrow takes a hue by direction. See the Reporting Rule in `orchestrator-ui/DESIGN.md`.
+- A disabled menu item mutes the arrow with its text.
+- In the menu, each item that takes the node off the desk draws the Off desk icon. Plain
+  Terminate draws none.
 
 The close and trash items are left out when the worktree is `_main`, is closed, or does not exist.
 With one item left, the control is a plain button. The close and trash items are disabled while
