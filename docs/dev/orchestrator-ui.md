@@ -379,6 +379,10 @@ the next one. `selectors/attention.ts` orders them by each node's best-ranked op
 reviews, then document reviews, then questions, then permissions, then the rest, oldest first
 within each. A task off the desk with no live agent draws no node, so the chip does not count it.
 
+The chip shows a second, yellow count when it is above zero: the nodes in state `unanswered`. A
+click visits those after the `needs-attention` nodes, oldest last message first. `nodeState` in
+`protocol/progress.ts` derives the state, so no attention item exists for it.
+
 The session tab head carries a mode chip naming the agent's permission mode. A click moves the
 agent to the next mode: plan, then auto, then normal. The chip shows the mode the child last
 announced, so a refused change leaves it where it was.

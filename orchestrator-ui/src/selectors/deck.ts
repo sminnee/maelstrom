@@ -24,20 +24,18 @@ export interface Deck {
  * is fixed at `none`: a lane is a horizontal idea, and the narrow layout has
  * no room for one.
  *
- * Inside a zone the nodes needing the user come first. The canvas can rely on
- * a glow to carry that, because the whole board is in view; a list cannot, so
- * it puts the ask at the top. The order is otherwise `deriveGraph`'s, which is
- * oldest first.
+ * Inside a zone the nodes needing the user come first, then the unanswered
+ * ones. The canvas shows the whole board, so a glow or a border carries that;
+ * a list cannot, so it sorts. The order is otherwise `deriveGraph`'s, which
+ * is oldest first.
  */
 export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   const graph = deriveGraph(world, { groupBy: 'none', filters: opts.filters });
   const zones: Record<Zone, GraphNode[]> = { done: [], running: [], notStarted: [] };
   for (const node of graph.nodes) zones[zoneForState(node.progress.state)].push(node);
   for (const zone of ZONES) {
-    zones[zone] = [
-      ...zones[zone].filter((n) => n.progress.state === 'needs-attention'),
-      ...zones[zone].filter((n) => n.progress.state !== 'needs-attention'),
-    ];
+    // A stable sort, so each band keeps `deriveGraph`'s order.
+    zones[zone] = [...zones[zone]].sort((a, b) => callRank(a) - callRank(b));
   }
   return {
     zones,
@@ -47,6 +45,12 @@ export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
       notStarted: zones.notStarted.length,
     },
   };
+}
+
+/** How strongly a node calls for the user: an ask, then an unread message, then the rest. */
+function callRank(node: GraphNode): number {
+  if (node.progress.state === 'needs-attention') return 0;
+  return node.progress.state === 'unanswered' ? 1 : 2;
 }
 
 /** What a zone's tab is called. The words the canvas's zone strip uses. */

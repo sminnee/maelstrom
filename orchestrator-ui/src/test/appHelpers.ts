@@ -40,9 +40,23 @@ export async function openSession(user: UserEvent, taskId: string) {
   await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
 }
 
-/** The count the attention chip shows. */
+/** The attention count the chip shows. */
 export const chipCount = () =>
-  Number(screen.getByTestId('attention-chip').textContent?.replace(/\D/g, ''));
+  Number(screen.getByTestId('attention-count').textContent?.replace(/\D/g, ''));
+
+/** The unanswered count the chip shows. */
+export const unansweredCount = () =>
+  Number(screen.queryByTestId('unanswered-count')?.textContent ?? 0);
+
+/**
+ * End the turn of MAEL-40.1's agent, as the server would: it has said
+ * something, its task is unfinished, and it holds no open ask.
+ */
+export function endTurn(server: FakeServer) {
+  server.change({ kind: 'agent', ids: ['c3e8f1b5'] }, (w) => {
+    w.agents['c3e8f1b5'] = { ...w.agents['c3e8f1b5']!, state: 'idle' };
+  });
+}
 
 /** The `data-state` a task's node draws with, or undefined when it draws none. */
 export const nodeState = (taskId: string) =>

@@ -3,7 +3,7 @@ import { useReactFlow } from '@xyflow/react';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
 import { zoneForState } from '../protocol/progress';
-import { attentionNodes, nextAttentionNode } from '../selectors/attention';
+import { attentionNodes, nextAttentionNode, unansweredNodes } from '../selectors/attention';
 import { deriveGraph } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
@@ -12,7 +12,9 @@ import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
 
 /**
- * `⚠N` in the top bar. Clicking goes to the next node that needs the user.
+ * `⚠N` in the top bar, and beside it the count of unanswered agents. Clicking
+ * goes to the next node that needs the user: the asks first, then the
+ * unanswered.
  *
  * Two components, not one branch: `WideChip` calls `useReactFlow`, and the
  * narrow layout mounts no React Flow provider for it to read.
@@ -22,7 +24,7 @@ export function AttentionChip() {
 }
 
 /**
- * The drawn nodes and the chip count. Shared by both chips. Memoised as the
+ * The drawn nodes and the two chip counts. Shared by both chips. Memoised as the
  * canvas and the deck memoise their own `deriveGraph` calls.
  */
 function useAttention() {
@@ -34,12 +36,17 @@ function useAttention() {
     () => deriveGraph(world, { filters, groupBy: 'none' }).nodes,
     [world, filters],
   );
-  return { world, nodes, count: attentionNodes(nodes).length };
+  return {
+    world,
+    nodes,
+    count: attentionNodes(nodes).length,
+    unanswered: unansweredNodes(nodes).length,
+  };
 }
 
 /** The chip on a phone: it takes the deck list to the node and opens it. */
 function NarrowChip() {
-  const { nodes, count } = useAttention();
+  const { nodes, count, unanswered } = useAttention();
   const stack = useAppStore((s) => s.ui.mobileStack);
   const pushScreen = useAppStore((s) => s.pushScreen);
   const setDeckZone = useAppStore((s) => s.setDeckZone);
@@ -51,19 +58,20 @@ function NarrowChip() {
     const current = top?.kind === 'detail' ? top.nodeId : null;
     const next = nextAttentionNode(nodes, current);
     if (!next) return;
-    // Back from the detail screen lands on the list that holds the node.
+    // Back from the detail screen lands on the list that holds the node. An
+    // unanswered node sits in the same zone as an ask.
     setDeckZone(zoneForState('needs-attention'));
     // From the task list, the deck has to be showing for Back to land on it.
     if (!deckShowing) showPane('canvas');
     pushScreen({ kind: 'detail', nodeId: next });
   };
 
-  return <Chip count={count} onClick={go} />;
+  return <Chip count={count} unanswered={unanswered} onClick={go} />;
 }
 
 /** The chip on a main monitor: it expands the node on the canvas. */
 function WideChip() {
-  const { world, nodes, count } = useAttention();
+  const { world, nodes, count, unanswered } = useAttention();
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
@@ -85,21 +93,42 @@ function WideChip() {
     });
   };
 
-  return <Chip count={count} onClick={go} />;
+  return <Chip count={count} unanswered={unanswered} onClick={go} />;
 }
 
 /** The button both chips draw. */
-function Chip({ count, onClick }: { count: number; onClick: () => void }) {
+function Chip({
+  count,
+  unanswered,
+  onClick,
+}: {
+  count: number;
+  unanswered: number;
+  onClick: () => void;
+}) {
+  const label = [
+    `${count} items need attention`,
+    unanswered > 0 && `${unanswered} ${unanswered === 1 ? 'agent' : 'agents'} unanswered`,
+  ]
+    .filter(Boolean)
+    .join(', ');
   return (
     <AppButton
       className={styles.chip}
       data-testid="attention-chip"
       data-count={count}
-      aria-label={`${count} items need attention`}
+      aria-label={label}
       onClick={onClick}
-      disabled={count === 0}
+      disabled={count === 0 && unanswered === 0}
     >
-      ⚠ {count}
+      <span className={styles.asks} data-testid="attention-count">
+        ⚠ {count}
+      </span>
+      {unanswered > 0 && (
+        <span className={styles.unanswered} data-testid="unanswered-count">
+          {unanswered}
+        </span>
+      )}
     </AppButton>
   );
 }

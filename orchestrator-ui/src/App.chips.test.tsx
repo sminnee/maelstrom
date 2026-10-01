@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { chipCount, expanded } from './test/appHelpers';
+import { chipCount, endTurn, expanded, nodeState, unansweredCount } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the usage and agent chips', () => {
@@ -84,6 +84,32 @@ describe('the attention chip', () => {
     await user.selectOptions(screen.getByLabelText('Agent status'), 'planned');
     expect(orange()).toEqual([]);
     expect(chipCount()).toBe(0);
+  });
+
+  it('counts the unanswered nodes apart from the asks, and goes to one when no ask is open', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const chip = screen.getByTestId('attention-chip');
+    expect(unansweredCount()).toBe(0);
+    expect(chip).toHaveAccessibleName('3 items need attention');
+
+    act(() => endTurn(server));
+    await waitFor(() => expect(nodeState('MAEL-40.1')).toBe('unanswered'));
+    expect(chipCount()).toBe(3);
+    expect(unansweredCount()).toBe(1);
+    expect(chip).toHaveAccessibleName('3 items need attention, 1 agent unanswered');
+
+    // Every open ask is cleared, so the unanswered node is all the chip holds.
+    act(() => {
+      server.change({ kind: 'attention', ids: [] }, (w) => {
+        for (const item of Object.values(w.attention)) item.clearedAt = '2026-09-01T00:00:00Z';
+      });
+    });
+    await waitFor(() => expect(chipCount()).toBe(0));
+    expect(unansweredCount()).toBe(1);
+    expect(chip).toBeEnabled();
+    await user.click(chip);
+    expect(expanded()).toHaveAccessibleName('Restamp the index on HEAD change');
   });
 
   it('leaves out a node whose agent exited nonzero, and never lands on it', async () => {

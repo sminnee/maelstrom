@@ -37,19 +37,21 @@ describe('deriveDeck', () => {
     expect(deriveDeck(world, opts).counts).toEqual({ done: 1, running: 0, notStarted: 2 });
   });
 
-  it('puts the nodes needing the user first in their zone, so the phone opens on the ask', () => {
+  it('puts the nodes needing the user first in their zone, then the unanswered ones', () => {
     const world = drawnWorld({
       tasks: [
         makeTask({ id: 'T1', status: 'in-progress' }),
         makeTask({ id: 'T2', status: 'in-progress' }),
+        makeTask({ id: 'T3', status: 'in-progress' }),
       ],
       agents: [
         makeAgent({ id: 'a1', taskId: 'T1', state: 'processing' }),
-        makeAgent({ id: 'a2', taskId: 'T2', state: 'awaiting-question' }),
+        makeAgent({ id: 'a2', taskId: 'T2', state: 'idle', lastMessage: 'Which default?' }),
+        makeAgent({ id: 'a3', taskId: 'T3', state: 'awaiting-question' }),
       ],
-      attention: [makeAttention({ taskId: 'T2', agentId: 'a2' })],
+      attention: [makeAttention({ taskId: 'T3', agentId: 'a3' })],
     });
-    expect(deriveDeck(world, opts).zones.running.map((n) => n.id)).toEqual(['T2', 'T1']);
+    expect(deriveDeck(world, opts).zones.running.map((n) => n.id)).toEqual(['T3', 'T2', 'T1']);
   });
 
   it('draws the same nodes the canvas does, so the two surfaces cannot disagree', () => {
