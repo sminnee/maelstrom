@@ -231,3 +231,13 @@
   font-weight: var(--weight-semibold);
   background: var(--bg-sunken);
 }
+
+.video {
+  /* Capped as a thumbnail is, so a recording cannot push the prose off the
+     screen. Taller than a thumbnail: a video has no lightbox to open into. */
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}

@@ -51,13 +51,35 @@ export function attentionSegments(source: string): Segment[] {
   return segments;
 }
 
+/** The containers a browser plays. */
+const VIDEO_PATH = /\.(webm|mp4|mov)$/i;
+
+/** Whether `src` names a video, read off its path so a query string does not hide it. */
+function isVideo(src: string): boolean {
+  return VIDEO_PATH.test(src.split(/[?#]/, 1)[0] ?? '');
+}
+
 function MarkdownContent({ source }: { source: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        img: ({ src, alt }) =>
-          typeof src === 'string' ? <ImageLightbox src={src} alt={alt ?? ''} /> : null,
+        img: ({ src, alt }) => {
+          if (typeof src !== 'string') return null;
+          if (isVideo(src)) {
+            // `metadata`, so a document with several recordings loads none whole.
+            return (
+              <video
+                className={styles.video}
+                src={src}
+                controls
+                preload="metadata"
+                aria-label={alt || 'Video'}
+              />
+            );
+          }
+          return <ImageLightbox src={src} alt={alt ?? ''} />;
+        },
       }}
     >
       {source}

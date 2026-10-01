@@ -30,8 +30,11 @@ from .document_tags import (
     MILESTONES,
     DocumentTag,
     ImageTag,
+    MediaRef,
+    not_shown,
     read_tags,
     read_worktree_file,
+    replace_media,
     stays_within,
 )
 from .file_registry import FileRegistry
@@ -878,7 +881,9 @@ class _Emitter:
         for position, filename in enumerate(tag.filenames):
             previous = earlier.get(filename)
             document_id = previous["id"] if previous else self.new_id()
-            body = self._file_body(filename, read_file)
+            body = replace_media(
+                self._file_body(filename, read_file), self._shown_media
+            )
             doc: Document = {
                 "id": document_id,
                 "agentId": self.ctx.agent_id,
@@ -948,6 +953,19 @@ class _Emitter:
         if file_id is None:
             return None
         return markdown_ref(image.alt, f"/api/files/{file_id}")
+
+    def _shown_media(self, ref: MediaRef) -> str:
+        """One media ref of a document body, pointed at the route that serves it.
+
+        A document's path resolves against the worktree root, as an
+        ``<image src>`` does, and a refused one leaves the same prose.
+        """
+        file_id = self.files.register(
+            self.new_id(), self.agent_entity["cwd"], ref.target
+        )
+        if file_id is None:
+            return not_shown(ref.target)
+        return markdown_ref(ref.alt, f"/api/files/{file_id}")
 
     def _file_body(self, filename: str, read_file: ReadFile) -> str:
         """``filename``'s content, or prose saying why the user is not reading it."""

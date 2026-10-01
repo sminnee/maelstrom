@@ -149,3 +149,27 @@ describe('user attention in a message', () => {
     expect(screen.getByText(/plain listing/)).toBeInTheDocument();
   });
 });
+
+describe('a video in a document', () => {
+  it.each(['webm', 'mp4', 'mov'])('draws a .%s as a player the reader controls', (ext) => {
+    const src = `/api/attachments/northwind/NORT-7/flow.${ext}`;
+    const { container } = render(<Markdown source={`![The login flow](${src})`} />);
+    const video = container.querySelector('video');
+    expect(video).toHaveAttribute('src', src);
+    expect(video).toHaveAttribute('controls');
+    expect(video).toHaveAttribute('aria-label', 'The login flow');
+    // A video is not a thumbnail: nothing opens a lightbox.
+    expect(screen.queryByRole('button', { name: /The login flow/ })).not.toBeInTheDocument();
+  });
+
+  it('reads the extension off the path, not off a query string', () => {
+    const { container } = render(<Markdown source="![Flow](/api/files/flow.webm?v=2)" />);
+    expect(container.querySelector('video')).not.toBeNull();
+  });
+
+  it('leaves an image an image', () => {
+    const { container } = render(<Markdown source={SHOT} />);
+    expect(container.querySelector('video')).toBeNull();
+    expect(screen.getByAltText('The failing dialog')).toBeInTheDocument();
+  });
+});

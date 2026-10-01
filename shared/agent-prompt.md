@@ -23,7 +23,7 @@ A document is always a file. Write it under `.drafts/`, then show it with `<doc-
 <doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Iteration 1">
 ```
 
-- `kind` is `tasks`, `pr`, `review`, or `other`. An unknown value is `other`.
+- `kind` is `tasks`, `pr`, `review`, `verification`, or `other`. An unknown value is `other`.
 - `filename` is comma-separated worktree-relative paths. Each file is its own document, with its
   own tab and version. Never merge files into one.
 - List several files in one tag when one verdict covers them all, such as a task set. The files
@@ -35,6 +35,12 @@ A document is always a file. Write it under `.drafts/`, then show it with `<doc-
 
 Do not use absolute paths or paths that escape the worktree with `..`. An unreadable file still
 opens a document that says it cannot be read.
+
+A document body shows an image or a video with a markdown image ref:
+`![The login flow](test-results/login/video.webm)`. The target is a worktree-relative path to a
+PNG, JPEG, GIF, WebP, `.webm`, `.mp4` or `.mov` file of 50 MB or less. The path resolves against
+the worktree root, not against the document's directory. Use a `verification` document to show
+that the work is complete.
 
 Submit a plan with `ExitPlanMode`, never with a `<doc-file>`. The plan file path travels with it
 as `planFilePath`. A plan sent as a document cannot be approved.

@@ -106,13 +106,24 @@ class Replayed:
 DRAFT_FILES = {
     "draft-iter1.md": "# Iteration 1\n\n- Parse the tag.\n- Mint the document.\n",
     "release-note.md": "The exporter is faster.\n",
+    ".drafts/verification.md": (
+        "# Login flow\n\n"
+        "![The dashboard](docs/shot.png)\n\n"
+        "![The flow](test-results/login.webm)\n\n"
+        "![Outside](../../../etc/passwd)\n"
+    ),
 }
 
 
 #: The files the fixtures name, as the registry sees them. The names the
 #: reader serves are present; anything else is missing, so a tag naming a file
 #: that is not there is refused exactly as it would be on a real worktree.
-FIXTURE_FILES = frozenset(DRAFT_FILES) | {"shot.png"}
+FIXTURE_FILES = frozenset(DRAFT_FILES) | {
+    "shot.png",
+    "verification.md",
+    "login.webm",
+    "passwd",
+}
 
 
 def fake_registry(names=FIXTURE_FILES) -> FileRegistry:

@@ -38,7 +38,7 @@ ShowImage = Callable[["ImageTag"], str | None]
 
 #: The document kinds the protocol declares. Anything else reads as ``other``,
 #: so a typo shows a document rather than dropping it.
-KINDS = ("plan", "tasks", "pr", "review", "other")
+KINDS = ("plan", "tasks", "pr", "review", "verification", "other")
 DEFAULT_KIND = "other"
 
 _ATTRIBUTE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
@@ -192,7 +192,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
             end=match.end(),
         )
         shown = show_image(image)
-        replacements.append((match.start(), match.end(), shown or _not_shown(src)))
+        replacements.append((match.start(), match.end(), shown or not_shown(src)))
 
     return TaggedMessage(
         text=_rewritten(text, spans, replacements),
@@ -202,7 +202,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     )
 
 
-def _not_shown(src: str) -> str:
+def not_shown(src: str) -> str:
     """What stands in for an image the user is not going to see.
 
     A broken picture would leave the agent believing it showed something, so
@@ -263,6 +263,73 @@ def _kind_of(attributes: dict[str, str]) -> str:
 
 def _review_of(attributes: dict[str, str]) -> bool:
     return attributes.get("review", "").lower() == "true"
+
+
+@dataclass(frozen=True)
+class MediaRef:
+    """One image or video a document body names, and where in the body it sits.
+
+    ``start`` and ``end`` span the whole ref, so a caller replaces it where it
+    was written.
+    """
+
+    alt: str
+    target: str
+    start: int
+    end: int
+
+
+#: A markdown image ref. Video takes the same syntax: the reader picks the
+#: element from the target's extension.
+_MEDIA_REF = re.compile(r'!\[((?:\\.|[^\]\\])*)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)')
+#: Text a markdown reader shows as written: a fenced block, then a code span.
+_CODE = re.compile(r"^(```|~~~).*?^\1[^\n]*$|`[^`\n]+`", re.DOTALL | re.MULTILINE)
+#: A target that is not a file in the worktree: a URL with a scheme, a
+#: protocol-relative URL, an absolute or home path, an anchor, or a token the
+#: notebook already expanded.
+_NOT_A_WORKTREE_PATH = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:|/|~|#|\{\{")
+
+
+def media_refs(markdown: str) -> list[MediaRef]:
+    """The media refs in ``markdown`` whose target is a worktree-relative path.
+
+    A ref inside a code fence or a code span is text the reader shows, so it is
+    not one. A URL and an absolute path are not either: the first is served
+    elsewhere, and the second is outside the worktree by construction.
+
+    Two regular expressions, not a markdown parser. See
+    ``docs/dev/orchestrator-server.md``, "Media in a document", for what they
+    do not know.
+    """
+    code = [match.span() for match in _CODE.finditer(markdown)]
+    refs: list[MediaRef] = []
+    for match in _MEDIA_REF.finditer(markdown):
+        if any(start <= match.start() < end for start, end in code):
+            continue
+        target = match.group(2)
+        if _NOT_A_WORKTREE_PATH.match(target):
+            continue
+        refs.append(
+            MediaRef(
+                alt=re.sub(r"\\(.)", r"\1", match.group(1)),
+                target=target,
+                start=match.start(),
+                end=match.end(),
+            )
+        )
+    return refs
+
+
+def replace_media(markdown: str, replace: Callable[[MediaRef], str]) -> str:
+    """``markdown`` with each media ref replaced by what ``replace`` returns."""
+    kept = []
+    end = 0
+    for ref in media_refs(markdown):
+        kept.append(markdown[end : ref.start])
+        kept.append(replace(ref))
+        end = ref.end
+    kept.append(markdown[end:])
+    return "".join(kept)
 
 
 def stays_within(cwd: str, filename: str) -> bool:
