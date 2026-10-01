@@ -114,7 +114,7 @@ class WorktreeChanges(TypedDict):
     dirtyFiles: list[ChangedFile]
     #: The **Base** the commits are measured against: ``main`` when the base was pruned.
     base: str
-    #: Newest first.
+    #: Oldest first.
     commits: list[BranchCommit]
 
 

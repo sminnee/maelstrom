@@ -186,7 +186,7 @@ async def test_a_file_past_the_line_cap_keeps_its_first_lines_and_drops_later_hu
 # -- commits and the base ------------------------------------------------------
 
 
-async def test_commits_ahead_of_main_list_newest_first(repo):
+async def test_commits_ahead_of_main_list_oldest_first(repo):
     create_commit(repo, "a.txt", "a\n", "feat: first")
     second = create_commit(
         repo,
@@ -202,15 +202,15 @@ async def test_commits_ahead_of_main_list_newest_first(repo):
         {k: c[k] for k in ("subject", "body", "author", "filesChanged")}
         for c in changes["commits"]
     ] == [
+        {"subject": "feat: first", "body": "", "author": "Test", "filesChanged": 1},
         {
             "subject": "feat: second",
             "body": "Why it\x1fis needed.\n\nA second paragraph.",
             "author": "Test",
             "filesChanged": 1,
         },
-        {"subject": "feat: first", "body": "", "author": "Test", "filesChanged": 1},
     ]
-    newest = changes["commits"][0]
+    newest = changes["commits"][-1]
     assert newest["sha"] == second
     assert second.startswith(newest["shortSha"])
 
