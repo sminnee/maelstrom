@@ -832,11 +832,20 @@ because the panel keeps no view state across renders.
 
 ### Question
 
-A question the agent asked reads three ways, depending on what has happened to it.
+A question the agent asked reads four ways, depending on what has happened to it.
 
 **Answered** is the operator's voice, so it takes the operator's wash rather than the amber
 `.prompt` chassis. The question sits as a caption
 at `--text-xs` `--fg-muted`; the answer reads on its own line at the reading rank in `--fg`.
+
+**Open** carries Answer as the one primary button. A plain split button after it holds
+**Decline** and, in its menu, **Decline & stop**. It is plain because refusing is the rare act,
+and it shows on every step because a refusal needs no answer.
+
+**Declined** is also the operator's voice, so it takes the same wash as an answer. The questions
+sit as captions, and the one word "Declined" takes the answer's line. The daemon also denies a
+question on the operator's behalf, as an interrupt does. That reason follows the word as a
+caption, so the transcript does not claim a refusal the operator did not make.
 
 **Stale** — nobody answered before the ask closed — is not the operator's voice, so it takes no
 wash. It reads in the `.note` register: `--text-xs`, `--fg-faint`, mono, the same reading the

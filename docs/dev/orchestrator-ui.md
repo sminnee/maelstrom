@@ -412,7 +412,8 @@ compact. It falls when the agent compacts.
 A Stop button at the right of that group sends `agent.interrupt` — see `CONTEXT.md`,
 "Interrupt". It is offered only while the agent is `processing` with no ask open. A waiting
 agent's button is disabled, and its title sends the user to the ask, because an interrupt would
-deny that ask and the route's reply would not say so. An exited agent's title says it has gone.
+deny that ask and the route's reply would not say so. A question prompt offers that interrupt
+itself, as **Decline & stop**, where the label says what it does to the ask. An exited agent's title says it has gone.
 The node card's Terminate is the other act: it sends `agent.stop`.
 Once the agent has exited, the node card offers Resume beside its Off desk. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
@@ -522,7 +523,8 @@ summary and leaves no body to hide — see
 
 A decision shows the last three things the agent said, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
-sends together. A permission shows the tool input with Approve and Deny. A plan review links
+sends together. A split button beside Answer refuses the question — see `CONTEXT.md`, "Decline".
+Decline sends `agent.deny` with a fixed reason. Decline & stop sends `agent.interrupt`. A permission shows the tool input with Approve and Deny. A plan review links
 to the plan with Approve and Deny. Both use one control, `session/cards/DecideRow.tsx`. Deny
 sends the reason as the agent's tool result, and the
 agent carries on with it. The expanded node and the document tab render the same
@@ -531,8 +533,9 @@ card, where the decision is read and the context rail is inline and open; `dock`
 under a document, where the context becomes a control and the prompt loses its own border. See
 `orchestrator-ui/DESIGN.md`, "Review Dock".
 
-A prompt reads one of three ways: open, answered, or stale — see `CONTEXT.md`, "Stale prompt". The
-transcript keeps a stale prompt, showing what was asked and reading "no longer pending", with no
+A prompt reads one of three ways: open, answered, or stale — see `CONTEXT.md`, "Stale prompt". A
+question has a fourth, declined, which reads as answered — see `orchestrator-ui/DESIGN.md`,
+"Question". The transcript keeps a stale prompt, showing what was asked and reading "no longer pending", with no
 buttons. The expanded node and the document tab drop it, because both draw from the agent's
 pending request and that is now clear. A plan document's review bar is the exception: it reads
 the document, so a stale plan review takes the document to the `stale` status to close it. The UI

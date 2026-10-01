@@ -19,6 +19,8 @@ import styles from './Transcript.module.css';
 
 export interface TranscriptHandlers {
   onAnswer?: (requestId: string, answers: Record<string, string>) => void | Promise<unknown>;
+  onDecline?: (requestId: string) => Promise<unknown>;
+  onDeclineAndStop?: () => Promise<unknown>;
   onDecide?: (
     requestId: string,
     decision: 'approve' | 'deny',
@@ -188,6 +190,7 @@ function DeferredWait({ item }: { item: TranscriptItem }) {
 }
 
 function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHandlers }) {
+  const { onDecline } = handlers;
   switch (item.type) {
     case 'message':
       return <AgentMessage item={item} />;
@@ -198,6 +201,8 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         <QuestionPrompt
           item={item}
           onAnswer={handlers.onAnswer ? (a) => handlers.onAnswer?.(item.requestId, a) : undefined}
+          onDecline={onDecline && (() => onDecline(item.requestId))}
+          onDeclineAndStop={handlers.onDeclineAndStop}
         />
       );
     case 'permission_request':

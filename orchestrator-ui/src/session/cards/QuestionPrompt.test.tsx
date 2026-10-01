@@ -122,6 +122,66 @@ describe('QuestionPrompt', () => {
     expect(screen.queryByRole('radio')).toBeNull();
   });
 
+  it('Decline calls its handler on any step, and the menu holds Decline & stop', async () => {
+    const user = userEvent.setup();
+    const onDecline = vi.fn(() => Promise.resolve());
+    const onDeclineAndStop = vi.fn(() => Promise.resolve());
+    render(
+      <QuestionPrompt
+        item={item([COLUMNS, EXPORT])}
+        onAnswer={vi.fn()}
+        onDecline={onDecline}
+        onDeclineAndStop={onDeclineAndStop}
+      />,
+    );
+    // Nothing is chosen yet: a decline needs no answer.
+    await user.click(screen.getByRole('button', { name: 'Decline' }));
+    expect(onDecline).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('checkbox', { name: /Id/ }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Decline' }));
+    expect(onDecline).toHaveBeenCalledTimes(2);
+    expect(onDeclineAndStop).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'More ways to decline' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Decline & stop' }));
+    expect(onDeclineAndStop).toHaveBeenCalledOnce();
+    expect(onDecline).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers no decline without a handler', () => {
+    render(<QuestionPrompt item={item([EXPORT])} onAnswer={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Decline' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More ways to decline' })).toBeNull();
+  });
+
+  it('a declined item shows the question as declined, with no controls', () => {
+    render(
+      <QuestionPrompt
+        item={{ ...item([EXPORT]), declined: true, reason: 'The user declined to answer.' }}
+        onAnswer={vi.fn()}
+        onDecline={vi.fn()}
+      />,
+    );
+    const declined = screen.getByTestId('question-declined');
+    expect(declined).toHaveTextContent(EXPORT.question);
+    // The button's own reason says nothing the word does not.
+    expect(declined).toHaveTextContent(/Declined$/);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByRole('radio')).toBeNull();
+  });
+
+  it('a question the daemon denied says why, because the operator did not decline it', () => {
+    render(
+      <QuestionPrompt
+        item={{ ...item([EXPORT]), declined: true, reason: 'Interrupted by user' }}
+      />,
+    );
+    expect(screen.getByTestId('question-declined')).toHaveTextContent(
+      'Declined · Interrupted by user',
+    );
+  });
+
   it('offers nothing for a question nothing answered, even with a handler', () => {
     render(<QuestionPrompt item={{ ...item([EXPORT]), stale: true }} onAnswer={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Answer' })).toBeNull();
