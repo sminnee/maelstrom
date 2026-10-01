@@ -118,7 +118,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Positioned, so an absolute child, such as the `.srOnly` span in a message, scrolls with
+   the transcript. */
 .scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
