@@ -124,6 +124,15 @@ def history_ref(branch: str, stamp: str) -> str:
     return f"{history_ref_prefix(branch)}{stamp}"
 
 
+# Where a trashed branch goes: `<b>` becomes `trash/<b>`, locally and on origin.
+TRASH_PREFIX = "trash/"
+
+
+def trash_name(branch: str) -> str:
+    """The name ``branch`` takes when it is trashed."""
+    return f"{TRASH_PREFIX}{branch}"
+
+
 # How much of a branch a collapse takes in. ``remote`` is every commit ahead of
 # the base fork point — the whole branch. ``local`` is only ``origin/<branch>..HEAD``,
 # the part that was never pushed, so a re-review reads the new work alone.

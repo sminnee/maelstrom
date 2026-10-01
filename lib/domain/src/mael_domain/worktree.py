@@ -45,6 +45,7 @@ from .worktree_model import (
     SQUASH_MESSAGE,
     SYNC_CLOSE_DELETE_BRANCH,
     SYNC_CLOSE_KEEP_BRANCH,
+    TRASH_PREFIX,
     WORKTREE_NAMES,
     BaseRef,
     CollapsedCommit,
@@ -79,6 +80,7 @@ from .worktree_model import (
     resolve_stack_tip,
     resolve_template_lines,
     substitute_vars,
+    trash_name,
     validate_base,
     worktree_num,
 )
@@ -1908,11 +1910,7 @@ def close_worktree(
 
     # --force never loses work: commit any dirty/untracked changes onto the branch
     # FIRST, so they survive the close and reappear when the branch is reopened.
-    committed_wip = False
-    if force and get_worktree_dirty_files(worktree_path):
-        run_git(["add", "-A"], cwd=worktree_path)
-        run_git(["commit", "-m", "wip: uncommitted changes"], cwd=worktree_path)
-        committed_wip = True
+    committed_wip = force and commit_wip(worktree_path)
 
     # Sync. With --force, abort a conflicting rebase instead of leaving it in progress.
     sync_result = sync_worktree(worktree_path, abort_on_conflict=force)
@@ -1956,8 +1954,8 @@ def close_worktree(
 def detach_and_free_ports(worktree_path: Path) -> CloseResult:
     """Detach HEAD at origin/main and free the worktree's port allocation.
 
-    Shared tail of close_worktree() and the sync --close path. Assumes the caller
-    has already verified the worktree is safe to close (clean / empty).
+    Assumes the caller has already verified the worktree is safe to close
+    (clean / empty).
     """
     # _main sits on main, so it reads as "empty relative to origin/main" and
     # would otherwise be detached here.
@@ -3623,6 +3621,101 @@ def delete_branch(
         remote_deleted = result.returncode == 0
 
     return local_deleted, remote_deleted
+
+
+def trash_refusal(project_path: Path, branch: str) -> str | None:
+    """Why ``branch`` cannot be trashed, or ``None`` when it can.
+
+    An ``origin/trash/<branch>`` at the branch's own commit is not a refusal:
+    it is what an earlier trash left when it stopped after its push.
+    """
+    target = trash_name(branch)
+    if branch in ("HEAD", ""):
+        return (
+            "The worktree is not on a branch, so there is nothing to trash. "
+            "If a rebase is in progress, abort it first"
+        )
+    if branch == MAIN_BRANCH:
+        return f"{MAIN_BRANCH} cannot be trashed"
+    if branch.startswith(TRASH_PREFIX):
+        return f"{branch} is already in the trash"
+    if _ref_exists(project_path, f"refs/heads/{target}"):
+        return f"{target} already exists"
+    if branch_exists_on_remote(project_path, target) and not is_branch_merged(
+        project_path, branch, base=f"origin/{target}"
+    ):
+        return f"{target} already exists on origin"
+    if branch in base_branches(project_path):
+        return f"Other branches are stacked on {branch}; trash them first"
+    return None
+
+
+def commit_wip(worktree_path: Path) -> bool:
+    """Commit every dirty file onto the branch as ``wip: uncommitted changes``.
+
+    Returns whether a commit was made.
+
+    Raises:
+        subprocess.CalledProcessError: If the commit fails.
+    """
+    if not get_worktree_dirty_files(worktree_path):
+        return False
+    run_git(["add", "-A"], cwd=worktree_path)
+    run_git(["commit", "-m", "wip: uncommitted changes"], cwd=worktree_path)
+    return True
+
+
+def rename_remote_branch(project_path: Path, old: str, new: str) -> None:
+    """Push local ``old`` to origin as ``new``, then delete ``origin/old``.
+
+    ``origin/old`` is fetched first and must be contained in local ``old``.
+    Otherwise the delete would take commits that only origin holds.
+
+    Raises:
+        WorktreeError: If origin holds commits the local branch lacks.
+        subprocess.CalledProcessError: If a push fails.
+    """
+    run_git(["fetch", "origin", old], cwd=project_path, quiet=True, check=False)
+    on_origin = branch_exists_on_remote(project_path, old)
+    if on_origin and not _is_ancestor(project_path, f"origin/{old}", of=old):
+        raise WorktreeError(
+            f"origin/{old} has commits the local {old} lacks; sync the branch first"
+        )
+    run_git(["push", "origin", f"refs/heads/{old}:refs/heads/{new}"], cwd=project_path)
+    if on_origin:
+        run_git(["push", "origin", "--delete", old], cwd=project_path)
+
+
+def rename_branch(project_path: Path, old: str, new: str) -> None:
+    """Rename local ``old`` to ``new``, with its working history.
+
+    ``git branch -m`` moves the ``branch.<old>.*`` config too, so the upstream
+    is pointed at ``origin/new`` when that exists. The stored base is cleared: a
+    renamed branch is out of the stack.
+
+    Only the rename itself can fail. What follows it is bookkeeping, and a
+    failure there must not report a renamed branch as not renamed.
+
+    Raises:
+        subprocess.CalledProcessError: If the rename fails.
+    """
+    run_git(["branch", "-m", old, new], cwd=project_path)
+
+    def tidy(args: list[str]) -> subprocess.CompletedProcess:
+        return run_git(args, cwd=project_path, quiet=True, check=False)
+
+    if branch_exists_on_remote(project_path, new):
+        tidy(["branch", f"--set-upstream-to=origin/{new}", new])
+    try:
+        GitConfigBaseStore(project_path).clear(new)
+    except RuntimeError:
+        pass
+    listed = tidy(["for-each-ref", "--format=%(refname)", history_ref_prefix(old)])
+    old_prefix, new_prefix = history_ref_prefix(old), history_ref_prefix(new)
+    for ref in listed.stdout.split():
+        moved = new_prefix + ref.removeprefix(old_prefix)
+        if tidy(["update-ref", moved, ref]).returncode == 0:
+            tidy(["update-ref", "-d", ref])
 
 
 def _prune_working_history(project_path: Path, branch: str) -> None:
