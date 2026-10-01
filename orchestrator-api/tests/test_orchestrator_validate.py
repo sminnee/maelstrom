@@ -5,7 +5,7 @@ command the same way the fake backend does, before the host is touched.
 """
 
 import pytest
-from agent_fixtures import make_agent, make_document
+from agent_fixtures import make_agent, make_change_comment, make_document
 
 from mael_domain.protocol import empty_world
 from mael_orchestrator.validate import validate_command
@@ -950,3 +950,81 @@ class TestCreateTerminal:
             empty_world(), worktree_cmd("worktree.createTerminal", "northwind-zulu")
         )
         assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
+
+
+def comment_cmd(worktree_id: str = "northwind-alpha", comments=None) -> dict:
+    listed = [make_change_comment()] if comments is None else comments
+    return worktree_cmd("worktree.comment", worktree_id, comments=listed)
+
+
+class TestChangeComments:
+    """A post needs a comment to carry and an agent to carry it to."""
+
+    def test_comments_for_a_worktree_with_an_agent_are_allowed(self):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, comment_cmd()) is None
+
+    def test_comments_on_a_worktree_the_world_lacks_are_unknown_id(self):
+        error = validate_command(empty_world(), comment_cmd("northwind-zulu"))
+        assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
+
+    def test_comments_on_a_closed_worktree_are_refused(self):
+        world = world_with(
+            agents=[make_agent()],
+            worktrees=[make_worktree(isClosed=True, branch="")],
+        )
+        assert validate_command(world, comment_cmd()) == {
+            "code": "invalid",
+            "message": "Worktree northwind-alpha is closed",
+        }
+
+    def test_a_comment_with_no_body_is_refused(self):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        cmd = comment_cmd(
+            comments=[make_change_comment(), make_change_comment(body="  ")]
+        )
+        assert validate_command(world, cmd) == {
+            "code": "invalid",
+            "message": "A comment is empty",
+        }
+
+    @pytest.mark.parametrize(
+        "comments",
+        [None, [], "x"],
+        ids=["no key", "empty list", "not a list"],
+    )
+    def test_a_post_with_no_comments_is_refused(self, comments):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.comment", "northwind-alpha", comments=comments)
+        assert validate_command(world, cmd) == {
+            "code": "invalid",
+            "message": "No comments to post",
+        }
+
+    @pytest.mark.parametrize(
+        "comment",
+        [
+            "x",
+            {"body": "no lines named"},
+            make_change_comment(side="both"),
+            make_change_comment(lines="+x"),
+            make_change_comment(startLine="13"),
+        ],
+        ids=["not an object", "body alone", "side", "lines", "line number"],
+    )
+    def test_a_comment_the_message_cannot_be_built_from_is_refused(self, comment):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, comment_cmd(comments=[comment])) == {
+            "code": "invalid",
+            "message": "A comment is malformed",
+        }
+
+    def test_a_worktree_with_no_agent_to_tell_is_refused(self):
+        """Which agents count is the server test's to pin; see ``agents_in_worktree``."""
+        world = world_with(
+            agents=[make_agent(state="exited")], worktrees=[make_worktree()]
+        )
+        assert validate_command(world, comment_cmd()) == {
+            "code": "invalid",
+            "message": "No agent is running in northwind-alpha",
+        }

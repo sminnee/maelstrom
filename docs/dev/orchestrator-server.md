@@ -986,6 +986,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
+| `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
@@ -1071,6 +1072,17 @@ instead would flip its status, retire the attention item pointing the user at it
 child blocked on a control request nobody could now answer. The UI draws no review bar on a plan
 document for the same reason — its decision card answers the wait.
 
+`worktree.comment` posts **Change comments**. `format_change_comments` builds one message from
+the list, and the server sends it as a `say` to each top-level agent in the worktree that has not
+exited. `agents_in_worktree` in `validate.py` selects them. The server quotes the lines the
+client sent and does not read git, because the diff the user commented on can be stale.
+
+The command refuses an empty list, a comment that lacks a field of the message, a comment with
+an empty body, and a worktree with no such agent. It answers ok when one agent or more took the message. `agentIds` names those agents, and
+`refused` names each agent that the host refused, with the host's message. A refusal there would
+make the client keep the comments, and a retry would post twice to the agents that have them.
+When every agent refuses, the reply is the first refusal.
+
 `comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
 question.
 
@@ -1083,7 +1095,8 @@ stops.
 ### The host owns the control plane
 
 The commands that write to the child are pure relays: `agent.approve`, `agent.deny`,
-`agent.answer`, `agent.say`, and the `say` a `document.requestChanges` sends. The server validates, asks the host, and returns. It builds no
+`agent.answer`, `agent.say`, the `say` a `document.requestChanges` sends, and each `say` a
+`worktree.comment` sends. The server validates, asks the host, and returns. It builds no
 reply of its own.
 
 This works because the host records the `control_response` it writes onto the child's event

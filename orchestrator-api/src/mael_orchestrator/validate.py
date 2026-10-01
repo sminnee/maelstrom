@@ -10,7 +10,7 @@ from typing import Any
 
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
-from mael_domain.protocol import World
+from mael_domain.protocol import Agent, World
 from mael_domain.worktree_model import is_worktree_closable
 
 from .desk import split_desk_id
@@ -78,6 +78,7 @@ WORKTREE_COMMANDS = (
     "worktree.sync",
     "worktree.env",
     "worktree.createTerminal",
+    "worktree.comment",
 )
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
@@ -98,6 +99,7 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.sync",
     "worktree.env",
     "worktree.createTerminal",
+    "worktree.comment",
 )
 
 #: The three settings ``mael sync`` has, which the one sync command chooses
@@ -215,6 +217,34 @@ def _reaches(world: World, starts: list[str], goal: str) -> bool:
     return False
 
 
+def agents_in_worktree(world: World, worktree_id: str) -> list[Agent]:
+    """The agents a post of change comments reaches, in the world's order.
+
+    A subagent is driven through its parent, and an exited agent hears
+    nothing. ``trackedAgents`` in the UI applies the same rule, so the dock
+    names the agents the server writes to.
+    """
+    return [
+        agent
+        for agent in world["agents"].values()
+        if agent["worktreeId"] == worktree_id
+        and not agent["parent"]
+        and agent["state"] != "exited"
+    ]
+
+
+def _is_change_comment(comment: Any) -> bool:
+    """Whether ``comment`` has every field the message is built from."""
+    return (
+        isinstance(comment, dict)
+        and all(isinstance(comment.get(key), str) for key in ("rev", "path", "body"))
+        and comment.get("side") in ("new", "old")
+        and all(type(comment.get(key)) is int for key in ("startLine", "endLine"))
+        and isinstance(comment.get("lines"), list)
+        and all(isinstance(line, str) for line in comment["lines"])
+    )
+
+
 def _worktree_error(
     world: World, kind: str, cmd: dict[str, Any]
 ) -> dict[str, str] | None:
@@ -245,6 +275,18 @@ def _worktree_error(
         mode = cmd.get("mode", "")
         if mode not in SYNC_MODES:
             return _err("invalid", f"Unknown sync mode: {mode}")
+
+    if kind == "worktree.comment":
+        comments = cmd.get("comments")
+        if not isinstance(comments, list) or not comments:
+            return _err("invalid", "No comments to post")
+        for comment in comments:
+            if not _is_change_comment(comment):
+                return _err("invalid", "A comment is malformed")
+            if not comment["body"].strip():
+                return _err("invalid", "A comment is empty")
+        if not agents_in_worktree(world, worktree_id):
+            return _err("invalid", f"No agent is running in {worktree_id}")
 
     if kind == "worktree.env":
         action = cmd.get("action", "")

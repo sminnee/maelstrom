@@ -13,7 +13,7 @@ from pathlib import Path
 
 import aiohttp
 import pytest
-from agent_fixtures import read_stamped_fixture
+from agent_fixtures import make_change_comment, read_stamped_fixture
 from git_helpers import create_commit, setup_git_repo, setup_origin_main
 from git_helpers import run_git as git
 
@@ -6732,3 +6732,77 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
     assert [(d["kind"], d["agentId"], d["status"]) for d in documents] == [
         ("plan", "ag1", "approved")
     ]
+
+
+# --- change comments ---------------------------------------------------------
+
+CHANGE_COMMENT = make_change_comment(body="close the file")
+
+COMMENT_TEXT = (
+    "Comments on the changes in feat/orders, from the orchestrator UI:\n"
+    "\n"
+    "src/read.py line 13 (uncommitted):\n"
+    "> +    return f.read()\n"
+    "close the file"
+)
+
+
+def post_comments(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/comments",
+                {"comments": [CHANGE_COMMENT]},
+            )
+
+    return run(scenario())
+
+
+def said(harness) -> list[dict]:
+    return [c for c in harness.daemon.calls if c["cmd"] == "say"]
+
+
+def test_change_comments_reach_every_top_level_agent_in_the_worktree(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2")
+    harness.daemon.rows["ag1.1"] = agent_row("ag1.1", parent="ag1")
+    harness.daemon.rows["gone"] = agent_row("gone", state="exited")
+    harness.daemon.rows["far"] = agent_row("far", cwd="/Users/dev/elsewhere")
+
+    reply = post_comments(harness)
+
+    assert reply.status == 200
+    assert reply.body == {"agentIds": ["ag1", "ag2"], "refused": []}
+    assert said(harness) == [
+        {"cmd": "say", "id": "ag1", "text": COMMENT_TEXT},
+        {"cmd": "say", "id": "ag2", "text": COMMENT_TEXT},
+    ]
+
+
+def test_one_refusal_still_answers_ok_and_names_the_agent(harness):
+    """A retry would post twice to the agent that has the message."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2")
+    harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]
+
+    reply = post_comments(harness)
+
+    assert reply.status == 200
+    assert reply.body == {
+        "agentIds": ["ag2"],
+        "refused": [{"agentId": "ag1", "message": "agent ag1 has exited"}],
+    }
+
+
+def test_comments_every_agent_refuses_answer_the_first_refusal(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2")
+    harness.daemon.replies["say"] = [
+        {"error": "agent ag1 has exited"},
+        {"error": "agent ag2 has exited"},
+    ]
+
+    reply = post_comments(harness)
+
+    assert reply.status == 409
+    assert reply.body["error"]["message"] == "agent ag1 has exited"

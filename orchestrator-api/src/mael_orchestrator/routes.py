@@ -122,6 +122,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
+    app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
@@ -687,6 +688,19 @@ async def _create_worktree_terminal(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.createTerminal", "worktreeId": worktree_id},
+    )
+
+
+async def _comment_on_changes(request: web.Request) -> web.StreamResponse:
+    """Post change comments. They reach each agent in the worktree as a message."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.comment",
+            "worktreeId": worktree_id,
+            "comments": body.get("comments"),
+        },
     )
 
 
