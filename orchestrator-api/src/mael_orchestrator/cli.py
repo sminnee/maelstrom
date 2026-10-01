@@ -38,6 +38,7 @@ from mael_domain.worktree import (
 from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
 from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
 from mael_domain.worktree_ops import run_env, run_sync
+from mael_domain.worktree_trash import trash_worktree_fully
 
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
@@ -136,6 +137,17 @@ def build_orchestrator(
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
 
+    async def trash_worktree(project: str, nato: str, path: str) -> None:
+        outcome = await trash_worktree_fully(
+            project,
+            nato,
+            Path(path),
+            projects_dir / project,
+            executor=worktree_executor,
+        )
+        if not outcome.close.success:
+            raise CloseBlocked(outcome.close.message)
+
     async def remove_worktree(project: str, nato: str, path: str) -> None:
         # Deletes the checkout rather than parking it. The teardown is the
         # close's, so the daemon's agents stop before any pid is signalled.
@@ -203,6 +215,7 @@ def build_orchestrator(
         projects_dir,
         close=close_worktree,
         force_close=force_close_worktree,
+        trash=trash_worktree,
         remove=remove_worktree,
         sync=sync_worktree,
         env=env_worktree,

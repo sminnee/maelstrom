@@ -687,10 +687,13 @@ Forcing is its own command. It writes a `wip: uncommitted changes` commit and ke
 nothing is lost, but it is a decision rather than a retry — the UI asks before it sends. `_main` is
 refused by `validate.py` for every teardown, before any git call runs.
 
-Five operations share that shape: close, force close, remove, sync and env. Each is one optional
+Trash is also its own command, and the UI asks before it sends. A trash that fails partway may
+already have stopped agents, so the handler refreshes the world whichever way it ends.
+
+Six operations share that shape: close, force close, trash, remove, sync and env. Each is one optional
 callable on `WorktreeSource`, so a source built without one serves the world read-only for that
 operation rather than half-doing it. Each is a step sequence — close and remove in
-`worktree_close.py`, sync and env in `worktree_ops.py` — so each takes the worktree scope and
+`worktree_close.py`, trash in `worktree_trash.py`, sync and env in `worktree_ops.py` — so each takes the worktree scope and
 cannot reach a checkout another operation is rewriting. `sync` takes a mode — `plain`, `autorepair` or `squash` —
 because it is one operation with the three settings `mael sync` has, not three operations. `env`
 takes an action, and `restart` is `stop` then `start` rather than a third code path. `env` also
@@ -875,6 +878,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
 | `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
+| `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `{}` |
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
