@@ -143,6 +143,9 @@ Mark them `optional: true`:
     command: env PORT=${LADLE_APP_PORT} npx ladle serve
 ```
 
+A second usual case is a copy of the app on fake data. Maelstrom's own `web-fake` service is one:
+it serves the orchestrator UI on a fake server, so a layout can be checked with no orchestrator.
+
 `mael env start` skips an optional service. Start it by name, and stop it by name again:
 
 ```bash

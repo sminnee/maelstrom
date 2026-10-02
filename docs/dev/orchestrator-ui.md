@@ -17,7 +17,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
-| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, `fake/` for the fake server and its scenarios, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
 `command` and decides whether a task is actionable. The phase is never sent on the wire, so this
@@ -1163,6 +1163,7 @@ a soft keyboard sends no other key; the Send button sends.
 mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
 mael env start                  # this worktree's own copy, on its floating ports
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
+mael env start web-fake         # the fake mode, alone, on this worktree's WEB_FAKE port
 cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
 cd orchestrator-ui && pnpm test # vitest, jsdom
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
@@ -1207,7 +1208,13 @@ and Ladle loads the same file. Ladle pins its HMR socket to `localhost`, so `.la
 sets `hmrHost` to the dev host. See
 [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device).
 
-The app has no fake mode. `pnpm dev` with no server behind it shows "Loading the world…" and a
+**The fake mode needs no server.** The `web-fake` service runs the same dev server with
+`FAKE_MODE=1`. It answers `/` with `preview.html`, which mounts the production `App` on the fake
+server through `AppDeps`. `src/fake/main.tsx` is the entry. The index lists the scenarios of
+`src/fake/scenarios.ts`, and `?scenario=<name>` opens one. `src/fake/deepLink.ts` lists the
+parameters that open a screen. `pnpm build` reads `index.html` only, so the fake does not ship.
+
+`pnpm dev` with no `FAKE_MODE` and no server behind it shows "Loading the world…" and a
 "Reconnecting…" banner until one appears.
 
 ## What the tests cover
@@ -1217,14 +1224,23 @@ client over a fake `fetch`; the change stream and the agent streams over a fake 
 and a fake socket; each resource and mutation hook over the fake server; the question prompt
 and the button at their props seams; and the app boundary with Testing Library.
 
-`test/fakeServer.ts` is the orchestrator server faked at the wire: a `fetch` that answers every
+`fake/fakeServer.ts` is the orchestrator server faked at the wire: a `fetch` that answers every
 route from a world, an `EventSource` factory whose sources open at once, and a `WebSocket`
 factory whose sockets open with a transcript snapshot. A command changes the world the way the
 server would and sends the notices. A test moves the world with `server.change`, which mutates
 and sends the notice the real server would, and the transcripts with `server.append` and
-`server.patch`. `test/seedWorld.ts` is the world the app tests open on. The transcript component
+`server.patch`. `fake/seedWorld.ts` is the world the app tests open on, and `fake/moves.ts` holds
+the moves of it that several tests share. The transcript component
 renders items from the goldens `lib/domain/tests/test_orchestrator_normalise.py` owns, so one fixture set
 feeds both suites.
+
+`fake/scenarios.test.tsx` is the coverage gate of the scenarios. It writes each closed set of the
+protocol as a record, so a new member fails the typecheck until it is named. It then fails the
+suite until a scenario shows the member. The same test mounts each scenario on the narrow and the
+medium layout and fails on a logged error.
+
+`styles/spacing.test.ts` reads each CSS file under `src/`. It fails on a px literal in `padding`,
+`margin` or `gap`. See `orchestrator-ui/DESIGN.md`, "Layout".
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.

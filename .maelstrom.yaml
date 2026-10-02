@@ -41,3 +41,14 @@ services:
     ports: [LADLE_APP]
     dir: orchestrator-ui
     command: pnpm ladle --port ${LADLE_APP_PORT}
+
+  # The fake mode (CONTEXT.md). Optional: `mael env start web-fake`.
+  web-fake:
+    optional: true
+    ports: [WEB_FAKE, WEB_FAKE_HMR]
+    dir: orchestrator-ui
+    command: pnpm dev
+    env:
+      FAKE_MODE: "1"
+      FRONTEND_PORT: ${WEB_FAKE_PORT}
+      FRONTEND_HMR_PORT: ${WEB_FAKE_HMR_PORT}

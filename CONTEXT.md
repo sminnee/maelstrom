@@ -932,6 +932,23 @@ screen instead of across it, because a phone has no room for a board. The deck l
 canvas below 840px, and never appears at or above that width.
 _Avoid_: Mobile canvas, card list, feed
 
+**Fake mode**:
+The orchestrator UI on a fake server, with no orchestrator server and no agent daemon. The
+`web-fake` service serves it. It is the production app, so a layout seen there is the layout the
+app draws. A build does not include it.
+_Avoid_: Fake backend, demo mode, mock mode
+
+**Scenario**:
+A named world that the fake mode opens on: the desk, each node state, a detail, a set of asks.
+Each value of a protocol set appears in some scenario, and a test fails when one does not.
+_Avoid_: Fixture world, preset, sample data
+
+**Control height**:
+The one height of each button, link, field and tab of the orchestrator UI: `--control`. It is
+24px, and 48px on the narrow layout, where it is the floor for anything a finger presses. A hue
+chip and a split chip are not controls and have their own height.
+_Avoid_: Touch size, button size
+
 **Task list**:
 The view that lists every task the server knows, with filters for status, project, branch and
 text. The task list is where a task joins the desk, and one of the places it leaves it. A task

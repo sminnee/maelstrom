@@ -84,8 +84,8 @@ Constraints:
 
 - React 19, Vite, zustand, `@xyflow/react` for the canvas, CSS modules. Four layers, each
   importing only from below: protocol → backends → state → UI.
-- One WebSocket to the orchestrator server, or a fake backend that simulates the world in the
-  browser. The fake backend is a design surface, not throwaway.
+- The orchestrator server, or a fake server that holds a scenario of the world in the browser.
+  The fake server is a design surface, not throwaway.
 - Against the real server, documents, comments and shaping answer `invalid`. The server serves
   agents, the desk, and the notebook writes: a task's status, its fields, and new tasks.
 - The desk persists on the server. Open tabs, filters and the expanded node do not.
@@ -114,10 +114,10 @@ in both schemes on the same day.
 
 - `CONTEXT.md` — the domain glossary. Authoritative for every term.
 - `docs/dev/orchestrator-ui.md` — the four layers, the event and command protocol, the canvas,
-  the panel, the fake backend.
+  the panel, the fake mode.
 - `docs/dev/orchestrator-server.md` — the server behind it and the wire protocol.
-- `orchestrator-ui/src/fake-backend/` — a running simulation of the world, usable for design work
-  without a live server. `pnpm dev` runs against it on port 5173.
+- `orchestrator-ui/src/fake/` — a fake server that holds a scenario of the world, usable for
+  design work without a live server. `mael env start web-fake` serves the app on it.
 - `agent-daemon/fixtures/agent_events/` — recorded stream-json from real agents.
 
 There are no users beyond the author, no testimonials, no benchmarks, no pricing and no

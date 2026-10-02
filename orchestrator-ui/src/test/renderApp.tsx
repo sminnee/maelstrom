@@ -1,11 +1,12 @@
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { QueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { App } from '../App';
 import { keys } from '../api/keys';
 import { useAppStore } from '../store/store';
-import { createFakeServer, type FakeServer, type FakeServerOptions } from './fakeServer';
-import { seedWorld } from './seedWorld';
+import { fakeDeps } from '../fake/fakeDeps';
+import type { FakeServer, FakeServerOptions } from '../fake/fakeServer';
+import { SCENARIOS, type ScenarioName } from '../fake/scenarios';
 import { setViewportWidth } from './setup';
 
 /** The three viewports the app draws for: a phone, a laptop and the main monitor. */
@@ -42,6 +43,8 @@ export async function renderApp(
     ready?: boolean;
     strict?: boolean;
     viewport?: keyof typeof VIEWPORTS;
+    /** The world to open on. The seed, `desk`, when left out. */
+    scenario?: ScenarioName;
     /** In place of the seeded transcripts. `{}` gives every agent an empty one. */
     transcripts?: FakeServerOptions['transcripts'];
   } = {},
@@ -51,23 +54,11 @@ export async function renderApp(
   // The store is a module singleton: a test must not inherit the view, the
   // filters or the tabs the one before it left.
   useAppStore.getState().reset();
-  const seed = seedWorld();
-  const server = createFakeServer({
+  const seed = SCENARIOS[opts.scenario ?? 'desk'].build();
+  const { server, queryClient, deps } = fakeDeps({
     world: seed.world,
     transcripts: opts.transcripts ?? seed.transcripts,
   });
-  // No retries: a refused request must fail the test now, not after backoff.
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
-  });
-  const deps = {
-    api: server.api,
-    eventSourceFactory: server.eventSourceFactory,
-    webSocketFactory: server.webSocketFactory,
-    // A real backoff would cost every reconnect test a second of wall clock.
-    streamReconnectMs: 10,
-    queryClient,
-  };
   if (opts.ready === false) server.hold();
   const tree = opts.strict ? (
     <StrictMode>

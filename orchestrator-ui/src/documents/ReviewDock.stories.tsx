@@ -1,12 +1,9 @@
 import type { Story } from '@ladle/react';
-import { QueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { App } from '../App';
 import type { Document } from '../protocol/documents';
 import type { PermissionRequestItem, PlanReviewItem } from '../protocol/transcript';
-import { createFakeServer } from '../test/fakeServer';
-import { makePermissionRequest, makePlanReview } from '../test/fixtures';
-import { SEED_TIME, seedWorld } from '../test/seedWorld';
+import { FakeApp } from '../fake/FakeApp';
+import { makePermissionRequest, makePlanReview } from '../fake/fixtures';
+import { SEED_TIME, type Seed } from '../fake/seedWorld';
 
 export default { title: 'Documents / Review dock' };
 
@@ -154,8 +151,8 @@ function taskGroup(): Document[] {
 /**
  * The app on a fake server, with the story's documents seeded.
  *
- * `deps` is the same injection point `renderApp` uses, so a story runs the
- * production tree rather than a stand-in that can drift from it.
+ * Everything is written to the seed before the first fetch. A change notice
+ * sent before the event stream opens reaches nobody.
  */
 function Harness({
   status = 'awaiting-review',
@@ -168,12 +165,8 @@ function Harness({
   /** The request the agent waits on, or null for the document's own route. */
   wait?: (() => DockWait) | null;
 }) {
-  const [seeded] = useState(() => (documents ? documents() : [planDocument(status)]));
-  const [deps] = useState(() => {
-    const seed = seedWorld();
-    // In the world before the first fetch. The effect below sends a change
-    // notice, and a notice sent before the event stream opens reaches nobody.
-    for (const doc of seeded) {
+  const amend = (seed: Seed) => {
+    for (const doc of documents ? documents() : [planDocument(status)]) {
       seed.world.documents[doc.id] = doc;
       // The header draws a phase and a task title only for a task it can find.
       seed.world.tasks[doc.taskId] ??= {
@@ -182,51 +175,22 @@ function Harness({
         title: 'Plan the daily maintenance run',
       };
     }
-    const server = createFakeServer({ world: seed.world, transcripts: seed.transcripts });
-    return {
-      deps: {
-        api: server.api,
-        eventSourceFactory: server.eventSourceFactory,
-        webSocketFactory: server.webSocketFactory,
-        streamReconnectMs: 10,
-        queryClient: new QueryClient({
-          defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-        }),
-      },
-      server,
-    };
-  });
-
-  useEffect(() => {
-    const { server } = deps;
-    // Seeded above already; this write is for a Fast Refresh with an edited fixture.
-    const docs = documents ? documents() : [planDocument(status)];
-    server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {
-      for (const doc of docs) w.documents[doc.id] = doc;
-    });
     // A request the agent still waits on. Without one the dock draws the
     // document's own review route instead, which is the contrast the Settled
     // story shows.
-    if (wait) {
-      const item = wait();
-      // Fast Refresh re-runs this effect, and `append` does not replace by id.
-      // A second copy would make `Before this · N` count one wait twice.
-      const already = server.transcripts[AGENT]?.items.some((i) => i.id === item.id);
-      if (!already) server.append(AGENT, item);
-      server.change({ kind: 'agent', ids: [AGENT] }, (w) => {
-        w.agents[AGENT] = {
-          ...w.agents[AGENT]!,
-          state: item.type === 'plan_review' ? 'awaiting-plan-review' : 'awaiting-permission',
-          waitingOn: item.requestId,
-          pendingRequestIds: [item.requestId],
-        };
-      });
-    }
-  }, [deps, status, wait, documents]);
-
+    if (!wait) return;
+    const item = wait();
+    seed.transcripts[AGENT]!.items.push(item);
+    seed.world.agents[AGENT] = {
+      ...seed.world.agents[AGENT]!,
+      state: item.type === 'plan_review' ? 'awaiting-plan-review' : 'awaiting-permission',
+      waitingOn: item.requestId,
+      pendingRequestIds: [item.requestId],
+    };
+  };
   return (
     <div style={{ height: '100vh' }}>
-      <App deps={deps.deps} />
+      <FakeApp amend={amend} />
     </div>
   );
 }
