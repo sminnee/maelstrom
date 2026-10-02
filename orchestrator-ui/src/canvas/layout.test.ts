@@ -257,11 +257,17 @@ describe('worktree boxes in a project lane', () => {
   const emptyNames = ['charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliett'];
   const empty = emptyNames.map((n) => open(n, `empty-${n}`));
 
-  function laidOut(groupBy: GroupBy, worktrees = [...held, ...empty], agents: Agent[] = []) {
-    const graph = deriveGraph(worldWith({ tasks, worktrees, agents, desk: onDesk(tasks) }), {
-      groupBy,
-      filters: noFilters(),
-    });
+  function laidOut(
+    groupBy: GroupBy,
+    worktrees = [...held, ...empty],
+    agents: Agent[] = [],
+    laneTasks: Task[] = tasks,
+  ) {
+    const ids = laneTasks.map((t) => t.id);
+    const graph = deriveGraph(
+      worldWith({ tasks: laneTasks, worktrees, agents, desk: onDesk(laneTasks) }),
+      { groupBy, filters: noFilters() },
+    );
     const layout = layoutSwimlanes(graph);
     const cell = (id: string) => ({ ...layout.nodes[id]!, ...layout.nodeSize });
     const boxes = layout.worktreeBoxes['p1'] ?? [];
@@ -279,13 +285,15 @@ describe('worktree boxes in a project lane', () => {
     inner.x + inner.width <= outer.x + outer.width &&
     inner.y + inner.height <= outer.y + outer.height;
 
-  it('keeps the nodes of one worktree together, in the order of their oldest node', () => {
-    const { cell } = laidOut('project');
+  it('puts two boxes in disjoint columns side by side, on one row', () => {
+    const { cell, boxOf } = laidOut('project');
     const y = (id: string) => cell(id).y;
-    // bravo, then the node with no worktree, then alpha.
+    // bravo holds columns 0 and 1, and alpha holds column 2.
     expect(y('T4')).toBe(y('T1'));
-    expect(y('T1')).toBeLessThan(y('T2'));
-    expect(y('T2')).toBeLessThan(y('T3'));
+    expect(y('T3')).toBe(y('T4'));
+    expect(boxOf('alpha').y).toBe(boxOf('bravo').y);
+    // T2 has no box. Its column is in bravo, so it sits below bravo.
+    expect(y('T2')).toBeGreaterThan(y('T1'));
   });
 
   it('draws a box round the nodes of each worktree and round no other node', () => {
@@ -316,15 +324,51 @@ describe('worktree boxes in a project lane', () => {
     const last = boxOf('alpha');
     const lane = layout.groups['p1']!;
     expect(lane.width - inset - (last.x + last.width)).toBe(gap);
-    // T2 has no box and sits between the two boxes, the same gap from each.
+    expect(last.y - inset).toBe(gap);
+    // T2 has no box and sits one gap below bravo.
     expect(cell('T2').y - (box.y + box.height)).toBe(gap);
-    expect(last.y - (cell('T2').y + cell('T2').height)).toBe(gap);
-    // The lane ends one gap below its last box: the strip here, alpha with no strip.
+    // The lane ends one gap below what is lowest: the strip here, T2 with no strip.
     const bottom = (b: { y: number; height: number }) => b.y + b.height;
     const strip = laidOut('project').boxes.filter((b) => b.empty);
     expect(lane.height - inset - Math.max(...strip.map(bottom))).toBe(gap);
     const bare = laidOut('project', held);
-    expect(bare.layout.groups['p1']!.height - inset - bottom(bare.boxOf('alpha'))).toBe(gap);
+    expect(bare.layout.groups['p1']!.height - inset - bottom(bare.cell('T2'))).toBe(gap);
+  });
+
+  it('leaves one gap between two boxes in one column', () => {
+    const stacked = [
+      makeTask({ id: 'U1', project: 'p1', branch: 'a' }),
+      makeTask({ id: 'U2', project: 'p1', branch: 'b' }),
+    ];
+    const { layout, cell, boxOf } = laidOut('project', held, [], stacked);
+    const [upper, lower] = [boxOf('alpha'), boxOf('bravo')];
+    const gap = cell('U1').y - upper.y;
+    expect(upper.x).toBe(lower.x);
+    expect(lower.y - (upper.y + upper.height)).toBe(gap);
+    // The lane ends one gap below its last box.
+    const inset = 10;
+    expect(layout.groups['p1']!.height - inset - (lower.y + lower.height)).toBe(gap);
+  });
+
+  // No edge joins V1 and V3, and V2 is between them in age. Without the box,
+  // V2 takes the row between them.
+  it('keeps a node with no box out of a box of two rows', () => {
+    const column = [
+      makeTask({ id: 'V1', project: 'p1', branch: 'a' }),
+      makeTask({ id: 'V2', project: 'p1', branch: 'none' }),
+      makeTask({ id: 'V3', project: 'p1', branch: 'a' }),
+      makeTask({ id: 'V4', project: 'p1', branch: 'none' }),
+    ];
+    const { layout, cell, boxOf, inside } = laidOut('project', held, [], column);
+    const y = (id: string) => cell(id).y;
+    expect(inside('alpha')).toEqual(['V1', 'V3']);
+    expect(y('V2')).toBeGreaterThan(y('V3'));
+    // Inside the box and between two nodes with no box, the rows are the same distance apart.
+    const pitch = y('V4') - y('V2');
+    expect(pitch).toBeLessThan(y('V2') - y('V3'));
+    expect(y('V3') - y('V1')).toBe(pitch);
+    const pad = y('V1') - boxOf('alpha').y;
+    expect(boxOf('alpha').height).toBe(pitch + layout.nodeSize.height + pad * 2);
   });
 
   it('puts a node with no worktree in no box', () => {

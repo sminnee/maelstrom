@@ -69,6 +69,8 @@ const BOX_PAD = 16;
 /** A box with no node: wide enough for the longest NATO name, as high as its label. */
 const EMPTY_BOX = { width: 104, height: 24 };
 const EMPTY_GAP = 8;
+/** The occupant of a cell that holds a node with no worktree box. */
+const LOOSE = '';
 
 /**
  * Hand-rolled swimlanes. One band per group, stacked in group order. Inside a
@@ -141,44 +143,92 @@ export function layoutSwimlanes(graph: Graph): Layout {
         return [id, offsets[at.zone] + at.column];
       }),
     );
-    // A project lane stacks one section per worktree, each with rows of its
-    // own. Every other lane is one section.
-    const sections = new Map<Worktree | undefined, string[]>();
+    // One packing pass for the lane. In a project lane a node names its
+    // worktree as its box, so the nodes of one worktree pack as one block.
+    const boxOf = (id: string) => (boxed ? worktreeOf.get(id) : undefined);
+    const rowOf = assignRows(
+      group.nodeIds.map((id) => ({
+        id,
+        column: columnOf.get(id)!,
+        follows: followsOf.get(id) ?? [],
+        box: boxOf(id)?.id,
+      })),
+    );
+    // The cells of each worktree, in the order of their oldest node. A box is
+    // the rectangle of its nodes: the engine reserved every cell of it.
+    const held = new Map<Worktree, { columns: number[]; rows: number[] }>();
+    // What sits in each cell: a box, by worktree id, or a node with no box.
+    const occupants = new Map<string, string>();
+    const at = (row: number, column: number) => `${row}:${column}`;
+    let lastRow = -1;
     for (const id of group.nodeIds) {
-      const key = boxed ? worktreeOf.get(id) : undefined;
-      const ids = sections.get(key);
-      if (ids) ids.push(id);
-      else sections.set(key, [id]);
+      const row = rowOf.get(id)!;
+      const column = columnOf.get(id)!;
+      lastRow = Math.max(lastRow, row);
+      const worktree = boxOf(id);
+      if (!worktree) {
+        occupants.set(at(row, column), LOOSE);
+        continue;
+      }
+      const cells = held.get(worktree) ?? { columns: [], rows: [] };
+      cells.columns.push(column);
+      cells.rows.push(row);
+      held.set(worktree, cells);
     }
-    const boxes: WorktreeBox[] = [];
-    // A boxed lane starts one gap inside its border; its nodes are a second gap in.
+    const spans = [...held].map(([worktree, cells]) => ({
+      worktree,
+      left: Math.min(...cells.columns),
+      right: Math.max(...cells.columns),
+      first: Math.min(...cells.rows),
+      last: Math.max(...cells.rows),
+    }));
+    for (const span of spans) {
+      for (let row = span.first; row <= span.last; row += 1) {
+        for (let column = span.left; column <= span.right; column += 1) {
+          occupants.set(at(row, column), span.worktree.id);
+        }
+      }
+    }
+    // The y of each row. A row gap grows to hold the box borders that meet
+    // in it: the widest need of any column sets the gap for the whole lane.
     const edge = boxed ? LANE_INSET + BOX_PAD : pad;
     const top = header + edge;
-    let y = top;
-    for (const [worktree, ids] of sections) {
-      // A follows edge that crosses sections falls out as an unknown id, as a
-      // cross-lane edge does.
-      const rowOf = assignRows(
-        ids.map((id) => ({ id, column: columnOf.get(id)!, follows: followsOf.get(id) ?? [] })),
-      );
-      const columns = ids.map((id) => columnOf.get(id)!);
-      const rows = Math.max(...rowOf.values()) + 1;
-      const rowsHeight = rows * NODE.height + (rows - 1) * GAP_Y;
-      const rowsY = worktree ? y + BOX_PAD : y;
-      for (const id of ids) {
-        nodes[id] = {
-          x: columnX(columnOf.get(id)!),
-          y: rowsY + rowOf.get(id)! * (NODE.height + GAP_Y),
-        };
+    const rowY: number[] = [];
+    for (let row = 0; row <= lastRow; row += 1) {
+      let gap = row === 0 ? 0 : GAP_Y;
+      for (let column = 0; column < width; column += 1) {
+        const above = row === 0 ? undefined : occupants.get(at(row - 1, column));
+        const below = occupants.get(at(row, column));
+        if (above === below) continue;
+        const borders = [above, below].filter((o) => o !== undefined && o !== LOOSE).length;
+        if (borders === 0) continue;
+        // One more gap keeps a border clear of what sits on its other side.
+        const facing = above !== undefined && below !== undefined ? 1 : 0;
+        gap = Math.max(gap, (borders + facing) * BOX_PAD);
       }
-      const bottom = rowsY + rowsHeight + (worktree ? BOX_PAD : 0);
-      if (worktree) {
-        const left = columnX(Math.min(...columns)) - BOX_PAD;
-        const right = columnX(Math.max(...columns)) + NODE.width + BOX_PAD;
-        boxes.push({ worktree, empty: false, x: left, y, width: right - left, height: bottom - y });
-      }
-      y = bottom + BOX_PAD;
+      rowY.push(row === 0 ? top + gap : rowY[row - 1]! + NODE.height + gap);
     }
+    for (const id of group.nodeIds) {
+      nodes[id] = { x: columnX(columnOf.get(id)!), y: rowY[rowOf.get(id)!]! };
+    }
+    const boxes: WorktreeBox[] = spans.map(({ worktree, left, right, first, last }) => {
+      const x = columnX(left) - BOX_PAD;
+      const boxY = rowY[first]! - BOX_PAD;
+      return {
+        worktree,
+        empty: false,
+        x,
+        y: boxY,
+        width: columnX(right) + NODE.width + BOX_PAD - x,
+        height: rowY[last]! + NODE.height + BOX_PAD - boxY,
+      };
+    });
+    // Below the lowest node or box, one gap down.
+    const lowest = Math.max(
+      lastRow < 0 ? top - BOX_PAD : rowY[lastRow]! + NODE.height,
+      ...boxes.map((box) => box.y + box.height),
+    );
+    let y = lowest + BOX_PAD;
     // The strip of empty boxes: left to right between the edges a full box has.
     const stripLeft = edge;
     let x = stripLeft;
