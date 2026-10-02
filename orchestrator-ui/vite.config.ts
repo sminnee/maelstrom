@@ -8,6 +8,9 @@ const hmrPort = Number(process.env.FRONTEND_HMR_PORT) || undefined;
 // The orchestrator server behind `/api`: REST and the per-agent WebSockets.
 // Read here, not by the bundle, so the built app carries no address.
 const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:8765';
+// Vite answers 403 to a Host header it does not know, so the dev host must be allowed.
+const devHost = process.env.DEV_HOST;
+const allowedHosts = devHost ? [devHost] : undefined;
 // The change stream dials the orchestrator directly, so the dev server hands
 // the bundle its port. Set on `process.env` under vite's own `VITE_` prefix
 // rather than through `define`, which would rewrite `import.meta.env` for the
@@ -27,6 +30,7 @@ export default defineConfig(({ command }) => {
       // binding the tailnet alone would cost us localhost. This also serves
       // whatever wifi the machine joins — close that off at the firewall.
       host: true,
+      allowedHosts,
       port,
       strictPort: true,
       // Only the port here. HMR has no host of its own: the client dials the
