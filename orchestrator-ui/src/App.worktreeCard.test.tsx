@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { FakeServer } from './test/fakeServer';
+import type { FakeServer } from './fake/fakeServer';
 import { commandsSince, expanded, worktreeControls } from './test/appHelpers';
 import { useAppStore } from './store/store';
 import { clickNode, pressKey, renderApp } from './test/renderApp';

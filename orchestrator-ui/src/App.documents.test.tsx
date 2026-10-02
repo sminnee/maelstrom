@@ -2,17 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import {
-  addAttachedVerification,
-  addNote,
-  addPlan,
-  addTaskSet,
-  chipCount,
-  expanded,
-  tabBody,
-  tabStrip,
-  worktreeRow,
-} from './test/appHelpers';
+import { addAttachedVerification, addNote, addPlan, addTaskSet } from './fake/moves';
+import { chipCount, expanded, tabBody, tabStrip, worktreeRow } from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
 describe('document tabs', () => {
@@ -98,7 +89,7 @@ describe('review in a document tab', () => {
    * items seeded before it.
    *
    * The cause is not yet known. An earlier diagnosis blamed a snapshot/append
-   * race in `test/fakeServer.ts`; that is wrong, and is recorded here so it is
+   * race in `fake/fakeServer.ts`; that is wrong, and is recorded here so it is
    * not re-derived. `append` (`:236`) updates `server.transcripts` before it
    * emits, and the deferred open (`:220`) composes its snapshot from that same
    * transcript, so an append before the socket opens lands in both the

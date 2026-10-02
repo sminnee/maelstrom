@@ -3,7 +3,7 @@ import type { AttentionKind } from '../protocol/attention';
 import { attentionNodes, nextAttentionNode } from './attention';
 import { noFilters } from './filters';
 import { deriveGraph } from './graph';
-import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../fake/fixtures';
 
 /** A task on the desk whose turning agent holds one open item. */
 function asking(id: string, kind: AttentionKind, second: number) {

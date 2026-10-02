@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { Document } from '../protocol/documents';
-import { makeDocument } from '../test/fixtures';
+import { makeDocument } from '../fake/fixtures';
 import { ReviewActions } from './ReviewActions';
 
 function bar(status: Document['status']) {

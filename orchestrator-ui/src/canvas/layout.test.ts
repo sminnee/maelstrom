@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { layoutSwimlanes } from './layout';
 import { deriveGraph } from '../selectors/graph';
 import { noFilters } from '../selectors/filters';
-import { makeAgent, makeTask, makeWorktree, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeTask, makeWorktree, onDesk, worldWith } from '../fake/fixtures';
 import type { Agent, Task } from '../protocol/entities';
 
 function graphOf(tasks: Task[], agents: Agent[] = []) {

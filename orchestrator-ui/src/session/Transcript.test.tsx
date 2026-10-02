@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import { classifyToolCall } from './toolCards';
-import { makePlanReview } from '../test/fixtures';
+import { makePlanReview } from '../fake/fixtures';
 import { goldenItems } from '../test/goldens';
 import type { TranscriptItem } from '../protocol/transcript';
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { NodeState } from '../protocol/progress';
-import { makeAgent, makeTask, makeWorktree } from '../test/fixtures';
+import { makeAgent, makeTask, makeWorktree } from '../fake/fixtures';
 import { cardPr, type CardPrFacts } from './cardPr';
 
 const STARTED = '2026-09-21T10:00:00+00:00';

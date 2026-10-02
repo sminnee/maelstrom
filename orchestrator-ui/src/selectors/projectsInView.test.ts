@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { projectsInView } from './projectsInView';
 import { noFilters } from './filters';
-import { makeAgent, makeProject, makeTask, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeProject, makeTask, onDesk, worldWith } from '../fake/fixtures';
 
 describe('projectsInView', () => {
   /** A world whose every task is drawn, which is what the canvas shows. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
-import { makeTask } from '../test/fixtures';
+import { makeTask } from '../fake/fixtures';
 import { followsReach } from './follows';
 
 const byId = (tasks: Task[]) => Object.fromEntries(tasks.map((t) => [t.id, t]));

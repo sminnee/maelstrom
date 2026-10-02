@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { chipCount, endTurn, expanded, nodeState, unansweredCount } from './test/appHelpers';
+import { endTurn } from './fake/moves';
+import { chipCount, expanded, nodeState, unansweredCount } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the usage and agent chips', () => {

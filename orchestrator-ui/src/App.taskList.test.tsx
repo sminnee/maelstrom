@@ -4,7 +4,7 @@ import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { chipCount, nodeState, tabStrip } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
-import { seedWorld } from './test/seedWorld';
+import { seedWorld } from './fake/seedWorld';
 
 describe('the task list', () => {
   const goToList = async (user: ReturnType<typeof userEvent.setup>) => {

@@ -1,6 +1,6 @@
 import type { PanelTab } from '../store/uiSlice';
 import { documentTab, sessionTab } from '../selectors/tabs';
-import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../test/fixtures';
+import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../fake/fixtures';
 
 /**
  * Strips to look at without a server.
