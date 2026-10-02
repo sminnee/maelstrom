@@ -825,7 +825,7 @@ describe('the task list', () => {
     }
     await waitFor(() => expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0));
     // The two live agents still draw their nodes; NORT-7 has none.
-    expect(chipCount()).toBe(2);
+    await waitFor(() => expect(chipCount()).toBe(2));
   });
 
   it('the attention chip returns to the canvas and expands the node', async () => {
