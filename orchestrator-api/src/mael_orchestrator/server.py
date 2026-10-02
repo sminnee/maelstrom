@@ -514,8 +514,9 @@ class Orchestrator:
         """Run one worktree operation, which is a sequence of steps.
 
         Deliberately not ``_run``: worktree work touches git, ports and the
-        process table, never the notebook, so it must not queue behind a task
-        read on the index's one thread — a fetch takes seconds.
+        process table, so it must not queue behind a task read on the index's
+        one thread — a fetch takes seconds. Its one notebook write, the reopen
+        task of a forced close, is awaited on the loop and takes no thread.
 
         The pool it runs on is handed to the sequence when the operation is
         built, not applied here, because it is each blocking *step* that needs
@@ -2090,9 +2091,8 @@ class Orchestrator:
         first, so nothing is lost. The user takes that decision behind a
         confirm, which is why it is its own command.
 
-        It writes no reopen task: ``mael close --force`` creates one, and that
-        step lives in the CLI. A branch force-closed from the UI keeps its
-        commits and its pull request, but nothing points back at it.
+        The source writes a reopen task when the close went over unmerged
+        work, so the tasks are read again with the worktrees.
         """
         force_close = self.worktrees.force_close
         if force_close is None:
@@ -2114,6 +2114,7 @@ class Orchestrator:
             # ports, so the world is stale whichever way this ends.
             await self.refresh_worktrees()
             await self.refresh_agents()
+            await self.refresh_tasks(force=True)
         return {"ok": True, "result": {}}
 
     async def _trash_worktree(self, command: dict[str, Any]) -> dict[str, Any]:

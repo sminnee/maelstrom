@@ -5,13 +5,17 @@ import logging
 import os
 import re
 import signal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.types import SchemaTooOldError
+from mael_domain.task import list_tasks
+from mael_domain.task_table import InMemoryTaskTable
+from mael_domain.worktree import CloseResult
+from mael_domain.worktree_close import FullCloseResult
 from mael_orchestrator.cli import (
     DEFAULT_HOST,
     DEFAULT_LOG_LEVEL,
@@ -130,8 +134,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert open_wt.call_args.kwargs["base"] == "feat/base"
 
 
-def _worktree_source(tmp_path, monkeypatch) -> ListAllWorktreeSource:
-    """The worktree source ``build_orchestrator`` wires."""
+def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:
+    """The worktree source ``build_orchestrator`` wires, over ``table``."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
     from types import SimpleNamespace
 
@@ -140,7 +144,10 @@ def _worktree_source(tmp_path, monkeypatch) -> ListAllWorktreeSource:
             "mael_orchestrator.cli.load_global_config",
             return_value=SimpleNamespace(projects_dir=tmp_path),
         ),
-        patch("mael_orchestrator.cli.SqliteTaskTable"),
+        patch(
+            "mael_orchestrator.cli.SqliteTaskTable",
+            **({} if table is None else {"return_value": table}),
+        ),
         patch("mael_orchestrator.cli.open_state_db"),
     ):
         worktrees = build_orchestrator().worktrees
@@ -166,6 +173,54 @@ def test_the_terminal_ports_outside_cmux(tmp_path, monkeypatch):
     with pytest.raises(CloseBlocked, match="cmux could not make the terminal"):
         worktrees.ensure_terminal("northwind", "alpha", "/p")
     assert worktrees.terminal_urls([("northwind", "alpha")]) == {}
+
+
+def _force_close(worktrees: ListAllWorktreeSource, *, had_unmerged_work: bool) -> None:
+    """Force close alpha, with the teardown itself standing in as a success."""
+    closed = FullCloseResult(
+        close=CloseResult(
+            success=True,
+            message="Worktree closed",
+            branch="feat/orders",
+            had_unmerged_work=had_unmerged_work,
+        )
+    )
+    assert worktrees.force_close is not None
+    with patch(
+        "mael_orchestrator.cli.close_worktree_fully", new=AsyncMock(return_value=closed)
+    ):
+        asyncio.run(worktrees.force_close("northwind", "alpha", "/p"))
+
+
+def test_a_force_close_over_unmerged_work_writes_a_reopen_task(tmp_path, monkeypatch):
+    table = InMemoryTaskTable()
+    _force_close(_worktree_source(tmp_path, monkeypatch, table), had_unmerged_work=True)
+
+    [task] = asyncio.run(list_tasks(table, project="northwind"))
+    assert task.title == "Reopen feat/orders"
+    assert task.command == "reopen-branch"
+    assert task.branch == "feat/orders"
+
+
+def test_a_force_close_with_nothing_unmerged_writes_no_task(tmp_path, monkeypatch):
+    table = InMemoryTaskTable()
+    _force_close(
+        _worktree_source(tmp_path, monkeypatch, table), had_unmerged_work=False
+    )
+
+    assert asyncio.run(list_tasks(table, project="northwind")) == []
+
+
+def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
+    tmp_path, monkeypatch
+):
+    # The worktree is closed by then. Raising would report that close as failed.
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    with patch(
+        "mael_orchestrator.cli.add_reopen_task",
+        new=AsyncMock(side_effect=OSError("disk full")),
+    ):
+        _force_close(worktrees, had_unmerged_work=True)
 
 
 @pytest.mark.usefixtures("migrated_notebook")

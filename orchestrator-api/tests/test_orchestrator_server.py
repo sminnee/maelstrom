@@ -5585,6 +5585,24 @@ def test_force_closing_a_worktree_asks_the_source_and_refreshes_the_world(harnes
     assert worktrees["worktrees"][0]["isClosed"] is True
 
 
+def test_a_force_close_reads_the_tasks_again(harness):
+    """A forced close can write a reopen task, so the client must see one."""
+
+    async def force_close(project: str, nato: str, path: str) -> None:
+        await model.create(harness.store, project=project, title="Reopen feat/orders")
+
+    harness.worktrees.force_close = force_close
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/force-close")
+            return reply, await api.get_json("/api/tasks")
+
+    reply, tasks = run(scenario())
+    assert reply.status == 200
+    assert [task["title"] for task in tasks["tasks"]] == ["Reopen feat/orders"]
+
+
 def test_a_refused_force_close_says_what_the_model_said(harness):
     def force_close(project: str, nato: str, path: str) -> None:
         raise CloseBlocked("Could not commit the work in progress")

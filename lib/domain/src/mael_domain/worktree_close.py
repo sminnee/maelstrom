@@ -26,10 +26,12 @@ from pathlib import Path
 
 from mael_agent.agent_stop import stop_agents_in_worktree
 
+from . import task as task_model
 from .cmux import mael_layout
 from .env import ServiceStatus, get_env_status, stop_env, stop_sessions
 from .env_store import JsonEnvStore
 from .session_discovery import LiveSession, LiveSessionSet
+from .task_table import TaskTable
 from .worktree import (
     CloseResult,
     close_worktree,
@@ -163,6 +165,36 @@ def teardown_steps(
         Step(name="stop_agents", run=agents, scopes=(Scope.WORKTREE,)),
         Step(name="stop_sessions", run=sessions, scopes=(Scope.WORKTREE,)),
     ]
+
+
+async def add_reopen_task(
+    table: TaskTable, project: str, result: CloseResult
+) -> task_model.Task | None:
+    """Write the task that reopens a branch a forced close left behind.
+
+    A forced close keeps the branch and its pull request, but nothing points
+    back at them. The task does. It is written only when the close went over
+    unmerged work, and only for a real branch: a worktree that was already
+    detached reports ``HEAD``. Returns the task, or ``None`` when none is due.
+    """
+    if not (result.success and result.had_unmerged_work):
+        return None
+    if not result.branch or result.branch == "HEAD":
+        return None
+    return await task_model.create(
+        table,
+        project=project,
+        title=f"Reopen {result.branch}",
+        command="reopen-branch",
+        branch=result.branch,
+        priority=task_model.DEFAULT_PRIORITY,
+        content=(
+            f"`{result.branch}` was force-closed with unmerged work (any "
+            f"uncommitted changes were saved as a `wip: uncommitted changes` "
+            f"commit). Reopening restores the worktree; review the PR and env "
+            f"to decide what's left, and unwind the wip commit if there was one."
+        ),
+    )
 
 
 async def close_worktree_fully(
