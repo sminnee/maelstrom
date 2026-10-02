@@ -23,6 +23,21 @@
   opacity: 0.6;
 }
 /*
+ * A partial message: a caret at the end of the last block, never on a line of
+ * its own. No blink: the text itself moves a few times a second.
+ */
+.message[data-partial] > div > :last-child:not(ul, ol, pre, table)::after,
+.message[data-partial] > div > :is(ul, ol):last-child > li:last-child::after,
+.message[data-partial] > div > pre:last-child > code::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--fg-faint);
+}
+/*
  * Closed, no chrome at all: a rule under the row was still a line the eye had to
  * dismiss on every call, and a run of them read as ruled paper. What separates a
  * tool call from the prose around it is tone, not structure — the whole row sits

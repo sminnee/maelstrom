@@ -32,6 +32,25 @@ const ran = (tool: string, input: Record<string, unknown>, minute: number, outpu
     output,
   }) satisfies TranscriptItem;
 
+/**
+ * A turn caught while the agent writes its answer. The last item is a partial
+ * message, cut where a chunk would cut it: inside a list item.
+ */
+export const partialTranscript: TranscriptItem[] = [
+  say('Why does the index read stale rows after a rebase?', 30, 'user'),
+  ran('Bash', { description: 'Read the index reader', command: 'sed -n 1,80p task_index.py' }, 30),
+  {
+    ...say(
+      'The reader trusts the stamp, and a rebase moves HEAD without moving the stamp.\n\n' +
+        'Two things follow:\n\n' +
+        '- every row the rebase rewrote keeps its old metadata\n' +
+        '- the next scan sees a matching stamp and',
+      31,
+    ),
+    partial: true,
+  },
+];
+
 /** Prose and tool calls interleaved: the case the panel is built around. */
 export const mixedTranscript: TranscriptItem[] = [
   say('Let me check what the userforms model actually carries before I plan the import.', 9),

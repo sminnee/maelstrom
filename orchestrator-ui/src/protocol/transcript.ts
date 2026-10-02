@@ -19,6 +19,11 @@ export interface MessageItem extends Base {
   markdown: string;
   /** Shown before the daemon's own echo confirms the turn reached the agent. */
   pending?: true;
+  /**
+   * A partial message: the agent is still writing it, and `markdown` is the
+   * text so far. The update that ends it sets this `false`.
+   */
+  partial?: boolean;
 }
 
 export type ToolCallStatus = 'pending' | 'running' | 'done' | 'error' | 'denied';

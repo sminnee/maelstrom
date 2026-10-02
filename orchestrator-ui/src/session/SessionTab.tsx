@@ -115,12 +115,18 @@ export function SessionTab({
   const deferred =
     !!agent?.pendingRequestIds.length && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
 
+  // A partial message grows without adding an item, so its length is the
+  // second thing the follow watches. It is not always the last item: a message
+  // sent while the agent writes lands after it.
+  const growing = transcript.items.findLast((i) => i.type === 'message' && i.partial);
+  const tailLength = growing?.type === 'message' ? growing.markdown.length : 0;
+
   // Keyed on the whole transcript's length, never on the drawn slice's: the
   // slice would scroll the reader to the bottom on every Show more.
   useEffect(() => {
     if (!following.current) return;
     bottom.current?.scrollIntoView?.({ block: 'end' });
-  }, [count]);
+  }, [count, tailLength]);
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
   // Where the agent runs, what it runs on, how full its context is and what

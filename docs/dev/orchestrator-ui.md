@@ -467,7 +467,20 @@ The transcript follows the tail only when the reader already sits at it. The scr
 that into a ref, rather than the render path, where the new event is already in the layout and
 every reader would measure as being at the bottom. It allows a few pixels of slack: sub-pixel
 rounding leaves a fully scrolled container a fraction short, and an exact test stops the
-transcript following. A new event no longer drags a reader away from the history they are reading.
+transcript following. A new event does not drag a reader away from the history they are reading.
+
+A partial message is a `message` item with `partial: true`; see "A partial message" in
+[orchestrator-server.md](orchestrator-server.md). The session tab draws it as follows:
+
+- `AgentMessage` marks the card `data-partial`, and the stylesheet draws a caret at the end of
+  its last block.
+- The scroll effect also keys on the length of the partial message, because it grows and adds no
+  item. It is not always the last item: a message sent while the agent writes lands after it.
+- `MarkdownContent` is memoised on its source, so an unchanged card skips the markdown parse.
+- `recentMessages` skips a partial message, so the node card and the decision card show whole
+  messages.
+- A message that opens with `<user-attention low>` grows inside a quiet block clamped to two
+  lines, so most of its growth is hidden.
 
 The scroll effect keys on the whole transcript's length, never on the drawn slice's. Keying on
 the slice would scroll the reader to the bottom on every Show more, which is what the click asked
