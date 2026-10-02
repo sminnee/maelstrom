@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ImageLightbox } from '../ui/ImageLightbox';
@@ -59,7 +60,11 @@ function isVideo(src: string): boolean {
   return VIDEO_PATH.test(src.split(/[?#]/, 1)[0] ?? '');
 }
 
-function MarkdownContent({ source }: { source: string }) {
+/**
+ * Memoised on its one prop. A partial message re-renders the transcript a few
+ * times a second, and a card whose text did not change skips the parse.
+ */
+const MarkdownContent = memo(function MarkdownContent({ source }: { source: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -85,7 +90,7 @@ function MarkdownContent({ source }: { source: string }) {
       {source}
     </ReactMarkdown>
   );
-}
+});
 
 /** Render agent markdown, including its user-attention ranks. */
 export function Markdown({

@@ -10,6 +10,7 @@ import {
   markdownSample,
   milestoneRun,
   mixedTranscript,
+  partialTranscript,
 } from './transcript.fixture';
 import { Transcript } from './Transcript';
 
@@ -41,6 +42,18 @@ function Panel({ width = 460, children }: { width?: number; children: React.Reac
 export const Mixed: Story = () => (
   <Panel>
     <Transcript items={mixedTranscript} truncatedBefore={false} />
+  </Panel>
+);
+
+/**
+ * A partial message at the tail.
+ *
+ * Check: the caret sits at the end of the last list item and not on a line of
+ * its own, and it reads as "more is coming" without competing with the prose.
+ */
+export const Partial: Story = () => (
+  <Panel>
+    <Transcript items={partialTranscript} truncatedBefore={false} />
   </Panel>
 );
 

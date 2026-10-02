@@ -594,6 +594,79 @@ describe('following the transcript', () => {
   });
 });
 
+describe('a partial message', () => {
+  const partial = (markdown: string) => ({
+    id: 'd9a4c7f1-partial',
+    ts: '',
+    type: 'message' as const,
+    role: 'assistant' as const,
+    markdown,
+    partial: true,
+  });
+
+  it('grows in one card, and the reader at the tail follows it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const tab = await openTaskSession(user);
+    await settleOnSeed();
+
+    server.append('d9a4c7f1', partial('The index'));
+    const card = (await within(tab).findByText('The index')).closest<HTMLElement>(
+      '[data-testid="transcript-card"]',
+    )!;
+    expect(card.querySelector('[data-partial]')).not.toBeNull();
+
+    // The count of items does not change while a message grows, so the
+    // follow cannot key on it alone. Away from the tail first, as above.
+    const scrolled = watchScroll();
+    scrollTranscriptTo('up');
+    server.patch('d9a4c7f1', 'd9a4c7f1-partial', { markdown: 'The index is half built' });
+    await within(card).findByText('The index is half built');
+    expect(scrolled).not.toHaveBeenCalled();
+
+    scrollTranscriptTo('bottom');
+    server.patch('d9a4c7f1', 'd9a4c7f1-partial', {
+      markdown: 'The index is built and the query uses it',
+      partial: false,
+    });
+    await within(card).findByText('The index is built and the query uses it');
+    expect(scrolled).toHaveBeenCalled();
+    expect(card.isConnected).toBe(true);
+    expect(card.querySelector('[data-partial]')).toBeNull();
+    expect(drawnRows()).toHaveLength(SEEDED_ITEMS + 1);
+  });
+});
+
+describe('a partial message under a later item', () => {
+  it('is still followed, because a message sent while the agent writes lands after it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const tab = await openTaskSession(user);
+    await settleOnSeed();
+    const said = { ts: '', type: 'message' as const };
+    server.append('d9a4c7f1', {
+      ...said,
+      id: 'd9a4c7f1-partial',
+      role: 'assistant',
+      markdown: 'The index',
+      partial: true,
+    });
+    server.append('d9a4c7f1', {
+      ...said,
+      id: 'd9a4c7f1-typed',
+      role: 'user',
+      markdown: 'And the query?',
+    });
+    await within(tab).findByText('And the query?');
+
+    const scrolled = watchScroll();
+    scrollTranscriptTo('bottom');
+    server.patch('d9a4c7f1', 'd9a4c7f1-partial', { markdown: 'The index is half built' });
+    await within(tab).findByText('The index is half built');
+    expect(scrolled).toHaveBeenCalled();
+  });
+});
+
 describe('sending a message', () => {
   it('shows the message at once, before the `say` POST even resolves', async () => {
     const user = userEvent.setup();

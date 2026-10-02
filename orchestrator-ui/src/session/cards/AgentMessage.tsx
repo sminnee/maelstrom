@@ -8,7 +8,12 @@ import styles from './cards.module.css';
  */
 export function AgentMessage({ item }: { item: MessageItem }) {
   return (
-    <div className={styles.message} data-role={item.role} data-pending={item.pending || undefined}>
+    <div
+      className={styles.message}
+      data-role={item.role}
+      data-pending={item.pending || undefined}
+      data-partial={item.partial || undefined}
+    >
       {item.role === 'user' && <span className="srOnly">you</span>}
       <Markdown source={item.markdown} />
     </div>

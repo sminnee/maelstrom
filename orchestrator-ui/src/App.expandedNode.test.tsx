@@ -569,6 +569,33 @@ describe('how long since the agent spoke', () => {
 });
 
 describe('what an unanswered agent last said', () => {
+  it('leaves a partial message out of its recent messages', async () => {
+    const { server } = await renderApp();
+    const said = { ts: '', type: 'message' as const, role: 'assistant' as const };
+    server.append('c3e8f1b5', { ...said, id: 'c3e8f1b5-whole', markdown: 'The tests pass.' });
+    server.append('c3e8f1b5', {
+      ...said,
+      id: 'c3e8f1b5-partial',
+      markdown: 'The restamp is half',
+      partial: true,
+    });
+    act(() => endTurn(server));
+    clickNode('MAEL-40.1');
+
+    const list = await within(expanded()).findByTestId('recent-messages');
+    expect(list).toHaveTextContent('The tests pass.');
+    expect(list).not.toHaveTextContent('The restamp is half');
+
+    // The same item, once the message is whole.
+    act(() =>
+      server.patch('c3e8f1b5', 'c3e8f1b5-partial', {
+        markdown: 'The restamp is written.',
+        partial: false,
+      }),
+    );
+    await waitFor(() => expect(list).toHaveTextContent('The restamp is written.'));
+  });
+
   it('shows its recent messages in place of the one-line Now block', async () => {
     const { server } = await renderApp();
     server.append('c3e8f1b5', {
