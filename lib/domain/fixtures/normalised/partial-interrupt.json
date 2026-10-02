@@ -1,0 +1,100 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5-5",
+        "permissionMode": "auto",
+        "waitingOn": "",
+        "lastMessage": "`echo start` ran and printed `start`. The essay follows. # T",
+        "lastMessageAt": "2026-10-02T07:15:28.536Z",
+        "lastNote": "",
+        "lastNoteAt": "",
+        "startedAt": "",
+        "costUsd": 0.1193968,
+        "totalTokens": 30321,
+        "subagentTokens": 0,
+        "contextTokens": 30351,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null,
+        "backgroundShells": []
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "d56b8ab1-1b72-4b6f-8a44-8b8a261d4d05",
+          "model": "claude-opus-5-5",
+          "id": "ag1-1",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "First run the Bash tool with: echo start. Then write an 800 word essay in markdown about the history of the bicycle.",
+          "id": "ag1-2",
+          "ts": "2026-10-02T07:15:15.780Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01QpeMoCFLpuiXt23quabNhr",
+          "tool": "Bash",
+          "input": {
+            "command": "echo start",
+            "description": "Print the word start"
+          },
+          "status": "done",
+          "id": "toolu_01QpeMoCFLpuiXt23quabNhr",
+          "ts": "2026-10-02T07:15:17.942Z",
+          "output": "start"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "<user-attention high>\n`echo start` ran and printed `start`. The essay follows.\n\n# The History of the Bicycle\n\nThe bicycle looks like an obvious machine: two wheels, a frame, a chain and a pair of pedals. Yet it took most of the nineteenth century to arrive at that arrangement, and each step came from a different inventor solving a different problem.\n\n## The running machine\n\nThe story usually begins in 1817 in Mannheim, Germany, with Baron Karl von Drais. His *Laufmaschine*, or \"running machine\", had two wooden wheels in line, a steerable front wheel and a padded seat. It had no pedals. The rider pushed along the ground with their feet, as a child does on a modern balance bike.\n\nOne popular account links the invention to the \"year without a summer\" of 1816, when crop failures after the eruption of Mount Tambora killed many horses, though historians dispute how direct that link was. Drais's machine, called the draisine or hobby horse, became a brief fashion in Paris and London. It then faded, partly because riders took to the smooth pavements and cities banned them.\n\nIts lasting contribution was a discovery, not a product: a person can balance on two wheels in line by steering.\n\n## Pedals and the boneshaker\n\nThe next step was to take the rider's feet off the ground. In the 1860s, Parisian workshops attached cranks and pedals directly to the front wheel. Credit is contested between Pierre Michaux, his son Ernest and their employee Pierre Lallement, who took out an American patent in 1866.\n\nThe result was the velocipede. With iron-rimmed wooden wheels on cobblestones, it earned the nickname \"boneshaker\". The Michaux company produced it in quantity, and a real craze followed, with riding schools and races. The Franco-Prussian War of 1870 ended French leadership in the trade, and the centre of development moved to England.\n\n## The high wheeler\n\nA direct-drive machine has a simple limit: one turn of the pedals is one turn of the wheel. The only way to go faster is a larger wheel. Through the 1870s the",
+          "partial": false,
+          "id": "ag1-3",
+          "ts": "2026-10-02T07:15:28.536Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "[Request interrupted by user]",
+          "id": "ag1-4",
+          "ts": "2026-10-02T07:15:28.538Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "error_during_execution",
+          "costUsd": 0.1193968,
+          "durationMs": 12772,
+          "id": "ag1-5",
+          "ts": "2026-09-02T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}

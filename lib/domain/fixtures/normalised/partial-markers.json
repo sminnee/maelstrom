@@ -1,0 +1,114 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5-5",
+        "permissionMode": "auto",
+        "waitingOn": "",
+        "lastMessage": "All true tea comes from one plant, *Camellia sinensis*. The ",
+        "lastMessageAt": "2026-10-02T07:14:02.379Z",
+        "lastNote": "writing about tea",
+        "lastNoteAt": "2026-10-02T07:14:02.379Z",
+        "startedAt": "",
+        "costUsd": 0.1356986,
+        "totalTokens": 61362,
+        "subagentTokens": 0,
+        "contextTokens": 30578,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null,
+        "backgroundShells": []
+      }
+    },
+    "documents": {
+      "ag1-5": {
+        "id": "ag1-5",
+        "agentId": "ag1",
+        "taskId": "NORT-7",
+        "kind": "other",
+        "title": "Demo",
+        "markdown": "`.drafts/demo.md` could not be read.\n\nThe agent named it, and it is not a readable file in `/Users/dev/Projects/northwind/northwind-alpha`.",
+        "version": 1,
+        "status": "draft",
+        "source": {
+          "type": "draft_file",
+          "fileId": null,
+          "filename": ".drafts/demo.md"
+        },
+        "group": {
+          "id": "ag1-4",
+          "title": "Demo",
+          "position": 0
+        }
+      }
+    },
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "d9464497-98ac-4143-822b-261b8d49584f",
+          "model": "claude-opus-5-5",
+          "id": "ag1-1",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "First write the file .drafts/demo.md containing a two line markdown note about tea, using the Write tool. Then reply with one message of about 120 words about tea that contains, in this order: a <note> marker saying 'writing about tea', two paragraphs, a <doc-file> marker for .drafts/demo.md with kind other and title Demo, then a <user-attention low> tag followed by one more paragraph.",
+          "id": "ag1-2",
+          "ts": "2026-10-02T07:13:54.784Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01TgAd55WtT7EHtk4wmRMYTC",
+          "tool": "Write",
+          "input": {
+            "file_path": "/private/tmp/claude-501/clean/.drafts/demo.md",
+            "content": "Tea is an infusion of *Camellia sinensis* leaves, and how far the leaves are oxidised decides whether it ends up green, oolong, or black.\nWater temperature matters: about 80°C for green tea, a full boil for black.\n"
+          },
+          "status": "done",
+          "id": "toolu_01TgAd55WtT7EHtk4wmRMYTC",
+          "ts": "2026-10-02T07:13:58.423Z",
+          "output": "File created successfully at: /private/tmp/claude-501/clean/.drafts/demo.md (file state is current in your context — no need to Read it back)"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "<user-attention high>\n\nAll true tea comes from one plant, *Camellia sinensis*. The difference between green, oolong and black tea is how long the picked leaves are left to oxidise before heat stops the process. Green tea is heated almost at once, so it stays grassy and pale. Black tea is fully oxidised, which gives it a darker colour and a malty taste.\n\nBrewing matters as much as the leaf. Green tea turns bitter in boiling water and does best at about 80°C for two minutes. Black tea needs a full boil and three to five minutes.\n\n<user-attention low>\nHerbal infusions such as peppermint, chamomile and rooibos contain no tea leaf, so they are strictly tisanes and have no caffeine.",
+          "partial": false,
+          "id": "ag1-3",
+          "ts": "2026-10-02T07:14:02.379Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.1356986,
+          "durationMs": 7636,
+          "id": "ag1-7",
+          "ts": "2026-09-02T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}

@@ -388,6 +388,7 @@ def document_row(doc: Document) -> DocumentRow:
 
 #: A render-ready transcript item. The variants are in ``transcript.ts``; the
 #: server treats them as dicts keyed by ``type``.
+#: An assistant ``message`` may carry ``partial``; ``transcript.ts`` says what it means.
 TranscriptItem = dict[str, Any]
 
 

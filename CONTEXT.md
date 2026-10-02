@@ -510,6 +510,12 @@ One thing a driven agent said, in its own words. Text blocks only — a `thinkin
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
 only the last message, so `mael agent list` and `mael agent show` answer without reading a file.
 
+**Partial message**:
+The text of an Agent message so far, while the agent writes it. The daemon sends it as chunks,
+one `stream_event` line each. Only the session tab draws one, and no tag in it has an effect
+until the message is complete.
+_Avoid_: Delta, streamed message, draft
+
 **Loaded skill**:
 The whole skill file, injected as a user turn when an agent loads a skill. It is not something
 the user said, so the transcript folds it under the skill's name rather than showing the file.

@@ -14,11 +14,13 @@ The TypeScript module is the reference; see "Normaliser parity" in
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from mael_agent.agent_wire import (
     PLAN_TOOL,
     QUESTION_TOOL,
+    STREAM_EVENT,
     TS_KEY,
     context_of,
     from_wire_mode,
@@ -32,6 +34,7 @@ from .document_tags import (
     ImageTag,
     MediaRef,
     not_shown,
+    partial_text,
     read_tags,
     read_worktree_file,
     replace_media,
@@ -132,6 +135,30 @@ class PendingContext:
     document_id: str | None
 
 
+#: How long a partial message waits between two refreshes.
+PARTIAL_REFRESH_SECS = 1 / 3
+
+
+@dataclass(frozen=True)
+class PartialMessage:
+    """The message the agent is writing now, as far as its chunks have come.
+
+    ``message_id`` is the id ``message_start`` gave. The whole message arrives
+    under the same id, and takes ``item_id`` instead of a new one.
+    """
+
+    message_id: str
+    #: The text block the chunks belong to, or ``None`` between blocks.
+    index: int | None = None
+    #: The block's raw text so far, markers and all.
+    text: str = ""
+    #: The transcript item that shows it, or ``""`` while nothing has shown.
+    item_id: str = ""
+    #: What that item shows, and when it was last sent.
+    shown: str = ""
+    shown_at: str = ""
+
+
 @dataclass(frozen=True)
 class NormaliseContext:
     """What the normaliser remembers between events for one agent.
@@ -162,6 +189,8 @@ class NormaliseContext:
     #: Whether the last turn ended with a ``result``. A subagent's ask can
     #: arrive after it, and its answer must not reopen the turn.
     turn_ended: bool = False
+    #: The partial message on screen, if the agent is writing one.
+    partial: PartialMessage | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +271,22 @@ def apply_agent_detail(
         _dict(detail.get("waiting_input")),
         _str(detail.get("waiting_on")),
     )
+    return out.done()
+
+
+def close_partial_message(
+    state: ClientState, ctx: NormaliseContext, now: str
+) -> Normalised:
+    """The events that end the partial message on screen, keeping its text.
+
+    For an attach stream that stops with no exit marker. The next attach gets
+    a new context and replays no chunk, so nothing later could close the item.
+    """
+    agent = state["world"]["agents"].get(ctx.agent_id)
+    if agent is None:
+        return Normalised([], ctx)
+    out = _Emitter(state, agent, ctx, now)
+    out.close_partial()
     return out.done()
 
 
@@ -330,6 +375,9 @@ def normalise_stream_event(
     served by id later. A caller that passes none gets a registry of its own
     and the ids go nowhere, which is what a golden wants.
 
+    A ``stream_event`` is a chunk of a message the agent is still writing. It
+    moves the transcript and nothing else: see :func:`_partial_chunk`.
+
     ``replay`` marks an event from the backlog an attach replays rather than a
     live one. A running total must not add such a turn: the host counted it
     before it handed over the row the total was seeded from. Only a total is
@@ -354,7 +402,10 @@ def normalise_stream_event(
     )
     kind = raw.get("type")
 
-    if kind == "codex_raw":
+    if kind == STREAM_EVENT:
+        if not is_child:
+            _partial_chunk(out, _dict(raw.get("event")))
+    elif kind == "codex_raw":
         # Codex has a richer event vocabulary than the Claude stream-json
         # protocol. Keep an unsupported record visible instead of discarding
         # it while the two formats are brought into parity.
@@ -531,9 +582,28 @@ def normalise_stream_event(
                     else None
                 )
                 text = tagged.text if tagged else _str(block["text"])
-                item_id = out.append(
-                    {"type": "message", "role": "assistant", "markdown": text}
-                )
+                partial = out.ctx.partial
+                message_id = _str(_dict(raw.get("message")).get("id"))
+                if partial and partial.item_id and partial.message_id == message_id:
+                    # The partial message on screen is this one. It becomes the
+                    # whole message in place, and takes the time the whole
+                    # message has, as an item appended now would.
+                    out.update(
+                        partial.item_id,
+                        {
+                            "markdown": text,
+                            "partial": False,
+                            "ts": out.event_ts or out.now,
+                        },
+                    )
+                    out.ctx = replace(
+                        out.ctx, partial=PartialMessage(message_id=message_id)
+                    )
+                else:
+                    out.close_partial()
+                    out.append(
+                        {"type": "message", "role": "assistant", "markdown": text}
+                    )
                 if tagged:
                     for tag in tagged.tags:
                         out.tagged_document(tag, read_file)
@@ -611,6 +681,9 @@ def normalise_stream_event(
             out.response(request_id, _dict(response.get("response")))
 
     elif kind == "result":
+        # A turn that ended with no whole message: an interrupt the child did
+        # not answer with one.
+        out.close_partial()
         out.append(
             {
                 "type": "turn_result",
@@ -632,6 +705,74 @@ def normalise_stream_event(
         )
 
     return out.done()
+
+
+def _partial_chunk(out: "_Emitter", chunk: Dict) -> None:
+    """One chunk of the message the agent is writing, into its partial message.
+
+    Emits transcript events only. The rules are in
+    ``docs/dev/orchestrator-server.md``, "A partial message".
+    """
+    kind = chunk.get("type")
+    if kind == "message_start":
+        out.close_partial()
+        message_id = _str(_dict(chunk.get("message")).get("id"))
+        out.ctx = replace(out.ctx, partial=PartialMessage(message_id=message_id))
+        return
+    partial = out.ctx.partial
+    index = chunk.get("index")
+    if partial is None or not isinstance(index, int):
+        return
+    if kind == "content_block_start":
+        out.close_partial()
+        is_text = _dict(chunk.get("content_block")).get("type") == "text"
+        out.ctx = replace(
+            out.ctx,
+            partial=PartialMessage(
+                message_id=partial.message_id, index=index if is_text else None
+            ),
+        )
+        return
+    delta = _dict(chunk.get("delta"))
+    if kind != "content_block_delta" or delta.get("type") != "text_delta":
+        return
+    if index != partial.index:
+        return
+    partial = replace(partial, text=partial.text + _str(delta.get("text")))
+    now = out.now
+    if not partial.item_id:
+        shown = partial_text(partial.text)
+        if shown:
+            item_id = out.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "markdown": shown,
+                    "partial": True,
+                }
+            )
+            partial = replace(partial, item_id=item_id, shown=shown, shown_at=now)
+    elif _due(partial.shown_at, now):
+        # The clock first: the scrub reads the whole text, and most chunks
+        # arrive between two refreshes.
+        shown = partial_text(partial.text)
+        if shown != partial.shown:
+            out.update(partial.item_id, {"markdown": shown})
+            partial = replace(partial, shown=shown, shown_at=now)
+    out.ctx = replace(out.ctx, partial=partial)
+
+
+def _due(last: str, now: str) -> bool:
+    """Whether a partial message last refreshed at ``last`` may refresh at ``now``.
+
+    Two clock readings that will not parse are not a reason to hide the text,
+    so they read as due.
+    """
+    try:
+        elapsed = datetime.fromisoformat(now) - datetime.fromisoformat(last)
+    except ValueError:
+        return True
+    return elapsed.total_seconds() >= PARTIAL_REFRESH_SECS
 
 
 def _state_after_turn(ctx: NormaliseContext) -> str:
@@ -675,6 +816,7 @@ def mark_exited(
     if agent is None:
         return Normalised([], ctx)
     out = _Emitter(state, agent, ctx, now)
+    out.close_partial()
     out.end_every_wait()
     # The shells died with the process.
     out.ctx = replace(out.ctx, shells_running=False)
@@ -792,6 +934,19 @@ class _Emitter:
                 "patch": patch,
             }
         )
+
+    def close_partial(self) -> None:
+        """End the partial message on screen, keeping the text it has.
+
+        For a message that will not arrive whole. One that does is closed by
+        the ``assistant`` branch, under the same id.
+        """
+        partial = self.ctx.partial
+        if partial is None:
+            return
+        if partial.item_id:
+            self.update(partial.item_id, {"partial": False})
+        self.ctx = replace(self.ctx, partial=None)
 
     def agent(self, patch: Dict) -> None:
         if self.message_only:
