@@ -6,9 +6,29 @@ import type { FileDiff } from './protocol/entities';
 import { expanded } from './test/appHelpers';
 import type { FakeServer } from './test/fakeServer';
 import { clickNode, renderApp } from './test/renderApp';
+import type * as DiffSign from './ui/diffSign';
 
 /** NORT-12's agent runs in delta, so its expanded node reaches delta's changes. */
 const DELTA = 'northwind-delta';
+
+/**
+ * How many times `SIGN` was read. `DiffRow` reads it once per render, so one
+ * read is one draw. `placeOf` and `spanOf` read it once per row they scan, so
+ * the count also sees a search for a comment's place. Production code has no
+ * hook that counts a render.
+ */
+const draws = vi.hoisted(() => ({ count: 0 }));
+vi.mock('./ui/diffSign', async (importOriginal) => {
+  const real = await importOriginal<typeof DiffSign>();
+  const SIGN = new Proxy(real.SIGN, {
+    get(target, key, receiver) {
+      draws.count += 1;
+      return Reflect.get(target, key, receiver) as unknown;
+    },
+  });
+  return { ...real, SIGN };
+});
+
 const SHA = 'c0ffee1234567890c0ffee1234567890c0ffee12';
 const LATER_SHA = 'decade1234567890decade1234567890decade12';
 
@@ -544,6 +564,17 @@ describe('change comments', () => {
     expect(screen.queryByRole('region', { name: 'Change comments' })).toBeNull();
   });
 
+  it('draws a comment under edit once, when its box moves to another file', async () => {
+    const { panel } = await openChanges();
+    await addComment(panel, 'Line 5', 'rotate the old one too');
+    await userEvent.click(within(region(panel)).getByRole('button', { name: 'Edit' }));
+    await userEvent.click(line(panel, 'Line 4', 'auth/rotate.py'));
+    expect(within(region(panel, 'auth/rotate.py')).getByRole('textbox')).toHaveValue(
+      'rotate the old one too',
+    );
+    expect(within(region(panel)).queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
   it('holds the comments and the open box through a tab close, and counts those out of view', async () => {
     // The commit changes the same file and the same lines as the uncommitted work.
     const { panel } = await openChanges((c) => {
@@ -702,5 +733,60 @@ describe('change comments', () => {
     expect(await within(dock()).findByRole('alert')).toHaveTextContent(/exited/);
     expect(within(region(panel)).getByText('rotate the old one too')).toBeVisible();
     expect(dock()).toHaveTextContent('1 comment');
+  });
+
+  describe('row draws', () => {
+    /** Both files of the diff, in syntax colour: no draw is still to come. */
+    async function settled(panel: HTMLElement) {
+      await highlighted(panel, 'auth/tokens.py');
+      await highlighted(panel, 'auth/rotate.py');
+      // The counter is live: the rows drew to get here.
+      expect(draws.count).toBeGreaterThan(0);
+    }
+
+    it('draws no row for a key in an open comment box', async () => {
+      const { panel } = await openChanges();
+      await settled(panel);
+      await userEvent.click(line(panel, 'Line 5'));
+      const box = within(panel).getByRole('textbox');
+
+      draws.count = 0;
+      await userEvent.type(box, 'why');
+      expect(box).toHaveValue('why');
+      expect(draws.count).toBe(0);
+    });
+
+    it('draws only the rows a drag adds to the selection', async () => {
+      const { panel } = await openChanges();
+      await settled(panel);
+      const rows = within(region(panel)).getAllByTestId('diff-row');
+      const user = userEvent.setup();
+      await user.pointer({ keys: '[MouseLeft>]', target: line(panel, 'Line 4') });
+      expect(selected(panel)).toEqual(['44 import os']);
+
+      draws.count = 0;
+      await user.pointer([{ target: rows[1]! }, { target: rows[2]! }]);
+      expect(selected(panel)).toEqual(['44 import os', '5-old tokens', '5+new tokens']);
+      // One draw for each of the two rows the drag reached, of the six in view.
+      expect(draws.count).toBe(2);
+      await user.pointer({ keys: '[/MouseLeft]' });
+    });
+
+    it('draws no row for a world change', async () => {
+      const { server, panel } = await openChanges();
+      await addComment(panel, 'Line 5', 'rotate the old one too');
+      await settled(panel);
+      expect(dock()).toHaveTextContent('1 comment to Rotate auth tokens');
+      const taskId = server.world.agents[AGENT]!.taskId;
+
+      draws.count = 0;
+      act(() => {
+        server.change({ kind: 'task', ids: [taskId] }, (w) => {
+          w.tasks[taskId] = { ...w.tasks[taskId]!, title: 'Rotate every token' };
+        });
+      });
+      await waitFor(() => expect(dock()).toHaveTextContent('1 comment to Rotate every token'));
+      expect(draws.count).toBe(0);
+    });
   });
 });

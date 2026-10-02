@@ -25,9 +25,14 @@ export function cancelled(held: HeldComments): HeldComments {
   return { ...held, open: null };
 }
 
+/** Whether the open box holds text that another comment's Edit would discard. */
+export function openHoldsText(held: HeldComments): boolean {
+  return held.open !== null && held.open.body.trim() !== '';
+}
+
 /** Whether Edit would discard text: the open box holds some, and it is another comment's. */
-export function editWouldDiscard(held: HeldComments, id: string): boolean {
-  return held.open !== null && held.open.id !== id && held.open.body.trim() !== '';
+function editWouldDiscard(held: HeldComments, id: string): boolean {
+  return openHoldsText(held) && held.open?.id !== id;
 }
 
 export function editing(held: HeldComments, comment: ChangeComment): HeldComments {
