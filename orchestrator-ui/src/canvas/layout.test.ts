@@ -166,6 +166,10 @@ describe('layoutSwimlanes', () => {
   it('leaves the done columns blank in a lane with no done task', () => {
     const layout = layoutSwimlanes(
       graphOf(
+    // The done zone holds two columns: it spans from A's left edge to B's right.
+    const done = layout.zones.find((z) => z.zone === 'done')!;
+    expect(done.x).toBe(layout.nodes['A']!.x);
+    expect(done.x + done.width).toBe(layout.nodes['B']!.x + layout.nodeSize.width);
         [doneTask('A', 'p1'), runningTask('B', 'p1'), runningTask('C', 'p2')],
         [agentOn('ag-b', 'B'), agentOn('ag-c', 'C')],
       ),
@@ -188,6 +192,17 @@ describe('layoutSwimlanes', () => {
   it('puts a done task left of a running one with no edge between them', () => {
     const layout = layoutSwimlanes(
       graphOf([doneTask('A', 'p1'), runningTask('B', 'p1')], [agentOn('ag-b', 'B')]),
+    // A zone spans its nodes and no more: each has one column here, so it
+    // starts and ends with its one node. An empty zone has no width.
+    const band = (zone: string) => layout.zones.find((z) => z.zone === zone)!;
+    for (const [id, zone] of [
+      ['A', 'done'],
+      ['B', 'notStarted'],
+    ] as const) {
+      expect(band(zone).x).toBe(layout.nodes[id]!.x);
+      expect(band(zone).width).toBe(layout.nodeSize.width);
+    }
+    expect(band('running').width).toBe(0);
     );
     expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
   });
