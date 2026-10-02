@@ -4,7 +4,7 @@ import styles from './WorktreeBoxNode.module.css';
 
 export type WorktreeBoxFlowNode = Node<{ box: WorktreeBox }, 'worktreeBox'>;
 
-/** One **Worktree box**: a dotted outline and a name. It is not a control. */
+/** One **Worktree box**: a dashed outline and a name. It is not a control. */
 export function WorktreeBoxNode({ data }: NodeProps<WorktreeBoxFlowNode>) {
   const { worktree, empty } = data.box;
   return (

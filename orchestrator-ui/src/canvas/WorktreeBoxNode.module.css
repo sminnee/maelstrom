@@ -1,17 +1,23 @@
 .box {
+  position: relative;
   width: 100%;
   height: 100%;
-  border: 1px dotted var(--border-strong);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
   pointer-events: none;
 }
-/* The lane sublabel style. */
+/*
+ * The label sits on the top border, as a fieldset legend does. Its ground
+ * hides the border behind it, and twice the radius keeps it clear of the corner.
+ */
 .label {
-  position: absolute;
-  top: var(--space-1);
+  composes: laneLabel from './laneLabel.module.css';
+  left: calc(var(--radius) * 2);
+}
+/* A box with no node is only as high as its label, so the label sits inside. */
+.box[data-empty='true'] .label {
+  top: 50%;
   left: var(--space-2);
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  line-height: 1;
-  color: var(--fg-faint);
+  padding: 0;
+  background: none;
 }
