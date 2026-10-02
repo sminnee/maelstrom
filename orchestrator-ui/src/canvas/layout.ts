@@ -35,7 +35,7 @@ export interface Layout {
   /** Node position relative to its group's origin. */
   nodes: Record<string, { x: number; y: number }>;
   nodeSize: { width: number; height: number };
-  /** The worktree boxes of each lane, by group id. Only a project lane has any. */
+  /** The worktree boxes of each lane, by group id. */
   worktreeBoxes: Record<string, WorktreeBox[]>;
   /** Always three entries, in board order, even when a zone is empty. */
   zones: ZoneBand[];
@@ -51,23 +51,19 @@ const GAP_Y = 14;
  * draws this far inside the lane's own rectangle.
  */
 const LANE_INSET = 10;
-/** From the lane's edge to a node, in a lane with no worktree box. */
-const LANE_PAD = 20;
-/**
- * Room above the first row for a lane's label, which sits on the lane's top
- * border. A worktree lane's label carries a button, which hangs below the border.
- */
-const LANE_HEADER = 6;
 const LANE_GAP = 28;
 /**
- * The one gap of a project lane: from the lane's border to a worktree box, from
+ * The one gap of a lane: from the lane's border to a worktree box, from
  * the box to a node, and between two boxes. Under `GAP_X / 2`, so a box reaches
  * no zone boundary and no neighbour column. Wide enough that the lane's label
  * and the first box's label, each centred on its border, do not touch.
  */
 const BOX_PAD = 16;
-/** A box with no node: wide enough for the longest NATO name, as high as its label. */
-const EMPTY_BOX = { width: 104, height: 24 };
+/**
+ * A box with no node: as wide as a node, so its label has room for the branch
+ * and the strip keeps the column grid, and as high as its label.
+ */
+const EMPTY_BOX = { width: NODE.width, height: 24 };
 const EMPTY_GAP = 8;
 /** The occupant of a cell that holds a node with no worktree box. */
 const LOOSE = '';
@@ -116,13 +112,9 @@ export function layoutSwimlanes(graph: Graph): Layout {
     offsets[zone] = boardColumns;
     boardColumns += boardWidths[zone];
   }
-  // Every lane of the canvas is of one kind. A project lane leaves room for a
-  // worktree box between its border and its nodes; its label needs no header,
-  // because the gap above the first box holds it.
-  const kind = graph.groups[0]?.kind;
-  const boxed = kind === 'project';
-  const pad = boxed ? LANE_INSET + BOX_PAD * 2 : LANE_PAD;
-  const header = kind === 'none' || boxed ? 0 : LANE_HEADER;
+  // A lane leaves room for a worktree box between its border and its nodes.
+  // Its label needs no header, because the gap above the first box holds it.
+  const pad = LANE_INSET + BOX_PAD * 2;
   const columnX = (column: number) => pad + column * (NODE.width + GAP_X);
   const width = Math.max(1, boardColumns);
   // A lane is never narrower than one node.
@@ -143,9 +135,9 @@ export function layoutSwimlanes(graph: Graph): Layout {
         return [id, offsets[at.zone] + at.column];
       }),
     );
-    // One packing pass for the lane. In a project lane a node names its
-    // worktree as its box, so the nodes of one worktree pack as one block.
-    const boxOf = (id: string) => (boxed ? worktreeOf.get(id) : undefined);
+    // One packing pass for the lane. A node names its worktree as its box, so
+    // the nodes of one worktree pack as one block.
+    const boxOf = (id: string) => worktreeOf.get(id);
     const rowOf = assignRows(
       group.nodeIds.map((id) => ({
         id,
@@ -191,8 +183,8 @@ export function layoutSwimlanes(graph: Graph): Layout {
     }
     // The y of each row. A row gap grows to hold the box borders that meet
     // in it: the widest need of any column sets the gap for the whole lane.
-    const edge = boxed ? LANE_INSET + BOX_PAD : pad;
-    const top = header + edge;
+    const edge = LANE_INSET + BOX_PAD;
+    const top = edge;
     const rowY: number[] = [];
     for (let row = 0; row <= lastRow; row += 1) {
       let gap = row === 0 ? 0 : GAP_Y;

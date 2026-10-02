@@ -3,6 +3,7 @@ import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
 import { DocumentTab } from '../documents/DocumentTab';
 import { NodeCardBody } from '../canvas/NodeCardBody';
+import { showsProject } from '../selectors/filters';
 import { NewWork } from '../newwork/NewWork';
 import { useDeck } from '../deck/useDeck';
 import { nodeTitle } from '../selectors/graph';
@@ -87,6 +88,7 @@ function Screen({ screen }: { screen: MobileScreen }) {
  */
 function Detail({ nodeId, onDone }: { nodeId: string; onDone: () => void }) {
   const node = useDeck().byId.get(nodeId);
+  const showProject = useAppStore((s) => showsProject(s.ui.filters));
   // The node has left the desk, or the world no longer holds it.
   if (!node) return <p className={styles.gone}>This work is no longer on the desk.</p>;
   return (
@@ -96,7 +98,7 @@ function Detail({ nodeId, onDone }: { nodeId: string; onDone: () => void }) {
       aria-label={nodeTitle(node)}
       data-phase={node.phase ?? undefined}
     >
-      <NodeCardBody node={node} onDone={onDone} />
+      <NodeCardBody node={node} showProject={showProject} onDone={onDone} />
     </div>
   );
 }

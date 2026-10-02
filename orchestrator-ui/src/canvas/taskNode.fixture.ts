@@ -122,7 +122,6 @@ function node(over: {
     groupId: 'maelstrom',
     attention: [],
     reason: '',
-    showProject: false,
   };
 }
 

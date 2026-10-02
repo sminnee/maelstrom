@@ -55,10 +55,16 @@ const SILENT_MS = 10 * 60_000;
  */
 export function NodeCardBody({
   node,
+  showProject = false,
   closeControl,
   onDone,
 }: {
   node: GraphNode;
+  /**
+   * Whether the card names the node's project. The canvas never asks: the lane
+   * names it. The narrow layout has no lane, so it asks while no filter does.
+   */
+  showProject?: boolean;
   /** What closes the surface, drawn at the top right of the header. */
   closeControl?: React.ReactNode;
   onDone: () => void;
@@ -134,7 +140,7 @@ export function NodeCardBody({
         <div className={styles.titleBlock}>
           <h2 className={styles.title}>{title}</h2>
           <div className={styles.idLine}>
-            {node.showProject && task && <span className={styles.project}>{task.project}</span>}
+            {showProject && task && <span className={styles.project}>{task.project}</span>}
             <span className={styles.id}>{nodeIdLine(node)}</span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
           </div>

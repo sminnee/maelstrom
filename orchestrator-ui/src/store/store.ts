@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
 import type { AgentId, TaskId } from '../protocol/ids';
-import type { Filters, GroupBy } from '../selectors/filters';
+import type { Filters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
 import type { Pane, PanelTab, UiState } from './uiSlice';
@@ -38,7 +38,6 @@ export interface AppStore {
   togglePane(pane: Pane): void;
   /** Move a pane's anchor to the other side. Wide layout only. */
   moveAnchor(pane: Pane): void;
-  setGroupBy(groupBy: GroupBy): void;
   setFilters(patch: Partial<Filters>): void;
   setListFilters(patch: Partial<ListFilters>): void;
   setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
@@ -90,7 +89,6 @@ export const useAppStore = create<AppStore>()((set) => ({
   showPane: (pane) => set((s) => ({ ui: { ...s.ui, ...showPaneIn(s.ui, pane) } })),
   togglePane: (pane) => set((s) => ({ ui: { ...s.ui, ...togglePaneIn(s.ui, pane) } })),
   moveAnchor: (pane) => set((s) => ({ ui: { ...s.ui, ...moveAnchorIn(s.ui, pane) } })),
-  setGroupBy: (groupBy) => set((s) => ({ ui: { ...s.ui, groupBy } })),
   setFilters: (patch) => set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),
   setListFilters: (patch) =>
     set((s) => ({ ui: { ...s.ui, listFilters: { ...s.ui.listFilters, ...patch } } })),

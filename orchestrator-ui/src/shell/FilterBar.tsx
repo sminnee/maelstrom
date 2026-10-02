@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { AgentStatusFilter, GroupBy } from '../selectors/filters';
+import type { AgentStatusFilter } from '../selectors/filters';
 import { filterOptions } from '../selectors/filters';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
@@ -7,7 +7,6 @@ import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
 
-const GROUP_BY_OPTIONS: GroupBy[] = ['project', 'branch', 'worktree', 'none'];
 const AGENT_STATUS_OPTIONS: { value: AgentStatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'working', label: 'Working' },
@@ -24,11 +23,9 @@ export function FilterBar() {
   const filters = useAppStore((s) => s.ui.filters);
   const listFilters = useAppStore((s) => s.ui.listFilters);
   const worktreeFilters = useAppStore((s) => s.ui.worktreeFilters);
-  const groupBy = useAppStore((s) => s.ui.groupBy);
   const setFilters = useAppStore((s) => s.setFilters);
   const setListFilters = useAppStore((s) => s.setListFilters);
   const setWorktreeFilters = useAppStore((s) => s.setWorktreeFilters);
-  const setGroupBy = useAppStore((s) => s.setGroupBy);
   const options = filterOptions(world, filters);
   const stale = filters.branch !== null && !options.branches.some((b) => b.key === filters.branch);
   useEffect(() => {
@@ -90,31 +87,19 @@ export function FilterBar() {
         </label>
       )}
       {showing.includes('canvas') && (
-        <>
-          <label className={styles.field}>
-            <span>Agent status</span>
-            <select
-              value={filters.agentStatus ?? 'all'}
-              onChange={(e) => setFilters({ agentStatus: e.target.value as AgentStatusFilter })}
-            >
-              {AGENT_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
-            <span>Group by</span>
-            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-              {GROUP_BY_OPTIONS.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
+        <label className={styles.field}>
+          <span>Agent status</span>
+          <select
+            value={filters.agentStatus ?? 'all'}
+            onChange={(e) => setFilters({ agentStatus: e.target.value as AgentStatusFilter })}
+          >
+            {AGENT_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
       {showing.includes('list') && (
         <>

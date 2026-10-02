@@ -1,7 +1,5 @@
 import type { WorldView } from './world';
 
-export type GroupBy = 'project' | 'branch' | 'worktree' | 'none';
-
 /** Which agents the Desk shows. `planned` is a task that has not launched one. */
 export type AgentStatusFilter =
   'all' | 'working' | 'idle' | 'working-idle' | 'terminated' | 'planned';
@@ -18,6 +16,12 @@ export const branchKey = (project: string, branch: string) => `${project}/${bran
 export function noFilters(): Filters {
   return { project: null, branch: null, agentStatus: 'all' };
 }
+
+/**
+ * Whether a deck row or card names its node's project. The deck has no lane
+ * to name it, so it does while the project filter names none.
+ */
+export const showsProject = (filters: Filters) => !filters.project;
 
 export interface BranchOption {
   key: string;

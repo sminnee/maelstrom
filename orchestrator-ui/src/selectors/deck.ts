@@ -20,9 +20,9 @@ export interface Deck {
  * laid out left to right.
  *
  * It calls `deriveGraph` rather than re-reading the world, so the list and the
- * canvas cannot disagree about what is drawn or what state it is in. Grouping
- * is fixed at `none`: a lane is a horizontal idea, and the narrow layout has
- * no room for one.
+ * canvas cannot disagree about what is drawn or what state it is in. The lanes
+ * are not read: a lane is a horizontal idea, and the narrow layout has no room
+ * for one.
  *
  * Inside a zone the nodes needing the user come first, then the unanswered
  * ones. The canvas shows the whole board, so a glow or a border carries that;
@@ -30,7 +30,7 @@ export interface Deck {
  * is oldest first.
  */
 export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
-  const graph = deriveGraph(world, { groupBy: 'none', filters: opts.filters });
+  const graph = deriveGraph(world, { filters: opts.filters });
   const zones: Record<Zone, GraphNode[]> = { done: [], running: [], notStarted: [] };
   for (const node of graph.nodes) zones[zoneForState(node.progress.state)].push(node);
   for (const zone of ZONES) {
