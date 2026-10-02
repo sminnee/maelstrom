@@ -121,6 +121,7 @@ export function NodeCardBody({
   const quiet = silentFor(spokeAt, clock);
   const silent = agent?.state === 'processing' && quiet !== null && quiet >= SILENT_MS;
   const unanswered = node.progress.state === 'unanswered';
+  const reason = deciding ? '' : node.reason;
   // The last stage only. See `docs/dev/orchestrator-ui.md`.
   const stage = milestones.data?.stages.at(-1);
   const stageAge = stage ? ago(stage.at, clock) : '';
@@ -137,10 +138,24 @@ export function NodeCardBody({
       <header className={styles.header}>
         <div className={styles.titleBlock}>
           <h2 className={styles.title}>{title}</h2>
-          <div className={styles.idLine}>
+          <div className={styles.idLine} data-testid="node-id-line">
             {showProject && task && <span className={styles.project}>{task.project}</span>}
             <span className={styles.id}>{nodeIdLine(node)}</span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
+            {task && (
+              <StatusPicker
+                task={task}
+                className={styles.taskStatus}
+                label={`Status of ${task.title}`}
+                picking={picking}
+                onPick={() => setPicking(true)}
+                onDone={() => setPicking(false)}
+                onChange={(status) => {
+                  setPicking(false);
+                  return setStatus.mutateAsync({ taskId: task.id, status });
+                }}
+              />
+            )}
           </div>
           {meta.length > 0 && (
             <div className={styles.meta} data-testid="node-meta">
@@ -151,34 +166,22 @@ export function NodeCardBody({
         {closeControl}
       </header>
 
-      <div className={styles.status} data-state={node.progress.state}>
-        {/*
-         * The status control at the right says it already when the words
-         * would only echo it. The dot goes with them: it reads the state,
-         * so alone it says nothing.
-         */}
-        {!node.progress.echoesStatus && (
-          <>
-            <span className={styles.dot} aria-hidden="true" />
-            <span className={styles.stateText}>{node.progress.words}</span>
-          </>
-        )}
-        {!deciding && node.reason && <span className={styles.reason}>{node.reason}</span>}
-        {task && (
-          <StatusPicker
-            task={task}
-            className={styles.taskStatus}
-            label={`Status of ${task.title}`}
-            picking={picking}
-            onPick={() => setPicking(true)}
-            onDone={() => setPicking(false)}
-            onChange={(status) => {
-              setPicking(false);
-              return setStatus.mutateAsync({ taskId: task.id, status });
-            }}
-          />
-        )}
-      </div>
+      {/*
+       * The status control on the id line says it already when the words would
+       * only echo it. The dot goes with them: it reads the state, so alone it
+       * says nothing. With neither words nor a reason there is no row.
+       */}
+      {(!node.progress.echoesStatus || reason) && (
+        <div className={styles.status} data-state={node.progress.state}>
+          {!node.progress.echoesStatus && (
+            <>
+              <span className={styles.dot} aria-hidden="true" />
+              <span className={styles.stateText}>{node.progress.words}</span>
+            </>
+          )}
+          {reason && <span className={styles.reason}>{reason}</span>}
+        </div>
+      )}
 
       {stage && (
         <div

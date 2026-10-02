@@ -61,10 +61,11 @@ rounded:
   lg: '10px'
   pill: '999px'
 spacing:
-  '1': '4px'
-  '2': '8px'
-  '3': '12px'
-  '4': '16px'
+  half: '4px'
+  unit: '8px'
+  '2': '16px'
+  '3': '24px'
+  control: '24px' # 48px on the narrow layout
 components:
   task-node:
     backgroundColor: '{colors.console-slate-raised}'
@@ -83,12 +84,14 @@ components:
     backgroundColor: '{colors.console-slate-raised}'
     textColor: '{colors.readout}'
     rounded: '{rounded.sm}'
-    padding: '2px 8px'
+    padding: '0 8px'
+    height: '{spacing.control}'
   button-primary:
     backgroundColor: '{colors.console-slate-raised}'
     textColor: '{colors.signal-blue}'
     rounded: '{rounded.sm}'
-    padding: '2px 8px'
+    padding: '0 8px'
+    height: '{spacing.control}'
   attention-badge:
     backgroundColor: '{colors.alert-amber}'
     textColor: '{colors.console-slate-sunken}'
@@ -291,7 +294,7 @@ Reading surfaces advance on a 24px grid. The grid is not laid over the text — 
 at 16px with 1.5 leading the line box is exactly 24px, so the leading and the grid are one
 number. A paragraph break is one row, a list gap a half row, the space above a heading two rows.
 
-`--space-*` is the chrome's scale and never sets prose spacing. That scale is tuned against 13px
+`--u` is the chrome's scale and never sets prose spacing. That scale is tuned against 13px
 chrome, so on a 16px surface every step lands under the line box it is meant to separate. The
 `--prose-gap*` tokens exist so that a gap can never be narrower than the leading it separates.
 
@@ -382,7 +385,28 @@ state.
 
 ## Layout
 
-Two slots side by side under one bar. A 40px top bar holds the brand, the menu and the attention
+The chrome has one unit and one control height. `styles/tokens.css` declares them, and no
+component names a px value for a gap, a padding or a margin.
+
+| Token       | Value              | Use                                                   |
+| ----------- | ------------------ | ----------------------------------------------------- |
+| `--u`       | 8px                | the gap between items, and the margin round a control |
+| `--u-half`  | 4px                | inside one item: an icon and its label                |
+| `--u-2`     | 16px               | between groups, and the inset of a screen or a card   |
+| `--u-3`     | 24px               | between sections. Equal to the prose line box         |
+| `--control` | 24px; narrow: 48px | the height of each button, link, field and tab        |
+
+`--control` is set once, in `tokens.css`, and the narrow layout re-points it there. `base.css`
+gives it to each button, field and link, so a component sets a width and never a height. A button
+that is not a control opts out with `min-height: 0`: a diff gutter, a thumbnail, a link-variant
+button in a line of text.
+
+`src/styles/spacing.test.ts` is the gate. It fails on a px literal in `padding`, `margin` or
+`gap`. A hairline (`1px`) passes, and so does a documented exception, listed in the test by file.
+The prose grid (`--prose-gap*`) and the canvas geometry are separate scales: see "Rhythm" and the
+canvas grid below.
+
+Two slots side by side under one bar. A top bar holds the brand, the menu and the attention
 chip. The menu has four items: Desk, Tasks, Worktrees and Tabs. Each item has an anchor, left or
 right, and shows in the slot of its anchor. The bar draws the left-anchored items beside the
 brand and the right-anchored items at its right edge, so each group sits over its slot.
@@ -472,16 +496,16 @@ state in words, then the identity — and its whole state vocabulary, drawn as a
 with the phase bar still on its left edge.
 
 One thing owns the screen. There is no panel and no tab strip: a node's detail, a session and a
-document each take the viewport, and a back arrow returns. The wide layout's floating card has no
+document each take the viewport. The wide layout's floating card has no
 place here, so the detail is flat — it overlaps nothing, and the Overlap Test says it earns no
 shadow.
 
 Three rules hold below the break:
 
-**The Thumb Floor Rule.** Anything a finger presses is at least 44px (`--touch`). Density is
-bought back with space, never by going under the floor. The 12px type floor still holds. A form
-field in a dialog goes to 16px, because iOS zooms the page on a smaller one and does not zoom
-back; the other fields have not been brought to that floor yet.
+**The Thumb Floor Rule.** Anything a finger presses is at least 48px high. `--control` is that
+height below the break, so a control meets the floor with no rule of its own. Density is bought
+back with space, never by going under the floor. The 12px type floor still holds. The text of
+each field goes to 16px, because iOS zooms the page on a smaller one and does not zoom back. `base.css` sets both.
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
 draws as a field wash and an amber rule rather than the board's glow. An unanswered row draws
@@ -505,7 +529,17 @@ narrow bar stays quiet in the case the operator most often opens it. The wide ba
 stale figure is read: `SplitChip` greys it and its title gives its age. The narrow bar buys a
 quiet row at that cost.
 
-The bar wraps rather than overflows below the break.
+The chrome is two rows below the break. The first row holds the brand, the readings, the attention
+chip and New. The second row holds Desk, Tasks and Worktrees at equal thirds. On a pushed screen,
+Back and the screen's title take the second row, so no screen has a bar of its own.
+
+The detail screen draws the node card's body as a screen. Each link and each document is a
+full-width row, `--control` high, with a hairline under it. The commands are a bar pinned to the
+bottom of the screen: a grid of equal columns that wraps to a second row. A split button's menu
+opens upward there. This is how the detail screen meets the Nothing Hidden Rule.
+
+The task list and the worktree table do not fit as tables. Below the break each row is a stack:
+the name leads, the quiet facts follow, and the commands end the row.
 
 ### Named Rules
 
@@ -622,7 +656,8 @@ and neither alone is load-bearing.
 The board unit opened in place: 440px wide, 10px radius, strong hairline, phase bar retained,
 lifted on `--shadow-card`, capped at 70vh with internal scroll. Title at 16px/600, then the
 identity block — id, phase, and a mono line of model, permission mode and cost — then a status
-line, the brief, the decision block, and a footer. A hairline opens each band from the one above.
+line, the brief, the decision block, and a footer. The task's settable status sits at the right
+end of the id line. A hairline opens each band from the one above.
 
 The footer reads in three steps: the Session link and the documents, the agent's commands, then
 the worktree area. The order follows the reading path: what the agent says, what to do with the
@@ -676,8 +711,9 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 
 ### Buttons
 
-- **Shape:** 6px radius, raised surface, hairline border, 2px/8px padding. Small and quiet:
-  a button is a control, not a call to action.
+- **Shape:** 6px radius, raised surface, hairline border, `--control` high, 8px side padding.
+  Small and quiet: a button is a control, not a call to action. No component sets a button's
+  padding or its font size.
 - **Hover:** border strengthens to `--border-strong`. Nothing moves, nothing fills.
 - **Primary:** Signal Blue border and text at 600 weight. Emphasis by colour and weight, never
   by a filled block.
@@ -695,6 +731,8 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   is the number of `needs-attention` nodes drawn. A second count follows in `--unanswered`,
   behind a 6px dot, when an unanswered node is drawn. The chip is disabled only when both
   counts are zero.
+- **Height:** a chip is not a control. A hue chip and a split chip are two units (16px) high on
+  each layout. The attention chip is a button, so it is `--control` high.
 - **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
@@ -933,7 +971,7 @@ one row on a phone.
   List Rule holds here as it does on a deck row: a docked band signals with a rule and a wash,
   never a glow.
 - **Settled:** the plain hairline and the raised ground, because nothing is asking.
-- **Narrow:** every control clears `--touch`, and a field goes to 16px so iOS does not zoom.
+- **Narrow:** every control is `--control` high, and a field goes to 16px so iOS does not zoom.
 
 A plan review answers the agent, never the document. Approving the document would flip it and
 retire the attention item pointing at it, leaving the agent blocked on a request nothing had
@@ -961,10 +999,26 @@ wash over its add or remove ground, so the row keeps its kind.
 
 ## Seeing a change
 
-`pnpm ladle`, or `mael env start ladle`, serves a workbench of the components. It needs no
-orchestrator, no daemon and no live agent.
+There are two ways to see a change with no orchestrator, no daemon and no live agent.
 
-Use it before a visual change and after. jsdom computes no layout, so the test suite cannot
+| Tool      | Start it                  | Use it for                                 |
+| --------- | ------------------------- | ------------------------------------------ |
+| Fake mode | `mael env start web-fake` | the whole app on a scenario, at any width  |
+| Ladle     | `mael env start ladle`    | one component's states, drawn side by side |
+
+The fake mode is the production `App` on the fake server of the test suite. Its index lists the
+scenarios, and `?scenario=<name>` opens one. `&task=<id>`, `&session=<agent>`,
+`&document=<id>`, `&changes=<worktree>`, `&edit=<task>`, `&view=list`, `&view=worktrees` and `&new=1` open a screen. `&hold=1`
+keeps each reply back, for a loading state. `&refuse=<pattern>` fails each route that the pattern
+matches, for an error state. A phone on the tailnet opens the same URL.
+
+A test fails when a value of a protocol set has no scenario, so a new state arrives with a world
+that shows it. `src/fake/scenarios.ts` holds the scenarios.
+
+`UI / Controls` in Ladle draws each control on one board. Use it to check that a row of mixed
+controls has one height.
+
+Use them before a visual change and after. jsdom computes no layout, so the test suite cannot
 answer whether prose ranks above a tool row, where a measure wraps, how a run of calls reads,
 whether a docked control clears the thumb floor, or whether a stopped node reads as quieter than
 an idle one. A live session is a slow and unrepeatable way to ask, and on the board it can only
@@ -975,10 +1029,11 @@ Stories come in two shapes:
 | Shape     | Fixture                                                                                                 | Use it for                             |
 | --------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | Component | `src/session/transcript.fixture.ts`, `src/canvas/taskNode.fixture.ts`, `src/panel/panelTabs.fixture.ts` | one component's states, drawn directly |
-| Whole app | `src/test/seedWorld.ts` + `src/test/fakeServer.ts`                                                      | a surface reached by navigating        |
+| Whole app | `src/fake/FakeApp.tsx` on a scenario of `src/fake/scenarios.ts`                                         | a surface reached by navigating        |
 
 The whole-app shape mounts the real `App` on the fake server, through the same `deps` injection
-`renderApp` uses in the suite. A story therefore runs the production tree rather than a stand-in
+`renderApp` uses in the suite. `FakeApp` takes a scenario and an `amend` function for a story's
+own entities. A story therefore runs the production tree rather than a stand-in
 that can drift from it. `Documents / Review dock` is the worked example.
 
 A component fixture that stands for a state builds it with the production reader, never by hand:
@@ -1021,7 +1076,8 @@ browser with the scheme forced — rather than trusting the toggle.
   opacity step) — so no state depends on colour alone.
 - **Do** use `color-mix(in srgb, var(--token) N%, transparent)` for washes, glows and
   highlights, so they follow the scheme automatically.
-- **Do** keep body text at 14px and never go below the 12px floor.
+- **Do** keep the chrome at 13px (`--text-ui`) and never go below the 12px floor.
+- **Do** read a gap, a padding or a margin from `--u`, `--u-half`, `--u-2` or `--u-3`.
 - **Do** give every interactive element a visible `:focus-visible` ring, and make every action
   reachable from the keyboard — this is a power tool and hands stay on the keys.
 - **Do** check contrast in both schemes. Light is not a courtesy mode.

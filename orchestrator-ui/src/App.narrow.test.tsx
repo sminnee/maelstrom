@@ -4,7 +4,7 @@ import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { nodeState } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
-import type { FakeServer } from './test/fakeServer';
+import type { FakeServer } from './fake/fakeServer';
 
 describe('the narrow layout', () => {
   /** The deck list's rows, in the order they are drawn. */
@@ -68,14 +68,34 @@ describe('the narrow layout', () => {
     await waitFor(() => expect(screen.getByTestId('deck-empty')).toHaveTextContent(/waiting/i));
   });
 
-  it('opens a node full-screen from its row, and back returns to the deck', async () => {
+  it('opens a node full-screen from its row, and Back takes the nav row until it returns', async () => {
     await renderApp({ viewport: 'narrow' });
+    const bar = () => within(screen.getByTestId('top-bar'));
+    expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
+    // One chrome row for the way back, not a bar of its own under the nav.
+    expect(bar().queryByRole('group', { name: 'Views' })).toBeNull();
+    expect(bar().getByTestId('screen-title')).toHaveTextContent('Migrate to Postgres 16');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await userEvent.click(bar().getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
+    expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
+    expect(bar().queryByRole('button', { name: 'Back' })).toBeNull();
+  });
+
+  it('puts the status control on the id line of the detail', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow' });
+    await user.click(zoneTab(/not started/i));
+    await user.click(screen.getByRole('button', { name: /Watch the migration PR/ }));
+    expect(
+      within(screen.getByTestId('node-id-line')).getByRole('button', {
+        name: 'Status of Watch the migration PR, todo',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('pushes the session over the detail, and back pops one screen at a time', async () => {
@@ -151,6 +171,11 @@ describe('the narrow layout', () => {
     // Back lands on a list that holds it, rather than the zone it was on.
     await user.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('tab', { name: /^Running/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('says when the agent host stopped answering, as the wider layouts do', async () => {
+    await renderApp({ viewport: 'narrow', scenario: 'host-down' });
+    expect(await screen.findByRole('status')).toHaveTextContent('Agent host unreachable since');
   });
 
   it('keeps Tasks reachable while hiding desktop filters', async () => {

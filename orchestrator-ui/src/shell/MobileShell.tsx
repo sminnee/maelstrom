@@ -15,6 +15,7 @@ import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
+import { HostBanner } from './HostBanner';
 import { TopBar } from './TopBar';
 import styles from './MobileShell.module.css';
 
@@ -32,11 +33,14 @@ export function MobileShell() {
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
   const { status } = useWorld();
+  const popScreen = useAppStore((s) => s.popScreen);
   const top = stack[stack.length - 1];
+  const title = useScreenTitle(top);
   return (
     <div className={styles.shell}>
-      <TopBar />
+      <TopBar back={top ? { title, onBack: popScreen } : undefined} />
       <ConnectionBanner hasData={status === 'ready'} />
+      <HostBanner />
       <main className={styles.body}>
         {top ? (
           <Screen screen={top} />
@@ -54,16 +58,29 @@ export function MobileShell() {
   );
 }
 
-/** One pushed screen, under a bar carrying what it is and the way back. */
+/** What a pushed screen is, for the top bar's second row. */
+function useScreenTitle(screen: MobileScreen | undefined): string {
+  const { world } = useWorld();
+  const node = useDeck().byId.get(screen?.kind === 'detail' ? screen.nodeId : '');
+  switch (screen?.kind) {
+    case 'detail':
+      return node ? nodeTitle(node) : '';
+    case 'session':
+      return 'Session';
+    case 'changes':
+      return 'Changes';
+    case 'document':
+      return world.documents[screen.documentId]?.title ?? 'Document';
+    default:
+      return '';
+  }
+}
+
+/** One pushed screen. The top bar carries what it is and the way back. */
 function Screen({ screen }: { screen: MobileScreen }) {
   const popScreen = useAppStore((s) => s.popScreen);
   return (
     <div className={styles.screen}>
-      <div className={styles.bar}>
-        <button type="button" className={styles.back} onClick={popScreen}>
-          <span aria-hidden="true">←</span> Back
-        </button>
-      </div>
       <div className={styles.screenBody}>
         {screen.kind === 'detail' ? (
           <Detail nodeId={screen.nodeId} onDone={popScreen} />

@@ -15,16 +15,52 @@ const PANES: { pane: Pane; label: string }[] = [
   { pane: 'tabs', label: 'Tabs' },
 ];
 
-export function TopBar() {
+/** The way back from a pushed screen of the narrow layout, and what the screen is. */
+export interface BackRow {
+  title: string;
+  onBack: () => void;
+}
+
+/** The top bar. On the narrow layout `back` takes the second row: see DESIGN.md, "The narrow layout". */
+export function TopBar({ back }: { back?: BackRow }) {
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
+  if (narrow) {
+    return (
+      <header className={styles.bar} data-narrow data-testid="top-bar">
+        <div className={styles.row}>
+          <h1 className={styles.brand}>maelstrom</h1>
+          <div className={styles.readings}>
+            <UsageChips />
+            <AgentsChip />
+          </div>
+          <div className={styles.spacer} />
+          <AttentionChip />
+          <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
+            New
+          </button>
+        </div>
+        {back ? (
+          <div className={styles.row}>
+            <button type="button" className={styles.back} onClick={back.onBack}>
+              <span aria-hidden="true">←</span> Back
+            </button>
+            <span className={styles.screenTitle} data-testid="screen-title">
+              {back.title}
+            </span>
+          </div>
+        ) : (
+          <PaneMenu side={null} />
+        )}
+      </header>
+    );
+  }
   return (
-    <header className={styles.bar} data-narrow={narrow || undefined}>
+    <header className={styles.bar} data-testid="top-bar">
       <h1 className={styles.brand}>maelstrom</h1>
       <PaneMenu side={mode === 'wide' ? 'left' : null} />
-      {/* The narrow layout has no Desk canvas and no room for filters. */}
-      {!narrow && <FilterBar />}
+      <FilterBar />
       <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
         New
       </button>

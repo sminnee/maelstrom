@@ -11,7 +11,7 @@
 .table th,
 .table td {
   text-align: left;
-  padding: 4px 12px;
+  padding: var(--u-half) var(--u-2);
   border-top: 1px solid var(--border);
 }
 .table th {
@@ -43,4 +43,73 @@
 .drift {
   color: var(--attention);
   font-size: 9px;
+}
+
+/*
+ * The narrow layout: a row is a stack, not a line of eight cells. The title
+ * and the status lead; the id, the project and the branch follow in the quiet
+ * register; the commands end the row. The header row has nothing to head.
+ */
+@media (max-width: 839px) {
+  .table,
+  .table tbody {
+    display: block;
+  }
+  .table thead {
+    display: none;
+  }
+  .table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--u);
+    padding: var(--u) var(--u-2);
+    border-top: 1px solid var(--border);
+  }
+  .table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .table td:empty {
+    display: none;
+  }
+  .table td:nth-child(1) {
+    order: 1;
+  }
+  .table td:nth-child(3) {
+    order: 2;
+    /* Wide enough that only the status fits beside it. */
+    flex: 1 1 calc(100% - var(--control) - 5.5rem);
+    font-size: var(--text-ui);
+    font-weight: var(--weight-medium);
+  }
+  .table td:nth-child(6) {
+    order: 3;
+  }
+  .table td:nth-child(2),
+  .table td:nth-child(4),
+  .table td:nth-child(5),
+  .table td:nth-child(7) {
+    order: 4;
+    color: var(--fg-muted);
+    overflow-wrap: anywhere;
+  }
+  .table td:nth-child(8) {
+    order: 5;
+    flex: 1 1 100%;
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--u);
+    padding-top: var(--u);
+  }
+  /* The checkbox is small. Its cell is the target the thumb gets. */
+  .table td:nth-child(1) {
+    display: grid;
+    place-items: center;
+    width: var(--control);
+    height: var(--control);
+    margin-left: calc(var(--u) * -1);
+  }
 }
