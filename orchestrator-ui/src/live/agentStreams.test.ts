@@ -92,6 +92,22 @@ describe('agent streams', () => {
     });
   });
 
+  it('steps over a frame it does not know, and keeps the transcript', () => {
+    streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: 'transcript.snapshot', seq: 1, items: [], truncatedBefore: false });
+    sockets[0]!.receive(append(2, 'a'));
+    // A newer server's event. The cursor still moves, so a reconnect does not
+    // ask for the frame again.
+    sockets[0]!.receive({ seq: 3, event: { type: 'transcript.later', agentId: 'ag1' } });
+    expect(store.state['ag1']).toEqual({
+      items: [item('a')],
+      truncatedBefore: false,
+      cursor: 3,
+      status: 'live',
+    });
+  });
+
   it('reconnects from its cursor after a drop, and applies the replay', () => {
     streams.acquire('ag1');
     sockets[0]!.open();
