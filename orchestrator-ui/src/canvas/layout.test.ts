@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { layoutSwimlanes } from './layout';
 import { deriveGraph } from '../selectors/graph';
 import { noFilters } from '../selectors/filters';
-import { makeAgent, makeTask, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeTask, makeWorktree, onDesk, worldWith } from '../test/fixtures';
 import type { Agent, Task } from '../protocol/entities';
+import type { GroupBy } from '../selectors/filters';
 
 function graphOf(tasks: Task[], agents: Agent[] = []) {
   return deriveGraph(worldWith({ tasks, agents, desk: onDesk(tasks) }), {
@@ -215,5 +216,127 @@ describe('layoutSwimlanes', () => {
     expect(after.nodes['A']!.x).toBeLessThan(after.nodes['B']!.x);
     expect(after.nodes['A']!.y).toBe(before.nodes['A']!.y);
     expect(after.nodes['B']!.y).toBe(before.nodes['B']!.y);
+  });
+});
+
+describe('worktree boxes in a project lane', () => {
+  const open = (nato: string, branch: string) =>
+    makeWorktree({ id: `p1-${nato}`, project: 'p1', nato, branch });
+  // Task ids sort in creation order. bravo holds the oldest task, so it leads
+  // though alpha sorts first by name. T2 is on a branch no worktree holds, and
+  // is older than every task of alpha. T3 follows T4 across two worktrees, so
+  // the lane has a second not-started column that only a lane-wide count finds.
+  const tasks = [
+    doneTask('T1', 'p1'),
+    makeTask({ id: 'T2', project: 'p1', branch: 'none' }),
+    makeTask({ id: 'T3', project: 'p1', branch: 'a', follows: ['T4'] }),
+    makeTask({ id: 'T4', project: 'p1', branch: 'b', follows: ['T1'] }),
+  ].map((t) => (t.id === 'T1' ? { ...t, branch: 'b' } : t));
+  const ids = tasks.map((t) => t.id);
+  const held = [open('alpha', 'a'), open('bravo', 'b')];
+  const emptyNames = ['charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliett'];
+  const empty = emptyNames.map((n) => open(n, `empty-${n}`));
+
+  function laidOut(groupBy: GroupBy, worktrees = [...held, ...empty], agents: Agent[] = []) {
+    const graph = deriveGraph(worldWith({ tasks, worktrees, agents, desk: onDesk(tasks) }), {
+      groupBy,
+      filters: noFilters(),
+    });
+    const layout = layoutSwimlanes(graph);
+    const cell = (id: string) => ({ ...layout.nodes[id]!, ...layout.nodeSize });
+    const boxes = layout.worktreeBoxes['p1'] ?? [];
+    const boxOf = (nato: string) => boxes.find((b) => b.worktree.nato === nato)!;
+    const inside = (nato: string) => ids.filter((id) => overlaps(boxOf(nato), cell(id)));
+    return { layout, cell, boxes, boxOf, inside };
+  }
+
+  const contains = (
+    outer: { x: number; y: number; width: number; height: number },
+    inner: { x: number; y: number; width: number; height: number },
+  ) =>
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height;
+
+  it('keeps the nodes of one worktree together, in the order of their oldest node', () => {
+    const { cell } = laidOut('project');
+    const y = (id: string) => cell(id).y;
+    // bravo, then the node with no worktree, then alpha.
+    expect(y('T4')).toBe(y('T1'));
+    expect(y('T1')).toBeLessThan(y('T2'));
+    expect(y('T2')).toBeLessThan(y('T3'));
+  });
+
+  it('draws a box round the nodes of each worktree and round no other node', () => {
+    const { cell, boxes, boxOf, inside } = laidOut('project');
+    expect(boxes.filter((b) => !b.empty).map((b) => b.worktree.nato)).toEqual(['bravo', 'alpha']);
+    expect(inside('bravo')).toEqual(['T1', 'T4']);
+    expect(inside('alpha')).toEqual(['T3']);
+    // T1 and T4 are in different columns, so the box spans both.
+    expect(cell('T4').x).toBeGreaterThan(cell('T1').x);
+    for (const id of ['T1', 'T4']) expect(contains(boxOf('bravo'), cell(id))).toBe(true);
+    expect(contains(boxOf('alpha'), cell('T3'))).toBe(true);
+  });
+
+  it('puts a node with no worktree in no box', () => {
+    const { cell, boxes } = laidOut('project');
+    expect(boxes.filter((b) => overlaps(b, cell('T2')))).toEqual([]);
+  });
+
+  // The card of a stopped agent still names the worktree it ran in.
+  it('draws a box for a closed worktree that a node names', () => {
+    const closed = { ...open('zulu', ''), isClosed: true };
+    const agent = makeAgent({ id: 'ag', taskId: 'T2', worktreeId: 'p1-zulu', state: 'exited' });
+    const { boxOf, inside } = laidOut('project', [...held, ...empty, closed], [agent]);
+    expect(boxOf('zulu').empty).toBe(false);
+    expect(inside('zulu')).toEqual(['T2']);
+  });
+
+  it('keeps every box inside its lane, and no two boxes overlap', () => {
+    const { layout, boxes } = laidOut('project');
+    expect(boxes).toHaveLength(held.length + empty.length);
+    const lane = { ...layout.groups['p1']!, x: 0, y: 0 };
+    for (const box of boxes) expect(contains(lane, box)).toBe(true);
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(overlaps(boxes[i]!, boxes[j]!)).toBe(false);
+      }
+    }
+  });
+
+  it('puts the empty boxes below every node, on more than one line', () => {
+    const { cell, boxes } = laidOut('project');
+    const strip = boxes.filter((b) => b.empty);
+    expect(strip.map((b) => b.worktree.nato)).toEqual(emptyNames);
+    const lowest = Math.max(...ids.map((id) => cell(id).y + cell(id).height));
+    for (const box of strip) expect(box.y).toBeGreaterThanOrEqual(lowest);
+    // Three columns of nodes make a lane too narrow for eight boxes in a line.
+    expect(new Set(strip.map((b) => b.y)).size).toBeGreaterThan(1);
+  });
+
+  it('moves no node sideways', () => {
+    const boxed = laidOut('project');
+    const plain = laidOut('project', []);
+    expect(plain.boxes).toEqual([]);
+    for (const id of ids) expect(boxed.cell(id).x).toBe(plain.cell(id).x);
+    // T3 follows T4 from another worktree, and still sits one column right of it.
+    expect(boxed.cell('T3').x).toBeGreaterThan(boxed.cell('T4').x);
+    expect(boxed.layout.boardWidth).toBe(plain.layout.boardWidth);
+  });
+
+  it.each(['branch', 'none'] as const)('changes nothing grouped by %s', (groupBy) => {
+    const { layout } = laidOut(groupBy);
+    const plain = laidOut(groupBy, []).layout;
+    expect(Object.values(layout.worktreeBoxes).flat()).toEqual([]);
+    expect(layout.nodes).toEqual(plain.nodes);
+    expect(layout.groups).toEqual(plain.groups);
+  });
+
+  it('draws no box grouped by worktree, and an empty lane is shorter than a held one', () => {
+    const { layout } = laidOut('worktree');
+    expect(Object.values(layout.worktreeBoxes).flat()).toEqual([]);
+    const height = (nato: string) => layout.groups[`p1-${nato}`]!.height;
+    expect(height('alpha') - height('charlie')).toBe(layout.nodeSize.height);
   });
 });
