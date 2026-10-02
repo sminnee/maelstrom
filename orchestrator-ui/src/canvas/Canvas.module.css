@@ -30,6 +30,11 @@
   border: none;
   background: transparent;
 }
+/* `LANE_INSET` in `layout.ts`: the library's own default, set here so an
+ * upgrade cannot move the lane border under the layout. */
+.canvas :global(.react-flow__node-group) {
+  padding: 10px;
+}
 /* Over the board, clear of the top bar: the wire it refers to never drew. */
 .rewireError {
   position: absolute;
