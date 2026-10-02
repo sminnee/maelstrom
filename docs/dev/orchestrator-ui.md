@@ -604,10 +604,11 @@ them. "All commits" draws when the branch has commits, and "Uncommitted" draws w
 Uncommitted when the branch has no commits. A picked entry that is no longer drawn gives way to
 that default.
 
-Under the commits, the strip draws the files of the diff in view as a tree. `fileTree` in
-`changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A click on a directory
-folds it, and a click on a file scrolls the diff to that file. A directory fold lasts for one
-rev: the tree is keyed on the rev, so each rev opens with every directory open.
+Under the revs, the strip draws the files of the diff in view as a tree. `fileTree` in
+`changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A directory shows a folder
+icon, `shell/FolderIcon.tsx`, which is shut or open. A click on a directory opens or shuts it, and
+a click on a file scrolls the diff to that file. The open directories last for one rev: the tree
+is keyed on the rev, so each rev opens with every directory shut.
 
 In a panel narrower than 40rem, the strip stacks above the diff and hides the tree. The strip is
 short there, and the file list in the scroll already jumps to a file. A container query sets

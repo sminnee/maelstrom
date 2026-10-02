@@ -1,18 +1,26 @@
-import { type CSSProperties, useState } from 'react';
+import { type CSSProperties, memo, useMemo, useState } from 'react';
 import type { FileDiff } from '../protocol/entities';
+import { FolderIcon } from '../shell/FolderIcon';
 import { STATUS_LETTER } from './fileStatus';
 import { fileTree, type TreeNode } from './tree';
 import styles from './FileTree.module.css';
 
 /**
  * A diff's files as a directory tree. A directory folds; a file calls `onPick`
- * with its path. Every directory is open at first. A file can give way to a
+ * with its path. Every directory is shut at first. A file can give way to a
  * directory of the same path in one diff, so a key names the kind too.
  */
-export function FileTree({ files, onPick }: { files: FileDiff[]; onPick: (path: string) => void }) {
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+export const FileTree = memo(function FileTree({
+  files,
+  onPick,
+}: {
+  files: FileDiff[];
+  onPick: (path: string) => void;
+}) {
+  const tree = useMemo(() => fileTree(files), [files]);
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (path: string) =>
-    setFolded((was) => {
+    setOpened((was) => {
       const now = new Set(was);
       if (!now.delete(path)) now.add(path);
       return now;
@@ -39,7 +47,7 @@ export function FileTree({ files, onPick }: { files: FileDiff[]; onPick: (path: 
             </button>
           </li>
         );
-      const open = !folded.has(node.path);
+      const open = opened.has(node.path);
       return (
         <li key={`dir:${node.path}`} role="none">
           <button
@@ -51,7 +59,7 @@ export function FileTree({ files, onPick }: { files: FileDiff[]; onPick: (path: 
             title={node.path}
             onClick={() => toggle(node.path)}
           >
-            <span className={styles.chevron} aria-hidden="true" />
+            <FolderIcon open={open} className={styles.folder} />
             <span className={styles.name}>{node.name}</span>
           </button>
           {open && <ul role="group">{level(node.children, depth + 1)}</ul>}
@@ -61,7 +69,7 @@ export function FileTree({ files, onPick }: { files: FileDiff[]; onPick: (path: 
 
   return (
     <ul role="tree" aria-label="Changed files" className={styles.tree}>
-      {level(fileTree(files), 0)}
+      {level(tree, 0)}
     </ul>
   );
-}
+});

@@ -271,21 +271,18 @@ describe('the Changes tab', () => {
         .getAllByRole('treeitem')
         .map((item) => item.textContent);
     // The order and the joined chain are `fileTree`'s rules; see tree.test.ts.
-    expect(items()).toEqual([
-      'auth',
-      'Mtokens.py',
-      'docs/specs/agent',
-      'Areply.md',
-      'Mstream.md',
-      'MREADME.md',
-    ]);
+    // Every directory starts shut.
+    expect(items()).toEqual(['auth', 'docs/specs/agent', 'MREADME.md']);
 
     const dir = within(tree).getByRole('treeitem', { name: 'docs/specs/agent' });
-    expect(dir).toHaveAttribute('aria-expanded', 'true');
-    await userEvent.click(dir);
     expect(dir).toHaveAttribute('aria-expanded', 'false');
-    expect(items()).toEqual(['auth', 'Mtokens.py', 'docs/specs/agent', 'MREADME.md']);
+    await userEvent.click(dir);
+    expect(dir).toHaveAttribute('aria-expanded', 'true');
+    expect(items()).toEqual(['auth', 'docs/specs/agent', 'Areply.md', 'Mstream.md', 'MREADME.md']);
+    await userEvent.click(dir);
+    expect(items()).toEqual(['auth', 'docs/specs/agent', 'MREADME.md']);
 
+    await userEvent.click(within(tree).getByRole('treeitem', { name: 'auth' }));
     await userEvent.click(within(tree).getByRole('treeitem', { name: /tokens\.py/ }));
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(
