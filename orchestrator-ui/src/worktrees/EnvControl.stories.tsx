@@ -3,8 +3,8 @@ import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import type { EnvStateName, Worktree } from '../protocol/entities';
-import { createFakeServer } from '../test/fakeServer';
-import { makeWorktree } from '../test/fixtures';
+import { createFakeServer } from '../fake/fakeServer';
+import { makeWorktree } from '../fake/fixtures';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
 
@@ -33,7 +33,7 @@ function worktree(state: EnvStateName, ladleRunning: boolean): Worktree {
 
 function Row({ label, worktree }: { label: string; worktree: Worktree }) {
   return (
-    <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: 'var(--u)', alignItems: 'center' }}>
       <span style={{ width: '12em', color: 'var(--fg-faint)' }}>{label}</span>
       <EnvControl worktree={worktree} />
       <DevEnvLinks worktree={worktree} />
@@ -46,11 +46,11 @@ function Board({ children }: { children: ReactNode }) {
     <ApiProvider api={api} queryClient={queryClient}>
       <div
         style={{
-          padding: 'var(--space-5)',
+          padding: 'var(--u-3)',
           fontFamily: 'var(--font)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--space-4)',
+          gap: 'var(--u-2)',
         }}
       >
         {children}

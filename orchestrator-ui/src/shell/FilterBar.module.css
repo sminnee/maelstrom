@@ -1,7 +1,7 @@
 .bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--u);
   flex: 1 1 600px;
   flex-wrap: wrap;
   min-width: 0;
@@ -9,14 +9,14 @@
 .field {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--u-half);
   font-size: 11px;
   color: var(--fg-muted);
 }
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--u-half);
   font-size: 11px;
   color: var(--fg-muted);
 }
@@ -27,6 +27,5 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1px 4px;
   max-width: 180px;
 }

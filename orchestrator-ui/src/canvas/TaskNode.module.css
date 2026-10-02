@@ -6,7 +6,7 @@
 .node {
   width: 220px;
   height: 76px;
-  padding: 7px 10px;
+  padding: var(--u) var(--u);
   border-radius: var(--radius);
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: var(--space-1);
+  gap: var(--u-half);
   overflow: hidden;
   transition:
     box-shadow 0.2s,
@@ -86,7 +86,7 @@
 .head {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-1);
+  gap: var(--u-half);
   min-width: 0;
 }
 .title {
@@ -104,7 +104,7 @@
 .status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--u);
   min-width: 0;
   font-size: var(--text-sm);
   color: var(--fg);
@@ -112,7 +112,7 @@
 .dot {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mark-neutral);
   flex-shrink: 0;
 }
@@ -175,7 +175,7 @@
 .meta {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--u);
   min-width: 0;
   font-size: var(--text-xs);
   color: var(--fg-faint);
@@ -197,7 +197,7 @@
 .phase {
   flex: none;
   margin-left: auto;
-  padding-left: 6px;
+  padding-left: var(--u);
   color: var(--phase);
   font-size: var(--text-xs);
   letter-spacing: 0.06em;
@@ -212,9 +212,10 @@
   background: var(--attention);
   color: var(--fg-on-hue);
   font-weight: 700;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   width: 16px;
   height: 16px;
+  min-height: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;

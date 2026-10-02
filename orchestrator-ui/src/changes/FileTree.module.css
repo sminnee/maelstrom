@@ -6,7 +6,7 @@
   padding: 0;
 }
 .tree {
-  padding: var(--space-3) 0 var(--space-1);
+  padding: var(--u-2) 0 var(--u-half);
   border-top: 1px solid var(--border-strong);
 }
 /* The Changes tab is the container. Its narrow strip is short, and the file
@@ -18,12 +18,13 @@
 }
 .item {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-1);
+  align-items: center;
+  gap: var(--u-half);
   width: 100%;
-  padding: 2px var(--space-3);
-  padding-left: calc(var(--space-3) + var(--depth) * var(--space-3));
+  padding: 0 var(--u-2);
+  padding-left: calc(var(--u-2) + var(--depth) * var(--u-2));
   border: 0;
+  border-radius: 0;
   background: none;
   color: var(--fg-muted);
   font-family: var(--mono);

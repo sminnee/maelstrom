@@ -23,7 +23,7 @@
   overflow: auto;
 }
 .empty {
-  padding: 24px;
+  padding: var(--u-3);
   color: var(--fg-faint);
   text-align: center;
 }

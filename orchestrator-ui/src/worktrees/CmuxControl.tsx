@@ -4,7 +4,7 @@ import { ExternalLink } from '../shell/ExternalLink';
 import { PlusIcon } from '../shell/PlusIcon';
 import { TerminalIcon } from '../shell/TerminalIcon';
 import { AppButton } from '../ui/AppButton';
-import styles from './CmuxControl.module.css';
+import styles from '../shell/link.module.css';
 
 /**
  * The worktree's terminal in cmux. With one, a link that cmux opens on its

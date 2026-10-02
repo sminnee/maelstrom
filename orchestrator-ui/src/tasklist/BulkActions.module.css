@@ -4,8 +4,8 @@
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
+  gap: var(--u);
+  padding: var(--u-half) var(--u-2);
   font-size: 11px;
   color: var(--fg-muted);
   background: var(--bg-raised);
@@ -17,7 +17,6 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1px 4px;
 }
 .failure {
   color: var(--danger);

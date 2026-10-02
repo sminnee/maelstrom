@@ -14,7 +14,9 @@
   flex: none;
 
   box-sizing: border-box;
-  border-radius: 999px;
+  /* A chip is not a control. It has one height, two units. */
+  height: calc(var(--u) * 2);
+  border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--chip-tone) 45%, transparent);
   background: color-mix(in srgb, var(--chip-tone) 14%, transparent);
   color: var(--chip-tone);
@@ -53,7 +55,7 @@
   display: flex;
   align-items: center;
   /* The mark and the number are two things, not one word. */
-  gap: 4px;
+  gap: var(--u-half);
   min-width: 0;
 }
 
@@ -103,7 +105,7 @@
   min-width: 0;
 }
 .word {
-  padding-left: 5px;
+  padding-left: var(--u);
   padding-right: 1px;
   white-space: nowrap;
   font-weight: var(--weight-semibold);
@@ -121,7 +123,7 @@
 /* Only the large chip opens: a 220px canvas node has no room to open into.
    See `docs/dev/orchestrator-ui.md`. */
 .chip[data-size='large'] {
-  padding: 2px 5px;
+  padding: 0 var(--u);
 }
 .chip[data-size='large']:hover,
 .chip[data-size='large']:focus-visible {
@@ -129,7 +131,7 @@
 }
 
 .chip[data-size='small'] {
-  padding: 1px 4px;
+  padding: 0 var(--u-half);
 }
 .chip[data-size='small'] .word {
   /* The word is still in the tree for a screen reader; it is the visible copy

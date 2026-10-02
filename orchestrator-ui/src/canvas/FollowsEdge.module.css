@@ -19,6 +19,8 @@
  * crosses. A selected node elevates to 1000 and still wins.
  */
 .cut {
+  /* Not a control: it takes no control height. */
+  min-height: 0;
   position: absolute;
   z-index: var(--z-card);
   pointer-events: all;

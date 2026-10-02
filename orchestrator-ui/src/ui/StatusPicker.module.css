@@ -4,7 +4,7 @@
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius);
-  padding: 0 var(--space-1);
+  padding: 0 var(--u-half);
   cursor: pointer;
 }
 .status:hover {
@@ -16,7 +16,7 @@
   background: var(--bg);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 0 var(--space-1);
+  padding: 0 var(--u-half);
 }
 /*
  * The refusal sits beside the control, so it takes no padding of its own. It

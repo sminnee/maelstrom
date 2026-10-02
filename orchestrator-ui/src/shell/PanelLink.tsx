@@ -4,7 +4,7 @@ import { useAppStore } from '../store/store';
 import type { MobileScreen } from '../selectors/navStack';
 import type { PanelTab } from '../store/uiSlice';
 import { OpenInPanelIcon } from './OpenInPanelIcon';
-import styles from './PanelLink.module.css';
+import styles from './link.module.css';
 
 /** The same destination as a screen the narrow layout can push. */
 function screenFor(tab: PanelTab): MobileScreen {

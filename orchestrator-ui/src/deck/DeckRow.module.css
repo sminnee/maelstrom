@@ -15,11 +15,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  /* Three lines of text clear the touch floor on their own; the padding is
-     what makes the row comfortable rather than what makes it reachable. */
-  min-height: var(--touch);
-  padding: var(--space-3) var(--space-3);
+  gap: var(--u-half);
+  padding: var(--u-2) var(--u-2);
   font: inherit;
   color: inherit;
   text-align: left;
@@ -41,7 +38,7 @@
 .status {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--u);
   min-width: 0;
   font-size: var(--text-sm);
 }
@@ -59,13 +56,13 @@
   flex: none;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--mark-neutral);
 }
 .meta {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--u);
   min-width: 0;
   font-family: var(--mono);
   font-size: var(--text-xs);
@@ -179,7 +176,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--touch);
+  width: var(--control);
   align-self: stretch;
   font-weight: 700;
   color: var(--attention);

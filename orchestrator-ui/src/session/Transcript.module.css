@@ -3,7 +3,7 @@
   flex-direction: column;
   /* Rows space themselves: see the adjacency rule below. */
   gap: 0;
-  padding: 10px 12px;
+  padding: var(--u) var(--u-2);
   /* Named here so every row shares one column edge. The narrow-panel rule
      below re-cuts the whole track rather than zeroing this, because a
      container cannot be styled by its own container query. */
@@ -20,7 +20,7 @@
 .card {
   display: grid;
   grid-template-columns: var(--gutter) 1fr;
-  gap: var(--space-3);
+  gap: var(--u);
   min-width: 0;
 }
 .card > * {
@@ -43,14 +43,14 @@
  * so the truncation note above the first row is spaced like everything else.
  */
 .transcript > * + * {
-  margin-top: var(--space-2);
+  margin-top: var(--u);
 }
 .transcript > .card[data-register='machinery'] + .card[data-register='machinery'] {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .transcript > .card[data-register='machinery'] + .card[data-register='prose'],
 .transcript > .card[data-register='prose'] + .card[data-register='machinery'] {
-  margin-top: var(--space-4);
+  margin-top: var(--u-2);
 }
 .gutter {
   text-align: right;
@@ -89,7 +89,6 @@
 .showMore {
   align-self: flex-start;
   font-family: var(--mono);
-  font-size: var(--text-xs);
 }
 .note,
 .system {
@@ -103,7 +102,7 @@
 .compact {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--u);
   font-size: var(--text-xs);
   color: var(--fg-faint);
   font-family: var(--mono);
@@ -121,7 +120,7 @@
 .milestone {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--u);
   font-size: var(--text-xs);
   color: var(--fg-muted);
   font-family: var(--mono);
@@ -151,9 +150,9 @@
 .plan {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--u);
   align-items: center;
-  padding: 6px 10px;
+  padding: var(--u) var(--u);
   border: 1px solid var(--phase-planning);
   border-radius: var(--radius);
 }
@@ -178,9 +177,9 @@
 .deferred {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
+  gap: var(--u-half) var(--u);
   align-items: baseline;
-  padding: 6px 10px;
+  padding: var(--u) var(--u);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
 }
@@ -214,9 +213,9 @@
 }
 .skillHead {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
   align-items: baseline;
-  padding: 3px var(--space-2);
+  padding: 0 var(--u);
   font-size: var(--text-xs);
   line-height: var(--leading-ui);
 }
@@ -229,7 +228,7 @@
   font-weight: var(--weight-semibold);
 }
 .rawEventHead {
-  padding: 3px var(--space-2);
+  padding: 0 var(--u);
   font-family: var(--mono);
   font-size: var(--text-xs);
   line-height: var(--leading-ui);
@@ -237,7 +236,7 @@
 .rawJson {
   overflow-x: auto;
   margin: 0;
-  padding: var(--space-2);
+  padding: var(--u);
   border-top: 1px solid var(--border);
   font-family: var(--mono);
   font-size: var(--text-xs);

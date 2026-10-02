@@ -5,7 +5,7 @@
   left: 0;
   box-sizing: border-box;
   width: 100cqi;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--u) var(--u-2);
   border-block: 1px solid var(--border);
   background: var(--bg-raised);
   font-family: var(--font);
@@ -21,7 +21,6 @@
   background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 3px 6px;
 }
 .body {
   margin: 0;
@@ -32,8 +31,8 @@
 }
 .actions {
   display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
+  gap: var(--u);
+  margin-top: var(--u-half);
 }
 
 /* The dock: the Review Dock's chassis, settled, because nothing waits on the user. */
@@ -42,11 +41,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--u);
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
-  padding: var(--space-2) var(--space-3);
-  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  padding: var(--u) var(--u-2);
+  padding-bottom: max(var(--u), env(safe-area-inset-bottom));
 }
 .summary {
   flex: 1 1 12ch;
@@ -58,18 +57,9 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--u);
   border-top: 1px solid var(--border);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--u) var(--u-2);
   color: var(--fg-muted);
   font-size: var(--text-sm);
-}
-@media (max-width: 839px) {
-  .dock button,
-  .box button {
-    min-height: var(--touch);
-  }
-  .box textarea {
-    font-size: 16px;
-  }
 }

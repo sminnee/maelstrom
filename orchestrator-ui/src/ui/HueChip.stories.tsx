@@ -16,11 +16,11 @@ function Board({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        padding: 'var(--space-5)',
+        padding: 'var(--u-3)',
         fontFamily: 'var(--font)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-5)',
+        gap: 'var(--u-3)',
         alignItems: 'flex-start',
       }}
     >
@@ -31,7 +31,7 @@ function Board({ children }: { children: React.ReactNode }) {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--u)' }}>
       <span
         style={{
           fontSize: 'var(--text-2xs)',
@@ -42,7 +42,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       >
         {label}
       </span>
-      <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>{children}</div>
+      <div style={{ display: 'flex', gap: 'var(--u)', alignItems: 'center' }}>{children}</div>
     </div>
   );
 }

@@ -6,7 +6,8 @@
 .button {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
+  gap: var(--u-half);
 }
 /* A label that wraps in a narrow column must not squeeze its icon. */
 .button > svg {
@@ -21,6 +22,8 @@
   color: var(--fg-muted);
 }
 .link {
+  /* Text, not a chassis: it sits in a line and takes the line's height. */
+  min-height: 0;
   background: none;
   border: none;
   padding: 0;

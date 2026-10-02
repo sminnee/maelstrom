@@ -5,7 +5,7 @@
 .box {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--u-half);
 }
 .box input {
   width: 100%;
@@ -15,7 +15,7 @@
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: var(--u-half);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -23,8 +23,8 @@
 .chip {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--u-half);
+  padding: var(--u-half) var(--u);
   font-size: var(--text-sm);
   color: var(--fg);
   background: var(--bg-hover);
@@ -32,6 +32,8 @@
   border-radius: var(--radius-pill);
 }
 .remove {
+  /* Not a control: it takes no control height. */
+  min-height: 0;
   font: inherit;
   line-height: 1;
   color: var(--fg-muted);

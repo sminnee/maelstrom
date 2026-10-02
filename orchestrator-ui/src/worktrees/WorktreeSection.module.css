@@ -2,9 +2,9 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--u);
   min-width: 0;
-  padding-top: var(--space-2);
+  padding-top: var(--u);
   border-top: 1px solid var(--border);
 }
 /* The same head the card's document kinds use. */
@@ -29,7 +29,7 @@
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--u-half) var(--u);
   align-items: center;
   font-size: var(--text-sm);
 }
@@ -42,5 +42,5 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--u);
 }

@@ -22,8 +22,8 @@
 .list li {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--u);
+  padding: var(--u-half) var(--u);
   font-size: var(--text-sm);
   color: var(--fg);
   cursor: pointer;

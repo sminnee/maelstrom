@@ -33,19 +33,19 @@
 /* `LANE_INSET` in `layout.ts`: the library's own default, set here so an
  * upgrade cannot move the lane border under the layout. */
 .canvas :global(.react-flow__node-group) {
-  padding: 10px;
+  padding: var(--u);
 }
 /* Over the board, clear of the top bar: the wire it refers to never drew. */
 .rewireError {
   position: absolute;
   z-index: var(--z-card);
-  top: var(--space-2);
+  top: var(--u);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--u);
+  padding: var(--u-half) var(--u);
   border: 1px solid var(--attention);
   border-radius: var(--radius);
   background: var(--bg-raised);
@@ -57,7 +57,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
+  gap: var(--u);
   height: 100%;
   color: var(--fg-muted);
   font-size: var(--text-ui);

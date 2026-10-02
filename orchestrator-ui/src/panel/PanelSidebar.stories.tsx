@@ -3,7 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import { useAppStore } from '../store/store';
-import { createFakeServer } from '../test/fakeServer';
+import { createFakeServer } from '../fake/fakeServer';
 import { PanelSidebar } from './PanelSidebar';
 import { PanelTabs } from './PanelTabs';
 import { sidebar, sidebarWorld } from './panelTabs.fixture';
@@ -46,7 +46,7 @@ function Frame() {
       <div style={{ minWidth: 0 }}>
         <WorktreeBar group={activeGroup} />
         <PanelTabs group={activeGroup} onClose={close} />
-        <div style={{ padding: 'var(--space-5)', color: 'var(--fg-faint)' }}>The tab body.</div>
+        <div style={{ padding: 'var(--u-3)', color: 'var(--fg-faint)' }}>The tab body.</div>
       </div>
     </div>
   );

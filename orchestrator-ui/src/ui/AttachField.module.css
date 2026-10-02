@@ -1,12 +1,12 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--u);
 }
 .strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--u);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -15,8 +15,8 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
+  gap: var(--u);
+  padding: 0 var(--u);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-sunken);
@@ -37,7 +37,7 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--u);
 }
 .error {
   color: var(--danger, #c00);

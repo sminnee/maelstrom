@@ -3,10 +3,10 @@
   /* The attach wrapper is a column of textarea then Attach, so a stretched
      Send would stand as tall as both. It sits on the textarea's own row. */
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--u);
+  padding: var(--u) var(--u-2);
   /* The bottom of a pushed session screen, so it clears the home indicator. */
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-bottom: max(var(--u), env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
 }
@@ -33,7 +33,7 @@
   background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: var(--u) var(--u);
   /* It shares the panel's height with the transcript, so it grows to half
      the screen and no further. */
   max-height: calc(var(--vvh, 100dvh) / 2);

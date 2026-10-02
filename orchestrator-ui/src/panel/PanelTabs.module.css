@@ -8,7 +8,7 @@
   min-height: 32px;
   /* Room above the tabs, so the tab in view is a shape standing in the band
      rather than a block filling it to the edge. */
-  padding-top: var(--space-1);
+  padding-top: var(--u-half);
 }
 /* The line's tail, past the last tab. Each tab draws its own segment, and the
    tabs are sized to their contents, so without this the line stops wherever
@@ -25,8 +25,8 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2);
+  gap: var(--u);
+  padding: 0 var(--u);
   /* The tab fills the band's full height, so the tab in view meets the body
      along its bottom edge with no strip showing under it. */
   align-self: stretch;
@@ -54,8 +54,8 @@
   content: '';
   position: absolute;
   right: -1px;
-  top: var(--space-1);
-  bottom: var(--space-1);
+  top: var(--u-half);
+  bottom: var(--u-half);
   width: 1px;
   background: var(--border);
 }
@@ -124,7 +124,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-1);
+  padding: var(--u-half);
   /* Held clear, and coloured only on hover: the ring is the hover treatment,
      not the control's resting shape. Reserving its width here stops the cross
      shifting as the ring appears under the pointer. */
@@ -140,7 +140,7 @@
   /* Lifted out of the flow and laid over the id's last characters: an
      inactive tab must not pay width for a control nobody can see. */
   position: absolute;
-  right: var(--space-1);
+  right: var(--u-half);
   z-index: 1;
 }
 /* An invisible control must not take the pointer. `opacity: 0` alone leaves
@@ -154,7 +154,7 @@
 }
 .tab[data-active] .close {
   position: static;
-  margin-right: calc(var(--space-1) * -1);
+  margin-right: calc(var(--u-half) * -1);
 }
 /* An inactive tab reveals its cross under the cross itself, not anywhere on
    the tab — see DESIGN.md, "Panel Tabs". */
