@@ -1157,6 +1157,11 @@ so the tailnet reaches it, and an address pinned to `localhost` would leave a re
 its own machine. `GET /api/events` echoes the request's `Origin` back, so the cross-origin read is
 allowed.
 
+The dev server accepts the dev host. `vite.config.ts` puts `DEV_HOST` in `server.allowedHosts`,
+and Ladle loads the same file. Ladle pins its HMR socket to `localhost`, so `.ladle/config.mjs`
+sets `hmrHost` to the dev host. See
+[Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device).
+
 The app has no fake mode. `pnpm dev` with no server behind it shows "Loading the world…" and a
 "Reconnecting…" banner until one appears.
 
