@@ -838,9 +838,10 @@ A question the agent asked reads four ways, depending on what has happened to it
 `.prompt` chassis. The question sits as a caption
 at `--text-xs` `--fg-muted`; the answer reads on its own line at the reading rank in `--fg`.
 
-**Open** carries Answer as the one primary button. A plain split button after it holds
-**Decline** and, in its menu, **Decline & stop**. It is plain because refusing is the rare act,
-and it shows on every step because a refusal needs no answer.
+**Open** carries Answer as the one primary button. A plain split button at the row's right end
+holds **Decline** and, in its menu, **Decline & stop**. It is plain because refusing is the rare
+act, and it sits apart from Answer so that a slip does not refuse. It shows on every step because
+a refusal needs no answer.
 
 **Declined** is also the operator's voice, so it takes the same wash as an answer. The questions
 sit as captions, and the one word "Declined" takes the answer's line. The daemon also denies a

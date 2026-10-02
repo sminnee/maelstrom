@@ -167,6 +167,34 @@ export const settledQuestions: TranscriptItem[] = [
   },
 ];
 
+/** A question that waits for its reply, with two steps so that Next and Back both draw. */
+export const openQuestion: TranscriptItem[] = [
+  say('Two choices settle the layout before the build starts.', 45),
+  {
+    id: id(),
+    ts: at(45),
+    type: 'question',
+    requestId: `req-${n}`,
+    questions: [
+      {
+        question: 'Where do the empty worktree boxes go?',
+        header: 'Empty boxes',
+        multiSelect: false,
+        options: [
+          { label: 'Compact strip', description: 'Below the last row of the lane.' },
+          { label: 'One cell each', description: 'Each empty box is the size of one node.' },
+        ],
+      },
+      {
+        question: 'Which order do the boxes take?',
+        header: 'Box order',
+        multiSelect: false,
+        options: [{ label: 'By name', description: 'Alpha first.' }],
+      },
+    ],
+  },
+];
+
 /** A quiet block short enough that the clamp offers no control. */
 export const quietShort: TranscriptItem[] = [
   say('<user-attention low>\nOne short line of working detail.', 50),
