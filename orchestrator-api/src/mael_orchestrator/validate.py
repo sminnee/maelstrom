@@ -76,6 +76,7 @@ WORKTREE_COMMANDS = (
     "worktree.trash",
     "worktree.remove",
     "worktree.sync",
+    "worktree.mergePr",
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
@@ -97,6 +98,7 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.forceClose",
     "worktree.trash",
     "worktree.sync",
+    "worktree.mergePr",
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
@@ -275,6 +277,15 @@ def _worktree_error(
         mode = cmd.get("mode", "")
         if mode not in SYNC_MODES:
             return _err("invalid", f"Unknown sync mode: {mode}")
+
+    if kind == "worktree.mergePr":
+        if not worktree.get("prNumber"):
+            return _err("invalid", f"Worktree {worktree_id} has no pull request")
+        # The same test the Merge button draws on. A draft reads as its own
+        # state because its checks can be green.
+        state = "draft" if worktree.get("prDraft") else worktree.get("prState")
+        if state != "ready":
+            return _err("invalid", f"The pull request is not ready to merge ({state})")
 
     if kind == "worktree.comment":
         comments = cmd.get("comments")

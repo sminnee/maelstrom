@@ -17,10 +17,12 @@ from pathlib import Path
 import click
 
 from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
+from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
+from mael_domain.github_model import GitHubError
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
@@ -189,6 +191,14 @@ def build_orchestrator(
         if not ran.ok:
             raise CloseBlocked(ran.blocked or "The sync did not finish")
 
+    def merge_worktree_pr(path: str, number: int, head_oid: str) -> None:
+        try:
+            github.merge_pr(
+                number, cwd=Path(path), head_oid=head_oid, token=github.merge_token()
+            )
+        except GitHubError as exc:
+            raise CloseBlocked(str(exc)) from exc
+
     async def env_worktree(
         project: str, nato: str, path: str, action: str, service: str | None
     ) -> None:
@@ -229,6 +239,7 @@ def build_orchestrator(
         trash=trash_worktree,
         remove=remove_worktree,
         sync=sync_worktree,
+        merge_pr=merge_worktree_pr,
         env=env_worktree,
         ensure_terminal=ensure_worktree_terminal,
         terminal_urls=terminal_urls,

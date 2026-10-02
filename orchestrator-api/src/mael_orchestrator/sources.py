@@ -73,6 +73,14 @@ CloseWorktree = Callable[[str, str, str], Awaitable[None]]
 #:
 SyncWorktree = Callable[[str, str, str, str], Awaitable[None]]
 
+#: Merges one worktree's pull request: ``(project, branch, path) -> None``.
+#: Raises :class:`CloseBlocked` with GitHub's refusal.
+MergeWorktreePr = Callable[[str, str, str], Awaitable[None]]
+
+#: Merges one pull request, if its head is still the commit named:
+#: ``(path, number, head_oid) -> None``. Blocking: it waits on GitHub.
+MergePr = Callable[[str, int, str], None]
+
 #: Removes one worktree outright: ``(project, nato, path) -> None``. The close
 #: parks a worktree for reuse; this deletes the checkout.
 RemoveWorktree = Callable[[str, str, str], Awaitable[None]]
@@ -313,6 +321,9 @@ class WorktreeSource(Protocol):
 
     #: Rebases a worktree, or ``None`` on a source that cannot.
     sync: SyncWorktree | None
+
+    #: Merges a worktree's pull request, or ``None`` on a source that cannot.
+    merge: MergeWorktreePr | None
 
     #: Removes a worktree, or ``None`` on a source that cannot.
     remove: RemoveWorktree | None
@@ -610,6 +621,7 @@ class InMemoryWorktreeSource:
         force_close: CloseWorktree | None = None,
         trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
+        merge: MergeWorktreePr | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
@@ -620,6 +632,7 @@ class InMemoryWorktreeSource:
         self.force_close = force_close
         self.trash = trash
         self.sync = sync
+        self.merge = merge
         self.remove = remove
         self.env = env
         self.ensure_terminal = ensure_terminal
@@ -662,6 +675,7 @@ class ListAllWorktreeSource:
         force_close: CloseWorktree | None = None,
         trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
+        merge_pr: MergePr | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
@@ -681,9 +695,33 @@ class ListAllWorktreeSource:
         self.force_close = force_close
         self.trash = trash
         self.sync = sync
+        self._merge_pr = merge_pr
+        self.merge: MergeWorktreePr | None = (
+            self._merge if merge_pr is not None else None
+        )
         self.remove = remove
         self.env = env
         self.ensure_terminal = ensure_terminal
+
+    async def _merge(self, project: str, branch: str, path: str) -> None:
+        """Merge ``branch``'s pull request at the head commit the last read saw.
+
+        The number and the commit come from this source's own reading, not from
+        the caller: the head commit is not on the wire, and the merge must
+        name the commit whose state the user was shown.
+        """
+        assert self._merge_pr is not None
+        pr = self._pr_cache.get(project, {}).get(branch)
+        if pr is None:
+            raise CloseBlocked(f"No pull request is known for {branch}")
+        # A read can land between the server's validation and here. The merge
+        # names what this source holds, so this source checks it.
+        state = "draft" if pr.is_draft else pr.state
+        if state != "ready":
+            raise CloseBlocked(f"PR #{pr.number} is not ready to merge ({state})")
+        if not pr.head_oid:
+            raise CloseBlocked(f"The head commit of PR #{pr.number} is not known yet")
+        await asyncio.to_thread(self._merge_pr, path, pr.number, pr.head_oid)
 
     async def read(
         self, active_branches: set[str] | None = None
