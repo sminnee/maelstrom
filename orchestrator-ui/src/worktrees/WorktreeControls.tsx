@@ -21,16 +21,19 @@ import { SyncControl } from './SyncControl';
 export function WorktreeLinks({
   worktree,
   pr = worktree,
+  chipClassName,
 }: {
   worktree: Worktree | undefined;
   pr?: Worktree | null;
+  /** For the PR chip: the narrow detail screen gives it a row. */
+  chipClassName?: string;
 }) {
   return (
     <>
       {worktree && !worktree.isClosed && (
         <PanelLink tab={changesTab(worktree.id)}>Changes</PanelLink>
       )}
-      <PrChip worktree={pr ?? undefined} size="large" />
+      <PrChip worktree={pr ?? undefined} size="large" className={chipClassName} />
       <DevEnvLinks worktree={worktree} />
       <CmuxControl worktree={worktree} />
     </>

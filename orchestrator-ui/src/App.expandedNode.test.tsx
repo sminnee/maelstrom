@@ -4,19 +4,12 @@ import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
-import type { FakeServer } from './test/fakeServer';
+import type { FakeServer } from './fake/fakeServer';
 import type { TranscriptItem } from './protocol/transcript';
-import {
-  askQuestion,
-  chipCount,
-  endTurn,
-  expanded,
-  nodeState,
-  tabBody,
-  worktreeControls,
-} from './test/appHelpers';
+import { askQuestion, endTurn } from './fake/moves';
+import { chipCount, expanded, nodeState, tabBody, worktreeControls } from './test/appHelpers';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
-import { T } from './test/seedWorld';
+import { T } from './fake/seedWorld';
 
 describe('the expanded node', () => {
   it('clicking a node expands it in place with its state in words; a second click or Esc collapses it', async () => {
@@ -411,18 +404,20 @@ describe('the expanded node', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-9.1');
+    // The control sits on the id line of the card.
+    const idLine = () => within(within(expanded()).getByTestId('node-id-line'));
 
     await user.click(
-      within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
+      idLine().getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
     );
-    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+    await user.selectOptions(idLine().getByRole('combobox'), 'blocked');
 
     expect(
-      await within(expanded()).findByRole('button', {
+      await idLine().findByRole('button', {
         name: 'Status of Watch the migration PR, blocked',
       }),
     ).toBeInTheDocument();
-    expect(within(expanded()).queryByRole('combobox')).toBeNull();
+    expect(idLine().queryByRole('combobox')).toBeNull();
   });
 
   it('closes the status picker on Escape and leaves the card open', async () => {

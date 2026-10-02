@@ -33,6 +33,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The narrow layout is easier to press.** Each button, link and field is 48px high. The top
+  bar is two rows, and Back takes the second row on a pushed screen. On a node's detail screen
+  each link is a row, and the commands are a bar at the bottom of the screen. The task list and
+  the worktree table stack their rows. The host banner now shows on a phone.
+
+- **A task's status picker sits on the node card's id line** on every layout.
+
 - **A new top-level task gets a short random id.** `mael task add` prints an id such as `k3f9`
   in place of `2026-10-01.14`. A child is `k3f9.1`. Existing tasks keep their ids. `mael task
   list`, `mael task next` and the task list in the orchestrator order tasks by creation time.

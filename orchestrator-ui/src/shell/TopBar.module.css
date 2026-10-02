@@ -4,9 +4,9 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--u);
   min-height: 40px;
-  padding: var(--space-1) 12px;
+  padding: var(--u-half) var(--u-2);
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
 }
@@ -24,37 +24,32 @@
 /* The one way to start new work, so it reads as the bar's action rather than
    another view toggle. */
 .new {
-  font: inherit;
-  font-size: 11px;
   color: var(--fg);
-  background: var(--bg-raised);
-  border: 1px solid var(--fg-faint);
-  border-radius: var(--radius);
-  padding: 2px 10px;
-  cursor: pointer;
+  border-color: var(--fg-faint);
 }
 /* The readings, as one group: they are read together and must not be split
    across a wrap boundary while the bar is still wide enough to hold them. */
 .readings {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--u);
 }
 .views {
   display: flex;
+  /* The group is one control: its border is inside the control height. */
+  box-sizing: border-box;
+  height: var(--control);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--bg);
 }
 .view {
-  font: inherit;
-  font-size: 11px;
+  min-height: 0;
   color: var(--fg-muted);
   background: transparent;
   border: 0;
-  padding: 2px 8px;
-  cursor: pointer;
+  border-radius: 0;
 }
 .view + .view {
   border-left: 1px solid var(--border);
@@ -64,23 +59,60 @@
   background: var(--bg-raised);
 }
 
-/*
- * On a phone the bar carries the brand, the menu, New and the chip.
- * It wraps rather than overflows, and every control clears the touch floor.
- */
+/* The narrow layout: two rows. See DESIGN.md, "The narrow layout". */
 @media (max-width: 839px) {
   .bar {
-    height: auto;
-    min-height: var(--touch);
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    padding-top: max(var(--space-2), env(safe-area-inset-top));
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0;
+    min-height: 0;
+    padding: 0;
+    padding-top: env(safe-area-inset-top);
   }
-  .view,
-  .new {
-    min-height: var(--touch);
-    padding: var(--space-1) var(--space-3);
-    font-size: var(--text-sm);
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--u);
+    min-width: 0;
+    padding: var(--u-half) var(--u-2);
+  }
+  .row + .row,
+  .views {
+    border-top: 1px solid var(--border);
+  }
+  .row + .row {
+    padding: 0;
+  }
+  .views {
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .view {
+    flex: 1;
+  }
+  /* The raised fill does not show on a raised bar, so the view in front takes
+     the rule the deck's zone tabs use. */
+  .view[aria-pressed='true'] {
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .back {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--u);
+    padding: 0 var(--u-2);
+    color: var(--accent);
+    background: none;
+    border: none;
+  }
+  .screenTitle {
+    min-width: 0;
+    padding-right: var(--u-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--weight-semibold);
   }
 }

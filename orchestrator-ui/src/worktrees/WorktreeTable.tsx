@@ -95,16 +95,16 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
         {/* A closed worktree carries no branch, and neither does a detached one. */}
         {worktree.branch || <span className={styles.faint}>(detached)</span>}
       </td>
-      <td>{worktree.dirtyFiles || ''}</td>
-      <td>{worktree.localCommits || ''}</td>
-      <td>{remoteCell(worktree)}</td>
+      <td data-label="dirty">{worktree.dirtyFiles || ''}</td>
+      <td data-label="local">{worktree.localCommits || ''}</td>
+      <td data-label="remote">{remoteCell(worktree)}</td>
       <td>
         <PrChip worktree={worktree} />
       </td>
       <td>
         <DevEnvLinks worktree={worktree} />
       </td>
-      <td>{agents || ''}</td>
+      <td data-label="agents">{agents || ''}</td>
       <td className={styles.actions}>
         <Actions worktree={worktree} />
       </td>
