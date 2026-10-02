@@ -32,10 +32,7 @@ function useAttention() {
   const filters = useAppStore((s) => s.ui.filters);
   // Grouping moves a node between lanes and changes neither its state nor
   // whether it draws, so the chip does not follow it.
-  const nodes = useMemo(
-    () => deriveGraph(world, { filters, groupBy: 'none' }).nodes,
-    [world, filters],
-  );
+  const nodes = useMemo(() => deriveGraph(world, { filters }).nodes, [world, filters]);
   return {
     world,
     nodes,

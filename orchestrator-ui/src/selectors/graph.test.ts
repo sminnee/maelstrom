@@ -17,7 +17,7 @@ function drawnWorld(parts: Parameters<typeof worldWith>[0]) {
   return worldWith({ ...parts, desk: parts.desk ?? onDesk(parts.tasks ?? []) });
 }
 
-const byProject = { groupBy: 'project' as const, filters: noFilters() };
+const unfiltered = { filters: noFilters() };
 
 describe('deriveGraph', () => {
   it('filters Desk tasks by their agent status', () => {
@@ -35,7 +35,7 @@ describe('deriveGraph', () => {
       ],
     });
     const shown = (agentStatus: Parameters<typeof deriveGraph>[1]['filters']['agentStatus']) =>
-      deriveGraph(world, { ...byProject, filters: { ...noFilters(), agentStatus } }).nodes.map(
+      deriveGraph(world, { ...unfiltered, filters: { ...noFilters(), agentStatus } }).nodes.map(
         (node) => node.id,
       );
 
@@ -66,7 +66,7 @@ describe('deriveGraph', () => {
       desk: agents.map((agent) => makeDeskEntry({ id: deskIdForAgent(agent.id) })),
     });
     const shown = (agentStatus: Parameters<typeof deriveGraph>[1]['filters']['agentStatus']) =>
-      deriveGraph(world, { ...byProject, filters: { ...noFilters(), agentStatus } }).nodes.map(
+      deriveGraph(world, { ...unfiltered, filters: { ...noFilters(), agentStatus } }).nodes.map(
         (node) => node.id,
       );
 
@@ -85,7 +85,7 @@ describe('deriveGraph', () => {
 
   it('a task without an agent waits: ready when its turn has come, else queued', () => {
     const ready = drawnWorld({ tasks: [makeTask({ id: 'T1', status: 'todo', actionable: true })] });
-    expect(deriveGraph(ready, byProject).nodes[0]).toMatchObject({
+    expect(deriveGraph(ready, unfiltered).nodes[0]).toMatchObject({
       id: 'T1',
       progress: expect.objectContaining({ state: 'ready' }),
       phase: 'build',
@@ -93,7 +93,7 @@ describe('deriveGraph', () => {
     const queued = drawnWorld({
       tasks: [makeTask({ id: 'T1', status: 'todo', actionable: false })],
     });
-    expect(deriveGraph(queued, byProject).nodes[0]).toMatchObject({
+    expect(deriveGraph(queued, unfiltered).nodes[0]).toMatchObject({
       id: 'T1',
       progress: expect.objectContaining({ state: 'queued' }),
     });
@@ -108,7 +108,7 @@ describe('deriveGraph', () => {
         agents: [makeAgent({ taskId: 'T1', worktreeId: 'northwind-golf' })],
         worktrees: [makeWorktree({ id: 'northwind-golf', nato: 'golf' })],
       });
-      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('golf');
+      expect(deriveGraph(world, unfiltered).nodes[0]?.worktree?.nato).toBe('golf');
     });
 
     it('falls back to the open worktree on the task branch when the agent has stopped', () => {
@@ -116,7 +116,7 @@ describe('deriveGraph', () => {
         tasks: [makeTask({ id: 'T1', branch: 'feat/orders' })],
         worktrees: [makeWorktree({ id: 'northwind-golf', nato: 'golf', branch: 'feat/orders' })],
       });
-      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('golf');
+      expect(deriveGraph(world, unfiltered).nodes[0]?.worktree?.nato).toBe('golf');
     });
 
     it('prefers the live agent worktree over the branch index', () => {
@@ -128,37 +128,12 @@ describe('deriveGraph', () => {
           makeWorktree({ id: 'northwind-hotel', nato: 'hotel', branch: 'feat/other' }),
         ],
       });
-      expect(deriveGraph(world, byProject).nodes[0]?.worktree?.nato).toBe('hotel');
+      expect(deriveGraph(world, unfiltered).nodes[0]?.worktree?.nato).toBe('hotel');
     });
 
     it('has none when no open worktree holds the task branch', () => {
       const world = drawnWorld({ tasks: [makeTask({ id: 'T1', branch: 'feat/nowhere' })] });
-      expect(deriveGraph(world, byProject).nodes[0]?.worktree).toBeUndefined();
-    });
-  });
-
-  // The node says the project only when nothing else on screen already does:
-  // the lane header names it when grouped by project, and the filter names it
-  // when filtered to one.
-  describe('showProject', () => {
-    const world = drawnWorld({
-      tasks: [makeTask({ id: 'northwind/NORT-7', project: 'northwind' })],
-    });
-    const showProject = (opts: Parameters<typeof deriveGraph>[1]) =>
-      deriveGraph(world, opts).nodes[0]!.showProject;
-
-    it('is false when the lane header names the project', () => {
-      expect(showProject(byProject)).toBe(false);
-    });
-
-    it('is false when the project filter names the project', () => {
-      const filters = { ...noFilters(), project: 'northwind' };
-      expect(showProject({ groupBy: 'none', filters })).toBe(false);
-    });
-
-    it('is true when neither the lane nor the filter names it', () => {
-      expect(showProject({ groupBy: 'none', filters: noFilters() })).toBe(true);
-      expect(showProject({ groupBy: 'branch', filters: noFilters() })).toBe(true);
+      expect(deriveGraph(world, unfiltered).nodes[0]?.worktree).toBeUndefined();
     });
   });
 
@@ -166,7 +141,7 @@ describe('deriveGraph', () => {
     const world = drawnWorld({
       tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', follows: ['T1'] })],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.edges).toEqual([{ id: 'T1->T2', source: 'T1', target: 'T2' }]);
   });
 
@@ -179,7 +154,7 @@ describe('deriveGraph', () => {
       agents: [makeAgent({ id: 'a2', taskId: 'T2', state: 'processing' })],
     });
     const states = Object.fromEntries(
-      deriveGraph(world, byProject).nodes.map((n) => [n.id, n.progress.state]),
+      deriveGraph(world, unfiltered).nodes.map((n) => [n.id, n.progress.state]),
     );
     expect(states).toEqual({ T1: 'done', T2: 'working' });
   });
@@ -190,7 +165,7 @@ describe('deriveGraph', () => {
       agents: [makeAgent({ id: 'a2', taskId: 'T2', state: 'awaiting-question' })],
       attention: [makeAttention({ agentId: 'a2', taskId: 'T2', summary: 'Which colour?' })],
     });
-    expect(deriveGraph(world, byProject).nodes[0]).toMatchObject({
+    expect(deriveGraph(world, unfiltered).nodes[0]).toMatchObject({
       progress: expect.objectContaining({ state: 'needs-attention' }),
       reason: 'Which colour?',
     });
@@ -204,49 +179,11 @@ describe('deriveGraph', () => {
         makeTask({ id: 'T3', project: 'maelstrom' }),
       ],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.groups.map((g) => [g.id, g.nodeIds])).toEqual([
       ['maelstrom', ['T2', 'T3']],
       ['northwind', ['T1']],
     ]);
-  });
-
-  it('groups by branch with one group per branch, labelled with its worktree', () => {
-    const world = drawnWorld({
-      worktrees: [makeWorktree({ id: 'northwind-bravo', nato: 'bravo', branch: 'feat/db' })],
-      tasks: [
-        makeTask({ id: 'T1', branch: 'feat/orders' }),
-        makeTask({ id: 'T2', branch: 'feat/db' }),
-        makeTask({ id: 'T3', branch: 'feat/db' }),
-      ],
-    });
-    const graph = deriveGraph(world, { groupBy: 'branch', filters: noFilters() });
-    const db = graph.groups.find((g) => g.label === 'feat/db');
-    expect(db).toMatchObject({ sublabel: 'bravo', nodeIds: ['T2', 'T3'] });
-    expect(graph.groups.find((g) => g.label === 'feat/orders')?.sublabel).toBe('');
-    expect(graph.nodes.find((n) => n.id === 'T2')?.groupId).toBe(db?.id);
-  });
-
-  it('groups by none with one unlabelled group holding every node, edges kept', () => {
-    const world = drawnWorld({
-      tasks: [
-        makeTask({ id: 'T1', project: 'northwind' }),
-        makeTask({ id: 'T2', project: 'maelstrom', follows: ['T1'] }),
-      ],
-    });
-    const graph = deriveGraph(world, { groupBy: 'none', filters: noFilters() });
-    expect(graph.groups).toEqual([
-      {
-        id: 'all',
-        kind: 'none',
-        label: '',
-        sublabel: '',
-        nodeIds: ['T1', 'T2'],
-        emptyWorktrees: [],
-      },
-    ]);
-    expect(graph.nodes.map((n) => n.groupId)).toEqual(['all', 'all']);
-    expect(graph.edges.map((e) => e.id)).toEqual(['T1->T2']);
   });
 
   describe('empty worktrees of a project lane', () => {
@@ -259,21 +196,22 @@ describe('deriveGraph', () => {
       makeWorktree({ id: 'maelstrom-alpha', project: 'maelstrom', nato: 'alpha', branch: 'x' }),
     ];
     const tasks = [makeTask({ id: 'T1', project: 'northwind', branch: 'feat/orders' })];
-    const emptyNames = (groupBy: 'project' | 'worktree' | 'branch' | 'none') =>
-      deriveGraph(drawnWorld({ worktrees, tasks }), { groupBy, filters: noFilters() }).groups.map(
-        (g) => g.emptyWorktrees.map((w) => w.id),
-      );
 
     // Open, of this project, holding no node. Not `_main`, not the closed one,
     // not the other project's, and not alpha, which T1 is in.
     it('lists the open worktrees of the project that hold no node, in name order', () => {
-      expect(emptyNames('project')).toEqual([['northwind-bravo', 'northwind-charlie']]);
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks }), unfiltered);
+      expect(
+        graph.groups.find((g) => g.id === 'northwind')?.emptyWorktrees.map((w) => w.id),
+      ).toEqual(['northwind-bravo', 'northwind-charlie']);
     });
 
     it('lists a worktree no longer once a free agent runs in it', () => {
       const agent = makeAgent({ id: 'A1', taskId: '', worktreeId: 'northwind-bravo' });
-      const graph = deriveGraph(drawnWorld({ worktrees, tasks, agents: [agent] }), byProject);
-      expect(graph.groups[0]?.emptyWorktrees.map((w) => w.id)).toEqual(['northwind-charlie']);
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks, agents: [agent] }), unfiltered);
+      expect(
+        graph.groups.find((g) => g.id === 'northwind')?.emptyWorktrees.map((w) => w.id),
+      ).toEqual(['northwind-charlie']);
     });
 
     // A filter hides nodes, so "no node drawn" stops meaning "holds nothing".
@@ -283,190 +221,35 @@ describe('deriveGraph', () => {
     ])('lists none while a filter hides nodes: %o', (filters) => {
       const agent = makeAgent({ id: 'A1', taskId: 'T1', state: 'processing' });
       const graph = deriveGraph(drawnWorld({ worktrees, tasks, agents: [agent] }), {
-        groupBy: 'project',
         filters,
       });
       expect(graph.groups.map((g) => [g.nodeIds, g.emptyWorktrees])).toEqual([[['T1'], []]]);
     });
 
-    it.each(['worktree', 'branch', 'none'] as const)('lists none grouped by %s', (groupBy) => {
-      expect(emptyNames(groupBy).flat()).toEqual([]);
-    });
-  });
-
-  describe('group by worktree', () => {
-    const byWorktree = { groupBy: 'worktree' as const, filters: noFilters() };
-
-    it('draws a lane for an open worktree that holds nothing', () => {
-      const world = drawnWorld({
-        worktrees: [
-          makeWorktree({ id: 'northwind-alpha', nato: 'alpha', branch: 'feat/orders' }),
-          makeWorktree({ id: 'northwind-bravo', nato: 'bravo', branch: 'feat/idle' }),
+    // The lane comes from the world here, not from a node: without it the
+    // empty boxes of a project with no work on the desk would never draw.
+    it('draws a lane for a project that holds only empty worktrees', () => {
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks }), unfiltered);
+      expect(graph.groups.map((g) => [g.id, g.nodeIds, g.emptyWorktrees.map((w) => w.id)])).toEqual(
+        [
+          ['maelstrom', [], ['maelstrom-alpha']],
+          ['northwind', ['T1'], ['northwind-bravo', 'northwind-charlie']],
         ],
-        tasks: [makeTask({ id: 'T1', branch: 'feat/orders' })],
-      });
-      const graph = deriveGraph(world, byWorktree);
-      expect(graph.groups.map((g) => [g.id, g.label, g.nodeIds])).toEqual([
-        ['northwind-alpha', 'alpha', ['T1']],
-        ['northwind-bravo', 'bravo', []],
-      ]);
+      );
     });
 
-    it('labels a lane with its nato name and its branch', () => {
-      const world = drawnWorld({
-        worktrees: [makeWorktree({ nato: 'alpha', branch: 'feat/orders' })],
-        tasks: [],
+    it('draws no such lane for a project the filter leaves out', () => {
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks }), {
+        ...unfiltered,
+        filters: { ...noFilters(), project: 'northwind' },
       });
-      const [lane] = deriveGraph(world, byWorktree).groups;
-      expect(lane).toMatchObject({ label: 'alpha', sublabel: 'feat/orders' });
+      expect(graph.groups.map((g) => g.id)).toEqual(['northwind']);
     });
 
-    it('a detached worktree says so rather than showing an empty branch', () => {
-      const world = drawnWorld({
-        worktrees: [makeWorktree({ nato: 'alpha', branch: '' })],
-        tasks: [],
-      });
-      expect(deriveGraph(world, byWorktree).groups[0]?.sublabel).toBe('(detached)');
-    });
-
-    it('draws no lane for a closed worktree', () => {
-      const world = drawnWorld({
-        worktrees: [
-          makeWorktree({ id: 'northwind-alpha', nato: 'alpha' }),
-          makeWorktree({ id: 'northwind-bravo', nato: 'bravo', isClosed: true }),
-        ],
-        tasks: [],
-      });
-      expect(deriveGraph(world, byWorktree).groups.map((g) => g.id)).toEqual(['northwind-alpha']);
-    });
-
-    it('carries the worktree on the lane, so the header can act on it', () => {
-      const world = drawnWorld({
-        worktrees: [makeWorktree({ id: 'northwind-alpha', nato: 'alpha' })],
-        tasks: [],
-      });
-      expect(deriveGraph(world, byWorktree).groups[0]?.worktree).toMatchObject({
-        id: 'northwind-alpha',
-      });
-    });
-
-    it('puts a task whose branch has no open worktree in Unallocated', () => {
-      const world = drawnWorld({
-        worktrees: [makeWorktree({ id: 'northwind-alpha', branch: 'feat/orders' })],
-        tasks: [
-          makeTask({ id: 'T1', branch: 'feat/orders' }),
-          makeTask({ id: 'T2', branch: 'feat/nowhere' }),
-        ],
-      });
-      const graph = deriveGraph(world, byWorktree);
-      const unallocated = graph.groups.find((g) => g.label === 'Unallocated');
-      expect(unallocated?.nodeIds).toEqual(['T2']);
-      expect(unallocated?.worktree).toBeUndefined();
-    });
-
-    it('puts a task with no branch at all in Unallocated', () => {
-      const world = drawnWorld({ worktrees: [], tasks: [makeTask({ id: 'T1', branch: '' })] });
-      expect(deriveGraph(world, byWorktree).groups[0]).toMatchObject({
-        label: 'Unallocated',
-        nodeIds: ['T1'],
-      });
-    });
-
-    it('draws no Unallocated lane when every node has a worktree', () => {
-      const world = drawnWorld({
-        worktrees: [makeWorktree({ id: 'northwind-alpha', branch: 'feat/orders' })],
-        tasks: [makeTask({ id: 'T1', branch: 'feat/orders' })],
-      });
-      expect(deriveGraph(world, byWorktree).groups.map((g) => g.label)).toEqual(['alpha']);
-    });
-
-    // The id sorts *after* the sentinel alphabetically, so only the explicit
-    // last-place rule can put Unallocated below it.
-    it('Unallocated sorts after every worktree lane', () => {
-      const world = drawnWorld({
-        worktrees: [
-          makeWorktree({ id: 'zzz-zulu', project: 'zzz', nato: 'zulu', branch: 'feat/z' }),
-        ],
-        tasks: [makeTask({ id: 'T1', branch: 'feat/nowhere' })],
-      });
-      expect(deriveGraph(world, byWorktree).groups.map((g) => g.label)).toEqual([
-        'zulu',
-        'Unallocated',
-      ]);
-    });
-
-    it('a free agent takes the lane of the worktree it runs in', () => {
-      const worktree = makeWorktree({ id: 'northwind-alpha', nato: 'alpha' });
-      const agent = makeAgent({ id: 'A1', taskId: '', worktreeId: 'northwind-alpha' });
-      const world = worldWith({
-        worktrees: [worktree],
-        agents: [agent],
-        desk: [makeDeskEntry({ id: deskIdForAgent('A1') })],
-      });
-      const graph = deriveGraph(world, byWorktree);
-      expect(graph.groups.map((g) => [g.id, g.nodeIds])).toEqual([['northwind-alpha', ['A1']]]);
-    });
-
-    it('a free agent whose worktree the world has not read falls in Unallocated', () => {
-      const agent = makeAgent({ id: 'A1', taskId: '', worktreeId: '' });
-      const world = worldWith({
-        worktrees: [],
-        agents: [agent],
-        desk: [makeDeskEntry({ id: deskIdForAgent('A1') })],
-      });
-      expect(deriveGraph(world, byWorktree).groups[0]).toMatchObject({
-        label: 'Unallocated',
-        nodeIds: ['A1'],
-      });
-    });
-
-    it("the project filter keeps only that project's lanes", () => {
-      const world = drawnWorld({
-        worktrees: [
-          makeWorktree({ id: 'northwind-alpha', project: 'northwind', nato: 'alpha' }),
-          makeWorktree({ id: 'maelstrom-alpha', project: 'maelstrom', nato: 'alpha' }),
-        ],
-        tasks: [],
-      });
-      const graph = deriveGraph(world, {
-        groupBy: 'worktree',
-        filters: { project: 'northwind', branch: null },
-      });
-      expect(graph.groups.map((g) => g.id)).toEqual(['northwind-alpha']);
-    });
-
-    // The branch filter reads differently here than in every other grouping:
-    // there it drops lanes, here it only empties them. Seeing which worktrees
-    // are open is the whole mode, so a filter must not hide one.
-    it('the branch filter empties the other lanes rather than dropping them', () => {
-      const world = drawnWorld({
-        worktrees: [
-          makeWorktree({
-            id: 'northwind-alpha',
-            project: 'northwind',
-            nato: 'alpha',
-            branch: 'feat/orders',
-          }),
-          makeWorktree({
-            id: 'northwind-bravo',
-            project: 'northwind',
-            nato: 'bravo',
-            branch: 'feat/db',
-          }),
-        ],
-        tasks: [
-          makeTask({ id: 'T1', project: 'northwind', branch: 'feat/orders' }),
-          makeTask({ id: 'T2', project: 'northwind', branch: 'feat/db' }),
-        ],
-      });
-      const graph = deriveGraph(world, {
-        groupBy: 'worktree',
-        filters: { project: null, branch: 'northwind/feat/orders' },
-      });
-      expect(graph.groups.map((g) => [g.id, g.nodeIds])).toEqual([
-        ['northwind-alpha', ['T1']],
-        ['northwind-bravo', []],
-      ]);
+    it('draws no lane for a project whose only open worktree is `_main`', () => {
+      const main = makeWorktree({ id: 'maelstrom-_main', project: 'maelstrom', nato: '_main' });
+      const graph = deriveGraph(drawnWorld({ worktrees: [main], tasks }), unfiltered);
+      expect(graph.groups.map((g) => g.id)).toEqual(['northwind']);
     });
   });
 
@@ -479,7 +262,6 @@ describe('deriveGraph', () => {
       ],
     });
     const graph = deriveGraph(world, {
-      groupBy: 'project',
       filters: { ...noFilters(), branch: 'northwind/feat/db' },
     });
     expect(graph.nodes.map((n) => n.id)).toEqual(['T2', 'T3']);
@@ -493,7 +275,7 @@ describe('deriveGraph', () => {
       desk: onDesk([drawn]),
       agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'exited', exitCode: 0 })],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.nodes.map((n) => n.id)).toEqual(['T3']);
   });
 
@@ -503,7 +285,7 @@ describe('deriveGraph', () => {
       desk: [],
       agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'processing' })],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.nodes.map((n) => n.id)).toEqual(['T1']);
   });
 
@@ -515,7 +297,6 @@ describe('deriveGraph', () => {
       ],
     });
     const graph = deriveGraph(world, {
-      groupBy: 'project',
       filters: { ...noFilters(), project: 'maelstrom' },
     });
     expect(graph.nodes.map((n) => n.id)).toEqual(['T2']);
@@ -539,7 +320,7 @@ describe('free agents', () => {
       agents: [freeAgent()],
       desk: [],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.nodes).toHaveLength(1);
     expect(graph.nodes[0]).toMatchObject({
       id: 'free1',
@@ -556,39 +337,36 @@ describe('free agents', () => {
       agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'processing' })],
       desk: [],
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.nodes.map((n) => [n.id, n.kind])).toEqual([['T1', 'task']]);
   });
 
   it('an exited free agent is drawn only while it is on the desk', () => {
     const exited = freeAgent({ state: 'exited', exitCode: 0 });
     const off = worldWith({ agents: [exited], desk: [] });
-    expect(deriveGraph(off, byProject).nodes).toHaveLength(0);
+    expect(deriveGraph(off, unfiltered).nodes).toHaveLength(0);
 
     const on = worldWith({
       agents: [exited],
       desk: [makeDeskEntry({ id: deskIdForAgent('free1') })],
     });
-    expect(deriveGraph(on, byProject).nodes.map((n) => n.id)).toEqual(['free1']);
+    expect(deriveGraph(on, unfiltered).nodes.map((n) => n.id)).toEqual(['free1']);
   });
 
-  it('a free agent takes its branch lane from its worktree', () => {
+  it('a free agent takes its lane from its worktree, and one with neither takes the unnamed lane', () => {
     const world = worldWith({
-      worktrees: [makeWorktree({ id: 'northwind-alpha', branch: 'feat/orders' })],
-      agents: [freeAgent()],
+      worktrees: [makeWorktree({ id: 'maelstrom-alpha', project: 'maelstrom', nato: 'alpha' })],
+      agents: [
+        freeAgent({ id: 'held', project: '', worktreeId: 'maelstrom-alpha' }),
+        freeAgent({ id: 'lost', project: '', worktreeId: 'unread' }),
+      ],
       desk: [],
     });
-    const graph = deriveGraph(world, { groupBy: 'branch', filters: noFilters() });
-    expect(graph.groups.map((g) => [g.id, g.label, g.sublabel])).toEqual([
-      ['northwind/feat/orders', 'feat/orders', 'alpha'],
+    const graph = deriveGraph(world, unfiltered);
+    expect(graph.groups.map((g) => [g.id, g.nodeIds])).toEqual([
+      ['', ['lost']],
+      ['maelstrom', ['held']],
     ]);
-  });
-
-  it('a free agent with no worktree falls in the unknown lane', () => {
-    const world = worldWith({ agents: [freeAgent({ worktreeId: '' })], desk: [] });
-    const graph = deriveGraph(world, { groupBy: 'branch', filters: noFilters() });
-    expect(graph.nodes).toHaveLength(1);
-    expect(graph.groups[0]?.label).toBe('(no branch)');
   });
 
   it('the filters apply to a free agent, by the project and branch it runs in', () => {
@@ -597,17 +375,15 @@ describe('free agents', () => {
       agents: [freeAgent()],
       desk: [],
     });
-    const kept = { groupBy: 'project' as const, filters: { project: 'northwind', branch: null } };
+    const kept = { filters: { project: 'northwind', branch: null } };
     expect(deriveGraph(world, kept).nodes.map((n) => n.id)).toEqual(['free1']);
 
     const otherProject = {
-      groupBy: 'project' as const,
       filters: { project: 'maelstrom', branch: null },
     };
     expect(deriveGraph(world, otherProject).nodes).toHaveLength(0);
 
     const otherBranch = {
-      groupBy: 'project' as const,
       filters: { project: null, branch: 'northwind/feat/other' },
     };
     expect(deriveGraph(world, otherBranch).nodes).toHaveLength(0);
@@ -625,7 +401,7 @@ describe('free agents', () => {
       ],
       desk: onDesk([makeTask({ id: 'northwind/NORT-7' })]),
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.nodes.map((n) => n.id).sort()).toEqual(['free1', 'northwind/NORT-7']);
     expect(graph.nodes.find((n) => n.id === 'northwind/NORT-7')?.agent?.id).toBe('p1');
   });
@@ -636,7 +412,7 @@ describe('free agents', () => {
       agents: [freeAgent()],
       desk: onDesk([makeTask({ id: 'T1' }), makeTask({ id: 'T2' })]),
     });
-    const graph = deriveGraph(world, byProject);
+    const graph = deriveGraph(world, unfiltered);
     expect(graph.edges).toEqual([{ id: 'T1->T2', source: 'T1', target: 'T2' }]);
   });
 });

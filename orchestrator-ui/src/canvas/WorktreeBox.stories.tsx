@@ -2,8 +2,6 @@ import type { Story } from '@ladle/react';
 import { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { App } from '../App';
-import type { GroupBy } from '../selectors/filters';
-import { useAppStore } from '../store/store';
 import { createFakeServer } from '../test/fakeServer';
 import { deskIdForTask } from '../protocol/deskId';
 import { makeTask, makeWorktree } from '../test/fixtures';
@@ -15,10 +13,8 @@ export default { title: 'Canvas / Worktree boxes' };
 const EMPTY = ['foxtrot', 'golf', 'hotel', 'india', 'juliett', 'kilo', 'lima', 'november'];
 
 /** The real app on the seeded world. See `orchestrator-ui/DESIGN.md`, "Seeing a change". */
-function Harness({ groupBy = 'project' }: { groupBy?: GroupBy }) {
+function Harness() {
   const [deps] = useState(() => {
-    // The app's one store, set before the first draw.
-    useAppStore.setState((s) => ({ ui: { ...s.ui, groupBy } }));
     const seed = seedWorld();
     for (const nato of EMPTY) {
       const id = `northwind-${nato}`;
@@ -68,6 +64,3 @@ function Harness({ groupBy = 'project' }: { groupBy?: GroupBy }) {
  * strip of small boxes below the lowest node and box.
  */
 export const ProjectLane: Story = () => <Harness />;
-
-/** The same world grouped by worktree. What to look at: no box draws. */
-export const GroupedByWorktree: Story = () => <Harness groupBy="worktree" />;

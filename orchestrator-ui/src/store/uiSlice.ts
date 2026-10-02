@@ -1,4 +1,4 @@
-import type { Filters, GroupBy } from '../selectors/filters';
+import type { Filters } from '../selectors/filters';
 import { noFilters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import { noListFilters } from '../selectors/taskList';
@@ -38,7 +38,6 @@ export interface UiState {
   slots: Record<Side, Pane | null>;
   /** Panes, most recently selected first. The front one is always showing. */
   paneRecency: Pane[];
-  groupBy: GroupBy;
   filters: Filters;
   /** The task list's own filters. */
   listFilters: ListFilters;
@@ -93,7 +92,6 @@ export function initialUiState(): UiState {
     slots: { left: 'canvas', right: 'tabs' },
     // Every pane, so the left slot can reopen on one that was never selected.
     paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
-    groupBy: 'project',
     filters: noFilters(),
     listFilters: noListFilters(),
     worktreeFilters: noWorktreeFilters(),

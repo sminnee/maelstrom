@@ -53,7 +53,6 @@ export function Canvas() {
   // A refused rewire has no wire to draw on, so the refusal says so over the
   // board. Local state and `role="alert"`, as `StatusPicker` does it.
   const [rewireError, setRewireError] = useState<string | null>(null);
-  const groupBy = useAppStore((s) => s.ui.groupBy);
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
@@ -67,13 +66,9 @@ export function Canvas() {
   const focused = panelShowing ? focusedTaskId(world, tabs, activeTabKey) : null;
 
   const { nodes, edges, byId, positions } = useMemo(() => {
-    const graph = deriveGraph(world, { groupBy, filters });
+    const graph = deriveGraph(world, { filters });
     const layout = layoutSwimlanes(graph);
-    // Group by none draws no lane: its nodes sit at absolute positions
-    // instead of inside a parent.
-    const lanes = graph.groups.filter((g) => g.kind !== 'none');
-    const laneIds = new Set(lanes.map((g) => g.id));
-    const groupNodes: GroupFlowNode[] = lanes.map((group) => {
+    const groupNodes: GroupFlowNode[] = graph.groups.map((group) => {
       const box = layout.groups[group.id]!;
       return {
         id: `group:${group.id}`,
@@ -96,9 +91,7 @@ export function Canvas() {
       selectable: false,
       data: { zones: layout.zones },
     };
-    // Only a project lane has boxes, and a project lane always draws, so every
-    // box has a parent to sit in.
-    const boxNodes: WorktreeBoxFlowNode[] = lanes.flatMap((group) =>
+    const boxNodes: WorktreeBoxFlowNode[] = graph.groups.flatMap((group) =>
       (layout.worktreeBoxes[group.id] ?? []).map((box) => ({
         id: `worktree-box:${group.id}:${box.worktree.id}`,
         type: 'worktreeBox',
@@ -121,8 +114,8 @@ export function Canvas() {
       return {
         id: node.id,
         type: 'task',
-        ...(laneIds.has(node.groupId) ? { parentId: `group:${node.groupId}` } : {}),
-        position: laneIds.has(node.groupId) ? local : positions[node.id]!,
+        parentId: `group:${node.groupId}`,
+        position: local,
         width: layout.nodeSize.width,
         height: layout.nodeSize.height,
         draggable: false,
@@ -151,7 +144,7 @@ export function Canvas() {
       byId,
       positions,
     };
-  }, [world, groupBy, filters, focused, expandedNodeId]);
+  }, [world, filters, focused, expandedNodeId]);
 
   // The card stays mounted through its collapse animation, then leaves.
   const [shownTaskId, setShownTaskId] = useState<string | null>(null);

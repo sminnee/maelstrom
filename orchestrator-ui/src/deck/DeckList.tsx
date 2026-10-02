@@ -1,4 +1,5 @@
 import { useWorld } from '../api/useWorld';
+import { showsProject } from '../selectors/filters';
 import { ZONES } from '../protocol/progress';
 import { emptyZoneWords, zoneLabel } from '../selectors/deck';
 import { useDeck } from './useDeck';
@@ -17,6 +18,7 @@ export function DeckList() {
   const zone = useAppStore((s) => s.ui.deckZone);
   const setDeckZone = useAppStore((s) => s.setDeckZone);
   const pushScreen = useAppStore((s) => s.pushScreen);
+  const showProject = useAppStore((s) => showsProject(s.ui.filters));
 
   if (status === 'loading') {
     return (
@@ -65,6 +67,7 @@ export function DeckList() {
             <DeckRow
               key={node.id}
               node={node}
+              showProject={showProject}
               onOpen={() => pushScreen({ kind: 'detail', nodeId: node.id })}
             />
           ))

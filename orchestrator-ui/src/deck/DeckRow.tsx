@@ -17,7 +17,16 @@ import styles from './DeckRow.module.css';
  * `data-phase`, so it inherits the node's whole state vocabulary rather than
  * inventing a second one. The row is the button: a tap opens the node.
  */
-export function DeckRow({ node, onOpen }: { node: GraphNode; onOpen: () => void }) {
+export function DeckRow({
+  node,
+  showProject,
+  onOpen,
+}: {
+  node: GraphNode;
+  /** Whether the row names its project. False when the project filter already does. */
+  showProject: boolean;
+  onOpen: () => void;
+}) {
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   const documents = useDocuments();
   const documentTitle = documentId
@@ -48,9 +57,7 @@ export function DeckRow({ node, onOpen }: { node: GraphNode; onOpen: () => void 
           )}
         </span>
         <span className={styles.meta}>
-          {node.showProject && node.task && (
-            <span className={styles.project}>{node.task.project}</span>
-          )}
+          {showProject && node.task && <span className={styles.project}>{node.task.project}</span>}
           <span className={styles.id}>{nodeIdLine(node)}</span>
           {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
           <PrChip worktree={cardPr(node)} link={false} className={styles.pr} />

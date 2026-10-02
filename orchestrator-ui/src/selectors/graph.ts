@@ -8,7 +8,7 @@ import type { TaskId } from '../protocol/ids';
 import { phaseForCommand } from '../protocol/phase';
 import type { Progress } from '../protocol/progress';
 import { isWorking, progressOf } from '../protocol/progress';
-import type { AgentStatusFilter, Filters, GroupBy } from './filters';
+import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey } from './filters';
 import { byName } from './worktrees';
 
@@ -32,37 +32,19 @@ export interface GraphNode {
   attention: Attention[];
   /** One line under the title saying why the node needs the user, else ''. */
   reason: string;
-  /**
-   * Does the node have to name its own project. False when something else on
-   * screen already does: the lane header when grouped by project, the filter
-   * when filtered to one. The node's width is scarce, so it never repeats.
-   */
-  showProject: boolean;
 }
 
 export interface GraphGroup {
+  /** The project's id: every lane is one project's strip. */
   id: string;
-  kind: GroupBy;
   label: string;
-  /** The worktree holding a branch, when grouping by branch. */
-  sublabel: string;
   nodeIds: TaskId[];
   /**
    * The open worktrees of the project that hold no node of the lane, in name
-   * order. A project lane draws each as an empty **Worktree box**; every other
-   * grouping carries none.
+   * order. The lane draws each as an empty **Worktree box**.
    */
   emptyWorktrees: Worktree[];
-  /**
-   * The worktree the lane stands for, when grouping by worktree. The lane's
-   * close button acts on it, so `Unallocated` — which stands for no worktree —
-   * carries none and offers no close.
-   */
-  worktree?: Worktree;
 }
-
-/** The lane for work whose branch has no open worktree. Always sorted last. */
-export const UNALLOCATED = 'unallocated';
 
 export interface GraphEdge {
   id: string;
@@ -77,7 +59,6 @@ export interface Graph {
 }
 
 export interface GraphOptions {
-  groupBy: GroupBy;
   filters: Filters;
 }
 
@@ -185,19 +166,22 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id)));
 
   const groups = new Map<string, GraphGroup>();
-  // Worktree lanes come from the world, not from the nodes, so an open
-  // worktree running nothing still draws.
-  if (opts.groupBy === 'worktree') seedWorktreeLanes(world, opts.filters, groups);
+  const laneOf = (project: string) => {
+    let lane = groups.get(project);
+    if (!lane) {
+      const label = world.projects[project]?.name ?? project;
+      lane = { id: project, label, nodeIds: [], emptyWorktrees: [] };
+      groups.set(project, lane);
+    }
+    return lane;
+  };
 
   const nodes: GraphNode[] = [];
   for (const task of tasks) {
     const agent = agents.get(task.id);
     const attention = attentionFrom(attentionIndex, task, agent);
-    const groupId = groupIdFor(task, opts.groupBy, worktreeByBranch);
-    if (!groups.has(groupId)) {
-      groups.set(groupId, makeGroup(world, task, groupId, opts.groupBy, worktreeByBranch));
-    }
-    groups.get(groupId)!.nodeIds.push(task.id);
+    const groupId = task.project;
+    laneOf(groupId).nodeIds.push(task.id);
     nodes.push({
       id: task.id,
       kind: 'task',
@@ -214,7 +198,6 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
-      showProject: opts.groupBy !== 'project' && !opts.filters.project,
     });
   }
 
@@ -228,11 +211,8 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     if (!allowsAgent(opts.filters, agent, worktree)) continue;
     if (!allowsAgentStatus(opts.filters.agentStatus, agent)) continue;
     const attention = attentionFrom(attentionIndex, undefined, agent);
-    const groupId = groupIdForAgent(agent, worktree, opts.groupBy);
-    if (!groups.has(groupId)) {
-      groups.set(groupId, makeAgentGroup(world, agent, worktree, groupId, opts.groupBy));
-    }
-    groups.get(groupId)!.nodeIds.push(agent.id);
+    const groupId = agent.project || worktree?.project || '';
+    laneOf(groupId).nodeIds.push(agent.id);
     nodes.push({
       id: agent.id,
       kind: 'freeAgent',
@@ -244,14 +224,13 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
-      showProject: opts.groupBy !== 'project' && !opts.filters.project,
     });
   }
 
   // A branch or status filter hides nodes, so a worktree with no node drawn
   // may still hold work. An empty box would then say what is not true.
   const hidesNodes = opts.filters.branch || (opts.filters.agentStatus ?? 'all') !== 'all';
-  if (opts.groupBy === 'project' && !hidesNodes) listEmptyWorktrees(world, nodes, groups);
+  if (!hidesNodes) listEmptyWorktrees(world, opts.filters, nodes, laneOf);
 
   const visible = new Set(nodes.map((n) => n.id));
   const edges: GraphEdge[] = [];
@@ -265,12 +244,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   return {
     nodes,
     edges,
-    // Unallocated last by rule, not by id: `localeCompare` collates rather
-    // than comparing code points, so no sentinel id sorts last reliably.
-    groups: [...groups.values()].sort(
-      (a, b) =>
-        Number(a.id === UNALLOCATED) - Number(b.id === UNALLOCATED) || a.id.localeCompare(b.id),
-    ),
+    groups: [...groups.values()].sort((a, b) => a.id.localeCompare(b.id)),
   };
 }
 
@@ -306,131 +280,24 @@ function allowsAgentStatus(
   }
 }
 
-function groupIdForAgent(agent: Agent, worktree: Worktree | undefined, kind: GroupBy): string {
-  const project = agent.project || worktree?.project || '';
-  switch (kind) {
-    case 'project':
-      return project;
-    case 'branch':
-      return `${project}/${worktree?.branch ?? ''}`;
-    case 'worktree':
-      // The agent names its worktree outright. One the world has not read, or
-      // one already closed, leaves the agent with no lane of its own.
-      return worktree && !worktree.isClosed ? worktree.id : UNALLOCATED;
-    case 'none':
-      return 'all';
-  }
-}
-
-/** A free agent's lane, named by its worktree rather than by a task. */
-function makeAgentGroup(
-  world: WorldView,
-  agent: Agent,
-  worktree: Worktree | undefined,
-  id: string,
-  kind: GroupBy,
-): GraphGroup {
-  if (kind === 'none')
-    return { id, kind, label: '', sublabel: '', nodeIds: [], emptyWorktrees: [] };
-  const project = agent.project || worktree?.project || '';
-  if (kind === 'project') {
-    return {
-      id,
-      kind,
-      label: world.projects[project]?.name ?? project,
-      sublabel: '',
-      nodeIds: [],
-      emptyWorktrees: [],
-    };
-  }
-  if (kind === 'worktree') return worktreeGroup(id, worktree);
-  return {
-    id,
-    kind,
-    label: worktree?.branch || '(no branch)',
-    sublabel: worktree?.nato ?? '',
-    nodeIds: [],
-    emptyWorktrees: [],
-  };
-}
-
-function groupIdFor(task: TaskRow, kind: GroupBy, worktreeByBranch: Map<string, Worktree>): string {
-  switch (kind) {
-    case 'project':
-      return task.project;
-    case 'branch':
-      return `${task.project}/${task.branch}`;
-    case 'worktree': {
-      // A task names a branch, not a worktree, so the open worktree on that
-      // branch is the link. A branch with none is work with nowhere to run.
-      if (!task.branch) return UNALLOCATED;
-      const worktree = worktreeByBranch.get(branchKey(task.project, task.branch));
-      return worktree?.id ?? UNALLOCATED;
-    }
-    case 'none':
-      return 'all';
-  }
-}
-
-/**
- * One worktree lane, or the `Unallocated` lane when the id names no worktree.
- * The lane carries the worktree itself, which is what lets its header close it.
- */
-function worktreeGroup(id: string, worktree: Worktree | undefined): GraphGroup {
-  if (id === UNALLOCATED || !worktree) {
-    return {
-      id: UNALLOCATED,
-      kind: 'worktree',
-      label: 'Unallocated',
-      sublabel: '',
-      nodeIds: [],
-      emptyWorktrees: [],
-    };
-  }
-  return {
-    id: worktree.id,
-    kind: 'worktree',
-    label: worktree.nato,
-    // A closed worktree carries no branch, and neither does one left detached.
-    sublabel: worktree.branch || '(detached)',
-    nodeIds: [],
-    emptyWorktrees: [],
-    worktree,
-  };
-}
-
-/**
- * A lane for every open worktree the filters allow, before any node is placed.
- * Unlike every other grouping, the lanes come from the world, so an empty one
- * still draws — see docs/dev/orchestrator-ui.md.
- */
-function seedWorktreeLanes(
-  world: WorldView,
-  filters: Filters,
-  groups: Map<string, GraphGroup>,
-): void {
-  for (const worktree of Object.values(world.worktrees)) {
-    if (worktree.isClosed) continue;
-    if (filters.project && worktree.project !== filters.project) continue;
-    groups.set(worktree.id, worktreeGroup(worktree.id, worktree));
-  }
-}
-
 /**
  * Give each project lane the open worktrees that hold none of its nodes.
  *
- * Never `_main` — see `docs/dev/orchestrator-ui.md`. A node carries the
- * worktree object itself, so that is what the match is on.
+ * A project with no node gets its lane here, from the world, so its empty
+ * boxes still draw. Never `_main` — see `docs/dev/orchestrator-ui.md`. A node
+ * carries the worktree object itself, so that is what the match is on.
  */
 function listEmptyWorktrees(
   world: WorldView,
+  filters: Filters,
   nodes: GraphNode[],
-  groups: Map<string, GraphGroup>,
+  laneOf: (project: string) => GraphGroup,
 ): void {
   const held = new Set(nodes.map((n) => n.worktree));
   for (const worktree of Object.values(world.worktrees).sort(byName)) {
     if (worktree.isClosed || worktree.nato === '_main' || held.has(worktree)) continue;
-    groups.get(worktree.project)?.emptyWorktrees.push(worktree);
+    if (filters.project && worktree.project !== filters.project) continue;
+    laneOf(worktree.project).emptyWorktrees.push(worktree);
   }
 }
 
@@ -442,38 +309,4 @@ function openWorktreesByBranch(world: WorldView): Map<string, Worktree> {
     if (!w.isClosed && !index.has(key)) index.set(key, w);
   }
   return index;
-}
-
-/** With `none`, one unlabelled group holds every node and the canvas draws no lane for it. */
-function makeGroup(
-  world: WorldView,
-  task: TaskRow,
-  id: string,
-  kind: GroupBy,
-  worktreeByBranch: Map<string, Worktree>,
-): GraphGroup {
-  if (kind === 'none')
-    return { id, kind, label: '', sublabel: '', nodeIds: [], emptyWorktrees: [] };
-  if (kind === 'project') {
-    return {
-      id,
-      kind,
-      label: world.projects[task.project]?.name ?? task.project,
-      sublabel: '',
-      nodeIds: [],
-      emptyWorktrees: [],
-    };
-  }
-  if (kind === 'worktree') {
-    return worktreeGroup(id, worktreeByBranch.get(branchKey(task.project, task.branch)));
-  }
-  const worktree = worktreeByBranch.get(branchKey(task.project, task.branch));
-  return {
-    id,
-    kind,
-    label: task.branch || '(no branch)',
-    sublabel: worktree?.nato ?? '',
-    nodeIds: [],
-    emptyWorktrees: [],
-  };
 }

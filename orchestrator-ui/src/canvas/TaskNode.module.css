@@ -181,35 +181,13 @@
   color: var(--fg-faint);
   line-height: 1.2;
 }
-.project,
 .id {
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-/* The project yields first: the id is the thing the operator matches on. */
-.project {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.project::after {
-  content: '/';
-  color: var(--fg-faint);
-}
-.id {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-/* Where the agent runs: what tells two runs of one task apart on the board. */
-.worktree {
-  flex: none;
-  font-family: var(--mono);
-  white-space: nowrap;
-}
-.worktree::before {
-  content: '·';
-  margin-right: 6px;
 }
 /* The chip owns its own type and shape; the row only places it. */
 .pr {

@@ -79,11 +79,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
       </div>
       <div className={styles.meta}>
-        {node.showProject && node.task && (
-          <span className={styles.project}>{node.task.project}</span>
-        )}
         <span className={styles.id}>{nodeIdLine(node)}</span>
-        {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
         <PrChip worktree={cardPr(node)} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>

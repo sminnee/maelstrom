@@ -2,10 +2,9 @@ import type { DeskBody } from './api/desk';
 import { keys } from './api/keys';
 import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { UNALLOCATED } from './selectors/graph';
 import { askQuestion, chipCount, commandsSince, nodeState } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './test/seedWorld';
@@ -481,33 +480,19 @@ describe('grouping and filters', () => {
     expect(nodes.map((n) => n.getAttribute('data-task-id')).sort()).toEqual(['NORT-7', 'NORT-7.1']);
   });
 
-  it('grouping by branch shows one group per branch, and by none shows no groups', async () => {
-    const user = userEvent.setup();
+  it('labels the progress zones the board uses', async () => {
     await renderApp();
-    await user.selectOptions(screen.getByLabelText('Group by'), 'branch');
-    const groups = () => document.querySelectorAll('[data-testid="group-node"]');
-    const world = seedWorld().world;
-    const branches = new Set(
-      Object.values(world.tasks)
-        .filter((t) => deskIdForTask(t.id) in world.desk)
-        .map((t) => t.branch),
-    );
-    expect(groups()).toHaveLength(branches.size);
-    await user.selectOptions(screen.getByLabelText('Group by'), 'none');
-    expect(groups()).toHaveLength(0);
-    expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
+    const labels = [...document.querySelectorAll('[data-testid="zone-label"]')];
+    // The desk holds no done task, so that zone collapses and draws no label.
+    expect(labels.map((el) => el.textContent)).toEqual(['Running', 'Not started']);
   });
 
-  it('labels the progress zones the board uses, whatever it groups by', async () => {
-    const user = userEvent.setup();
+  // The canvas has one grouping: project lanes with worktree boxes.
+  it('draws a lane per project, and offers no group-by control', async () => {
     await renderApp();
-    const labels = () =>
-      [...document.querySelectorAll('[data-testid="zone-label"]')].map((el) => el.textContent);
-    // The desk holds no done task, so that zone collapses and draws no label.
-    expect(labels()).toEqual(['Running', 'Not started']);
-    // One strip for the whole board, so a board with no lanes still has it.
-    await user.selectOptions(screen.getByLabelText('Group by'), 'none');
-    expect(labels()).toEqual(['Running', 'Not started']);
+    const lanes = [...document.querySelectorAll('[data-testid="group-node"]')];
+    expect(lanes.map((l) => l.getAttribute('data-group-id'))).toEqual(['maelstrom', 'northwind']);
+    expect(screen.queryByLabelText('Group by')).toBeNull();
   });
 
   // A collapsed zone holds no column, so a label for it would sit on top of
@@ -524,7 +509,6 @@ describe('grouping and filters', () => {
   });
 
   it('a project lane draws a box for each worktree, empty ones included', async () => {
-    const user = userEvent.setup();
     const { server } = await renderApp();
     // Every box on the board, so one that should not draw cannot hide.
     const boxes = (empty: boolean) =>
@@ -555,53 +539,5 @@ describe('grouping and filters', () => {
       w.worktrees['northwind-charlie']!.isClosed = false;
     });
     await waitFor(() => expect(boxes(true)).toEqual(['northwind-charlie']));
-
-    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
-    expect(document.querySelector('[data-testid="worktree-box"]')).not.toBeInTheDocument();
-  });
-
-  it('grouping by worktree draws a lane per open worktree, empty ones included', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
-    const open = Object.values(seedWorld().world.worktrees).filter((w) => !w.isClosed);
-    const lanes = () => [...document.querySelectorAll('[data-testid="group-node"]')];
-    // Exactly the open worktrees plus Unallocated: a closed worktree draws no
-    // lane, and nothing draws twice.
-    expect(new Set(lanes().map((l) => l.getAttribute('data-group-id')))).toEqual(
-      new Set([...open.map((w) => w.id), UNALLOCATED]),
-    );
-    // `_main` never closes, so its lane is offered no button.
-    const main = document.querySelector('[data-group-id="_main"]')!;
-    expect(within(main as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
-  });
-
-  it('a worktree lane closes its worktree, and reports a refusal on the button', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
-
-    // northwind-alpha is clean, so the close goes through and its lane leaves.
-    // fireEvent, not user-event: a canvas mousedown reaches React Flow's
-    // d3-zoom, which jsdom cannot run — see clickNode in test/renderApp.tsx.
-    const clean = document.querySelector('[data-group-id="northwind-alpha"]')!;
-    fireEvent.click(within(clean as HTMLElement).getByRole('button', { name: 'Close' }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-group-id="northwind-alpha"]')).not.toBeInTheDocument(),
-    );
-
-    // maelstrom-bravo has 2 unmerged commits, so the close is refused and the
-    // button says so with the server's own words. The lane stays.
-    const unmerged = document.querySelector('[data-group-id="maelstrom-bravo"]')!;
-    const button = within(unmerged as HTMLElement).getByRole('button', { name: 'Close' });
-    fireEvent.click(button);
-    await waitFor(() =>
-      expect(within(unmerged as HTMLElement).getByRole('button')).toHaveTextContent('Failed'),
-    );
-    expect(within(unmerged as HTMLElement).getByRole('button')).toHaveAttribute(
-      'title',
-      expect.stringContaining('not merged to origin/main'),
-    );
-    expect(document.querySelector('[data-group-id="maelstrom-bravo"]')).toBeInTheDocument();
   });
 });

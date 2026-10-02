@@ -171,14 +171,14 @@ describe('the wide layout: two slots', () => {
     await user.click(item('Tasks'));
     await user.keyboard('{/Shift}');
     expect(screen.getAllByLabelText('Project')).toHaveLength(1);
-    expect(screen.getByLabelText('Group by')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent status')).toBeInTheDocument();
     expect(screen.getByLabelText('Search')).toBeInTheDocument();
     // With only the panel on screen, nothing but the project is left to filter.
     await user.click(item('Desk'));
     await user.click(item('Tabs'));
     expect(screen.getByLabelText('Project')).toBeInTheDocument();
     expect(screen.queryByLabelText('Branch')).toBeNull();
-    expect(screen.queryByLabelText('Group by')).toBeNull();
+    expect(screen.queryByLabelText('Agent status')).toBeNull();
     expect(screen.queryByLabelText('Search')).toBeNull();
   });
 

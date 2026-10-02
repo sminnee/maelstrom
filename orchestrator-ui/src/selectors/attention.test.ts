@@ -36,7 +36,7 @@ function spoke(id: string, second: number) {
 
 function nodesOf(parts: Parameters<typeof worldWith>[0]) {
   const world = worldWith({ ...parts, desk: onDesk(parts.tasks ?? []) });
-  return deriveGraph(world, { filters: noFilters(), groupBy: 'none' }).nodes;
+  return deriveGraph(world, { filters: noFilters() }).nodes;
 }
 
 const ids = (parts: Parameters<typeof worldWith>[0]) =>
