@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveDeck } from './deck';
 import { noFilters } from './filters';
-import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../fake/fixtures';
 
 /** A world whose every task is on the desk: what the deck list draws. */
 function drawnWorld(parts: Parameters<typeof worldWith>[0]) {

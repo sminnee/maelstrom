@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { PrChip } from './PrChip';
-import { makeWorktree } from '../test/fixtures';
+import { makeWorktree } from '../fake/fixtures';
 
 const withPr = (over: Parameters<typeof makeWorktree>[0] = {}) =>
   makeWorktree({

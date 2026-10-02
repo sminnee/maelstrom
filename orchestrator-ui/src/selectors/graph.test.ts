@@ -10,7 +10,7 @@ import {
   makeWorktree,
   onDesk,
   worldWith,
-} from '../test/fixtures';
+} from '../fake/fixtures';
 
 /** A world whose every task is on the desk: what the canvas draws. */
 function drawnWorld(parts: Parameters<typeof worldWith>[0]) {

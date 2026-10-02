@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { makeAgent, makeWorktree, worldWith } from '../test/fixtures';
+import { makeAgent, makeWorktree, worldWith } from '../fake/fixtures';
 import { listWorktrees, noWorktreeFilters } from './worktrees';
 
 const filters = { project: null, branch: null };

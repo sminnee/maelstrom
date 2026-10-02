@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterOptions, noFilters } from './filters';
-import { makeProject, makeTask, worldWith } from '../test/fixtures';
+import { makeProject, makeTask, worldWith } from '../fake/fixtures';
 
 describe('filterOptions', () => {
   const world = worldWith({

@@ -11,8 +11,8 @@ import {
   makeTask,
   makeWorktree,
   worldWith,
-} from '../test/fixtures';
-import { createFakeServer } from '../test/fakeServer';
+} from '../fake/fixtures';
+import { createFakeServer } from '../fake/fakeServer';
 import {
   useAnswer,
   useApprove,

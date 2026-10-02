@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeAgent, makeAttention, makeTask } from '../test/fixtures';
+import { makeAgent, makeAttention, makeTask } from '../fake/fixtures';
 import type { Agent, AgentState, TaskStatus } from './entities';
 import { progressOf, zoneForState, type DriftKind, type NodeState } from './progress';
 

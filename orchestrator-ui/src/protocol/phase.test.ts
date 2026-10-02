@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isActionable, KNOWN_COMMANDS, phaseForCommand } from './phase';
-import { makeTask } from '../test/fixtures';
+import { makeTask } from '../fake/fixtures';
 
 describe('phaseForCommand', () => {
   it.each([

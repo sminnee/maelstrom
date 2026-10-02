@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { listTasks, noListFilters } from './taskList';
 import { noFilters } from './filters';
-import { makeAgent, makeTask, onDesk, worldWith } from '../test/fixtures';
+import { makeAgent, makeTask, onDesk, worldWith } from '../fake/fixtures';
 
 const tasks = [
   makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', title: 'Add order export' }),

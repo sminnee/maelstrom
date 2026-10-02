@@ -4,7 +4,7 @@ import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { FileDiff } from './protocol/entities';
 import { expanded } from './test/appHelpers';
-import type { FakeServer } from './test/fakeServer';
+import type { FakeServer } from './fake/fakeServer';
 import { clickNode, renderApp } from './test/renderApp';
 import type * as DiffSign from './ui/diffSign';
 

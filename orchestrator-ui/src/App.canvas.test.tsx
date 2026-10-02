@@ -5,9 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { askQuestion, chipCount, commandsSince, nodeState } from './test/appHelpers';
+import { askQuestion } from './fake/moves';
+import { chipCount, commandsSince, nodeState } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
-import { seedWorld } from './test/seedWorld';
+import { seedWorld } from './fake/seedWorld';
 
 /**
  * The card's own commands. A follows row has an Off desk button of its own, so

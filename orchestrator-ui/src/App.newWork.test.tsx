@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Agent } from './protocol/entities';
-import type { FakeServer } from './test/fakeServer';
+import type { FakeServer } from './fake/fakeServer';
 import { renderApp } from './test/renderApp';
 import { retainedKey } from './ui/retained';
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { agentCounts, budgetReading, isNotable, usageChip, usageTone } from './usage';
 import type { UsageChip } from './usage';
 import type { Agent, Host } from '../protocol/entities';
-import { makeAgent } from '../test/fixtures';
+import { makeAgent } from '../fake/fixtures';
 
 const NOW = Date.parse('2026-09-11T10:00:00.000Z');
 

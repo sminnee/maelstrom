@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { keys } from '../api/keys';
-import { FakeEventSource } from '../test/fakeEventSource';
+import { FakeEventSource } from '../fake/fakeEventSource';
 import type { ChangeNotice } from '../api/types';
 import type { ConnectionState } from './changeStream';
 import { invalidationsFor, startChangeStream } from './changeStream';

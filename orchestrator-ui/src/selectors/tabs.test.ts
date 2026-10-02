@@ -20,7 +20,7 @@ import {
   makeTask,
   makeWorktree,
   worldWith,
-} from '../test/fixtures';
+} from '../fake/fixtures';
 
 describe('openOrFocusTab', () => {
   it('adds a new tab and does not add one that is open already', () => {

@@ -98,9 +98,10 @@ production list today.
 
 ## TypeScript
 
-`orchestrator-ui/knip.json` configures the test pass. `orchestrator-ui/knip.production.json`
-configures the production pass and differs by one key: it ignores `src/test/**` and the story
-fixtures, `src/session/transcript.fixture.ts` and `src/canvas/taskNode.fixture.ts`. A story
+`orchestrator-ui/knip.json` configures the test pass. Its entries are the stories and
+`src/fake/main.tsx`, the entry of the fake mode. `orchestrator-ui/knip.production.json`
+configures the production pass and differs by one key: it ignores `src/test/**`, `src/fake/**` and
+the story fixtures, `src/session/transcript.fixture.ts` and `src/canvas/taskNode.fixture.ts`. A story
 fixture is reached from a story and from nothing else, so the production pass, which does not read
 stories, calls it an unused file. Knip 6 has no `extends`, so the two are whole files rather than one and a delta.
 

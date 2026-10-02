@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptItem } from '../protocol/transcript';
-import { FakeSocket } from '../test/fakeSocket';
+import { FakeSocket } from '../fake/fakeSocket';
 import { createAgentStreams, type AgentStreams, type TranscriptStore } from './agentStreams';
 import type { TranscriptState } from './transcriptReducer';
 

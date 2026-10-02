@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { finishedSubagentsOf, subagentsOf } from './agents';
-import { makeAgent, worldWith } from '../test/fixtures';
+import { makeAgent, worldWith } from '../fake/fixtures';
 
 describe('subagentsOf', () => {
   it("lists an agent's subagents by ordinal, and nobody else's", () => {
