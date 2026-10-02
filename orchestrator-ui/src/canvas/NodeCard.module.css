@@ -1,19 +1,7 @@
 .card {
-  position: absolute;
-  top: 0;
-  left: 0;
+  composes: card from './CanvasCard.module.css';
   width: 440px;
-  pointer-events: all;
-  z-index: var(--z-card);
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-  background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
   border-left: 4px solid var(--phase);
-  box-shadow: var(--shadow-card);
-  color: var(--fg);
-  cursor: default;
-  user-select: text;
 }
 .card[data-state='needs-attention'] {
   border-color: var(--attention);
@@ -22,14 +10,6 @@
 .card[data-state='unanswered'] {
   border-color: var(--unanswered);
   border-left-color: var(--phase);
-}
-.inner {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  max-height: 70vh;
-  overflow: auto;
 }
 .header {
   display: flex;

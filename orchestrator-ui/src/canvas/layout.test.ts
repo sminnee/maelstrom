@@ -379,16 +379,12 @@ describe('worktree boxes in a project lane', () => {
     expect(new Set(strip.map((b) => b.y)).size).toBeGreaterThan(1);
   });
 
-  // As wide as a node, so the label has room for the branch and the strip
-  // keeps the column grid.
-  it('draws an empty box one node wide and one label high', () => {
-    const { layout, boxes } = laidOut();
-    for (const box of boxes.filter((b) => b.empty)) {
-      expect({ width: box.width, height: box.height }).toEqual({
-        width: layout.nodeSize.width,
-        height: 24,
-      });
-    }
+  it('starts each empty box where a box that holds a node in that column starts', () => {
+    const { boxes, boxOf } = laidOut();
+    // bravo starts at column 0 and alpha at column 2; one column is 276 wide.
+    const starts = [boxOf('bravo').x, boxOf('bravo').x + 276, boxOf('alpha').x];
+    const strip = boxes.filter((b) => b.empty);
+    expect(strip.map((b) => b.x)).toEqual([...starts, ...starts, ...starts.slice(0, 2)]);
   });
 
   it('moves no node sideways', () => {

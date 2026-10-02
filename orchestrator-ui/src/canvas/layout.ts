@@ -59,11 +59,8 @@ const LANE_GAP = 28;
  * and the first box's label, each centred on its border, do not touch.
  */
 const BOX_PAD = 16;
-/**
- * A box with no node: as wide as a node, so its label has room for the branch
- * and the strip keeps the column grid, and as high as its label.
- */
-const EMPTY_BOX = { width: NODE.width, height: 24 };
+/** A box with no node: as wide as a node, so its label has room for the branch, and as high as its label. */
+export const EMPTY_BOX = { width: NODE.width, height: 24 };
 const EMPTY_GAP = 8;
 /** The occupant of a cell that holds a node with no worktree box. */
 const LOOSE = '';
@@ -221,17 +218,13 @@ export function layoutSwimlanes(graph: Graph): Layout {
       ...boxes.map((box) => box.y + box.height),
     );
     let y = lowest + BOX_PAD;
-    // The strip of empty boxes: left to right between the edges a full box has.
-    const stripLeft = edge;
-    let x = stripLeft;
-    for (const worktree of group.emptyWorktrees) {
-      if (x > stripLeft && x + EMPTY_BOX.width > laneWidth - stripLeft) {
-        x = stripLeft;
-        y += EMPTY_BOX.height + EMPTY_GAP;
-      }
-      boxes.push({ worktree, empty: true, x, y, ...EMPTY_BOX });
-      x += EMPTY_BOX.width + EMPTY_GAP;
-    }
+    // The strip of empty boxes: one per column, so each starts where a box
+    // that holds a node in that column starts. It wraps at the last column.
+    group.emptyWorktrees.forEach((worktree, i) => {
+      const column = i % width;
+      if (i > 0 && column === 0) y += EMPTY_BOX.height + EMPTY_GAP;
+      boxes.push({ worktree, empty: true, x: columnX(column) - BOX_PAD, y, ...EMPTY_BOX });
+    });
     if (group.emptyWorktrees.length > 0) y += EMPTY_BOX.height + BOX_PAD;
     worktreeBoxes[group.id] = boxes;
     const height = Math.max(top, y - BOX_PAD) + edge;

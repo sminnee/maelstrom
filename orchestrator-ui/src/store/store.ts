@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
-import type { AgentId, TaskId } from '../protocol/ids';
+import type { AgentId, TaskId, WorktreeId } from '../protocol/ids';
 import type { Filters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
-import type { Pane, PanelTab, UiState } from './uiSlice';
+import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
   closeTabs as closeTabsIn,
@@ -52,10 +52,16 @@ export interface AppStore {
   selectGroup(tabKeys: string[]): void;
   /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
   expandNode(taskId: TaskId, toggle?: boolean): void;
-  collapseNode(): void;
+  /** Open a worktree's card. With `toggle`, opening the open one collapses it. */
+  expandWorktree(worktreeId: WorktreeId, toggle?: boolean): void;
+  /** Collapse the card the canvas shows, a node's or a worktree's. */
+  collapseCard(): void;
   /** Open the editor on a task, or close it with `null`. */
   setEditingTask(taskId: TaskId | null): void;
-  setNewWorkOpen(open: boolean): void;
+  /** Open or close the new-work form. A `seed` is what it opens on. */
+  setNewWorkOpen(open: boolean, seed?: NewWorkSeed): void;
+  /** Drop the seed once the form has taken it, so a remount does not lay it again. */
+  clearNewWorkSeed(): void;
   setPanelWidth(width: number): void;
   /** Which zone the deck list shows. Narrow layout only. */
   setDeckZone(zone: Zone): void;
@@ -121,14 +127,34 @@ export const useAppStore = create<AppStore>()((set) => ({
         ? { ui: { ...s.ui, activeTabKey: key, tabRecency: touchTab(s.ui.tabRecency, key) } }
         : s;
     }),
+  // One card at a time: opening either kind closes the other.
   expandNode: (nodeId, toggle = true) =>
     set((s) => ({
-      ui: { ...s.ui, expandedNodeId: toggle && s.ui.expandedNodeId === nodeId ? null : nodeId },
+      ui: {
+        ...s.ui,
+        expandedNodeId: toggle && s.ui.expandedNodeId === nodeId ? null : nodeId,
+        expandedWorktreeId: null,
+      },
     })),
-  collapseNode: () =>
-    set((s) => (s.ui.expandedNodeId ? { ui: { ...s.ui, expandedNodeId: null } } : s)),
+  expandWorktree: (worktreeId, toggle = true) =>
+    set((s) => ({
+      ui: {
+        ...s.ui,
+        expandedWorktreeId: toggle && s.ui.expandedWorktreeId === worktreeId ? null : worktreeId,
+        expandedNodeId: null,
+      },
+    })),
+  collapseCard: () =>
+    set((s) =>
+      s.ui.expandedNodeId || s.ui.expandedWorktreeId
+        ? { ui: { ...s.ui, expandedNodeId: null, expandedWorktreeId: null } }
+        : s,
+    ),
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
-  setNewWorkOpen: (newWorkOpen) => set((s) => ({ ui: { ...s.ui, newWorkOpen } })),
+  setNewWorkOpen: (newWorkOpen, seed) =>
+    set((s) => ({ ui: { ...s.ui, newWorkOpen, newWorkSeed: (newWorkOpen && seed) || null } })),
+  clearNewWorkSeed: () =>
+    set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
   setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
   pushScreen: (screen) =>
