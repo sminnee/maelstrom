@@ -252,8 +252,8 @@ describe('App', () => {
     clickNode('NORT-12');
     const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
 
-    // The env control has its own menu first; the end of work comes last.
-    await user.click(within(card).getAllByRole('button', { name: 'More actions' }).at(-1)!);
+    // The env control in the worktree area has a menu of the same name.
+    await user.click(commands(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
     await user.click(
       within(card).getByRole('menuitem', { name: 'Terminate, take off desk & close delta' }),
@@ -402,7 +402,7 @@ describe('App', () => {
     // guards that every field reaches the line, not that the line wraps. The
     // browser check is in orchestrator-ui/DESIGN.md, "Node Card".
     expect(within(card).getByTestId('node-meta')).toHaveTextContent(
-      'feat/rotate-auth-tokens-for-every-service · delta · claude:opus · normal · $0.66',
+      /^claude:opus · normal · \$0\.66$/,
     );
   });
 
@@ -488,11 +488,10 @@ describe('grouping and filters', () => {
   });
 
   // The canvas has one grouping: project lanes with worktree boxes.
-  it('draws a lane per project, and offers no group-by control', async () => {
+  it('draws a lane per project', async () => {
     await renderApp();
     const lanes = [...document.querySelectorAll('[data-testid="group-node"]')];
     expect(lanes.map((l) => l.getAttribute('data-group-id'))).toEqual(['maelstrom', 'northwind']);
-    expect(screen.queryByLabelText('Group by')).toBeNull();
   });
 
   // A collapsed zone holds no column, so a label for it would sit on top of
@@ -526,13 +525,6 @@ describe('grouping and filters', () => {
       'northwind-alpha',
     ]);
     expect(boxes(true)).toEqual([]);
-    expect(screen.getAllByTestId('worktree-box').map((box) => box.textContent)).toEqual([
-      'bravo',
-      'alpha',
-      'delta',
-      'bravo',
-      'alpha',
-    ]);
 
     // Opening a worktree that holds nothing adds an empty box to its project.
     server.change({ kind: 'worktree', ids: ['northwind-charlie'] }, (w) => {

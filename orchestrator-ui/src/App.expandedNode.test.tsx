@@ -6,7 +6,15 @@ import type { Agent } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { FakeServer } from './test/fakeServer';
 import type { TranscriptItem } from './protocol/transcript';
-import { askQuestion, chipCount, endTurn, expanded, nodeState, tabBody } from './test/appHelpers';
+import {
+  askQuestion,
+  chipCount,
+  endTurn,
+  expanded,
+  nodeState,
+  tabBody,
+  worktreeControls,
+} from './test/appHelpers';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
 import { T } from './test/seedWorld';
 
@@ -33,9 +41,11 @@ describe('the expanded node', () => {
 
       const card = expanded();
       const actions = within(card).getByTestId('node-actions');
-      expect(within(actions).getByRole('link', { name: 'Session' })).toBeInTheDocument();
-      expect(within(actions).getByRole('link', { name: /PR #118/ })).toBeInTheDocument();
-      expect(within(actions).getByRole('link', { name: 'Dev env' })).toBeInTheDocument();
+      expect(
+        within(actions)
+          .getAllByRole('link')
+          .map((l) => l.textContent),
+      ).toEqual(['Session']);
 
       const documents = within(card).getByTestId('node-documents');
       expect(within(documents).getAllByRole('link')).toHaveLength(2);
@@ -44,6 +54,38 @@ describe('the expanded node', () => {
         .getAllByRole('region')
         .flatMap((section) => within(section).getAllByRole('link'));
       expect(listed).toEqual(within(documents).getAllByRole('link'));
+    });
+
+    // One area holds what belongs to the worktree, not to the agent. The
+    // Worktree card is compared against it in App.worktreeCard.test.tsx.
+    it('keeps the worktree, its links and its commands in one area', async () => {
+      await renderApp();
+      clickNode('NORT-12');
+      const area = within(expanded()).getByRole('region', { name: 'Worktree' });
+
+      expect(within(area).getByTestId('worktree-name')).toHaveTextContent(
+        'delta · feat/rotate-auth-tokens-for-every-service',
+      );
+      // The agent of NORT-12 still runs in delta, so the close is held. The
+      // agent's own commands are not here.
+      expect(worktreeControls(expanded())).toEqual([
+        ['Changes', false],
+        ['PR #118, CI running', false],
+        ['Dev env', false],
+        ['cmux', false],
+        ['Sync', false],
+        ['More sync actions', false],
+        ['Stop env', false],
+        ['More actions', false],
+        ['Close', true],
+        ['More close actions', false],
+      ]);
+    });
+
+    it('draws no worktree area on a node with no worktree', async () => {
+      await renderApp();
+      clickNode('NORT-15');
+      expect(within(expanded()).queryByRole('region', { name: 'Worktree' })).toBeNull();
     });
 
     it('links the PR at its own URL, saying its state, in a new tab', async () => {

@@ -83,6 +83,7 @@ describe('the panel sidebar groups tabs by worktree', () => {
     expect(bar()).toHaveTextContent('feat/db-migrate');
     expect(within(bar()).getByRole('button', { name: 'Sync' })).toBeInTheDocument();
     expect(within(bar()).getByRole('button', { name: 'Start env' })).toBeInTheDocument();
+    expect(within(bar()).getByRole('button', { name: 'Close' })).toBeInTheDocument();
 
     await user.click(worktreeRow('northwind alpha'));
     expect(bar()).toHaveTextContent('feat/orders');

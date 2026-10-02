@@ -1,0 +1,38 @@
+import type { Worktree } from '../protocol/entities';
+import { branchLabel } from '../selectors/worktrees';
+import { CloseControl } from './CloseControl';
+import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
+import styles from './WorktreeSection.module.css';
+
+/**
+ * The worktree area: what belongs to a worktree and not to an agent. Its name
+ * and branch, the links out of it, then the commands on it.
+ *
+ * The node card and the **Worktree card** both draw this, so the two cannot
+ * drift. `pr` is the worktree whose PR to show, as `WorktreeLinks` reads it.
+ */
+export function WorktreeSection({
+  worktree,
+  pr = worktree,
+}: {
+  worktree: Worktree;
+  pr?: Worktree | null;
+}) {
+  return (
+    <section className={styles.section} aria-label="Worktree" data-testid="worktree-section">
+      <span className={styles.head}>Worktree</span>
+      <div className={styles.name} data-testid="worktree-name" title={worktree.branch}>
+        <span className={styles.nato}>{worktree.nato}</span>
+        {' · '}
+        <span>{branchLabel(worktree)}</span>
+      </div>
+      <div className={styles.links}>
+        <WorktreeLinks worktree={worktree} pr={pr} />
+      </div>
+      <div className={styles.commands}>
+        <WorktreeCommands worktree={worktree} />
+        <CloseControl worktree={worktree} />
+      </div>
+    </section>
+  );
+}

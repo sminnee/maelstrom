@@ -1,4 +1,5 @@
 import type { TabGroup } from '../selectors/tabs';
+import { CloseControl } from '../worktrees/CloseControl';
 import { WorktreeCommands, WorktreeLinks } from '../worktrees/WorktreeControls';
 import styles from './WorktreeBar.module.css';
 
@@ -14,6 +15,7 @@ export function WorktreeBar({ group }: { group: TabGroup | null }) {
       <span className={styles.controls}>
         <WorktreeLinks worktree={worktree} />
         <WorktreeCommands worktree={worktree} />
+        <CloseControl worktree={worktree} />
       </span>
     </div>
   );

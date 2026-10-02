@@ -1,0 +1,46 @@
+/* The last band of a card: one hairline and one head, no nested box. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+/* The same head the card's document kinds use. */
+.head {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* The branch gives way: a long one wraps rather than pushing the card wider. */
+.name {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--fg-faint);
+  overflow-wrap: anywhere;
+}
+.nato {
+  color: var(--fg-muted);
+}
+.links {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  font-size: var(--text-sm);
+}
+/* An empty row would still take a gap. */
+.links:empty,
+.commands:empty {
+  display: none;
+}
+.commands {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
