@@ -45,6 +45,21 @@ class TestGlobalConfig:
         config = GlobalConfig.from_dict({"open_command": "cursor"})
         assert config.open_command == "cursor"
 
+    def test_from_dict_with_dev_host(self):
+        """The dev host is read stripped; a blank value is no host."""
+        config = GlobalConfig.from_dict({"dev_host": " desk.tailnet.ts.net "})
+        assert config.dev_host == "desk.tailnet.ts.net"
+        assert GlobalConfig.from_dict({"dev_host": "  "}).dev_host is None
+        assert GlobalConfig.from_dict({}).dev_host is None
+
+    @pytest.mark.parametrize(
+        "value",
+        ["http://desk.ts.net", "desk.ts.net:8080", "desk.ts.net/", "a b", ["a"], True],
+    )
+    def test_from_dict_ignores_a_dev_host_that_is_not_a_host_name(self, value):
+        """A scheme, a port, a path or a non-string would break every URL."""
+        assert GlobalConfig.from_dict({"dev_host": value}).dev_host is None
+
     def test_from_dict_with_all_fields(self):
         """Test creating from dict with all fields."""
         config = GlobalConfig.from_dict(
