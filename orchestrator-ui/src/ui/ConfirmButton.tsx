@@ -22,6 +22,7 @@ import styles from './ConfirmButton.module.css';
 export function ConfirmButton({
   question,
   confirm,
+  confirmProcessing,
   cancel = 'Keep it',
   asking,
   onAsk,
@@ -35,6 +36,8 @@ export function ConfirmButton({
   question: string;
   /** The word on the button that goes ahead, e.g. "Delete it". */
   confirm: ReactNode;
+  /** Shown on that button while the action runs. Defaults to `confirm`. */
+  confirmProcessing?: ReactNode;
   cancel?: ReactNode;
   asking: boolean;
   onAsk: () => void;
@@ -73,6 +76,7 @@ export function ConfirmButton({
               `onError` on the trigger would never hear it. */}
           <AppButton
             variant="primary"
+            processingChildren={confirmProcessing}
             onError={onError}
             onClick={async (e) => {
               await onConfirm(e);

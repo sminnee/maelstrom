@@ -129,6 +129,24 @@ export function useSyncWorktree() {
 }
 
 /**
+ * Merge a worktree's pull request. The server waits on GitHub, so it takes the
+ * long timeout. Only the worktree's own PR state moves.
+ */
+export function useMergePullRequest() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/merge-pr`, undefined, {
+        timeoutMs: SLOW_CALL_TIMEOUT_MS,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
+    },
+  });
+}
+
+/**
  * Start, stop or restart a worktree's dev environment, or start or stop one
  * optional `service`. Only the worktree's own `env` moves, so nothing else is
  * cleared.

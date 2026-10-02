@@ -236,6 +236,12 @@ so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds
 `_main` gets "Sync" alone. The chevron is named "More sync actions", apart from the other
 split buttons' "More actions", so a row with two menus stays readable to a screen reader.
 
+The merge control is `worktrees/MergeControl.tsx`. It draws "Merge" only when the worktree's
+**PR state** is `ready` and the pull request is not a draft. It is a `ConfirmButton`, because a
+merge cannot be undone. `WorktreeCommands` draws it first, so the expanded node, the narrow
+layout's pushed screen and the panel's worktree bar all carry it. The Worktrees table does not.
+GitHub's refusal shows as the confirming button's title, and the question stays open.
+
 The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its
 options are listed in [the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator).
 The expanded card draws both controls when its task has an open worktree.
