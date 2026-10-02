@@ -396,14 +396,22 @@ The main views are the canvas, the task list and the worktree table. The canvas 
 branch, and none when grouped by `none`. The task list is a table with a sticky filter row.
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
-separated by 56px horizontally and 14px vertically. A lane has 20px of padding, a 30px header,
-and 28px between lanes. Every lane is as wide as the board, not as wide as its own content.
+separated by 56px horizontally and 14px vertically. A lane has 20px of padding and 28px between
+lanes. A worktree or branch lane has 6px more above its first row, for its label. A project lane
+has 42px of padding, for its worktree boxes. Every lane is as wide as the board, not as wide as
+its own content.
 
-A project lane draws a **Worktree box** round the nodes of each worktree: a 1px dotted outline
-in `--border-strong`, with the worktree name at its top left in the lane sublabel style. The box
-has an 18px header and 6px of padding, and boxes sit 14px apart. An open
-worktree with no node draws as a 104×24 box in a strip below the last row. The box takes no
-fill and no pointer events: it names a place and is not a control.
+A lane's label sits on the lane's top border, as a fieldset legend does: mono, 11px, in the case
+of the name, centred on the line. The label has the `--bg` ground and 2px of side padding, so the
+border stops clear of the text. The label starts 28px from the lane's left border, clear of the
+corner.
+
+A project lane draws a **Worktree box** round the nodes of each worktree: a 1px dashed outline
+in `--border-strong`. The worktree name sits on the box's top border in the same way as a lane's
+label, and the two labels start at one x. One 16px gap separates the lane border from a box, a
+box from its nodes, and two boxes. An open worktree with no node draws as a 104×24 box in a
+strip below the last row, with its name inside. The box takes no fill and no pointer events: it
+names a place and is not a control.
 
 Horizontal position is progress first and dependency second:
 
@@ -411,6 +419,8 @@ Horizontal position is progress first and dependency second:
 - A zone boundary sits at the same x in every lane, so the board reads as three vertical stripes.
 - Inside a zone a task sits one column right of the deepest task it follows in that zone.
 - A zone no lane uses takes no columns and collapses, and draws no label.
+- A zone's label spans the nodes of the zone, from the left edge of its first column to the right
+  edge of its last. The text is centred on a faint tint of `--border`, with 4px above and below.
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
   follows edge draws backwards.
 - A task sits on the row of the task it follows, across zones; a second follower branches below.
