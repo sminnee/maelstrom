@@ -6,6 +6,7 @@ This module handles resolving project and worktree context from:
 - Global configuration (~/.maelstrom/config.yaml)
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,12 +18,26 @@ GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
 
 
+#: A bare host name or IPv4 address: no scheme, port, path or whitespace.
+_HOST_NAME = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
+
+
+def _host_name(value: object) -> str | None:
+    """``value`` stripped when it is a bare host name, else ``None``."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if _HOST_NAME.fullmatch(value) else None
+
+
 @dataclass
 class GlobalConfig:
     """Global maelstrom configuration from ~/.maelstrom/config.yaml."""
 
     projects_dir: Path
     open_command: str = "code"
+    #: The host reported URLs name. ``None`` means ``localhost``.
+    dev_host: str | None = None
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
@@ -39,6 +54,7 @@ class GlobalConfig:
         """Create from dictionary."""
         projects_dir = data.get("projects_dir", "~/Projects")
         open_command = data.get("open_command", "code")
+        dev_host = _host_name(data.get("dev_host"))
         # Support nested linear config: linear.api_key
         linear_config = data.get("linear", {})
         linear_api_key = (
@@ -70,6 +86,7 @@ class GlobalConfig:
         return cls(
             projects_dir=Path(projects_dir).expanduser(),
             open_command=open_command,
+            dev_host=dev_host,
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,

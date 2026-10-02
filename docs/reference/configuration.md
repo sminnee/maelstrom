@@ -200,6 +200,7 @@ uptimerobot:
 |---|---|---|---|
 | `projects_dir` | path | `~/Projects` | Base directory for projects. `~` expands. |
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
+| `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -209,6 +210,7 @@ uptimerobot:
 ```yaml
 projects_dir: ~/Projects
 open_command: "cursor"
+dev_host: desk.tailnet.ts.net
 
 linear:
   api_key: "lin_api_xxx"

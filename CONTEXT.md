@@ -593,6 +593,11 @@ _Avoid_: App running
 A service with a port whose name holds `APP` or `FRONTEND` as a `_`-separated segment. A running
 web-facing service gets a dev env link in the orchestrator.
 
+**Dev host**:
+The host name in every dev environment URL that maelstrom reports. The global `dev_host:` key
+sets it for the machine, and it is `localhost` without the key. Each worktree's `.env` carries
+it as `DEV_HOST`. Port probes do not use it: they stay on `127.0.0.1`.
+
 **Subscriber**:
 A worktree currently using a project's shared services. Shared services stop when the
 subscriber list empties.
