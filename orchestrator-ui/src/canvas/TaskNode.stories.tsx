@@ -3,7 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
-import { createFakeServer } from '../test/fakeServer';
+import { createFakeServer } from '../fake/fakeServer';
 import { TaskNode } from './TaskNode';
 import type { GraphNode } from '../selectors/graph';
 import { byState, idle, stopped, stoppedByPhase } from './taskNode.fixture';
@@ -29,11 +29,11 @@ function Board({ children }: { children: ReactNode }) {
       <ReactFlowProvider>
         <div
           style={{
-            padding: 'var(--space-5)',
+            padding: 'var(--u-3)',
             fontFamily: 'var(--font)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 'var(--space-5)',
+            gap: 'var(--u-3)',
             alignItems: 'flex-start',
           }}
         >
@@ -88,7 +88,7 @@ function Node({ node }: { node: GraphNode }) {
 
 function Cell({ label, node }: { label: string; node: GraphNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--u)' }}>
       <Label>{label}</Label>
       <Node node={node} />
     </div>
@@ -105,7 +105,7 @@ export const AllStates: Story = () => (
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: 'var(--space-5)',
+        gap: 'var(--u-3)',
         width: '100%',
       }}
     >
@@ -122,7 +122,7 @@ export const AllStates: Story = () => (
  */
 export const IdleVsStopped: Story = () => (
   <Board>
-    <div style={{ display: 'flex', gap: 'var(--space-5)', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
       <Cell label={`idle · ${idle.label}`} node={idle.node} />
       <Cell label={`stopped · ${stopped.label}`} node={stopped.node} />
     </div>
@@ -135,7 +135,7 @@ export const IdleVsStopped: Story = () => (
  */
 export const StoppedAcrossPhases: Story = () => (
   <Board>
-    <div style={{ display: 'flex', gap: 'var(--space-5)', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
       {stoppedByPhase.map(({ phase, node }) => (
         <Cell key={phase} label={phase} node={node} />
       ))}

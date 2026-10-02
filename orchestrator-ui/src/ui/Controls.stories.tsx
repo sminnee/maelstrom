@@ -1,0 +1,208 @@
+import type { Story } from '@ladle/react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import cardStyles from '../canvas/NodeCard.module.css';
+import { makeTask, makeWorktree } from '../fake/fixtures';
+import tabStyles from '../panel/PanelTabs.module.css';
+import chipStyles from '../shell/AttentionChip.module.css';
+import { ExternalLink } from '../shell/ExternalLink';
+import { PanelLink } from '../shell/PanelLink';
+import { PrChip } from '../shell/PrChip';
+import barStyles from '../shell/TopBar.module.css';
+import { AppButton } from './AppButton';
+import { ConfirmButton } from './ConfirmButton';
+import { DialogFooter } from './Dialog';
+import { SplitButton } from './SplitButton';
+import { SplitChip } from './SplitChip';
+import { StatusPicker } from './StatusPicker';
+
+export default { title: 'UI / Controls' };
+
+/**
+ * Each control of the chrome, in the combinations the app draws them in.
+ *
+ * What these stories answer: whether one row of mixed controls shares one
+ * height and one baseline, and how dense the chrome reads at each control
+ * height. A control here takes its height from `--control` and from nothing
+ * else, so a column re-points that one token.
+ *
+ * The top bar's nav, the panel tab and the attention chip read the store or
+ * the world, so the board draws their markup with their own style modules.
+ */
+const later = () => new Promise<void>((resolve) => setTimeout(resolve, 1200));
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'grid', gap: 'var(--u)' }}>
+      <span
+        style={{
+          fontSize: 'var(--text-2xs)',
+          letterSpacing: 'var(--tracking-micro)',
+          textTransform: 'uppercase',
+          color: 'var(--fg-faint)',
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--u)', alignItems: 'center' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Board({ control, heading }: { control: string; heading: string }) {
+  const [asking, setAsking] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [status, setStatus] = useState(makeTask({ status: 'in-progress' }));
+  const worktree = makeWorktree({
+    prNumber: 118,
+    prCommits: 4,
+    prUrl: 'https://github.com/acme/northwind/pull/118',
+    prState: 'ci-running',
+  });
+  return (
+    <section
+      style={
+        {
+          '--control': control,
+          display: 'grid',
+          gap: 'var(--u-3)',
+          alignContent: 'start',
+          padding: 'var(--u-2)',
+          minWidth: 0,
+          flex: 1,
+        } as CSSProperties
+      }
+    >
+      <h2 style={{ margin: 0, fontSize: 'var(--text-ui)' }}>{heading}</h2>
+      <Row label="AppButton — the four variants">
+        <AppButton>Stop</AppButton>
+        <AppButton variant="primary" onClick={later} processingChildren="Launching">
+          Launch
+        </AppButton>
+        <AppButton variant="quiet">Edit task</AppButton>
+        <AppButton variant="link">Show more</AppButton>
+        <AppButton disabled>Resume</AppButton>
+      </Row>
+      <Row label="SplitButton and ConfirmButton">
+        <SplitButton
+          options={[
+            { label: 'Sync', run: later },
+            { label: 'Sync and push', run: later },
+            { label: 'Squash', run: later },
+          ]}
+        />
+        <SplitButton variant="primary" options={[{ label: 'Approve', run: later }]} />
+        <ConfirmButton
+          variant="quiet"
+          question="Close this worktree?"
+          confirm="Close it"
+          asking={asking}
+          onAsk={() => setAsking(true)}
+          onDismiss={() => setAsking(false)}
+          onConfirm={() => setAsking(false)}
+        >
+          Close
+        </ConfirmButton>
+      </Row>
+      <Row label="The node card's links, chips and status">
+        <StatusPicker
+          task={status}
+          picking={picking}
+          onPick={() => setPicking(true)}
+          onDone={() => setPicking(false)}
+          onChange={(next) => {
+            setStatus({ ...status, status: next });
+            setPicking(false);
+          }}
+          label="Status"
+        />
+        <PanelLink tab={{ key: 'session:a', kind: 'session', agentId: 'a' }}>Session</PanelLink>
+        <PanelLink tab={{ key: 'changes:w', kind: 'changes', worktreeId: 'w' }}>Changes</PanelLink>
+        <ExternalLink href="https://example.org">cmux</ExternalLink>
+        <PrChip worktree={worktree} size="large" />
+        <PrChip worktree={worktree} />
+        <SplitChip label="agents" title="4 of 8 agents are working">
+          4/8
+        </SplitChip>
+        <SplitChip label="5h" tone="busy" title="62% of the five-hour window">
+          62%
+        </SplitChip>
+      </Row>
+      <Row label="The node card's command row">
+        <div className={cardStyles.commands} style={{ alignSelf: 'auto' }}>
+          <AppButton variant="primary">Launch</AppButton>
+          <AppButton variant="quiet">Edit task</AppButton>
+          <SplitButton
+            options={[
+              { label: 'Sync', run: later },
+              { label: 'Squash', run: later },
+            ]}
+          />
+          <AppButton variant="quiet">Off desk</AppButton>
+        </div>
+      </Row>
+      <Row label="The top bar">
+        <div className={barStyles.views} role="group" aria-label="Views">
+          {['Desk', 'Tasks', 'Worktrees'].map((label, i) => (
+            <button key={label} type="button" className={barStyles.view} aria-pressed={i === 0}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className={barStyles.new}>
+          New
+        </button>
+        <AppButton className={chipStyles.chip} data-count={2}>
+          <span className={chipStyles.asks}>⚠ 2</span>
+          <span className={chipStyles.unanswered}>1</span>
+        </AppButton>
+      </Row>
+      <Row label="A panel tab and a field">
+        <div className={tabStyles.strip} role="tablist" style={{ flex: 'none' }}>
+          <div role="tab" className={tabStyles.tab} data-active aria-selected>
+            <span className={tabStyles.label}>NORT-7 Session</span>
+          </div>
+          <div role="tab" className={tabStyles.tab} aria-selected={false}>
+            <span className={tabStyles.label}>NORT-7 Plan</span>
+          </div>
+        </div>
+        <input type="text" defaultValue="feat/orders" aria-label="Branch" />
+        <select aria-label="Group by" defaultValue="project">
+          <option value="project">Project</option>
+          <option value="worktree">Worktree</option>
+        </select>
+      </Row>
+      <Row label="A dialog footer">
+        <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+          <DialogFooter>
+            <AppButton variant="quiet">Cancel</AppButton>
+            <AppButton variant="primary">Create</AppButton>
+          </DialogFooter>
+        </div>
+      </Row>
+    </section>
+  );
+}
+
+/**
+ * The same board at the two desktop heights. What to look at: which column
+ * reads as the product's density, and whether each row holds one height.
+ */
+export const DesktopHeights: Story = () => (
+  <div style={{ display: 'flex', alignItems: 'stretch' }}>
+    <Board control="calc(var(--u) * 3)" heading="--control: 3 units, 24px" />
+    <div style={{ borderLeft: '1px solid var(--border)' }} />
+    <Board control="calc(var(--u) * 4)" heading="--control: 4 units, 32px" />
+  </div>
+);
+
+/**
+ * The board at the narrow height. What to look at, at 390px: each control is
+ * 48px high, and a row wraps and does not overflow.
+ */
+export const Narrow: Story = () => (
+  <div style={{ maxWidth: 390 }}>
+    <Board control="calc(var(--u) * 6)" heading="--control: 6 units, 48px" />
+  </div>
+);

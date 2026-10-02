@@ -3,7 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import { useAppStore } from '../store/store';
-import { createFakeServer } from '../test/fakeServer';
+import { createFakeServer } from '../fake/fakeServer';
 import { PanelTabs } from './PanelTabs';
 import { usePanelGroups } from './usePanelGroups';
 import {
@@ -72,7 +72,7 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              gap: 'var(--space-2)',
+              gap: 'var(--u)',
               padding: '6px 12px',
               borderBottom: '1px solid var(--border)',
               color: 'var(--fg-muted)',
@@ -85,7 +85,7 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
           </div>
           <div
             style={{
-              padding: 'var(--space-5)',
+              padding: 'var(--u-3)',
               color: 'var(--fg-faint)',
               fontSize: 'var(--text-sm)',
             }}

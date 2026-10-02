@@ -11,15 +11,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: var(--u);
+  padding: var(--u) var(--u-2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .where {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--u);
   flex: 1 1 14rem;
   min-width: 0;
   font-family: var(--mono);
@@ -52,21 +52,22 @@
 .revs {
   list-style: none;
   margin: 0;
-  padding: var(--space-1) 0;
+  padding: var(--u-half) 0;
 }
 .summary {
-  padding-bottom: var(--space-3);
+  padding-bottom: var(--u-2);
 }
 .revs + .summary {
   border-top: 1px solid var(--border);
 }
 .rev {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--u);
   width: 100%;
-  padding: var(--space-1) var(--space-3);
+  padding: 0 var(--u-2);
   border: 0;
+  border-radius: 0;
   background: none;
   color: var(--fg-muted);
   font: inherit;
@@ -108,7 +109,8 @@
   }
   .strip {
     flex: 0 0 auto;
-    max-height: 8.5rem;
+    /* Three rows and a half, so the cut row says the strip scrolls. */
+    max-height: max(8.5rem, calc(var(--control) * 3.5));
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
@@ -122,8 +124,9 @@
   min-height: 0;
   overflow: auto;
 
-  --title-h: 2.25rem;
-  --stats-h: 1.75rem;
+  /* Each line holds a control, so neither is lower than one. */
+  --title-h: max(2.25rem, calc(var(--control) + var(--u)));
+  --stats-h: max(1.75rem, var(--control));
 }
 .scroll[data-commit='false'] {
   --title-h: 0px;
@@ -134,8 +137,8 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3);
+  gap: var(--u);
+  padding: 0 var(--u-2);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
@@ -151,8 +154,8 @@
 }
 .fold {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--u);
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -181,13 +184,13 @@
 
 /* -- the commit message -- */
 .message {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--u) var(--u-2);
   border-bottom: 1px solid var(--border);
 }
 /* The Markdown surface sizes for a document; a message sits at the diff's
    size, with the Decision card's tighter gaps. */
 .messageBody {
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--u);
   max-width: var(--measure-prose);
   color: var(--fg);
   font-size: var(--text-sm);
@@ -204,7 +207,7 @@
 }
 
 .empty {
-  padding: var(--space-5);
+  padding: var(--u-3);
   color: var(--fg-faint);
   text-align: center;
 }
@@ -213,16 +216,17 @@
 .list {
   list-style: none;
   margin: 0;
-  padding: var(--space-1) 0;
+  padding: var(--u-half) 0;
   border-bottom: 1px solid var(--border);
 }
 .entry {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--u);
   width: 100%;
-  padding: 2px var(--space-3);
+  padding: 0 var(--u-2);
   border: 0;
+  border-radius: 0;
   background: none;
   color: var(--fg);
   font-family: var(--mono);
@@ -244,7 +248,7 @@
 .file {
   /* A jump from the list or the tree lands the head below the two lines. */
   scroll-margin-top: calc(var(--title-h) + var(--stats-h));
-  margin: var(--space-3);
+  margin: var(--u-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: clip;
@@ -259,9 +263,9 @@
   z-index: 1;
   display: flex;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--u);
   margin: 0;
-  padding: var(--space-1) var(--space-3);
+  padding: var(--u-half) var(--u-2);
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
@@ -293,7 +297,7 @@
   color: var(--danger);
 }
 .hunk {
-  padding: 0 var(--space-3);
+  padding: 0 var(--u-2);
   background: var(--bg-sunken);
   color: var(--fg-muted);
   white-space: pre;
@@ -313,7 +317,7 @@
 }
 .note {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--u) var(--u-2);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }

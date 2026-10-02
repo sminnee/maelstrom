@@ -11,7 +11,7 @@
   position: absolute;
   top: 0;
   box-sizing: border-box;
-  padding: var(--space-1) var(--space-2);
+  padding: var(--u-half) var(--u);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--border) 45%, transparent);
   font-size: var(--text-xs);

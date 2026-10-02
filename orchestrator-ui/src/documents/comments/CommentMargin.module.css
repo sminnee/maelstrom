@@ -3,10 +3,10 @@
   width: 220px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
-  padding: 10px;
+  padding: var(--u);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--u);
   overflow: auto;
   font-size: var(--text-sm);
 }
@@ -23,11 +23,11 @@
 .comment {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: var(--u) var(--u);
   background: var(--bg-raised);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--u-half);
 }
 .composer {
   border-color: var(--attention);
@@ -37,7 +37,7 @@
 }
 .quote {
   margin: 0;
-  padding-left: 6px;
+  padding-left: var(--u);
   border-left: 2px solid var(--attention);
   color: var(--fg-muted);
   font-size: var(--text-xs);
@@ -49,19 +49,17 @@
 }
 .meta {
   display: flex;
-  gap: 6px;
+  gap: var(--u);
   align-items: center;
   color: var(--fg-faint);
   font-size: var(--text-2xs);
 }
 .resolve {
   margin-left: auto;
-  font-size: var(--text-2xs);
-  padding: 0 4px;
 }
 .row {
   display: flex;
-  gap: 6px;
+  gap: var(--u);
 }
 .quiet {
   color: var(--fg-muted);
@@ -75,5 +73,4 @@
   background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 4px 6px;
 }

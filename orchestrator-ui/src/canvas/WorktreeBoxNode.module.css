@@ -46,8 +46,8 @@
 /* A box with no node is only as high as its label, so the label sits inside. */
 .box[data-empty='true'] .label {
   top: 50%;
-  left: var(--space-2);
-  max-width: calc(100% - var(--space-2) * 2);
+  left: var(--u);
+  max-width: calc(100% - var(--u) * 2);
   padding: 0;
   background: none;
 }

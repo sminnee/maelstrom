@@ -1,5 +1,5 @@
 .banner {
-  padding: 4px 12px;
+  padding: var(--u-half) var(--u-2);
   font-size: var(--text-sm);
   color: var(--fg-on-hue);
   background: var(--attention);

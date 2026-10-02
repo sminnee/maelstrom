@@ -1,7 +1,7 @@
 .decision {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 /*
  * What the agent said before it asked. This is context for the
@@ -17,9 +17,9 @@
 /* The heading is the fold's control, so it takes the whole row and a pointer. */
 .contextHead {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
   align-items: center;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--u) var(--u-2);
   font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro);
@@ -36,8 +36,8 @@
 .contextBody {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-3) var(--space-2);
+  gap: var(--u-half);
+  padding: 0 var(--u-2) var(--u);
   max-height: 11em;
   overflow: hidden;
   /* A mask reads only alpha, so any opaque token serves; naming a hex here
@@ -54,8 +54,8 @@
 }
 .more {
   align-self: flex-start;
-  margin-left: var(--space-3);
-  margin-bottom: var(--space-2);
+  margin-left: var(--u-2);
+  margin-bottom: var(--u);
   font-size: var(--text-xs);
 }
 /* The dock register: one band, laid out across rather than down. */
@@ -63,7 +63,7 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 /*
  * The query reads `.document`, the nearest container, so the band follows the
@@ -85,7 +85,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--u);
   padding: 0;
   border: none;
   background: none;
@@ -105,7 +105,7 @@
 .decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] {
   flex: 1;
   flex-wrap: nowrap;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 .decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] textarea {
   flex: 1;
@@ -125,17 +125,17 @@
 /* Over the document, never pushing it. Overlapping earns the card lift. */
 .sheet {
   position: absolute;
-  bottom: calc(100% + var(--space-2));
+  bottom: calc(100% + var(--u));
   left: 0;
   z-index: var(--z-card);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--u-half);
   width: max(28ch, 100%);
   max-width: min(var(--measure-panel), 90vw);
   max-height: 50vh;
   overflow: auto;
-  padding: var(--space-3);
+  padding: var(--u-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-raised);

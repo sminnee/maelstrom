@@ -6,8 +6,8 @@
 .head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 12px;
+  gap: var(--u-half);
+  padding: var(--u) var(--u-2);
   border-bottom: 1px solid var(--border);
   font-size: var(--text-xs);
   font-family: var(--mono);
@@ -19,7 +19,7 @@
 /* The head truncates rather than wraps — see orchestrator-ui/DESIGN.md, "Session header". */
 .headLine {
   display: flex;
-  gap: 8px;
+  gap: var(--u);
   align-items: center;
   min-width: 0;
 }
@@ -29,7 +29,7 @@
 .live,
 .standing {
   display: flex;
-  gap: 8px;
+  gap: var(--u);
   align-items: center;
   min-width: 0;
 }
@@ -47,7 +47,7 @@
   .headLine {
     flex-direction: column;
     align-items: stretch;
-    gap: 2px;
+    gap: var(--u-half);
   }
   .live,
   .standing {
@@ -127,14 +127,14 @@
   overflow: auto;
 }
 .empty {
-  padding: 24px;
+  padding: var(--u-3);
   color: var(--fg-faint);
 }
 .subagents {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 12px;
+  gap: var(--u-half);
+  padding: var(--u) var(--u-2);
   border-top: 1px solid var(--border);
   font-size: var(--text-xs);
   font-family: var(--mono);
@@ -143,8 +143,8 @@
 .finished {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 12px;
+  gap: var(--u-half);
+  padding: var(--u) var(--u-2);
   border-top: 1px solid var(--border);
   font-size: var(--text-xs);
   font-family: var(--mono);
@@ -156,7 +156,7 @@
 }
 .subagent {
   display: flex;
-  gap: 8px;
+  gap: var(--u);
   align-items: center;
   min-width: 0;
 }

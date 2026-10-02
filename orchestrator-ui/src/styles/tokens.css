@@ -173,18 +173,20 @@
   --weight-medium: 500;
   --weight-semibold: 600;
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-
   /*
-   * The narrow layout's floor for anything a finger presses. Below this a
-   * target is a miss waiting to happen, whatever it looks like. Density is
-   * bought back with space, never by going under it.
+   * The chrome's scale: one unit, three steps from it, and one control height.
+   * A gap or a padding is one of the four and nothing between. See DESIGN.md
+   * § Layout.
    */
-  --touch: 44px;
+  --u: 8px;
+  --u-half: calc(var(--u) / 2);
+  --u-2: calc(var(--u) * 2);
+  --u-3: calc(var(--u) * 3);
+  /*
+   * The height of each button, link row, field and tab. The narrow layout
+   * re-points it below, to the floor for anything a finger presses.
+   */
+  --control: calc(var(--u) * 3);
 
   --duration-fast: 120ms;
 
@@ -220,6 +222,13 @@
     var(--hue-attention),
     var(--black) var(--syntax-shade)
   );
+}
+
+/* The narrow layout. 839px is the breakpoint `layout/useLayoutMode.ts` reads. */
+@media (max-width: 839px) {
+  :root {
+    --control: calc(var(--u) * 6);
+  }
 }
 
 @media (prefers-color-scheme: light) {

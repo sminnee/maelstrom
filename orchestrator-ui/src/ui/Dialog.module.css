@@ -3,7 +3,7 @@
      dialog's own font, so the width is set in the monospace the textarea
      uses, plus the padding and border either side of it. */
   font-family: var(--mono);
-  width: min(calc(100ch + 2 * var(--space-4) + 2 * var(--space-2) + 2px), 100%);
+  width: min(calc(100ch + 2 * var(--u-2) + 2 * var(--u) + 2px), 100%);
   /* The UA stylesheet caps a dialog well short of the viewport, so the cap is
      replaced here. The 40px is the gap the dialog keeps top and bottom: the
      height cap alone reserves it, and `margin: auto` only centres what is left. */
@@ -13,8 +13,8 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--u);
+  padding: var(--u-2);
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -32,11 +32,11 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 .headerControls {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
   /* Sits beside the close button rather than at the header's centre, which is
      where `space-between` would otherwise put a third flex item. */
   margin-left: auto;
@@ -57,7 +57,7 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--u-half);
   font-size: var(--text-xs);
   color: var(--fg-muted);
 }
@@ -70,7 +70,6 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--space-1) var(--space-2);
 }
 .field textarea {
   font-family: var(--mono);
@@ -78,7 +77,7 @@
 .kinds {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--u);
   margin: 0;
   padding: 0;
   font-size: var(--text-xs);
@@ -91,7 +90,7 @@
 .kind {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--u-half);
   font-size: var(--text-sm);
   color: var(--fg);
   cursor: pointer;
@@ -99,7 +98,7 @@
 .advanced {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--u);
   font-size: var(--text-xs);
   color: var(--fg-muted);
 }
@@ -108,7 +107,7 @@
 }
 .row {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 .row > label {
   flex: 1 1 50%;
@@ -117,17 +116,11 @@
 .footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: var(--u);
 }
 .footer button {
-  font: inherit;
-  font-size: var(--text-sm);
   color: var(--fg);
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
 }
 
 /*
@@ -145,26 +138,31 @@
     margin: 0;
     border: none;
     border-radius: 0;
-    padding: var(--space-3);
-    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+    padding: var(--u-2);
+    padding-bottom: max(var(--u-2), env(safe-area-inset-bottom));
+  }
+  /* A radio is small. Its label is the target the thumb gets, and so is the
+     summary of the Advanced fold. */
+  .kinds {
+    flex-wrap: wrap;
+    gap: 0 var(--u-2);
+  }
+  .kinds legend {
+    width: 100%;
+  }
+  .kind,
+  .advanced summary {
+    min-height: var(--control);
+  }
+  .advanced summary {
+    display: flex;
+    align-items: center;
   }
   /* Five buttons is New work's busiest footer; on one row they overflow. */
   .footer {
     flex-wrap: wrap;
   }
-  .footer button {
-    min-height: var(--touch);
-    padding: var(--space-1) var(--space-4);
-  }
-  .field input,
-  .field textarea,
-  .field select {
-    /* Under 16px iOS zooms the page on focus and does not zoom back. */
-    font-size: 16px;
-    min-height: var(--touch);
-  }
   .close {
-    min-width: var(--touch);
-    min-height: var(--touch);
+    min-width: var(--control);
   }
 }

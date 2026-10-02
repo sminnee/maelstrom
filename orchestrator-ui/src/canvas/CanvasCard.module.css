@@ -17,8 +17,8 @@
 .inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  gap: var(--u);
+  padding: var(--u-2);
   max-height: 70vh;
   overflow: auto;
 }

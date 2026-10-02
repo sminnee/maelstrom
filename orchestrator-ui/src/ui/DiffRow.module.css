@@ -5,8 +5,8 @@
 }
 .row {
   display: flex;
-  gap: 6px;
-  padding: 0 8px;
+  gap: var(--u);
+  padding: 0 var(--u);
   white-space: pre;
   /* A row as wide as its longest sibling, so the ground runs under a scrolled line. */
   min-width: max-content;
@@ -44,8 +44,10 @@
 }
 /* The numbers as one button: it selects the row, for a change comment. */
 .gutter {
+  /* Not a control: it takes no control height. */
+  min-height: 0;
   display: flex;
-  gap: 6px;
+  gap: var(--u);
   flex-shrink: 0;
   padding: 0;
   border: 0;

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ExternalLinkIcon } from './ExternalLinkIcon';
-import styles from './ExternalLink.module.css';
+import styles from './link.module.css';
 
 /**
  * A link that leaves the app — a GitHub PR, a worktree's dev env.

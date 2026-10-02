@@ -16,12 +16,11 @@
 .tab {
   flex: 1;
   min-width: 0;
-  min-height: var(--touch);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2);
+  gap: var(--u);
+  padding: 0 var(--u);
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -49,12 +48,12 @@
   min-height: 0;
   overflow: auto;
   /* Clear of the home indicator on a phone that has one. */
-  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  padding-bottom: max(var(--u-2), env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }
 .empty {
   margin: 0;
-  padding: var(--space-5) var(--space-4);
+  padding: var(--u-3) var(--u-2);
   color: var(--fg-faint);
   font-size: var(--text-ui);
   text-align: center;
@@ -62,11 +61,11 @@
 .frame {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--u);
   align-items: center;
   justify-content: center;
   height: 100%;
-  padding: var(--space-4);
+  padding: var(--u-2);
   color: var(--fg-muted);
   text-align: center;
 }

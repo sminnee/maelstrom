@@ -1,4 +1,6 @@
 .thumb {
+  /* Not a control: it takes no control height. */
+  min-height: 0;
   /* A button, drawn as the picture it opens. */
   display: block;
   padding: 0;
@@ -29,7 +31,7 @@
      browser's retracting toolbar. The subtraction is the scrim's padding plus
      the box's own, which `.box` keeps small for this reason. */
   max-width: 100%;
-  max-height: calc(100dvh - 2 * (20px + var(--space-2)));
+  max-height: calc(100dvh - 2 * (20px + var(--u)));
   width: auto;
   height: auto;
 }
@@ -40,7 +42,7 @@
   width: auto;
   max-width: 100%;
   /* The image is the only child, so the box may shrink to it. */
-  padding: var(--space-2);
+  padding: var(--u);
   /* The close button is placed against this. */
   position: relative;
 }
@@ -49,11 +51,10 @@
    a row of its own would show as a band of chrome around every screenshot. */
 .close {
   position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
+  top: var(--u);
+  right: var(--u);
   z-index: 1;
-  min-width: var(--touch);
-  min-height: var(--touch);
+  min-width: var(--control);
   font-size: var(--text-md);
   line-height: 1;
   /* Legible over whatever the picture puts behind it. */

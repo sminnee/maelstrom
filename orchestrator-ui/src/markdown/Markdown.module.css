@@ -70,7 +70,7 @@
 .markdown ol {
   /* The browser's 40px indent is built for a 16px body and swamps a 13px one. */
   margin: 0 0 var(--prose-gap);
-  padding-left: var(--space-5);
+  padding-left: var(--u-3);
 }
 /*
  * A half row, the one deliberate exception to the grid. A full row makes a list
@@ -90,7 +90,7 @@
    the chrome scale is still the right source for it. */
 .markdown li > ul,
 .markdown li > ol {
-  margin: var(--space-1) 0 0;
+  margin: var(--u-half) 0 0;
 }
 .markdown strong {
   font-weight: var(--weight-semibold);
@@ -151,7 +151,7 @@
 }
 .markdown blockquote {
   margin: 0 0 var(--prose-gap);
-  padding-left: 10px;
+  padding-left: var(--u);
   border-left: 2px solid var(--border-strong);
   color: var(--fg-muted);
 }
@@ -223,7 +223,7 @@
 .markdown th,
 .markdown td {
   border: 1px solid var(--border);
-  padding: var(--space-1) 6px;
+  padding: var(--u-half) var(--u);
   text-align: left;
   vertical-align: top;
 }

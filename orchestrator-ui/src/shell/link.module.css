@@ -1,0 +1,22 @@
+/*
+ * A text link with an icon: a panel link, an external link and the cmux
+ * control draw it. One rule, so the three cannot differ. A link is a control,
+ * so it takes the control height, and the narrow layout gives it a row of its
+ * own where it has one.
+ */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  min-height: var(--control);
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}

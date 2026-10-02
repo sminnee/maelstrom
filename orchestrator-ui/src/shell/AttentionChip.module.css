@@ -15,14 +15,14 @@
 .unanswered {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  margin-left: var(--space-1);
+  gap: var(--u-half);
+  margin-left: var(--u-half);
   color: var(--unanswered);
 }
 .unanswered::before {
   content: '';
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--unanswered);
 }

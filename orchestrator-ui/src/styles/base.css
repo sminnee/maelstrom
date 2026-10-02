@@ -56,7 +56,9 @@ button {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2px var(--space-2);
+  /* One height for every control. A component sets a width, not a height. */
+  min-height: var(--control);
+  padding: 0 var(--u);
   cursor: pointer;
 }
 button:hover {
@@ -65,6 +67,25 @@ button:hover {
 button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+/* A field is a control: it takes the control height. A checkbox and a radio are
+   marks, not fields, and keep their own size. `:where` keeps the rule at the
+   weight of the button rule, so one class overrides it. */
+:where(input:not([type='checkbox'], [type='radio']), select, textarea) {
+  min-height: var(--control);
+  padding: 0 var(--u);
+}
+:where(textarea) {
+  padding: var(--u-half) var(--u);
+}
+/* Under 16px iOS zooms the page on focus and does not zoom back. Important,
+   because it is a floor: each module's own field rule would win over it. */
+@media (max-width: 839px) {
+  input,
+  select,
+  textarea {
+    font-size: var(--text-md) !important;
+  }
 }
 input[readonly],
 textarea[readonly],

@@ -1,7 +1,7 @@
 /* No container: prose is the transcript's baseline — see the Rank Is
    Structural Rule in DESIGN.md. */
 .message {
-  padding: 2px 0;
+  padding: 0 0;
   max-width: var(--measure-panel);
   line-height: var(--leading-prose);
 }
@@ -14,7 +14,7 @@
  */
 .message[data-role='user'],
 .settled {
-  padding: 6px 10px;
+  padding: var(--u) var(--u);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
 }
@@ -33,7 +33,7 @@
   display: inline-block;
   width: 0.5em;
   height: 1em;
-  margin-left: 2px;
+  margin-left: var(--u-half);
   vertical-align: text-bottom;
   background: var(--fg-faint);
 }
@@ -55,9 +55,9 @@
 }
 .toolHead {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
   align-items: baseline;
-  padding: 2px var(--space-2);
+  padding: 0 var(--u);
   font-size: var(--text-xs);
   font-family: var(--mono);
   line-height: var(--leading-ui);
@@ -106,9 +106,9 @@
 }
 .shellHead {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--u);
   align-items: baseline;
-  padding: 3px var(--space-2);
+  padding: 0 var(--u);
   font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro);
@@ -122,7 +122,7 @@
 .command,
 .output {
   margin: 0;
-  padding: 6px 8px;
+  padding: var(--u) var(--u);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border-top: 1px solid var(--border);
@@ -142,13 +142,13 @@
   border-top: 1px solid var(--border);
 }
 .prompt {
-  padding: 8px 10px;
+  padding: var(--u) var(--u);
   border: 1px solid var(--attention);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--attention) 8%, var(--bg-raised));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--u);
 }
 .prompt[data-decision],
 .prompt[data-stale] {
@@ -190,7 +190,7 @@
 .options {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--u);
 }
 /* The refusal sits at the row's far end, apart from the act that answers. */
 .rowEnd {
@@ -218,7 +218,7 @@
   background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2px 6px;
+  padding: 0 var(--u);
 }
 .quiet {
   color: var(--fg-muted);
@@ -227,15 +227,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--u-half);
   font-size: var(--text-xs);
 }
 .stepChip {
   display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-1);
-  padding: 1px var(--space-2);
-  border-radius: 999px;
+  align-items: center;
+  gap: var(--u-half);
+  border-radius: var(--radius-pill);
   background: var(--bg-sunken);
   color: var(--fg-muted);
 }
@@ -257,7 +256,7 @@
 }
 .stepAnswer::before {
   content: '·';
-  margin-right: var(--space-1);
+  margin-right: var(--u-half);
   color: var(--fg-faint);
 }
 .stepCount {
@@ -271,14 +270,14 @@
 .optionList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--u-half);
 }
 .option {
   display: grid;
   grid-template-columns: auto 1.5ch 1fr;
-  gap: var(--space-2);
+  gap: var(--u);
   align-items: baseline;
-  padding: var(--space-1) var(--space-2);
+  padding: var(--u-half) var(--u);
   border-radius: var(--radius);
   cursor: pointer;
 }
@@ -312,12 +311,12 @@
   font-size: var(--text-sm);
 }
 .otherInput {
-  margin-top: 2px;
+  margin-top: 0;
   font: inherit;
   color: inherit;
   background: var(--bg-field);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2px 6px;
+  padding: 0 var(--u);
   width: 100%;
 }
