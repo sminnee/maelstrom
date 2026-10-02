@@ -2429,6 +2429,38 @@ async def _settle() -> None:
         await asyncio.sleep(0)
 
 
+def test_a_partial_message_can_be_interrupted_before_any_whole_message():
+    """The reducer reads `idle` until the first whole message, which a long
+    answer delays by many seconds. The text is on screen by then, so the turn
+    must be one a user can stop."""
+
+    async def scenario():
+        child = _FedChild()
+        pump = asyncio.create_task(child.agent.pump())
+        interrupt = {"cmd": "interrupt", "id": "a1"}
+
+        before = await child.daemon.handle(interrupt)
+        await child.writes(
+            _chunk({"type": "message_start", "message": {"id": "msg_1"}}),
+            _text_chunk("Hello"),
+            # A subagent's chunk says nothing about the agent's own turn.
+            _text_chunk("from a subagent", parent="toolu_1"),
+        )
+        during = await child.daemon.handle(interrupt)
+        await child.writes(b'{"type": "result", "subtype": "error_during_execution"}\n')
+        after = await child.daemon.handle(interrupt)
+        pump.cancel()
+        with suppress(asyncio.CancelledError):
+            await pump
+        return child.sent, before, during, after
+
+    sent, before, during, after = asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    assert "not running a turn" in before["error"]
+    assert during == {"ok": True}
+    assert "not running a turn" in after["error"]
+    assert [m["request"]["subtype"] for m in sent] == ["interrupt"]
+
+
 class _GatedWriter(_RecordingWriter):
     """A client that stops reading while its gate is shut."""
 
