@@ -36,7 +36,11 @@ from mael_domain.worktree import (
     find_all_projects,
     setup_worktree_for_branch,
 )
-from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
+from mael_domain.worktree_close import (
+    add_reopen_task,
+    close_worktree_fully,
+    remove_worktree_fully,
+)
 from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
 from mael_domain.worktree_ops import run_env, run_sync
 from mael_domain.worktree_trash import trash_worktree_fully
@@ -54,6 +58,8 @@ from .sources import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+
+log = logging.getLogger(__name__)
 
 #: How many worktree operations may run at once. Sized so a fleet of worktrees
 #: overlaps rather than queues; the correctness rule is the steps' own scopes,
@@ -123,10 +129,8 @@ def build_orchestrator(
             raise CloseBlocked(outcome.close.message)
 
     async def force_close_worktree(project: str, nato: str, path: str) -> None:
-        # Forcing commits the work in progress and keeps the branch, so
-        # nothing is lost — but it is a decision, not a retry, so the UI asks
-        # first. Unlike ``mael close --force`` this writes no reopen task:
-        # that step lives in ``cmd_close``.
+        # A decision, not a retry — see docs/dev/orchestrator-server.md,
+        # "Closing a worktree".
         outcome = await close_worktree_fully(
             project,
             nato,
@@ -137,6 +141,12 @@ def build_orchestrator(
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
+        try:
+            await add_reopen_task(table, project, outcome.close)
+        except Exception:  # noqa: BLE001 — logged with its traceback
+            # The worktree is closed. A failed task write must not report
+            # that close as failed, which is what raising here would do.
+            log.exception("could not write the reopen task for %s/%s", project, nato)
 
     async def trash_worktree(project: str, nato: str, path: str) -> None:
         outcome = await trash_worktree_fully(

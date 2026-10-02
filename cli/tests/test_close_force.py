@@ -8,13 +8,14 @@ branch + PR are always preserved so the work can be reopened later.
 
 Worktree-level tests use the real-git ``project_with_worktree`` fixture from ``domain_fixtures``
 and helpers from ``tests/test_sync_flags.py``; CLI tests drive ``cmd_close`` through
-``CliRunner`` with ``close_worktree`` + ``add_task`` mocked.
+``CliRunner`` with ``close_worktree`` mocked and an in-memory task table.
 """
 
+import asyncio
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 from git_helpers import create_commit, run_git
@@ -29,6 +30,8 @@ from test_sync_flags import (
 
 from mael_cli.cli import cli
 from mael_domain.ports import get_port_allocation, record_port_allocation
+from mael_domain.task import list_tasks
+from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import (
     CloseResult,
     close_worktree,
@@ -268,7 +271,7 @@ class TestReopenRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# CLI: cmd_close --force via CliRunner (close_worktree + add_task mocked)
+# CLI: cmd_close --force via CliRunner (close_worktree mocked)
 # ---------------------------------------------------------------------------
 
 
@@ -284,9 +287,15 @@ class TestCloseForceCli:
         mock_ctx.worktree_path.exists.return_value = True
         return mock_ctx
 
-    def _run(self, args, close_result):
+    def _run(self, args, close_result, table=None):
+        """Run ``mael close``, and return the result and the tasks it left."""
         runner = CliRunner()
         env_store = MagicMock()
+        table = table or InMemoryTaskTable()
+
+        async def task_table():
+            return table
+
         with (
             patch("mael_cli.cli.resolve_context", return_value=self._ctx()),
             patch(
@@ -294,27 +303,44 @@ class TestCloseForceCli:
             ),
             patch("mael_cli.cli.make_store", return_value=env_store),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
-            patch("mael_cli.cli.add_task") as mock_add_task,
+            patch("mael_cli.cli.task_table", task_table),
         ):
-            mock_add_task.return_value = MagicMock(id="reopen-1")
             result = runner.invoke(cli, ["close", "myproject.alpha", *args])
-        return result, mock_add_task
+        return result, asyncio.run(list_tasks(table, project="myproject"))
 
-    def test_force_with_unmerged_work_creates_reopen_task(self):
+    def test_force_with_unmerged_work_creates_reopen_task(self, monkeypatch):
         close_result = CloseResult(
             success=True,
             message="Worktree closed (detached at origin/main)",
             branch="feature/work",
             had_unmerged_work=True,
         )
-        result, mock_add_task = self._run(["--force"], close_result)
+        # The task belongs to the branch, not to the chain of the session
+        # that ran the close.
+        monkeypatch.setenv("MAEL_TASK_PARENT", "some-chain")
+        result, tasks = self._run(["--force"], close_result)
 
         assert result.exit_code == 0
-        mock_add_task.assert_called_once()
-        _, kwargs = mock_add_task.call_args
-        assert kwargs["command"] == "reopen-branch"
-        assert kwargs["branch"] == "feature/work"
-        assert kwargs["run"] is False
+        [task] = tasks
+        assert task.command == "reopen-branch"
+        assert task.branch == "feature/work"
+        assert task.parent == ""
+        assert task.id in result.output
+
+    def test_force_still_closes_when_the_task_store_fails(self):
+        close_result = CloseResult(
+            success=True,
+            message="Worktree closed (detached at origin/main)",
+            branch="feature/work",
+            had_unmerged_work=True,
+        )
+        table = InMemoryTaskTable()
+        with patch.object(table, "save", side_effect=OSError("disk full")):
+            result, tasks = self._run(["--force"], close_result, table)
+
+        assert result.exit_code == 0
+        assert "could not create reopen task for 'feature/work'" in result.output
+        assert tasks == []
 
     def test_force_without_unmerged_work_no_task(self):
         close_result = CloseResult(
@@ -323,10 +349,10 @@ class TestCloseForceCli:
             branch="feature/work",
             had_unmerged_work=False,
         )
-        result, mock_add_task = self._run(["--force"], close_result)
+        result, tasks = self._run(["--force"], close_result)
 
         assert result.exit_code == 0
-        mock_add_task.assert_not_called()
+        assert tasks == []
 
     def test_force_already_detached_branch_no_task(self):
         """A worktree already closed (branch == 'HEAD') gets no reopen task."""
@@ -336,10 +362,10 @@ class TestCloseForceCli:
             branch="HEAD",
             had_unmerged_work=True,
         )
-        result, mock_add_task = self._run(["--force"], close_result)
+        result, tasks = self._run(["--force"], close_result)
 
         assert result.exit_code == 0
-        mock_add_task.assert_not_called()
+        assert tasks == []
 
     def test_force_threads_flag_into_close_worktree(self):
         close_result = CloseResult(
@@ -356,7 +382,7 @@ class TestCloseForceCli:
             ) as mock_close,
             patch("mael_cli.cli.make_store", return_value=MagicMock()),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
-            patch("mael_cli.cli.add_task"),
+            patch("mael_cli.cli.task_table", AsyncMock()),
         ):
             runner.invoke(cli, ["close", "myproject.alpha", "--force"])
         _, kwargs = mock_close.call_args
@@ -371,10 +397,10 @@ class TestCloseDiscardCli(TestCloseForceCli):
             branch="feature/work",
             had_unmerged_work=True,
         )
-        result, mock_add_task = self._run(["--discard"], close_result)
+        result, tasks = self._run(["--discard"], close_result)
 
         assert result.exit_code == 0
-        mock_add_task.assert_not_called()
+        assert tasks == []
 
     def test_discard_cannot_be_combined_with_force(self):
         result, _ = self._run(

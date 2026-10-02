@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,7 @@ from mael_domain.github_model import (
 from mael_domain.list_all import build_list_all_data, resolve_pr, session_display
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
 from mael_domain.ports import get_app_url
+from mael_domain.state_db.types import StateDbError
 from mael_domain.worktree import (
     SyncResult,
     add_project,
@@ -59,7 +61,11 @@ from mael_domain.worktree import (
     tidy_branches,
     update_claude_local_md,
 )
-from mael_domain.worktree_close import close_worktree_fully, remove_worktree_fully
+from mael_domain.worktree_close import (
+    add_reopen_task,
+    close_worktree_fully,
+    remove_worktree_fully,
+)
 from mael_domain.worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
@@ -97,7 +103,8 @@ from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
 from .table_cli import draw_table
 from .task_cli import _harness_options as _harness_flags
-from .task_cli import add_task, resolve_harness_or_fail
+from .task_cli import _table as task_table
+from .task_cli import resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .wiki_cli import wiki as wiki_cli
 from .worktree_launcher import (
@@ -1431,36 +1438,26 @@ async def cmd_close(targets, wait, timeout, interval, force, discard, trash):
 
         result = outcome.close
         if result.success:
-            # On a forced close that preserved unmerged work, create a "reopen the
-            # branch" task so the branch + PR aren't forgotten. A real branch only
-            # (already-detached → "HEAD").
-            if (
-                force
-                and result.had_unmerged_work
-                and result.branch
-                and result.branch != "HEAD"
-            ):
+            if force:
                 try:
-                    await add_task(
-                        project=ctx.project,
-                        title=f"Reopen {result.branch}",
-                        command="reopen-branch",
-                        branch=result.branch,
-                        content=(
-                            f"`{result.branch}` was force-closed with unmerged work (any "
-                            f"uncommitted changes were saved as a `wip: uncommitted changes` "
-                            f"commit). Reopening restores the worktree; review the PR and env "
-                            f"to decide what's left, and unwind the wip commit if there was one."
-                        ),
-                        run=False,
+                    reopen = await add_reopen_task(
+                        await task_table(), ctx.project, result
                     )
-                except click.ClickException as e:
+                except (
+                    click.ClickException,
+                    StateDbError,
+                    sqlite3.Error,
+                    OSError,
+                ) as e:
                     # The worktree is already closed; a task-store hiccup must not fail
                     # the close. Warn and move on.
                     click.echo(
                         f"Warning: could not create reopen task for '{result.branch}': {e}",
                         err=True,
                     )
+                else:
+                    if reopen is not None:
+                        click.echo(reopen.id)
             continue
 
         # Handle specific failure cases

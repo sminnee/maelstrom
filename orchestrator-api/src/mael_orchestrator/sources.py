@@ -303,8 +303,8 @@ class WorktreeSource(Protocol):
 
     #: Closes a worktree past its refusals, or ``None`` on a source that
     #: cannot. Separate from ``close`` because forcing writes a wip commit: it
-    #: is a different decision, taken behind a confirm. It creates no reopen
-    #: task — that belongs to ``mael close --force`` alone.
+    #: is a different decision, taken behind a confirm. It writes the reopen
+    #: task when the close went over unmerged work.
     force_close: CloseWorktree | None
 
     #: Trashes a worktree's branch and closes the worktree, or ``None`` on a
