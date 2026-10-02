@@ -27,6 +27,7 @@ from .ports import (
     allocate_port_base,
     generate_port_env_vars,
     get_allocated_port_bases,
+    get_dev_host,
     get_port_allocation,
     load_port_allocations,
     record_port_allocation,
@@ -2317,7 +2318,12 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
 
     # Generate .env for the initial worktree
     write_env_file(
-        alpha_path, {"WORKTREE": "alpha", "WORKTREE_NUM": str(worktree_num("alpha"))}
+        alpha_path,
+        {
+            "WORKTREE": "alpha",
+            "WORKTREE_NUM": str(worktree_num("alpha")),
+            "DEV_HOST": get_dev_host(),
+        },
     )
 
     # A project that reserves a base makes _main its fixed environment, so it
@@ -2364,6 +2370,8 @@ def _build_env_file(
     generated_vars = {
         "WORKTREE": worktree_name,
         "WORKTREE_NUM": str(worktree_num(worktree_name)),
+        # Always written, so a template can use $DEV_HOST without a guard.
+        "DEV_HOST": get_dev_host(),
     }
 
     # Derive the flat port-name lists. Structured `services:` (when present) owns
