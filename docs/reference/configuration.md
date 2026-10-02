@@ -205,6 +205,7 @@ uptimerobot:
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
 | `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
+| `github.merge_token` | string | — | GitHub token the orchestrator merges pull requests with. |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
 
 ```yaml
@@ -224,6 +225,9 @@ uptimerobot:
 openai:
   api_key: "sk-xxx"
 
+github:
+  merge_token: "github_pat_xxx"
+
 slack:
   webhooks:
     alerts: "https://hooks.slack.com/services/T000/B000/xxx"
@@ -242,6 +246,15 @@ Each API key resolves in this order:
 1. The environment variable — `LINEAR_API_KEY`, `SENTRY_API_KEY`, `UPTIMEROBOT_API_KEY`.
 2. A `.env` file, searched upward from the current directory.
 3. The matching key in `~/.maelstrom/config.yaml`.
+
+`github.merge_token` resolves the same way, from `MAEL_GITHUB_MERGE_TOKEN`.
+
+- The orchestrator passes it to the Merge button's `gh pr merge` call as `GH_TOKEN`, and to
+  nothing else. Unset, the merge uses the server's `gh` login.
+- A fine-grained personal access token (PAT) needs `contents: write` and `pull requests: write`
+  on the repository.
+- An agent that reads this file can read the token. The token separates the rights of the two
+  `gh` logins. It does not hide them.
 
 This file holds plaintext secrets. `mael doctor` checks its permissions and tightens them.
 

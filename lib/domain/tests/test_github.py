@@ -11,6 +11,7 @@ import pytest
 
 from mael_domain import github
 from mael_domain.base_store import InMemoryBaseStore
+from mael_domain.context import GlobalConfig
 from mael_domain.github import (
     close_pr,
     create_pr,
@@ -23,6 +24,8 @@ from mael_domain.github import (
     get_repo_info,
     get_run_artifacts,
     get_worktree_code,
+    merge_pr,
+    merge_token,
     read_pr,
     wait_for_merge,
 )
@@ -549,6 +552,70 @@ class TestClosePr:
         with patch("mael_domain.github.run_cmd", side_effect=refused):
             with pytest.raises(GitHubCommandFailed):
                 close_pr(Path("."), 42, "x")
+
+
+class TestMergePr:
+    def test_it_rebase_merges_the_commit_the_caller_saw(self):
+        """`--match-head-commit` makes GitHub refuse a head that moved after the
+        caller read the pull request as ready."""
+        with patch("mael_domain.github.run_cmd") as run:
+            merge_pr(42, cwd=Path("."), head_oid="deadbee")
+        assert run.call_args.args[0] == [
+            "gh",
+            "pr",
+            "merge",
+            "42",
+            "--rebase",
+            "--match-head-commit",
+            "deadbee",
+        ]
+        assert run.call_args.kwargs.get("env") is None
+
+    def test_a_token_reaches_gh_as_its_own_login(self):
+        with patch("mael_domain.github.run_cmd") as run:
+            merge_pr(42, cwd=Path("."), head_oid="deadbee", token="ghp_merge")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_merge"}
+
+    def test_a_refusal_carries_what_github_said(self):
+        refused = subprocess.CalledProcessError(
+            1, "gh", stderr="Head branch was modified. Review and try the merge again."
+        )
+        with patch("mael_domain.github.run_cmd", side_effect=refused):
+            with pytest.raises(GitHubCommandFailed, match="Head branch was modified"):
+                merge_pr(42, cwd=Path("."), head_oid="deadbee")
+
+    def test_a_gh_that_never_answers_is_a_command_failure(self):
+        """A hung `gh` would otherwise hold the handler, and its refresh, forever."""
+        hung = subprocess.TimeoutExpired("gh", 100)
+        with patch("mael_domain.github.run_cmd", side_effect=hung) as run:
+            with pytest.raises(GitHubCommandFailed, match="did not answer"):
+                merge_pr(42, cwd=Path("."), head_oid="deadbee")
+        assert run.call_args.kwargs["timeout"] == 100
+
+
+class TestMergeToken:
+    def test_the_environment_names_it(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_env")
+        assert merge_token() == "ghp_env"
+
+    def test_the_global_config_is_the_fallback(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("MAEL_GITHUB_MERGE_TOKEN", raising=False)
+        config = GlobalConfig.from_dict({"github": {"merge_token": "ghp_config"}})
+        with patch(
+            "mael_domain.integrations._auth.load_global_config", return_value=config
+        ):
+            assert merge_token() == "ghp_config"
+
+    def test_with_neither_the_merge_uses_the_gh_login(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("MAEL_GITHUB_MERGE_TOKEN", raising=False)
+        with patch(
+            "mael_domain.integrations._auth.load_global_config",
+            return_value=GlobalConfig.from_dict({}),
+        ):
+            assert merge_token() is None
 
 
 class TestGetOpenPrs:

@@ -42,6 +42,7 @@ class GlobalConfig:
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
     openai_api_key: str | None = None
+    github_merge_token: str | None = None
     slack_webhooks: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -75,6 +76,13 @@ class GlobalConfig:
         openai_api_key = (
             openai_config.get("api_key") if isinstance(openai_config, dict) else None
         )
+        # Support nested github config: github.merge_token
+        github_config = data.get("github", {})
+        github_merge_token = (
+            github_config.get("merge_token")
+            if isinstance(github_config, dict)
+            else None
+        )
         # Support nested slack config: slack.webhooks (named map of channel -> URL)
         slack_config = data.get("slack", {})
         slack_webhooks: dict[str, str] = {}
@@ -91,6 +99,7 @@ class GlobalConfig:
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,
             openai_api_key=openai_api_key,
+            github_merge_token=github_merge_token,
             slack_webhooks=slack_webhooks,
         )
 
