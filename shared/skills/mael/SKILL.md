@@ -41,7 +41,7 @@ When the work has a result the user can see, write a verification after step 1:
 
 - Write `.drafts/verification.md`. Say what you checked and how.
 - Put each screenshot and Playwright video in the body as a markdown image ref.
-- When the project runs Ladle, link a story as plain markdown: `http://localhost:<Ladle port>/?story=<title-id>--<export>&mode=preview`.
+- When the project runs Ladle, link a story as plain markdown: `http://<host>:<Ladle port>/?story=<title-id>--<export>&mode=preview`. `<host>` is the host of the app URL in your Environment section.
 - Show it with `<doc-file kind="verification" filename=".drafts/verification.md" title="...">`.
 - When a review fix changes what the verification shows, update the file and write the tag again.
 

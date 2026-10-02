@@ -285,6 +285,7 @@ a template, with `$VAR` substitution — with the generated variables:
 
 ```
 # Maelstrom port allocations
+DEV_HOST=localhost
 FRONTEND_PORT=3000
 PORT_BASE=300
 WORKTREE=bravo
@@ -300,6 +301,60 @@ After changing ports in `.maelstrom.yaml`:
 ```bash
 mael env reset
 ```
+
+## Open an environment from another device
+
+By default, maelstrom reports each dev environment at `http://localhost:<port>`. A phone or a second
+computer cannot open that address. The **dev host** replaces `localhost` in every URL that
+maelstrom reports: the CLI output, the agent's app URL, and the dev env links in the
+orchestrator.
+
+Set the dev host once for the machine, in `~/.maelstrom/config.yaml`. A Tailscale MagicDNS
+name is the usual value:
+
+```yaml
+dev_host: desk.tailnet.ts.net
+```
+
+Then run `mael env reset` in each open worktree. The command rewrites `.env` and the agent's
+app URL. A new worktree gets the dev host without this step.
+
+Maelstrom changes only the URLs that it reports. Each app must also accept a request from
+the other device:
+
+| The app must | Reason | Vite example |
+|---|---|---|
+| Listen on every interface | A server bound to `127.0.0.1` refuses a remote connection. | `server.host: true` |
+| Allow the dev host | Vite refuses a `Host` header that it does not know, with a 403. | `server.allowedHosts: [devHost]` |
+| Give HMR no host | The client then dials the host the page came from. | `server.hmr: { port }` |
+
+`DEV_HOST` is in every worktree's `.env`, so a service reads it from its environment. The
+value is `localhost` when `dev_host:` is unset, and Vite always allows that name. The
+variable is absent outside maelstrom, so the entry has a guard:
+
+```ts
+const devHost = process.env.DEV_HOST;
+
+export default defineConfig({
+  server: {
+    host: true,
+    allowedHosts: devHost ? [devHost] : undefined,
+  },
+});
+```
+
+An app that holds an absolute URL to itself needs the dev host too. Use `$DEV_HOST` in the
+project root's `.env` template:
+
+```
+PUBLIC_URL=http://$DEV_HOST:$FRONTEND_PORT
+```
+
+Keep `localhost` for a URL that one service on the machine uses to reach another. A proxy
+target is the usual case.
+
+A server that listens on every interface also serves each other network the machine joins.
+Close the dev ports to those networks at the firewall.
 
 ## Procfile fallback
 
