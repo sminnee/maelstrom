@@ -55,10 +55,15 @@ button {
   color: inherit;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* A pill: the radius is half the height, whatever the height is. */
+  border-radius: var(--radius-pill);
   /* One height for every control. A component sets a width, not a height. */
   min-height: var(--control);
-  padding: 0 var(--u);
+  /* Half the height, which is the radius: the text starts where the curve
+     ends, so the space round it reads even at each control height. */
+  padding: 0 calc(var(--control) / 2);
+  /* A label that wraps makes a pill a blob. The row wraps, not the label. */
+  white-space: nowrap;
   cursor: pointer;
 }
 button:hover {
@@ -74,6 +79,7 @@ button:disabled {
 :where(input:not([type='checkbox'], [type='radio']), select, textarea) {
   min-height: var(--control);
   padding: 0 var(--u);
+  border-radius: var(--radius-field);
 }
 :where(textarea) {
   padding: var(--u-half) var(--u);

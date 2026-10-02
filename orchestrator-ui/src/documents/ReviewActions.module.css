@@ -17,7 +17,6 @@
   color: var(--fg);
   background: var(--bg-field);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   /* Nothing around the review dock scrolls, so a long summary scrolls itself. */
   max-height: calc(var(--vvh, 100dvh) / 2);
   overflow-y: auto;

@@ -21,8 +21,7 @@ export default { title: 'UI / Controls' };
  * Each control of the chrome, in the combinations the app draws them in.
  *
  * What these stories answer: whether one row of mixed controls shares one
- * height and one baseline, and how dense the chrome reads at each control
- * height. A control here takes its height from `--control` and from nothing
+ * height and one baseline, on the desktop and at the narrow height. A control here takes its height from `--control` and from nothing
  * else, so a column re-points that one token.
  *
  * The top bar's nav, the panel tab and the attention chip read the store or
@@ -185,16 +184,9 @@ function Board({ control, heading }: { control: string; heading: string }) {
   );
 }
 
-/**
- * The same board at the two desktop heights. What to look at: which column
- * reads as the product's density, and whether each row holds one height.
- */
-export const DesktopHeights: Story = () => (
-  <div style={{ display: 'flex', alignItems: 'stretch' }}>
-    <Board control="calc(var(--u) * 3)" heading="--control: 3 units, 24px" />
-    <div style={{ borderLeft: '1px solid var(--border)' }} />
-    <Board control="calc(var(--u) * 4)" heading="--control: 4 units, 32px" />
-  </div>
+/** The board at the desktop height. What to look at: each row holds one height. */
+export const Desktop: Story = () => (
+  <Board control="calc(var(--u) * 4)" heading="--control: 4 units, 32px" />
 );
 
 /**

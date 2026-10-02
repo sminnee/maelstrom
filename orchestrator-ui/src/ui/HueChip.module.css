@@ -131,7 +131,7 @@
 }
 
 .chip[data-size='small'] {
-  padding: 0 var(--u-half);
+  padding: 0 var(--u);
 }
 .chip[data-size='small'] .word {
   /* The word is still in the tree for a screen reader; it is the visible copy

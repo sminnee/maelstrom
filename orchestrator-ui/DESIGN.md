@@ -65,7 +65,7 @@ spacing:
   unit: '8px'
   '2': '16px'
   '3': '24px'
-  control: '24px' # 48px on the narrow layout
+  control: '32px' # 48px on the narrow layout
 components:
   task-node:
     backgroundColor: '{colors.console-slate-raised}'
@@ -394,7 +394,7 @@ component names a px value for a gap, a padding or a margin.
 | `--u-half`  | 4px                | inside one item: an icon and its label                |
 | `--u-2`     | 16px               | between groups, and the inset of a screen or a card   |
 | `--u-3`     | 24px               | between sections. Equal to the prose line box         |
-| `--control` | 24px; narrow: 48px | the height of each button, link, field and tab        |
+| `--control` | 32px; narrow: 48px | the height of each button, link, field and tab        |
 
 `--control` is set once, in `tokens.css`, and the narrow layout re-points it there. `base.css`
 gives it to each button, field and link, so a component sets a width and never a height. A button
@@ -711,7 +711,8 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 
 ### Buttons
 
-- **Shape:** 6px radius, raised surface, hairline border, `--control` high, 8px side padding.
+- **Shape:** a pill (`--radius-pill`), raised surface, hairline border, `--control` high. The side
+  padding is half the height, which is the radius, so the text starts where the curve ends.
   Small and quiet: a button is a control, not a call to action. No component sets a button's
   padding or its font size.
 - **Hover:** border strengthens to `--border-strong`. Nothing moves, nothing fills.
@@ -882,6 +883,9 @@ in faint text. Ids and branches are mono. The filter row is sticky on a raised g
 controls stay reachable through a long list.
 
 ### Fields
+
+A field has a 4px radius (`--radius-field`), set once in `base.css`. It reads as a place to type
+beside a pill, which is a thing to press.
 
 Selects and text inputs share one chassis: field background, hairline border, 6px radius, tight
 padding, capped at 180px so a long branch name cannot push the filter bar apart. They inherit

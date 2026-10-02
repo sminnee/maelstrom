@@ -217,7 +217,6 @@
   color: inherit;
   background: var(--bg-field);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   padding: 0 var(--u);
 }
 .quiet {
@@ -316,7 +315,6 @@
   color: inherit;
   background: var(--bg-field);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   padding: 0 var(--u);
   width: 100%;
 }
