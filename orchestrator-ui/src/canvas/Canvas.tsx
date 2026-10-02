@@ -36,7 +36,7 @@ const nodeTypes = {
 const edgeTypes = { follows: FollowsEdge };
 
 /** The strip of zone labels sits above the first lane. */
-const ZONES_HEIGHT = 20;
+const ZONES_HEIGHT = 24;
 
 /** Below this zoom the card is hard to read, so expanding eases in to 1. */
 const LEGIBLE_ZOOM = 0.75;

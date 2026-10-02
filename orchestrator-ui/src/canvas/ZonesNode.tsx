@@ -28,7 +28,7 @@ export function ZonesNode({ data }: NodeProps<ZonesFlowNode>) {
             className={styles.label}
             data-testid="zone-label"
             data-zone={band.zone}
-            style={{ left: `${band.x}px` }}
+            style={{ left: `${band.x}px`, width: `${band.width}px` }}
           >
             {ZONE_LABELS[band.zone]}
           </span>

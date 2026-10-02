@@ -14,8 +14,10 @@ export interface Box {
 /** One stage of progress, as a vertical stripe across every lane. */
 export interface ZoneBand {
   zone: Zone;
-  /** Left edge, in the same space as a group box's x. */
+  /** The left edge of the zone's first column, in the same space as a group box's x. */
   x: number;
+  /** From `x` to the right edge of the zone's last column. 0 when the zone holds no column. */
+  width: number;
   /** Columns this zone holds board-wide. 0 when no lane uses it, and it draws nothing. */
   columns: number;
 }
@@ -109,7 +111,8 @@ export function layoutSwimlanes(graph: Graph): Layout {
   // stripe lines up with the gap the operator already sees.
   const zones = ZONES.map((zone) => ({
     zone,
-    x: columnX(offsets[zone]) - GAP_X / 2,
+    x: columnX(offsets[zone]),
+    width: Math.max(0, boardWidths[zone] * (NODE.width + GAP_X) - GAP_X),
     columns: boardWidths[zone],
   }));
 
