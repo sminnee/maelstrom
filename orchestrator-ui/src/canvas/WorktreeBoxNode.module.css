@@ -9,15 +9,45 @@
 /*
  * The label sits on the top border, as a fieldset legend does. Its ground
  * hides the border behind it, and twice the radius keeps it clear of the corner.
+ *
+ * It is the box's one control, so it takes pointer events the box does not.
+ * It never runs past the box: the branch gives way with an ellipsis.
  */
 .label {
   composes: laneLabel from './laneLabel.module.css';
   left: calc(var(--radius) * 2);
+  max-width: calc(100% - var(--radius) * 4);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.label:hover .name,
+.label:hover .branch,
+.label[aria-expanded='true'] .name,
+.label[aria-expanded='true'] .branch {
+  color: var(--fg);
+}
+.label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.name {
+  flex: none;
+  color: var(--fg-muted);
+}
+.branch {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-faint);
 }
 /* A box with no node is only as high as its label, so the label sits inside. */
 .box[data-empty='true'] .label {
   top: 50%;
   left: var(--space-2);
+  max-width: calc(100% - var(--space-2) * 2);
   padding: 0;
   background: none;
 }

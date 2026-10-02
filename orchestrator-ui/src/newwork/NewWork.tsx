@@ -148,6 +148,16 @@ export function NewWork() {
   // embeds the bucket, so a re-minted bucket would make removing a thumbnail a
   // silent no-op and send the agent a link to an image it never got.
   const [captured, setCaptured, release] = useRetained(retainedKey.newWork(), initialCaptured);
+  // What a surface opened the form on, laid over the held value and then
+  // dropped. The rest of the draft stays: the prose typed earlier is still the
+  // user's, whichever worktree the form was opened from.
+  const seed = useAppStore((s) => s.ui.newWorkSeed);
+  const clearSeed = useAppStore((s) => s.clearNewWorkSeed);
+  useEffect(() => {
+    if (!seed) return;
+    setCaptured((was) => ({ ...was, ...seed }));
+    clearSeed();
+  }, [seed, setCaptured, clearSeed]);
   const { kind, issue, draft, branch, mode, model, executeModel, attached } = captured;
   const { title, command, priority, taskMode, taskModel, taskExecuteModel, taskBase } = captured;
   // One bucket for the dialog's whole life. State with a

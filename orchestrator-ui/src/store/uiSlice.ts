@@ -31,6 +31,13 @@ export type Side = 'left' | 'right';
  */
 export type View = Exclude<Pane, 'tabs'>;
 
+/** A free agent in one worktree: what a **Worktree card** starts. */
+export interface NewWorkSeed {
+  kind: 'agent';
+  project: string;
+  branch: string;
+}
+
 export interface UiState {
   /** The side each pane shows on. Shift-click on a top bar item moves it. */
   anchors: Record<Pane, Side>;
@@ -49,6 +56,12 @@ export interface UiState {
   tabRecency: string[];
   /** The one node grown into a card on the canvas, if any: a task or an agent. */
   expandedNodeId: string | null;
+  /**
+   * The worktree whose **Worktree card** is open on the canvas, if any. The
+   * canvas shows one card at a time, so this and `expandedNodeId` are never
+   * both set.
+   */
+  expandedWorktreeId: WorktreeId | null;
   /** The task the editor is open on. */
   editingTaskId: TaskId | null;
   /**
@@ -58,6 +71,11 @@ export interface UiState {
    * the form does not lose it. See `ui/useRetained.ts`.
    */
   newWorkOpen: boolean;
+  /**
+   * What the form opens on, when a surface opened it for one piece of work.
+   * The form lays it over its held draft, and keeps the rest of the draft.
+   */
+  newWorkSeed: NewWorkSeed | null;
   /**
    * The right slot's width in px while both slots are open. Set by a drag; not
    * persisted across a reload.
@@ -99,8 +117,10 @@ export function initialUiState(): UiState {
     activeTabKey: null,
     tabRecency: [],
     expandedNodeId: null,
+    expandedWorktreeId: null,
     editingTaskId: null,
     newWorkOpen: false,
+    newWorkSeed: null,
     panelWidth: openingWidth(),
     // Running is where the work the user can act on is.
     deckZone: 'running',

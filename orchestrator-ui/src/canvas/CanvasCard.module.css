@@ -1,0 +1,24 @@
+/* What every card on the canvas shares. A card composes this and sets its width. */
+.card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: all;
+  z-index: var(--z-card);
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-card);
+  color: var(--fg);
+  cursor: default;
+  user-select: text;
+}
+.inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  max-height: 70vh;
+  overflow: auto;
+}
