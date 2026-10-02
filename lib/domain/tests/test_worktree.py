@@ -367,6 +367,34 @@ class TestBuildEnvFileServices:
         assert env["DB_PORT"] == str(shared_base * 10 + 0)
         assert shared_base != base
 
+    @pytest.mark.parametrize(
+        ("config_text", "dev_host"),
+        [
+            ("dev_host: desk.tailnet.ts.net\n", "desk.tailnet.ts.net"),
+            ("", "localhost"),
+        ],
+    )
+    def test_writes_the_dev_host(self, tmp_path, monkeypatch, config_text, dev_host):
+        """The dev host lands in the managed block, where a template line can
+        use it and copy-back leaves it alone. It is ``localhost`` with no key."""
+        from mael_domain.worktree import _build_env_file
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".maelstrom").mkdir()
+        (tmp_path / ".maelstrom" / "config.yaml").write_text(config_text)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (project_path / ".env").write_text("PUBLIC_URL=http://$DEV_HOST:8000\n")
+
+        _build_env_file(project_path, worktree_path, "alpha")
+
+        env = read_env_file(worktree_path)
+        assert env["DEV_HOST"] == dev_host
+        assert env["PUBLIC_URL"] == f"http://{dev_host}:8000"
+        copy_back_new_env_vars(project_path, worktree_path)
+        assert "DEV_HOST" not in parse_env_text((project_path / ".env").read_text())
+
 
 class TestBuildEnvFileForMain:
     """`_main` takes the reserved base from config, never the dynamic pool."""
@@ -2312,6 +2340,12 @@ class TestAddProjectLayout:
             capture_output=True,
             text=True,
         ).stdout.strip()
+
+    def test_the_first_env_names_the_dev_host(self, tmp_path, monkeypatch):
+        """alpha's first ``.env`` is written by hand, so it must carry the var too."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project = add_project(str(self._remote(tmp_path)), tmp_path / "Projects")
+        assert read_env_file(project / "demo-alpha")["DEV_HOST"] == "localhost"
 
     @pytest.fixture
     def project(self, tmp_path):
