@@ -523,6 +523,43 @@ describe('grouping and filters', () => {
     expect(new Set(lefts).size).toBe(lefts.length);
   });
 
+  it('a project lane draws a dotted box for each worktree, empty ones included', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // Every box on the board, so one that should not draw cannot hide.
+    const boxes = (empty: boolean) =>
+      [...document.querySelectorAll('[data-testid="worktree-box"]')]
+        .filter((box) => box.getAttribute('data-empty') === String(empty))
+        .map((box) => box.getAttribute('data-worktree-id'));
+    // Lane by lane, oldest node first: in northwind, NORT-12 in delta, then
+    // NORT-9 in bravo, then NORT-7 in alpha. `_main` holds no node, so it has
+    // no box. Every open worktree holds a node, so no empty box draws.
+    expect(boxes(false)).toEqual([
+      'maelstrom-bravo',
+      'maelstrom-alpha',
+      'northwind-delta',
+      'northwind-bravo',
+      'northwind-alpha',
+    ]);
+    expect(boxes(true)).toEqual([]);
+    expect(screen.getAllByTestId('worktree-box').map((box) => box.textContent)).toEqual([
+      'bravo',
+      'alpha',
+      'delta',
+      'bravo',
+      'alpha',
+    ]);
+
+    // Opening a worktree that holds nothing adds an empty box to its project.
+    server.change({ kind: 'worktree', ids: ['northwind-charlie'] }, (w) => {
+      w.worktrees['northwind-charlie']!.isClosed = false;
+    });
+    await waitFor(() => expect(boxes(true)).toEqual(['northwind-charlie']));
+
+    await user.selectOptions(screen.getByLabelText('Group by'), 'worktree');
+    expect(document.querySelector('[data-testid="worktree-box"]')).not.toBeInTheDocument();
+  });
+
   it('grouping by worktree draws a lane per open worktree, empty ones included', async () => {
     const user = userEvent.setup();
     await renderApp();

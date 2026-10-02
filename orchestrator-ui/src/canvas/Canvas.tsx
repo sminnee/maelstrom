@@ -23,10 +23,16 @@ import { FollowsEdge } from './FollowsEdge';
 import { reduceEdges } from './reduce';
 import { CARD_WIDTH, NodeCard } from './NodeCard';
 import { TaskNode, type TaskFlowNode } from './TaskNode';
+import { WorktreeBoxNode, type WorktreeBoxFlowNode } from './WorktreeBoxNode';
 import { ZonesNode, type ZonesFlowNode } from './ZonesNode';
 import styles from './Canvas.module.css';
 
-const nodeTypes = { task: TaskNode, group: GroupNode, zones: ZonesNode };
+const nodeTypes = {
+  task: TaskNode,
+  group: GroupNode,
+  zones: ZonesNode,
+  worktreeBox: WorktreeBoxNode,
+};
 const edgeTypes = { follows: FollowsEdge };
 
 /** The strip of zone labels sits above the first lane. */
@@ -90,6 +96,21 @@ export function Canvas() {
       selectable: false,
       data: { zones: layout.zones },
     };
+    // Only a project lane has boxes, and a project lane always draws, so every
+    // box has a parent to sit in.
+    const boxNodes: WorktreeBoxFlowNode[] = lanes.flatMap((group) =>
+      (layout.worktreeBoxes[group.id] ?? []).map((box) => ({
+        id: `worktree-box:${group.id}:${box.worktree.id}`,
+        type: 'worktreeBox',
+        parentId: `group:${group.id}`,
+        position: { x: box.x, y: box.y },
+        width: box.width,
+        height: box.height,
+        draggable: false,
+        selectable: false,
+        data: { box },
+      })),
+    );
     const positions: Record<string, { x: number; y: number }> = {};
     const byId: Record<string, GraphNode> = {};
     const taskNodes: TaskFlowNode[] = graph.nodes.map((node) => {
@@ -125,7 +146,7 @@ export function Canvas() {
       data: { targetFollows: byId[e.target]?.task?.follows ?? [] },
     }));
     return {
-      nodes: [zonesNode, ...groupNodes, ...taskNodes] as Node[],
+      nodes: [zonesNode, ...groupNodes, ...boxNodes, ...taskNodes] as Node[],
       edges: flowEdges,
       byId,
       positions,
