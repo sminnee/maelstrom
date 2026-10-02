@@ -9,7 +9,7 @@ suites that replay these fixtures read them through here.
 import json
 from pathlib import Path
 
-from mael_agent.agent_wire import TS_KEY
+from mael_agent.agent_wire import STREAM_EVENT, TS_KEY
 from mael_daemon.agent_model import _stamp
 
 FIXTURES = Path(__file__).parents[3] / "agent-daemon" / "fixtures" / "agent_events"
@@ -25,7 +25,11 @@ def read_stamped_fixture(name: str) -> list[dict]:
     """``name``'s events, each stamped the way :meth:`AgentRun.record` does."""
     lines = (FIXTURES / name).read_text().splitlines()
     events = [json.loads(line) for line in lines if line.strip()]
-    return [{**e, TS_KEY: _stamp(e, RECEIVED)} for e in events]
+    # A chunk of a partial message is the one event the daemon does not stamp.
+    return [
+        e if e.get("type") == STREAM_EVENT else {**e, TS_KEY: _stamp(e, RECEIVED)}
+        for e in events
+    ]
 
 
 def make_agent(**over) -> dict:

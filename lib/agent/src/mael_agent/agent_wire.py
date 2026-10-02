@@ -113,6 +113,12 @@ TS_KEY = "mael_ts"
 #: stream, so a client knows the agent ended it, not a dropped connection.
 AGENT_EXITED = "mael_agent_exited"
 
+#: Event type of one chunk of a message the child is still writing, sent under
+#: ``--include-partial-messages``. The Anthropic stream event is under ``event``.
+#: The daemon stamps none and keeps none: a watcher gets it live or not at all.
+#: See ``docs/dev/agent-daemon.md``, "A partial message".
+STREAM_EVENT = "stream_event"
+
 #: Event type of an attach stream's opening frame, carrying
 #: :class:`AgentDetail` under ``agent``.
 AGENT_DETAIL = "mael_agent_detail"
