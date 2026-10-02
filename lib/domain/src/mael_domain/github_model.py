@@ -249,6 +249,7 @@ def pr_from_row(row: dict) -> "PrStatus | None":
         state=row["pr_state"] or "unknown",
         is_draft=bool(row["pr_draft"]),
         merged_at=row["pr_merged_at"] or "",
+        head_oid=row["pr_head_oid"] or "",
     )
 
 
@@ -276,6 +277,8 @@ class PrStatus:
     is_draft: bool
     #: When the PR merged, ISO 8601; ``""`` for one that has not.
     merged_at: str = ""
+    #: The head commit the state describes; ``""`` where the read did not ask.
+    head_oid: str = ""
 
 
 def parse_pr_info(payload: str) -> PRInfo:
@@ -582,6 +585,7 @@ def _pr_status(
         state=_pr_state(node, rollup_readable=rollup_readable, run_states=run_states),
         is_draft=bool(node.get("isDraft")),
         merged_at=node.get("mergedAt") or "",
+        head_oid=_head_commit(node).get("oid") or "",
     )
 
 
