@@ -6,8 +6,8 @@
   padding: 0;
 }
 .tree {
-  padding: var(--space-1) 0;
-  border-top: 1px solid var(--border);
+  padding: var(--space-3) 0 var(--space-1);
+  border-top: 1px solid var(--border-strong);
 }
 /* The Changes tab is the container. Its narrow strip is short, and the file
    list in the scroll already jumps to a file. */
@@ -42,15 +42,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* One slot width for the status letter and the folder icon, so the names stay in line. */
 .status,
-.chevron {
-  width: 1ch;
+.folder {
+  width: 12px;
   flex-shrink: 0;
   color: var(--fg-faint);
 }
-.chevron::before {
-  content: '▸';
+.status {
+  text-align: center;
 }
-.item[aria-expanded='true'] .chevron::before {
-  content: '▾';
+.folder {
+  align-self: center;
 }
