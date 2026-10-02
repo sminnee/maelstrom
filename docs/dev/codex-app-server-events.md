@@ -52,10 +52,11 @@ contain an empty `durationMs`; do not treat zero as absent.
 The sequence appends the text in `delta` to the message identified by `itemId`.
 The final `item/completed` event has the full `agentMessage.text`.
 
-The current Claude connector does not stream equivalent agent-message deltas.
-The shared Session protocol therefore does not add a streaming message item in
-this step. Codex normalization can ignore delta events and render the completed
-message. Keep each delta as a raw event only while diagnostic output needs it.
+The Claude connector draws a partial message from its own chunks; see "A partial
+message" in [orchestrator-server.md](orchestrator-server.md). The Codex connector
+does not: no code maps `item/agentMessage/delta` onto that item yet. Codex
+normalization ignores delta events and renders the completed message. Keep each
+delta as a raw event only while diagnostic output needs it.
 
 ## Diagnostics
 

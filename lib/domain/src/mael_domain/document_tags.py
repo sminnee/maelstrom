@@ -202,6 +202,75 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     )
 
 
+#: Every marker an agent writes in a message. The last is read by the
+#: renderer and not here, but half of it is as wrong on screen as half of any.
+_MARKER_NAMES = ("doc-file", "image", "note", "milestone", "user-attention")
+#: The markers whose body is not prose: nothing of one shows until it closes.
+_BODY_MARKERS = ("note", "milestone")
+_PREFIXES = "|".join(
+    sorted({re.escape(name[:n]) for name in _MARKER_NAMES for n in range(1, len(name))})
+)
+_NAMES = "|".join(re.escape(name) for name in _MARKER_NAMES)
+#: A marker the text stops in the middle of: its name half spelled, or its
+#: attributes not yet closed. A bare ``<`` at the very end counts, because the
+#: next chunk may make it one.
+_HALF_TAG = re.compile(
+    rf'</?(?:{_PREFIXES})?$|</?(?:{_NAMES})\b(?:"[^"]*"|[^>"])*(?:"[^"]*)?$'
+)
+_BODY_OPENING = re.compile(rf"<({'|'.join(_BODY_MARKERS)})\b{_ATTRIBUTES}>")
+_FENCE_OPENING = re.compile(r"^(```|~~~)", re.MULTILINE)
+#: Stands where an image tag was while :func:`read_tags` runs, and is then cut.
+_NO_IMAGE = "\x00"
+
+
+def partial_text(text: str) -> str:
+    """What a partial message shows: ``text`` so far, with no marker in it.
+
+    A complete marker is cut, as :func:`read_tags` cuts it, and what it asked
+    for is discarded. An image is cut too, because showing one registers a file.
+
+    A marker the text stops inside is held back with everything after it: a
+    half-written tag, or an unclosed ``<note>`` or ``<milestone>``. A marker in
+    a code span or a fence is not held back.
+    """
+    code = _code_spans(text)
+
+    def in_code(position: int) -> bool:
+        return any(start <= position < end for start, end in code)
+
+    cut = len(text)
+    for match in _BODY_OPENING.finditer(text):
+        if in_code(match.start()):
+            continue
+        if f"</{match.group(1)}>" not in text[match.end() :]:
+            cut = match.start()
+            break
+    # Each `<` in turn, not one search: the leftmost match can start in code
+    # and run over a real half tag after it.
+    for opening in re.finditer("<", text[:cut]):
+        if not in_code(opening.start()) and _HALF_TAG.match(
+            text[:cut], opening.start()
+        ):
+            cut = opening.start()
+            break
+    shown = read_tags(text[:cut], lambda _image: _NO_IMAGE).text
+    return shown.replace(_NO_IMAGE, "")
+
+
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    """The spans of ``text`` a markdown reader shows as written.
+
+    Each complete fence and code span, and a fence the text has not closed yet,
+    which runs to the end.
+    """
+    spans = [match.span() for match in _CODE.finditer(text)]
+    for match in _FENCE_OPENING.finditer(text):
+        if not any(start <= match.start() < end for start, end in spans):
+            spans.append((match.start(), len(text)))
+            break
+    return spans
+
+
 def not_shown(src: str) -> str:
     """What stands in for an image the user is not going to see.
 

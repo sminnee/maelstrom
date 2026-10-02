@@ -40,6 +40,7 @@ from mael_domain.normalise import (
     NormaliseContext,
     Normalised,
     apply_agent_detail,
+    close_partial_message,
     context_for_agent,
     mark_exited,
     normalise_gap,
@@ -1200,6 +1201,13 @@ class Orchestrator:
         except Exception:  # noqa: BLE001 — one bad stream must not take the server down
             log.exception("attach stream for %s failed", agent_id)
         finally:
+            # The context goes with the watch, and with it the id of a partial
+            # message. An exit closed it already, so this is the lost stream.
+            if watch.ctx.partial is not None:
+                await self._emit(
+                    watch,
+                    close_partial_message(self.state.state, watch.ctx, self.clock()),
+                )
             watch.caught_up.set()
             if self._watches.get(agent_id) is watch:
                 del self._watches[agent_id]

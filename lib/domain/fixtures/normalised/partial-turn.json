@@ -1,0 +1,101 @@
+{
+  "world": {
+    "projects": {},
+    "worktrees": {},
+    "tasks": {},
+    "agents": {
+      "ag1": {
+        "id": "ag1",
+        "parent": "",
+        "description": "",
+        "state": "idle",
+        "session": "sess-1",
+        "cwd": "/Users/dev/Projects/northwind/northwind-alpha",
+        "model": "claude-opus-5-5",
+        "permissionMode": "auto",
+        "waitingOn": "",
+        "lastMessage": "The rebase explanation is above and `echo done` printed `don",
+        "lastMessageAt": "2026-10-02T07:11:39.596Z",
+        "lastNote": "",
+        "lastNoteAt": "",
+        "startedAt": "",
+        "costUsd": 0.1706224,
+        "totalTokens": 61951,
+        "subagentTokens": 0,
+        "contextTokens": 30975,
+        "taskId": "NORT-7",
+        "project": "northwind",
+        "worktreeId": "northwind-alpha",
+        "exitCode": null,
+        "pendingRequestIds": [],
+        "pid": null,
+        "backgroundShells": []
+      }
+    },
+    "documents": {},
+    "comments": {},
+    "attention": {},
+    "desk": {},
+    "host": {}
+  },
+  "transcripts": {
+    "ag1": {
+      "agentId": "ag1",
+      "items": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "sessionId": "40b3c90e-90df-4cb2-aa19-abe592055574",
+          "model": "claude-opus-5-5",
+          "id": "ag1-1",
+          "ts": "2026-09-02T00:00:00Z"
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "markdown": "Write about 250 words of markdown explaining git rebase, with a heading, a bullet list and a fenced code block. Then run the Bash tool with the command: echo done. Then reply with one short sentence.",
+          "id": "ag1-2",
+          "ts": "2026-10-02T07:11:28.407Z"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "<user-attention high>\n\n## Understanding Git Rebase\n\n`git rebase` rewrites a branch so that its commits appear to start from a different point in history. Where a merge joins two lines of development with a new merge commit, a rebase lifts your commits off their original base and replays them, one at a time, on top of another commit. The result is a straight, linear history with no merge commit.\n\nEach replayed commit is a new commit with a new hash, even when its changes are identical to the original. That is why rebasing is safe on work only you have, and risky on commits other people have already pulled.\n\nCommon reasons to rebase:\n\n- **Catching up with main**: replay your feature branch on the latest `main` so it applies cleanly.\n- **Tidying history**: squash, reorder, reword, or drop commits before review using interactive mode.\n- **Avoiding merge noise**: keep the log readable by skipping \"Merge branch 'main'\" commits.\n- **Simplifying bisects**: a linear history makes `git bisect` easier to follow.\n\nA typical session looks like this:\n\n```bash\ngit switch feature\ngit fetch origin\ngit rebase origin/main\n\n# if a conflict stops the rebase:\ngit add <resolved-files>\ngit rebase --continue\n\n# or give up and restore the branch:\ngit rebase --abort\n\n# publish the rewritten branch\ngit push --force-with-lease\n```\n\nWhen a conflict occurs, Git pauses on the offending commit. You fix the files, stage them, and continue. Nothing is lost if things go wrong: `git reflog` records where the branch pointed before, so you can reset back to it.\n\nThe rule of thumb is to rebase local, unpublished work freely, and to merge when the branch is shared. If you must rewrite a pushed branch, use `--force-with-lease`, which refuses to overwrite commits you have not seen.\n\n<user-attention low>\n\nRunning the command now.",
+          "partial": false,
+          "id": "ag1-3",
+          "ts": "2026-10-02T07:11:37.219Z"
+        },
+        {
+          "type": "tool_call",
+          "toolUseId": "toolu_01BRXzmXC3p3Apks4unoqXJd",
+          "tool": "Bash",
+          "input": {
+            "command": "echo done",
+            "description": "Print done"
+          },
+          "status": "done",
+          "id": "toolu_01BRXzmXC3p3Apks4unoqXJd",
+          "ts": "2026-10-02T07:11:37.614Z",
+          "output": "done"
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "markdown": "<user-attention high>\nThe rebase explanation is above and `echo done` printed `done`.",
+          "partial": false,
+          "id": "ag1-4",
+          "ts": "2026-10-02T07:11:39.596Z"
+        },
+        {
+          "type": "turn_result",
+          "subtype": "success",
+          "costUsd": 0.1706224,
+          "durationMs": 11233,
+          "id": "ag1-5",
+          "ts": "2026-09-02T00:00:00Z"
+        }
+      ],
+      "truncatedBefore": false
+    }
+  }
+}

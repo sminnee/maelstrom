@@ -10,6 +10,8 @@ re-records. The TypeScript normaliser is held to the same files until it goes.
 
 import json
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -31,6 +33,7 @@ from mael_domain.normalise import (
     NormaliseContext,
     _skill_loaded,
     apply_agent_detail,
+    close_partial_message,
     context_for_agent,
     mark_exited,
     normalise_gap,
@@ -2356,3 +2359,216 @@ def test_both_note_patterns_are_still_in_step():
     """
     assert agent_model._NOTE_TAG.pattern == document_tags._NOTE_TAG.pattern
     assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags
+
+
+# --- a partial message -----------------------------------------------------
+
+PARTIAL_FIXTURES = [name for name in FIXTURE_NAMES if name.startswith("partial-")]
+
+
+def replay_ticking(name: str, *, step_ms: int, chunks: bool = True):
+    """Replay ``name`` on a clock that moves ``step_ms`` per event.
+
+    Returns the replayed state and every batch of events, each with the raw
+    event that made it. ``chunks=False`` leaves the ``stream_event`` lines out,
+    which is the stream as it was before the daemon asked for partial messages.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    batches: list[tuple[dict, list[dict]]] = []
+    start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    for n, raw in enumerate(read_fixture(name)):
+        if not chunks and raw["type"] == "stream_event":
+            continue
+        now = (start + timedelta(milliseconds=n * step_ms)).isoformat()
+        out = normalise_stream_event(
+            state.state, ctx, raw, now, read_file=fake_reader(), files=fake_registry()
+        )
+        ctx = out.ctx
+        state.take(out.events)
+        batches.append((raw, out.events))
+    return state, batches
+
+
+def _whole(item: dict) -> dict:
+    return {k: v for k, v in item.items() if k != "partial"}
+
+
+@pytest.mark.parametrize("name", PARTIAL_FIXTURES)
+def test_a_partial_message_ends_as_the_whole_message_would_have(name):
+    """Same items, same ids, same world: the chunks change only the journey."""
+    with_chunks, _ = replay_ticking(name, step_ms=1000)
+    without, _ = replay_ticking(name, step_ms=1000, chunks=False)
+    assert [_whole(i) for i in with_chunks.items] == without.items
+    assert with_chunks.state["world"] == without.state["world"]
+    assert not any(i.get("partial") for i in with_chunks.items)
+
+
+def _partial_frames(batches) -> list[dict]:
+    """The transcript events the chunks alone produced."""
+    return [
+        e for raw, events in batches if raw["type"] == "stream_event" for e in events
+    ]
+
+
+def test_a_partial_message_is_appended_once_and_then_grows_in_place():
+    _, batches = replay_ticking("partial-turn.jsonl", step_ms=1000)
+    frames = _partial_frames(batches)
+    appended = [f for f in frames if f["type"] == "transcript.append"]
+    # Two messages in the turn: the long answer, and the closing sentence.
+    assert [f["item"]["partial"] for f in appended] == [True, True]
+    first = appended[0]["item"]["id"]
+    grown = [
+        f["patch"]["markdown"]
+        for f in frames
+        if f["type"] == "transcript.update" and f["itemId"] == first
+    ]
+    assert len(grown) > 100
+    # The whole text so far each time, so a dropped refresh loses nothing.
+    assert all(
+        later.startswith(earlier.rstrip()) for earlier, later in zip(grown, grown[1:])
+    )
+
+
+def test_the_complete_message_replaces_the_partial_one_under_its_id():
+    _, batches = replay_ticking("partial-turn.jsonl", step_ms=1000)
+    first = _partial_frames(batches)[0]["item"]["id"]
+    [closing] = [
+        e
+        for raw, events in batches
+        if raw["type"] == "assistant"
+        for e in events
+        if e.get("itemId") == first
+    ]
+    assert closing["type"] == "transcript.update"
+    assert closing["patch"]["partial"] is False
+    assert closing["patch"]["markdown"].startswith("<user-attention high>")
+
+
+def test_no_tag_shows_and_none_takes_effect_before_the_message_is_complete():
+    """The fixture's message carries a note, a document and an attention tag."""
+    state, batches = replay_ticking("partial-markers.jsonl", step_ms=1000)
+    frames = _partial_frames(batches)
+    shown = [
+        f["item"]["markdown"]
+        if f["type"] == "transcript.append"
+        else f["patch"]["markdown"]
+        for f in frames
+    ]
+    assert len(shown) > 30
+    for markdown in shown:
+        for marker in ("<note", "</note", "<doc-file", "writing about tea"):
+            assert marker not in markdown
+        assert not re.search(r"<[^>]*$", markdown), markdown
+    # A chunk moves the transcript and nothing else: no document, no agent.
+    assert {f["type"] for f in frames} == {"transcript.append", "transcript.update"}
+    assert agent_of(state)["lastNote"] == "writing about tea"
+    assert len(state.state["world"]["documents"]) == 1
+
+
+def test_a_partial_message_refreshes_three_times_a_second_at_most():
+    """A recorded burst: about 140 chunks, here 10 ms apart."""
+    _, batches = replay_ticking("partial-turn.jsonl", step_ms=10)
+    chunks = sum(1 for raw, _ in batches if raw["type"] == "stream_event")
+    assert chunks > 150
+    # When each item was sent, in events: one event is 10 ms on this clock.
+    sent: dict[str, list[int]] = {}
+    for n, (raw, events) in enumerate(batches):
+        if raw["type"] != "stream_event":
+            continue
+        for event in events:
+            sent.setdefault(event.get("itemId") or event["item"]["id"], []).append(n)
+    long_answer = max(sent.values(), key=len)
+    assert len(long_answer) >= 4
+    gaps = [later - earlier for earlier, later in zip(long_answer, long_answer[1:])]
+    assert min(gaps) >= 34
+
+
+def test_an_interrupted_partial_message_keeps_the_text_it_has():
+    """The child sends the text so far as a whole message before the result."""
+    state, _ = replay_ticking("partial-interrupt.jsonl", step_ms=1000)
+    said = [i for i in items_of(state, "message") if i["role"] == "assistant"]
+    assert said[-1]["partial"] is False
+    assert len(said[-1]["markdown"]) > 500
+
+
+def _open_partial() -> tuple[Replayed, NormaliseContext]:
+    """A turn cut off after its first chunks, with no whole message to follow."""
+    state = Replayed(seed([make_agent(id="ag1", state="processing")]))
+    ctx = context_for_agent("ag1")
+    for raw in read_fixture("partial-turn.jsonl"):
+        if raw["type"] == "assistant":
+            break
+        out = normalise_stream_event(state.state, ctx, raw, NOW)
+        ctx = out.ctx
+        state.take(out.events)
+    assert items_of(state, "message")[-1]["partial"] is True
+    return state, ctx
+
+
+def test_a_turn_that_ends_with_no_whole_message_closes_the_partial_one():
+    state, ctx = _open_partial()
+    result = {"type": "result", "subtype": "error_during_execution"}
+    state.take(normalise_stream_event(state.state, ctx, result, NOW).events)
+    message = items_of(state, "message")[-1]
+    assert message["partial"] is False
+    assert message["markdown"]
+
+
+def test_an_agent_that_dies_closes_its_partial_message():
+    state, ctx = _open_partial()
+    state.take(mark_exited(state.state, ctx, 1, NOW).events)
+    assert items_of(state, "message")[-1]["partial"] is False
+
+
+def test_a_stream_that_is_lost_closes_its_partial_message():
+    """A daemon restart ends the attach with no exit, and replays no chunk. The
+    context goes with the watch, so the item is closed while its id is known."""
+    state, ctx = _open_partial()
+    out = close_partial_message(state.state, ctx, NOW)
+    state.take(out.events)
+    assert items_of(state, "message")[-1]["partial"] is False
+    assert out.ctx.partial is None
+
+
+def _said(state: Replayed) -> list[dict]:
+    return [i for i in items_of(state, "message") if i["role"] == "assistant"]
+
+
+def test_a_message_joined_part_way_through_shows_only_when_it_is_whole():
+    """An attach replays no chunk, so one that begins in the middle of a
+    message gets text with no ``message_start`` to say whose it is."""
+    events = read_fixture("partial-turn.jsonl")
+    first_text = next(
+        n
+        for n, e in enumerate(events)
+        if e["type"] == "stream_event" and "delta" in e["event"]
+    )
+    state = Replayed(seed([make_agent(id="ag1", state="processing")]))
+    ctx = context_for_agent("ag1")
+    partial_frames = 0
+    for raw in events[first_text + 1 :]:
+        out = normalise_stream_event(state.state, ctx, raw, NOW)
+        ctx = out.ctx
+        state.take(out.events)
+        if raw["type"] == "assistant":
+            break
+        partial_frames += len(out.events)
+    assert partial_frames == 0
+    [whole] = _said(state)
+    assert "partial" not in whole
+
+
+def test_a_whole_message_that_is_not_the_partial_one_is_appended_beside_it():
+    """The chunks named one message and a different one arrived whole: a
+    ``message_start`` was lost. The partial message keeps its text and closes."""
+    state, ctx = _open_partial()
+    other = {
+        "type": "assistant",
+        "message": {"id": "msg_other", "content": [{"type": "text", "text": "Other."}]},
+    }
+    state.take(normalise_stream_event(state.state, ctx, other, NOW).events)
+    partial, whole = _said(state)
+    assert partial["partial"] is False
+    assert whole["markdown"] == "Other."
+    assert "partial" not in whole

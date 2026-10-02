@@ -1,6 +1,8 @@
 """The media a document body names: which refs are files in the worktree."""
 
-from mael_domain.document_tags import media_refs, replace_media
+import pytest
+
+from mael_domain.document_tags import media_refs, partial_text, replace_media
 
 
 def targets(markdown: str) -> list[str]:
@@ -73,3 +75,43 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
     body = "```\n![a](one.png)\n```"
 
     assert replace_media(body, lambda ref: "gone") == body
+
+
+# --- a partial message: no tag shows before the message is complete ---------
+
+
+@pytest.mark.parametrize(
+    ("so_far", "shown"),
+    [
+        # A complete marker is cut, as it is from the complete message.
+        ("<note>rebasing</note>\n\nThe rebase", "The rebase"),
+        (
+            'Done.\n\n<doc-file kind="pr" filename=".drafts/pr.md">\n\nNext',
+            "Done.\n\nNext",
+        ),
+        ("Built.\n\n<milestone>built</milestone>", "Built."),
+        ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
+        # A marker's body is not prose, so nothing shows until it closes.
+        ("Before\n\n<note>rebasing on", "Before"),
+        ("Before\n\n<milestone>bui", "Before"),
+        # A half-written tag is held back, whatever it will turn out to be.
+        ("Before\n\n<", "Before"),
+        ("Before\n\n<doc-", "Before"),
+        ('Before\n\n<doc-file kind="pr" filename=".drafts', "Before"),
+        ("Before\n\n<user-attention lo", "Before"),
+        ("Before\n\n</no", "Before"),
+        # The renderer reads this one, so it stays once it is whole.
+        ("<user-attention high>\nHello", "<user-attention high>\nHello"),
+        # Prose that is not a marker is not held back.
+        ("if a < b and c", "if a < b and c"),
+        ("a <b>bold", "a <b>bold"),
+        ("a <div class", "a <div class"),
+        # An agent quoting a marker in code is writing about it, not using it.
+        ("Write a `<note>` then carry on", "Write a `<note>` then carry on"),
+        ("```\n<note>\nstill in the fence", "```\n<note>\nstill in the fence"),
+        # A quoted name earlier in the text does not hide a real half tag later.
+        ('Use `<note` to open, then <image src="a', "Use `<note` to open, then"),
+    ],
+)
+def test_a_partial_message_shows_no_marker_and_no_half_tag(so_far, shown):
+    assert partial_text(so_far) == shown

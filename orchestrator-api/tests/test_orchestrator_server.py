@@ -2800,6 +2800,105 @@ def test_a_live_event_arrives_as_a_stamped_frame_on_every_socket(harness):
     assert a["event"]["item"]["type"] == "system"
 
 
+async def frames_until_the_turn_ends(ws) -> list[dict]:
+    """Every live event on ``ws``, up to and including the turn's result."""
+    events = []
+    while True:
+        event = (await ws_next(ws, lambda m: "seq" in m))["event"]
+        events.append(event)
+        if event.get("item", {}).get("type") == "turn_result":
+            return events
+
+
+def test_a_partial_message_is_appended_once_and_closed_under_the_same_id(harness):
+    """The recorded turn sends about 140 chunks for its first message.
+
+    The harness clock stands still, so this is a burst: the item is appended
+    with the first text and not refreshed again before the whole message comes.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws)
+                for event in read_fixture("partial-turn.jsonl"):
+                    harness.daemon.push("ag1", event)
+                return await frames_until_the_turn_ends(ws)
+
+    events = run(scenario())
+    appended = [
+        e["item"]
+        for e in events
+        if e["type"] == "transcript.append" and e["item"].get("partial")
+    ]
+    assert len(appended) == 2
+    first = appended[0]
+    assert first["markdown"]
+    [closing] = [e for e in events if e.get("itemId") == first["id"]]
+    assert closing["patch"]["partial"] is False
+    assert len(closing["patch"]["markdown"]) > len(first["markdown"]) + 500
+    # The whole message added no second item for the same text.
+    said = [
+        e["item"]
+        for e in events
+        if e["type"] == "transcript.append"
+        and e["item"]["type"] == "message"
+        and e["item"]["role"] == "assistant"
+    ]
+    assert said == appended
+
+
+def test_a_turn_that_ends_mid_message_closes_the_partial_message(harness):
+    """An interrupt the child answers with no whole message, or a lost one."""
+    harness.daemon.rows["ag1"] = agent_row()
+    recorded = read_fixture("partial-interrupt.jsonl")
+    cut = [e for e in recorded if e["type"] != "assistant"]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws)
+                for event in cut:
+                    harness.daemon.push("ag1", event)
+                return await frames_until_the_turn_ends(ws)
+
+    events = run(scenario())
+    [partial] = [
+        e["item"]
+        for e in events
+        if e["type"] == "transcript.append" and e["item"].get("partial")
+    ]
+    [closing] = [e for e in events if e.get("itemId") == partial["id"]]
+    assert closing["patch"] == {"partial": False}
+    assert events.index(closing) == len(events) - 2
+
+
+def test_a_lost_attach_stream_closes_the_partial_message(harness):
+    """The host restarts mid-message. No exit marker comes, and the next attach
+    replays no chunk, so nothing later could close the item."""
+    harness.daemon.rows["ag1"] = agent_row()
+    turn = read_fixture("partial-turn.jsonl")
+    first_whole = next(n for n, e in enumerate(turn) if e["type"] == "assistant")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws)
+                for event in turn[:first_whole]:
+                    harness.daemon.push("ag1", event)
+                appended = await ws_next(
+                    ws, lambda m: m.get("event", {}).get("item", {}).get("partial")
+                )
+                harness.daemon.end_stream("ag1")
+                closing = await ws_next(ws, is_event("transcript.update"))
+            return appended["event"]["item"], closing["event"]
+
+    partial, closing = run(scenario())
+    assert closing["itemId"] == partial["id"]
+    assert closing["patch"] == {"partial": False}
+
+
 def test_approve_patches_the_item_on_the_socket(harness):
     waiting_on(harness, "permission-request.jsonl")
 
