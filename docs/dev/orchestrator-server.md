@@ -786,9 +786,15 @@ both adapters, as `task_launch.py` does for a launch, because `env.py` already i
 An ordinary close never forces. A worktree with unmerged commits or a dirty tree is refused, and
 the refusal carries the model's own message, so the UI reads what the command would have printed.
 
-Forcing is its own command. It writes a `wip: uncommitted changes` commit and keeps the branch, so
-nothing is lost, but it is a decision rather than a retry — the UI asks before it sends. `_main` is
-refused by `validate.py` for every teardown, before any git call runs.
+Forcing is its own command, which the UI calls **Shelve**. It writes a `wip: uncommitted changes`
+commit and keeps the branch, so nothing is lost. It is a decision, not a retry, so the UI asks
+before it sends. `_main` is refused by `validate.py` for every teardown, before any git call runs.
+
+A forced close that went over unmerged work also writes a task to reopen the branch.
+`add_reopen_task` in `worktree_close.py` writes it, and `mael close --force` calls the same
+function. A worktree that was already detached gets no task, because it has no branch to reopen.
+The handler reads the tasks again after the close, so the new task reaches the UI. A task write
+that fails is logged and does not fail the close: the worktree is closed by then.
 
 Trash is also its own command, and the UI asks before it sends. A trash that fails partway may
 already have stopped agents, so the handler refreshes the world whichever way it ends.

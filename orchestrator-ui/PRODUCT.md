@@ -66,8 +66,9 @@ toggle for the tasks its task follows or is followed by.
 
 Confirmed, and documented in `docs/dev/orchestrator-ui.md` and `docs/dev/orchestrator-server.md`:
 
-- **Canvas** — draws the desk as swimlanes of task nodes, grouped by project, branch or none.
-  Clicking a node expands it in place; one node is expanded at a time.
+- **Canvas** — draws the desk as one lane per project, with a box round the nodes of each
+  worktree. Clicking a node expands it in place. Clicking a box label opens that worktree's
+  controls. One card is open at a time.
 - **Task list** — a view of every task the server knows, filtered by status, project,
   branch and text. Each row toggles that task on or off the desk.
 - **Panel** — the session and document tabs, opened by panel links. The top bar labels it

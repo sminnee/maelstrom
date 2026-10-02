@@ -169,8 +169,8 @@ the desk. The top bar shows Desk, Tasks, Worktrees and Tabs; see "The three layo
 filter bar, and it draws the controls of each main view on screen. Project applies to all three
 main views and is always drawn.
 Branch applies to Desk and Tasks only: its options are built from tasks, so a worktree on a branch
-no task names would silently vanish from a table meant to show every one of them. Desk has Agent
-status and Group by controls, Tasks has status and text controls, and Worktrees has "show closed".
+no task names would silently vanish from a table meant to show every one of them. Desk has an
+Agent status control, Tasks has status and text controls, and Worktrees has "show closed".
 
 `View` is a union nothing switches on exhaustively; its docstring in `store/uiSlice.ts` lists the
 sites to edit by hand when it widens.
@@ -210,11 +210,10 @@ adoption time as its start, so a PR that merged before the adoption is hidden.
 
 `worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
 
-It is the only surface that shows a closed worktree, and the only one that carries the whole
-worktree vocabulary: `mael sync`, `mael close`, `mael env`. The canvas names an open worktree
-that holds no work, as an empty lane or an empty **Worktree box**. The lane offers a close; the
-box offers nothing. `selectors/worktrees.ts` reads the rows from the world, as `seedWorktreeLanes` does and for the
-same reason.
+It is the only surface that shows a closed worktree, and the only one that deletes one. The
+canvas draws each open worktree as a **Worktree box**, and the box's label opens the same sync,
+environment and close controls. `selectors/worktrees.ts` reads the rows from the world, so a
+worktree with no node still draws.
 
 The columns are worktree, branch, dirty, local, remote, PR, app and agents. "Remote" is `prCommits`
 once a pull request is open and `pushedCommits` before one is, which is what commits waiting on the
@@ -226,10 +225,10 @@ shell as readily as an agent.
 A closed worktree is listed only when "show closed" is ticked, and reads as parked. `_main` sorts
 first, because it holds the branch the others are cut from.
 
-Each row carries its operations. Close is a plain button. Sync and the environment control are
-split buttons. Force close and delete are `ui/ConfirmButton.tsx`, one question open at a time per
-row, because two destructive actions a click apart is how the wrong worktree gets deleted. `_main`
-is offered neither close nor delete — it holds the main checkout — but it still syncs.
+Each row carries its operations. Sync, the environment control and the close control are split
+buttons. The close control is `worktrees/CloseControl.tsx` — see "The worktree area". Delete is
+`ui/ConfirmButton.tsx`, because it asks before it acts. `_main` is offered neither close nor
+delete — it holds the main checkout — but it still syncs.
 
 The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync", sends `plain`,
 so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds "Sync & squash"
@@ -332,7 +331,7 @@ button. The canvas draws a follows edge only when both ends are on the desk, so 
 the user must find each related task in the task list. The list reads `world.tasks`, which
 holds every task, so it needs no route of its own.
 
-The task list lists tasks only. Every card ends its footer with one end-of-work control,
+The task list lists tasks only. Every node card ends its commands with one end-of-work control,
 `ui/SplitButton.tsx`. A click on its label runs the usual act, and its chevron opens the longer
 chains:
 
@@ -580,8 +579,8 @@ When the active tab closes, the most recent tab left in its group takes over, el
 recent tab left anywhere. The group comes first because a tab from another group would switch
 the sidebar under the reader. A row's close button closes every tab in the group.
 
-`panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls, the same
-`worktrees/WorktreeControls.tsx` pieces the expanded card draws.
+`panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls: the
+`worktrees/WorktreeControls.tsx` pieces and the close control, as the worktree area does.
 
 The same links row carries external links, which open a new browser tab instead of a panel
 tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
@@ -589,6 +588,44 @@ difference a reader sees. The wire carries a ready `prUrl`, so the card links a 
 without joining two fields; a worktree with no PR draws none. `worktrees/DevEnvLinks.tsx` draws
 a link per running web-facing service, and the worktree poll makes each appear and disappear on
 its own.
+
+### The worktree area
+
+Five things belong to a worktree and not to an agent: the branch, the changes, cmux, the
+environment and sync. `worktrees/WorktreeSection.tsx` draws them as one area: a head, the name
+and branch, the links, then the commands. The node card ends with this area, and the Worktree
+card is this area under a header. Both draw the one component, so the two cannot drift.
+
+`worktrees/CloseControl.tsx` is the area's close: a split button with three options.
+
+| Option | Sends | Asks first |
+|---|---|---|
+| Close | `worktree.close` | no — the server refuses unmerged work |
+| Shelve | `worktree.forceClose` | yes |
+| Trash | `worktree.trash` | yes |
+
+A close stops every agent in the worktree. The control is therefore held while an agent runs
+there, and each item says so. The node card's Terminate chains are the way to end live work. The
+control is absent on `_main` and on a closed worktree.
+
+### The Worktree card
+
+`canvas/WorktreeCard.tsx` opens at the top-left corner of the box whose label was clicked. It
+adds two things to the worktree area: a header with the name, the project and a collapse, and
+Start free agent.
+
+Start free agent opens the new-work form with a seed of kind, project and branch, held in
+`ui.newWorkSeed`. The form lays the seed over its held draft and keeps the prose. It then drops
+the seed, so a second mount of the form does not undo what the user changed. The seeded fields
+stay in the held draft after a cancel, as typed fields do. The
+server reuses the open worktree on that branch, so the agent starts in the worktree the card
+stands for. A detached worktree has no branch to start on, so the button is disabled and says
+why.
+
+`canvas/CanvasCard.tsx` is the shell both cards share: the viewport portal, the grow animation,
+the pan into view and the Esc handler. The canvas shows one card at a time. `ui.expandedNodeId`
+and `ui.expandedWorktreeId` clear each other, and Esc or a click on the pane clears both. A
+card whose node or box no longer draws collapses, once the world has loaded.
 
 ### The Changes tab
 
@@ -755,9 +792,8 @@ A node resolves its worktree from its agent first, then from the open worktree o
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
 steps.
 
-Group by `project`, `branch` and `worktree` draw one hairline lane per group. Group by `none`
-draws no lanes. Whatever the grouping, the board runs left to right in three progress zones — done,
-running, not started — whose boundaries line up across every lane. One strip of labels names
+The canvas draws one hairline lane per project. The board runs left to right in three progress
+zones — done, running, not started — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time. `canvas/rows.ts` packs the rows, also pure and one lane at a time, and
 `canvas/layout.ts` aligns the zones, sets the row gaps and derives the boxes.
@@ -777,23 +813,19 @@ group of more than one the labels count it: "Approve all 3", "Approve and create
 "Request changes on all 3", and "All 3 are {status}." See `CONTEXT.md`, "Document tag", for how an agent asks
 for one status or the other.
 
-`worktree` is the one grouping whose lanes come from the world rather than from the nodes. Every
-other grouping derives a lane from the nodes in it, so a lane holding nothing never appears. Here
-the empty lane is the point: it shows an open worktree with no agent in it. A closed worktree draws no lane. The project filter drops another project's lanes;
-the branch filter only empties them, because the lanes are what the mode is for.
+Each lane shows the project's worktrees as **Worktree boxes**. A task reaches its worktree
+through the open worktree on its branch, since a task names a branch and not a worktree. A free
+agent names its worktree outright. A node that resolves to neither sits in no box.
 
-A task reaches its worktree through the open worktree on its branch, since a task names a branch
-and not a worktree. A free agent names its worktree outright. Work that resolves to neither falls
-to `Unallocated`, which is created only when something needs it.
+`deriveGraph` gives a lane its `emptyWorktrees`: the open worktrees of the project that no node
+of the lane names. `_main` is never one of them, because every project has a `_main` and an
+empty box for it says nothing. These lanes come from the world, not from the nodes: a project
+with an open worktree and no node on the desk still gets a lane, so its empty boxes draw. A
+project whose only open worktree is `_main` gets none. A branch or agent status filter hides
+nodes, so a worktree with no node drawn can still hold work: `emptyWorktrees` is `[]` while
+either is set.
 
-Group by `project` shows the same worktrees inside each project lane, as **Worktree boxes**.
-`deriveGraph` gives a project group its `emptyWorktrees`: the open worktrees of the project that
-no node of the lane names. `_main` is never one of them, because every project has a `_main` and
-an empty box for it says nothing. A project with no node on the desk still draws no lane, so group
-by `project` shows none of its empty worktrees. A branch or agent status filter hides nodes, so a
-worktree with no node drawn can still hold work: `emptyWorktrees` is `[]` while either is set.
-
-`canvas/rows.ts` packs a project lane in one pass, as it packs every lane. `canvas/layout.ts`
+`canvas/rows.ts` packs a lane in one pass. `canvas/layout.ts`
 gives each node its worktree as its `box`, and the engine packs the nodes of one box as one
 block. Two boxes with no column in common share rows. The doc comment of `assignRows` gives
 the rule.
@@ -801,13 +833,13 @@ the rule.
 All nodes of a lane share one row grid. `layout.ts` derives each box from the cells of its
 nodes, and sets the gap between two rows from what meets there. The widest need of any column
 sets the gap for the whole lane. `orchestrator-ui/DESIGN.md` gives the figures. Columns stay lane-wide, so the
-zones still align. The empty worktrees form a strip of label-high boxes below the lowest node
-and box, which wraps at the lane width. `canvas/WorktreeBoxNode.tsx` draws each box behind the nodes and takes no pointer
-events.
+zones still align. The empty worktrees form a strip of boxes below the lowest node and box. Each
+is one node wide and one label high. The strip holds one box per column, so each starts where a
+box that holds a node in that column starts.
 
-A worktree lane's header carries a close, which runs the same close `mael close` runs — see
-[orchestrator-server.md](orchestrator-server.md), "Closing a worktree". It never forces. `_main`
-never closes and is offered no button.
+`canvas/WorktreeBoxNode.tsx` draws each box behind the nodes. The box takes no pointer events;
+its label does. The label is a button that names the worktree and its branch, and opens the
+**Worktree card** — see "The Worktree card".
 
 Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control
 level with the selection. Clicking it paints the selection in a stronger highlight and opens the

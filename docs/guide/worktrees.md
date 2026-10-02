@@ -191,6 +191,8 @@ is bounded by `--timeout` (default 3600s), polling every `--interval` seconds (d
 - The branch and its pull request are never deleted.
 - Maelstrom creates a **"Reopen <branch>" task**, so the work is not forgotten.
 
+The orchestrator UI calls this close **Shelve**. It does the same thing, and asks first.
+
 ```bash
 mael close --force
 ```
