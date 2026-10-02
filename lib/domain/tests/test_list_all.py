@@ -25,6 +25,7 @@ from mael_domain.list_all import (
     repo_url_from_remote,
     session_display,
 )
+from mael_domain.ports import record_port_allocation
 from mael_domain.worktree import WorktreeInfo, list_worktrees, run_git
 
 
@@ -225,6 +226,27 @@ def test_a_worktree_row_carries_its_env_from_its_own_config(
             },
         ],
     }
+
+
+def test_a_worktree_row_links_to_the_dev_host(project_with_worktree):
+    """With a global ``dev_host:``, the app URL and each dev env link name it,
+    so a device on another machine can open them."""
+    from mael_domain import context
+
+    project_path, worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    (context.get_maelstrom_dir() / "config.yaml").write_text(
+        "dev_host: desk.tailnet.ts.net\n"
+    )
+    (worktree_path / ".maelstrom.yaml").write_text(
+        "services:\n  web:\n    command: run web\n    ports: [FRONTEND]\n"
+    )
+    record_port_allocation(project_path, "alpha", 321)
+    row = _row_for(project_path, None)
+    assert row["app_url"] == "http://desk.tailnet.ts.net:3210"
+    assert [s["url"] for s in row["env"]["services"]] == [
+        "http://desk.tailnet.ts.net:3210"
+    ]
 
 
 def test_a_worktree_row_carries_its_pr_state(
