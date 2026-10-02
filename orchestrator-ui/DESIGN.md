@@ -399,6 +399,12 @@ The canvas grid is fixed and mechanical, which is what makes it scannable: nodes
 separated by 56px horizontally and 14px vertically. A lane has 20px of padding, a 30px header,
 and 28px between lanes. Every lane is as wide as the board, not as wide as its own content.
 
+A project lane draws a **Worktree box** round the nodes of each worktree: a 1px dotted outline
+in `--border-strong`, with the worktree name at its top left in the lane sublabel style. The box
+has an 18px header and 6px of padding, and boxes sit 14px apart. An open
+worktree with no node draws as a 104×24 box in a strip below the last row. The box takes no
+fill and no pointer events: it names a place and is not a control.
+
 Horizontal position is progress first and dependency second:
 
 - The board runs left to right in three zones — DONE, RUNNING, NOT STARTED.
@@ -408,6 +414,7 @@ Horizontal position is progress first and dependency second:
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
   follows edge draws backwards.
 - A task sits on the row of the task it follows, across zones; a second follower branches below.
+  In a project lane this holds inside one worktree box: a follower in another box keeps its box.
   A run of followers reserves the columns it spans. A task that follows nothing fills the first
   free cell.
 - A wire another path already implies is not drawn. The board shows what gates what, not every
@@ -486,6 +493,8 @@ The bar wraps rather than overflows below the break.
 **The Fixed Board Rule.** A card moves only when its own work moves: it changes zone when it
 starts or finishes, and the cards behind it close up. Its lane never changes, and its order
 against the other cards in its zone never changes. The board reports progress and nothing else.
+In a project lane the order holds inside a worktree box: a card keeps its box, and its order
+against the other cards of that box.
 
 ## Elevation & Depth
 
@@ -960,7 +969,9 @@ different phase — arrow along them, because only the tab in view draws its edg
 beside its own plan, a free agent beside a task's, a tab whose entity has gone, a long label
 truncating, and four tabs at the panel's 320px minimum, where the label truncates away entirely
 and the ids alone tell four agents apart. Hover an inactive tab: its close control overlays the
-id rather than widening the tab, so watch that the tab does not move.
+id rather than widening the tab, so watch that the tab does not move. For the canvas:
+`Canvas / Worktree boxes` draws a project lane with three boxes, a section with no box, and a
+strip of empty boxes that wraps.
 
 Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
 schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story

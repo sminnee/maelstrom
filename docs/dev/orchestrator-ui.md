@@ -210,10 +210,10 @@ adoption time as its start, so a PR that merged before the adoption is hidden.
 
 `worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
 
-It is the only surface that shows a worktree nobody is working in. The canvas can group lanes by
-worktree, but a lane only draws what is on the desk, so an open worktree with no work was invisible
-and the whole worktree vocabulary — `mael sync`, `mael close`, `mael env` — reached no button at
-all. `selectors/worktrees.ts` reads the rows from the world, as `seedWorktreeLanes` does and for the
+It is the only surface that shows a closed worktree, and the only one that carries the whole
+worktree vocabulary: `mael sync`, `mael close`, `mael env`. The canvas names an open worktree
+that holds no work, as an empty lane or an empty **Worktree box**. The lane offers a close; the
+box offers nothing. `selectors/worktrees.ts` reads the rows from the world, as `seedWorktreeLanes` does and for the
 same reason.
 
 The columns are worktree, branch, dirty, local, remote, PR, app and agents. "Remote" is `prCommits`
@@ -764,13 +764,27 @@ for one status or the other.
 
 `worktree` is the one grouping whose lanes come from the world rather than from the nodes. Every
 other grouping derives a lane from the nodes in it, so a lane holding nothing never appears. Here
-the empty lane is the point: an open worktree with no agent in it is what the user cannot
-otherwise see. A closed worktree draws no lane. The project filter drops another project's lanes;
+the empty lane is the point: it shows an open worktree with no agent in it. A closed worktree draws no lane. The project filter drops another project's lanes;
 the branch filter only empties them, because the lanes are what the mode is for.
 
 A task reaches its worktree through the open worktree on its branch, since a task names a branch
 and not a worktree. A free agent names its worktree outright. Work that resolves to neither falls
 to `Unallocated`, which is created only when something needs it.
+
+Group by `project` shows the same worktrees inside each project lane, as **Worktree boxes**.
+`deriveGraph` gives a project group its `emptyWorktrees`: the open worktrees of the project that
+no node of the lane names. `_main` is never one of them, because every project has a `_main` and
+an empty box for it says nothing. A project with no node on the desk still draws no lane, so group
+by `project` shows none of its empty worktrees. A branch or agent status filter hides nodes, so a
+worktree with no node drawn can still hold work: `emptyWorktrees` is `[]` while either is set.
+
+`canvas/layout.ts` splits a project lane into sections, one per worktree, in the order of each
+worktree's oldest node. The nodes with no worktree form one section with no box. Each section
+gets rows of its own from `canvas/rows.ts`, so a follows edge that crosses sections moves no
+row, as a cross-lane edge moves none. Columns stay lane-wide, so the zones still align. The
+empty worktrees form a strip of label-high boxes below the last section, which wraps at the
+lane width. `canvas/WorktreeBoxNode.tsx` draws each box behind the nodes and takes no pointer
+events.
 
 A worktree lane's header carries a close, which runs the same close `mael close` runs — see
 [orchestrator-server.md](orchestrator-server.md), "Closing a worktree". It never forces. `_main`
