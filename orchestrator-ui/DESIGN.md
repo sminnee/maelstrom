@@ -673,6 +673,9 @@ branch in mono, the links — Changes, the PR chip, the dev env, cmux — and th
 environment control and the close control, right-aligned. The branch wraps rather than
 truncates, as the mono line does.
 
+A pull request that is ready to merge adds a Merge button to the worktree area, first among its
+commands, before Sync. It is the area's one primary button.
+
 The **Worktree card** is the same area under a header: the worktree name at 16px/600 mono, the
 project below it, and the close button. It is 360px wide and has no phase bar, because a worktree
 has no phase. Start free agent is its one primary button, alone on the last row.

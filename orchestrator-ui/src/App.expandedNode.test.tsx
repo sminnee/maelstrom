@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import type { Agent } from './protocol/entities';
+import type { Agent, Worktree } from './protocol/entities';
 import { TASK_STATUSES } from './protocol/entities';
 import type { FakeServer } from './fake/fakeServer';
 import type { TranscriptItem } from './protocol/transcript';
@@ -225,6 +225,64 @@ describe('the expanded node', () => {
             body: { mode: 'plain' },
           }),
         ),
+      );
+    });
+
+    it('offers Merge only once the PR is ready, and merges after the confirm', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      // CI is still running, so there is nothing to merge yet.
+      expect(within(expanded()).queryByRole('button', { name: 'Merge' })).toBeNull();
+      makeDeltaReady(server);
+
+      await user.click(await within(expanded()).findByRole('button', { name: 'Merge' }));
+      // Asking is not merging: nothing is sent until the answer.
+      expect(server.requests.some((r) => r.path.endsWith('/merge-pr'))).toBe(false);
+      const ask = screen.getByRole('alertdialog', { name: 'Merge PR #118 into main?' });
+      await user.click(within(ask).getByRole('button', { name: 'Merge' }));
+
+      await waitFor(() =>
+        expect(server.requests).toContainEqual(
+          expect.objectContaining({
+            method: 'POST',
+            path: '/api/worktrees/northwind-delta/merge-pr',
+          }),
+        ),
+      );
+      // The PR is merged, so the button goes.
+      await waitFor(() =>
+        expect(within(expanded()).queryByRole('button', { name: 'Merge' })).toBeNull(),
+      );
+    });
+
+    it('offers no Merge on a draft PR, whatever its checks say', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      makeDeltaReady(server, { prDraft: true });
+      await within(expanded()).findByRole('link', { name: /PR #118, draft/ });
+      expect(within(expanded()).queryByRole('button', { name: 'Merge' })).toBeNull();
+    });
+
+    it('a refused merge says what GitHub said, and keeps the question open', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      server.refuse(/POST \/api\/worktrees\/[^/]+\/merge-pr$/, {
+        status: 400,
+        code: 'invalid',
+        message: 'Head branch was modified. Review and try the merge again.',
+      });
+      clickNode('NORT-12');
+      makeDeltaReady(server);
+
+      await user.click(await within(expanded()).findByRole('button', { name: 'Merge' }));
+      const ask = screen.getByRole('alertdialog', { name: 'Merge PR #118 into main?' });
+      await user.click(within(ask).getByRole('button', { name: 'Merge' }));
+
+      const failed = await within(ask).findByRole('button', { name: 'Failed' });
+      expect(failed).toHaveAttribute(
+        'title',
+        'Head branch was modified. Review and try the merge again.',
       );
     });
 
@@ -515,6 +573,19 @@ describe('the expanded node', () => {
 });
 
 /** Put NORT-9's agent's last message `minutesAgo`, in whatever `state`. */
+/** Finish CI on NORT-12's pull request, as the worktree poll would report it. */
+function makeDeltaReady(server: FakeServer, over: Partial<Worktree> = {}) {
+  act(() => {
+    server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+      w.worktrees['northwind-delta'] = {
+        ...w.worktrees['northwind-delta']!,
+        prState: 'ready',
+        ...over,
+      };
+    });
+  });
+}
+
 function spokeAt(server: FakeServer, minutesAgo: number, state: Agent['state']) {
   server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
     const agent = w.agents['d9a4c7f1']!;

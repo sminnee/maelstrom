@@ -1138,6 +1138,17 @@ function command(
     return ok({});
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/merge-pr$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    // The button draws only on a ready pull request, so the fake refuses none.
+    world.worktrees[id] = { ...worktree, prState: 'merged', prMergedAt: new Date().toISOString() };
+    server.change({ kind: 'worktree', ids: [id] });
+    return ok({});
+  }
+
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/comments$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);

@@ -311,9 +311,21 @@ Run the `--wait` variants in the background so you can keep working.
 
 ## Merging
 
-Normally you merge on GitHub. **Use rebase merge, not squash merge.** A squash merge collapses the
+Normally you merge on GitHub, or from the orchestrator. **Use rebase merge, not squash merge.** A squash merge collapses the
 branch into one commit, which throws away the story the commits tell. `mael git merge` rebases, so
 it keeps them.
+
+To merge from the orchestrator, open the task's node. A pull request that is ready to merge, and
+is not a draft, shows a **Merge** button. The button asks first, then rebase-merges on GitHub.
+The question names the branch the pull request merges into: a stacked pull request merges into
+its base, not into `main`.
+
+GitHub refuses the merge when a push landed after the orchestrator last read the pull request.
+Wait for the new commit's checks, then merge again. The merge closes no worktree and moves no
+task. GitHub deletes the branch when the repository has "Automatically delete head branches" on.
+
+The orchestrator merges with the server's `gh` login. Set `github.merge_token` to give it a token
+of its own — see [configuration.md](../reference/configuration.md).
 
 To merge locally:
 

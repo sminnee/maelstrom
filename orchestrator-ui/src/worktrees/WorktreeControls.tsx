@@ -5,6 +5,7 @@ import { PrChip } from '../shell/PrChip';
 import { CmuxControl } from './CmuxControl';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
+import { MergeControl } from './MergeControl';
 import { SyncControl } from './SyncControl';
 
 /**
@@ -40,11 +41,12 @@ export function WorktreeLinks({
   );
 }
 
-/** Sync and env. A closed worktree has nothing to sync or start. */
+/** Merge, sync and env. A closed worktree has nothing to merge, sync or start. */
 export function WorktreeCommands({ worktree }: { worktree: Worktree | undefined }) {
   if (!worktree || worktree.isClosed) return null;
   return (
     <>
+      <MergeControl worktree={worktree} />
       <SyncControl worktree={worktree} />
       <EnvControl worktree={worktree} />
     </>
