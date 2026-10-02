@@ -161,6 +161,7 @@ that lack the key.
 | `LINEAR_API_KEY` | `linear.api_key` | `mael linear …` |
 | `SENTRY_API_KEY` | `sentry.api_key` | `mael sentry …` |
 | `UPTIMEROBOT_API_KEY` | `uptimerobot.api_key` | `mael uptimerobot …` |
+| `MAEL_GITHUB_MERGE_TOKEN` | `github.merge_token` | The orchestrator's Merge button — see [configuration.md](configuration.md#api-keys) |
 | `OPENAI_API_KEY` | `openai.api_key` | Task naming (`task.infer`, and branch generation in `mael task add` and `mael linear plan`) |
 
 ### Other
@@ -178,7 +179,8 @@ that lack the key.
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 
 `GITHUB_TOKEN` is not read directly — `mael gh …` shells out to the `gh` CLI, which uses
-its own authentication.
+its own authentication. `MAEL_GITHUB_MERGE_TOKEN`, above, is the one GitHub secret maelstrom
+reads.
 
 ---
 

@@ -57,6 +57,7 @@ from .github_model import (
     rollup_refused,
     stack_chain,
 )
+from .integrations._auth import resolve_secret
 from .project_scaffold import scaffold_files
 from .worktree import (
     get_current_branch,
@@ -277,6 +278,71 @@ def close_pr(cwd: Path, number: int, comment: str) -> None:
 def _close_pr_argv(number: int, comment: str) -> list[str]:
     """The ``gh pr close`` argv that closes ``number`` with ``comment``."""
     return ["gh", "pr", "close", str(number), "--comment", comment]
+
+
+#: How long a merge may wait on ``gh``. Under the UI's 120 s call timeout, so
+#: the button hears the refusal rather than giving up first.
+MERGE_TIMEOUT_SECS = 100
+
+
+def merge_pr(
+    number: int, *, cwd: Path, head_oid: str, token: str | None = None
+) -> None:
+    """Rebase-merge pull request ``number``, if its head is still ``head_oid``.
+
+    The caller read the pull request as ready some time ago. GitHub refuses the
+    merge when a push landed since, so a stale reading cannot merge a commit
+    nobody checked.
+
+    Args:
+        number: The pull request to merge.
+        cwd: A directory inside the repository.
+        head_oid: The head commit the caller saw.
+        token: A GitHub token to merge with. ``None`` uses the ``gh`` login.
+
+    Raises:
+        GitHubCliMissing: If ``gh`` is not installed.
+        GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
+    """
+    env = {"GH_TOKEN": token} if token else None
+    try:
+        run_cmd(
+            merge_pr_argv(number, head_oid),
+            cwd=cwd,
+            quiet=True,
+            env=env,
+            timeout=MERGE_TIMEOUT_SECS,
+        )
+    except subprocess.CalledProcessError as e:
+        raise GitHubCommandFailed("merge the pull request", e.stderr)
+    except subprocess.TimeoutExpired:
+        raise GitHubCommandFailed(
+            "merge the pull request",
+            f"gh did not answer in {MERGE_TIMEOUT_SECS} s. The merge may still land.",
+        )
+    except FileNotFoundError:
+        raise GitHubCliMissing("gh")
+
+
+def merge_pr_argv(number: int, head_oid: str) -> list[str]:
+    """The ``gh pr merge`` argv that rebase-merges ``number`` at ``head_oid``.
+
+    ``gh`` needs a method flag when it has no terminal to ask on.
+    """
+    return [
+        "gh",
+        "pr",
+        "merge",
+        str(number),
+        "--rebase",
+        "--match-head-commit",
+        head_oid,
+    ]
+
+
+def merge_token() -> str | None:
+    """The token the orchestrator merges with, or ``None`` for the ``gh`` login."""
+    return resolve_secret("MAEL_GITHUB_MERGE_TOKEN", config_attr="github_merge_token")
 
 
 # Each named branch's most recent pull requests, in one round trip.
