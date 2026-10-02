@@ -49,6 +49,7 @@ from mael_agent.agent_wire import (
     SCOPE_STOPPED,
     SCOPES,
     SEQ_KEY,
+    STREAM_EVENT,
     TRUNCATED,
     WAITING,
     AgentDetail,
@@ -110,6 +111,7 @@ from .agent_model import (
     build_subagent_detail,
     build_subagent_rows,
     freshest_usage,
+    is_partial_text,
     mark_exited,
     open_asks,
     shell_input_message,
@@ -124,6 +126,11 @@ log = logging.getLogger(__name__)
 
 #: How far one attached client may fall behind before it starts losing events.
 WATCHER_QUEUE_LIMIT = 1000
+
+#: How many events a watcher may have unread and still be sent a chunk of a
+#: partial message. Far under :data:`WATCHER_QUEUE_LIMIT`, so chunks never fill
+#: a queue that recorded events need.
+PARTIAL_BACKLOG = 32
 
 #: How long to wait for the child to answer a request the daemon made of it.
 #: A child that never answers must fail the command rather than hang the
@@ -282,6 +289,9 @@ class Watcher:
 
     subagent: str
     queue: "asyncio.Queue[dict[str, Any]]"
+    #: Whether this watcher missed a chunk of the message being written. A
+    #: chunk is a delta, so the ones after a missed one are of no use to it.
+    behind: bool = False
 
 
 def _truncated(dropped: int) -> dict[str, Any]:
@@ -485,6 +495,26 @@ class Agent:
             if watcher.subagent == subagent:
                 _offer(watcher.queue, event)
 
+    def _offer_partial(self, chunk: dict[str, Any]) -> None:
+        """Offer one chunk to each of the agent's own watchers that keeps up.
+
+        Never through :func:`_offer`: that evicts the oldest event to make room.
+
+        A watcher that misses one chunk gets no more of that message. It joins
+        again at the next ``message_start``.
+        """
+        starts = chunk["event"].get("type") == "message_start"
+        for watcher in list(self.watchers):
+            if watcher.subagent != "":
+                continue
+            if watcher.queue.qsize() >= PARTIAL_BACKLOG:
+                watcher.behind = True
+                continue
+            if starts:
+                watcher.behind = False
+            if not watcher.behind:
+                watcher.queue.put_nowait(chunk)
+
     def _settle(self, message: dict[str, Any]) -> None:
         """Hand a ``control_response`` to whoever asked the question."""
         if message.get("type") != "control_response":
@@ -564,6 +594,11 @@ class Agent:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue  # a non-JSON line is noise, not a state change
+                if event.get("type") == STREAM_EVENT:
+                    # Not recorded: a chunk takes no seq and no ring slot.
+                    if is_partial_text(event):
+                        self._offer_partial(event)
+                    continue
                 for orphan in self.record(event):
                     # Its subagent has gone, so nothing else will ever answer
                     # it. Undenied, the child holds the ask for ever.

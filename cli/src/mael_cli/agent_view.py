@@ -36,6 +36,7 @@ from mael_agent.agent_wire import (
     BACKLOG_END,
     PLAN_TOOL,
     QUESTION_TOOL,
+    STREAM_EVENT,
     TRUNCATED,
     TokenUsage,
     usage_of,
@@ -166,6 +167,10 @@ def apply_stream_event(
         # The host's opening frame, not one of the agent's own events. It says
         # what the agent waits on; the backlog that follows usually replays the
         # request itself, so nothing is derived from it here.
+        return view, []
+
+    if kind == STREAM_EVENT:
+        # A chunk of a partial message. Teleport draws whole messages only.
         return view, []
 
     if kind == "system" and raw.get("subtype") == "init":

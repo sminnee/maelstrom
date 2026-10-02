@@ -270,6 +270,50 @@ def test_an_exited_row_reports_the_exit_code():
     assert build_agent_row(state)["state"] == "exited(137)"
 
 
+# --- partial messages ------------------------------------------------------
+
+
+def _fold(events: list[dict]) -> AgentState:
+    state = AgentState(agent_id="a1", cwd="/tmp/x")
+    for event in events:
+        state = apply_event(state, event)
+    return state
+
+
+def _events(name: str) -> list[dict]:
+    lines = (FIXTURES / name).read_text().splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def test_a_partial_message_moves_nothing_the_daemon_keeps():
+    """The ring, the seq and the status are what the whole messages made them.
+
+    A recorded turn holds about 150 chunks. Stamped, they would fill the ring
+    and push the turn's own events out of it.
+    """
+    events = _events("partial-turn.jsonl")
+    whole = [event for event in events if event["type"] != "stream_event"]
+    assert len(events) - len(whole) > 100, "the fixture must carry its chunks"
+    assert _fold(events) == _fold(whole)
+
+
+def test_a_subagents_chunk_does_not_reopen_it():
+    """A parented event puts an ended subagent back to running; a chunk must not."""
+    state = replay("subagent-turn.jsonl")
+    [(dotted, sub)] = state.subagents.items()
+    assert sub.status == SUB_COMPLETED
+    chunk = {
+        "type": "stream_event",
+        "parent_tool_use_id": sub.tool_use_id,
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "more"},
+        },
+    }
+    assert apply_event(state, chunk) == state
+
+
 # --- argv ------------------------------------------------------------------
 
 
@@ -287,6 +331,9 @@ def test_argv_carries_the_flags_the_pipe_needs():
     # Without this the child echoes no stdin user turn, so a `say` never
     # reaches the transcript. Confirmed against v2.1.261.
     assert "--replay-user-messages" in argv
+    # Without this the child says nothing until a message is complete, so the
+    # session tab has no partial message to draw. Confirmed against v2.1.287.
+    assert "--include-partial-messages" in argv
 
 
 def test_argv_names_the_system_prompt_file_it_is_given():

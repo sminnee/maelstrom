@@ -27,6 +27,7 @@ from mael_agent.agent_wire import (
     PROCESSING,
     RECENT_LIMIT,
     SEQ_KEY,
+    STREAM_EVENT,
     TS_KEY,
     AgentDetail,
     AgentRow,
@@ -55,7 +56,7 @@ def build_agent_argv(
     """The ``claude`` argv for a daemon-driven agent.
 
     Starts from the same shape as
-    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the six
+    :func:`maelstrom.worktree_launcher.build_claude_command` and adds the seven
     flags that make the process drivable:
 
     ``-p`` with ``--input-format``/``--output-format stream-json`` turns stdio
@@ -69,6 +70,9 @@ def build_agent_argv(
     ``--forward-subagent-text`` puts a subagent's text and thinking blocks on
     the stream beside its tool calls. Without it a subagent's own stream shows
     what it did and never what it said.
+
+    ``--include-partial-messages`` makes the child send ``stream_event``
+    chunks. :func:`apply_event` takes none of them.
 
     ``--replay-user-messages`` makes the child echo every ``user`` turn it reads
     from stdin back on stdout, marked ``isReplay``. The daemon records no user
@@ -101,6 +105,7 @@ def build_agent_argv(
         "stdio",
         "--forward-subagent-text",
         "--replay-user-messages",
+        "--include-partial-messages",
     ]
     if system_prompt_file:
         argv += ["--append-system-prompt-file", system_prompt_file]
@@ -809,7 +814,12 @@ def apply_event(
     that subagent's ring and nowhere else: the parent's ring, seq, message,
     status and pending are what the parent did, and a subagent's chatter must
     not move any of them.
+
+    A ``stream_event`` changes nothing. It is ruled out before the subagent
+    branch, where a chunk would put an ended subagent back to running.
     """
+    if event.get("type") == STREAM_EVENT:
+        return state
     if event.get("parent_tool_use_id"):
         return _apply_subagent_event(state, event, now)
 
@@ -922,6 +932,34 @@ def apply_event(
         )
 
     return state
+
+
+#: The Anthropic stream events a partial message is built from: the one that
+#: names the message, and the one that opens each block.
+_PARTIAL_FRAMING = ("message_start", "content_block_start")
+
+
+def is_partial_text(event: dict[str, Any]) -> bool:
+    """Whether ``event`` is a chunk a watcher builds a partial message from.
+
+    The message's id, each block's start, and a block's text. A chunk of
+    thinking or of a tool's input is dropped: a session tab draws neither
+    before it is complete. So is every chunk of a subagent, whose tab shows
+    whole messages.
+    """
+    if event.get("type") != STREAM_EVENT or event.get("parent_tool_use_id"):
+        return False
+    inner = event.get("event")
+    if not isinstance(inner, dict):
+        return False
+    if inner.get("type") in _PARTIAL_FRAMING:
+        return True
+    delta = inner.get("delta")
+    return (
+        inner.get("type") == "content_block_delta"
+        and isinstance(delta, dict)
+        and delta.get("type") == "text_delta"
+    )
 
 
 def subagent_of(state: AgentState, event: dict[str, Any]) -> str:

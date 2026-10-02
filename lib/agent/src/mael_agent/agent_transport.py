@@ -30,6 +30,7 @@ from .agent_wire import (
     AGENT_DETAIL,
     BACKLOG_END,
     SEQ_KEY,
+    STREAM_EVENT,
     TRUNCATED,
     AgentDetail,
     PendingRequest,
@@ -565,10 +566,11 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
     def push(self, agent_id: str, event: dict[str, Any]) -> None:
         """Deliver one live event to every stream attached to ``agent_id``.
 
-        A daemon marker travels as it is; anything else is stamped, as the
-        host stamps what it records.
+        A daemon marker travels as it is, and so does a chunk of a partial
+        message; anything else is stamped, as the host stamps what it records.
         """
-        if not str(event.get("type", "")).startswith("mael_"):
+        kind = str(event.get("type", ""))
+        if not kind.startswith("mael_") and kind != STREAM_EVENT:
             event = self._stamped(agent_id, event)
         for queue in self._queues.get(agent_id, []):
             queue.put_nowait(event)

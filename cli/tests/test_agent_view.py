@@ -140,6 +140,22 @@ def test_a_thinking_block_is_not_an_item():
     assert [i["markdown"] for i in items_of(view, "message")] == ["said"]
 
 
+def test_teleport_draws_whole_messages_only():
+    """A chunk of a partial message makes no item and changes none."""
+    view = initial_view("a1")
+    chunks = 0
+    for line in (FIXTURES / "partial-turn.jsonl").read_text().splitlines():
+        event = json.loads(line)
+        view, events = apply_stream_event(view, event, NOW)
+        if event["type"] == "stream_event":
+            chunks += 1
+            assert events == []
+    assert chunks > 100, "the fixture must carry its chunks"
+    messages = items_of(view, "message")
+    assert [m["role"] for m in messages] == ["user", "assistant", "assistant"]
+    assert not any(m.get("partial") for m in messages)
+
+
 def test_a_wait_answered_in_the_backlog_does_not_prompt():
     """Answering happened before this client attached; do not re-ask."""
     view = replay("question-answered.jsonl")
