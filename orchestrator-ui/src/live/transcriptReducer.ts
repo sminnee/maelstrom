@@ -48,5 +48,9 @@ export function reduceTranscript(state: TranscriptState, frame: TranscriptFrame)
       };
     case 'transcript.truncated':
       return { ...state, truncatedBefore: true, cursor: frame.seq };
+    default:
+      // An event a newer server sends. The store holds what this returns, so
+      // falling out of the switch would replace the transcript with nothing.
+      return { ...state, cursor: frame.seq };
   }
 }
