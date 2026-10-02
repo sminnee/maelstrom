@@ -50,9 +50,12 @@ import styles from './ChangesTab.module.css';
 const UNCOMMITTED = 'uncommitted';
 const BRANCH = 'branch';
 
-/** Uncommitted when there is dirty work, else the whole branch. */
+/**
+ * The first commit when the branch has commits, else the uncommitted changes.
+ * With neither, the whole branch: its empty text names the base.
+ */
 const defaultRev = (changes: WorktreeChanges) =>
-  changes.dirtyFiles.length > 0 ? UNCOMMITTED : BRANCH;
+  changes.commits[0]?.sha ?? (changes.dirtyFiles.length > 0 ? UNCOMMITTED : BRANCH);
 
 /** The rev the user picked while the strip still lists it, else the default. */
 function revToShow(changes: WorktreeChanges, picked: string | null): string {
@@ -146,22 +149,8 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
       <div className={styles.body}>
         {(dirtyFiles.length > 0 || commits.length > 0) && (
           <nav className={styles.strip} aria-label="Changes to show">
-            <ul>
-              {dirtyFiles.length > 0 && (
-                <RevEntry rev={UNCOMMITTED} current={rev} onPick={setPicked}>
-                  <span className={styles.revLabel}>Uncommitted</span>{' '}
-                  <span className={styles.revCount}>{dirtyFiles.length}</span>
-                </RevEntry>
-              )}
-              {commits.length > 0 && (
-                <RevEntry rev={BRANCH} current={rev} onPick={setPicked}>
-                  <span className={styles.revLabel}>All commits</span>{' '}
-                  <span className={styles.revCount}>{commits.length}</span>
-                </RevEntry>
-              )}
-            </ul>
             {commits.length > 0 && (
-              <ul className={styles.commits}>
+              <ul className={styles.revs}>
                 {commits.map((c) => (
                   <RevEntry
                     key={c.sha}
@@ -176,6 +165,20 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
                 ))}
               </ul>
             )}
+            <ul className={`${styles.revs} ${styles.summary}`}>
+              {commits.length > 0 && (
+                <RevEntry rev={BRANCH} current={rev} onPick={setPicked}>
+                  <span className={styles.revLabel}>All commits</span>{' '}
+                  <span className={styles.revCount}>{commits.length}</span>
+                </RevEntry>
+              )}
+              {dirtyFiles.length > 0 && (
+                <RevEntry rev={UNCOMMITTED} current={rev} onPick={setPicked}>
+                  <span className={styles.revLabel}>Uncommitted</span>{' '}
+                  <span className={styles.revCount}>{dirtyFiles.length}</span>
+                </RevEntry>
+              )}
+            </ul>
             {diff.data && diff.data.files.length > 0 && (
               <FileTree key={rev} files={diff.data.files} onPick={scrollToFile} />
             )}

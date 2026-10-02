@@ -597,11 +597,12 @@ while the worktree is open. The tab chip names the
 worktree by its id, `<project>-<nato> changes`, because every project has a `delta`. It draws
 no phase, because a worktree has no task of its own.
 
-A strip beside the diff chooses the rev: "Uncommitted" when there are **Dirty files**, "All
-commits" when the branch has commits, then one entry per commit, oldest first. The server sends
-the commits in that order, and the tab does not sort them. With neither, there is no strip. The
-tab opens on Uncommitted when there are dirty files, else on All commits. A picked entry that is
-no longer drawn gives way to that default.
+A strip beside the diff chooses the rev. It lists one entry per commit, oldest first, then "All
+commits" and "Uncommitted". The server sends the commits in that order, and the tab does not sort
+them. "All commits" draws when the branch has commits, and "Uncommitted" draws when there are
+**Dirty files**. With neither, there is no strip. The tab opens on the first commit, or on
+Uncommitted when the branch has no commits. A picked entry that is no longer drawn gives way to
+that default.
 
 Under the commits, the strip draws the files of the diff in view as a tree. `fileTree` in
 `changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A click on a directory

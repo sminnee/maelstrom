@@ -76,17 +76,32 @@ function seedChanges(server: FakeServer) {
 
 type Changes = FakeServer['world']['changes'][string];
 
-/** Open delta's Changes tab from NORT-12's node. `tweak` edits the seeded changes first. */
-async function openChanges(tweak?: (changes: Changes) => void) {
+/**
+ * Open delta's Changes tab from NORT-12's node, on the uncommitted changes when
+ * there are some. `tweak` edits the seeded changes first. `rev: null` leaves
+ * the tab on the rev it opens on.
+ */
+async function openChanges(
+  tweak?: (changes: Changes) => void,
+  rev: RegExp | null = /^Uncommitted/,
+) {
   const { server } = await renderApp();
   seedChanges(server);
-  tweak?.(server.world.changes[DELTA]!);
+  const changes = server.world.changes[DELTA]!;
+  tweak?.(changes);
   clickNode('NORT-12');
   await userEvent.click(within(expanded()).getByRole('link', { name: 'Changes' }));
   const panel = screen.getByTestId('panel');
-  if (!tweak) await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')).toHaveLength(3));
+  if (rev && changes.changes.dirtyFiles.length > 0) {
+    const nav = await screen.findByRole('navigation', { name: 'Changes to show' });
+    await userEvent.click(within(nav).getByRole('button', { name: rev }));
+  }
+  if (!tweak && rev) await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')).toHaveLength(3));
   return { server, panel };
 }
+
+/** Open the tab and leave it on the rev it opens on. */
+const openAsOpened = (tweak?: (changes: Changes) => void) => openChanges(tweak, null);
 
 /** The text of each diff row in a file's card, token spans and all. */
 const rowTexts = (panel: HTMLElement, path: string) =>
@@ -120,13 +135,12 @@ describe('the Changes tab', () => {
     scrolled.mockReset();
   });
 
-  it('opens from the expanded node on the uncommitted changes, named by its worktree id', async () => {
+  it('opens from the expanded node, named by its worktree id', async () => {
     const { panel } = await openChanges();
     expect(screen.getByRole('tab', { name: 'northwind-delta changes' })).toHaveAttribute(
       'aria-selected',
       'true',
     );
-    expect(current()).toBe('Uncommitted 2');
     const files = within(panel).getByRole('list', { name: 'Files' });
     expect(
       within(files)
@@ -144,17 +158,16 @@ describe('the Changes tab', () => {
     expect(rows[1]).toHaveTextContent('5-old tokens');
   });
 
-  it('lists the uncommitted changes, the whole branch and each commit in a strip', async () => {
-    const { server, panel } = await openChanges();
+  it('lists each commit, then the whole branch and the uncommitted changes, and opens on the first commit', async () => {
+    const { server, panel } = await openAsOpened();
     // The commits keep the order the server sent: oldest first.
     expect(entries()).toEqual([
-      'Uncommitted 2',
-      'All commits 2',
       'c0ffee1 feat: rotate on expiry',
       'decade1 fix: keep the old token a minute',
+      'All commits 2',
+      'Uncommitted 2',
     ]);
 
-    await pick(/rotate on expiry/);
     await waitFor(() => expect(rowTexts(panel, 'auth/expiry.py')).toHaveLength(3));
     expect(within(panel).queryByRole('region', { name: 'auth/tokens.py' })).toBeNull();
     expect(current()).toBe('c0ffee1 feat: rotate on expiry');
@@ -312,20 +325,27 @@ describe('the Changes tab', () => {
       why: 'a rebase rewrote the commit',
       change: (c: Changes) => (c.changes.commits = []),
       then: 'Uncommitted 2',
+      strip: ['Uncommitted 2'],
     },
     {
       picked: /All commits/,
       why: 'a reset left no commits',
       change: (c: Changes) => (c.changes.commits = []),
       then: 'Uncommitted 2',
+      strip: ['Uncommitted 2'],
     },
     {
       picked: /Uncommitted/,
       why: 'the agent committed everything',
       change: (c: Changes) => (c.changes.dirtyFiles = []),
-      then: 'All commits 2',
+      then: 'c0ffee1 feat: rotate on expiry',
+      strip: [
+        'c0ffee1 feat: rotate on expiry',
+        'decade1 fix: keep the old token a minute',
+        'All commits 2',
+      ],
     },
-  ])('falls back to the default rev when $why', async ({ picked, change, then }) => {
+  ])('falls back to the default rev when $why', async ({ picked, change, then, strip: left }) => {
     const { server } = await openChanges();
     await pick(picked);
     act(() => {
@@ -333,6 +353,7 @@ describe('the Changes tab', () => {
     });
     // The picked entry is no longer drawn, so the default is current.
     await waitFor(() => expect(current()).toBe(then));
+    expect(entries()).toEqual(left);
   });
 
   it('reads the changes again on Refresh, with no notice', async () => {
@@ -405,17 +426,13 @@ describe('the Changes tab', () => {
     expect(firstColour(rows[3]!)).not.toBe('var(--syntax-token-comment)');
   });
 
-  it('opens on all commits when nothing is uncommitted', async () => {
-    const { panel } = await openChanges((c) => {
-      c.changes.dirtyFiles = [];
+  it('opens on the uncommitted changes when the branch has no commits', async () => {
+    const { panel } = await openAsOpened((c) => {
+      c.changes.commits = [];
     });
-    await within(panel).findByText('new expiry');
-    expect(entries()).toEqual([
-      'All commits 2',
-      'c0ffee1 feat: rotate on expiry',
-      'decade1 fix: keep the old token a minute',
-    ]);
-    expect(current()).toBe('All commits 2');
+    await within(panel).findByText('new tokens');
+    expect(entries()).toEqual(['Uncommitted 2']);
+    expect(current()).toBe('Uncommitted 2');
   });
 
   it('draws no strip, and says so, when there are no changes', async () => {
@@ -433,7 +450,7 @@ describe('the Changes tab', () => {
     seedChanges(server);
     await userEvent.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
     await userEvent.click(screen.getByRole('link', { name: 'Changes' }));
-    expect(await screen.findByText('new tokens')).toBeInTheDocument();
+    expect(await screen.findByText('new expiry')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
   });
 });
@@ -549,6 +566,7 @@ describe('change comments', () => {
     expect(screen.queryByTestId('changes-tab')).toBeNull();
     await userEvent.click(within(expanded()).getByRole('link', { name: 'Changes' }));
     const again = screen.getByTestId('panel');
+    await pick(/^Uncommitted/);
     await waitFor(() => expect(rowTexts(again, 'auth/tokens.py')).toHaveLength(3));
     expect(within(region(again)).getByText('rotate the old one too')).toBeVisible();
     expect(within(again).getByRole('textbox', { name: 'Comment on line 4' })).toHaveValue(

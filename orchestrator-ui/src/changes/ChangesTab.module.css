@@ -48,12 +48,16 @@
   border-right: 1px solid var(--border);
   background: var(--bg-sunken);
 }
-.strip ul {
+/* The commits, then the summary: the whole branch and the uncommitted changes. */
+.revs {
   list-style: none;
   margin: 0;
   padding: var(--space-1) 0;
 }
-.strip .commits {
+.summary {
+  padding-bottom: var(--space-3);
+}
+.revs + .summary {
   border-top: 1px solid var(--border);
 }
 .rev {
