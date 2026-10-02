@@ -46,18 +46,26 @@ export interface Layout {
 export const NODE = { width: 220, height: 76 };
 const GAP_X = 56;
 const GAP_Y = 14;
-const LANE_PAD = 20;
-const LANE_HEADER = 30;
-const LANE_GAP = 28;
-/** The label strip at the top of a worktree box. */
-const BOX_HEADER = 18;
 /**
- * Under `GAP_X / 2`, so a box reaches no zone boundary and no neighbour column.
- * Under 10 as well: React Flow pads a group node by 10, so the lane's border
- * draws that far inside the lane, and a wider box would sit on it.
+ * The padding of a lane's node, set in `Canvas.module.css`: a lane's border
+ * draws this far inside the lane's own rectangle.
  */
-const BOX_PAD = 6;
-const BOX_GAP = 14;
+const LANE_INSET = 10;
+/** From the lane's edge to a node, in a lane with no worktree box. */
+const LANE_PAD = 20;
+/**
+ * Room above the first row for a lane's label, which sits on the lane's top
+ * border. A worktree lane's label carries a button, which hangs below the border.
+ */
+const LANE_HEADER = 6;
+const LANE_GAP = 28;
+/**
+ * The one gap of a project lane: from the lane's border to a worktree box, from
+ * the box to a node, and between two boxes. Under `GAP_X / 2`, so a box reaches
+ * no zone boundary and no neighbour column. Wide enough that the lane's label
+ * and the first box's label, each centred on its border, do not touch.
+ */
+const BOX_PAD = 16;
 /** A box with no node: wide enough for the longest NATO name, as high as its label. */
 const EMPTY_BOX = { width: 104, height: 24 };
 const EMPTY_GAP = 8;
@@ -106,9 +114,17 @@ export function layoutSwimlanes(graph: Graph): Layout {
     offsets[zone] = boardColumns;
     boardColumns += boardWidths[zone];
   }
-  const laneWidth = laneWidthFor(boardColumns);
-  // A boundary falls in the middle of the gutter between two columns, so the
-  // stripe lines up with the gap the operator already sees.
+  // Every lane of the canvas is of one kind. A project lane leaves room for a
+  // worktree box between its border and its nodes; its label needs no header,
+  // because the gap above the first box holds it.
+  const kind = graph.groups[0]?.kind;
+  const boxed = kind === 'project';
+  const pad = boxed ? LANE_INSET + BOX_PAD * 2 : LANE_PAD;
+  const header = kind === 'none' || boxed ? 0 : LANE_HEADER;
+  const columnX = (column: number) => pad + column * (NODE.width + GAP_X);
+  const width = Math.max(1, boardColumns);
+  // A lane is never narrower than one node.
+  const laneWidth = pad * 2 + width * NODE.width + (width - 1) * GAP_X;
   const zones = ZONES.map((zone) => ({
     zone,
     x: columnX(offsets[zone]),
@@ -118,7 +134,6 @@ export function layoutSwimlanes(graph: Graph): Layout {
 
   const bands: { id: string; height: number }[] = [];
   for (const group of graph.groups) {
-    const header = group.kind === 'none' ? 0 : LANE_HEADER;
     const placed = columnsPerGroup.get(group.id)!.byId;
     const columnOf = new Map(
       group.nodeIds.map((id) => {
@@ -130,13 +145,15 @@ export function layoutSwimlanes(graph: Graph): Layout {
     // own. Every other lane is one section.
     const sections = new Map<Worktree | undefined, string[]>();
     for (const id of group.nodeIds) {
-      const key = group.kind === 'project' ? worktreeOf.get(id) : undefined;
+      const key = boxed ? worktreeOf.get(id) : undefined;
       const ids = sections.get(key);
       if (ids) ids.push(id);
       else sections.set(key, [id]);
     }
     const boxes: WorktreeBox[] = [];
-    const top = header + LANE_PAD;
+    // A boxed lane starts one gap inside its border; its nodes are a second gap in.
+    const edge = boxed ? LANE_INSET + BOX_PAD : pad;
+    const top = header + edge;
     let y = top;
     for (const [worktree, ids] of sections) {
       // A follows edge that crosses sections falls out as an unknown id, as a
@@ -147,7 +164,7 @@ export function layoutSwimlanes(graph: Graph): Layout {
       const columns = ids.map((id) => columnOf.get(id)!);
       const rows = Math.max(...rowOf.values()) + 1;
       const rowsHeight = rows * NODE.height + (rows - 1) * GAP_Y;
-      const rowsY = worktree ? y + BOX_HEADER + BOX_PAD : y;
+      const rowsY = worktree ? y + BOX_PAD : y;
       for (const id of ids) {
         nodes[id] = {
           x: columnX(columnOf.get(id)!),
@@ -160,11 +177,10 @@ export function layoutSwimlanes(graph: Graph): Layout {
         const right = columnX(Math.max(...columns)) + NODE.width + BOX_PAD;
         boxes.push({ worktree, empty: false, x: left, y, width: right - left, height: bottom - y });
       }
-      y = bottom + BOX_GAP;
+      y = bottom + BOX_PAD;
     }
-    // The strip of empty boxes: left to right between the edges a full box
-    // would have, so the strip lines up with the boxes above it.
-    const stripLeft = LANE_PAD - BOX_PAD;
+    // The strip of empty boxes: left to right between the edges a full box has.
+    const stripLeft = edge;
     let x = stripLeft;
     for (const worktree of group.emptyWorktrees) {
       if (x > stripLeft && x + EMPTY_BOX.width > laneWidth - stripLeft) {
@@ -174,9 +190,9 @@ export function layoutSwimlanes(graph: Graph): Layout {
       boxes.push({ worktree, empty: true, x, y, ...EMPTY_BOX });
       x += EMPTY_BOX.width + EMPTY_GAP;
     }
-    if (group.emptyWorktrees.length > 0) y += EMPTY_BOX.height + BOX_GAP;
+    if (group.emptyWorktrees.length > 0) y += EMPTY_BOX.height + BOX_PAD;
     worktreeBoxes[group.id] = boxes;
-    const height = Math.max(top, y - BOX_GAP) + LANE_PAD;
+    const height = Math.max(top, y - BOX_PAD) + edge;
     bands.push({ id: group.id, height });
   }
   for (const band of bands) {
@@ -184,15 +200,4 @@ export function layoutSwimlanes(graph: Graph): Layout {
     laneY += band.height + LANE_GAP;
   }
   return { groups, nodes, nodeSize: { ...NODE }, worktreeBoxes, zones, boardWidth: laneWidth };
-}
-
-/** The left edge of a board column, from the lane's origin. */
-function columnX(column: number): number {
-  return LANE_PAD + column * (NODE.width + GAP_X);
-}
-
-/** A lane holding `columns` columns, never narrower than one node. */
-function laneWidthFor(columns: number): number {
-  const width = Math.max(1, columns);
-  return LANE_PAD * 2 + width * NODE.width + (width - 1) * GAP_X;
 }

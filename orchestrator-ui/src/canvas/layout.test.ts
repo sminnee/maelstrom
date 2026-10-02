@@ -115,8 +115,13 @@ describe('layoutSwimlanes', () => {
     });
     const layout = layoutSwimlanes(graph);
     expect(Object.keys(layout.groups)).toEqual(['all']);
+    // A branch lane differs only in its header, which holds the lane's label.
+    const byBranch = deriveGraph(worldWith({ tasks: chain, desk: onDesk(chain) }), {
+      groupBy: 'branch',
+      filters: noFilters(),
+    });
     expect(Math.min(...graph.nodes.map((n) => layout.nodes[n.id]!.y))).toBeLessThan(
-      layoutSwimlanes(graphOf(chain)).nodes['A']!.y,
+      layoutSwimlanes(byBranch).nodes['A']!.y,
     );
     expect(layout.nodes['B']!.x).toBeGreaterThan(layout.nodes['A']!.x);
     expect(layout.nodes['F']!.x).toBeGreaterThan(layout.nodes['E']!.x);
@@ -161,15 +166,15 @@ describe('layoutSwimlanes', () => {
     // p2 has no done history, so its running node starts where p1's does
     // rather than in p2's own first column.
     expect(layout.nodes['D']!.x).toBe(layout.nodes['C']!.x);
+    // The done zone holds two columns: it spans from A's left edge to B's right.
+    const done = layout.zones.find((z) => z.zone === 'done')!;
+    expect(done.x).toBe(layout.nodes['A']!.x);
+    expect(done.x + done.width).toBe(layout.nodes['B']!.x + layout.nodeSize.width);
   });
 
   it('leaves the done columns blank in a lane with no done task', () => {
     const layout = layoutSwimlanes(
       graphOf(
-    // The done zone holds two columns: it spans from A's left edge to B's right.
-    const done = layout.zones.find((z) => z.zone === 'done')!;
-    expect(done.x).toBe(layout.nodes['A']!.x);
-    expect(done.x + done.width).toBe(layout.nodes['B']!.x + layout.nodeSize.width);
         [doneTask('A', 'p1'), runningTask('B', 'p1'), runningTask('C', 'p2')],
         [agentOn('ag-b', 'B'), agentOn('ag-c', 'C')],
       ),
@@ -187,11 +192,6 @@ describe('layoutSwimlanes', () => {
     );
     expect(layout.zones.find((z) => z.zone === 'running')?.columns).toBe(0);
     expect(layout.zones.find((z) => z.zone === 'done')?.columns).toBe(1);
-  });
-
-  it('puts a done task left of a running one with no edge between them', () => {
-    const layout = layoutSwimlanes(
-      graphOf([doneTask('A', 'p1'), runningTask('B', 'p1')], [agentOn('ag-b', 'B')]),
     // A zone spans its nodes and no more: each has one column here, so it
     // starts and ends with its one node. An empty zone has no width.
     const band = (zone: string) => layout.zones.find((z) => z.zone === zone)!;
@@ -203,6 +203,11 @@ describe('layoutSwimlanes', () => {
       expect(band(zone).width).toBe(layout.nodeSize.width);
     }
     expect(band('running').width).toBe(0);
+  });
+
+  it('puts a done task left of a running one with no edge between them', () => {
+    const layout = layoutSwimlanes(
+      graphOf([doneTask('A', 'p1'), runningTask('B', 'p1')], [agentOn('ag-b', 'B')]),
     );
     expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
   });
@@ -292,6 +297,34 @@ describe('worktree boxes in a project lane', () => {
     expect(cell('T4').x).toBeGreaterThan(cell('T1').x);
     for (const id of ['T1', 'T4']) expect(contains(boxOf('bravo'), cell(id))).toBe(true);
     expect(contains(boxOf('alpha'), cell('T3'))).toBe(true);
+  });
+
+  it('leaves one gap from the lane border to a box, and from the box to its nodes', () => {
+    const { layout, cell, boxOf } = laidOut('project');
+    // React Flow pads a group node by 10px, so the lane's border draws there.
+    const inset = 10;
+    const box = boxOf('bravo');
+    const gap = cell('T1').x - box.x;
+    expect(gap).toBeGreaterThan(0);
+    expect(cell('T1').y - box.y).toBe(gap);
+    expect(box.x + box.width - (cell('T4').x + cell('T4').width)).toBe(gap);
+    expect(box.y + box.height - (cell('T1').y + cell('T1').height)).toBe(gap);
+    // bravo is the first box of the lane, so it meets the lane border on two sides.
+    expect(box.x - inset).toBe(gap);
+    expect(box.y - inset).toBe(gap);
+    // alpha is the last box, in the last column.
+    const last = boxOf('alpha');
+    const lane = layout.groups['p1']!;
+    expect(lane.width - inset - (last.x + last.width)).toBe(gap);
+    // T2 has no box and sits between the two boxes, the same gap from each.
+    expect(cell('T2').y - (box.y + box.height)).toBe(gap);
+    expect(last.y - (cell('T2').y + cell('T2').height)).toBe(gap);
+    // The lane ends one gap below its last box: the strip here, alpha with no strip.
+    const bottom = (b: { y: number; height: number }) => b.y + b.height;
+    const strip = laidOut('project').boxes.filter((b) => b.empty);
+    expect(lane.height - inset - Math.max(...strip.map(bottom))).toBe(gap);
+    const bare = laidOut('project', held);
+    expect(bare.layout.groups['p1']!.height - inset - bottom(bare.boxOf('alpha'))).toBe(gap);
   });
 
   it('puts a node with no worktree in no box', () => {
