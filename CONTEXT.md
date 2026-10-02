@@ -85,6 +85,12 @@ committed as `wip: uncommitted changes` first. A trashed branch has no base, so 
 stack.
 _Avoid_: Archive, abandon, discard
 
+**Shelve**:
+A close that goes past the refusals and keeps the work: `mael close --force`, and Shelve in the
+orchestrator UI. Outstanding work is committed as `wip: uncommitted changes`, and the branch and
+its PR stay. A shelve that went over unmerged work adds a task to reopen the branch.
+_Avoid_: Force close (in the UI), archive, park
+
 **Closed**:
 The state that makes a worktree available for recycling: detached HEAD, no dirty files, and no
 commits ahead of `origin/main`.
@@ -877,14 +883,16 @@ _Avoid_: Watched branch, live branch
 **Free agent**:
 An agent with no task. A launch pins a task session id on the agent, so an agent that carries
 none matches no task. A free agent is started by hand in a worktree, or from the orchestrator
-UI's new-work form. A free agent takes its name, branch and lane from the worktree it runs in;
+UI: from the new-work form, or from a **Worktree card**, which opens that form on the worktree's
+branch. A free agent takes its name, branch and lane from the worktree it runs in;
 an agent whose worktree the world has not read yet falls back to its own project and a generic
 name. A free agent has no task list row, so its node is the only place to take it **Off desk**.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
 **Canvas**:
-The view that draws swimlanes of nodes: one per task, one per free agent. A node is drawn when
-it is on the desk, or it has a live agent, so running work is always visible.
+The view that draws the desk as one lane per project, with a **Worktree box** round the nodes of
+each worktree. It draws one node per task and one per free agent. A node is drawn when it is on
+the desk, or it has a live agent, so running work is always visible.
 _Avoid_: Graph view, board
 
 **Zone**:
@@ -896,14 +904,20 @@ as three vertical stripes. A zone is a stage of progress; a lane is one project'
 _Avoid_: Band, column group, stage, phase
 
 **Worktree box**:
-A dashed, named outline round the nodes of one worktree, inside a project lane. A box is one
-rectangle, from the first column to the last column of its nodes. No other node takes a cell of
-that rectangle, so a box holds those nodes and no other. Two boxes with no column in common can
-sit side by side. A node with no worktree sits in no box. An open worktree that holds no node
-draws as an empty box, in a strip below the last row of the lane. `_main` gets a box only when a node is in it. Only group by
-`project` draws worktree boxes, and only while no branch or agent status filter is set does it
-draw the empty ones. A worktree box is not a control.
+A dashed outline round the nodes of one worktree, inside a project lane. A box is one rectangle,
+from the first column to the last column of its nodes. No other node takes a cell of that
+rectangle, so a box holds those nodes and no other. Two boxes with no column in common can sit
+side by side. A node with no worktree sits in no box. An open worktree that holds no node draws
+as an empty box, in a strip below the last row of the lane. `_main` gets a box only when a node
+is in it. The box's label names the worktree and its branch, and is a control: it opens the
+**Worktree card**.
 _Avoid_: Worktree frame, sub-lane
+
+**Worktree card**:
+The card a **Worktree box** label opens on the canvas. It holds the worktree's controls, the
+same ones the node card ends with, and it starts a free agent in the worktree. The canvas shows
+one card at a time, a node's or a worktree's.
+_Avoid_: Worktree popover, box card, worktree panel
 
 **Deck list**:
 The narrow layout's main view: the desk as one row per node, tabbed by zone and opening on
@@ -911,12 +925,6 @@ running. It draws what the canvas draws â€” a node per task and per free agent â
 screen instead of across it, because a phone has no room for a board. The deck list replaces the
 canvas below 840px, and never appears at or above that width.
 _Avoid_: Mobile canvas, card list, feed
-
-**Unallocated**:
-The canvas lane that holds work which resolves to no open worktree, drawn only when grouping by
-worktree. A task whose branch has none lands there, and so does a free agent whose worktree is
-closed or unread. Unallocated stands for no worktree, so its lane offers no close.
-_Avoid_: Ungrouped, orphaned, no worktree
 
 **Task list**:
 The view that lists every task the server knows, with filters for status, project, branch and

@@ -85,8 +85,8 @@ first rather than piling up tabs.
 
 ### The terminal from the orchestrator
 
-An expanded card in the orchestrator UI has a **cmux** control for its worktree. The worktree
-bar above a panel's tabs has the same control. It has two states:
+An expanded card in the orchestrator UI has a **cmux** control for its worktree. The Worktree
+card and the worktree bar above a panel's tabs have the same control. It has two states:
 
 | Icon | Meaning | A click |
 |---|---|---|

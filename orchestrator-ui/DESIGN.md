@@ -392,31 +392,34 @@ resizable, with a 6px drag grip on its left edge. A click closes a slot and a sh
 an anchor; see **Slot** and **Anchor** in `CONTEXT.md`. Tabs starts on the right and the three main views start on the left, so the opening layout
 is a main view with the panel beside it.
 
-The main views are the canvas, the task list and the worktree table. The canvas draws the desk as horizontal lanes, one per group when grouped by project or
-branch, and none when grouped by `none`. The task list is a table with a sticky filter row.
+The main views are the canvas, the task list and the worktree table. The canvas draws the desk
+as horizontal lanes, one per project. The task list is a table with a sticky filter row.
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
-separated by 56px horizontally and 14px vertically. In a project lane, the vertical gap grows
-where a worktree box border sits between two rows. A lane has 20px of padding and 28px between
-lanes. A worktree or branch lane has 6px more above its first row, for its label. A project lane
-has 42px of padding, for its worktree boxes. Every lane is as wide as the board, not as wide as
-its own content.
+separated by 56px horizontally and 14px vertically. The vertical gap grows where a worktree box
+border sits between two rows. A lane has 42px of padding, for its worktree boxes, and 28px
+between lanes. Every lane is as wide as the board, not as wide as its own content.
 
 A lane's label sits on the lane's top border, as a fieldset legend does: mono, 11px, in the case
 of the name, centred on the line. The label has the `--bg` ground and 2px of side padding, so the
 border stops clear of the text. The label starts 28px from the lane's left border, clear of the
 corner.
 
-A project lane draws a **Worktree box** round the nodes of each worktree: a 1px dashed outline
-in `--border-strong`. The worktree name sits on the box's top border in the same way as a lane's
+A lane draws a **Worktree box** round the nodes of each worktree: a 1px dashed outline in
+`--border-strong`. The box's label sits on the box's top border in the same way as a lane's
 label, and the two labels start at one x. One 16px gap separates the lane border from a box, a
 box from its nodes, and a box from what sits above or below it: a node with no box, or a second
 box. Two boxes with no column in common sit side by side, at least 24px apart, and their nodes
 align on one row. The gap between two rows is the same
 across the lane: 32px where a box meets a node with no box, 48px where two boxes meet. An open
-worktree with no node draws as a 104×24 box in a strip below the lowest node and box, with its
-name inside. The box takes no fill and no pointer events: it
-names a place and is not a control.
+worktree with no node draws as a 220×24 box in a strip below the lowest node and box, with its
+label inside. The strip holds one box per column, and each starts where a box that holds a node
+in that column starts. Two lines of the strip are 8px apart.
+
+The box takes no fill and no pointer events. Its label is the one control: a button holding the
+worktree name in `--fg-muted` and the branch in `--fg-faint`. Both lift to `--fg` on hover and
+while the card is open. The branch gives way with an ellipsis, and the full branch is in the
+`title`. A detached worktree reads `(detached)`. The label never runs past its box.
 
 Horizontal position is progress first and dependency second:
 
@@ -577,11 +580,9 @@ The footer is pushed to the bottom, so the gap above it separates identity from 
 Every field on the node holds one line and truncates with an ellipsis. A field that wraps costs
 the node its fixed height and pushes the title out of view.
 
-The node names its project only when nothing else on screen does. The lane header names it when
-the board groups by project, and the filter bar names it when the operator filters to one.
-
-The footer names the worktree while an agent runs, as its NATO name. Two agents on one board are
-told apart by where they run, so the worktree sits beside the id rather than only on the card.
+The node names neither its project nor its worktree. The lane names the project, and the
+**Worktree box** round the node names the worktree and its branch. The deck list has no lane and
+no box, so a deck row names both.
 
 - **Rest:** hairline border, full opacity.
 - **Working:** border takes the phase hue and a 2.4s box-shadow pulse breathes outward. Under
@@ -620,12 +621,26 @@ and neither alone is load-bearing.
 
 The board unit opened in place: 440px wide, 10px radius, strong hairline, phase bar retained,
 lifted on `--shadow-card`, capped at 70vh with internal scroll. Title at 16px/600, then the
-identity block — id, phase, and a mono line of branch, worktree, model, permission mode and
-cost — then a status line, the brief, the decision block, and a footer of panel links and
-commands. A hairline opens each band from the one above. The close button is a bare glyph that
-lifts from faint to full on hover.
+identity block — id, phase, and a mono line of model, permission mode and cost — then a status
+line, the brief, the decision block, and a footer. A hairline opens each band from the one above.
 
-That mono line wraps rather than truncates. The card is content-sized, so it can spend the
+The footer reads in three steps: the Session link and the documents, the agent's commands, then
+the worktree area. The order follows the reading path: what the agent says, what to do with the
+agent, then where the work lives.
+
+The worktree area is the last band of the card. One hairline and one `WORKTREE` head set it
+apart, in the style of a document kind head, with no nested box. Under the head sit the name and
+branch in mono, the links — Changes, the PR chip, the dev env, cmux — and then Sync, the
+environment control and the close control, right-aligned. The branch wraps rather than
+truncates, as the mono line does.
+
+The **Worktree card** is the same area under a header: the worktree name at 16px/600 mono, the
+project below it, and the close button. It is 360px wide and has no phase bar, because a worktree
+has no phase. Start free agent is its one primary button, alone on the last row.
+
+On both cards the close button is a bare glyph that lifts from faint to full on hover.
+
+The node card's mono line wraps rather than truncates. The card is content-sized, so it can spend the
 height a second line costs. An ellipsis cannot: it takes the end of the line, where the cost
 sits, and the cost is the reading the operator opened the card for. This is the opposite of the
 small node's rule above, because the small node holds a fixed height and the card does not. The
