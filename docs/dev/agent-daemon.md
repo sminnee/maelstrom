@@ -289,6 +289,12 @@ The child answers it, then closes the turn:
 The turn ends `idle`, and the agent is still there to take the next message. Recorded in
 `agent-daemon/fixtures/agent_events/interrupt.jsonl`.
 
+The daemon takes an interrupt while the agent's status is `processing` or a wait. It also takes
+one while the child writes the first message of a turn. The status reads `idle` through that
+window, because a chunk of a partial message does not move it, but the text is already on screen.
+`Agent.writing` holds that fact, from the agent's first chunk to the turn's `result`. Between the
+user turn and that first chunk the daemon still refuses an interrupt.
+
 An interrupt does not answer a request the child is blocked on. So the daemon denies a pending
 wait first, with the reason `Interrupted by user`, and the child returns that denial as the tool
 result before the interrupt lands. Recorded in

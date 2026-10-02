@@ -426,6 +426,10 @@ class Agent:
         # survives a daemon that never gets to shut down.
         self.on_status = on_status
         self.watchers: list[Watcher] = []
+        #: True from the turn's first chunk to its ``result``. The status reads
+        #: `idle` for part of that window, and an interrupt must still be taken.
+        #: Not in the state, so the status a spawn record keeps does not change.
+        self.writing = False
         #: Futures waiting on a `control_response` the daemon asked for, by
         #: request id. Only `set-mode` uses one: every other command is
         #: fire-and-forget, because the child's own stream is the evidence.
@@ -596,9 +600,13 @@ class Agent:
                     continue  # a non-JSON line is noise, not a state change
                 if event.get("type") == STREAM_EVENT:
                     # Not recorded: a chunk takes no seq and no ring slot.
+                    if not event.get("parent_tool_use_id"):
+                        self.writing = True
                     if is_partial_text(event):
                         self._offer_partial(event)
                     continue
+                if event.get("type") == "result":
+                    self.writing = False
                 for orphan in self.record(event):
                     # Its subagent has gone, so nothing else will ever answer
                     # it. Undenied, the child holds the ask for ever.
@@ -1352,7 +1360,7 @@ class AgentDaemon:
         pending = _oldest_pending(agent.state)
 
         if command == "interrupt":
-            if agent.state.status not in INTERRUPTIBLE:
+            if agent.state.status not in INTERRUPTIBLE and not agent.writing:
                 return {"error": f"agent {agent.state.agent_id} is not running a turn"}
             # An undenied ask leaves its caller blocked forever.
             for open_ask in list(asks.values()):
