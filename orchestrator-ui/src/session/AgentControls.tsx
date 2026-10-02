@@ -6,9 +6,10 @@ import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Agent, Worktree } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { isLive } from '../selectors/graph';
-import { canClose } from '../selectors/worktrees';
+import { canClose, trackedAgents } from '../selectors/worktrees';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { AppButton } from '../ui/AppButton';
+import { trashConfirm } from '../worktrees/trashConfirm';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 
 /**
@@ -43,7 +44,8 @@ export function AgentControls({
   const endOfWork = endOfWorkOptions({
     live: isLive(agent),
     where,
-    others: where ? otherLiveAgents(world.agents, where.id, agent?.id) : 0,
+    // The agents the worktree's own close control counts, less this node's.
+    others: where ? trackedAgents(world, where.id).filter((a) => a.id !== agent?.id).length : 0,
     // Terminate ends the process; the session tab's Stop only abandons the
     // turn — see CONTEXT.md, "Interrupt".
     stop: () => stop.mutateAsync({ agentId: agent!.id }),
@@ -133,10 +135,7 @@ function endOfWorkOptions({
         label: `${lead} & trash ${where.nato}`,
         processing: 'Trashing…',
         ...held,
-        confirm: {
-          question: `Trash ${where.branch}? Its PR closes and the branch moves to trash/.`,
-          confirm: 'Trash it',
-        },
+        confirm: trashConfirm(where),
         run: async () => {
           await trash();
           await takeOffDesk();
@@ -145,18 +144,4 @@ function endOfWorkOptions({
     );
   }
   return options;
-}
-
-/**
- * Live top-level agents in a worktree, leaving out `self`. A subagent is not
- * counted: it runs inside its parent, and stops with it.
- */
-function otherLiveAgents(
-  agents: Record<string, Agent>,
-  worktreeId: string,
-  self: string | undefined,
-): number {
-  return Object.values(agents).filter(
-    (a) => a.worktreeId === worktreeId && a.id !== self && !a.parent && isLive(a),
-  ).length;
 }

@@ -1,18 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
-import {
-  useCloseWorktree,
-  useForceCloseWorktree,
-  useRefreshWorktrees,
-  useRemoveWorktree,
-} from '../api/worktrees';
+import { useRefreshWorktrees, useRemoveWorktree } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
-import { canClose, listWorktrees } from '../selectors/worktrees';
+import { listWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { CloseControl } from './CloseControl';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
 import { SyncControl } from './SyncControl';
@@ -21,11 +17,9 @@ import styles from './WorktreeTable.module.css';
 /**
  * Every worktree across every project, and the operations over them.
  *
- * The one surface that draws a worktree nobody is working in: the canvas can
- * group lanes by worktree, but a lane only holds what is on the desk. Here the
- * rows come from the world, so an idle open worktree is as visible as a busy
- * one — and `mael sync`, `mael close` and `mael env` reach a button rather
- * than only a terminal.
+ * The rows come from the world, so an idle open worktree is as visible as a
+ * busy one, and a closed one can be listed. The canvas draws the open ones as
+ * worktree boxes; this is where `mael remove` reaches a button.
  */
 export function WorktreeTable() {
   const { world, status, errors, retry } = useWorld();
@@ -94,10 +88,6 @@ export function WorktreeTable() {
 
 /** One worktree: what it holds, and what can be done to it. */
 function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
-  // One question open at a time in a row: two destructive actions a click
-  // apart is how the wrong worktree gets deleted.
-  const [asking, setAsking] = useState<'force-close' | 'remove' | null>(null);
-
   return (
     <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed}>
       <td className={styles.mono}>{worktree.nato}</td>
@@ -116,7 +106,7 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
       </td>
       <td>{agents || ''}</td>
       <td className={styles.actions}>
-        <Actions worktree={worktree} asking={asking} setAsking={setAsking} />
+        <Actions worktree={worktree} />
       </td>
     </tr>
   );
@@ -135,17 +125,8 @@ function remoteCell(worktree: Worktree): string {
   return commits ? String(commits) : '';
 }
 
-function Actions({
-  worktree,
-  asking,
-  setAsking,
-}: {
-  worktree: Worktree;
-  asking: 'force-close' | 'remove' | null;
-  setAsking: (asking: 'force-close' | 'remove' | null) => void;
-}) {
-  const close = useCloseWorktree();
-  const forceClose = useForceCloseWorktree();
+function Actions({ worktree }: { worktree: Worktree }) {
+  const [asking, setAsking] = useState(false);
   const remove = useRemoveWorktree();
   const id: WorktreeId = worktree.id;
   // `_main` holds the project's main checkout, so it never closes and never
@@ -160,39 +141,15 @@ function Actions({
           <EnvControl worktree={worktree} />
         </>
       )}
-      {canClose(worktree) && (
-        <>
-          <AppButton
-            variant="quiet"
-            title={`Close ${worktree.nato}`}
-            processingChildren="Closing…"
-            onClick={() => close.mutateAsync({ worktreeId: id })}
-          >
-            Close
-          </AppButton>
-          <ConfirmButton
-            variant="quiet"
-            question={`Force close ${worktree.nato}? Work in progress is committed first.`}
-            confirm="Force close"
-            asking={asking === 'force-close'}
-            onAsk={() => setAsking('force-close')}
-            onDismiss={() => setAsking(null)}
-            // ConfirmButton dismisses itself once the action resolves, and
-            // holds the question open showing the error when it rejects.
-            onConfirm={() => forceClose.mutateAsync({ worktreeId: id })}
-          >
-            Force close
-          </ConfirmButton>
-        </>
-      )}
+      <CloseControl worktree={worktree} />
       {closable && (
         <ConfirmButton
           variant="quiet"
           question={`Delete ${worktree.nato}? The checkout goes; the branch stays.`}
           confirm="Delete it"
-          asking={asking === 'remove'}
-          onAsk={() => setAsking('remove')}
-          onDismiss={() => setAsking(null)}
+          asking={asking}
+          onAsk={() => setAsking(true)}
+          onDismiss={() => setAsking(false)}
           onConfirm={() => remove.mutateAsync({ worktreeId: id })}
         >
           Delete

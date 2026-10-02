@@ -51,6 +51,11 @@ export function canClose(worktree: Worktree): boolean {
   return worktree.nato !== '_main' && !worktree.isClosed;
 }
 
+/** The branch as a label. A closed worktree carries none, and neither does a detached one. */
+export function branchLabel(worktree: Worktree): string {
+  return worktree.isClosed ? '(closed)' : worktree.branch || '(detached)';
+}
+
 /**
  * `_main` first, then the NATO names in order.
  *
@@ -68,7 +73,7 @@ export function byName(a: Worktree, b: Worktree): number {
  *
  * Read from the world rather than from what is on the desk, so a worktree
  * nobody is working in still draws — which is the whole reason this view
- * exists. `seedWorktreeLanes` in `graph.ts` reads the world the same way, for
+ * exists. `listEmptyWorktrees` in `graph.ts` reads the world the same way, for
  * the same reason.
  */
 export function listWorktrees(

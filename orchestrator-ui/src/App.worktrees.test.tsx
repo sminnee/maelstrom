@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { exitAgent } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the worktrees view', () => {
@@ -95,40 +96,43 @@ describe('the worktrees view', () => {
 
   it('closes a worktree and the row goes with it', async () => {
     const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToWorktrees(user);
+    exitAgent(server, 'a1f3c9e2');
+
+    const close = await within(row('northwind-alpha')!).findByRole('button', { name: 'Close' });
+    await waitFor(() => expect(close).toBeEnabled());
+    await user.click(close);
+    await waitFor(() => expect(row('northwind-alpha')).toBeNull());
+  });
+
+  it('holds the close while an agent runs in the worktree, and says why', async () => {
+    const user = userEvent.setup();
     await renderApp();
     await goToWorktrees(user);
 
-    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Close' }));
-    await waitFor(() => expect(row('northwind-alpha')).toBeNull());
+    const alpha = within(row('northwind-alpha')!);
+    expect(alpha.getByRole('button', { name: 'Close' })).toBeDisabled();
+    await user.click(alpha.getByRole('button', { name: 'More close actions' }));
+    expect(alpha.getByRole('menuitem', { name: 'Shelve' })).toHaveAccessibleDescription(
+      '1 agent still running in alpha',
+    );
   });
 
   it('says what the model said when a close is refused', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
     await goToWorktrees(user);
+    exitAgent(server, 'b7d2e4a0');
 
     // maelstrom-alpha has 3 dirty files, which the close refuses.
-    await user.click(within(row('maelstrom-alpha')!).getByRole('button', { name: 'Close' }));
+    const close = within(row('maelstrom-alpha')!).getByRole('button', { name: 'Close' });
+    await waitFor(() => expect(close).toBeEnabled());
+    await user.click(close);
     await waitFor(() =>
       expect(within(row('maelstrom-alpha')!).getByTitle(/uncommitted changes/)).toBeInTheDocument(),
     );
     expect(row('maelstrom-alpha')).not.toBeNull();
-  });
-
-  it('asks before it force closes', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
-
-    await user.click(within(row('maelstrom-alpha')!).getByRole('button', { name: 'Force close' }));
-    expect(screen.getByText(/Force close alpha\?/)).toBeInTheDocument();
-    // Still there: asking is not doing.
-    expect(row('maelstrom-alpha')).not.toBeNull();
-
-    // Scoped to the question: the trigger carries the same word.
-    const question = screen.getByRole('alertdialog');
-    await user.click(within(question).getByRole('button', { name: 'Force close' }));
-    await waitFor(() => expect(row('maelstrom-alpha')).toBeNull());
   });
 
   it('asks before it deletes, and the worktree then leaves the world', async () => {

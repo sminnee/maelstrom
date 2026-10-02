@@ -33,7 +33,7 @@ import { useNow } from '../ui/useNow';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
-import { WorktreeCommands, WorktreeLinks } from '../worktrees/WorktreeControls';
+import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { AgentControls } from '../session/AgentControls';
 import styles from './NodeCard.module.css';
 
@@ -97,8 +97,6 @@ export function NodeCardBody({
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
   const meta = [
-    where?.branch || task?.branch || '',
-    where?.nato || (agent ? agent.worktreeId : ''),
     modelLabel(agent?.model || task?.model || ''),
     agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
@@ -275,28 +273,11 @@ export function NodeCardBody({
       {node.kind === 'task' && task && <FollowsSection taskId={task.id} />}
 
       <footer className={styles.footer}>
-        <div className={styles.actions} data-testid="node-actions">
-          {agent && <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>}
-          <WorktreeLinks worktree={where} pr={cardPr(node, where) ?? null} />
-        </div>
-        <div className={styles.commands} data-testid="node-commands">
-          {!agent && task?.actionable && (
-            <AppButton
-              variant="primary"
-              processingChildren="Launching"
-              onClick={() => launch.mutateAsync({ taskId: task.id })}
-            >
-              Launch
-            </AppButton>
-          )}
-          {node.kind === 'task' && task && (
-            <AppButton variant="quiet" onClick={() => editTask(task.id)}>
-              Edit task
-            </AppButton>
-          )}
-          <WorktreeCommands worktree={where} />
-          <AgentControls agent={agent} taskId={task?.id} where={where} onTakenOffDesk={onDone} />
-        </div>
+        {agent && (
+          <div className={styles.actions} data-testid="node-actions">
+            <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
+          </div>
+        )}
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
             {documents.map((section) => (
@@ -334,6 +315,24 @@ export function NodeCardBody({
             ))}
           </div>
         )}
+        <div className={styles.commands} data-testid="node-commands">
+          {!agent && task?.actionable && (
+            <AppButton
+              variant="primary"
+              processingChildren="Launching"
+              onClick={() => launch.mutateAsync({ taskId: task.id })}
+            >
+              Launch
+            </AppButton>
+          )}
+          {node.kind === 'task' && task && (
+            <AppButton variant="quiet" onClick={() => editTask(task.id)}>
+              Edit task
+            </AppButton>
+          )}
+          <AgentControls agent={agent} taskId={task?.id} where={where} onTakenOffDesk={onDone} />
+        </div>
+        {where && <WorktreeSection worktree={where} pr={cardPr(node, where) ?? null} />}
       </footer>
     </>
   );

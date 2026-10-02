@@ -207,3 +207,29 @@ export function commandsSince(server: FakeServer, from: number): string[] {
     .filter((r) => r.method !== 'GET')
     .map((r) => `${r.method} ${decodeURIComponent(r.path)}`);
 }
+
+/** Stop an agent, as a terminate does: the row stays in the world, exited. */
+export function exitAgent(server: FakeServer, agentId: string) {
+  server.change({ kind: 'agent', ids: [agentId] }, (w) => {
+    w.agents[agentId] = {
+      ...w.agents[agentId]!,
+      state: 'exited',
+      exitCode: 0,
+      pendingRequestIds: [],
+    };
+  });
+}
+
+/**
+ * Every control of the worktree area in `dialog`, in order: its label, and
+ * whether it is held. One reading for both cards, so the two are compared whole.
+ */
+export function worktreeControls(dialog: HTMLElement): [string | null, boolean][] {
+  const area = within(dialog).getByRole('region', { name: 'Worktree' });
+  return [...within(area).getAllByRole('link'), ...within(area).getAllByRole('button')].map(
+    (el) => [
+      el.getAttribute('aria-label') ?? el.textContent,
+      (el as HTMLButtonElement).disabled === true,
+    ],
+  );
+}

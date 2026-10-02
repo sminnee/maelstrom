@@ -9,7 +9,7 @@ import { SyncControl } from './SyncControl';
 
 /**
  * A worktree's controls, in two pieces so a surface can lay them out on two
- * rows: the links out of it, and the commands on it. The expanded card and
+ * rows: the links out of it, and the commands on it. The worktree area and
  * the panel's worktree bar both draw these, so the two cannot drift.
  */
 
