@@ -5,6 +5,11 @@ function n(id: string, column: number, ...follows: string[]): RowInput {
   return { id, column, follows };
 }
 
+/** A node of the worktree box `box`. */
+function b(box: string, id: string, column: number, ...follows: string[]): RowInput {
+  return { id, column, follows, box };
+}
+
 /** Every row, as a plain object, so a missing or extra id fails too. */
 function rowsOf(nodes: RowInput[]) {
   return Object.fromEntries(assignRows(nodes));
@@ -140,5 +145,78 @@ describe('assignRows', () => {
 
   it('terminates on a cycle', () => {
     expect(rowsOf([n('A', 1, 'B'), n('B', 0, 'A')])).toEqual({ A: 0, B: 0 });
+  });
+
+  describe('with boxes', () => {
+    it('starts two boxes in disjoint columns on row 0', () => {
+      expect(rowsOf([b('x', 'A', 0), b('y', 'B', 1)])).toEqual({ A: 0, B: 0 });
+    });
+
+    it('starts a box below the last row of an earlier box in its column', () => {
+      expect(rowsOf([b('x', 'A', 0), b('x', 'A2', 0), b('y', 'B', 0)])).toEqual({
+        A: 0,
+        A2: 1,
+        B: 2,
+      });
+    });
+
+    // No edge joins A and B. Without the box, L sits between them.
+    it('keeps two unchained nodes of one box on adjacent rows', () => {
+      expect(rowsOf([b('x', 'A', 0), n('L', 0), b('x', 'B', 0)])).toEqual({ A: 0, B: 1, L: 2 });
+    });
+
+    // The box spans columns 0 to 2, so its rectangle holds column 1 of row 0.
+    it('keeps a loose node out of an empty cell of a box rectangle', () => {
+      expect(rowsOf([b('x', 'A', 0), b('x', 'B', 2), n('L', 1)])).toEqual({ A: 0, B: 0, L: 1 });
+    });
+
+    it('puts a loose node in a free cell beside a box', () => {
+      expect(rowsOf([b('x', 'A', 0), b('x', 'A2', 0), n('L', 1), n('M', 1)])).toEqual({
+        A: 0,
+        A2: 1,
+        L: 0,
+        M: 1,
+      });
+    });
+
+    it('puts a later box in the hole under a short box, beside a tall one', () => {
+      expect(
+        rowsOf([b('x', 'A', 0), b('y', 'B', 1), b('y', 'B2', 1), b('y', 'B3', 1), b('z', 'C', 0)]),
+      ).toEqual({ A: 0, B: 0, B2: 1, B3: 2, C: 1 });
+    });
+
+    // Row 0 is free in column 3, but rows 1 and 2 are not: the block needs both of its rows.
+    it('puts a block where every row of its rectangle is free', () => {
+      expect(
+        rowsOf([
+          n('P', 0),
+          n('Q', 2, 'P'),
+          n('A', 2),
+          n('B', 3, 'A'),
+          n('C', 4, 'B', 'M'),
+          n('M', 3),
+          b('x', 'X1', 3),
+          b('x', 'X2', 3),
+        ]),
+      ).toEqual({ P: 0, Q: 0, A: 1, B: 1, C: 1, M: 2, X1: 3, X2: 4 });
+    });
+
+    // B is not a branch of A, so the row of A is open to it.
+    it('puts a follower in another box on the row of what it follows', () => {
+      expect(rowsOf([n('L', 1), b('x', 'A', 0), b('y', 'B', 1, 'A')])).toEqual({
+        A: 0,
+        B: 0,
+        L: 1,
+      });
+    });
+
+    // B is the nearest follower of A, but C continues A: B is in another box.
+    it('does not continue a track across a box border', () => {
+      expect(rowsOf([b('x', 'A', 0), b('y', 'B', 1, 'A'), b('x', 'C', 2, 'A')])).toEqual({
+        A: 0,
+        C: 0,
+        B: 1,
+      });
+    });
   });
 });
