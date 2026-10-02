@@ -88,28 +88,57 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
     components.set(key, component);
   }
 
-  const taken = new Map<number, Set<number>>();
+  const taken: Taken = new Map();
   const rows = new Map<string, number>();
   for (const tracks of components.values()) {
-    let floor = 0;
-    for (const [index, { ids, first, last }] of tracks.entries()) {
-      const parent = branchesFrom.get(ids[0]!);
-      let row = Math.max(floor, parent === undefined ? 0 : rows.get(parent)! + 1);
-      while (!isFree(taken, first, last, row)) row += 1;
-      if (index === 0) floor = row;
-      for (let column = first; column <= last; column += 1) {
-        const used = taken.get(column) ?? new Set<number>();
-        used.add(row);
-        taken.set(column, used);
-      }
-      for (const id of ids) rows.set(id, row);
+    let floor: number | undefined;
+    for (const track of tracks) {
+      placeTracks([track], taken, rows, branchesFrom, floor ?? 0);
+      floor ??= rows.get(track.ids[0]!)!;
     }
   }
   return rows;
 }
 
+type Taken = Map<number, Set<number>>;
+
+interface Track {
+  ids: string[];
+  first: number;
+  last: number;
+}
+
+/**
+ * Put each track on the lowest free row at or below `floor`, in order. A
+ * branch also stays below the row of its parent. Writes `taken` and `rows`.
+ */
+function placeTracks(
+  tracks: readonly Track[],
+  taken: Taken,
+  rows: Map<string, number>,
+  branchesFrom: ReadonlyMap<string, string>,
+  floor: number,
+) {
+  for (const { ids, first, last } of tracks) {
+    const parent = branchesFrom.get(ids[0]!);
+    let row = Math.max(floor, parent === undefined ? 0 : rows.get(parent)! + 1);
+    while (!isFree(taken, first, last, row)) row += 1;
+    reserve(taken, first, last, row);
+    for (const id of ids) rows.set(id, row);
+  }
+}
+
+/** Take every cell from `first` to `last` on `row`. */
+function reserve(taken: Taken, first: number, last: number, row: number) {
+  for (let column = first; column <= last; column += 1) {
+    const used = taken.get(column) ?? new Set<number>();
+    used.add(row);
+    taken.set(column, used);
+  }
+}
+
 /** True when no cell from `first` to `last` on `row` is taken. */
-function isFree(taken: Map<number, Set<number>>, first: number, last: number, row: number) {
+function isFree(taken: Taken, first: number, last: number, row: number) {
   for (let column = first; column <= last; column += 1) {
     if (taken.get(column)?.has(row)) return false;
   }
