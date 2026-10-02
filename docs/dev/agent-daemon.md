@@ -25,6 +25,7 @@ Each agent is a normal `claude` process with different I/O plumbing:
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
        --permission-prompt-tool stdio --forward-subagent-text --replay-user-messages \
+       --include-partial-messages \
        --append-system-prompt-file <shared>/agent-prompt.md \
        [--permission-mode auto]
 ```
@@ -32,7 +33,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose \
 Because it is the same binary, skills, `CLAUDE.md`, settings, sub-agents, MCP servers, hooks and
 `--permission-mode auto` all behave as they do today.
 
-Seven flags matter, and two of them are easy to miss:
+Eight flags matter, and two of them are easy to miss:
 
 | Flag | Why it is needed |
 |---|---|
@@ -42,6 +43,7 @@ Seven flags matter, and two of them are easy to miss:
 | `--permission-prompt-tool stdio` | **Load-bearing.** Tells the CLI that permission prompts reach the host over the pipe. |
 | `--forward-subagent-text` | Puts a subagent's text and thinking blocks on the stream beside its tool calls. Without it a subagent's stream shows what it did and never what it said. |
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
+| `--include-partial-messages` | Makes the child send a message in chunks while it writes it, as `stream_event` lines. The session tab draws the partial message from them. See "A partial message" below. Confirmed against v2.1.287. |
 | `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-file>`, `<image>`, `<milestone>`, `<user-attention>`. The client names the file in `start` or `resume`. Omitted when no file is named. |
 
 The markers are taught on the launch rather than in a general skill because only a driven agent
@@ -1014,6 +1016,47 @@ request id, so a row alone never is.
 
 The four `mael_*` markers are the daemon's own, not the agent's. None reaches `apply_event`.
 
+#### A partial message
+
+With `--include-partial-messages` the child sends each message in chunks while it writes it. A
+chunk is a `stream_event` line, and the Anthropic stream event is under `event`:
+
+```json
+{"type": "stream_event", "parent_tool_use_id": null, "session_id": "…", "uuid": "…",
+ "event": {"type": "content_block_delta", "index": 0,
+           "delta": {"type": "text_delta", "text": " tea comes from one plant"}}}
+```
+
+One recorded turn of 250 words holds about 150 chunks. The ring holds 200 events, so the daemon
+keeps no chunk:
+
+- `apply_event` returns the state unchanged. A chunk takes no `mael_seq`, no `mael_ts` and no
+  ring slot, and a later attach replays none.
+- `Agent.pump` sends a chunk to the agent's own watchers, between two recorded events. The attach
+  loop passes an event with no `mael_seq` through with no gap logic.
+- A watcher gets a chunk only while it has fewer than 32 events unread (`PARTIAL_BACKLOG`). A
+  chunk is worth nothing late, and one put in a full queue would evict a recorded event.
+- A watcher that misses one chunk gets no more of that message. A chunk is a delta, so the text
+  built from the later ones would have a hole. The watcher joins again at the next
+  `message_start`, and the whole `assistant` event gives it the message it lost.
+
+Only three kinds of chunk go out (`is_partial_text`): `message_start`, which names the message,
+`content_block_start`, and a `content_block_delta` whose delta is a `text_delta`. Thinking and
+tool-input chunks are dropped. So is every chunk with a `parent_tool_use_id`. In the recordings a
+subagent sends none.
+
+The order on the stream is fixed. The whole `assistant` event for a block arrives before that
+block's `content_block_stop`, and before the next block starts. An interrupt in the middle of a
+text block makes the child send an `assistant` event with the text so far, then the `result`.
+
+Teleport and `mael agent tail` show no chunk. `mael agent tail --raw -f` prints each chunk the
+daemon sends out. The `partial-*.jsonl` fixtures hold every kind of chunk, because they were
+recorded with no filter.
+
+A daemon holds the argv it started each child with. After an upgrade the shared daemon needs
+`mael self-env restart agent-daemon`, and an agent that is already running sends no chunk until it
+is resumed.
+
 ### Subagents
 
 Claude Code stamps every event a subagent produces with `parent_tool_use_id`, the id of the
@@ -1146,6 +1189,7 @@ mints a fresh item id per copy.
 | What | Kept |
 |---|---|
 | Raw events per agent | The last 200, each with its `mael_seq` and `mael_ts` |
+| Chunks of a partial message | None. A watcher with fewer than 32 events unread gets one live; any other watcher never gets it |
 | Raw events per subagent | The last 200, under the subagent's own `mael_seq`, each with its `mael_ts` |
 | Subagents per agent | 50; past that the oldest that is not running goes, and its dotted id stays reserved |
 | What the agent last said | One message, up to 8000 characters, and when it said it |

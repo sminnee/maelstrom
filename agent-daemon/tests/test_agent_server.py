@@ -9,6 +9,7 @@ import shutil
 import signal
 import stat
 import tempfile
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -27,6 +28,7 @@ from mael_agent.agent_wire import (
     BACKLOG_END,
     EXITED,
     PROCESSING,
+    SEQ_KEY,
     TRUNCATED,
     TS_KEY,
     user_message,
@@ -2348,6 +2350,190 @@ def test_answering_clears_the_wait_at_once():
     asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
 
     assert agent.state.own_pending == {}
+
+
+# --- partial messages: sent to whoever watches, and kept nowhere -------------
+
+
+def _chunk(event: dict, parent: str | None = None) -> bytes:
+    """One ``stream_event`` line, as ``--include-partial-messages`` writes it."""
+    raw = {"type": "stream_event", "event": event, "parent_tool_use_id": parent}
+    return (json.dumps(raw) + "\n").encode()
+
+
+def _text_chunk(text: str, parent: str | None = None) -> bytes:
+    delta = {"type": "text_delta", "text": text}
+    return _chunk({"type": "content_block_delta", "index": 0, "delta": delta}, parent)
+
+
+def _pumped(lines: list[bytes]) -> tuple[AgentDaemon, list[dict]]:
+    """Attach to an agent, pump ``lines`` out of its child, and return what the
+    watcher was written after the backlog marker.
+
+    The pump runs to the end of the lines before the watcher reads one, which
+    is a watcher that has stalled.
+    """
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.stdin.is_closing.return_value = True
+    proc.returncode = 0
+    proc.stdout.readline = AsyncMock(side_effect=[*lines, b""])
+    proc.wait = AsyncMock(return_value=0)
+    daemon = AgentDaemon()
+    agent = Agent("a1", "/tmp/x", proc)
+    daemon.agents["a1"] = agent
+    writer = _recording_writer()
+
+    async def attach_then_pump():
+        attached = asyncio.create_task(daemon._attach("a1", writer))
+        await asyncio.sleep(0)
+        await agent.pump()
+        await asyncio.wait_for(attached, timeout=2)
+
+    asyncio.run(asyncio.wait_for(attach_then_pump(), timeout=5))
+    frames = [json.loads(line) for line in writer.lines]
+    kinds = [frame.get("type") for frame in frames]
+    return daemon, frames[kinds.index(BACKLOG_END) + 1 :]
+
+
+def _stamped_line(hook_id: str) -> bytes:
+    return (json.dumps({"type": "system", "hook_id": hook_id}) + "\n").encode()
+
+
+class _FedChild:
+    """An agent whose child writes a line when the test says so.
+
+    ``_pumped`` runs a whole script before the watcher reads. This is for a
+    scenario that acts between two lines.
+    """
+
+    def __init__(self) -> None:
+        self.daemon = AgentDaemon()
+        self.agent, self.sent = _sending_agent()
+        self.daemon.agents["a1"] = self.agent
+        self.lines: asyncio.Queue[bytes] = asyncio.Queue()
+        self.agent.proc.stdout.readline = self.lines.get
+        self.agent.proc.wait = AsyncMock(return_value=0)
+
+    async def writes(self, *lines: bytes) -> None:
+        """The child writes ``lines``, and the pump reads them all."""
+        for line in lines:
+            self.lines.put_nowait(line)
+        while not self.lines.empty():
+            await asyncio.sleep(0)
+        await _settle()
+
+
+async def _settle() -> None:
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+class _GatedWriter(_RecordingWriter):
+    """A client that stops reading while its gate is shut."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = asyncio.Event()
+        self.gate.set()
+
+    async def drain(self) -> None:
+        await self.gate.wait()
+
+
+def test_a_watcher_that_fell_behind_gets_no_more_of_that_message():
+    """A chunk is a delta. A watcher that missed one cannot use the next, so it
+    gets nothing more until a new message starts."""
+
+    async def scenario():
+        child = _FedChild()
+        writer = _GatedWriter()
+        attached = asyncio.create_task(child.daemon._attach("a1", writer))
+        pump = asyncio.create_task(child.agent.pump())
+        await _settle()
+
+        writer.gate.clear()
+        await child.writes(
+            _chunk({"type": "message_start", "message": {"id": "msg_1"}}),
+            *[_text_chunk(f"early {n}") for n in range(100)],
+        )
+        writer.gate.set()
+        await _settle()
+        # The watcher has caught up, and the message it lost part of goes on.
+        await child.writes(_text_chunk("late"))
+        await child.writes(
+            _chunk({"type": "message_start", "message": {"id": "msg_2"}}),
+            _text_chunk("next message"),
+            b"",
+        )
+        await asyncio.wait_for(attached, timeout=2)
+        await pump
+        return [json.loads(line) for line in writer.lines]
+
+    frames = asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+    texts = [
+        f["event"]["delta"]["text"]
+        for f in frames
+        if f.get("type") == "stream_event" and "delta" in f["event"]
+    ]
+    kept = agent_server.PARTIAL_BACKLOG - 1  # the message_start took a slot
+    assert texts == [f"early {n}" for n in range(kept)] + ["next message"]
+
+
+def test_a_partial_message_reaches_a_watcher_unstamped_and_is_not_kept():
+    """A chunk takes no seq, so the events around it stay consecutive.
+
+    Only what a partial message is built from goes out: the message's id, each
+    block's start and its text. A subagent's chunk does not, because a subagent
+    tab shows whole messages.
+    """
+    block = {"type": "content_block_delta", "index": 0}
+    daemon, live = _pumped(
+        [
+            _stamped_line("one"),
+            _chunk({"type": "message_start", "message": {"id": "msg_1"}}),
+            _chunk({"type": "content_block_start", "index": 0}),
+            _text_chunk("Hello"),
+            _chunk({**block, "delta": {"type": "thinking_delta", "thinking": "hm"}}),
+            _chunk({**block, "delta": {"type": "input_json_delta"}}),
+            _chunk({"type": "content_block_stop", "index": 0}),
+            _chunk({"type": "message_stop"}),
+            _text_chunk("from a subagent", parent="toolu_1"),
+            _stamped_line("two"),
+        ]
+    )
+
+    assert [(f["type"], f.get(SEQ_KEY)) for f in live] == [
+        ("system", 1),
+        ("stream_event", None),
+        ("stream_event", None),
+        ("stream_event", None),
+        ("system", 2),
+        (AGENT_EXITED, None),
+    ]
+    assert [f["event"]["type"] for f in live[1:4]] == [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+    ]
+    assert TS_KEY not in live[1]
+    assert daemon.agents["a1"].state.subagents == {}
+
+    # A later attach replays the ring, and the ring never held a chunk.
+    replayed = [f["type"] for f in attach_frames(daemon, "a1")]
+    assert replayed == [AGENT_DETAIL, "system", "system", BACKLOG_END, AGENT_EXITED]
+
+
+def test_a_stalled_watcher_loses_partial_text_and_no_recorded_event():
+    """A chunk is offered only while the watcher keeps up, and evicts nothing."""
+    chunks = [_text_chunk(str(n)) for n in range(agent_server.WATCHER_QUEUE_LIMIT)]
+    recorded = [_stamped_line(str(n)) for n in range(400)]
+    _, live = _pumped([*chunks, *recorded, *chunks, *recorded])
+
+    kinds = [f["type"] for f in live]
+    assert TRUNCATED not in kinds
+    assert [f[SEQ_KEY] for f in live if f["type"] == "system"] == list(range(1, 801))
+    assert kinds.count("stream_event") == agent_server.PARTIAL_BACKLOG
 
 
 # --- the detail frame: what the agent waits on, said on attach ---------------
