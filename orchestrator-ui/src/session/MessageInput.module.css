@@ -32,7 +32,6 @@
   color: inherit;
   background: var(--bg-field);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   padding: var(--u) var(--u);
   /* It shares the panel's height with the transcript, so it grows to half
      the screen and no further. */

@@ -15,7 +15,6 @@
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
   padding: 0 var(--u-half);
 }
 /*

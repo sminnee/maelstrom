@@ -117,6 +117,8 @@
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   /* The tight radius an inline chip takes; 6px reads as a button at that size. */
   --radius-sm: 3px;
+  /* A field. Square enough to read as a place to type, beside a pill to press. */
+  --radius-field: 4px;
   --radius: 6px;
   --radius-lg: 10px;
   --radius-pill: 999px;
@@ -186,7 +188,7 @@
    * The height of each button, link row, field and tab. The narrow layout
    * re-points it below, to the floor for anything a finger presses.
    */
-  --control: calc(var(--u) * 3);
+  --control: calc(var(--u) * 4);
 
   --duration-fast: 120ms;
 

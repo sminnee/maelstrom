@@ -16,7 +16,6 @@
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
 }
 .failure {
   color: var(--danger);

@@ -11,6 +11,10 @@
 .main {
   flex: 1;
 }
+/* The side that meets the divider is flat, so it needs no room for a curve. */
+.wrap[data-split] .main {
+  padding-right: var(--u);
+}
 .wrap[data-split] .main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
@@ -19,8 +23,9 @@
 .chevron {
   anchor-name: var(--anchor-name);
   justify-content: center;
-  min-width: var(--control);
-  padding-inline: var(--u-half);
+  /* Narrower than a control: three of them in a card row cost a wrap. */
+  min-width: var(--u-3);
+  padding: 0 var(--u) 0 var(--u-half);
   margin-left: -1px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
@@ -101,4 +106,11 @@
 .detail {
   font-size: var(--text-sm);
   color: var(--fg-muted);
+}
+
+/* On the narrow layout the chevron is a thumb target of its own. */
+@media (max-width: 839px) {
+  .chevron {
+    min-width: var(--control);
+  }
 }

@@ -945,7 +945,7 @@ _Avoid_: Fixture world, preset, sample data
 
 **Control height**:
 The one height of each button, link, field and tab of the orchestrator UI: `--control`. It is
-24px, and 48px on the narrow layout, where it is the floor for anything a finger presses. A hue
+32px, and 48px on the narrow layout, where it is the floor for anything a finger presses. A hue
 chip and a split chip are not controls and have their own height.
 _Avoid_: Touch size, button size
 

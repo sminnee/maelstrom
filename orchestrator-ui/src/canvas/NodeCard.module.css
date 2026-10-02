@@ -362,6 +362,8 @@
 }
 .commands {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--u);
   align-self: flex-end;
 }

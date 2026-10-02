@@ -46,10 +46,18 @@
 }
 .view {
   min-height: 0;
+  padding: 0 var(--u);
   color: var(--fg-muted);
   background: transparent;
   border: 0;
   border-radius: 0;
+}
+/* The two ends meet the curve of the group. */
+.view:first-child {
+  padding-left: calc(var(--control) / 2);
+}
+.view:last-child {
+  padding-right: calc(var(--control) / 2);
 }
 .view + .view {
   border-left: 1px solid var(--border);

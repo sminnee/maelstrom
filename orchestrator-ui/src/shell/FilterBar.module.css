@@ -26,6 +26,5 @@
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   max-width: 180px;
 }
