@@ -813,6 +813,20 @@ and refuses `restart` with a `service`.
 Each blocks for tens of seconds, so each runs on the worktree pool. The refresh runs whichever way
 the operation ends: a close that fails partway has still stopped agents and freed ports.
 
+`worktree.mergePr` is a seventh optional callable, `WorktreeSource.merge`. It is not a step
+sequence and takes no worktree scope, because it does not touch the checkout.
+
+- `validate.py` refuses a pull request whose **PR state** is not `ready`, and a draft.
+- The source takes the number and the head commit from its PR cache, not from the command. It
+  checks the state again there, because a read can land after the validation.
+- It runs `gh pr merge <n> --rebase --match-head-commit <oid>`. The world can be 60 s old, so
+  GitHub refuses a head that moved.
+- The `list-all` row carries the head commit as `pr_head_oid`, because the cache refills from
+  those rows. `world_build.py` does not copy it to the wire.
+- The merge token, when set, reaches that one call as `GH_TOKEN` — see
+  [configuration.md](../reference/configuration.md#api-keys).
+- The handler re-reads the worktrees whichever way the merge ends.
+
 `worktree.createTerminal` runs the `ensure_terminal` port. It makes the worktree's workspace
 when it is missing, and returns the `cmux://` link to its terminal. The server focuses nothing;
 see [cmux.md](cmux.md#terminal-links).
@@ -1031,6 +1045,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
 | `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `{}` |
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
+| `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `{}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |

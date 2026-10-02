@@ -650,3 +650,72 @@ async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
     }
     # Only the open rows are asked about.
     assert asked == [[(PROJECT, "alpha"), (PROJECT, "bravo")]]
+
+
+# --- ListAllWorktreeSource: merging a pull request --------------------------
+
+
+def _pr_row(**over) -> dict:
+    """A ``list-all`` row for alpha, carrying a ready pull request."""
+    return {
+        "name": "alpha",
+        "path": "/p/alpha",
+        "branch": "feat/orders",
+        "pr_number": 118,
+        "pr_commits": 2,
+        "pr_url": "https://github.com/acme/repo/pull/118",
+        "pr_state": "ready",
+        "pr_draft": False,
+        "pr_merged_at": None,
+        "pr_head_oid": "deadbee",
+        **over,
+    }
+
+
+async def _source_that_read(monkeypatch, rows: list[dict], merge_pr):
+    from mael_orchestrator import sources
+
+    async def list_all(*_args, **_kwargs):
+        return {"projects": [{"name": PROJECT, "worktrees": rows}]}
+
+    monkeypatch.setattr(sources, "build_list_all_data", list_all)
+    source = sources.ListAllWorktreeSource(Path("/p"), merge_pr=merge_pr)
+    await source.read()
+    return source
+
+
+async def test_a_merge_names_the_pr_and_head_commit_the_last_read_saw(monkeypatch):
+    """The head commit is not on the wire, so the source supplies it."""
+    merged: list[tuple[str, int, str]] = []
+    source = await _source_that_read(
+        monkeypatch, [_pr_row()], lambda *args: merged.append(args)
+    )
+    assert source.merge is not None
+    await source.merge(PROJECT, "feat/orders", "/p/alpha")
+    assert merged == [("/p/alpha", 118, "deadbee")]
+
+
+@pytest.mark.parametrize(
+    ("row", "said"),
+    [
+        (_pr_row(pr_number=None), "No pull request is known for feat/orders"),
+        # A read that landed after the server validated the command.
+        (_pr_row(pr_state="ci-running"), "PR #118 is not ready to merge (ci-running)"),
+        (_pr_row(pr_draft=True), "PR #118 is not ready to merge (draft)"),
+        (_pr_row(pr_head_oid=None), "The head commit of PR #118 is not known yet"),
+    ],
+)
+async def test_a_merge_the_last_read_does_not_support_is_refused(
+    monkeypatch, row, said
+):
+    from mael_orchestrator.sources import CloseBlocked
+
+    merged: list[tuple] = []
+    source = await _source_that_read(
+        monkeypatch, [row], lambda *args: merged.append(args)
+    )
+    assert source.merge is not None
+    with pytest.raises(CloseBlocked) as refused:
+        await source.merge(PROJECT, "feat/orders", "/p/alpha")
+    assert str(refused.value) == said
+    assert merged == []

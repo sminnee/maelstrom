@@ -5,11 +5,13 @@ import logging
 import os
 import re
 import signal
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from click.testing import CliRunner
 
+from mael_domain.github_model import GitHubCommandFailed
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.types import SchemaTooOldError
 from mael_domain.task import list_tasks
@@ -221,6 +223,52 @@ def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
         new=AsyncMock(side_effect=OSError("disk full")),
     ):
         _force_close(worktrees, had_unmerged_work=True)
+
+
+async def _read_a_ready_pr(worktrees: ListAllWorktreeSource) -> None:
+    """Give the wired source a reading that holds PR #118, ready, on feat/x."""
+    row = {
+        "name": "alpha",
+        "path": "/p/alpha",
+        "branch": "feat/x",
+        "pr_number": 118,
+        "pr_commits": 1,
+        "pr_url": "",
+        "pr_state": "ready",
+        "pr_draft": False,
+        "pr_merged_at": None,
+        "pr_head_oid": "deadbee",
+    }
+
+    async def list_all(*_args, **_kwargs):
+        return {"projects": [{"name": "northwind", "worktrees": [row]}]}
+
+    with patch("mael_orchestrator.sources.build_list_all_data", list_all):
+        await worktrees.read()
+
+
+async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch):
+    """The token is the point of the port: without it the merge uses the
+    login the agents share."""
+    monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_merge")
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    await _read_a_ready_pr(worktrees)
+    assert worktrees.merge is not None
+    with patch("mael_orchestrator.cli.github.merge_pr") as merge_pr:
+        await worktrees.merge("northwind", "feat/x", "/p/alpha")
+    merge_pr.assert_called_once_with(
+        118, cwd=Path("/p/alpha"), head_oid="deadbee", token="ghp_merge"
+    )
+
+
+async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch):
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    await _read_a_ready_pr(worktrees)
+    assert worktrees.merge is not None
+    refused = GitHubCommandFailed("merge the pull request", "Head branch was modified")
+    with patch("mael_orchestrator.cli.github.merge_pr", side_effect=refused):
+        with pytest.raises(CloseBlocked, match="Head branch was modified"):
+            await worktrees.merge("northwind", "feat/x", "/p/alpha")
 
 
 @pytest.mark.usefixtures("migrated_notebook")

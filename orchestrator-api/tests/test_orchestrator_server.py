@@ -5941,6 +5941,92 @@ def test_a_server_that_cannot_sync_worktrees_says_so(harness):
     assert "cannot sync worktrees" in reply.body["error"]["message"]
 
 
+def _give_alpha_a_pr(harness, **over) -> None:
+    """Put a ready pull request on the alpha row. Override per case."""
+    harness.worktrees.worktrees[0].update(
+        {"prNumber": 118, "prState": "ready", "prDraft": False, **over}
+    )
+
+
+def test_merging_a_ready_pr_asks_the_source_and_refreshes_the_world(harness):
+    merged: list[tuple[str, str, str]] = []
+
+    async def merge(project: str, branch: str, path: str) -> None:
+        merged.append((project, branch, path))
+
+    harness.worktrees.merge = merge
+    _give_alpha_a_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            reply = await api.post("/api/worktrees/northwind-alpha/merge-pr")
+            return reply, harness.worktrees.reads > settled
+
+    reply, reread = run(scenario())
+    assert reply.status == 200
+    assert merged == [(PROJECT, "feat/orders", WORKTREE_PATH)]
+    assert reread
+
+
+@pytest.mark.parametrize(
+    ("pr", "said"),
+    [
+        ({"prState": "ci-running"}, "not ready to merge (ci-running)"),
+        ({"prDraft": True}, "not ready to merge (draft)"),
+        ({"prNumber": None}, "no pull request"),
+    ],
+)
+def test_a_pr_that_is_not_ready_is_refused_before_the_model_runs(harness, pr, said):
+    merged: list[str] = []
+
+    async def merge(project: str, branch: str, path: str) -> None:
+        merged.append(branch)
+
+    harness.worktrees.merge = merge
+    _give_alpha_a_pr(harness, **pr)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/merge-pr")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert said in reply.body["error"]["message"]
+    assert merged == []
+
+
+def test_a_refused_merge_says_what_github_said_and_still_refreshes(harness):
+    async def merge(project: str, branch: str, path: str) -> None:
+        raise CloseBlocked("Head branch was modified. Review and try again.")
+
+    harness.worktrees.merge = merge
+    _give_alpha_a_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            reply = await api.post("/api/worktrees/northwind-alpha/merge-pr")
+            return reply, harness.worktrees.reads > settled
+
+    reply, reread = run(scenario())
+    assert reply.status == 400
+    assert "Head branch was modified" in reply.body["error"]["message"]
+    assert reread
+
+
+def test_a_server_that_cannot_merge_pull_requests_says_so(harness):
+    _give_alpha_a_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/merge-pr")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot merge pull requests" in reply.body["error"]["message"]
+
+
 def _point_alpha_at_a_repo(harness, path: Path) -> str:
     """Give the alpha row a real repo with one dirty file and one commit ahead.
 

@@ -120,6 +120,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/force-close", _force_close_worktree)
     app.router.add_post("/api/worktrees/{id}/trash", _trash_worktree)
     app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
+    app.router.add_post("/api/worktrees/{id}/merge-pr", _merge_worktree_pr)
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
@@ -662,6 +663,15 @@ async def _sync_worktree(request: web.Request) -> web.StreamResponse:
             "worktreeId": worktree_id,
             "mode": body.get("mode", "autorepair"),
         },
+    )
+
+
+async def _merge_worktree_pr(request: web.Request) -> web.StreamResponse:
+    """Merge a worktree's pull request. It waits on GitHub, so it can be slow."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "worktree.mergePr", "worktreeId": worktree_id},
     )
 
 
