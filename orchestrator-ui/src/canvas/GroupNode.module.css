@@ -1,34 +1,24 @@
 .group {
+  position: relative;
   width: 100%;
   height: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
-/* The group sits behind the pane (see Canvas.module.css); the header lifts out
- * so its close button stays clickable. */
+/* The group sits behind the pane (see Canvas.module.css); the label lifts out
+ * so its close button stays clickable. The indent is `BOX_PAD` in `layout.ts`
+ * plus twice a worktree box's radius, so a lane's label and the label of its
+ * first box start at one x. It also clears the lane's own corner. */
 .label {
+  composes: laneLabel from './laneLabel.module.css';
   z-index: 1;
   pointer-events: auto;
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-3);
-  display: flex;
-  gap: var(--space-2);
-  align-items: baseline;
-  font-size: var(--text-xs);
-  font-weight: 500;
+  left: calc(16px + var(--radius) * 2);
   color: var(--fg-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .sublabel {
-  font-family: var(--mono);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
   color: var(--fg-faint);
 }
 .close {
-  margin-left: var(--space-2);
   font-size: var(--text-xs);
 }

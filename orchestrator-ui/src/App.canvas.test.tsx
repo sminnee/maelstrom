@@ -523,7 +523,7 @@ describe('grouping and filters', () => {
     expect(new Set(lefts).size).toBe(lefts.length);
   });
 
-  it('a project lane draws a dotted box for each worktree, empty ones included', async () => {
+  it('a project lane draws a box for each worktree, empty ones included', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     // Every box on the board, so one that should not draw cannot hide.
