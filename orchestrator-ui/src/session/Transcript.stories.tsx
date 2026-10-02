@@ -5,6 +5,7 @@ import {
   quietShort,
   quietBlockElements,
   settledQuestions,
+  openQuestion,
   ledgerRun,
   markdownSample,
   milestoneRun,
@@ -182,5 +183,34 @@ export const Clustered: Story = () => (
 export const SettledQuestion: Story = () => (
   <Panel>
     <Transcript items={settledQuestions} truncatedBefore={false} />
+  </Panel>
+);
+
+const settle = () => Promise.resolve();
+
+/**
+ * The open prompt's action row.
+ *
+ * Check: Decline sits at the row's right end, apart from the primary button,
+ * and its menu opens inside the panel.
+ */
+export const OpenQuestion: Story = () => (
+  <Panel>
+    <Transcript
+      items={openQuestion}
+      truncatedBefore={false}
+      handlers={{ onAnswer: settle, onDecline: settle, onDeclineAndStop: settle }}
+    />
+  </Panel>
+);
+
+/** The same row at the panel's minimum width. */
+export const OpenQuestionNarrow: Story = () => (
+  <Panel width={280}>
+    <Transcript
+      items={openQuestion}
+      truncatedBefore={false}
+      handlers={{ onAnswer: settle, onDecline: settle, onDeclineAndStop: settle }}
+    />
   </Panel>
 );

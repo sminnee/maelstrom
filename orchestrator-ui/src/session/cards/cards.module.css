@@ -177,6 +177,11 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+/* The refusal sits at the row's far end, apart from the act that answers. */
+.rowEnd {
+  display: inline-flex;
+  margin-left: auto;
+}
 .answer {
   color: var(--fg-muted);
 }

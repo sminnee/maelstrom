@@ -229,7 +229,9 @@ export function QuestionPrompt({
           {last ? 'Answer' : 'Next'}
         </AppButton>
         {declines.length > 0 && (
-          <SplitButton variant="plain" menuLabel="More ways to decline" options={declines} />
+          <span className={styles.rowEnd}>
+            <SplitButton variant="plain" menuLabel="More ways to decline" options={declines} />
+          </span>
         )}
       </div>
     </div>
