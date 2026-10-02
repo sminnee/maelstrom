@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DiffRowData } from './DiffRow';
 import { highlightLines, languageFor, type Token } from './highlight';
 
@@ -31,9 +31,12 @@ function sideLines(rows: DiffRowData[]) {
  */
 export function useRowTokens(rows: DiffRowData[], path: string): Token[][] | null {
   const lang = languageFor(path);
-  const skip = !lang || rows.length > MAX_ROWS || rows.some((row) => row.text.length > MAX_LINE);
-  // The rows' content, not their identity: an Edit card rebuilds its rows each render.
-  const key = skip ? null : `${lang}\n${rows.map((r) => r.kind[0] + r.text).join('\n')}`;
+  // The rows' content, not their identity: an Edit card rebuilds its rows each
+  // render. The Changes tab keeps its rows, so the memo saves it the scan.
+  const key = useMemo(() => {
+    const skip = !lang || rows.length > MAX_ROWS || rows.some((row) => row.text.length > MAX_LINE);
+    return skip ? null : `${lang}\n${rows.map((r) => r.kind[0] + r.text).join('\n')}`;
+  }, [rows, lang]);
   const [done, setDone] = useState<{ key: string; tokens: Token[][] } | null>(null);
 
   useEffect(() => {

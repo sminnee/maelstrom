@@ -645,6 +645,19 @@ sticks at zero.
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
 new line numbers.
 
+A diff can hold more than 1000 rows, so a state change must not draw them all. `DiffRow`,
+`FileBlock`, `Files` and `FileTree` are each a `memo`, and the props they get keep their identity.
+`useLineSelection` gives each file one handler object, and each handler takes the row index.
+
+| Event | Rows that draw |
+|---|---|
+| A key in a comment box | None |
+| A drag over a row | The rows whose selection changes |
+| A world change, or a fold of the commit message or the file list | None |
+
+A new object or function in a prop of one of these components makes every row draw again. The
+"row draws" tests in `App.changes.test.tsx` count the draws.
+
 #### Change comments
 
 The user selects lines, writes a **Change comment** on them, and posts every comment in one

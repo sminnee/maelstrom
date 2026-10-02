@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import type { GutterHandlers } from '../../ui/DiffRow';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { RowHandlers } from '../../ui/DiffRow';
 import { rangeOf } from './selection';
 
 interface Drag {
@@ -12,6 +12,7 @@ interface Drag {
  * Select rows of one file by their line numbers: a drag, a click, or Shift and
  * a click. `onSelect` gets the file and its first and last selected row.
  * A touch drag does not extend; see orchestrator-ui.md, "Change comments".
+ * `onSelect` and `onCancel` must keep their identity: the handlers follow it.
  */
 export function useLineSelection(
   onSelect: (path: string, from: number, to: number) => void,
@@ -43,40 +44,42 @@ export function useLineSelection(
     };
   }, [drag, onSelect]);
 
-  /** Whether a Shift+click on a row of `path` has a selection to extend. */
-  const extending = (e: { shiftKey: boolean }, path: string) =>
-    e.shiftKey && anchor.current?.path === path;
-
-  const handlers = (path: string, index: number): GutterHandlers => ({
-    onPointerDown: (e) => {
-      if (e.button !== 0 || extending(e, path)) return;
-      anchor.current = { path, index };
-      setDrag({ path, anchor: index, focus: index });
-    },
-    onPointerOver: () => {
-      if (drag?.path === path && drag.focus !== index) setDrag({ ...drag, focus: index });
-    },
-    // A plain pointer click is the drag above. Shift extends here and not on
-    // pointer-down: the mouse-down that follows a pointer-down moves focus to
-    // the button, away from a box opened that early. `detail` is 0 for Enter
-    // and Space.
-    onClick: (e) => {
-      const from = anchor.current;
-      if (e.shiftKey && from?.path === path) {
-        onSelect(path, ...rangeOf(from.index, index));
-      } else if (e.detail === 0) {
+  // One object per file, the same on each render: a row is a `memo`, and a
+  // new handler would draw it again. So no handler reads `drag`.
+  const handlersFor = useCallback(
+    (path: string): RowHandlers => ({
+      onPointerDown: (index, e) => {
+        // A Shift+click on a file with a selection extends it, in `onClick`.
+        if (e.button !== 0 || (e.shiftKey && anchor.current?.path === path)) return;
         anchor.current = { path, index };
-        onSelect(path, index, index);
-      }
-    },
-    onKeyDown: (e) => {
-      if (e.key === 'Escape') onCancel();
-    },
-  });
+        setDrag({ path, anchor: index, focus: index });
+      },
+      // The same drag back for the same row, so React skips the render.
+      onPointerOver: (index) =>
+        setDrag((d) => (d?.path === path && d.focus !== index ? { ...d, focus: index } : d)),
+      // A plain pointer click is the drag above. Shift extends here and not on
+      // pointer-down: the mouse-down that follows a pointer-down moves focus to
+      // the button, away from a box opened that early. `detail` is 0 for Enter
+      // and Space.
+      onClick: (index, e) => {
+        const from = anchor.current;
+        if (e.shiftKey && from?.path === path) {
+          onSelect(path, ...rangeOf(from.index, index));
+        } else if (e.detail === 0) {
+          anchor.current = { path, index };
+          onSelect(path, index, index);
+        }
+      },
+      onKeyDown: (_index, e) => {
+        if (e.key === 'Escape') onCancel();
+      },
+    }),
+    [onSelect, onCancel],
+  );
 
   /** The rows of `path` the drag in progress covers. */
   const dragged = (path: string): [number, number] | null =>
     drag?.path === path ? rangeOf(drag.anchor, drag.focus) : null;
 
-  return { handlers, dragged, dragging: drag !== null };
+  return { handlersFor, dragged, dragging: drag !== null };
 }

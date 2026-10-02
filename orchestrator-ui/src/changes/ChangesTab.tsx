@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import {
   type Dispatch,
+  memo,
   type ReactNode,
   type SetStateAction,
   useCallback,
@@ -19,7 +20,7 @@ import {
   useWorktreeDiff,
 } from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
-import type { BranchCommit, FileDiff, WorktreeChanges } from '../protocol/entities';
+import type { BranchCommit, ChangeComment, FileDiff, WorktreeChanges } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { clockTime } from '../protocol/time';
 import { AppButton } from '../ui/AppButton';
@@ -33,22 +34,33 @@ import { CommentDock } from './comments/CommentDock';
 import {
   cancelled,
   editing,
-  editWouldDiscard,
   NO_COMMENTS,
+  openHoldsText,
   openOn,
   withBody,
   withOpenAdded,
   without,
 } from './comments/held';
-import { fileRows, type HeldComments, placeOf, spanLabel, spanOf } from './comments/selection';
+import {
+  fileRows,
+  type HeldComments,
+  type OpenComment,
+  placeOf,
+  spanLabel,
+  spanOf,
+} from './comments/selection';
 import { useLineSelection } from './comments/useLineSelection';
 import commentStyles from './comments/comments.module.css';
 import { STATUS_LETTER } from './fileStatus';
 import { FileTree } from './FileTree';
 import styles from './ChangesTab.module.css';
 
+const NO_ROWS: DiffRowData[] = [];
 const UNCOMMITTED = 'uncommitted';
 const BRANCH = 'branch';
+
+/** The comments of a file that has none. One list, so the file's props stay the same. */
+const NO_COMMENTS_HERE: ChangeComment[] = [];
 
 /**
  * The first commit when the branch has commits, else the uncommitted changes.
@@ -72,6 +84,9 @@ function revToShow(changes: WorktreeChanges, picked: string | null): string {
  * and the file tree jump to a file; every file follows as one continuous list.
  * The user comments on lines of any rev, and one post sends every comment to
  * the agents in the worktree.
+ *
+ * `Files`, `FileBlock` and `FileTree` are `memo`s, so pass them props that keep
+ * their identity. See orchestrator-ui.md, "The Changes tab".
  */
 export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const { world } = useWorld();
@@ -86,12 +101,14 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const [messageOpen, setMessageOpen] = useState(true);
   const [listOpen, setListOpen] = useState(true);
   const blocks = useRef(new Map<string, HTMLElement>());
-  const holdFile = (path: string, el: HTMLElement | null) => {
+  const holdFile = useCallback((path: string, el: HTMLElement | null) => {
     if (el) blocks.current.set(path, el);
     else blocks.current.delete(path);
-  };
-  const scrollToFile = (path: string) =>
-    blocks.current.get(path)?.scrollIntoView({ block: 'start' });
+  }, []);
+  const scrollToFile = useCallback(
+    (path: string) => blocks.current.get(path)?.scrollIntoView({ block: 'start' }),
+    [],
+  );
   const [held, setHeld, clear] = useRetained(retainedKey.changeComments(worktreeId), NO_COMMENTS);
   const post = usePostChangeComments();
   // The agents a post did not reach. The comments are gone by then, so the dock is too.
@@ -315,7 +332,7 @@ function emptyText(rev: string | null, base: string): string {
  * line and the stats line are direct children of the scroll, because a sticky
  * element holds only inside its parent.
  */
-function Files({
+const Files = memo(function Files({
   rev,
   held,
   setHeld,
@@ -364,6 +381,22 @@ function Files({
   );
   const cancel = useCallback(() => setHeld(cancelled), [setHeld]);
   const selection = useLineSelection(select, cancel);
+  // Each file's comments on this rev, less the one in the open box, which draws
+  // as the box wherever the box is. A key in the box makes a new `held` with
+  // the same `comments`, so the lists keep their identity through it.
+  const openId = held.open?.id;
+  const comments = useMemo(() => {
+    const byPath = new Map<string, ChangeComment[]>();
+    for (const c of held.comments) {
+      if (c.rev !== rev || c.id === openId) continue;
+      const list = byPath.get(c.path) ?? [];
+      byPath.set(c.path, list);
+      list.push(c);
+    }
+    return byPath;
+  }, [held.comments, rev, openId]);
+  const open = held.open?.rev === rev ? held.open : null;
+  const editLocked = openHoldsText(held);
   return (
     <div
       className={styles.scroll}
@@ -424,27 +457,27 @@ function Files({
           </ul>
         </>
       )}
-      {files.map((f) => (
-        <section
-          key={f.path}
-          aria-label={f.path}
-          className={styles.file}
-          ref={(el) => holdFile(f.path, el)}
-        >
+      {files.map((f) => {
+        const here = comments.get(f.path);
+        return (
           <FileBlock
+            key={f.path}
             file={f}
-            rows={rows.get(f.path) ?? []}
-            rev={rev}
-            held={held}
+            rows={rows.get(f.path) ?? NO_ROWS}
+            comments={here ?? NO_COMMENTS_HERE}
+            open={open?.path === f.path ? open : null}
+            // Only a file with comments draws Edit, so only it follows the lock.
+            editLocked={here !== undefined && editLocked}
             setHeld={setHeld}
             dragged={selection.dragged(f.path)}
-            handlers={selection.handlers}
+            handlersFor={selection.handlersFor}
+            holdFile={holdFile}
           />
-        </section>
-      ))}
+        );
+      })}
     </div>
   );
-}
+});
 
 function Counts({ add, remove }: { add: number; remove: number }) {
   return (
@@ -454,42 +487,66 @@ function Counts({ add, remove }: { add: number; remove: number }) {
   );
 }
 
-function FileBlock({
+/** One file: its head and its rows, with its comments below their lines. */
+const FileBlock = memo(function FileBlock({
   file,
   rows,
-  rev,
-  held,
+  comments,
+  open,
+  editLocked,
   setHeld,
   dragged,
-  handlers,
+  handlersFor,
+  holdFile,
 }: {
   file: FileDiff;
   /** Every row of the file, across its hunks. A selection counts rows in this list. */
   rows: DiffRowData[];
-  rev: string;
-  held: HeldComments;
+  /** The added comments on this file in the rev in view, less the one in the open box. */
+  comments: ChangeComment[];
+  /** The open box, when it is on this file in the rev in view. */
+  open: OpenComment | null;
+  /** Whether Edit would discard the text in the open box. */
+  editLocked: boolean;
   setHeld: Dispatch<SetStateAction<HeldComments>>;
   /** The rows the drag in progress covers, when it is in this file. */
   dragged: [number, number] | null;
-  handlers: ReturnType<typeof useLineSelection>['handlers'];
+  handlersFor: ReturnType<typeof useLineSelection>['handlersFor'];
+  holdFile: (path: string, el: HTMLElement | null) => void;
 }) {
+  const { path } = file;
+  const handlers = useMemo(() => handlersFor(path), [handlersFor, path]);
+  const section = useCallback((el: HTMLElement | null) => holdFile(path, el), [holdFile, path]);
+  // Each hunk's rows, and where they begin in `rows`.
+  const hunks = useMemo(() => {
+    const out: { header: string; first: number; rows: DiffRowData[] }[] = [];
+    let first = 0;
+    for (const hunk of file.hunks) {
+      const end = first + hunk.lines.length;
+      out.push({ header: hunk.header, first, rows: rows.slice(first, end) });
+      first = end;
+    }
+    return out;
+  }, [file, rows]);
   // A comment draws below its last row. One whose lines are not in this diff
-  // has no place, and stays in the dock's count only.
-  const here = <T extends { rev: string; path: string }>(c: T | null): c is T =>
-    c !== null && c.rev === rev && c.path === file.path;
-  const open = here(held.open) ? held.open : null;
-  const openAt = open && placeOf(rows, open);
-  const added = held.comments
-    .filter((c) => here(c) && c.id !== held.open?.id)
-    .flatMap((c) => {
-      const at = placeOf(rows, c);
-      return at ? [{ comment: c, last: at[1] }] : [];
-    });
-  const lit = dragged ?? openAt;
-  const gutter = (i: number) => ({
-    selected: lit !== null && i >= lit[0] && i <= lit[1],
-    handlers: handlers(file.path, i),
-  });
+  // has no place, and stays in the dock's count only. A place depends on the
+  // lines and not on the text, so a key in the open box does not search again.
+  const { side, startLine, endLine, lines } = open ?? {};
+  const openAt = useMemo(
+    () =>
+      side !== undefined && startLine !== undefined && endLine !== undefined && lines
+        ? placeOf(rows, { side, startLine, endLine, lines })
+        : null,
+    [rows, side, startLine, endLine, lines],
+  );
+  const added = useMemo(
+    () =>
+      comments.flatMap((c) => {
+        const at = placeOf(rows, c);
+        return at ? [{ comment: c, last: at[1] }] : [];
+      }),
+    [comments, rows],
+  );
   const after = (i: number) => (
     <>
       {added
@@ -499,7 +556,7 @@ function FileBlock({
             key={comment.id}
             label={spanLabel(comment)}
             body={comment.body}
-            editDisabled={editWouldDiscard(held, comment.id)}
+            editDisabled={editLocked}
             onEdit={() => setHeld((h) => editing(h, comment))}
             onDelete={() => setHeld((h) => without(h, [comment.id]))}
           />
@@ -515,19 +572,13 @@ function FileBlock({
       )}
     </>
   );
-  // Where each hunk's rows begin in `rows`.
-  const starts = file.hunks.map((_, h) =>
-    file.hunks.slice(0, h).reduce((n, hunk) => n + hunk.lines.length, 0),
-  );
   return (
-    <>
+    <section aria-label={path} className={styles.file} ref={section}>
       <h3 className={styles.fileHead}>
         <span className={styles.status} data-status={file.status}>
           {STATUS_LETTER[file.status]}
         </span>
-        <span className={styles.path}>
-          {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-        </span>
+        <span className={styles.path}>{file.oldPath ? `${file.oldPath} → ${path}` : path}</span>
         <Counts add={file.additions} remove={file.deletions} />
       </h3>
       {file.binary ? (
@@ -535,26 +586,25 @@ function FileBlock({
       ) : (
         <DiffBlock className={styles.diff}>
           <div className={styles.rows}>
-            {file.hunks.map((hunk, h) => {
-              const first = starts[h]!;
-              return (
-                <div key={h}>
-                  <div className={styles.hunk}>{hunk.header}</div>
-                  <HighlightedRows
-                    path={file.path}
-                    rows={rows.slice(first, first + hunk.lines.length)}
-                    gutter={(i) => gutter(first + i)}
-                    after={(i) => after(first + i)}
-                  />
-                </div>
-              );
-            })}
+            {hunks.map((hunk, h) => (
+              <div key={h}>
+                <div className={styles.hunk}>{hunk.header}</div>
+                <HighlightedRows
+                  path={path}
+                  rows={hunk.rows}
+                  first={hunk.first}
+                  selected={dragged ?? openAt}
+                  handlers={handlers}
+                  after={after}
+                />
+              </div>
+            ))}
           </div>
         </DiffBlock>
       )}
       {file.truncated && (
         <p className={styles.note}>This file is too long to show whole. The rest is cut.</p>
       )}
-    </>
+    </section>
   );
-}
+});
