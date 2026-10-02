@@ -562,6 +562,7 @@ class TestParseOpenPrs:
                 url="https://github.com/acme/repo/pull/7",
                 state="ready",
                 is_draft=False,
+                head_oid="deadbee",
             )
         }
 
@@ -946,9 +947,10 @@ class TestSyncFailed:
         )
 
 
-def test_a_pr_read_back_from_a_list_all_row_keeps_its_merge_time():
+def test_a_pr_read_back_from_a_list_all_row_keeps_every_field():
     """The worktree poll remembers PRs through this, so a dropped field would
-    blank the merge time on every branch the next batch skips."""
+    blank the merge time on every branch the next batch skips, and leave a
+    merge with no head commit to match."""
     row = {
         "pr_number": 7,
         "pr_commits": 3,
@@ -956,7 +958,14 @@ def test_a_pr_read_back_from_a_list_all_row_keeps_its_merge_time():
         "pr_state": "merged",
         "pr_draft": False,
         "pr_merged_at": "2026-09-01T10:00:00Z",
+        "pr_head_oid": "deadbee",
     }
-    pr = pr_from_row(row)
-    assert pr is not None
-    assert pr.merged_at == "2026-09-01T10:00:00Z"
+    assert pr_from_row(row) == PrStatus(
+        number=7,
+        commits=3,
+        url="https://github.com/acme/repo/pull/7",
+        state="merged",
+        is_draft=False,
+        merged_at="2026-09-01T10:00:00Z",
+        head_oid="deadbee",
+    )

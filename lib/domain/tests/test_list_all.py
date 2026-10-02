@@ -29,7 +29,7 @@ from mael_domain.ports import record_port_allocation
 from mael_domain.worktree import WorktreeInfo, list_worktrees, run_git
 
 
-def _pr(number, *, commits=1, state="ready", merged_at=""):
+def _pr(number, *, commits=1, state="ready", merged_at="", head_oid=""):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
         number=number,
@@ -38,6 +38,7 @@ def _pr(number, *, commits=1, state="ready", merged_at=""):
         state=state,
         is_draft=False,
         merged_at=merged_at,
+        head_oid=head_oid,
     )
 
 
@@ -255,8 +256,12 @@ def test_a_worktree_row_carries_its_pr_state(
     """The state is decided once, in Python, so no reader re-derives it."""
     project_path, _worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
-    row = _row_for(project_path, _pr(42, state="ci-running"))
-    assert (row["pr_state"], row["pr_draft"]) == ("ci-running", False)
+    row = _row_for(project_path, _pr(42, state="ci-running", head_oid="deadbee"))
+    assert (row["pr_state"], row["pr_draft"], row["pr_head_oid"]) == (
+        "ci-running",
+        False,
+        "deadbee",
+    )
     merged = _row_for(project_path, _pr(42, state="merged", merged_at="2026-09-01"))
     assert merged["pr_merged_at"] == "2026-09-01"
 
