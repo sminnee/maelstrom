@@ -891,10 +891,11 @@ as three vertical stripes. A zone is a stage of progress; a lane is one project'
 _Avoid_: Band, column group, stage, phase
 
 **Worktree box**:
-A dashed, named outline round the nodes of one worktree, inside a project lane. The nodes of a
-worktree take rows of their own, so a box holds those nodes and no other. A node with no
-worktree sits in no box. An open worktree that holds no node draws as an empty box, in a strip
-below the last row of the lane. `_main` gets a box only when a node is in it. Only group by
+A dashed, named outline round the nodes of one worktree, inside a project lane. A box is one
+rectangle, from the first column to the last column of its nodes. No other node takes a cell of
+that rectangle, so a box holds those nodes and no other. Two boxes with no column in common can
+sit side by side. A node with no worktree sits in no box. An open worktree that holds no node
+draws as an empty box, in a strip below the last row of the lane. `_main` gets a box only when a node is in it. Only group by
 `project` draws worktree boxes, and only while no branch or agent status filter is set does it
 draw the empty ones. A worktree box is not a control.
 _Avoid_: Worktree frame, sub-lane

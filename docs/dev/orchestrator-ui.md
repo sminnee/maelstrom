@@ -745,7 +745,7 @@ draws no lanes. Whatever the grouping, the board runs left to right in three pro
 running, not started — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time. `canvas/rows.ts` packs the rows, also pure and one lane at a time, and
-`canvas/layout.ts` aligns the zones and places the boxes.
+`canvas/layout.ts` aligns the zones, sets the row gaps and derives the boxes.
 
 An agent's wait and the document's own review route share one place: the dock under the document.
 `documents/DocumentTab.tsx` renders one `.dock` wrapper and gives it to whichever is waiting.
@@ -778,12 +778,16 @@ an empty box for it says nothing. A project with no node on the desk still draws
 by `project` shows none of its empty worktrees. A branch or agent status filter hides nodes, so a
 worktree with no node drawn can still hold work: `emptyWorktrees` is `[]` while either is set.
 
-`canvas/layout.ts` splits a project lane into sections, one per worktree, in the order of each
-worktree's oldest node. The nodes with no worktree form one section with no box. Each section
-gets rows of its own from `canvas/rows.ts`, so a follows edge that crosses sections moves no
-row, as a cross-lane edge moves none. Columns stay lane-wide, so the zones still align. The
-empty worktrees form a strip of label-high boxes below the last section, which wraps at the
-lane width. `canvas/WorktreeBoxNode.tsx` draws each box behind the nodes and takes no pointer
+`canvas/rows.ts` packs a project lane in one pass, as it packs every lane. `canvas/layout.ts`
+gives each node its worktree as its `box`, and the engine packs the nodes of one box as one
+block. Two boxes with no column in common share rows. The doc comment of `assignRows` gives
+the rule.
+
+All nodes of a lane share one row grid. `layout.ts` derives each box from the cells of its
+nodes, and sets the gap between two rows from what meets there. The widest need of any column
+sets the gap for the whole lane. `orchestrator-ui/DESIGN.md` gives the figures. Columns stay lane-wide, so the
+zones still align. The empty worktrees form a strip of label-high boxes below the lowest node
+and box, which wraps at the lane width. `canvas/WorktreeBoxNode.tsx` draws each box behind the nodes and takes no pointer
 events.
 
 A worktree lane's header carries a close, which runs the same close `mael close` runs — see

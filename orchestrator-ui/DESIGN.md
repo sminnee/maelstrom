@@ -396,7 +396,8 @@ The main views are the canvas, the task list and the worktree table. The canvas 
 branch, and none when grouped by `none`. The task list is a table with a sticky filter row.
 
 The canvas grid is fixed and mechanical, which is what makes it scannable: nodes are 220×76,
-separated by 56px horizontally and 14px vertically. A lane has 20px of padding and 28px between
+separated by 56px horizontally and 14px vertically. In a project lane, the vertical gap grows
+where a worktree box border sits between two rows. A lane has 20px of padding and 28px between
 lanes. A worktree or branch lane has 6px more above its first row, for its label. A project lane
 has 42px of padding, for its worktree boxes. Every lane is as wide as the board, not as wide as
 its own content.
@@ -409,8 +410,12 @@ corner.
 A project lane draws a **Worktree box** round the nodes of each worktree: a 1px dashed outline
 in `--border-strong`. The worktree name sits on the box's top border in the same way as a lane's
 label, and the two labels start at one x. One 16px gap separates the lane border from a box, a
-box from its nodes, and two boxes. An open worktree with no node draws as a 104×24 box in a
-strip below the last row, with its name inside. The box takes no fill and no pointer events: it
+box from its nodes, and a box from what sits above or below it: a node with no box, or a second
+box. Two boxes with no column in common sit side by side, at least 24px apart, and their nodes
+align on one row. The gap between two rows is the same
+across the lane: 32px where a box meets a node with no box, 48px where two boxes meet. An open
+worktree with no node draws as a 104×24 box in a strip below the lowest node and box, with its
+name inside. The box takes no fill and no pointer events: it
 names a place and is not a control.
 
 Horizontal position is progress first and dependency second:
@@ -424,7 +429,8 @@ Horizontal position is progress first and dependency second:
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
   follows edge draws backwards.
 - A task sits on the row of the task it follows, across zones; a second follower branches below.
-  In a project lane this holds inside one worktree box: a follower in another box keeps its box.
+  In a project lane a follower in another worktree box keeps its box. It sits on the row of the
+  task it follows when its box fits there, and it is never a branch.
   A run of followers reserves the columns it spans. A task that follows nothing fills the first
   free cell.
 - A wire another path already implies is not drawn. The board shows what gates what, not every
@@ -504,7 +510,8 @@ The bar wraps rather than overflows below the break.
 starts or finishes, and the cards behind it close up. Its lane never changes, and its order
 against the other cards in its zone never changes. The board reports progress and nothing else.
 In a project lane the order holds inside a worktree box: a card keeps its box, and its order
-against the other cards of that box.
+against the other cards of that box. The order of the boxes follows their columns: the box whose
+first card is leftmost sits highest.
 
 ## Elevation & Depth
 
@@ -980,8 +987,8 @@ beside its own plan, a free agent beside a task's, a tab whose entity has gone, 
 truncating, and four tabs at the panel's 320px minimum, where the label truncates away entirely
 and the ids alone tell four agents apart. Hover an inactive tab: its close control overlays the
 id rather than widening the tab, so watch that the tab does not move. For the canvas:
-`Canvas / Worktree boxes` draws a project lane with three boxes, a section with no box, and a
-strip of empty boxes that wraps.
+`Canvas / Worktree boxes` draws a project lane with four boxes, two of them side by side, nodes with no
+box, and a strip of empty boxes that wraps.
 
 Ladle's width control drives the layout break, so the same story at 390px is the phone. Check both
 schemes; light is not a courtesy mode. Ladle's theme control switches its own chrome, but a story
