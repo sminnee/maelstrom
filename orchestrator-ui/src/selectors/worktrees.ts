@@ -57,7 +57,7 @@ export function canClose(worktree: Worktree): boolean {
  * `_main` leads because it holds the branch the others are cut from, and it is
  * the one worktree that never closes — so it is the row a reader orients by.
  */
-function byName(a: Worktree, b: Worktree): number {
+export function byName(a: Worktree, b: Worktree): number {
   if (a.nato === '_main') return b.nato === '_main' ? 0 : -1;
   if (b.nato === '_main') return 1;
   return a.nato.localeCompare(b.nato);

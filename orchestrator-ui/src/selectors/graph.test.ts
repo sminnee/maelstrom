@@ -236,10 +236,62 @@ describe('deriveGraph', () => {
     });
     const graph = deriveGraph(world, { groupBy: 'none', filters: noFilters() });
     expect(graph.groups).toEqual([
-      { id: 'all', kind: 'none', label: '', sublabel: '', nodeIds: ['T1', 'T2'] },
+      {
+        id: 'all',
+        kind: 'none',
+        label: '',
+        sublabel: '',
+        nodeIds: ['T1', 'T2'],
+        emptyWorktrees: [],
+      },
     ]);
     expect(graph.nodes.map((n) => n.groupId)).toEqual(['all', 'all']);
     expect(graph.edges.map((e) => e.id)).toEqual(['T1->T2']);
+  });
+
+  describe('empty worktrees of a project lane', () => {
+    const worktrees = [
+      makeWorktree({ id: 'northwind-charlie', nato: 'charlie', branch: 'feat/idle-2' }),
+      makeWorktree({ id: 'northwind-alpha', nato: 'alpha', branch: 'feat/orders' }),
+      makeWorktree({ id: 'northwind-bravo', nato: 'bravo', branch: 'feat/idle' }),
+      makeWorktree({ id: '_main', nato: '_main', branch: 'main' }),
+      makeWorktree({ id: 'northwind-delta', nato: 'delta', branch: '', isClosed: true }),
+      makeWorktree({ id: 'maelstrom-alpha', project: 'maelstrom', nato: 'alpha', branch: 'x' }),
+    ];
+    const tasks = [makeTask({ id: 'T1', project: 'northwind', branch: 'feat/orders' })];
+    const emptyNames = (groupBy: 'project' | 'worktree' | 'branch' | 'none') =>
+      deriveGraph(drawnWorld({ worktrees, tasks }), { groupBy, filters: noFilters() }).groups.map(
+        (g) => g.emptyWorktrees.map((w) => w.id),
+      );
+
+    // Open, of this project, holding no node. Not `_main`, not the closed one,
+    // not the other project's, and not alpha, which T1 is in.
+    it('lists the open worktrees of the project that hold no node, in name order', () => {
+      expect(emptyNames('project')).toEqual([['northwind-bravo', 'northwind-charlie']]);
+    });
+
+    it('lists a worktree no longer once a free agent runs in it', () => {
+      const agent = makeAgent({ id: 'A1', taskId: '', worktreeId: 'northwind-bravo' });
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks, agents: [agent] }), byProject);
+      expect(graph.groups[0]?.emptyWorktrees.map((w) => w.id)).toEqual(['northwind-charlie']);
+    });
+
+    // A filter hides nodes, so "no node drawn" stops meaning "holds nothing".
+    it.each([
+      { ...noFilters(), agentStatus: 'working' as const },
+      { ...noFilters(), branch: 'northwind/feat/orders' },
+    ])('lists none while a filter hides nodes: %o', (filters) => {
+      const agent = makeAgent({ id: 'A1', taskId: 'T1', state: 'processing' });
+      const graph = deriveGraph(drawnWorld({ worktrees, tasks, agents: [agent] }), {
+        groupBy: 'project',
+        filters,
+      });
+      expect(graph.groups.map((g) => [g.nodeIds, g.emptyWorktrees])).toEqual([[['T1'], []]]);
+    });
+
+    it.each(['worktree', 'branch', 'none'] as const)('lists none grouped by %s', (groupBy) => {
+      expect(emptyNames(groupBy).flat()).toEqual([]);
+    });
   });
 
   describe('group by worktree', () => {
