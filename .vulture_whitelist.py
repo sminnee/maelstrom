@@ -82,6 +82,8 @@ sevenDay  # unused variable (lib/domain/src/mael_domain/protocol.py:265)
 is_dirty  # unused variable (lib/domain/src/mael_domain/worktree.py WorktreeStatus)
 head_ref  # unused variable (lib/domain/src/mael_domain/github_model.py PullRequest)
 truncatedBefore  # unused variable (orchestrator-api/src/mael_orchestrator/transcript_log.py)
+# The browser's applyPartial reads it off the transcript.partial frame.
+itemId  # unused variable (orchestrator-api/src/mael_orchestrator/transcript_log.py TranscriptPartial)
 
 # sqlite3 reads this attribute off the connection to shape its rows.
 _.row_factory  # unused attribute (lib/domain/src/mael_domain/state_db/db.py)

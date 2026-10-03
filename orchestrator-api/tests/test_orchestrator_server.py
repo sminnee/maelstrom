@@ -2800,22 +2800,38 @@ def test_a_live_event_arrives_as_a_stamped_frame_on_every_socket(harness):
     assert a["event"]["item"]["type"] == "system"
 
 
+async def messages_until_the_turn_ends(ws) -> list[dict]:
+    """Every live message on ``ws``, up to and including the turn's result."""
+    messages = []
+    while True:
+        message = await ws_next(ws)
+        messages.append(message)
+        if message.get("event", {}).get("item", {}).get("type") == "turn_result":
+            return messages
+
+
 async def frames_until_the_turn_ends(ws) -> list[dict]:
     """Every live event on ``ws``, up to and including the turn's result."""
-    events = []
-    while True:
-        event = (await ws_next(ws, lambda m: "seq" in m))["event"]
-        events.append(event)
-        if event.get("item", {}).get("type") == "turn_result":
-            return events
+    return [m["event"] for m in await messages_until_the_turn_ends(ws) if "seq" in m]
+
+
+async def push_paced(harness, agent_id: str, events: list[dict]) -> None:
+    """Push ``events`` a little apart, as a host streams them.
+
+    In a burst the server runs every event before the socket sends, so a
+    reader gets only the last partial.
+    """
+    for event in events:
+        harness.daemon.push(agent_id, event)
+        await asyncio.sleep(0.002)
+
+
+def is_partial(message: dict) -> bool:
+    return message.get("type") == "transcript.partial"
 
 
 def test_a_partial_message_is_appended_once_and_closed_under_the_same_id(harness):
-    """The recorded turn sends about 140 chunks for its first message.
-
-    The harness clock stands still, so this is a burst: the item is appended
-    with the first text and not refreshed again before the whole message comes.
-    """
+    """The recorded turn sends about 140 chunks for its first message."""
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
@@ -2847,6 +2863,71 @@ def test_a_partial_message_is_appended_once_and_closed_under_the_same_id(harness
         and e["item"]["role"] == "assistant"
     ]
     assert said == appended
+
+
+def test_a_partial_message_grows_in_frames_that_take_no_seq(harness):
+    """The item grows between its append and its close."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws)
+                await push_paced(harness, "ag1", read_fixture("partial-turn.jsonl"))
+                return await messages_until_the_turn_ends(ws)
+
+    messages = run(scenario())
+    opened = next(
+        m for m in messages if m.get("event", {}).get("item", {}).get("partial")
+    )
+    item_id = opened["event"]["item"]["id"]
+    closed = next(m for m in messages if m.get("event", {}).get("itemId") == item_id)
+    between = messages[messages.index(opened) + 1 : messages.index(closed)]
+    assert len(between) > 20
+    assert {(m["type"], m["itemId"], "seq" in m) for m in between} == {
+        ("transcript.partial", item_id, False)
+    }
+    # The growth took no ring slot: the close is the next frame after the append.
+    assert closed["seq"] == opened["seq"] + 1
+    assert closed["event"]["patch"]["markdown"].startswith(
+        between[-1]["markdown"].rstrip()
+    )
+
+
+def test_a_socket_that_comes_back_mid_message_sees_the_text_so_far(harness):
+    """A snapshot holds the latest partial text; a replay holds no partial."""
+    harness.daemon.rows["ag1"] = agent_row()
+    turn = read_fixture("partial-turn.jsonl")
+    first_whole = next(n for n, e in enumerate(turn) if e["type"] == "assistant")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.transcript_stream("ag1") as ws:
+                await ws_next(ws)
+                await push_paced(harness, "ag1", turn[:first_whole])
+                opened = await ws_next(
+                    ws, lambda m: m.get("event", {}).get("item", {}).get("partial")
+                )
+                last = opened["event"]["item"]["markdown"]
+                # The growth has stopped once no partial comes for a while.
+                while True:
+                    try:
+                        last = (await ws_next(ws, is_partial, timeout=0.3))["markdown"]
+                    except TimeoutError:
+                        break
+                async with api.transcript_stream("ag1") as fresh:
+                    snapshot = await ws_next(fresh)
+                async with api.transcript_stream("ag1", opened["seq"]) as resumed:
+                    replay = await ws_next(resumed)
+            return opened, last, snapshot, replay
+
+    opened, last, snapshot, replay = run(scenario())
+    assert last != opened["event"]["item"]["markdown"]
+    item = snapshot["items"][-1]
+    assert item["id"] == opened["event"]["item"]["id"]
+    assert item["partial"] is True
+    assert item["markdown"] == last
+    assert replay == {"type": "transcript.replay", "seq": opened["seq"], "frames": []}
 
 
 def test_a_turn_that_ends_mid_message_closes_the_partial_message(harness):
