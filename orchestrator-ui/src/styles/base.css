@@ -52,22 +52,27 @@ body {
 }
 button {
   font: inherit;
+  /* The chrome's face, even in a mono line such as the session head. */
+  font-family: var(--font);
+  font-size: var(--text-control);
   color: inherit;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
+  /* Filled, not outlined: an outline marks a chip. The border stays, in the
+     fill's own colour, so a variant can colour it without a size change. */
+  background: var(--bg-control);
+  border: 1px solid transparent;
   /* A pill: the radius is half the height, whatever the height is. */
   border-radius: var(--radius-pill);
   /* One height for every control. A component sets a width, not a height. */
   min-height: var(--control);
-  /* Half the height, which is the radius: the text starts where the curve
-     ends, so the space round it reads even at each control height. */
-  padding: 0 calc(var(--control) / 2);
+  padding: 0 var(--control-pad);
   /* A label that wraps makes a pill a blob. The row wraps, not the label. */
   white-space: nowrap;
   cursor: pointer;
 }
-button:hover {
-  border-color: var(--border-strong);
+/* `:where`, so a button whose class sets its own ground (a tab, a menu item)
+   keeps that ground on hover. */
+:where(button:hover:not(:disabled)) {
+  background: var(--bg-control-hover);
 }
 button:disabled {
   cursor: default;

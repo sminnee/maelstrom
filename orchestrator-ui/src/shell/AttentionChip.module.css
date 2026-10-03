@@ -1,12 +1,19 @@
+/* A button at the control height, so it is filled; the tint says asks wait. */
 .chip {
   font-weight: 600;
-  border-color: color-mix(in srgb, var(--attention) 50%, transparent);
+  background: color-mix(in srgb, var(--attention) 18%, var(--bg-control));
+}
+.chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--attention) 28%, var(--bg-control));
 }
 .asks {
   color: var(--attention);
 }
 .chip[data-count='0'] {
-  border-color: var(--border);
+  background: var(--bg-control);
+}
+.chip[data-count='0']:hover:not(:disabled) {
+  background: var(--bg-control-hover);
 }
 .chip[data-count='0'] .asks {
   color: var(--fg-faint);

@@ -14,9 +14,12 @@
   flex: none;
 }
 .primary {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--fg-on-hue);
   font-weight: 600;
+}
+.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent), var(--fg-on-hue) 15%);
 }
 .quiet {
   color: var(--fg-muted);
@@ -38,6 +41,6 @@
   opacity: 0.7;
 }
 .button[data-state='error'] {
-  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 20%, var(--bg-control));
   color: var(--danger);
 }

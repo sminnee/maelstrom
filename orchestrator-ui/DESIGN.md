@@ -81,16 +81,16 @@ components:
     padding: '12px 16px'
     width: '440px'
   button:
-    backgroundColor: '{colors.console-slate-raised}'
+    backgroundColor: '{colors.hairline}'
     textColor: '{colors.readout}'
-    rounded: '{rounded.sm}'
-    padding: '0 8px'
+    rounded: '{rounded.pill}'
+    padding: '0 12px'
     height: '{spacing.control}'
   button-primary:
-    backgroundColor: '{colors.console-slate-raised}'
-    textColor: '{colors.signal-blue}'
-    rounded: '{rounded.sm}'
-    padding: '0 8px'
+    backgroundColor: '{colors.signal-blue}'
+    textColor: '{colors.console-slate-sunken}'
+    rounded: '{rounded.pill}'
+    padding: '0 12px'
     height: '{spacing.control}'
   attention-badge:
     backgroundColor: '{colors.alert-amber}'
@@ -254,8 +254,11 @@ dense; prose is read and must not.
   message, a document, the decision rail. Prose is read start to end, so it is set well above
   the chrome around it rather than on the same step.
 - **Chrome** (`--text-ui`, 400, 13px, 1.4): the body size everything else inherits. Node titles,
-  table rows, controls, the task list. The canvas keeps this size whatever prose does, because
+  table rows, links, the task list. The canvas keeps this size whatever prose does, because
   the board's job is to hold many units at once.
+- **Control** (`--text-control`, 14px): a button's label. A step over the chrome, so the text
+  holds its fill.
+- **Chip** (`--text-chip`, 10px): the text of a chip, in the chrome's face, never mono.
 - **Display** (`--text-lg` 18px, `--text-xl` 21px): markdown's own `h2` and `h1`. Nothing in the
   chrome uses them.
 - **Section head** (`--text-md-plus`, 17px): markdown's `h3`. One step over body, because at
@@ -325,9 +328,9 @@ collinear with body text — and chasing that with nudges would break whenever t
 spacing scale. A reading surface takes `--prose-gap*`; a gap narrower than the leading it
 separates is the failure this prevents.
 
-**The Legibility Floor Rule.** 10px is the smallest type in the system, and it is only ever
-used for a tracked uppercase micro-label — never for prose, and never for a sentence. Chrome is
-13px and prose is 16px. Density is bought with tighter space and shorter lines, never by shrinking type below
+**The Legibility Floor Rule.** 10px is the smallest type in the system. It is used only for a
+tracked uppercase micro-label and for the text of a chip — never for prose, and never for a
+sentence. Chrome is 13px, a button label is 14px, and prose is 16px. Density is bought with tighter space and shorter lines, never by shrinking type below
 the floor. Every step clears WCAG AA against its own ground in both schemes; the 10px label is
 the tightest, and it is measured, not assumed.
 
@@ -583,8 +586,9 @@ A restrained, rectilinear form language. Two radii carry almost everything: 6px 
 controls and nodes, 10px on the elements that read as panels or cards. The step between them
 is the only size cue the corner language gives.
 
-Pills (999px) are reserved for two things: status dots and count badges. A pill therefore
-always means "one small piece of state", never a button or a tag.
+Pills (999px) mark three things: a button, a chip and a dot or count badge. Fill tells them
+apart: a button is filled, a chip is outlined. A field is the exception to the round corner: it
+takes `--radius-field` (4px).
 
 Panel tabs round their top corners only, at `--radius`. They are rounded where they leave the
 strip and square where they join the body, in the manner of an editor's tabs, and the tab in
@@ -711,14 +715,16 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 
 ### Buttons
 
-- **Shape:** a pill (`--radius-pill`), raised surface, hairline border, `--control` high. The side
-  padding is half the height, which is the radius, so the text starts where the curve ends.
-  Small and quiet: a button is a control, not a call to action. No component sets a button's
-  padding or its font size.
-- **Hover:** border strengthens to `--border-strong`. Nothing moves, nothing fills.
-- **Primary:** Signal Blue border and text at 600 weight. Emphasis by colour and weight, never
-  by a filled block.
-- **Quiet:** muted text on the same chassis.
+- **Shape:** a filled pill (`--radius-pill`) on `--bg-control`, with no visible border,
+  `--control` high. The side padding is `--control-pad`: 12px at 32px, 18px at 48px. The label is
+  `--text-control` (14px). No component sets a button's padding or its font size.
+- **Filled, not outlined:** a button is filled and a chip is outlined. The two never share a
+  look, so the eye can tell what to press from what to read.
+- **Hover:** the fill steps to `--bg-control-hover`. Nothing moves.
+- **Primary:** a Signal Blue fill with `--fg-on-hue` text at 600 weight.
+- **Quiet:** muted text on the same fill.
+- **Split button:** two segments in one fill, divided by a hairline in the label colour. The
+  label segment has 8px on its flat side; the chevron segment's padding is 0 8px 0 6px.
 - **Link:** no chassis — no border, no background, no padding. Accent-coloured text, underlined
   only on hover. For a control that reads as prose, not a box, e.g. "Show less" beside a body
   that is already its own expand control.
@@ -727,18 +733,21 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 
 ### Chips
 
-- **Attention chip:** a button in Alert Amber at 600 weight with a 50%-mixed amber border.
-  At zero it drops to faint text and a plain hairline — present, unlit, not hidden. Its count
+- **Attention chip:** a button, so it is filled: Alert Amber text at 600 weight on a fill
+  mixed 18% with amber. At zero it drops to faint text on the plain fill — present, unlit, not
+  hidden. Its count
   is the number of `needs-attention` nodes drawn. A second count follows in `--unanswered`,
   behind a 6px dot, when an unanswered node is drawn. The chip is disabled only when both
   counts are zero.
-- **Height:** a chip is not a control. A hue chip and a split chip are two units (16px) high on
-  each layout. The attention chip is a button, so it is `--control` high.
+- **Height and type:** a chip is not a control. A hue chip and a split chip are two units (16px)
+  high on each layout, outlined, with `--text-chip` (10px) text in the chrome's face. A chip
+  never takes the mono face; tabular digits hold its width. The attention chip is a button,
+  so it is `--control` high and filled.
 - **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
 - **Split chip:** one pill in two halves, divided by a hairline — what is measured, then what it
-  reads. Sunken ground, so it sits _in_ the raised bar; mono tabular value, so the chip holds
+  reads. Sunken ground, so it sits _in_ the raised bar; tabular value, so the chip holds
   its width as the number ticks. Only the value takes the tone. Both halves read at rest,
   unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
   vouch for drops to faint and dashes its divider, and the chip itself gives up the tone.
@@ -1080,7 +1089,7 @@ browser with the scheme forced — rather than trusting the toggle.
   opacity step) — so no state depends on colour alone.
 - **Do** use `color-mix(in srgb, var(--token) N%, transparent)` for washes, glows and
   highlights, so they follow the scheme automatically.
-- **Do** keep the chrome at 13px (`--text-ui`) and never go below the 12px floor.
+- **Do** keep the chrome at 13px (`--text-ui`). Only a micro-label and a chip go below 12px.
 - **Do** read a gap, a padding or a margin from `--u`, `--u-half`, `--u-2` or `--u-3`.
 - **Do** give every interactive element a visible `:focus-visible` ring, and make every action
   reachable from the keyboard — this is a power tool and hands stay on the keys.
@@ -1095,7 +1104,7 @@ browser with the scheme forced — rather than trusting the toggle.
 - **Don't** colour anything that is not reporting state. Emphasis is weight, size and space.
 - **Don't** let a third channel glow. Alert Amber and Reply Yellow are the two calls.
 - **Don't** add a shadow to something that does not overlap other content.
-- **Don't** use a pill radius for anything but a dot or a count badge.
+- **Don't** outline a button or fill a chip.
 - **Don't** put the phase hue on any edge but the left one.
 - **Don't** use mono for prose, or the interface font for an id.
 - **Don't** show a raw agent state, or any term `CONTEXT.md` lists under `_Avoid_`.
