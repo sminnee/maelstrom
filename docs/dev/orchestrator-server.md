@@ -942,6 +942,7 @@ WebSocket on the same log: an opening frame, then one frame per event.
 {"seq": 4184, "event": {"type": "transcript.append", "agentId": "…", "item": {...}}}
 {"seq": 4185, "event": {"type": "transcript.update", "agentId": "…", "itemId": "…", "patch": {...}}}
 {"seq": 4186, "event": {"type": "transcript.truncated", "agentId": "…"}}
+{"type": "transcript.partial", "agentId": "…", "itemId": "…", "markdown": "…"}
 ```
 
 The cursor is the agent's transcript seq, not an item index, because `transcript.update` patches
@@ -960,30 +961,39 @@ missed. The socket pings every 20 s.
 
 The daemon sends a message in chunks while the agent writes it; see "A partial message" in
 [agent-daemon.md](agent-daemon.md). The normaliser turns the chunks into one transcript item that
-grows, with the frames the stream already has:
+grows. The append and the close are seq'd frames. The growth between them is a top-level
+`transcript.partial` frame with no seq:
 
 ```json
 {"seq": 4190, "event": {"type": "transcript.append", "agentId": "…",
                         "item": {"id": "ag1-9", "type": "message", "role": "assistant",
                                  "markdown": "All true", "partial": true}}}
+{"type": "transcript.partial", "agentId": "…", "itemId": "ag1-9",
+ "markdown": "All true tea comes from one plant"}
 {"seq": 4191, "event": {"type": "transcript.update", "agentId": "…", "itemId": "ag1-9",
-                        "patch": {"markdown": "All true tea comes from one plant"}}}
-{"seq": 4192, "event": {"type": "transcript.update", "agentId": "…", "itemId": "ag1-9",
                         "patch": {"markdown": "…", "partial": false, "ts": "…"}}}
 ```
 
-Four rules hold it:
+Six rules hold it:
 
-1. **The whole text so far, never a chunk.** Each update replaces `markdown`. A refresh that is
+1. **The whole text so far, never a chunk.** Each partial replaces `markdown`. A partial that is
    skipped, or dropped between the server and a browser, loses nothing.
-2. **Three refreshes a second at most**, per agent (`PARTIAL_REFRESH_SECS`). The normaliser
-   compares the `now` its caller passes, so there is no timer. The whole `assistant` message
-   carries the tail.
-3. **The whole message takes the same item id.** `NormaliseContext.partial` holds the id the
+2. **No seq, no ring slot, no replay.** `TranscriptLog.record` sets the item's text in place, so a
+   snapshot is current. A replay is not: the next partial, or the close, brings the text up to
+   date. The log and the browser apply a partial only to an item that still has `partial: true`,
+   so a partial that follows the close does nothing.
+3. **Only the newest partial waits for a slow socket.** `TranscriptSubscriber` keeps seq'd frames
+   in its queue and one partial beside it. A newer partial takes the place of the older one. A
+   partial never fills the queue, so it never makes a socket `4409 lagging`.
+4. **One partial per chunk that changes the text.** Claude Code sends its chunks in bursts, about
+   400 ms apart, so each chunk goes out at once and the card is current when a burst ends. A
+   chunk inside a held-back tag changes nothing on screen, and sends nothing.
+5. **The whole message takes the same item id.** `NormaliseContext.partial` holds the id the
    first text was appended under, keyed by the message's own id. The `assistant` branch then
    updates that item and appends nothing. With nothing held it appends, as it does for a stream
    with no chunks. The closing update carries `ts`, so the item ends equal to the appended one.
-4. **A tag has no effect before the message is complete.** `document_tags.partial_text` cuts each
+
+6. **A tag has no effect before the message is complete.** `document_tags.partial_text` cuts each
    complete marker and holds back a half-written one, with everything after it. A `<note>` or a
    `<milestone>` shows nothing until it closes. A chunk emits transcript events only: documents,
    the note and the milestone come from the `assistant` event. A marker in a code span or a fence
@@ -1234,8 +1244,6 @@ the real app, and a global logging setup inside `build_app` would follow it into
 
 ## Open risks
 
-- Each refresh of a partial message takes one slot of the 2000-frame transcript ring. A long
-  message shortens the window a reconnect can replay; a client past it gets a snapshot.
 - A partial message can draw unclosed markdown oddly until it closes: `**`, a fence, half a table.
 
 - Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,

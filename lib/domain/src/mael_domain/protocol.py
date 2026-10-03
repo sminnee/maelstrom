@@ -491,7 +491,8 @@ class ClientState(TypedDict):
 
 
 #: A server event: ``upsert``, ``remove``, ``transcript.append``,
-#: ``transcript.update`` or ``transcript.truncated``, as a plain dict.
+#: ``transcript.update``, ``transcript.partial`` or ``transcript.truncated``,
+#: as a plain dict.
 ServerEvent = dict[str, Any]
 
 
@@ -561,7 +562,12 @@ def apply_event(state: ClientState, event: ServerEvent) -> ClientState:
         table = dict(state["world"][key])
         table.pop(event["id"], None)
         return _with_world(state, cast(World, {**state["world"], key: table}))
-    if kind in ("transcript.append", "transcript.update", "transcript.truncated"):
+    if kind in (
+        "transcript.append",
+        "transcript.update",
+        "transcript.partial",
+        "transcript.truncated",
+    ):
         # Not the world's business: each agent's TranscriptLog keeps these.
         return state
     raise ValueError(f"Unknown server event: {event!r}")

@@ -131,6 +131,8 @@ export interface FakeServer {
   append(agentId: AgentId, item: TranscriptItem): void;
   /** Patch an item and send the frame. */
   patch(agentId: AgentId, itemId: string, patch: Partial<TranscriptItem>): void;
+  /** Set a partial message's text and send the partial, which takes no seq. */
+  partial(agentId: AgentId, itemId: string, markdown: string): void;
   /**
    * Replace an agent's transcript and send a snapshot, as a lagging reconnect
    * does. `keep` is how many of the newest items survive; `dropFront` drops
@@ -284,6 +286,18 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
         ),
       };
       emitTranscript({ type: 'transcript.update', agentId, itemId, patch });
+    },
+    partial(agentId, itemId, markdown) {
+      const transcript = transcriptOf(agentId);
+      server.transcripts[agentId] = {
+        ...transcript,
+        items: transcript.items.map((i) =>
+          i.id === itemId && i.type === 'message' && i.partial ? { ...i, markdown } : i,
+        ),
+      };
+      for (const socket of openSockets(agentId)) {
+        socket.receive({ type: 'transcript.partial', agentId, itemId, markdown });
+      }
     },
     resnapshot(agentId, keep, { dropFront = 0 } = {}) {
       const transcript = transcriptOf(agentId);

@@ -92,6 +92,53 @@ describe('agent streams', () => {
     });
   });
 
+  it('a partial grows a partial message and leaves the cursor', () => {
+    const writing: TranscriptItem = {
+      id: 'a',
+      ts: '',
+      type: 'message',
+      role: 'assistant',
+      markdown: '',
+      partial: true,
+    };
+    const partial = (markdown: string) => ({
+      type: 'transcript.partial',
+      agentId: 'ag1',
+      itemId: 'a',
+      markdown,
+    });
+    streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({
+      type: 'transcript.snapshot',
+      seq: 1,
+      items: [writing],
+      truncatedBefore: false,
+    });
+    sockets[0]!.receive(partial('All true tea'));
+    expect(store.state['ag1']).toMatchObject({
+      items: [{ ...writing, markdown: 'All true tea' }],
+      cursor: 1,
+    });
+    // A partial that follows the close is stale: the whole text is in.
+    sockets[0]!.receive({
+      seq: 2,
+      event: {
+        type: 'transcript.update',
+        agentId: 'ag1',
+        itemId: 'a',
+        patch: { markdown: 'All true tea comes from one plant.', partial: false },
+      },
+    });
+    const closed = store.state['ag1'];
+    expect(closed).toMatchObject({
+      items: [{ ...writing, markdown: 'All true tea comes from one plant.', partial: false }],
+      cursor: 2,
+    });
+    sockets[0]!.receive(partial('All true tea comes'));
+    expect(store.state['ag1']).toBe(closed);
+  });
+
   it('steps over a frame it does not know, and keeps the transcript', () => {
     streams.acquire('ag1');
     sockets[0]!.open();

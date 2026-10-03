@@ -85,3 +85,36 @@ def test_items_past_the_cap_drop_oldest_first_and_mark_the_transcript_truncated(
     assert log.truncated_before is True
     # The frames are the ring's business: every seq is still replayable.
     assert [f["seq"] for f in log.replay_from(0) or []] == [1, 2, 3]
+
+
+def partial(item_id: str, markdown: str) -> dict:
+    return {
+        "type": "transcript.partial",
+        "agentId": "ag1",
+        "itemId": item_id,
+        "markdown": markdown,
+    }
+
+
+def test_a_partial_sets_the_text_in_place_and_takes_no_seq():
+    log = TranscriptLog()
+    log.record(append("i1", markdown="All", partial=True))
+    assert log.record(partial("i1", "All true")) == partial("i1", "All true")
+    assert log.snapshot() == {
+        "items": [
+            {"id": "i1", "type": "message", "markdown": "All true", "partial": True}
+        ],
+        "truncatedBefore": False,
+        "seq": 1,
+    }
+    assert log.replay_from(0) == [
+        {"seq": 1, "event": append("i1", markdown="All", partial=True)}
+    ]
+
+
+def test_a_partial_after_the_close_leaves_the_whole_text():
+    log = TranscriptLog()
+    log.record(append("i1", markdown="All", partial=True))
+    log.record(update("i1", markdown="All true tea.", partial=False))
+    log.record(partial("i1", "All true"))
+    assert log.snapshot()["items"][0]["markdown"] == "All true tea."

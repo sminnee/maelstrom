@@ -11,7 +11,6 @@ re-records. The TypeScript normaliser is held to the same files until it goes.
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -88,6 +87,13 @@ class Replayed:
         elif kind == "transcript.update":
             current["items"] = [
                 {**i, **event["patch"]} if i["id"] == event["itemId"] else i
+                for i in current["items"]
+            ]
+        elif kind == "transcript.partial":
+            current["items"] = [
+                {**i, "markdown": event["markdown"]}
+                if i["id"] == event["itemId"] and i.get("partial")
+                else i
                 for i in current["items"]
             ]
         else:
@@ -2366,23 +2372,20 @@ def test_both_note_patterns_are_still_in_step():
 PARTIAL_FIXTURES = [name for name in FIXTURE_NAMES if name.startswith("partial-")]
 
 
-def replay_ticking(name: str, *, step_ms: int, chunks: bool = True):
-    """Replay ``name`` on a clock that moves ``step_ms`` per event.
+def replay_partial(name: str, *, chunks: bool = True):
+    """Replay ``name``, and return the state and every batch with its raw event.
 
-    Returns the replayed state and every batch of events, each with the raw
-    event that made it. ``chunks=False`` leaves the ``stream_event`` lines out,
-    which is the stream as it was before the daemon asked for partial messages.
+    ``chunks=False`` leaves the ``stream_event`` lines out, which is the
+    stream as it was before the daemon asked for partial messages.
     """
     state = Replayed(seed([make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")
     batches: list[tuple[dict, list[dict]]] = []
-    start = datetime(2026, 9, 1, tzinfo=timezone.utc)
-    for n, raw in enumerate(read_fixture(name)):
+    for raw in read_fixture(name):
         if not chunks and raw["type"] == "stream_event":
             continue
-        now = (start + timedelta(milliseconds=n * step_ms)).isoformat()
         out = normalise_stream_event(
-            state.state, ctx, raw, now, read_file=fake_reader(), files=fake_registry()
+            state.state, ctx, raw, NOW, read_file=fake_reader(), files=fake_registry()
         )
         ctx = out.ctx
         state.take(out.events)
@@ -2397,8 +2400,8 @@ def _whole(item: dict) -> dict:
 @pytest.mark.parametrize("name", PARTIAL_FIXTURES)
 def test_a_partial_message_ends_as_the_whole_message_would_have(name):
     """Same items, same ids, same world: the chunks change only the journey."""
-    with_chunks, _ = replay_ticking(name, step_ms=1000)
-    without, _ = replay_ticking(name, step_ms=1000, chunks=False)
+    with_chunks, _ = replay_partial(name)
+    without, _ = replay_partial(name, chunks=False)
     assert [_whole(i) for i in with_chunks.items] == without.items
     assert with_chunks.state["world"] == without.state["world"]
     assert not any(i.get("partial") for i in with_chunks.items)
@@ -2412,16 +2415,16 @@ def _partial_frames(batches) -> list[dict]:
 
 
 def test_a_partial_message_is_appended_once_and_then_grows_in_place():
-    _, batches = replay_ticking("partial-turn.jsonl", step_ms=1000)
+    _, batches = replay_partial("partial-turn.jsonl")
     frames = _partial_frames(batches)
     appended = [f for f in frames if f["type"] == "transcript.append"]
     # Two messages in the turn: the long answer, and the closing sentence.
     assert [f["item"]["partial"] for f in appended] == [True, True]
     first = appended[0]["item"]["id"]
     grown = [
-        f["patch"]["markdown"]
+        f["markdown"]
         for f in frames
-        if f["type"] == "transcript.update" and f["itemId"] == first
+        if f["type"] == "transcript.partial" and f["itemId"] == first
     ]
     assert len(grown) > 100
     # The whole text so far each time, so a dropped refresh loses nothing.
@@ -2431,7 +2434,7 @@ def test_a_partial_message_is_appended_once_and_then_grows_in_place():
 
 
 def test_the_complete_message_replaces_the_partial_one_under_its_id():
-    _, batches = replay_ticking("partial-turn.jsonl", step_ms=1000)
+    _, batches = replay_partial("partial-turn.jsonl")
     first = _partial_frames(batches)[0]["item"]["id"]
     [closing] = [
         e
@@ -2447,12 +2450,10 @@ def test_the_complete_message_replaces_the_partial_one_under_its_id():
 
 def test_no_tag_shows_and_none_takes_effect_before_the_message_is_complete():
     """The fixture's message carries a note, a document and an attention tag."""
-    state, batches = replay_ticking("partial-markers.jsonl", step_ms=1000)
+    state, batches = replay_partial("partial-markers.jsonl")
     frames = _partial_frames(batches)
     shown = [
-        f["item"]["markdown"]
-        if f["type"] == "transcript.append"
-        else f["patch"]["markdown"]
+        f["item"]["markdown"] if f["type"] == "transcript.append" else f["markdown"]
         for f in frames
     ]
     assert len(shown) > 30
@@ -2461,32 +2462,31 @@ def test_no_tag_shows_and_none_takes_effect_before_the_message_is_complete():
             assert marker not in markdown
         assert not re.search(r"<[^>]*$", markdown), markdown
     # A chunk moves the transcript and nothing else: no document, no agent.
-    assert {f["type"] for f in frames} == {"transcript.append", "transcript.update"}
+    assert {f["type"] for f in frames} == {"transcript.append", "transcript.partial"}
     assert agent_of(state)["lastNote"] == "writing about tea"
     assert len(state.state["world"]["documents"]) == 1
 
 
-def test_a_partial_message_refreshes_three_times_a_second_at_most():
-    """A recorded burst: about 140 chunks, here 10 ms apart."""
-    _, batches = replay_ticking("partial-turn.jsonl", step_ms=10)
-    chunks = sum(1 for raw, _ in batches if raw["type"] == "stream_event")
-    assert chunks > 150
-    # When each item was sent, in events: one event is 10 ms on this clock.
-    sent: dict[str, list[int]] = {}
-    for n, (raw, events) in enumerate(batches):
-        if raw["type"] != "stream_event":
-            continue
+def test_each_message_shows_its_whole_text_before_it_closes():
+    """No chunk waits for a later one: when a burst ends, the card is current."""
+    _, batches = replay_partial("partial-turn.jsonl")
+    shown: dict[str, str] = {}
+    closed: dict[str, str] = {}
+    for raw, events in batches:
         for event in events:
-            sent.setdefault(event.get("itemId") or event["item"]["id"], []).append(n)
-    long_answer = max(sent.values(), key=len)
-    assert len(long_answer) >= 4
-    gaps = [later - earlier for earlier, later in zip(long_answer, long_answer[1:])]
-    assert min(gaps) >= 34
+            if event["type"] == "transcript.append" and event["item"].get("partial"):
+                shown[event["item"]["id"]] = event["item"]["markdown"]
+            elif event["type"] == "transcript.partial":
+                shown[event["itemId"]] = event["markdown"]
+            elif raw["type"] == "assistant" and event.get("itemId") in shown:
+                closed[event["itemId"]] = event["patch"]["markdown"]
+    assert len(closed) == 2
+    assert {item_id: shown[item_id] for item_id in closed} == closed
 
 
 def test_an_interrupted_partial_message_keeps_the_text_it_has():
     """The child sends the text so far as a whole message before the result."""
-    state, _ = replay_ticking("partial-interrupt.jsonl", step_ms=1000)
+    state, _ = replay_partial("partial-interrupt.jsonl")
     said = [i for i in items_of(state, "message") if i["role"] == "assistant"]
     assert said[-1]["partial"] is False
     assert len(said[-1]["markdown"]) > 500
