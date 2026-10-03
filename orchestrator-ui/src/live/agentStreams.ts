@@ -2,9 +2,11 @@ import type { AgentId } from '../protocol/ids';
 import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import { browserSocket, type SocketLike } from './socketLike';
 import {
+  applyPartial,
   emptyTranscript,
   reduceTranscript,
   type TranscriptFrame,
+  type TranscriptPartial,
   type TranscriptState,
 } from './transcriptReducer';
 
@@ -113,9 +115,9 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       stream.attempts = 0;
     };
     socket.onmessage = (event) => {
-      let message: Opening | TranscriptFrame;
+      let message: Opening | TranscriptFrame | TranscriptPartial;
       try {
-        message = JSON.parse(event.data) as Opening | TranscriptFrame;
+        message = JSON.parse(event.data) as Opening | TranscriptFrame | TranscriptPartial;
       } catch {
         // A frame that is not JSON is a server bug. Skipping it would leave
         // this client behind the server with no way back; a close reconnects
@@ -144,6 +146,11 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
           state = reconcileFrame(reduceTranscript(state, frame), frame);
         }
         store.set(agentId, { ...state, cursor: message.seq, status: 'live' });
+      } else if (message.type === 'transcript.partial') {
+        const current = store.get(agentId);
+        const next = current && applyPartial(current, message);
+        // A stale partial changes nothing, so no view redraws for it.
+        if (next && next !== current) store.set(agentId, next);
       }
     };
     socket.onclose = (event) => {

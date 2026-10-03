@@ -23,6 +23,17 @@ export type TranscriptEvent =
     }
   | { type: 'transcript.truncated'; agentId: AgentId };
 
+/**
+ * The whole text so far of a partial message. It has no seq, so it is never
+ * replayed and never moves the cursor.
+ */
+export interface TranscriptPartial {
+  type: 'transcript.partial';
+  agentId: AgentId;
+  itemId: TranscriptItemId;
+  markdown: string;
+}
+
 export interface TranscriptFrame {
   seq: number;
   event: TranscriptEvent;
@@ -53,4 +64,17 @@ export function reduceTranscript(state: TranscriptState, frame: TranscriptFrame)
       // falling out of the switch would replace the transcript with nothing.
       return { ...state, cursor: frame.seq };
   }
+}
+
+/**
+ * The transcript after one partial. It changes only an item still partial, so
+ * a partial that arrives after the message closed does nothing.
+ */
+export function applyPartial(state: TranscriptState, partial: TranscriptPartial): TranscriptState {
+  const index = state.items.findIndex(
+    (item) => item.id === partial.itemId && item.type === 'message' && item.partial,
+  );
+  const item = state.items[index];
+  if (item?.type !== 'message') return state;
+  return { ...state, items: state.items.with(index, { ...item, markdown: partial.markdown }) };
 }

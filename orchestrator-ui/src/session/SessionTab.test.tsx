@@ -620,11 +620,16 @@ describe('a partial message', () => {
     // follow cannot key on it alone. Away from the tail first, as above.
     const scrolled = watchScroll();
     scrollTranscriptTo('up');
-    server.patch('d9a4c7f1', 'd9a4c7f1-partial', { markdown: 'The index is half built' });
+    server.partial('d9a4c7f1', 'd9a4c7f1-partial', 'The index is half built');
     await within(card).findByText('The index is half built');
     expect(scrolled).not.toHaveBeenCalled();
 
     scrollTranscriptTo('bottom');
+    server.partial('d9a4c7f1', 'd9a4c7f1-partial', 'The index is built');
+    await within(card).findByText('The index is built');
+    expect(scrolled).toHaveBeenCalled();
+
+    scrolled.mockClear();
     server.patch('d9a4c7f1', 'd9a4c7f1-partial', {
       markdown: 'The index is built and the query uses it',
       partial: false,
@@ -661,7 +666,7 @@ describe('a partial message under a later item', () => {
 
     const scrolled = watchScroll();
     scrollTranscriptTo('bottom');
-    server.patch('d9a4c7f1', 'd9a4c7f1-partial', { markdown: 'The index is half built' });
+    server.partial('d9a4c7f1', 'd9a4c7f1-partial', 'The index is half built');
     await within(tab).findByText('The index is half built');
     expect(scrolled).toHaveBeenCalled();
   });
