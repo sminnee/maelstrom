@@ -55,6 +55,9 @@
   --bg-field: var(--n0);
   /* The wash under the row a pointer or the keyboard is on. */
   --bg-hover: var(--n3);
+  /* The fill of a button. A button is filled; an outline marks a chip. */
+  --bg-control: var(--n3);
+  --bg-control-hover: var(--n4);
   --border: var(--n3);
   --border-strong: var(--n4);
 
@@ -127,9 +130,13 @@
      sentence case in `--fg-faint` stops clearing AA. */
   --text-2xs: 10px;
   --text-xs: 11px;
+  /* The text of a chip, in the chrome's face: a chip is two units high. */
+  --text-chip: 10px;
   --text-sm: 12px;
   /* The chrome's own size: node titles, table rows, controls. */
   --text-ui: 13px;
+  /* The label of a button. A step over the chrome, so a filled pill holds it. */
+  --text-control: 14px;
   /*
    * The reading size. Prose is read, not scanned, so it is set well above the
    * chrome around it rather than on the same step. Only markdown and the panel's
@@ -189,6 +196,11 @@
    * re-points it below, to the floor for anything a finger presses.
    */
   --control: calc(var(--u) * 4);
+  /*
+   * The side padding of a pill at the control height: 12px at 32px. It scales
+   * with `--control`, so the narrow 48px pill keeps the same proportion (18px).
+   */
+  --control-pad: calc(var(--control) * 3 / 8);
 
   --duration-fast: 120ms;
 
@@ -242,6 +254,8 @@
     /* A field stays the lightest surface here: darkening it reads as disabled. */
     --bg-field: var(--white);
     --bg-hover: #e8ebf1;
+    --bg-control: #e4e7ee;
+    --bg-control-hover: #d9dde6;
     --border: #d9dde6;
     --border-strong: #b8bfcc;
 

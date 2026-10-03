@@ -1,8 +1,7 @@
 /*
- * Two segments in one bordered unit: the label, a hairline, the chevron. Each
- * segment keeps the button border from `base.css`; the corners where they meet
- * go square and the chevron drops its left border for the divider, so the pair
- * reads as one control.
+ * Two segments in one filled unit: the label, a hairline, the chevron. The
+ * corners where they meet go square and the chevron's left border is the
+ * divider, so the pair reads as one control.
  */
 .wrap {
   display: inline-flex;
@@ -25,11 +24,12 @@
   justify-content: center;
   /* Narrower than a control: three of them in a card row cost a wrap. */
   min-width: var(--u-3);
-  padding: 0 var(--u) 0 var(--u-half);
+  padding: 0 var(--u) 0 calc(var(--u) * 0.75);
   margin-left: -1px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left: 1px solid var(--border);
+  /* Drawn from the label colour, so it shows on each variant's fill. */
+  border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }

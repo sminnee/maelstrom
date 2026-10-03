@@ -48,18 +48,13 @@
   --chip-tone: var(--tone-archival);
 }
 
-/*
- * 11px, not the 10px floor. The Legibility Floor Rule reserves 10px for a
- * tracked uppercase micro-label, and neither half is one: the label is
- * lowercase and the value is a mono numeral. These are the two readings the
- * bar exists to be glanced at, so they sit a step above the floor.
- */
+/* Each chip takes one size and the chrome's face. See DESIGN.md, "Chips". */
 .label,
 .value {
   display: flex;
   align-items: center;
   padding: 0 var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-chip);
 }
 
 /* What is measured. It never changes, so it recedes and lets the number lead. */
@@ -69,13 +64,12 @@
 }
 
 /*
- * The reading. Mono and tabular so the chip holds its width as the percent
+ * The reading. Tabular digits, so the chip holds its width as the percent
  * ticks: proportional digits would shift the whole bar on every poll.
  */
 .value {
   border-left: 1px solid var(--border);
   color: var(--chip-tone);
-  font-family: var(--mono);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
 }

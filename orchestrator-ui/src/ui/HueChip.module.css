@@ -72,23 +72,20 @@
 
 /*
  * The number and the word it opens to are one line of text, so they take one
- * face. `line-height: 1` on the chip left them sitting high: their glyphs fill
- * less of the box than the icon beside them, and centring two boxes is not
+ * face: the chrome's own, at the chip size. A chip never takes the mono face.
+ * `line-height: 1` on the chip left them sitting high: their glyphs fill less
+ * of the box than the icon beside them, and centring two boxes is not
  * centring what is drawn in them. A matched line-height puts both on the
  * icon's optical centre.
  */
 .number,
 .word {
   display: block;
-  font-family: var(--mono);
-  font-size: var(--text-2xs);
+  font-size: var(--text-chip);
   line-height: 12px;
-  /* The last pixel is by eye. Mono digits sit high in their line box, so a
-     centred box still reads a pixel above the mark beside it. */
-  transform: translateY(1px);
 }
 .number {
-  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 /*

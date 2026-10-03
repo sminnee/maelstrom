@@ -24,8 +24,12 @@
 /* The one way to start new work, so it reads as the bar's action rather than
    another view toggle. */
 .new {
-  color: var(--fg);
-  border-color: var(--fg-faint);
+  background: var(--accent);
+  color: var(--fg-on-hue);
+  font-weight: var(--weight-semibold);
+}
+.new:hover {
+  background: color-mix(in srgb, var(--accent), var(--fg-on-hue) 15%);
 }
 /* The readings, as one group: they are read together and must not be split
    across a wrap boundary while the bar is still wide enough to hold them. */
@@ -36,13 +40,12 @@
 }
 .views {
   display: flex;
-  /* The group is one control: its border is inside the control height. */
+  /* The group is one filled control, as a button is. */
   box-sizing: border-box;
   height: var(--control);
   overflow: hidden;
-  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  background: var(--bg);
+  background: var(--bg-control);
 }
 .view {
   min-height: 0;
@@ -54,17 +57,20 @@
 }
 /* The two ends meet the curve of the group. */
 .view:first-child {
-  padding-left: calc(var(--control) / 2);
+  padding-left: var(--control-pad);
 }
 .view:last-child {
-  padding-right: calc(var(--control) / 2);
+  padding-right: var(--control-pad);
 }
 .view + .view {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--bg-raised);
+}
+.view:hover {
+  color: var(--fg);
 }
 .view[aria-pressed='true'] {
   color: var(--fg);
-  background: var(--bg-raised);
+  background: var(--bg-control-hover);
 }
 
 /* The narrow layout: two rows. See DESIGN.md, "The narrow layout". */
@@ -93,9 +99,11 @@
     padding: 0;
   }
   .views {
-    border-width: 1px 0 0;
     border-radius: 0;
     background: transparent;
+  }
+  .view + .view {
+    border-left-color: var(--border);
   }
   .view {
     flex: 1;
@@ -103,6 +111,7 @@
   /* The raised fill does not show on a raised bar, so the view in front takes
      the rule the deck's zone tabs use. */
   .view[aria-pressed='true'] {
+    background: transparent;
     box-shadow: inset 0 -2px 0 var(--accent);
   }
   .back {

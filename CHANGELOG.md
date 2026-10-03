@@ -37,6 +37,9 @@ release while that section is empty, and retitles it to the version it is releas
   bar is two rows, and Back takes the second row on a pushed screen. On a node's detail screen
   each link is a row, and the commands are a bar at the bottom of the screen. The task list and
   the worktree table stack their rows. The host banner now shows on a phone.
+- **Buttons are filled pills; chips are outlined.** A button is 32px high, with 12px side
+  padding and a 14px label. A primary button is filled in blue. A chip has 10px text in the
+  interface font, not the monospace font.
 
 - **A task's status picker sits on the node card's id line** on every layout.
 
