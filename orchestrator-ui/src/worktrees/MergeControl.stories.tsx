@@ -3,8 +3,8 @@ import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import type { Worktree } from '../protocol/entities';
-import { createFakeServer } from '../test/fakeServer';
-import { makeWorktree, worldWith } from '../test/fixtures';
+import { createFakeServer } from '../fake/fakeServer';
+import { makeWorktree, worldWith } from '../fake/fixtures';
 import { MergeControl } from './MergeControl';
 
 export default { title: 'Worktrees / MergeControl' };
