@@ -8,6 +8,7 @@ replies.
 
 import asyncio
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from mael_daemon.agent_model import (
     build_agent_row,
 )
 from mael_domain import task as model
+from mael_domain.agent_store import InMemoryAgentStore
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
@@ -45,6 +47,9 @@ from mael_orchestrator.world_build import split_task_key
 
 NOW = "2026-09-01T00:00:00Z"
 PROJECT = "northwind"
+#: The row id of the task most tests launch or link: what an agent row names
+#: as its task.
+NORT_7 = f"{PROJECT}/NORT-7"
 WORKTREE_PATH = "/Users/dev/Projects/northwind/northwind-alpha"
 
 
@@ -59,7 +64,10 @@ class Harness:
         self.version = 0
         self.projects = list(projects)
         self.tasks = NotebookTaskSource(
-            store, lambda: list(self.projects), version=lambda: str(self.version)
+            store,
+            lambda: list(self.projects),
+            version=lambda: str(self.version),
+            agents=InMemoryAgentStore(),
         )
         self.worktrees = InMemoryWorktreeSource(
             projects=[
@@ -360,7 +368,9 @@ def test_the_started_row_carries_every_key_the_real_builder_does():
     """
     real = set(build_agent_row(AgentState(agent_id="ag1", cwd=WORKTREE_PATH)))
     started = set(server._started_row("ag1", {"cwd": WORKTREE_PATH}))
-    assert started - real == set(), "the fake invents keys the real row lacks"
+    # `task` is the one key the daemon's row never has: the daemon knows no
+    # tasks, and the router copies it on from the Agent record.
+    assert started - real == {"task"}, "the fake invents keys the real row lacks"
     # What the fake leaves out, it leaves out because nothing knows it yet: the
     # host fills each in on the next `list`. Named one by one so a new key
     # cannot join them silently — that is the drift this test exists to catch.
@@ -419,9 +429,8 @@ def test_the_world_carries_the_wait_and_the_transcript_holds_the_backlog(harness
     the world and the scrollback from the transcript route.
     """
     harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
     backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
-    harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
+    harness.daemon.rows["ag1"] = agent_row(task=NORT_7, state="awaiting-question")
     harness.daemon.backlog["ag1"] = backlog
     harness.daemon.pending["ag1"] = pending_from(backlog)
 
@@ -775,8 +784,7 @@ def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
 
 def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harness):
     """An agent away during a task's arrival must still find it on the way back."""
-    session = model.session_id_for(PROJECT, "NORT-7")
-    harness.daemon.rows["ag1"] = agent_row(session=session)
+    harness.daemon.rows["ag1"] = agent_row(task=NORT_7)
 
     async def scenario():
         async with harness.client() as api:
@@ -1417,7 +1425,6 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
         model="claude-opus-5",
         content="Do it.",
     )
-    session = model.session_id_for(PROJECT, "NORT-7")
 
     async def scenario():
         async with harness.client() as api:
@@ -1441,11 +1448,14 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert start["prompt"] == "/plan-task NORT-7\n\nDo it."
     assert start["mode"] == "auto"
     assert start["model"] == "claude-opus-5"
-    assert start["session"] == session
+    # A task never launched has no record, so its session id is new.
+    assert re.fullmatch(r"[0-9a-f-]{36}", start["session"])
+    assert start["resume"] is False
+    # What the router writes on the agent's record: the link to the task.
+    assert start["task"] == NORT_7
     assert start["env"] == {
         "MAEL_TASK_ID": "NORT-7",
         "MAEL_TASK_PARENT": "NORT-7",
-        "MAEL_TASK_SESSION_ID": session,
     }
     assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "in-progress"
     assert task["status"] == "in-progress"
@@ -1857,8 +1867,7 @@ def test_a_live_agent_joins_the_desk(harness):
 
 def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
     harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
-    harness.daemon.rows["ag1"] = agent_row(session=session)
+    harness.daemon.rows["ag1"] = agent_row(task=NORT_7)
 
     async def scenario():
         async with harness.client() as api:
@@ -2632,9 +2641,8 @@ def test_projects_worktrees_and_the_desk_each_have_a_get(harness):
 
 def test_an_agent_detail_carries_the_request_it_waits_on(harness):
     harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
     backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
-    harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
+    harness.daemon.rows["ag1"] = agent_row(task=NORT_7, state="awaiting-question")
     harness.daemon.backlog["ag1"] = backlog
     harness.daemon.pending["ag1"] = pending_from(backlog)
 
@@ -4485,7 +4493,7 @@ def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
     harness.add_task("linear.NORT-9.1", parent="linear.NORT-9", title="Plan the work")
     harness.daemon.rows["ag1"] = agent_row(
         cwd=str(harness.worktree),
-        session=model.session_id_for(PROJECT, "linear.NORT-9.1"),
+        task=f"{PROJECT}/linear.NORT-9.1",
     )
     write_draft(harness, "draft-one.md", "First step")
 

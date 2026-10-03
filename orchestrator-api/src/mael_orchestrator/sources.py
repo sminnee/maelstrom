@@ -36,12 +36,14 @@ from mael_domain.task_launch import (
     LaunchBlocked,
     check_not_live,
     check_synced,
+    choose_session,
     plan_launch,
 )
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
-from mael_domain.task_table import TaskTable
+from mael_domain.task_table import TaskTable, row_id, split_row_id
 from mael_domain.worktree import WorktreeSetup
 
+from .daemon_bridge import TASK_FIELD
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
     project_entity,
@@ -348,12 +350,14 @@ class NotebookTaskSource:
         open_worktree: OpenWorktree | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
-        agents: AgentStore | None = None,
+        agents: AgentStore,
     ) -> None:
         self.table = table
+        #: A task's sessions. Required, and the store the router writes: a
+        #: launch reads here the records the router wrote for the last one.
         self.agents = agents
-        #: Task session id -> when its first agent started, folded from the
-        #: Agent records a revision at a time.
+        #: Task row id -> when its first agent started, folded from the Agent
+        #: records a revision at a time.
         self._first_starts: dict[str, str] = {}
         self._agents_revision = 0
         self.projects = projects
@@ -393,39 +397,39 @@ class NotebookTaskSource:
 
     async def _fold_starts(self) -> set[str]:
         """Fold the Agent records written since the last read into the first
-        starts, and return the task sessions whose first start moved.
+        starts, and return the task row ids whose first start moved.
+
+        The earliest ``started_at`` among a task's records, kept as a fold so a
+        poll costs the records that moved rather than one read per task.
 
         Ended records count: the start must outlive the agent, which leaves the
-        world when it ends. A record with no session, or no readable aware
-        start, says nothing.
+        world when it ends. A record with no task, or no readable aware start,
+        says nothing.
         """
-        if self.agents is None:
-            return set()
         records, self._agents_revision = await self.agents.changed_since(
             self._agents_revision
         )
         moved: set[str] = set()
         for record in records:
-            session = record.get("task_session_id") or ""
+            task = record.get("task") or ""
             stamp = record.get("started_at") or ""
             try:
                 at = datetime.fromisoformat(stamp)
             except ValueError:
                 continue
-            if not session or at.tzinfo is None:
+            if not task or at.tzinfo is None:
                 continue
-            known = self._first_starts.get(session)
+            known = self._first_starts.get(task)
             if known is None or at < datetime.fromisoformat(known):
-                self._first_starts[session] = stamp
-                moved.add(session)
+                self._first_starts[task] = stamp
+                moved.add(task)
         return moved
 
     async def _entity(self, task: model.Task) -> Task:
-        session = model.session_id_for(task.project, task.id)
         return task_entity(
             task,
             actionable=await model.is_actionable(task, self.table),
-            started_at=self._first_starts.get(session, ""),
+            started_at=self._first_starts.get(row_id(task.project, task.id), ""),
         )
 
     async def read_since(self, since: int) -> TaskReading:
@@ -442,12 +446,13 @@ class NotebookTaskSource:
         wanted = set(self.projects())
         changed = await self.table.changed_since(since)
         # An Agent record does not move its task's row, so a task whose first
-        # start just appeared is read here by its session.
+        # start just appeared is read here by the row id its record names.
         moved = await self._fold_starts()
         tasks = list(changed.tasks)
-        moved -= {model.session_id_for(t.project, t.id) for t in tasks}
-        for session in sorted(moved):
-            if (task := await self.table.find_by_session_id(session)) is not None:
+        moved -= {row_id(t.project, t.id) for t in tasks}
+        for key in sorted(moved):
+            # A record outlives its task, so the row may be gone.
+            if (task := await self.table.load(*split_row_id(key))) is not None:
                 tasks.append(task)
         entities: list[Task] = []
         for task in tasks:
@@ -472,9 +477,15 @@ class NotebookTaskSource:
                 resolve_execute_model(plan.execute_model)
             except ValueError as exc:
                 raise LaunchBlocked(str(exc)) from exc
-        check_not_live(task.id, plan.session_id, self.live_sessions())
+        # The task's sessions are its Agent records: the guard reads them, and
+        # so does the choice between a resume and a new session.
+        records = await self.agents.for_task(plan.task)
+        check_not_live(task.id, records, self.live_sessions())
         setup = self.open_worktree(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
+        session = choose_session(
+            records, lambda session_id: self.has_transcript(setup.path, session_id)
+        )
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
         payload = build_start_payload(
             setup.path,
@@ -482,12 +493,13 @@ class NotebookTaskSource:
             permission_mode=plan.permission_mode,
             model=model_name or plan.model,
             execute_model=plan.execute_model,
-            session_id=plan.session_id,
+            session_id=session.session_id,
             env=plan.env,
-            # A task that has run before already owns its session id.
-            resume=self.has_transcript(setup.path, plan.session_id),
+            resume=session.resume,
             system_prompt_file=agent_prompt_file(),
         )
+        # See TASK_FIELD: the router reads it and no daemon does.
+        payload[TASK_FIELD] = plan.task
         return LaunchRequest(task.project, task.id, task.status, payload)
 
     async def rollback(self, request: LaunchRequest) -> None:

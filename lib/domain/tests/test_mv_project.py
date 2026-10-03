@@ -12,7 +12,6 @@ from mael_domain.mv_project import (
     repoint_path,
     worktree_nato_name,
 )
-from mael_domain.task import session_id_for
 
 
 class TestNewWorktreeFolder:
@@ -52,7 +51,6 @@ class TestBuildMovePlan:
             "projects_dir": Path("/Projects"),
             "worktree_folders": ["old-alpha", "old-bravo", "_main"],
             "task_ids": ["t1", "t2"],
-            "ran_task_ids": set(),
             "home": Path("/home/u"),
         }
         kwargs.update(overrides)
@@ -114,23 +112,6 @@ class TestBuildMovePlan:
 
         assert ("old/in-progress/t1.md", "new/in-progress/t1.md") in plan.task_rekeys
         assert ("old/done/t2.md", "new/done/t2.md") in plan.task_rekeys
-
-    def test_orphaned_sessions_are_counted_and_warned_about(self):
-        plan = self._plan(ran_task_ids={"t1"})
-
-        assert plan.orphaned_session_count == 1
-        assert any("orphaned" in w for w in plan.warnings)
-
-    def test_no_warning_when_nothing_ever_ran(self):
-        plan = self._plan(ran_task_ids=set())
-
-        assert plan.orphaned_session_count == 0
-        assert plan.warnings == []
-
-    def test_ran_ids_outside_the_project_are_ignored(self):
-        plan = self._plan(task_ids=["t1"], ran_task_ids={"t1", "stranger"})
-
-        assert plan.orphaned_session_count == 1
 
     def test_only_symlinks_pointing_into_the_project_are_repointed(self):
         plan = self._plan(
@@ -284,20 +265,3 @@ class TestRepointPath:
 
     def test_returns_none_for_an_unrelated_path(self):
         assert repoint_path(Path("/other"), Path("/p/old"), Path("/p/new")) is None
-
-
-class TestSessionIdOrphaning:
-    """Regression guard for the accepted, warned-about session orphaning."""
-
-    def test_renaming_a_project_changes_every_session_id(self):
-        """Session ids are uuid5 over the project name, so a rename orphans them.
-
-        This is by design (the plan warns rather than migrating transcripts). If
-        this test ever fails, session ids became name-independent and the
-        warning in the rename plan is wrong.
-        """
-        for task_id in ("t1", "2026-01-01.1", "deep.nested.id"):
-            assert session_id_for("old", task_id) != session_id_for("new", task_id)
-
-    def test_the_same_project_and_task_stay_stable(self):
-        assert session_id_for("proj", "t1") == session_id_for("proj", "t1")

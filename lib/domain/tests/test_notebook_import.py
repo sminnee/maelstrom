@@ -11,8 +11,7 @@ rule: a corrupt task is logged and skipped rather than failing the migration.
 import pytest
 
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.state_db.migrations.notebook_md import _SESSION_NS
-from mael_domain.task import Task, session_id_for
+from mael_domain.task import Task
 from mael_domain.task_table import SqliteTaskTable
 
 A_TASK = Task(
@@ -65,16 +64,6 @@ async def migrated(tmp_path):
 
 
 class TestTheNotebookImportRung:
-    async def test_the_namespace_matches_the_model(self):
-        """The rung derives ``session_id`` itself, so the two must not drift.
-
-        A divergence here would break the reverse session lookup for every
-        imported task, silently — the id would simply never match.
-        """
-        from mael_domain.task import _SESSION_NS as model_ns
-
-        assert _SESSION_NS == model_ns
-
     async def test_a_task_round_trips_every_field(self, tmp_path):
         """The row carries the prose, so the body must survive the import."""
         write_task(tmp_path, A_TASK)
@@ -153,17 +142,6 @@ class TestTheNotebookImportRung:
             bravo = await table.load("bravo", "1")
             assert alpha is not None and alpha.title == "A"
             assert bravo is not None and bravo.title == "B"
-        finally:
-            db.close()
-
-    async def test_the_session_id_is_derived_and_findable(self, tmp_path):
-        """The reverse lookup must work on an imported row, not only a written one."""
-        write_task(tmp_path, A_TASK)
-        db = await migrated(tmp_path)
-        try:
-            wanted = session_id_for("maelstrom", "2026-06-11.1")
-            found = await SqliteTaskTable(db).find_by_session_id(wanted)
-            assert found is not None and found.id == "2026-06-11.1"
         finally:
             db.close()
 

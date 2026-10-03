@@ -497,6 +497,11 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
                 "last_note_at": "",
                 "cost": "",
             }
+            if payload.get("task"):
+                # A server test drives this fake with no router in front. The
+                # router is what copies a task onto a row, from the record the
+                # `start` wrote, so the fake does it for a start that names one.
+                self.rows[agent_id]["task"] = payload["task"]
             return {"ok": True, "id": agent_id}
         if command == "stop":
             if row := self.rows.pop(payload.get("id", ""), None):

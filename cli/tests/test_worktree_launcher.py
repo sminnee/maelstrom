@@ -25,6 +25,7 @@ from mael_cli.worktree_launcher import (
     start_install_async,
 )
 from mael_common.shell import Command, Pipeline, describe, exec_cmd
+from mael_domain.agent_store import InMemoryAgentStore
 from mael_domain.cmux.mael_layout import MaelCmux
 
 
@@ -508,16 +509,11 @@ class TestBuildTaskLaunchLine:
         )
 
     def test_session_id_appended(self):
-        # session_id also rides as MAEL_TASK_SESSION_ID on the claude segment, so
-        # a session can name the key it was launched under. The name pairs with
-        # MAEL_TASK_ID/MAEL_TASK_PARENT: it is a task key, not a reference to the
-        # conversation running now.
         assert describe(
             build_task_launch_line("proj", "t1", "plan", session_id="abc-123")
         ) == (
             "mael task prompt t1 --project proj | "
-            "MAEL_TASK_SESSION_ID=abc-123 claude "
-            "--permission-mode plan --session-id abc-123"
+            "claude --permission-mode plan --session-id abc-123"
         )
 
     def test_quotes_ids_and_projects_with_spaces(self):
@@ -729,7 +725,7 @@ class TestOpenClaudeWorkspace:
 class TestDaemonLaunchAttach:
     """``attach`` decides whether a started daemon agent gets a cmux pane."""
 
-    async def _launch(self, client, capsys, *, attach):
+    async def _launch(self, client, capsys, *, attach, **kwargs):
         with (
             patch("mael_agent.agent_transport.client_factory", lambda **_: client),
             patch(
@@ -747,6 +743,7 @@ class TestDaemonLaunchAttach:
                 task_id="t1",
                 harness="daemon",
                 attach=attach,
+                **kwargs,
             )
         out = capsys.readouterr()
         return placed, mock_cmux, mock_open, mock_install, out
@@ -787,6 +784,109 @@ class TestDaemonLaunchAttach:
         mock_install.assert_not_called()
         assert "connection refused" in out.err
         assert "Agent started" not in out.out
+
+
+class TestLaunchWritesTheAgentRecord:
+    """A task launch writes the record that links the session to the task.
+
+    The daemon knows no tasks, and a ``cli`` session has no daemon, so the
+    launcher is the only writer that knows both ends.
+    """
+
+    async def _launch(
+        self, harness, *, client=None, placed=True, agents=None, **kwargs
+    ):
+        agents = agents if agents is not None else InMemoryAgentStore()
+        with (
+            patch("mael_agent.agent_transport.client_factory", lambda **_: client),
+            patch("mael_cli.worktree_launcher.ensure_cmux_running", return_value=True),
+            patch(
+                "mael_cli.worktree_launcher.open_claude_workspace",
+                return_value=placed,
+            ),
+            patch("mael_cli.worktree_launcher.start_install_async"),
+            patch(
+                "mael_cli.worktree_launcher.now_iso",
+                lambda: "2026-09-21T10:00:00+00:00",
+            ),
+        ):
+            result = await launch_claude_in_worktree(
+                Path("/wt/alpha"),
+                project="proj",
+                worktree="alpha",
+                task_id="t1",
+                permission_mode="auto",
+                session_id="sess-1",
+                model="opus",
+                harness=harness,
+                task="proj/t1",
+                agents=agents,
+                **kwargs,
+            )
+        return result, agents.records
+
+    async def test_a_daemon_launch_records_the_agent_the_daemon_started(self, capsys):
+        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
+        placed, records = await self._launch("daemon", client=client, attach=False)
+
+        assert placed is True
+        assert records == {
+            "a7": {
+                "id": "a7",
+                "harness": "claude",
+                "session_id": "sess-1",
+                "task": "proj/t1",
+                "cwd": "/wt/alpha",
+                "model": "opus",
+                "mode": "auto",
+                "status": "running",
+                "started_at": "2026-09-21T10:00:00+00:00",
+                "ended_at": "",
+            }
+        }
+
+    async def test_a_daemon_launch_that_fails_records_nothing(self, capsys):
+        client = RecordingDaemonClient(replies=[{"error": "connection refused"}])
+        placed, records = await self._launch("daemon", client=client, attach=False)
+
+        assert placed is False
+        assert records == {}
+
+    async def test_a_cli_launch_records_the_session_under_a_key_of_its_own(self):
+        """No daemon mints an id for a ``cli`` session, so the launcher does."""
+        placed, records = await self._launch("cli")
+
+        assert placed is True
+        [(key, record)] = records.items()
+        assert key.startswith("cli-")
+        assert record == {
+            "id": key,
+            "harness": "claude",
+            "transport": "cli",
+            "session_id": "sess-1",
+            "task": "proj/t1",
+            "cwd": "/wt/alpha",
+            "model": "opus",
+            "mode": "auto",
+            "status": "running",
+            "started_at": "2026-09-21T10:00:00+00:00",
+            "ended_at": "",
+        }
+
+    async def test_two_cli_launches_of_one_session_keep_two_records(self):
+        """A resume is a second launch. Its record must not replace the first,
+        which holds when the task first started."""
+        agents = InMemoryAgentStore()
+        await self._launch("cli", agents=agents)
+        _, records = await self._launch("cli", agents=agents, resume=True)
+
+        assert [r["session_id"] for r in records.values()] == ["sess-1", "sess-1"]
+
+    async def test_a_cli_launch_that_places_nothing_records_nothing(self):
+        placed, records = await self._launch("cli", placed=False)
+
+        assert placed is False
+        assert records == {}
 
 
 @pytest.mark.skip(reason="Superseded by transport selection tests.")
@@ -843,12 +943,7 @@ class TestLaunchAgentInWorktree:
                 "mode": "auto",
                 "model": "opus",
                 "session": "sess-1",
-                "env": {
-                    "MAEL_TASK_ID": "t1",
-                    # The task key, carried the same way the legacy
-                    # pipeline's env prefix carries it.
-                    "MAEL_TASK_SESSION_ID": "sess-1",
-                },
+                "env": {"MAEL_TASK_ID": "t1"},
                 "resume": True,
             }
         ]

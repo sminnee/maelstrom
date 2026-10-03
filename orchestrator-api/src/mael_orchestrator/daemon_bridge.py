@@ -25,6 +25,7 @@ from mael_domain.agent_store import (
     AGENT_ENDED,
     AGENT_RUNNING,
     AgentStore,
+    is_cli_record,
     new_agent_record,
     register_agent,
 )
@@ -36,6 +37,11 @@ DaemonClient = AsyncDaemonClient
 #: and a router pointed at another worktree's daemon root all look the same on
 #: a single list, and retiring on the first one draws a working agent as dead.
 UNCONFIRMED_LISTS_BEFORE_END = 5
+
+#: The key a ``start`` names its task under: the task row id. It is the
+#: router's own field, read into the Agent record and cut from the payload
+#: before a daemon sees it, so the wire contract does not carry it.
+TASK_FIELD = "task"
 
 #: How long after its start a record is never retired, however many lists miss
 #: it. The daemon takes a moment to hold a new agent, and every poll inside
@@ -55,6 +61,8 @@ class DaemonRouter:
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
+    #: The store revision the live set was last read at. See :meth:`_refresh`.
+    _revision: int = field(default=0, init=False)
     #: Per agent, how many consecutive lists have failed to name it. Reset on
     #: every sighting, so it counts a run of misses rather than a total.
     _misses: dict[str, int] = field(default_factory=dict, init=False)
@@ -70,6 +78,7 @@ class DaemonRouter:
         command = str(payload.get("cmd", ""))
         if command == "list":
             await self._restore()
+            await self._refresh()
             claude = await self.claude.request(payload)
             codex = await self.codex.request(payload)
             live_rows: dict[str, dict[str, Any]] = {}
@@ -113,9 +122,12 @@ class DaemonRouter:
                     )
                 )
                 # A live subagent has no record of its own — see Agent
-                # record in CONTEXT.md — so it rides through unchanged.
+                # record in CONTEXT.md — so it rides through on its parent's,
+                # and takes the task from there.
                 rows.extend(
-                    row for row in live_rows.values() if row.get("parent") == agent_id
+                    {**row, TASK_FIELD: agent.get("task") or ""}
+                    for row in live_rows.values()
+                    if row.get("parent") == agent_id
                 )
             # An agent the daemon no longer holds has ended, however it went.
             # Only `stop` writes the status directly, and a crash, an outside
@@ -125,12 +137,19 @@ class DaemonRouter:
                 await self._end(agent_id, revivable=True)
             return {"agents": rows, "usage": claude.get("usage")}
         await self._restore()
+        # Before any save: a `stop` or a `set-mode` writes the live set's copy.
+        await self._refresh()
         try:
             client, harness = self._client_for(
                 payload, await self._harness_of(str(payload.get("id", "")))
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        task = str(payload.get(TASK_FIELD) or "") if command == "start" else ""
+        if command == "start":
+            payload = {
+                key: value for key, value in payload.items() if key != TASK_FIELD
+            }
         reply = await client.request(payload)
         if command == "start" and reply.get("ok") and reply.get("id"):
             agent_id = str(reply["id"])
@@ -138,11 +157,8 @@ class DaemonRouter:
             agent = new_agent_record(
                 agent_id,
                 harness=harness,
-                task_session_id=str(payload.get("session") or ""),
-                # Not read yet: link_agent still resolves the task by
-                # session-id reverse-lookup. Persisted now so it is there
-                # when a reader needs it.
-                task_id=str(payload.get("env", {}).get("MAEL_TASK_ID", "")),
+                session_id=str(payload.get("session") or ""),
+                task=task,
                 cwd=str(payload.get("cwd") or ""),
                 model=str(payload.get("model") or ""),
                 mode=str(payload.get("mode") or "normal"),
@@ -222,9 +238,9 @@ class DaemonRouter:
             self.agents,
             agent_id,
             row or {},
-            # Unknown here. `link_agent` resolves the task by session-id
-            # reverse-lookup, so nothing reads this yet.
-            task_id="",
+            # Unknown here: a daemon knows no tasks. The launch that started
+            # the agent writes the task, and `_refresh` reads it.
+            task="",
             harness=harness,
             started_at=self.clock(),
         )
@@ -326,22 +342,48 @@ class DaemonRouter:
         if self._restored:
             return
         self._restored = True
-        agents = await self.agents.list()
+        # Read by revision, so `_refresh` starts from here and not from zero.
+        agents, self._revision = await self.agents.changed_since(0)
         # Live ones only. The table holds every agent Maelstrom ever started,
         # and an ended one restored here would come back as an `exited` row on
         # every poll — which the server's reconcile loop could never retire,
         # because it retires an id that drops out of `list`.
+        # And driven ones only: no daemon lists a `cli` session, so its record
+        # would be swept as a dead agent on a session that is still running.
         self._agents = {
             str(agent["id"]): agent
             for agent in agents
-            if agent.get("id") and agent.get("status", AGENT_RUNNING) != AGENT_ENDED
+            if agent.get("id")
+            and agent.get("status", AGENT_RUNNING) != AGENT_ENDED
+            and not is_cli_record(agent)
         }
         restore = getattr(self.codex, "restore", None)
         if restore is not None:
-            await restore(agents)
+            # The thread ids alone: a Codex `cli` record names no thread.
+            await restore([a for a in agents if not is_cli_record(a)])
         for agent_id, agent in self._agents.items():
             if agent.get("harness"):
                 self._harnesses[agent_id] = str(agent["harness"])
+
+    async def _refresh(self) -> None:
+        """Take in what another writer saved for an agent in the live set.
+
+        `mael task run` starts its agent on the daemon socket and then writes
+        the record, with the task. A ``list`` that lands between the two adopts
+        the agent with no task. Without this read the live set would keep that
+        copy, report no task for the agent, and write it back over the real
+        record at the next stop. `mael agent register` is the same case.
+
+        Costs the records that moved, not the table.
+        """
+        records, self._revision = await self.agents.changed_since(self._revision)
+        for record in records:
+            agent_id = str(record.get("id") or "")
+            if (
+                agent_id in self._agents
+                and record.get("status", AGENT_RUNNING) != AGENT_ENDED
+            ):
+                self._agents[agent_id] = record
 
 
 def _is_revivable(agent: dict[str, Any]) -> bool:
@@ -397,7 +439,10 @@ def _stored_agent_row(
         "state": "exited" if retiring else (last_state or "idle"),
         **(live or {}),
         "id": agent["id"],
-        "session": agent["task_session_id"],
+        "session": agent["session_id"],
+        # The link to the task. A daemon knows no tasks, so this is the only
+        # place a row gets one.
+        TASK_FIELD: agent.get("task") or "",
         "cwd": agent["cwd"],
         "model": agent["model"],
         "mode": agent["mode"],

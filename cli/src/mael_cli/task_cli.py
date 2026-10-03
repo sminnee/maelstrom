@@ -33,6 +33,7 @@ from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from mael_domain import task as task_model
+from mael_domain.agent_store import AgentStore, SqliteAgentStore
 from mael_domain.cmux.client import ensure_cmux_running
 from mael_domain.context import resolve_context, resolve_project
 from mael_domain.state_db.db import StateDb
@@ -43,9 +44,11 @@ from mael_domain.task_launch import (
     LaunchBlocked,
     check_not_live,
     check_synced,
+    choose_session,
+    live_session_of,
     plan_launch,
 )
-from mael_domain.task_table import SqliteTaskTable
+from mael_domain.task_table import SqliteTaskTable, row_id, split_row_id
 from mael_domain.worktree import (
     get_current_branch,
     list_worktrees,
@@ -57,6 +60,7 @@ from .table_cli import draw_table
 from .worktree_launcher import (
     build_task_launch_line,
     launch_claude_in_worktree,
+    new_cli_record,
 )
 
 
@@ -161,6 +165,28 @@ def open_task_table() -> SqliteTaskTable:
     return SqliteTaskTable(_DB)
 
 
+def open_agent_store() -> AgentStore:
+    """The Agent records, on the connection the task table holds.
+
+    One connection for both, so a write that touches a task and its records —
+    a rename — is one transaction.
+    """
+    open_task_table()
+    assert _DB is not None  # set by open_task_table
+    return SqliteAgentStore(_DB)
+
+
+async def agent_store() -> AgentStore:
+    """The Agent records, with the schema gate checked on first use.
+
+    For a command that reads the records and no task: without the gate, a
+    database that predates the ``task`` column fails on an unknown column
+    rather than naming the migration to run.
+    """
+    await _table()
+    return open_agent_store()
+
+
 async def _table() -> SqliteTaskTable:
     """The task table, with the schema gate checked on first use.
 
@@ -221,18 +247,22 @@ async def _run_task(
     in-progress without a session and the next run retries.
 
     ``fresh=True`` marks a just-created task (load-many head, ``add --run``, a
-    scheduled run): it has no prior conversation, so it must always launch with
-    ``--session-id`` (create) and never ``--resume`` — even when a stale
-    transcript for its deterministic id already sits in a reused worktree. The
-    relaunch callers (``task run`` / ``task next``) leave it ``False`` so they
-    still resume a previously-stopped session.
+    scheduled run): it has no prior conversation, so it always takes a new
+    session and never resumes one. The relaunch callers (``task run`` /
+    ``task next``) leave it ``False`` so they still resume a previously-stopped
+    session.
+
+    The task's sessions are its Agent records. The launch reads them for the
+    guard and the resume, and the launcher writes this launch's own.
     """
-    # The plan settles the session id, env, permission mode and branch once,
-    # the same way the orchestrator server does. Harnesses without task-session
-    # support cannot pin, resume, or guard their own session ids.
+    # The plan settles the env, permission mode and branch once, the same way
+    # the orchestrator server does. Harnesses without task-session support
+    # cannot pin, resume, or guard their own session ids.
     if is_driven_agent():
         attach = False
     plan = plan_launch(project, task)
+    agents = open_agent_store()
+    records = await agents.for_task(plan.task)
     ref = resolve_model_reference(plan.model, task.mode)
     if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
         raise click.ClickException(
@@ -246,7 +276,6 @@ async def _run_task(
         except ValueError as e:
             raise click.ClickException(str(e))
     has_session_id = ref.harness == HARNESS_CLAUDE
-    session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
     # Swept here, on the loop: the lazy property falls back to a thread when a
@@ -256,28 +285,34 @@ async def _run_task(
     # nothing running, so a finished task stays re-runnable.
     if has_session_id:
         try:
-            check_not_live(task.id, plan.session_id, live)
+            check_not_live(task.id, records, live)
         except LaunchBlocked as e:
             raise click.ClickException(str(e))
 
     # Skills running inside the session self-reference via these — e.g. to
-    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`. The
-    # launcher adds MAEL_TASK_SESSION_ID itself once it knows the session id.
-    session_env = {
-        key: value for key, value in plan.env.items() if key != "MAEL_TASK_SESSION_ID"
-    }
+    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+    session_env = dict(plan.env)
     perm = plan.permission_mode
+
+    def session_at(path: Path) -> tuple[str | None, bool]:
+        """The session this launch runs on in ``path``, and whether it resumes.
+
+        Codex has no session id — see :func:`choose_session` for the rest.
+        """
+        if not has_session_id:
+            return None, False
+        choice = choose_session(
+            records,
+            lambda session_id: has_claude_transcript(path, session_id),
+            fresh=fresh,
+        )
+        return choice.session_id, choice.resume
 
     if here:
         # No live session exists (the guard above ruled that out), so the only
-        # question is whether this task's deterministic session was started before
-        # and stopped: an on-disk transcript means `--session-id` would fail with
-        # "already exists", so we resume it instead. `--here` runs in the cwd.
-        # fresh ⇒ never resume; see docstring. Codex has no id to resume.
-        resume = False
-        if has_session_id and not fresh:
-            assert session_id is not None  # set above on the claude path
-            resume = has_claude_transcript(Path.cwd(), session_id)
+        # question is whether a session of this task was started before and
+        # stopped. `--here` runs in the cwd.
+        session_id, resume = session_at(Path.cwd())
         await task_actions.move_with_actions(
             table, project, task.id, model.STATUS_IN_PROGRESS, warn=_warn
         )  # write BEFORE launch; fires pre_action
@@ -291,6 +326,17 @@ async def _run_task(
                 err=True,
             )
         click.echo(f"Running {task.id} here (current shell){suffix}")
+        # Written before the exec, which never returns: nothing after it could
+        # link this session to the task.
+        await agents.save(
+            new_cli_record(
+                Path.cwd(),
+                task=plan.task,
+                session_id=session_id,
+                permission_mode=perm,
+                model=plan.model,
+            )
+        )
         exec_cmd(
             build_task_launch_line(
                 project,
@@ -342,13 +388,9 @@ async def _run_task(
     if result.sync is not None and result.sync.push_message:
         click.echo(result.sync.push_message, err=True)
 
-    # Resume a previously-started (now-stopped) session rather than re-creating
-    # its id: the worktree the session lives in is the one just set up.
-    # fresh ⇒ never resume; see docstring. Codex has no id to resume.
-    resume = False
-    if has_session_id and not fresh:
-        assert session_id is not None  # set above on the claude path
-        resume = has_claude_transcript(result.path, session_id)
+    # The worktree just set up is where a stopped session of this task left
+    # its transcript.
+    session_id, resume = session_at(result.path)
     await task_actions.move_with_actions(
         table, project, task.id, model.STATUS_IN_PROGRESS, warn=_warn
     )  # write BEFORE launch; fires pre_action
@@ -369,6 +411,8 @@ async def _run_task(
         prompt=plan.prompt,
         harness=harness,
         attach=attach,
+        task=plan.task,
+        agents=agents,
     )
     if not placed:
         # No session opened, so roll the task back to TODO — a task that never
@@ -1405,39 +1449,45 @@ async def task_run(
 
 
 async def _live_sessions_by_task(
-    table: SqliteTaskTable, project: str
+    table: SqliteTaskTable, agents: AgentStore, project: str
 ) -> dict[str, "session_discovery.LiveSession"]:
     """Map ``task_id -> live LiveSession`` for every task in ``project``.
 
-    Correlates live ``claude`` processes to the task notebook by *session-id*: a
-    running session carries the ``--session-id`` ``mael`` launched it with
-    (:attr:`session_discovery.LiveSession.session_id`), so each task matches only
-    the session whose id is ``session_id_for(project, task.id)``. This is
-    task-precise even when chain siblings share one branch/worktree (one PR per
-    parent) — the exact fix the run-guard needed, applied here too, so the two
-    stay in lockstep off the same sweep. Tasks with no live session of their own
-    are omitted (a sibling's session no longer spuriously attributes to them).
+    Correlates live ``claude`` processes to the task notebook through the Agent
+    records: a running session carries the ``--session-id`` ``mael`` launched it
+    with (:attr:`session_discovery.LiveSession.session_id`), and the record of
+    that session names its task. This is task-precise even when chain siblings
+    share one branch/worktree (one PR per parent) — the same link the run-guard
+    reads, so the two stay in lockstep off the same sweep. Tasks with no live
+    session of their own are omitted, and so is a session whose task is gone.
+
+    Read from the sessions, not from the tasks: a machine runs a few sessions
+    and a notebook holds many tasks.
     """
     live = session_discovery.LiveSessionSet()
     if not live.sessions:
         return {}
 
+    task_ids = {task.id for task in await model.list_tasks(table, project=project)}
     mapping: dict[str, session_discovery.LiveSession] = {}
-    for task in await model.list_tasks(table, project=project):
-        session = live.for_session_id(model.session_id_for(project, task.id))
-        if session is not None:
-            mapping[task.id] = session
+    for session in live.sessions:
+        if not session.session_id:
+            continue
+        for record in await agents.for_session(session.session_id):
+            owner, task_id = split_row_id(str(record.get("task") or ""))
+            if owner == project and task_id in task_ids:
+                mapping.setdefault(task_id, session)
     return mapping
 
 
 async def _ran_task_ids(
-    table: SqliteTaskTable, project: str, project_path: Path
+    table: SqliteTaskTable, agents: AgentStore, project: str, project_path: Path
 ) -> set[str]:
     """In-progress task ids whose session left an on-disk transcript (it ran).
 
     A stale in-progress task (no live session) is either *finished* or *never
     ran*; the two look identical to the live sweep. A transcript file at the
-    task's worktree for its deterministic session id means it ran at some point
+    task's worktree for one of its sessions means it ran at some point
     (stopped = finished), so reconcile closes it; no transcript means it never
     launched, so reconcile sends it back to todo. We map each in-progress task to
     the worktree hosting its branch (one PR per parent → several tasks may share a
@@ -1456,9 +1506,11 @@ async def _ran_task_ids(
         worktree_path = by_branch.get(branch)
         if worktree_path is None:
             continue
-        session_id = model.session_id_for(project, task.id)
-        if has_claude_transcript(worktree_path, session_id):
-            ran.add(task.id)
+        for record in await agents.for_task(row_id(project, task.id)):
+            session_id = str(record.get("session_id") or "")
+            if session_id and has_claude_transcript(worktree_path, session_id):
+                ran.add(task.id)
+                break
     return ran
 
 
@@ -1488,14 +1540,15 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
     """
     proj = resolve_project(project)
     table = await _table()
-    session_task_ids = await _live_sessions_by_task(table, proj)
+    agents = open_agent_store()
+    session_task_ids = await _live_sessions_by_task(table, agents, proj)
     # A stale in-progress task that left a transcript ran (stopped = finished →
     # done); one with no transcript never launched (→ todo). Transcript existence
     # is resolved here (per worktree) and injected so `reconcile` stays pure.
     ctx = resolve_context(proj, require_project=True, arg_is_project=True)
     ran_ids: set[str] = set()
     if ctx.project_path is not None and ctx.project_path.exists():
-        ran_ids = await _ran_task_ids(table, proj, ctx.project_path)
+        ran_ids = await _ran_task_ids(table, agents, proj, ctx.project_path)
     rows = await model.reconcile(
         table,
         proj,
@@ -1738,9 +1791,8 @@ async def task_update(
     target = id
     renamed = False
     if new_id is not None and new_id != id:
-        # Refuse re-keying a running task — its deterministic session_id and its
-        # worktree/branch are tied to the old id, so renaming would orphan a live
-        # Claude session.
+        # Refuse re-keying a running task — its worktree/branch are tied to the
+        # old id, and a live session holds the old id in `MAEL_TASK_ID`.
         try:
             t = await task_model.load(table, proj, id)
         except KeyError:
@@ -1749,11 +1801,13 @@ async def task_update(
             raise click.ClickException(
                 f"Cannot change the id of in-progress task {id}; move it back to todo first."
             )
-        # Re-keying underneath a live session would orphan it. Asked directly,
-        # not via `check_not_live`, whose message advises a relaunch. Swept here,
-        # not at the top: only this path asks, and the sweep shells out.
-        live = session_discovery.LiveSessionSet().for_session_id(
-            task_model.session_id_for(proj, id)
+        # Asked directly, not via `check_not_live`, whose message advises a
+        # relaunch. Swept here, not at the top: only this path asks, and the
+        # sweep shells out.
+        agents = open_agent_store()
+        live = live_session_of(
+            await agents.for_task(row_id(proj, id)),
+            session_discovery.LiveSessionSet(),
         )
         if live is not None:
             raise click.ClickException(
@@ -1761,7 +1815,11 @@ async def task_update(
                 f"close it before changing its id."
             )
         try:
-            await task_model.rename(table, proj, id, new_id)
+            # One cut: the task's sessions follow it to the new id, or the
+            # rename did not happen.
+            async with table.transact():
+                await task_model.rename(table, proj, id, new_id)
+                await agents.retask(row_id(proj, id), row_id(proj, new_id))
         except KeyError:
             raise click.ClickException(f"Task not found: {id}")
         except ValueError as e:

@@ -1,13 +1,19 @@
 """The canonical Agent store."""
 
 import asyncio
+import sqlite3
+from pathlib import Path
 
 from mael_domain.agent_store import (
+    InMemoryAgentStore,
     InMemoryMilestoneStore,
     SqliteAgentStore,
     SqliteMilestoneStore,
+    new_agent_record,
 )
 from mael_domain.state_db.migrate import open_state_db
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_agent_records_survive_a_state_db_reopen(tmp_path) -> None:
@@ -19,8 +25,8 @@ def test_agent_records_survive_a_state_db_reopen(tmp_path) -> None:
             {
                 "id": "thread-1",
                 "harness": "codex",
-                "task_session_id": "task-session-1",
-                "task_id": "2026-09-16.4.3",
+                "session_id": "task-session-1",
+                "task": "northwind/2026-09-16.4.3",
                 "cwd": "/worktree",
                 "model": "codex:sol",
                 "mode": "plan",
@@ -37,8 +43,8 @@ def test_agent_records_survive_a_state_db_reopen(tmp_path) -> None:
         {
             "id": "thread-1",
             "harness": "codex",
-            "task_session_id": "task-session-1",
-            "task_id": "2026-09-16.4.3",
+            "session_id": "task-session-1",
+            "task": "northwind/2026-09-16.4.3",
             "cwd": "/worktree",
             "model": "codex:sol",
             "mode": "plan",
@@ -87,6 +93,286 @@ def test_read_answers_one_record_without_scanning_the_table(tmp_path) -> None:
 
     assert found == {"id": "a1", "harness": "claude", "status": "ended"}
     assert missing is None
+
+
+# --- the relation: a task's sessions -----------------------------------------
+
+
+def record(agent_id: str, task: str, session_id: str, started_at: str) -> dict:
+    """One Agent record, as a launch writes it."""
+    return new_agent_record(
+        agent_id,
+        harness="claude",
+        session_id=session_id,
+        task=task,
+        cwd="/worktree",
+        model="opus",
+        mode="auto",
+        started_at=started_at,
+    )
+
+
+#: Three launches of one task, and one of another. `a2` resumed the session
+#: `a1` opened, so one session id spans two records.
+#:
+#: The stamps sort differently as text than as instants: `a3` is the newest
+#: instant and the smallest string, and `a0` has no start at all.
+LAUNCHES = (
+    record("a1", "northwind/NORT-7", "s1", "2026-09-21T10:00:00+00:00"),
+    record("a3", "northwind/NORT-7", "s2", "2026-09-22T09:00:00-10:00"),
+    record("a2", "northwind/NORT-7", "s1", "2026-09-22T10:00:00+00:00"),
+    # Adoption by hand records no start. It reads as the oldest.
+    record("a0", "northwind/NORT-7", "s0", ""),
+    record("b1", "northwind/NORT-8", "s9", "2026-09-22T12:00:00+00:00"),
+    # An adopted agent: a session, and no task.
+    record("c1", "", "s5", "2026-09-22T13:00:00+00:00"),
+)
+
+
+def agent_stores(tmp_path) -> list:
+    """Each backend, so one test holds the two to one contract."""
+    db = open_state_db(tmp_path / "state.db")
+    asyncio.run(db.migrate())
+    return [SqliteAgentStore(db), InMemoryAgentStore()]
+
+
+def ids(records: list[dict]) -> list[str]:
+    return [r["id"] for r in records]
+
+
+def test_a_task_reads_its_records_newest_first(tmp_path) -> None:
+    async def scenario(store) -> dict:
+        for launch in LAUNCHES:
+            await store.save(launch)
+        return {
+            "NORT-7": ids(await store.for_task("northwind/NORT-7")),
+            "NORT-8": ids(await store.for_task("northwind/NORT-8")),
+            "never launched": ids(await store.for_task("northwind/NORT-9")),
+            # A blank names no task. It must not return the adopted agents.
+            "blank": ids(await store.for_task("")),
+        }
+
+    for store in agent_stores(tmp_path):
+        assert asyncio.run(scenario(store)) == {
+            "NORT-7": ["a3", "a2", "a1", "a0"],
+            "NORT-8": ["b1"],
+            "never launched": [],
+            "blank": [],
+        }
+
+
+def test_a_session_reads_its_records_newest_first(tmp_path) -> None:
+    async def scenario(store) -> dict:
+        for launch in LAUNCHES:
+            await store.save(launch)
+        return {
+            "s1": ids(await store.for_session("s1")),
+            "s5": ids(await store.for_session("s5")),
+            "unknown": ids(await store.for_session("s404")),
+            # A record with no session must not answer for a bare `claude`.
+            "blank": ids(await store.for_session("")),
+        }
+
+    for store in agent_stores(tmp_path):
+        assert asyncio.run(scenario(store)) == {
+            "s1": ["a2", "a1"],
+            "s5": ["c1"],
+            "unknown": [],
+            "blank": [],
+        }
+
+
+def test_a_saved_record_moves_to_the_task_it_now_names(tmp_path) -> None:
+    """The columns follow the body: a record saved again is found by its new task."""
+
+    async def scenario(store) -> tuple:
+        await store.save(record("a1", "", "s1", "2026-09-21T10:00:00+00:00"))
+        await store.save(
+            record("a1", "northwind/NORT-7", "s1", "2026-09-21T10:00:00+00:00")
+        )
+        return ids(await store.for_task("northwind/NORT-7")), await store.read("a1")
+
+    for store in agent_stores(tmp_path):
+        found, stored = asyncio.run(scenario(store))
+        assert found == ["a1"]
+        assert stored == record(
+            "a1", "northwind/NORT-7", "s1", "2026-09-21T10:00:00+00:00"
+        )
+
+
+def test_a_save_that_changes_nothing_is_not_a_change(tmp_path) -> None:
+    """A poller reads by revision, so a repeated save must not look like news.
+
+    The router saves a record it has just read on every adoption.
+    """
+
+    async def scenario(store) -> tuple:
+        launch = record("a1", "northwind/NORT-7", "s1", "2026-09-21T10:00:00+00:00")
+        await store.save(launch)
+        _, before = await store.changed_since(0)
+        await store.save(dict(launch))
+        moved, after = await store.changed_since(before)
+        return moved, after == before
+
+    for store in agent_stores(tmp_path):
+        assert asyncio.run(scenario(store)) == ([], True)
+
+
+def test_a_renamed_task_keeps_its_records(tmp_path) -> None:
+    async def scenario(store) -> dict:
+        for launch in LAUNCHES:
+            await store.save(launch)
+        before = (await store.changed_since(0))[1]
+        await store.retask("northwind/NORT-7", "southwind/NORT-7")
+        moved, _ = await store.changed_since(before)
+        return {
+            "old": ids(await store.for_task("northwind/NORT-7")),
+            "new": ids(await store.for_task("southwind/NORT-7")),
+            "other": ids(await store.for_task("northwind/NORT-8")),
+            "body": (await store.read("a1"))["task"],
+            # A poller reads the move: the records are written, not only indexed.
+            "moved": sorted(ids(moved)),
+        }
+
+    for store in agent_stores(tmp_path):
+        assert asyncio.run(scenario(store)) == {
+            "old": [],
+            "new": ["a3", "a2", "a1", "a0"],
+            "other": ["b1"],
+            "body": "southwind/NORT-7",
+            "moved": ["a0", "a1", "a2", "a3"],
+        }
+
+
+# --- the ladder --------------------------------------------------------------
+
+
+def released_state_db(tmp_path) -> Path:
+    """A copy of a real state database, at the last released ladder versions."""
+    path = tmp_path / "state.db"
+    conn = sqlite3.connect(path)
+    conn.executescript((FIXTURES / "state_db_agents2_tasks4.sql").read_text())
+    conn.close()
+    return path
+
+
+def test_the_ladder_links_each_released_record_to_its_task(tmp_path) -> None:
+    """The released record held a task session id, and at best a bare task id.
+
+    The task row id comes from the join on ``tasks.session_id``, which is the
+    only place the project was recorded. So the agents rung must run before the
+    tasks rung that drops the column.
+    """
+
+    async def scenario() -> dict:
+        db = open_state_db(released_state_db(tmp_path))
+        await db.migrate()
+        await db.check()
+        store = SqliteAgentStore(db)
+        result = {
+            "records": {r["id"]: r for r in await store.list()},
+            "launched": ids(await store.for_task("maelstrom/2026-10-01.1")),
+            "adopted": ids(await store.for_task("maelstrom/2026-10-01.2")),
+            "by session": ids(
+                await store.for_session("fb1c3ad2-fa96-4605-9740-97c4441d4053")
+            ),
+        }
+        db.close()
+        return result
+
+    result = asyncio.run(scenario())
+
+    assert result["launched"] == ["7c1e02af"]
+    # Adoption wrote no task id. The session id alone finds the task.
+    assert result["adopted"] == ["b40d91e6"]
+    # The real record: a session that ran on no task.
+    assert result["by session"] == ["13a30a55"]
+    # The body is rewritten with the columns: a record is read whole from it.
+    assert result["records"] == {
+        "13a30a55": {
+            "cwd": "/private/tmp/claude/resume-probe",
+            "ended_at": "2026-09-23T02:48:48.478288+00:00",
+            "harness": "claude",
+            "id": "13a30a55",
+            "mode": "normal",
+            "model": "claude-haiku-4-5-20251001",
+            "started_at": "2026-09-23T02:47:32.574493+00:00",
+            "status": "ended",
+            "swept": False,
+            "task": "",
+            "session_id": "fb1c3ad2-fa96-4605-9740-97c4441d4053",
+        },
+        "7c1e02af": {
+            "cwd": "/Users/sam/Projects/maelstrom/maelstrom-alpha",
+            "ended_at": "",
+            "harness": "claude",
+            "id": "7c1e02af",
+            "mode": "plan",
+            "model": "opus",
+            "started_at": "2026-10-01T05:10:00.000000+00:00",
+            "status": "running",
+            "task": "maelstrom/2026-10-01.1",
+            "session_id": "a29d4e5b-2e6c-5f58-8e30-899b83fb3983",
+        },
+        "b40d91e6": {
+            "cwd": "/Users/sam/Projects/maelstrom/maelstrom-bravo",
+            "ended_at": "2026-10-01T05:30:00.000000+00:00",
+            "harness": "claude",
+            "id": "b40d91e6",
+            "mode": "normal",
+            "model": "opus",
+            "started_at": "2026-10-01T05:20:00.000000+00:00",
+            "status": "ended",
+            "swept": True,
+            "task": "maelstrom/2026-10-01.2",
+            "session_id": "732cf960-9c1b-5851-aa6e-000522f02c7a",
+        },
+    }
+
+
+def test_the_ladder_drops_the_derived_session_id_from_tasks(tmp_path) -> None:
+    async def scenario() -> list[str]:
+        db = open_state_db(released_state_db(tmp_path))
+        await db.migrate()
+        row = await db.read("tasks", "maelstrom/2026-10-01.1")
+        db.close()
+        assert row is not None
+        return list(row.keys())
+
+    assert "session_id" not in asyncio.run(scenario())
+
+
+def test_the_ladder_leaves_what_it_cannot_link(tmp_path) -> None:
+    """A row the store already skips must not stop the migration.
+
+    And a bare task id is not a link: it names no project, so a record whose
+    session matches no task row ends with no task.
+    """
+    unlinked = '{"id": "lost", "task_id": "2026-10-01.1", "task_session_id": "no-such-session"}'
+
+    async def scenario() -> dict:
+        path = released_state_db(tmp_path)
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT INTO agents VALUES ('bad', 20, '{not valid json')")
+        conn.execute("INSERT INTO agents VALUES ('list', 21, '[1, 2]')")
+        conn.execute("INSERT INTO agents VALUES ('lost', 22, ?)", (unlinked,))
+        conn.commit()
+        conn.close()
+        db = open_state_db(path)
+        await db.migrate()
+        bodies = {
+            row["id"]: row["body"]
+            for row in await db.read_all("agents")
+            if row["id"] in ("bad", "list")
+        }
+        lost = await SqliteAgentStore(db).read("lost")
+        db.close()
+        return {"bodies": bodies, "lost": lost}
+
+    assert asyncio.run(scenario()) == {
+        "bodies": {"bad": "{not valid json", "list": "[1, 2]"},
+        "lost": {"id": "lost", "task": "", "session_id": "no-such-session"},
+    }
 
 
 # --- the milestone ledger ---------------------------------------------------

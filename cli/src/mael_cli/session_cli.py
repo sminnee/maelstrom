@@ -1,8 +1,8 @@
 """Session CLI: `mael session list`, `mael session info`, `mael session end`.
 
 A session here is a running ``claude`` process. Everything shown comes from the
-process itself (via :mod:`mael_domain.session_discovery`) plus the task table's
-reverse lookup on the session id. There is no registry file to consult: the
+process itself (via :mod:`mael_domain.session_discovery`) plus the Agent record
+that names the session's task. There is no registry file to consult: the
 session-tracking channel that wrote one is gone, and ``mael agent list`` is
 where a driven agent's state lives.
 """
@@ -15,13 +15,14 @@ import click
 
 from mael_common.cli_async import AsyncGroup
 from mael_domain import session_discovery
+from mael_domain.agent_store import AgentStore, task_of_session
 from mael_domain.context import resolve_context
 from mael_domain.env import stop_sessions
-from mael_domain.task_table import SqliteTaskTable
+from mael_domain.task_table import split_row_id
 
+from . import task_cli
 from .json_flag import wants_json
 from .table_cli import draw_table
-from .task_cli import open_task_table
 
 
 @click.group("session", cls=AsyncGroup)
@@ -44,14 +45,9 @@ def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
     return (ctx.project, ctx.worktree)
 
 
-def _task_table() -> SqliteTaskTable:
-    """The task table, for the reverse session-id → task lookup.
-
-    Opened via the task CLI's public
-    :func:`~mael_cli.task_cli.open_task_table`, so this reads the same table
-    the task CLI writes rather than opening a second connection to it.
-    """
-    return open_task_table()
+async def _agent_store() -> AgentStore:
+    """The Agent records, for the session id → task lookup."""
+    return await task_cli.agent_store()
 
 
 ID_PREFIX_LEN = 8
@@ -59,7 +55,7 @@ ID_PREFIX_LEN = 8
 
 async def build_session_row(
     sess: session_discovery.LiveSession,
-    table: SqliteTaskTable,
+    agents: AgentStore,
 ) -> dict:
     """Everything ``mael session`` knows about one live session, as a flat dict.
 
@@ -67,18 +63,16 @@ async def build_session_row(
     ``mael --json session info`` emits it as-is.
 
     ``pid`` and ``cwd`` come from the process itself and are always right.
-    ``task`` is a single-row reverse lookup on the session id, blank for a bare
-    ``claude`` that ``mael`` did not launch. Every key is always present; a field
-    with nothing to report is an empty string.
+    ``task`` comes from the Agent record that names the session id, blank for a
+    bare ``claude`` that ``mael`` did not launch. Every key is always present; a
+    field with nothing to report is an empty string.
     """
     cwd = str(sess.cwd)
     project, worktree = _derive_project_worktree(cwd)
 
     task_id = ""
     if sess.session_id:
-        found = await table.find_by_session_id(sess.session_id)
-        if found is not None:
-            task_id = found.id
+        task_id = split_row_id(await task_of_session(agents, sess.session_id))[1]
 
     return {
         "id": sess.session_id or "",
@@ -95,9 +89,9 @@ async def session_list() -> None:
     """List running Claude Code sessions.
 
     Sessions come from running ``claude`` processes and their cwd — the same
-    source ``mael list`` and ``task reconcile`` use. TASK is an indexed reverse
-    lookup of the session's ``--session-id``, left blank for a ``claude`` that
-    ``mael`` did not launch. ID is the first characters of that session-id — the
+    source ``mael list`` and ``task reconcile`` use. TASK is the task the Agent
+    record of the session's ``--session-id`` names, left blank for a ``claude``
+    that ``mael`` did not launch. ID is the first characters of that session-id — the
     handle ``session info`` and ``session end`` take.
 
     What an agent is *doing* is not here: a driven agent reports that to the
@@ -105,11 +99,11 @@ async def session_list() -> None:
     on.
     """
     sessions = await session_discovery.all_live_sessions()
-    table = _task_table()
+    agents = await _agent_store()
 
     rows = []
     for sess in sessions:
-        row = await build_session_row(sess, table)
+        row = await build_session_row(sess, agents)
         pw = (
             f"{row['project']}/{row['worktree']}"
             if row["project"] and row["worktree"]
@@ -149,10 +143,6 @@ def _session_handles(id: str | None) -> list[str]:
     Both are tried because the live id usually does *not* match a swept session:
     the command line holds the id the session launched with. So the pid is what
     resolves a session that has run ``/clear``.
-
-    ``MAEL_TASK_SESSION_ID`` is deliberately not consulted. It is a task key, not
-    a live-session reference: it holds the id the task was launched with, which is
-    correct until a ``/clear`` and points at a dead transcript after one.
     """
     if id:
         return [id]
@@ -212,7 +202,7 @@ async def session_info(id: str | None) -> None:
     so a script can rely on the shape.
     """
     sess = await _find_session(id)
-    row = await build_session_row(sess, _task_table())
+    row = await build_session_row(sess, await _agent_store())
 
     if wants_json():
         click.echo(json.dumps(row, indent=2))

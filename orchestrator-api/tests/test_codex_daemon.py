@@ -110,7 +110,7 @@ def test_restore_resumes_a_stored_codex_thread() -> None:
                 {
                     "id": "thread-1",
                     "harness": "codex",
-                    "task_session_id": "task-session-1",
+                    "session_id": "task-session-1",
                     "cwd": "/worktree",
                     "model": "codex:sol",
                     "mode": "normal",

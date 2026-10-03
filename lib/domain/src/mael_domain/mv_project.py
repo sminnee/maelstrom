@@ -2,7 +2,7 @@
 
 A project's *name* is load-bearing: it is ``project_path.name``, and the worktree
 folder names, task directories, env/log directories, Claude Code state dirs and
-every task's derived session id all follow from it. This module turns a set of
+every task row id all follow from it. This module turns a set of
 facts about a project into a :class:`MovePlan` describing every rename that a
 safe rename must perform.
 
@@ -12,7 +12,7 @@ comes out, and invalid input raises ``ValueError``. The IO adapter
 ``mv_project_cli.py`` gathers the facts and applies the plan.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from mael_common.claude_paths import sanitise_path_for_claude
@@ -60,8 +60,6 @@ class MovePlan:
     claude_json_rekeys: list[tuple[str, str]]
     symlink_repoints: list[tuple[Path, Path]]
     task_rekeys: list[tuple[str, str]]
-    orphaned_session_count: int
-    warnings: list[str] = field(default_factory=list)
 
     @property
     def worktree_moves(self) -> list[DirMove]:
@@ -185,7 +183,6 @@ def build_move_plan(
     projects_dir: Path,
     worktree_folders: list[str],
     task_ids: list[str],
-    ran_task_ids: set[str],
     home: Path,
     claude_json_projects: list[str] | None = None,
     global_symlinks: list[tuple[Path, Path]] | None = None,
@@ -200,8 +197,6 @@ def build_move_plan(
         worktree_folders: Folder names of the project's real worktrees, as
             reported by git. Includes non-conventional ones such as ``_main``.
         task_ids: Every task id under the project.
-        ran_task_ids: The subset of ``task_ids`` that already has a Claude
-            transcript — these are the sessions the rename orphans.
         home: The user's home directory, so Claude paths are testable.
         claude_json_projects: Path keys present in ``~/.claude.json``. Only keys
             under the old project path are re-keyed.
@@ -297,16 +292,6 @@ def build_move_plan(
         for task_id in sorted(task_ids)
     ]
 
-    orphaned = len({t for t in ran_task_ids if t in set(task_ids)})
-
-    warnings: list[str] = []
-    if orphaned:
-        warnings.append(
-            f"{orphaned} task(s) have existing Claude sessions. Session ids "
-            f"derive from the project name, so those sessions are orphaned — "
-            f"`mael task run` will start fresh rather than resume."
-        )
-
     return MovePlan(
         old_name=old_name,
         new_name=new_name,
@@ -319,6 +304,4 @@ def build_move_plan(
         claude_json_rekeys=claude_json_rekeys,
         symlink_repoints=symlink_repoints,
         task_rekeys=task_rekeys,
-        orphaned_session_count=orphaned,
-        warnings=warnings,
     )

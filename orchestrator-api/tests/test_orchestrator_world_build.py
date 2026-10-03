@@ -339,27 +339,57 @@ def test_parse_agent_state(raw, expected):
     assert parse_agent_state(raw) == expected
 
 
-def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
-    worktrees = {"northwind-alpha": worktree_entity("northwind", LIST_ALL_ROW)}
-    task = task_entity(
-        model.Task(id="NORT-7", title="x", project="northwind", command="plan-task"),
+def a_task(notebook_id: str = "NORT-7"):
+    return task_entity(
+        model.Task(id=notebook_id, title="x", project="northwind", command="plan-task"),
         actionable=True,
     )
-    session = model.session_id_for("northwind", "NORT-7")
+
+
+def test_link_agent_finds_the_worktree_by_cwd_and_the_task_its_record_names():
+    """The row carries the task its Agent record names. The session id says
+    nothing: a `/clear` moves it, and two sessions can run one task."""
+    worktrees = {"northwind-alpha": worktree_entity("northwind", LIST_ALL_ROW)}
     link = link_agent(
-        {"cwd": LIST_ALL_ROW["path"], "session": session},
+        {
+            "cwd": LIST_ALL_ROW["path"],
+            "session": "a-session-no-task-derives",
+            "task": "northwind/NORT-7",
+        },
         worktrees=worktrees,
-        tasks={"northwind/NORT-7": task},
+        tasks={"northwind/NORT-7": a_task(), "northwind/NORT-8": a_task("NORT-8")},
     )
     assert link.task_id == "northwind/NORT-7"
     assert link.project == "northwind"
     assert link.worktree_id == "northwind-alpha"
 
 
-def test_link_agent_with_no_match_is_unlinked():
+def test_link_agent_takes_the_project_from_the_task_when_no_worktree_matches():
     link = link_agent(
-        {"cwd": "/private/tmp", "session": "nope"}, worktrees={}, tasks={}
+        {"cwd": "/private/tmp", "task": "northwind/NORT-7"},
+        worktrees={},
+        tasks={"northwind/NORT-7": a_task()},
     )
+    assert (link.task_id, link.project, link.worktree_id) == (
+        "northwind/NORT-7",
+        "northwind",
+        "",
+    )
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        # An adopted agent: its record names no task.
+        {"cwd": "/private/tmp", "session": "s-1", "task": ""},
+        # A row from a host that names none at all.
+        {"cwd": "/private/tmp", "session": "s-1"},
+        # The record outlived its task.
+        {"cwd": "/private/tmp", "task": "northwind/NORT-404"},
+    ],
+)
+def test_link_agent_with_no_match_is_unlinked(row):
+    link = link_agent(row, worktrees={}, tasks={"northwind/NORT-7": a_task()})
     assert (link.task_id, link.project, link.worktree_id) == ("", "", "")
 
 

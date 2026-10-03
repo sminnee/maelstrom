@@ -157,23 +157,6 @@ class TestTaskTableContract:
             "2026-06-11.1"
         ]
 
-    async def test_find_by_session_id_answers_the_reverse_lookup(self, table):
-        await table.save(a_task(id="1"))
-        await table.save(a_task(id="2"))
-        from mael_domain.task import session_id_for
-
-        wanted = session_id_for("maelstrom", "2")
-        found = await table.find_by_session_id(wanted)
-        assert found is not None and found.id == "2"
-
-    async def test_a_blank_session_id_never_resolves(self, table):
-        """``""`` is the default for a never-launched row, so it must not match one."""
-        await table.save(a_task())
-        assert await table.find_by_session_id("") is None
-
-    async def test_find_by_session_id_of_nothing_is_none(self, table):
-        assert await table.find_by_session_id("no-such-session") is None
-
     async def test_follows_survives_the_round_trip_as_a_list(self, table):
         await table.save(a_task(follows=["a", "b", "c"]))
         loaded = await table.load("maelstrom", "2026-06-11.1")

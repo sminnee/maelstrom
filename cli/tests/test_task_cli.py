@@ -5,6 +5,8 @@ to return a shared :class:`InMemoryStore` and ``resolve_project`` to a fixed
 project, so no git or cwd resolution happens.
 """
 
+import inspect
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,12 +22,35 @@ from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
+from mael_domain.agent_store import InMemoryAgentStore, new_agent_record
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
 
 
 @pytest.fixture
-def store(store, monkeypatch) -> InMemoryTaskTable:
+def agents(monkeypatch) -> InMemoryAgentStore:
+    """The Agent records the CLI reads a task's sessions from, in memory."""
+    agents = InMemoryAgentStore()
+    monkeypatch.setattr(task_cli, "open_agent_store", lambda: agents)
+    return agents
+
+
+def session_record(task_id: str, session_id: str, agent_id: str = "a1") -> dict:
+    """The record a launch of ``task_id`` in project ``p`` wrote for one session."""
+    return new_agent_record(
+        agent_id,
+        harness="claude",
+        session_id=session_id,
+        task=f"p/{task_id}",
+        cwd="/work/tree",
+        model="opus",
+        mode="auto",
+        started_at="2026-09-21T10:00:00+00:00",
+    )
+
+
+@pytest.fixture
+def store(store, agents, monkeypatch) -> InMemoryTaskTable:
     """Wire the CLI's table seams to the shared in-memory table.
 
     Still called ``store`` because several hundred tests name it that; what it
@@ -119,14 +144,15 @@ def _patch_live_sessions(monkeypatch, sessions):
     ``for_session_id``; patching the swept list drives it without touching real
     ``pgrep``/``lsof``/``ps``.
 
-    ``sessions`` may be a list, or a zero-arg callable returning one — the latter
+    ``sessions`` may be a list, or a zero-arg callable returning one or awaiting one — the latter
     for cases where the session ids aren't known until the command under test has
     created the tasks (see the load-many batch tests).
     """
     make = sessions if callable(sessions) else (lambda: list(sessions))
 
     async def sweep():
-        return make()
+        made = make()
+        return await made if inspect.isawaitable(made) else made
 
     monkeypatch.setattr(task_cli.session_discovery, "all_live_sessions", sweep)
 
@@ -284,16 +310,17 @@ class TestUpdateRename:
         # Untouched.
         assert (await model.load(store, "p", old_id)).id == old_id
 
-    async def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
+    async def test_update_id_refuses_live_session(
+        self, runner, store, agents, monkeypatch
+    ):
         old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
-        # A live claude carrying this task's deterministic session id.
+        # A live claude on a session this task's record names.
+        await agents.save(session_record(old_id, "s-old"))
         self._patch_sweep(
             monkeypatch,
             [
                 session_discovery.LiveSession(
-                    pid=123,
-                    cwd=Path("/tmp/wt"),
-                    session_id=model.session_id_for("p", old_id),
+                    pid=123, cwd=Path("/tmp/wt"), session_id="s-old"
                 )
             ],
         )
@@ -305,24 +332,27 @@ class TestUpdateRename:
         assert (await model.load(store, "p", old_id)).id == old_id
 
     async def test_update_id_allows_a_live_session_of_another_task(
-        self, runner, store, monkeypatch
+        self, runner, store, agents, monkeypatch
     ):
-        # Keyed on this task's own session id, not on worktree occupancy: a
+        # Keyed on this task's own sessions, not on worktree occupancy: a
         # sibling task's session shares the worktree and must not block.
         old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        await agents.save(session_record(old_id, "s-old"))
+        await agents.save(session_record("some-other-task", "s-other", "a2"))
         self._patch_sweep(
             monkeypatch,
             [
                 session_discovery.LiveSession(
-                    pid=123,
-                    cwd=Path("/tmp/wt"),
-                    session_id=model.session_id_for("p", "some-other-task"),
+                    pid=123, cwd=Path("/tmp/wt"), session_id="s-other"
                 )
             ],
         )
         result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", "new-id")).id == "new-id"
+        # The sessions follow the task to its new id, so its next run resumes.
+        assert [r["id"] for r in await agents.for_task("p/new-id")] == ["a1"]
+        assert await agents.for_task(f"p/{old_id}") == []
 
     async def test_update_same_id_applies_field_changes(self, runner, store):
         old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
@@ -721,17 +751,30 @@ class TestRun:
         launch.session.assert_called_once()
 
     async def test_run_existing_task_resumes_stale_transcript(
-        self, runner, store, launch, monkeypatch
+        self, runner, store, agents, launch, monkeypatch
     ):
         # The relaunch path (`task run <id>`) keeps resume-on-restart: an
         # already-existing task with an on-disk transcript for its session-id
         # launches with `--resume`. Confirms the `fresh` fix is scoped to the
         # create-then-run callers only.
         t = await model.create(store, project="p", title="Existing")
-        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
+        await agents.save(session_record(t.id, "s-1"))
+        asked: list[tuple] = []
+
+        def has_transcript(path, session_id):
+            asked.append((path, session_id))
+            return True
+
+        monkeypatch.setattr(task_cli, "has_claude_transcript", has_transcript)
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code == 0, result.output
-        assert launch.session.call_args.kwargs["resume"] is True
+        # The transcript is looked for in the worktree the launch opened.
+        assert asked == [(launch.wt_path, "s-1")]
+        kwargs = launch.session.call_args.kwargs
+        assert (kwargs["resume"], kwargs["session_id"]) == (True, "s-1")
+        # The launcher gets the store and the row id, to write this launch's
+        # own record.
+        assert (kwargs["agents"], kwargs["task"]) == (agents, f"p/{t.id}")
         assert "(resuming)" in result.output
 
     def test_run_unknown_task_errors(self, runner, store, launch):
@@ -786,11 +829,7 @@ class TestRunHarness:
         t = await model.create(store, project="p", title="Plan it")
         from mael_domain import session_discovery
 
-        live = session_discovery.LiveSession(
-            pid=1,
-            cwd=Path("/x"),
-            session_id=model.session_id_for("p", t.id),
-        )
+        live = session_discovery.LiveSession(pid=1, cwd=Path("/x"), session_id="s-1")
         _patch_live_sessions(monkeypatch, [live])
         result = runner.invoke(task_cli.task, ["run", t.id, "--opencode"])
         assert result.exit_code == 0, result.output
@@ -910,11 +949,14 @@ def _live_session(pid=1, cwd=Path("/work/tree"), session_id=None):
 
 class TestDuplicateLaunchPrecheck:
     async def test_run_refuses_when_this_tasks_session_is_live(
-        self, runner, store, launch, monkeypatch
+        self, runner, store, agents, launch, monkeypatch
     ):
-        # A live claude carrying *this task's* --session-id blocks the relaunch.
+        # A live claude on a session *this task's* record names blocks the
+        # relaunch. The newer record is a launch that left nothing running.
         t = await model.create(store, project="p", title="t")
-        sid = model.session_id_for("p", t.id)
+        sid = "s-live"
+        await agents.save(session_record(t.id, sid))
+        await agents.save(session_record(t.id, "s-later", "a2"))
         _patch_live_sessions(
             monkeypatch,
             [_live_session(pid=4242, cwd=Path("/work/tree-bravo"), session_id=sid)],
@@ -928,9 +970,12 @@ class TestDuplicateLaunchPrecheck:
         launch.setup.assert_not_called()
         assert (await model.load(store, "p", t.id)).status == model.STATUS_TODO
 
-    async def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
+    async def test_run_here_also_refuses(
+        self, runner, store, agents, launch, monkeypatch
+    ):
         t = await model.create(store, project="p", title="t")
-        sid = model.session_id_for("p", t.id)
+        sid = "s-live"
+        await agents.save(session_record(t.id, sid))
         _patch_live_sessions(monkeypatch, [_live_session(pid=9, session_id=sid)])
         result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
         assert result.exit_code != 0
@@ -951,7 +996,7 @@ class TestDuplicateLaunchPrecheck:
         assert (await model.load(store, "p", t.id)).status == model.STATUS_IN_PROGRESS
 
     async def test_sibling_session_in_shared_worktree_does_not_block(
-        self, runner, store, launch, monkeypatch
+        self, runner, store, agents, launch, monkeypatch
     ):
         # Two sibling tasks under one parent share a branch/worktree (one PR per
         # parent). A live session for sibling `.2` must NOT block launching `.3`:
@@ -959,7 +1004,8 @@ class TestDuplicateLaunchPrecheck:
         parent = await model.create(store, project="p", title="parent")
         two = await model.create(store, project="p", title="two", parent=parent.id)
         three = await model.create(store, project="p", title="three", parent=parent.id)
-        two_sid = model.session_id_for("p", two.id)
+        two_sid = "s-two"
+        await agents.save(session_record(two.id, two_sid))
         # `.2` is live in the shared worktree; `.3` is not.
         _patch_live_sessions(
             monkeypatch,
@@ -979,7 +1025,7 @@ class TestDuplicateLaunchPrecheck:
 
 class TestReconcile:
     def _live(self, monkeypatch, store, mapping):
-        async def _mapping(_store, _project):
+        async def _mapping(*_):
             return mapping
 
         monkeypatch.setattr(task_cli, "_live_sessions_by_task", _mapping)
@@ -996,7 +1042,7 @@ class TestReconcile:
             lambda *a, **k: SimpleNamespace(project="p", project_path=tmp_path),
         )
 
-        async def _ran_ids(_table, _project, _path):
+        async def _ran_ids(*_):
             return set(ran_ids)
 
         monkeypatch.setattr(task_cli, "_ran_task_ids", _ran_ids)
@@ -1077,31 +1123,76 @@ class TestReconcile:
 class TestLiveSessionsByTask:
     """The reconcile correlation builder — task-precise via session-id."""
 
-    async def test_matches_only_the_owning_task(self, store, monkeypatch):
+    async def test_matches_only_the_owning_task(self, store, agents, monkeypatch):
         # Two siblings share one worktree; only `.2` is live. The map must
         # attribute the session to `.2` alone, never to its sibling `.3`.
         parent = await model.create(store, project="p", title="parent")
         two = await model.create(store, project="p", title="two", parent=parent.id)
         three = await model.create(store, project="p", title="three", parent=parent.id)
-        two_sid = model.session_id_for("p", two.id)
+        await agents.save(session_record(two.id, "s-two"))
+        await agents.save(session_record(three.id, "s-three", "a2"))
         _patch_live_sessions(
             monkeypatch,
-            [_live_session(pid=111, cwd=Path("/work/shared"), session_id=two_sid)],
+            [_live_session(pid=111, cwd=Path("/work/shared"), session_id="s-two")],
         )
-        mapping = await task_cli._live_sessions_by_task(store, "p")
+        mapping = await task_cli._live_sessions_by_task(store, agents, "p")
         assert two.id in mapping and mapping[two.id].pid == 111
         assert three.id not in mapping
 
-    async def test_empty_when_no_live_sessions(self, store, monkeypatch):
+    async def test_a_session_of_a_deleted_task_matches_nothing(
+        self, store, agents, monkeypatch
+    ):
+        # The record outlives the task. A session whose task is gone is not
+        # reported, because there is no task to correct.
+        await agents.save(session_record("gone", "s-gone"))
+        _patch_live_sessions(monkeypatch, [_live_session(pid=7, session_id="s-gone")])
+        assert await task_cli._live_sessions_by_task(store, agents, "p") == {}
+
+    async def test_a_task_ran_when_any_of_its_sessions_left_a_transcript(
+        self, store, agents, monkeypatch, tmp_path
+    ):
+        # Reconcile closes a stale task that ran and re-queues one that never
+        # did. A task ran when any session its records name left a transcript
+        # in its worktree, not only the newest. A record with no session id
+        # names no transcript.
+        ran = await model.create(store, project="p", title="ran", branch="feat/ran")
+        never = await model.create(store, project="p", title="no", branch="feat/no")
+        for t in (ran, never):
+            await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS)
+        await agents.save(session_record(ran.id, "s-old"))
+        await agents.save(
+            {
+                **session_record(ran.id, "s-new", "a2"),
+                "started_at": "2026-09-22T10:00:00+00:00",
+            }
+        )
+        await agents.save(session_record(never.id, "", "a3"))
+        monkeypatch.setattr(
+            task_cli,
+            "list_worktrees",
+            lambda _path: [
+                SimpleNamespace(branch="feat/ran", path=tmp_path / "ran"),
+                SimpleNamespace(branch="feat/no", path=tmp_path / "no"),
+            ],
+        )
+        monkeypatch.setattr(
+            task_cli,
+            "has_claude_transcript",
+            lambda path, session_id: (path, session_id) == (tmp_path / "ran", "s-old"),
+        )
+        assert await task_cli._ran_task_ids(store, agents, "p", tmp_path) == {ran.id}
+
+    async def test_empty_when_no_live_sessions(self, store, agents, monkeypatch):
         await model.create(store, project="p", title="t")
         _patch_live_sessions(monkeypatch, [])
-        assert await task_cli._live_sessions_by_task(store, "p") == {}
+        assert await task_cli._live_sessions_by_task(store, agents, "p") == {}
 
-    async def test_session_without_id_matches_nothing(self, store, monkeypatch):
+    async def test_session_without_id_matches_nothing(self, store, agents, monkeypatch):
         # A bare claude (no --session-id) never correlates to a task.
-        await model.create(store, project="p", title="t")
+        t = await model.create(store, project="p", title="t")
+        await agents.save(session_record(t.id, ""))
         _patch_live_sessions(monkeypatch, [_live_session(pid=5, cwd=Path("/work/x"))])
-        assert await task_cli._live_sessions_by_task(store, "p") == {}
+        assert await task_cli._live_sessions_by_task(store, agents, "p") == {}
 
 
 class TestAddRun:
@@ -1445,13 +1536,15 @@ class TestRunHere:
         launch.exec.assert_called_once()
         command = launch.exec.call_args.args[0]
         # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
-        # The deterministic --session-id pins the task's Claude session and is
-        # also exported as MAEL_TASK_SESSION_ID, the key it was launched under.
-        sid = model.session_id_for("p", t.id)
+        # The session id is new, and the record written before the exec is what
+        # links it to the task: nothing runs after an exec to write one.
+        [record] = task_cli.open_agent_store().records.values()
+        sid = record["session_id"]
+        assert re.fullmatch(r"[0-9a-f-]{36}", sid)
+        assert (record["task"], record["transport"]) == (f"p/{t.id}", "cli")
         assert describe(command) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
-            f"MAEL_TASK_SESSION_ID={sid} "
             "claude --permission-mode plan --model opus "
             f"--session-id {sid}"
         )
@@ -1891,11 +1984,8 @@ class TestLoadMany:
     def test_load_many_run_head_never_resumes_stale_transcript(
         self, runner, store, launch, tmp_path, monkeypatch
     ):
-        # Regression: the head is a brand-new task, so even when a stale
-        # transcript for its deterministic session-id already sits in the
-        # reused worktree, it must launch with `--session-id` (create), never
-        # `--resume`. Before the `fresh=True` fix this launched with resume=True
-        # and the tab died immediately.
+        # The head is a brand-new task. A transcript in the reused worktree
+        # is not its own, so it takes a new session and never resumes.
         monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
         f = self._two_block_plan(tmp_path)
         result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
@@ -1983,26 +2073,22 @@ class TestLoadMany:
         assert (await model.load(store, "p", ids[1])).status == model.STATUS_TODO
 
     async def test_load_many_run_continues_past_a_failed_launch(
-        self, runner, store, launch, tmp_path, monkeypatch
+        self, runner, store, agents, launch, tmp_path, monkeypatch
     ):
         # A live session on the *second* task trips the duplicate-launch guard.
         # The other two must still launch, and the failure must be reported.
         f = self._three_independent_plan(tmp_path)
 
-        def sweep():
+        async def sweep():
             # Resolved lazily: the ids don't exist until load-many has created
-            # them, which happens after this fixture is installed. Sync, because
-            # `_patch_live_sessions` awaits the sweep and not the maker — and
-            # the table this reads is in memory, so there is nothing to await.
+            # them, which happens after this fixture is installed.
             # Unfiltered by status: earlier tasks in the batch have already moved
             # out of todo/ by the time later ones sweep.
             rows = sorted(store._rows.values(), key=lambda r: r["created"])
             all_ids = [r["task_id"] for r in rows]
-            second = all_ids[1:2]
-            return [
-                _live_session(pid=77, session_id=model.session_id_for("p", i))
-                for i in second
-            ]
+            for i in all_ids[1:2]:
+                await agents.save(session_record(i, "s-second"))
+            return [_live_session(pid=77, session_id="s-second")]
 
         _patch_live_sessions(monkeypatch, sweep)
         result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])

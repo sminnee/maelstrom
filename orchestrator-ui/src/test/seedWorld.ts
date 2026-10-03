@@ -129,7 +129,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
   };
 }
 
-/** An agent with no task: started by hand, so no task session id links it. */
+/** An agent with no task: started by hand, so its Agent record names none. */
 function freeAgent(
   id: string,
   project: string,

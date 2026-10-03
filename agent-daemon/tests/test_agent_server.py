@@ -2951,8 +2951,8 @@ def test_the_record_fallback_refuses_to_resume_a_record_still_running():
 def test_the_listing_prefers_a_stopped_record_over_an_exited_one():
     """A task relaunched under its own session id leaves a record per run.
 
-    The task session id never changes, so every launch of one task writes
-    another record against it. The listing keys its records by session id, so
+    A task that resumes keeps its session, so every relaunch of it writes
+    another record against the same id. The listing keys its records by session id, so
     the several collapse to one. A ``stopped`` record wins, because a stop is
     deliberate and an ``exited`` one is a crash.
 

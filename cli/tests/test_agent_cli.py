@@ -29,35 +29,40 @@ from mael_daemon.agent_model import (
     build_subagent_rows,
 )
 from mael_daemon.agent_server import Agent, AgentDaemon
-from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
+from mael_domain.agent_store import (
+    InMemoryAgentStore,
+    SqliteAgentStore,
+    SqliteMilestoneStore,
+    new_agent_record,
+)
 from mael_domain.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE, NotebookRootUnset
 from mael_domain.state_db.migrate import open_state_db
 
 
-class _TaskTable:
-    """A task table that finds ``tasks[session_id]`` and counts its opens."""
-
-    def __init__(self, tasks: dict[str, str]):
-        self._tasks = tasks
-
-    async def find_by_session_id(self, session_id: str):
-        task_id = self._tasks.get(session_id)
-        return SimpleNamespace(id=task_id) if task_id else None
-
-
 @pytest.fixture(autouse=True)
-def task_table(monkeypatch):
-    """The task table every listing joins against, with one task on ``sess-1``.
+def agent_records(monkeypatch):
+    """The Agent records every listing joins against, with one task on ``sess-1``.
 
-    Autouse: a stopped listing opens the real notebook otherwise.
+    Autouse: a stopped listing opens the real state database otherwise. Yields
+    the opens, so a test can count them.
     """
     opens = []
+    record = new_agent_record(
+        "a1",
+        harness="claude",
+        session_id="sess-1",
+        task="northwind/2026-09-04.2",
+        cwd="/worktree",
+        model="opus",
+        mode="auto",
+        started_at="2026-09-04T10:00:00+00:00",
+    )
 
-    def open_table():
+    async def open_store():
         opens.append(1)
-        return _TaskTable({"sess-1": "2026-09-04.2"})
+        return InMemoryAgentStore([record])
 
-    monkeypatch.setattr(agent_cli, "open_task_table", open_table)
+    monkeypatch.setattr(agent_cli, "agent_store", open_store)
     return opens
 
 
@@ -168,7 +173,7 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
     assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
 
     result, client = run_cli(
-        ["register", "a1", "--task-id", "2026-09-16.4.3"],
+        ["register", "a1", "--task-id", "2026-09-16.4.3", "--project", "northwind"],
         [
             {
                 "agents": [
@@ -199,8 +204,8 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
     assert record | {"started_at": ""} == {
         "id": "a1",
         "harness": "claude",
-        "task_session_id": "task-session-1",
-        "task_id": "2026-09-16.4.3",
+        "session_id": "task-session-1",
+        "task": "northwind/2026-09-16.4.3",
         "cwd": "/worktree",
         "model": "claude:opus",
         "mode": "plan",
@@ -208,6 +213,25 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
         "started_at": "",
         "ended_at": "",
     }
+
+
+def test_register_refuses_a_task_whose_project_nothing_names(tmp_path, monkeypatch):
+    """The record names a task by row id, and a bare id holds no project."""
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
+    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+
+    result, _ = run_cli(
+        ["register", "a1", "--task-id", "2026-09-16.4.3"],
+        [{"agents": [{"id": "a1", "session": "s1", "cwd": "/worktree"}]}],
+    )
+
+    assert result.exit_code != 0
+    assert "--project" in result.output
+    db = open_state_db(tmp_path / "state.db")
+    try:
+        assert asyncio.run(SqliteAgentStore(db).list()) == []
+    finally:
+        db.close()
 
 
 def test_register_refuses_an_agent_id_the_daemon_does_not_list(tmp_path, monkeypatch):
@@ -449,11 +473,11 @@ def test_the_stopped_json_carries_the_task_too():
     assert [row["task"] for row in rows] == ["2026-09-04.2", ""]
 
 
-def test_a_listing_opens_the_task_table_once_not_once_per_session(task_table):
+def test_a_listing_opens_the_agent_store_once_not_once_per_session(agent_records):
     """~800 transcripts must not mean ~800 SQLite connections."""
     rows = [stopped_row(id=f"s{i}", session=f"sess-{i}") for i in range(20)]
     run_cli(["list", "--stopped", "--json"], [{"agents": rows}])
-    assert len(task_table) == 1
+    assert len(agent_records) == 1
 
 
 def test_the_all_listing_joins_only_the_stopped_rows():
@@ -466,13 +490,13 @@ def test_the_all_listing_joins_only_the_stopped_rows():
     assert rows[1]["task"] == "2026-09-04.2"
 
 
-def test_an_unreadable_task_table_blanks_the_column_and_says_so(monkeypatch):
+def test_unreadable_agent_records_blank_the_column_and_say_so(monkeypatch):
     """A listing is worth more than its task column."""
 
-    def broken():
+    async def broken():
         raise OSError("disk gone")
 
-    monkeypatch.setattr(agent_cli, "open_task_table", broken)
+    monkeypatch.setattr(agent_cli, "agent_store", broken)
     result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
     assert result.exit_code == 0
     assert "Improve plan mode" in result.output
@@ -484,10 +508,10 @@ def test_an_unreadable_task_table_blanks_the_column_and_says_so(monkeypatch):
 def test_no_notebook_root_fails_the_listing_rather_than_blank_it(monkeypatch):
     """A blank column would hide a misconfigured root behind a listing that works."""
 
-    def unset():
+    async def unset():
         raise NotebookRootUnset()
 
-    monkeypatch.setattr(agent_cli, "open_task_table", unset)
+    monkeypatch.setattr(agent_cli, "agent_store", unset)
     result, _ = run_cli(["list", "--stopped"], [{"agents": [stopped_row()]}])
     assert result.exit_code == 1, result.output
     assert NOTEBOOK_ROOT_UNSET_MESSAGE in result.output

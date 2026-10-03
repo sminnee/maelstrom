@@ -194,7 +194,7 @@ An open PR is never wrong: a branch has at most one. The rule compares the workt
 `prMergedAt` with the task's `startedAt`, else the card's agent's `startedAt`.
 
 A task's `startedAt` is when its first agent started. The task source reads it from the Agent
-records, ended ones included, matched to the task by task session id. So a finished card, whose
+records, ended ones included, matched to the task by the task row id each record names. So a finished card, whose
 agent has left the world, keeps it, and a task run again after its PR merged still shows that PR.
 The source folds in only the records written since its last read, and sends a task again when its
 first start appears. The agent's start stands in only until that read.

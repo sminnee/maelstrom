@@ -2071,39 +2071,6 @@ class TestTemplateStatus:
         assert reloaded.last_run == "2026-06-18T09:00:00+00:00"
 
 
-class TestSessionIdFor:
-    def test_deterministic(self):
-        a = model.session_id_for("proj", "2026-06-30.1")
-        b = model.session_id_for("proj", "2026-06-30.1")
-        assert a == b
-
-    def test_valid_uuid(self):
-        import uuid
-
-        # Round-trips through UUID() → it is a well-formed UUID string.
-        uid = model.session_id_for("proj", "2026-06-30.1")
-        assert str(uuid.UUID(uid)) == uid
-
-    def test_differs_across_tasks(self):
-        a = model.session_id_for("proj", "2026-06-30.1")
-        b = model.session_id_for("proj", "2026-06-30.2")
-        assert a != b
-
-    def test_differs_across_projects(self):
-        a = model.session_id_for("proj-a", "x")
-        b = model.session_id_for("proj-b", "x")
-        assert a != b
-
-    async def test_a_saved_row_carries_the_session_id(self, store):
-        # The row derives session_id on the way in, so the reverse lookup
-        # resolves a task nobody stamped by hand.
-        t = await model.create(store, project="proj", title="t", id="2026-06-30.1")
-        found = await store.find_by_session_id(
-            model.session_id_for("proj", "2026-06-30.1")
-        )
-        assert found is not None and found.id == t.id
-
-
 class TestReconcile:
     async def _in_progress(self, store, project, title, **kw):
         t = await model.create(store, project=project, title=title, **kw)

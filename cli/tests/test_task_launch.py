@@ -1,7 +1,9 @@
-"""What a task launch settles before anything runs: the plan and its two guards.
+"""What a task launch settles before anything runs: the plan, the session and
+the two guards.
 
 Shared by ``mael task run`` and the orchestrator server, so both launch a task
-with the same session id, environment, permission mode, branch and prompt.
+with the same environment, permission mode, branch and prompt, and both choose
+its session the same way.
 """
 
 from pathlib import Path
@@ -14,6 +16,7 @@ from mael_domain.task_launch import (
     LaunchBlocked,
     check_not_live,
     check_synced,
+    choose_session,
     plan_launch,
 )
 from mael_domain.worktree import SyncResult, WorktreeSetup
@@ -32,11 +35,11 @@ def test_plan_launch_derives_everything_from_the_task():
         content="Do it.",
     )
     plan = plan_launch("northwind", task)
-    assert plan.session_id == model.session_id_for("northwind", "NORT-7.2")
+    # The row id the launch's Agent record names: the link back to the task.
+    assert plan.task == "northwind/NORT-7.2"
     assert plan.env == {
         "MAEL_TASK_ID": "NORT-7.2",
         "MAEL_TASK_PARENT": "NORT-7",
-        "MAEL_TASK_SESSION_ID": plan.session_id,
     }
     assert plan.permission_mode == "auto"
     assert plan.branch == "feat/orders"
@@ -76,12 +79,66 @@ def test_a_task_naming_no_execute_model_plans_an_empty_one():
     assert plan_launch("northwind", task).execute_model == ""
 
 
-def test_check_not_live_refuses_a_task_with_a_live_session():
+def records(*session_ids: str) -> list[dict]:
+    """A task's Agent records, newest first, as ``for_task`` answers."""
+    return [{"id": f"a{n}", "session_id": s} for n, s in enumerate(session_ids)]
+
+
+def test_a_task_with_no_record_starts_a_new_session():
+    choice = choose_session([], lambda _: True, mint=lambda: "minted")
+    assert (choice.session_id, choice.resume) == ("minted", False)
+
+
+def test_a_task_resumes_its_newest_session_that_has_a_transcript():
+    """A launch that failed leaves a record and no transcript. It is skipped."""
+    choice = choose_session(
+        records("s-3", "s-2", "s-1"),
+        lambda session_id: session_id in ("s-2", "s-1"),
+        mint=lambda: "minted",
+    )
+    assert (choice.session_id, choice.resume) == ("s-2", True)
+
+
+def test_a_task_whose_sessions_left_no_transcript_starts_a_new_one():
+    """The id is never reused: a new session takes a new id."""
+    choice = choose_session(records("s-1"), lambda _: False, mint=lambda: "minted")
+    assert (choice.session_id, choice.resume) == ("minted", False)
+
+
+def test_a_record_with_no_session_is_never_resumed():
+    """A Codex launch records no session id, so there is nothing to resume."""
+    choice = choose_session(records(""), lambda _: True, mint=lambda: "minted")
+    assert (choice.session_id, choice.resume) == ("minted", False)
+
+
+def test_a_fresh_launch_ignores_a_transcript():
+    choice = choose_session(
+        records("s-1"), lambda _: True, fresh=True, mint=lambda: "minted"
+    )
+    assert (choice.session_id, choice.resume) == ("minted", False)
+
+
+def test_two_new_sessions_take_different_ids():
+    first = choose_session([], lambda _: False)
+    second = choose_session([], lambda _: False)
+    assert first.session_id != second.session_id
+
+
+def test_check_not_live_refuses_a_task_with_any_of_its_sessions_live():
+    """A task has one session per record, and any of them blocks a launch."""
     session = LiveSession(pid=42, cwd=Path("/x"), session_id="s-1")
     live = LiveSessionSet([session])
     with pytest.raises(LaunchBlocked, match="pid 42"):
-        check_not_live("NORT-7", "s-1", live)
-    check_not_live("NORT-7", "other", live)
+        check_not_live("NORT-7", records("s-2", "s-1"), live)
+    check_not_live("NORT-7", records("s-2", "other"), live)
+    # A task never launched has no record, and nothing blocks it.
+    check_not_live("NORT-7", [], live)
+
+
+def test_a_record_with_no_session_does_not_match_a_bare_claude():
+    """A bare ``claude`` reports no session id. That is not this task's session."""
+    live = LiveSessionSet([LiveSession(pid=42, cwd=Path("/x"), session_id=None)])
+    check_not_live("NORT-7", records(""), live)
 
 
 def test_check_synced_refuses_a_failed_sync_and_passes_one_that_never_ran():

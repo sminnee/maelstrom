@@ -25,8 +25,10 @@ module (nothing in it calls the launcher).
 
 import os
 import subprocess
+import uuid
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -49,6 +51,8 @@ from mael_common.shell import (
     describe,
     run_cmd,
 )
+from mael_common.util import now_iso
+from mael_domain.agent_store import AgentStore, new_agent_record
 from mael_domain.cmux.client import current_client, ensure_cmux_running
 from mael_domain.cmux.mael_layout import MaelCmux, WorktreeWorkspace
 from mael_domain.cmux.model import TerminalTab
@@ -108,20 +112,25 @@ async def start_agent_in_worktree(
     model: str | None = None,
     execute_model: str | None = None,
     prompt: str = "",
+    task: str = "",
+    agents: AgentStore | None = None,
 ) -> str | None:
-    """Start a driven agent and return its id without placing a cmux client."""
+    """Start a driven agent and return its id without placing a cmux client.
+
+    With ``agents``, the started agent gets its Agent record here, naming
+    ``task``. This start reaches the daemon socket and not the orchestrator's
+    router, and the daemon knows no tasks, so no other writer could name one.
+    A start with no store writes nothing: the agent is **adopted**.
+    """
     ref = resolve_model_reference(model, permission_mode or "normal")
     if ref.harness != HARNESS_CLAUDE:
         raise ValueError(
             f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
         )
-    agent_env = dict(env or {})
-    if session_id:
-        agent_env["MAEL_TASK_SESSION_ID"] = session_id
     payload = build_start_payload(
         worktree_path,
         permission_mode=permission_mode,
-        env=agent_env,
+        env=dict(env or {}),
         session_id=session_id,
         resume=resume,
         model=ref.alias,
@@ -140,7 +149,53 @@ async def start_agent_in_worktree(
             err=True,
         )
         return None
+    if agents is not None:
+        await agents.save(
+            new_agent_record(
+                str(agent_id),
+                harness=HARNESS_CLAUDE,
+                session_id=session_id or "",
+                task=task,
+                cwd=str(worktree_path),
+                model=ref.alias,
+                mode=permission_mode or "normal",
+                started_at=now_iso(),
+            )
+        )
     return str(agent_id)
+
+
+def new_cli_record(
+    worktree_path: Path,
+    *,
+    task: str,
+    session_id: str | None,
+    permission_mode: str | None,
+    model: str | None,
+) -> dict[str, Any]:
+    """The Agent record for one ``cli`` launch of a task.
+
+    A ``cli`` session has no daemon and so no agent id. The key is minted here:
+    ``cli-`` and a random part. The session id would not do as the key. A
+    resume is a second launch of one session, and its record would replace the
+    first, which holds when the task first started. A Codex session has no
+    session id at all.
+
+    Nothing ends this record, because nothing observes a ``cli`` session
+    stopping. The process table says whether it is live.
+    """
+    ref = resolve_model_reference(model, permission_mode or "normal")
+    return new_agent_record(
+        f"cli-{uuid.uuid4().hex[:12]}",
+        harness=ref.harness,
+        transport=TRANSPORT_CLI,
+        session_id=session_id or "",
+        task=task,
+        cwd=str(worktree_path),
+        model=ref.alias,
+        mode=permission_mode or "normal",
+        started_at=now_iso(),
+    )
 
 
 async def launch_add_in_worktree(
@@ -249,7 +304,7 @@ def build_claude_command(
 
     The initial prompt is no longer an argv argument — it is piped into ``claude``
     on stdin via :func:`build_task_launch_line`. When ``session_id`` is given it
-    becomes ``--session-id``, pinning the task to a deterministic Claude session.
+    becomes ``--session-id``, the id the launch chose for the task's session.
     ``--session-id`` sets the id the session *starts* with; it does not hold it
     for the life of the process, because a ``/clear`` starts a new conversation
     with a new id. The session reports that live id as ``CLAUDE_CODE_SESSION_ID``.
@@ -318,8 +373,6 @@ def build_task_launch_line(
 ) -> ShellExpr:
     """Build a task prompt command for the CLI selected by its model."""
     command_env = dict(env or {})
-    if session_id:
-        command_env["MAEL_TASK_SESSION_ID"] = session_id
     prompt_argv = ["mael", "task", "prompt", task_id, "--project", project]
     harness_argv = build_harness_command(
         permission_mode, session_id, resume=resume, model=model, harness=harness
@@ -384,6 +437,8 @@ async def launch_agent_in_worktree(
     execute_model: str | None = None,
     prompt: str = "",
     attach: bool = True,
+    task: str = "",
+    agents: AgentStore | None = None,
 ) -> bool:
     """Start a daemon-driven agent, then place a pane that attaches to it.
 
@@ -393,8 +448,8 @@ async def launch_agent_in_worktree(
     pure :class:`ShellExpr`, so the build/execute split this module describes
     holds.
 
-    ``session_id`` also rides in the agent's env as ``MAEL_TASK_SESSION_ID``,
-    exactly as :func:`build_task_launch_line` does for the pipeline.
+    ``task`` and ``agents`` go to :func:`start_agent_in_worktree`, which writes
+    the Agent record.
 
     cmux is started between the two steps, not before them: a start that fails
     must not leave the user with a cmux app they did not have running.
@@ -418,6 +473,8 @@ async def launch_agent_in_worktree(
         model=model,
         execute_model=execute_model,
         prompt=prompt,
+        task=task,
+        agents=agents,
     )
     if not agent_id:
         return False
@@ -450,6 +507,8 @@ async def launch_claude_in_worktree(
     prompt: str = "",
     harness: str = TRANSPORT_CLI,
     attach: bool = True,
+    task: str = "",
+    agents: AgentStore | None = None,
 ) -> bool:
     """Launch Claude for a worktree, in cmux unless ``attach=False``. True if launched.
 
@@ -467,11 +526,16 @@ async def launch_claude_in_worktree(
 
     On the legacy paths, with ``task_id`` (and ``project``) set, the command is
     the ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain
-    ``claude`` that just opens the worktree. ``session_id`` pins the
-    deterministic Claude session id on the task path; ``resume`` reattaches an
+    ``claude`` that just opens the worktree. ``session_id`` pins the session
+    id the launch chose on the task path; ``resume`` reattaches an
     already-started session (``--resume`` vs ``--session-id``). ``model`` pins
     the session's LLM (``claude --model``). Either way env rides inside the
     ``ShellExpr``.
+
+    With ``agents``, a task launch writes its Agent record: the link from the
+    session to ``task``, the task row id. The daemon path writes it once the daemon names the
+    agent, and the ``cli`` path once the pane is placed, so a launch that
+    started nothing records nothing.
     """
     if harness == TRANSPORT_DAEMON:
         # The agent start comes first. cmux is only needed for the pane, and
@@ -489,6 +553,8 @@ async def launch_claude_in_worktree(
             execute_model=execute_model,
             prompt=prompt,
             attach=attach,
+            task=task,
+            agents=agents,
         )
     if execute_model:
         # A CLI session has no daemon, so no `_approve_plan` and nothing to
@@ -523,4 +589,15 @@ async def launch_claude_in_worktree(
             ),
             env=dict(env or {}),
         )
-    return open_claude_workspace(project, worktree, worktree_path, command)
+    placed = open_claude_workspace(project, worktree, worktree_path, command)
+    if placed and task and agents is not None:
+        await agents.save(
+            new_cli_record(
+                worktree_path,
+                task=task,
+                session_id=session_id,
+                permission_mode=permission_mode,
+                model=model,
+            )
+        )
+    return placed

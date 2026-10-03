@@ -13,7 +13,7 @@ Every observed event identifies its Codex thread by `threadId`. Events with a
 thread object use `thread.id` instead. A turn event also has `turnId` or
 `turn.id`. Item events have a stable `item.id`.
 
-The Codex thread id is stored against the Task session id. Do not use a turn
+The Codex thread id is the key of the thread's Agent record. Do not use a turn
 id as a session key: one thread can have many turns.
 
 ## Thread and turn lifecycle

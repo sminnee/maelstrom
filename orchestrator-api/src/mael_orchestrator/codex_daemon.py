@@ -83,7 +83,7 @@ class CodexDaemonClient(AsyncDaemonClient):
             self._rows[thread_id] = _row(
                 thread_id,
                 {
-                    "session": agent.get("task_session_id", ""),
+                    "session": agent.get("session_id", ""),
                     "cwd": agent.get("cwd", ""),
                     "model": agent.get("model", ""),
                     "mode": agent.get("mode", ""),
