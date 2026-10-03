@@ -85,6 +85,7 @@ from .transcript_log import (
     TRANSCRIPT_RING,
     TranscriptFrame,
     TranscriptLog,
+    TranscriptPartial,
     TranscriptSnapshot,
 )
 from .validate import (
@@ -562,14 +563,14 @@ class Orchestrator:
         Synchronous on the loop, like ``subscribe_transcript``: no frame can
         land between a socket's subscribe and its snapshot.
         """
-        stamped: dict[str, list[TranscriptFrame]] = {}
+        recorded: dict[str, list[TranscriptFrame | TranscriptPartial]] = {}
         for event in events:
             if not str(event.get("type", "")).startswith("transcript."):
                 continue
             agent_id = event["agentId"]
-            frame = self.transcript_log(agent_id).append(event)
-            stamped.setdefault(agent_id, []).append(frame)
-        for agent_id, frames in stamped.items():
+            frame = self.transcript_log(agent_id).record(event)
+            recorded.setdefault(agent_id, []).append(frame)
+        for agent_id, frames in recorded.items():
             self.transcripts.push(agent_id, frames)
 
     def transcript_log(self, agent_id: str) -> TranscriptLog:

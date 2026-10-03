@@ -9,7 +9,7 @@ them, and a snapshot otherwise. See ``docs/dev/orchestrator-server.md``,
 
 from collections import deque
 from collections.abc import Callable
-from typing import TypedDict
+from typing import Literal, TypedDict, cast
 
 from mael_domain.protocol import ServerEvent, TranscriptItem
 
@@ -23,6 +23,15 @@ TRANSCRIPT_ITEMS = 5000
 class TranscriptFrame(TypedDict):
     seq: int
     event: ServerEvent
+
+
+class TranscriptPartial(TypedDict):
+    """The whole text so far of a partial message. It has no seq and no ring slot."""
+
+    type: Literal["transcript.partial"]
+    agentId: str
+    itemId: str
+    markdown: str
 
 
 class TranscriptSnapshot(TypedDict):
@@ -65,6 +74,24 @@ class TranscriptLog:
         frame: TranscriptFrame = {"seq": self.seq, "event": event}
         self._frames.append(frame)
         return frame
+
+    def record(self, event: ServerEvent) -> TranscriptFrame | TranscriptPartial:
+        """Apply one transcript event, and return what goes out to the sockets.
+
+        A partial sets its item's text in place and takes no seq; every other
+        event is stamped and kept, by :meth:`append`.
+        """
+        if event["type"] != "transcript.partial":
+            return self.append(event)
+        partial = cast(TranscriptPartial, event)
+        # A partial message is at or near the tail.
+        for index in range(len(self.items) - 1, -1, -1):
+            item = self.items[index]
+            if item["id"] == partial["itemId"]:
+                if item.get("partial"):
+                    self.items[index] = {**item, "markdown": partial["markdown"]}
+                break
+        return partial
 
     def replay_from(self, from_seq: int) -> list[TranscriptFrame] | None:
         """Frames with seq > ``from_seq``, or ``None`` when a snapshot is needed.
