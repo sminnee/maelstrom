@@ -113,7 +113,8 @@ views show it: a view acquires the agent through `useAgentStream`, the socket op
 acquire and closes five seconds after the last release, so a tab that closes and reopens keeps
 its stream. The opening frame is a snapshot, or a replay when the reconnect carried a cursor the
 server's ring still held; every later frame is reduced by the pure `live/transcriptReducer.ts`
-into the store's `transcripts` slice and moves the cursor. A drop reconnects from the cursor
+into the store's `transcripts` slice and moves the cursor. A `transcript.partial` has no seq:
+`applyPartial` sets the text of a partial message and leaves the cursor. A drop reconnects from the cursor
 with a doubling wait, a `4409` at once, and a `4404` ends the stream. Nothing closes every
 stream at once, so a provider that unmounts and mounts again comes back with its streams
 intact.
