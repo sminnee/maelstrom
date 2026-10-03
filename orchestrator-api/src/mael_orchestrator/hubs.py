@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from .notices import Notices, merge_notices
-from .transcript_log import TranscriptFrame
+from .transcript_log import TranscriptFrame, TranscriptPartial
 
 #: How long a notice waits for company before it is flushed.
 COALESCE_SECS = 0.05
@@ -100,16 +100,28 @@ LAGGING = Lagging()
 
 
 class TranscriptSubscriber:
-    """One socket's unread frames for one agent."""
+    """One socket's unread frames for one agent.
+
+    Seq'd frames wait in a bounded queue. A partial waits beside it, in one
+    slot that the newest partial takes over: each carries the whole text, so
+    an older one is worth nothing. A partial never fills the queue, so it never
+    makes the reader lag.
+    """
 
     def __init__(self, limit: int) -> None:
         self.queue: asyncio.Queue[TranscriptFrame | Lagging] = asyncio.Queue(
             maxsize=limit
         )
+        self.partial: TranscriptPartial | None = None
         self.lagging = False
+        self._pushed = asyncio.Event()
 
-    def push(self, frame: TranscriptFrame) -> None:
+    def push(self, frame: TranscriptFrame | TranscriptPartial) -> None:
         if self.lagging:
+            return
+        self._pushed.set()
+        if "seq" not in frame:
+            self.partial = frame
             return
         try:
             self.queue.put_nowait(frame)
@@ -117,12 +129,25 @@ class TranscriptSubscriber:
             # The reader is behind by a whole queue. It resumes from its seq,
             # so nothing is lost by dropping the rest and saying so.
             self.lagging = True
+            self.partial = None
             while not self.queue.empty():
                 self.queue.get_nowait()
             self.queue.put_nowait(LAGGING)
 
-    async def next(self) -> TranscriptFrame | Lagging:
-        return await self.queue.get()
+    async def next(self) -> TranscriptFrame | TranscriptPartial | Lagging:
+        """The next queued frame, else the partial, else the next push.
+
+        A seq'd frame goes first. A partial that is then stale, because its
+        message closed, is one the client ignores.
+        """
+        while True:
+            if not self.queue.empty():
+                return self.queue.get_nowait()
+            if self.partial is not None:
+                partial, self.partial = self.partial, None
+                return partial
+            self._pushed.clear()
+            await self._pushed.wait()
 
 
 class TranscriptHub:
@@ -141,7 +166,9 @@ class TranscriptHub:
         self._subscribers: dict[str, set[TranscriptSubscriber]] = {}
         self.on_idle = on_idle
 
-    def push(self, agent_id: str, frames: list[TranscriptFrame]) -> None:
+    def push(
+        self, agent_id: str, frames: list[TranscriptFrame | TranscriptPartial]
+    ) -> None:
         for subscriber in self._subscribers.get(agent_id, ()):
             for frame in frames:
                 subscriber.push(frame)
