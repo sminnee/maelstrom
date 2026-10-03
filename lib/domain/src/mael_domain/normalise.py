@@ -14,7 +14,6 @@ The TypeScript module is the reference; see "Normaliser parity" in
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import Any
 
 from mael_agent.agent_wire import (
@@ -135,10 +134,6 @@ class PendingContext:
     document_id: str | None
 
 
-#: How long a partial message waits between two refreshes.
-PARTIAL_REFRESH_SECS = 1 / 3
-
-
 @dataclass(frozen=True)
 class PartialMessage:
     """The message the agent is writing now, as far as its chunks have come.
@@ -154,9 +149,8 @@ class PartialMessage:
     text: str = ""
     #: The transcript item that shows it, or ``""`` while nothing has shown.
     item_id: str = ""
-    #: What that item shows, and when it was last sent.
+    #: What that item shows.
     shown: str = ""
-    shown_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -739,9 +733,8 @@ def _partial_chunk(out: "_Emitter", chunk: Dict) -> None:
     if index != partial.index:
         return
     partial = replace(partial, text=partial.text + _str(delta.get("text")))
-    now = out.now
+    shown = partial_text(partial.text)
     if not partial.item_id:
-        shown = partial_text(partial.text)
         if shown:
             item_id = out.append(
                 {
@@ -751,28 +744,12 @@ def _partial_chunk(out: "_Emitter", chunk: Dict) -> None:
                     "partial": True,
                 }
             )
-            partial = replace(partial, item_id=item_id, shown=shown, shown_at=now)
-    elif _due(partial.shown_at, now):
-        # The clock first: the scrub reads the whole text, and most chunks
-        # arrive between two refreshes.
-        shown = partial_text(partial.text)
-        if shown != partial.shown:
-            out.update(partial.item_id, {"markdown": shown})
-            partial = replace(partial, shown=shown, shown_at=now)
+            partial = replace(partial, item_id=item_id, shown=shown)
+    elif shown != partial.shown:
+        # A chunk inside a held-back tag changes nothing on screen.
+        out.partial(partial.item_id, shown)
+        partial = replace(partial, shown=shown)
     out.ctx = replace(out.ctx, partial=partial)
-
-
-def _due(last: str, now: str) -> bool:
-    """Whether a partial message last refreshed at ``last`` may refresh at ``now``.
-
-    Two clock readings that will not parse are not a reason to hide the text,
-    so they read as due.
-    """
-    try:
-        elapsed = datetime.fromisoformat(now) - datetime.fromisoformat(last)
-    except ValueError:
-        return True
-    return elapsed.total_seconds() >= PARTIAL_REFRESH_SECS
 
 
 def _state_after_turn(ctx: NormaliseContext) -> str:
@@ -932,6 +909,17 @@ class _Emitter:
                 "agentId": self.ctx.agent_id,
                 "itemId": item_id,
                 "patch": patch,
+            }
+        )
+
+    def partial(self, item_id: str, markdown: str) -> None:
+        """The whole text so far of a partial message. It takes no seq."""
+        self.events.append(
+            {
+                "type": "transcript.partial",
+                "agentId": self.ctx.agent_id,
+                "itemId": item_id,
+                "markdown": markdown,
             }
         )
 
