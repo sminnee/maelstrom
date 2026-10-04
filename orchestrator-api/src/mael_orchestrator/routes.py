@@ -124,7 +124,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
-    app.router.add_post("/api/worktrees/{id}/tuning", _send_tuning_css)
+    app.router.add_post("/api/worktrees/{id}/feedback", _send_feedback)
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
@@ -715,16 +715,18 @@ async def _comment_on_changes(request: web.Request) -> web.StreamResponse:
     )
 
 
-async def _send_tuning_css(request: web.Request) -> web.StreamResponse:
-    """Send the jig's Tuning CSS. It reaches each agent in the worktree as a message."""
+async def _send_feedback(request: web.Request) -> web.StreamResponse:
+    """Post feedback from a jig. It reaches each agent in the worktree as a message.
+
+    The body is the feedback itself, typed by its ``type``.
+    """
     worktree_id = request.match_info["id"]
     return await _command(
         request,
         lambda body: {
-            "type": "worktree.tune",
+            "type": "worktree.feedback",
             "worktreeId": worktree_id,
-            "css": body.get("css"),
-            "note": body.get("note"),
+            "feedback": body,
         },
     )
 
