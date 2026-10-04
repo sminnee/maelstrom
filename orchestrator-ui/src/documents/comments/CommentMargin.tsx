@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { Anchor, Comment } from '../../protocol/documents';
 import { describeError } from '../../api/http';
+import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
+import { DialogFooter } from '../../ui/Dialog';
 import { TextArea } from '../../ui/TextArea';
 import type { Placed } from './useSelectionComment';
 import styles from './CommentMargin.module.css';
@@ -47,8 +49,15 @@ export function CommentMargin({
         onChange={(e) => setBody(e.target.value)}
         placeholder="What should change here?"
       />
-      <div className={styles.row}>
+      <DialogFooter
+        aside={
+          <AppButton variant="link" onClick={onCancel}>
+            Cancel
+          </AppButton>
+        }
+      >
         <AppButton
+          icon={actionIcon('comment')}
           variant="primary"
           errorChildren={describeError}
           disabled={!body.trim()}
@@ -56,10 +65,7 @@ export function CommentMargin({
         >
           Add comment
         </AppButton>
-        <button type="button" className={styles.quiet} onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
+      </DialogFooter>
     </div>
   );
   const rows = comments.map((c) => (

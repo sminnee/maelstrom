@@ -1,4 +1,6 @@
+import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
+import { DialogFooter } from '../../ui/Dialog';
 import { TextArea } from '../../ui/TextArea';
 import styles from './comments.module.css';
 
@@ -60,14 +62,23 @@ export function ChangeCommentBox(props: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       />
-      <div className={styles.actions}>
-        <AppButton variant="primary" disabled={!body.trim()} onClick={onAdd}>
+      <DialogFooter
+        className={styles.composing}
+        aside={
+          <AppButton variant="link" onClick={onCancel}>
+            Cancel
+          </AppButton>
+        }
+      >
+        <AppButton
+          icon={actionIcon('comment')}
+          variant="primary"
+          disabled={!body.trim()}
+          onClick={onAdd}
+        >
           Add comment
         </AppButton>
-        <AppButton variant="quiet" onClick={onCancel}>
-          Cancel
-        </AppButton>
-      </div>
+      </DialogFooter>
     </div>
   );
 }

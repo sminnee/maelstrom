@@ -48,11 +48,18 @@ function WaitShell({
       <p role={error ? 'alert' : undefined}>
         {error ? `Could not load ${taskId}: ${error}` : 'Loading…'}
       </p>
-      <DialogFooter>
-        <button type="button" onClick={leave}>
-          Cancel
-        </button>
-        {error && <AppButton onClick={retry}>Retry</AppButton>}
+      <DialogFooter
+        aside={
+          <AppButton variant="link" onClick={leave}>
+            Cancel
+          </AppButton>
+        }
+      >
+        {error && (
+          <AppButton icon={actionIcon('retry')} onClick={retry}>
+            Retry
+          </AppButton>
+        )}
       </DialogFooter>
     </Dialog>
   );
@@ -158,16 +165,16 @@ function TaskForm({ task }: { task: Task }) {
       {(confirming || pendingNav !== null) && (
         <p className={styles.confirm} role="alert">
           <span>Throw away your changes?</span>
-          <button
-            type="button"
+          <AppButton
+            variant="link"
             onClick={() => {
               setConfirming(false);
               setPendingNav(null);
             }}
           >
             Keep editing
-          </button>
-          <button type="button" onClick={() => close(pendingNav)}>
+          </AppButton>
+          <button type="button" className={styles.discard} onClick={() => close(pendingNav)}>
             Discard
           </button>
         </p>
@@ -177,22 +184,27 @@ function TaskForm({ task }: { task: Task }) {
           {deleteError}
         </p>
       )}
-      <DialogFooter>
-        {editing ? (
-          <>
-            <button type="button" onClick={leave}>
+      <DialogFooter
+        aside={
+          editing ? (
+            <AppButton variant="link" onClick={leave}>
               Cancel
-            </button>
-            <AppButton variant="primary" onClick={save}>
-              Save
             </AppButton>
-          </>
+          ) : (
+            <AppButton variant="link" onClick={() => close(null)}>
+              Close
+            </AppButton>
+          )
+        }
+      >
+        {editing ? (
+          <AppButton variant="primary" icon={actionIcon('save')} onClick={save}>
+            Save
+          </AppButton>
         ) : (
           <>
-            <button type="button" onClick={() => close(null)}>
-              Close
-            </button>
             <ConfirmButton
+              icon={actionIcon('delete')}
               question="Delete this task?"
               confirm="Delete it"
               asking={confirmingDelete}
@@ -211,7 +223,7 @@ function TaskForm({ task }: { task: Task }) {
             >
               Delete
             </ConfirmButton>
-            <AppButton variant="primary" onClick={() => setEditing(true)}>
+            <AppButton variant="primary" icon={actionIcon('edit')} onClick={() => setEditing(true)}>
               Edit
             </AppButton>
           </>

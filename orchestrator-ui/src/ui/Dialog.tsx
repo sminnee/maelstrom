@@ -111,7 +111,24 @@ export function DialogHeader({
   );
 }
 
-/** The right-aligned button row a dialog ends with. */
-export function DialogFooter({ children }: { children: React.ReactNode }) {
-  return <footer className={styles.footer}>{children}</footer>;
+/**
+ * The button row a dialog ends with: `aside` on the left, `children` on the
+ * right. A comment box ends with it too. See DESIGN.md § Dialog footers.
+ */
+export function DialogFooter({
+  aside,
+  className,
+  children,
+}: {
+  /** Exception actions: `AppButton variant="link"`, with no icon. */
+  aside?: React.ReactNode;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <footer className={[styles.footer, className].filter(Boolean).join(' ')}>
+      {aside && <div className={styles.aside}>{aside}</div>}
+      <div className={styles.main}>{children}</div>
+    </footer>
+  );
 }

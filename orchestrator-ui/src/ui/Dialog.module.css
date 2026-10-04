@@ -115,8 +115,25 @@
 }
 .footer {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--u-2);
+}
+.aside,
+.main {
+  display: flex;
+  align-items: center;
+  gap: var(--u-2);
+}
+.main {
   gap: var(--u);
+  margin-left: auto;
+}
+/* A link here is still a thumb target: the link variant drops the control
+   height, which a line of text wants and a footer does not. */
+.aside > button {
+  min-height: var(--control);
 }
 
 /*
@@ -158,10 +175,6 @@
   .advanced summary {
     display: flex;
     align-items: center;
-  }
-  /* Five buttons is New work's busiest footer; on one row they overflow. */
-  .footer {
-    flex-wrap: wrap;
   }
   .close {
     min-width: var(--control);
