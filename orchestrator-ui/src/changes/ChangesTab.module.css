@@ -197,9 +197,9 @@
   font-size: var(--text-sm);
   line-height: var(--leading-prose);
 
-  --prose-gap: 12px;
-  --prose-gap-tight: 6px;
-  --prose-gap-loose: 24px;
+  --prose-gap: var(--text-sm);
+  --prose-gap-tight: calc(var(--text-sm) / 2);
+  --prose-gap-loose: calc(var(--text-sm) * 2);
 }
 .byline {
   margin: 0;
