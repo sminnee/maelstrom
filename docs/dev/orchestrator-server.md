@@ -1133,8 +1133,12 @@ refresh, as a launch does, so the change is in the world before the reply.
 
 The two document commands are the server's own too: a document lives in the world, not in the
 notebook and not on the host. Each names one document and acts on its review group's current
-members — every member not `superseded`. **Approve** moves them to `approved` and tells nobody —
-the agent asked for a verdict, and the answer is on the documents. **Request changes** moves them
+members — every member not `superseded`. **Approve** moves them to `approved`, then tells the agent
+with an `agent.say` that names the group title, and for a task set the created ids (see
+"Approving a task set"). The agent asked for the verdict and waits on it. The message is
+best-effort: a host that refuses it does not turn the approval into a refusal, because a lost
+approval loses none of the user's words. The cost is an agent that still waits, so the server logs
+the refusal and the user has to tell the agent. **Request changes** moves them
 to `changes-requested` and relays the summary to the agent once, as an `agent.say` naming the
 group title, so the agent hears what to fix. The relay comes first: a summary the host refuses
 never reached the agent, so the group stays awaiting a review nobody has answered. Both retire the
