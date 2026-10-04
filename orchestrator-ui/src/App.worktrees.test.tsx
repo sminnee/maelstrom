@@ -179,7 +179,7 @@ describe('the worktrees view', () => {
     ]);
     expect(delta.getByRole('link', { name: 'Dev env' })).toHaveAttribute(
       'href',
-      'http://localhost:4210',
+      '#panel/devenv/northwind-delta/web',
     );
   });
 
@@ -236,11 +236,11 @@ describe('the worktrees view', () => {
     await waitFor(() => expect(delta.getByRole('link', { name: 'ladle' })).toBeInTheDocument());
     expect(delta.getByRole('link', { name: 'ladle' })).toHaveAttribute(
       'href',
-      'http://localhost:4212',
+      '#panel/devenv/northwind-delta/ladle',
     );
     expect(delta.getByRole('link', { name: 'web' })).toHaveAttribute(
       'href',
-      'http://localhost:4210',
+      '#panel/devenv/northwind-delta/web',
     );
     expect(delta.getByText(/Dev env:/).textContent).toBe('Dev env: web · ladle');
 

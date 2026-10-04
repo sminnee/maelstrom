@@ -571,7 +571,7 @@ The call that raises a wait draws no card. `AskUserQuestion` and `ExitPlanMode` 
 `wait` kind, and the transcript gives them no row: the wait item that follows renders the same
 prompt in full.
 
-The panel holds three tab kinds: session, document and changes. It is the top bar item `Tabs`, and
+The panel holds four tab kinds: session, document, changes and dev env. It is the top bar item `Tabs`, and
 it shows in a slot as a main view does; see "The three layouts". A panel off screen is hidden with
 the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and
 shows the panel too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
@@ -591,7 +591,7 @@ one of its tabs is open:
 - A session tab belongs to its agent's worktree.
 - A document tab belongs to its own agent's worktree, else to the worktree of the agent that runs
   its task.
-- A changes tab belongs to its own worktree.
+- A changes tab and a dev env tab belong to their own worktree.
 - A tab the world cannot place goes to its project's "no worktree" group, or to "Other".
 
 The group in view is the active tab's group, so no selection is stored. `ui.tabRecency` holds tab
@@ -608,7 +608,8 @@ tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon i
 difference a reader sees. The wire carries a ready `prUrl`, so the card links a pull request
 without joining two fields; a worktree with no PR draws none. `worktrees/DevEnvLinks.tsx` draws
 a link per running web-facing service, and the worktree poll makes each appear and disappear on
-its own.
+its own. On the wide and medium layouts that link opens a dev env tab, not a browser tab; see
+"The Dev env tab".
 
 ### The worktree area
 
@@ -649,6 +650,20 @@ why.
 the pan into view and the Esc handler. The canvas shows one card at a time. `ui.expandedNodeId`
 and `ui.expandedWorktreeId` clear each other, and Esc or a click on the pane clears both. A
 card whose node or box no longer draws collapses, once the world has loaded.
+
+### The Dev env tab
+
+`devenv/DevEnvTab.tsx` draws the **Dev env tab**: a toolbar with the service name, its URL as an
+external link and a reload button, over an iframe of the URL. A service with a URL is web-facing,
+so `Worktree.env.services[]` is all the tab reads.
+
+The frame stays mounted while another tab is in view, so the framed app keeps its state.
+`panel/Panel.tsx` draws the active tab through `TabBody`. It also draws every open dev env tab,
+keyed by tab key, with `hidden` on each that is not showing. A hidden frame keeps its app running,
+timers and sockets too, until its tab closes.
+
+The narrow layout has no panel and no screen for a dev env, so `PanelLink` takes the service URL
+with a dev env tab and draws an external link there.
 
 ### The Changes tab
 

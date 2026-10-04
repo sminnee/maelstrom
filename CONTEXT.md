@@ -1018,9 +1018,10 @@ document's own review route. One dock, so a reader answers in one place whoever 
 _Avoid_: Action bar, footer
 
 **Panel**:
-The tabs, drawn in one slot. A tab holds a session, a document, or a worktree's changes (see
-**Changes tab**). The panel sidebar on its left edge lists the worktree groups, and the tab strip
-shows the tabs of the group in view. The top bar labels the panel `Tabs`, and its anchor starts on
+The tabs, drawn in one slot. A tab holds a session, a document, a worktree's changes (see
+**Changes tab**), or a running web service of a worktree (see **Dev env tab**). The panel sidebar
+on its left edge lists the worktree groups, and the tab strip shows the tabs of the group in view.
+The top bar labels the panel `Tabs`, and its anchor starts on
 the right. In the wide layout a click on `Tabs` closes the panel's slot, and a panel link shows the
 panel again. The narrow layout has no panel.
 _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
@@ -1068,9 +1069,15 @@ over its **Base**, or the whole branch as one diff. The expanded node's `Changes
 The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 
+**Dev env tab**:
+A panel tab that frames one running web service of a worktree, such as its app or Ladle. Its
+toolbar has a reload button and an **External link** to the same URL. A stopped service shows the
+worktree's env control and no frame. The frame stays loaded while another tab is in view.
+_Avoid_: Preview tab, browser tab
+
 **Panel link**:
-A link that opens a session, a document or a worktree's changes as a tab in the panel. It carries the open-in-panel
-icon.
+A link that opens a session, a document, a worktree's changes or its dev env as a tab in the
+panel. It carries the open-in-panel icon.
 _Avoid_: Open button
 
 **Offer**:
@@ -1081,7 +1088,7 @@ _Avoid_: Dropdown, autocomplete list, suggestions, menu
 
 **External link**:
 A link that leaves the app in a new browser tab — a worktree's pull request on GitHub, or its
-dev environment. It carries the external-link icon, so a reader tells it from a panel link
+dev environment on the narrow layout and in a **Dev env tab**'s toolbar. It carries the external-link icon, so a reader tells it from a panel link
 before clicking.
 _Avoid_: Outbound link, web link
 
