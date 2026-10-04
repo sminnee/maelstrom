@@ -344,5 +344,30 @@ def format_change_comments(branch: str, comments: list[ChangeComment]) -> str:
     return "\n\n".join(blocks)
 
 
+#: Where the jig keeps the **Tuning CSS**, relative to the worktree root.
+TUNING_CSS_PATH = ".drafts/tuning.css"
+
+
+def format_tuning_css(branch: str, css: str, note: str | None = None) -> str:
+    """The one message that carries the **Tuning CSS** to the agents of a worktree.
+
+    The CSS is indented as a block, so a rule that holds a blank line stays
+    one quote.
+    """
+    quoted = "\n".join(
+        f"    {line}" if line else "" for line in css.strip().splitlines()
+    )
+    lines = [
+        f"Tuning CSS for {branch}, from the jig ({TUNING_CSS_PATH}):",
+        "",
+        quoted,
+        "",
+    ]
+    if note and note.strip():
+        lines.append(f"Note: {note.strip()}")
+    lines.append(f"Apply these in source, then delete {TUNING_CSS_PATH}.")
+    return "\n".join(lines)
+
+
 def _rev_label(rev: str) -> str:
     return rev if rev in (UNCOMMITTED, BRANCH) else f"commit {rev[:7]}"

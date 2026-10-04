@@ -72,7 +72,7 @@ from mael_domain.task_attachments import (
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
-from mael_domain.worktree_changes import format_change_comments
+from mael_domain.worktree_changes import format_change_comments, format_tuning_css
 
 from . import desk as desk_model
 from . import linear_source
@@ -1531,6 +1531,7 @@ class Orchestrator:
             "worktree.env": self._env_worktree,
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
+            "worktree.tune": self._send_tuning_css,
             "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
@@ -2017,12 +2018,26 @@ class Orchestrator:
     async def _comment_on_changes(self, command: dict[str, Any]) -> dict[str, Any]:
         """Send the change comments to each agent in the worktree, as one message.
 
-        Ok when one agent or more took it. See orchestrator-server.md, "Commands".
+        See orchestrator-server.md, "Commands".
         """
         worktree_id = command["worktreeId"]
         text = format_change_comments(
             self.world["worktrees"][worktree_id]["branch"], command["comments"]
         )
+        return await self._say_to_worktree(worktree_id, text)
+
+    async def _send_tuning_css(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Send the jig's Tuning CSS to each agent in the worktree, as one message."""
+        worktree_id = command["worktreeId"]
+        text = format_tuning_css(
+            self.world["worktrees"][worktree_id]["branch"],
+            command["css"],
+            command.get("note"),
+        )
+        return await self._say_to_worktree(worktree_id, text)
+
+    async def _say_to_worktree(self, worktree_id: str, text: str) -> dict[str, Any]:
+        """Say ``text`` to each agent in the worktree. Ok when one agent or more took it."""
         delivered: list[str] = []
         refusals: list[tuple[str, dict[str, Any]]] = []
         for agent in agents_in_worktree(self.world, worktree_id):

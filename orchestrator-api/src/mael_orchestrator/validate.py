@@ -80,6 +80,7 @@ WORKTREE_COMMANDS = (
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
+    "worktree.tune",
 )
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
@@ -102,7 +103,12 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
+    "worktree.tune",
 )
+
+#: The commands that relay a message to the agents in a worktree. Each needs
+#: an agent to tell, and ``agents_in_worktree`` names the same ones for all.
+RELAY_COMMANDS = ("worktree.comment", "worktree.tune")
 
 #: The three settings ``mael sync`` has, which the one sync command chooses
 #: between. ``--abort`` is implied on ``plain`` and ``squash``.
@@ -220,7 +226,7 @@ def _reaches(world: World, starts: list[str], goal: str) -> bool:
 
 
 def agents_in_worktree(world: World, worktree_id: str) -> list[Agent]:
-    """The agents a post of change comments reaches, in the world's order.
+    """The agents a post of change comments or Tuning CSS reaches, in the world's order.
 
     A subagent is driven through its parent, and an exited agent hears
     nothing. ``trackedAgents`` in the UI applies the same rule, so the dock
@@ -296,8 +302,16 @@ def _worktree_error(
                 return _err("invalid", "A comment is malformed")
             if not comment["body"].strip():
                 return _err("invalid", "A comment is empty")
-        if not agents_in_worktree(world, worktree_id):
-            return _err("invalid", f"No agent is running in {worktree_id}")
+
+    if kind == "worktree.tune":
+        css = cmd.get("css")
+        if not isinstance(css, str) or not css.strip():
+            return _err("invalid", "No CSS to send")
+        if not isinstance(cmd.get("note"), str | None):
+            return _err("invalid", "A note is text")
+
+    if kind in RELAY_COMMANDS and not agents_in_worktree(world, worktree_id):
+        return _err("invalid", f"No agent is running in {worktree_id}")
 
     if kind == "worktree.env":
         action = cmd.get("action", "")
