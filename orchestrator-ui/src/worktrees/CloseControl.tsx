@@ -2,6 +2,7 @@ import { useCloseWorktree, useForceCloseWorktree, useTrashWorktree } from '../ap
 import { useWorld } from '../api/useWorld';
 import type { Worktree } from '../protocol/entities';
 import { canClose, trackedAgents } from '../selectors/worktrees';
+import { actionIcon } from '../ui/actionIcons';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import { trashConfirm } from './trashConfirm';
 
@@ -27,9 +28,16 @@ export function CloseControl({ worktree }: { worktree: Worktree }) {
   };
   const target = { worktreeId: worktree.id };
   const options: SplitOption[] = [
-    { label: 'Close', processing: 'Closing…', ...held, run: () => close.mutateAsync(target) },
+    {
+      label: 'Close',
+      icon: actionIcon('closeWorktree'),
+      processing: 'Closing…',
+      ...held,
+      run: () => close.mutateAsync(target),
+    },
     {
       label: 'Shelve',
+      icon: actionIcon('archive'),
       processing: 'Shelving…',
       ...held,
       confirm: {
@@ -40,6 +48,7 @@ export function CloseControl({ worktree }: { worktree: Worktree }) {
     },
     {
       label: 'Trash',
+      icon: actionIcon('delete'),
       processing: 'Trashing…',
       ...held,
       confirm: trashConfirm(worktree),

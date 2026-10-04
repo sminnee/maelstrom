@@ -8,6 +8,7 @@ import type { TaskId } from '../protocol/ids';
 import { isLive } from '../selectors/graph';
 import { canClose, trackedAgents } from '../selectors/worktrees';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { trashConfirm } from '../worktrees/trashConfirm';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
@@ -63,6 +64,7 @@ export function AgentControls({
       {agent && !isLive(agent) && (
         <AppButton
           variant="quiet"
+          icon={actionIcon('resume')}
           processingChildren="Resuming"
           onClick={() => resume.mutateAsync({ agentId: agent.id })}
         >
@@ -99,7 +101,12 @@ function endOfWorkOptions({
 }): SplitOption[] {
   const options: SplitOption[] = live
     ? [
-        { label: 'Terminate', processing: 'Terminating…', run: stop },
+        {
+          label: 'Terminate',
+          icon: actionIcon('terminate'),
+          processing: 'Terminating…',
+          run: stop,
+        },
         {
           label: 'Terminate & take off desk',
           icon: <OffDeskIcon />,

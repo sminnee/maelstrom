@@ -1,5 +1,6 @@
 import { useEnvWorktree } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
+import { actionIcon } from '../ui/actionIcons';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 
 type EnvAction = 'start' | 'stop' | 'restart';
@@ -19,12 +20,19 @@ export function EnvControl({ worktree }: { worktree: Worktree }) {
 
   const start: SplitOption = {
     label: 'Start env',
+    icon: actionIcon('envStart'),
     processing: 'Starting…',
     run: () => act('start'),
   };
-  const stop: SplitOption = { label: 'Stop env', processing: 'Stopping…', run: () => act('stop') };
+  const stop: SplitOption = {
+    label: 'Stop env',
+    icon: actionIcon('envStop'),
+    processing: 'Stopping…',
+    run: () => act('stop'),
+  };
   const restart: SplitOption = {
     label: 'Restart env',
+    icon: actionIcon('envRestart'),
     processing: 'Restarting…',
     run: () => act('restart'),
   };
@@ -37,11 +45,13 @@ export function EnvControl({ worktree }: { worktree: Worktree }) {
       s.running
         ? {
             label: `Stop ${s.name}`,
+            icon: actionIcon('envStop'),
             processing: `Stopping ${s.name}…`,
             run: () => act('stop', s.name),
           }
         : {
             label: `Start ${s.name}`,
+            icon: actionIcon('envStart'),
             processing: `Starting ${s.name}…`,
             run: () => act('start', s.name),
           },
