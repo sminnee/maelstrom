@@ -33,14 +33,15 @@ export function useExpandableClamp(deps: unknown[]) {
     return false;
   };
 
+  // Nothing cut off means nothing to expand, so no "Show less" follows.
   const onBodyClick = (e: MouseEvent) => {
-    if (expanded) return;
+    if (expanded || !clamped) return;
     if (hasInteractiveDescendant(e)) return;
     setExpanded(true);
   };
 
   const onBodyKeyDown = (e: KeyboardEvent) => {
-    if (expanded) return;
+    if (expanded || !clamped) return;
     if (hasInteractiveDescendant(e)) return;
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if (e.key === ' ') e.preventDefault();
