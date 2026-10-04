@@ -245,7 +245,7 @@ installed, but no metric depends on them.
 
 ### Hierarchy
 
-Six sizes, each with one job. Sizes are the `--text-*` tokens; no component names its own, and
+Seven sizes, each with one job. Sizes are the `--text-*` tokens; no component names its own, and
 `styles/fontSize.test.ts` fails on a literal. Steps 1px apart do not read as ranks, so rank
 inside a size comes from weight, case and tone.
 
@@ -260,6 +260,9 @@ dense; prose is read and must not.
 | `--text-md`      | 16px | 20px   | prose, and markdown's `h3`                               |
 | `--text-lg`      | 18px | 24px   | markdown's `h2`                                          |
 | `--text-xl`      | 21px | 28px   | markdown's `h1`                                          |
+| `--text-caption` | 11px | 8px    | the caption under a narrow button's icon                 |
+
+Nothing on the wide layout draws `--text-caption`. A wide button keeps `--text-control`.
 
 - **Reading** (`--text-md`, 400): markdown, wherever it appears — a transcript message, a
   document, the decision rail. Prose is read start to end, so it is set well above the chrome
@@ -344,7 +347,8 @@ spacing scale. A reading surface takes `--prose-gap*`; a gap narrower than the l
 separates is the failure this prevents.
 
 **The Legibility Floor Rule.** `--text-sm` is the smallest type in the system: 12px on the wide
-layout, 16px on the narrow. Density is bought with tighter space and shorter lines, never by shrinking type below
+layout, 16px on the narrow. The one exception is `--text-caption`, 8px under a narrow button's
+icon: the icon carries the meaning, and the text stays the accessible name. Density is bought with tighter space and shorter lines, never by shrinking type below
 the floor. Every step clears WCAG AA against its own ground in both schemes; the micro-label in
 `--fg-faint` is the tightest, and it is measured, not assumed.
 
@@ -413,6 +417,7 @@ component names a px value for a gap, a padding or a margin.
 | `--u-3`     | 24px               | between sections. Equal to the wide prose row         |
 | `--bar-pad` | 8px                | the padding of every bar, on all four sides           |
 | `--control` | 32px; narrow: 48px | the height of each button, link, field and tab        |
+| `--icon`    | 16px; narrow: 24px | the size of an action icon in a button                |
 
 A bar is a band of controls at the edge of a view: the top bar, the panel's worktree bar, a
 session's head, a dock and the composer. Each of these pads with `--bar-pad` and no other value,
@@ -533,8 +538,8 @@ back with space, never by going under the floor. The text of each field is at le
 `base.css` sets both.
 
 **The Phone Type Rule.** A phone is held further from the eye than its pixels suggest, so the
-narrow layout re-points all six `--text-*` tokens (§ Hierarchy): prose is 20px and the floor is
-16px. The chip height `--chip` goes from two units to three with them. At this scale the top bar
+narrow layout re-points all seven `--text-*` tokens (§ Hierarchy): prose is 20px, and every size
+but `--text-caption` (8px) is at least 16px. The chip height `--chip` goes from two units to three with them. At this scale the top bar
 does not hold the brand, so the brand is hidden visually and kept for a screen reader.
 
 **The Still Screen Rule.** The app is the visible area and does not move.
@@ -590,7 +595,8 @@ strip (The One Strip Rule).
 
 The detail screen draws the node card's body as a screen. Each link and each document is a
 full-width row, `--control` high, with a hairline under it. The commands are a bar pinned to the
-bottom of the screen: a grid of equal columns that wraps to a second row. A split button's menu
+bottom of the screen: a row of captioned icons, each as wide as its caption, that wraps to a
+second row. A split button's menu
 opens upward there. This is how the detail screen meets the Nothing Hidden Rule.
 
 The task list and the worktree table do not fit as tables. Below the break each row is a stack:
@@ -784,6 +790,7 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 - **Shape:** a filled pill (`--radius-pill`) on `--bg-control`, with no visible border,
   `--control` high. The side padding is `--control-pad`: 12px at 32px, 18px at 48px. The label is
   `--text-control` (14px; narrow: 22px). No component sets a button's padding or its font size.
+  A button with an icon shows a caption on the narrow layout: see § The narrow caption.
 - **Filled, not outlined:** a button is filled and a chip is outlined. The two never share a
   look, so the eye can tell what to press from what to read.
 - **Hover:** the fill steps to `--bg-control-hover`. Nothing moves.
@@ -796,6 +803,36 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   that is already its own expand control.
 - **Disabled:** 0.5 opacity, default cursor.
 - **Focus:** the global 2px Signal Blue ring at 2px offset. Never removed.
+
+#### Icons
+
+An action has one icon, and `ui/actionIcons.ts` holds the whole set. A call site names a verb,
+such as `actionIcon('start')`, and never imports from lucide itself. So two buttons that do the
+same thing cannot draw it two ways. The icons are lucide's, at its 2px stroke on a 24px box. At
+`--icon` (16px) that draws at about 1.3px.
+
+Two kinds of icon stay hand-drawn. The desk icons have no lucide equivalent, and their arrow
+takes its own colour: see the Reporting Rule. The GitHub mark stays too, because lucide's brand
+icons are deprecated.
+
+Every icon is decorative. Lucide marks it `aria-hidden`, and the button's text stays its
+accessible name. An icon outside a button is `1em` by default (`base.css`). A link's inline icon,
+a panel tab's cross and a file tree's folder keep 12px. A chip's icon takes `--text-sm`.
+
+#### The narrow caption
+
+A button with an `icon` shows its text after the icon on the wide layout. On the narrow layout it
+shows the icon over a caption. The button keeps the 48px height of the Thumb Floor Rule and stays
+a pill. Its width is only the caption's, so five actions fit one row at 390px. A button with no
+icon keeps the pill above, with its text at `--text-control`.
+
+#### Dialog footers
+
+A dialog footer ranks its actions. The primary and the secondary buttons sit on the right, with
+icons. The exception actions — Cancel, Clear, Close, Keep editing — sit on the left as links,
+with no icon. So Clear never sits beside Start at the same weight. A link in the footer keeps
+the control height, so it is still a 48px target on the narrow layout. The comment boxes end with
+the same `DialogFooter`.
 
 ### Chips
 
@@ -912,8 +949,8 @@ layer. A tab's edges sit flush against its neighbours', so a ring outside the bo
 and one 2px inside lands on the phase border — hiding the phase on the one tab the keyboard is
 on. Drawn inside the padding box, both channels read at once.
 
-The close control is a drawn glyph in the app's icon family — 12px, 1.2 stroke, round caps,
-beside `OpenInPanelIcon` and `ExternalLinkIcon`. On the tab in view it sits in the flow and is
+The close control is the `close` icon from `actionIcons.ts` at 12px, the size of the panel and
+external link icons beside it. On the tab in view it sits in the flow and is
 always visible, so that tab pays for its width. On every other tab it is absolute and overlays
 the id's last characters, so the tab does not change width under the pointer. The id does not
 ellipsise under it — the cross's fill covers the characters outright, which is a live conflict

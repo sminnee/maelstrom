@@ -143,6 +143,10 @@ The task list's bulk bar also keeps its own error: a run over many rows can part
 comment and review controls call their mutations, get the server's 501, and read
 "Not implemented yet".
 
+An action's icon comes from `ui/actionIcons.ts`: a call site names a verb and never imports
+lucide. `AppButton` and `SplitButton` take it as `icon`. See
+`orchestrator-ui/DESIGN.md` § Buttons.
+
 **Loading and errors.** `useWorld` is `loading` until the six tables the canvas draws from have
 data, so the canvas never draws nodes without lanes: it shows "Loading the world…" and the task
 list "Loading…", never "No task matches". A required table that fails makes it `error`, and
@@ -700,7 +704,7 @@ that default.
 
 Under the revs, the strip draws the files of the diff in view as a tree. `fileTree` in
 `changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A directory shows a folder
-icon, `shell/FolderIcon.tsx`, which is shut or open. A click on a directory opens or shuts it, and
+icon, `folder` or `folderOpen` from `ui/actionIcons.ts`. A click on a directory opens or shuts it, and
 a click on a file scrolls the diff to that file. The open directories last for one rev: the tree
 is keyed on the rev, so each rev opens with every directory shut.
 
