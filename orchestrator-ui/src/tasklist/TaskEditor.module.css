@@ -6,7 +6,11 @@
   font-size: var(--text-sm);
   color: var(--attention);
 }
-.confirm button {
+/* Keep editing is a link, but still a thumb target on the narrow layout. */
+.confirm > button {
+  min-height: var(--control);
+}
+.discard {
   font: inherit;
   color: var(--fg);
   background: var(--bg);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { Dialog } from './Dialog';
+import { Dialog, DialogFooter } from './Dialog';
 
 /** The modal shell's one way out: `cancel`, which Escape and the backdrop both raise. */
 describe('the dialog shell', () => {
@@ -34,5 +34,19 @@ describe('the dialog shell', () => {
     const box = open(onClose);
     fireEvent(box, new Event('cancel', { bubbles: false, cancelable: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the dialog footer', () => {
+  it('draws the aside group before the main group, apart from it', () => {
+    render(
+      <DialogFooter aside={<button type="button">Cancel</button>}>
+        <button type="button">Start</button>
+      </DialogFooter>,
+    );
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    const start = screen.getByRole('button', { name: 'Start' });
+    expect(cancel.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cancel.parentElement).not.toBe(start.parentElement);
   });
 });

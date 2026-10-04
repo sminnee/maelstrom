@@ -446,22 +446,26 @@ describe('new work', () => {
     expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue('Read the logs');
   });
 
-  it('holds the prose across a close, so Escape is not a discard', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    const form = await openNewWork(user);
-    await user.type(
-      within(form).getByLabelText('What needs doing?'),
-      'The CSV export drops the last row',
-    );
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+  it.each(['Escape', 'Cancel'] as const)(
+    'holds the prose across a close by %s, so it is not a discard',
+    async (how) => {
+      const user = userEvent.setup();
+      await renderApp();
+      const form = await openNewWork(user);
+      await user.type(
+        within(form).getByLabelText('What needs doing?'),
+        'The CSV export drops the last row',
+      );
+      if (how === 'Escape') await user.keyboard('{Escape}');
+      else await user.click(within(form).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
 
-    const reopened = await openNewWork(user);
-    expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue(
-      'The CSV export drops the last row',
-    );
-  });
+      const reopened = await openNewWork(user);
+      expect(within(reopened).getByLabelText('What needs doing?')).toHaveValue(
+        'The CSV export drops the last row',
+      );
+    },
+  );
 
   it('holds an attachment with its bucket, so removing it still empties the text', async () => {
     // The test that fails if `attached` or `bucket` is dropped from what is

@@ -22,6 +22,7 @@ import {
 } from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
@@ -414,20 +415,26 @@ export function NewWork() {
             : failure.message}
         </p>
       )}
-      <DialogFooter>
+      <DialogFooter
+        aside={
+          <>
+            {/* An ordinary affordance of the field, not a remedy for a restore, so
+                it is never conditional on one having happened. Cancel holds what
+                was typed -- this is the explicit discard. */}
+            <AppButton variant="link" onClick={() => release()}>
+              Clear
+            </AppButton>
+            <AppButton variant="link" onClick={() => close(false)}>
+              Cancel
+            </AppButton>
+          </>
+        }
+      >
         {busy && <Spinner />}
-        {/* An ordinary affordance of the field, not a remedy for a restore, so
-            it is never conditional on one having happened. Cancel holds what was
-            typed -- this is the explicit discard. */}
-        <button type="button" onClick={() => release()}>
-          Clear
-        </button>
-        <button type="button" onClick={() => close(false)}>
-          Cancel
-        </button>
         {showing === 'agent' ? (
           <AppButton
             variant="primary"
+            icon={actionIcon('start')}
             disabled={busy || !chosen || !draft.trim()}
             onClick={() => startFreeAgent()}
           >
@@ -438,12 +445,14 @@ export function NewWork() {
           <>
             <AppButton
               disabled={busy || !issue.trim() || written !== null}
+              icon={actionIcon('save')}
               onClick={() => planIssue(false)}
             >
               Save
             </AppButton>
             <AppButton
               variant="primary"
+              icon={actionIcon('start')}
               disabled={busy || !issue.trim() || written !== null}
               onClick={() => planIssue(true)}
             >
@@ -456,12 +465,14 @@ export function NewWork() {
           <>
             <AppButton
               disabled={busy || !chosen || !draft.trim() || written !== null}
+              icon={actionIcon('save')}
               onClick={() => writeTask(false)}
             >
               Save
             </AppButton>
             <AppButton
               variant="primary"
+              icon={actionIcon('start')}
               disabled={busy || !chosen || !draft.trim() || written !== null}
               onClick={() => writeTask(true)}
             >

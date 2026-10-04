@@ -217,9 +217,18 @@ function Board({ control, heading }: { control: string; heading: string }) {
       </Row>
       <Row label="A dialog footer">
         <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-          <DialogFooter>
-            <AppButton variant="quiet">Cancel</AppButton>
-            <AppButton variant="primary">Create</AppButton>
+          <DialogFooter
+            aside={
+              <>
+                <AppButton variant="link">Clear</AppButton>
+                <AppButton variant="link">Cancel</AppButton>
+              </>
+            }
+          >
+            <AppButton icon={actionIcon('save')}>Save</AppButton>
+            <AppButton variant="primary" icon={actionIcon('start')}>
+              Start
+            </AppButton>
           </DialogFooter>
         </div>
       </Row>

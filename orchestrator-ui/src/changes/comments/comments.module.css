@@ -33,6 +33,9 @@
   gap: var(--u);
   margin-top: var(--u-half);
 }
+.composing {
+  margin-top: var(--u-half);
+}
 
 /* The dock: the Review Dock's chassis, settled, because nothing waits on the user. */
 .dock {
