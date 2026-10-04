@@ -335,6 +335,10 @@ describe('a document an agent tagged in its own message', () => {
         .getAllByRole('link')
         .map((l) => l.textContent),
     ).toEqual(['Execute: parse', 'Execute: show']);
+    // Nothing is cut off, so a tap expands nothing and offers no Show less.
+    expect(within(siblings).queryByRole('button')).toBeNull();
+    await user.click(within(siblings).getByText('2 of 3'));
+    expect(within(siblings).queryByRole('button')).toBeNull();
     await user.click(within(tab).getByRole('button', { name: 'Approve and create 3 tasks' }));
     expect(await screen.findByTestId('created-tasks')).toHaveTextContent('Created 3 tasks');
   });
