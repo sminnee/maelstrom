@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useId, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useClamped } from './useClamped';
 
 /**
@@ -14,20 +14,20 @@ import { useClamped } from './useClamped';
  */
 export function useExpandableClamp(deps: unknown[]) {
   const [expanded, setExpanded] = useState(false);
-  const body = useRef<HTMLDivElement>(null);
   const bodyId = useId();
   // `expanded` toggles the caller's max-height, which changes the rendered
   // height the clamp measures — re-measure on that transition too, not only
   // on the caller's own deps.
-  const clamped = useClamped(body, [...deps, expanded]);
+  const [ref, clamped] = useClamped([...deps, expanded]);
 
   // A descendant already interactive (a link, say) steps aside from both
   // handlers. The body carries its own `role="button"` while collapsed, so
   // `closest()` cannot be used directly: called from any descendant it walks
   // past the descendant and matches that ancestor role too. Stop the walk at
   // the body itself instead of asking it to look past it.
-  const hasInteractiveDescendant = (target: HTMLElement) => {
-    for (let el: HTMLElement | null = target; el && el !== body.current; el = el.parentElement) {
+  const hasInteractiveDescendant = (e: MouseEvent | KeyboardEvent) => {
+    const body = e.currentTarget;
+    for (let el = e.target as HTMLElement | null; el && el !== body; el = el.parentElement) {
       if (el.matches('a, button, input, [role="button"]')) return true;
     }
     return false;
@@ -35,13 +35,13 @@ export function useExpandableClamp(deps: unknown[]) {
 
   const onBodyClick = (e: MouseEvent) => {
     if (expanded) return;
-    if (hasInteractiveDescendant(e.target as HTMLElement)) return;
+    if (hasInteractiveDescendant(e)) return;
     setExpanded(true);
   };
 
   const onBodyKeyDown = (e: KeyboardEvent) => {
     if (expanded) return;
-    if (hasInteractiveDescendant(e.target as HTMLElement)) return;
+    if (hasInteractiveDescendant(e)) return;
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if (e.key === ' ') e.preventDefault();
     setExpanded(true);
@@ -52,7 +52,7 @@ export function useExpandableClamp(deps: unknown[]) {
     clamped,
     collapse: () => setExpanded(false),
     bodyProps: {
-      ref: body,
+      ref,
       id: bodyId,
       'data-expanded': expanded || undefined,
       role: !expanded && clamped ? ('button' as const) : undefined,
