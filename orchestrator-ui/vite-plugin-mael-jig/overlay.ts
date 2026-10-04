@@ -1,5 +1,5 @@
-// The jig's overlay: the `Tune` pill and its panel. See docs/dev/orchestrator-ui.md,
-// "The tuning jig".
+// The jig's overlay: the `Jig` pill and its panel. See docs/dev/orchestrator-ui.md,
+// "The jig".
 
 interface Update {
   css: string;
@@ -7,7 +7,7 @@ interface Update {
 }
 
 interface Options {
-  hot: { on: (event: 'mael-tune:update', callback: (data: Update) => void) => void };
+  hot: { on: (event: 'mael-jig:monkeypatch', callback: (data: Update) => void) => void };
   fetch?: typeof fetch;
   debounceMs?: number;
 }
@@ -33,10 +33,10 @@ input { font-family: inherit; }
 
 const PANEL = `
 <style>${STYLE}</style>
-<button class="pill" data-toggle>Tune</button>
+<button class="pill" data-toggle>Jig</button>
 <div class="panel" hidden>
-  <div class="row"><strong>Tuning CSS</strong><button data-close>Close</button></div>
-  <textarea spellcheck="false" aria-label="Tuning CSS"></textarea>
+  <div class="row"><strong>Monkeypatch</strong><button data-close>Close</button></div>
+  <textarea spellcheck="false" aria-label="Monkeypatch"></textarea>
   <input data-note placeholder="Note to the agent (optional)" aria-label="Note" />
   <div class="row"><span class="status" role="status"></span>
     <button data-send>Send to agent</button></div>
@@ -54,7 +54,7 @@ export async function mountJig({
   const client = Math.random().toString(36).slice(2);
 
   const style = document.createElement('style');
-  style.dataset.maelTune = '';
+  style.dataset.maelJig = '';
   const keepLast = () => {
     if (document.head.lastElementChild !== style) document.head.append(style);
   };
@@ -65,7 +65,7 @@ export async function mountJig({
   observer.observe(document.head, { childList: true });
 
   const host = document.createElement('div');
-  host.id = 'mael-tune-jig';
+  host.id = 'mael-jig';
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = PANEL;
   document.body.append(host);
@@ -93,9 +93,9 @@ export async function mountJig({
   const write = () => {
     clearTimeout(pending);
     pending = undefined;
-    return fetch('/__mael/tuning', {
+    return fetch('/__mael/monkeypatch', {
       method: 'PUT',
-      headers: { 'x-mael-tune-client': client },
+      headers: { 'x-mael-jig-client': client },
       body: textarea.value,
     });
   };
@@ -105,7 +105,7 @@ export async function mountJig({
     pending = setTimeout(write, debounceMs);
   });
 
-  hot.on('mael-tune:update', ({ css, from }) => {
+  hot.on('mael-jig:monkeypatch', ({ css, from }) => {
     if (from === client) return;
     textarea.value = css;
     apply(css);
@@ -117,10 +117,10 @@ export async function mountJig({
     status.textContent = 'Sending…';
     try {
       if (pending) await write();
-      const reply = await fetch('/__mael/send', {
+      const reply = await fetch('/__mael/feedback', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ css: textarea.value, note: note.value }),
+        body: JSON.stringify({ type: 'monkeypatch', css: textarea.value, note: note.value }),
       });
       const body = await reply.json();
       if (reply.ok) {
@@ -139,7 +139,7 @@ export async function mountJig({
 
   // Read-only until the file loads, or the load would replace what the user typed.
   textarea.readOnly = true;
-  const loaded = await (await fetch('/__mael/tuning')).json();
+  const loaded = await (await fetch('/__mael/monkeypatch')).json();
   textarea.readOnly = false;
   textarea.value = loaded.css;
   apply(loaded.css);
