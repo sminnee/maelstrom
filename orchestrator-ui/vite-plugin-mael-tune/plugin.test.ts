@@ -1,14 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -89,7 +82,8 @@ type Update = { css: string; from: string | null };
 
 /**
  * A page's HMR socket, once Vite has greeted it and the watcher has seen the
- * tuning file. `next()` is the next `mael-tune:update` after that.
+ * tuning file. `next()` is the next `mael-tune:update` after that. The file
+ * must not exist yet, and does not exist after.
  *
  * The watcher picks up `.drafts/` a moment after the server starts, and a
  * change before then raises no event. So the page writes a marker until one
@@ -117,16 +111,12 @@ async function hmrPage() {
 
   await connected;
   const marker = '/* watched */';
-  const before = existsSync(tuningFile()) ? readFileSync(tuningFile(), 'utf8') : null;
   while (!updates.some((u) => u.css === marker)) {
     writeFileSync(tuningFile(), marker);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  if (before === null) rmSync(tuningFile());
-  else writeFileSync(tuningFile(), before);
-  // Drain the markers and the restore, so `next()` starts after them.
-  const restored = before ?? '';
-  for (let update = await next(); update.css !== restored; update = await next());
+  rmSync(tuningFile());
+  for (let update = await next(); update.css !== ''; update = await next());
   return { next };
 }
 
@@ -180,8 +170,9 @@ describe('the tuning jig plugin', () => {
   });
 
   it('sends no CSS when the agent deletes the file', async () => {
-    writeFileSync(tuningFile(), '.chip{padding:20px}');
     const page = await hmrPage();
+    writeFileSync(tuningFile(), '.chip{padding:20px}');
+    expect((await page.next()).css).toBe('.chip{padding:20px}');
 
     rmSync(tuningFile());
 
