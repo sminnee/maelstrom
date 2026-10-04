@@ -411,7 +411,13 @@ component names a px value for a gap, a padding or a margin.
 | `--u-half`  | 4px                | inside one item: an icon and its label                |
 | `--u-2`     | 16px               | between groups, and the inset of a screen or a card   |
 | `--u-3`     | 24px               | between sections. Equal to the wide prose row         |
+| `--bar-pad` | 8px                | the padding of every bar, on all four sides           |
 | `--control` | 32px; narrow: 48px | the height of each button, link, field and tab        |
+
+A bar is a band of controls at the edge of a view: the top bar, the panel's worktree bar, a
+session's head, a dock and the composer. Each of these pads with `--bar-pad` and no other value,
+so a new bar cannot drift from the rest. A bar at the foot of a screen keeps
+`max(var(--bar-pad), env(safe-area-inset-bottom))` at its bottom edge.
 
 `--control` is set once, in `tokens.css`, and the narrow layout re-points it there. `base.css`
 gives it to each button, field and link, so a component sets a width and never a height. A button
@@ -1161,7 +1167,8 @@ browser with the scheme forced — rather than trusting the toggle.
 - **Do** use `color-mix(in srgb, var(--token) N%, transparent)` for washes, glows and
   highlights, so they follow the scheme automatically.
 - **Do** keep the wide layout's chrome at 13px (`--text-ui`). Nothing goes below `--text-sm`.
-- **Do** read a gap, a padding or a margin from `--u`, `--u-half`, `--u-2` or `--u-3`.
+- **Do** read a gap, a padding or a margin from `--u`, `--u-half`, `--u-2` or `--u-3`. A bar pads
+  with `--bar-pad`.
 - **Do** give every interactive element a visible `:focus-visible` ring, and make every action
   reachable from the keyboard — this is a power tool and hands stay on the keys.
 - **Do** check contrast in both schemes. Light is not a courtesy mode.

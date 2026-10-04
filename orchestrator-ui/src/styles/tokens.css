@@ -179,6 +179,8 @@
   --u-half: calc(var(--u) / 2);
   --u-2: calc(var(--u) * 2);
   --u-3: calc(var(--u) * 3);
+  /* The padding of every bar — see DESIGN.md § Layout. */
+  --bar-pad: var(--u);
   /*
    * The height of each button, link row, field and tab. The narrow layout
    * re-points it below, to the floor for anything a finger presses.

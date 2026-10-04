@@ -5,8 +5,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--u);
-  min-height: 40px;
-  padding: var(--u-half) var(--u-2);
+  padding: var(--bar-pad);
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
 }
@@ -88,7 +87,6 @@
     flex-wrap: nowrap;
     align-items: stretch;
     gap: 0;
-    min-height: 0;
     padding: 0;
     padding-top: env(safe-area-inset-top);
   }
@@ -97,7 +95,7 @@
     align-items: center;
     gap: var(--u);
     min-width: 0;
-    padding: var(--u-half) var(--u-2);
+    padding: var(--bar-pad);
   }
   .views {
     border-top: 1px solid var(--border);
