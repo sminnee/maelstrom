@@ -40,7 +40,7 @@
   padding-left: var(--u);
   border-left: 2px solid var(--attention);
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   max-height: 60px;
   overflow: hidden;
 }
@@ -52,7 +52,7 @@
   gap: var(--u);
   align-items: center;
   color: var(--fg-faint);
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
 }
 .resolve {
   margin-left: auto;

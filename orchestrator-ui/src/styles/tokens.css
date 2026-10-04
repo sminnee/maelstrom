@@ -126,30 +126,12 @@
   --radius-lg: 10px;
   --radius-pill: 999px;
 
-  /* `--text-2xs` is the floor: a tracked uppercase micro-label only. At 10px,
-     sentence case in `--fg-faint` stops clearing AA. */
-  --text-2xs: 10px;
-  --text-xs: 11px;
-  /* The text of a chip, in the chrome's face: a chip is two units high. */
-  --text-chip: 10px;
+  /* Six sizes, each with one job: see DESIGN.md § Hierarchy. The narrow layout
+     re-points all six below. */
   --text-sm: 12px;
-  /* The chrome's own size: node titles, table rows, controls. */
   --text-ui: 13px;
-  /* The label of a button. A step over the chrome, so a filled pill holds it. */
   --text-control: 14px;
-  /*
-   * The reading size. Prose is read, not scanned, so it is set well above the
-   * chrome around it rather than on the same step. Only markdown and the panel's
-   * own reading surfaces take it; the canvas stays on `--text-ui`, because the
-   * board's job is to hold many units at once.
-   */
   --text-md: 16px;
-  /*
-   * Markdown's section head (`h3`). Nothing in the chrome uses it. One step
-   * over body, because at 16px a section head separated by weight alone does
-   * not rank — see the Rank Is Structural Rule.
-   */
-  --text-md-plus: 17px;
   --text-lg: 18px;
   --text-xl: 21px;
 
@@ -201,6 +183,11 @@
    * with `--control`, so the narrow 48px pill keeps the same proportion (18px).
    */
   --control-pad: calc(var(--control) * 3 / 8);
+  /*
+   * The height of a chip: two units, not a control. The narrow layout
+   * re-points it with `--text-sm`, so the larger label still fits.
+   */
+  --chip: var(--u-2);
 
   --duration-fast: 120ms;
 
@@ -242,6 +229,15 @@
 @media (max-width: 839px) {
   :root {
     --control: calc(var(--u) * 6);
+    --chip: var(--u-3);
+
+    /* The Phone Type Rule: see DESIGN.md § The narrow layout. */
+    --text-sm: 16px;
+    --text-ui: 20px;
+    --text-control: 22px;
+    --text-md: 20px;
+    --text-lg: 24px;
+    --text-xl: 28px;
   }
 }
 
@@ -265,7 +261,7 @@
     --fg-literal: #3f4757;
     --mark-neutral: #99a1b0;
     --fg-muted: #4f5768;
-    /* Clears AA (4.83:1) on `--bg` at the 10px micro-label; #6b7385 was 4.47. */
+    /* Clears AA (4.83:1) on `--bg` at the 12px micro-label; #6b7385 was 4.47. */
     --fg-faint: #666e7d;
     --fg-on-hue: var(--white);
 

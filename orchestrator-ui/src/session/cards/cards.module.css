@@ -58,7 +58,7 @@
   gap: var(--u);
   align-items: baseline;
   padding: 0 var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--mono);
   line-height: var(--leading-ui);
 }
@@ -76,7 +76,7 @@
 }
 /* Scaffolding: the row's outcome, read only when it is not the expected one. */
 .status {
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
   color: var(--fg-faint);
@@ -109,7 +109,7 @@
   gap: var(--u);
   align-items: baseline;
   padding: 0 var(--u);
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro);
   color: color-mix(in srgb, var(--accent) 80%, var(--fg));
@@ -156,7 +156,7 @@
   background: var(--bg-raised);
 }
 .qhead {
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro);
   color: var(--attention);
@@ -172,7 +172,7 @@
  * See `orchestrator-ui/DESIGN.md`, § Components, "Question".
  */
 .settledQuestion {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 .settledAnswer {
@@ -201,7 +201,7 @@
   color: var(--fg-muted);
 }
 .result {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
   text-align: right;
   font-family: var(--mono);
@@ -227,7 +227,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--u-half);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 .stepChip {
   display: inline-flex;
@@ -293,7 +293,7 @@
 }
 .optionKey {
   font-family: var(--mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
 }
 .optionBody {

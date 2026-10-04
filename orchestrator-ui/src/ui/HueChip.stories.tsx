@@ -34,7 +34,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--u)' }}>
       <span
         style={{
-          fontSize: 'var(--text-2xs)',
+          fontSize: 'var(--text-sm)',
           letterSpacing: 'var(--tracking-micro)',
           textTransform: 'uppercase',
           color: 'var(--fg-faint)',
@@ -166,7 +166,7 @@ export const InAMetaRow: Story = () => (
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            fontSize: 'var(--text-xs)',
+            fontSize: 'var(--text-sm)',
             color: 'var(--fg-faint)',
           }}
         >

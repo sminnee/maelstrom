@@ -53,7 +53,7 @@
  * never takes a tone weaker than the text it introduces.
  */
 .markdown h3 {
-  font-size: var(--text-md-plus);
+  font-size: var(--text-md);
 }
 .markdown h4,
 .markdown h5,
@@ -207,7 +207,7 @@
 }
 .quietMore {
   margin-top: var(--prose-gap-tight);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .markdown table {
