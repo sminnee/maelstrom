@@ -6,6 +6,9 @@ import { phaseForCommand } from '../protocol/phase';
 import { isLive } from './graph';
 import type { PanelTab } from '../store/uiSlice';
 
+/** The tab of one kind. */
+export type TabOf<K extends PanelTab['kind']> = Extract<PanelTab, { kind: K }>;
+
 /** Add `tab` unless a tab with its key is open already. Either way it is the one to focus. */
 export function openOrFocusTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
   return tabs.some((t) => t.key === tab.key) ? tabs : [...tabs, tab];
@@ -62,21 +65,28 @@ export function closeTabs(
   return { tabs, activeTabKey, tabRecency };
 }
 
-export const sessionTab = (agentId: AgentId): PanelTab => ({
+export const sessionTab = (agentId: AgentId): TabOf<'session'> => ({
   key: `session:${agentId}`,
   kind: 'session',
   agentId,
 });
-export const documentTab = (documentId: string): PanelTab => ({
+export const documentTab = (documentId: string): TabOf<'document'> => ({
   key: `document:${documentId}`,
   kind: 'document',
   documentId,
 });
 
-export const changesTab = (worktreeId: WorktreeId): PanelTab => ({
+export const changesTab = (worktreeId: WorktreeId): TabOf<'changes'> => ({
   key: `changes:${worktreeId}`,
   kind: 'changes',
   worktreeId,
+});
+
+export const devEnvTab = (worktreeId: WorktreeId, service: string): TabOf<'devenv'> => ({
+  key: `devenv:${worktreeId}:${service}`,
+  kind: 'devenv',
+  worktreeId,
+  service,
 });
 
 export interface TabAttribution {
@@ -86,7 +96,7 @@ export interface TabAttribution {
    * id. The panel sidebar names the project, so the id need not.
    * The agent id is the failover task id, not a different kind of thing,
    * so a free agent's tab reads in the same slot and the same register.
-   * A changes tab names its worktree instead.
+   * A changes tab and a dev env tab name their worktree instead.
    */
   id: TaskId | AgentId;
   /** Null when the entity has left the world: the chip then draws no phase. */
@@ -94,7 +104,7 @@ export interface TabAttribution {
   agentId: AgentId | null;
   /**
    * What the tab holds, where that is not already obvious: the document's
-   * title, or `changes`. A session has none — its id alone says which session it is, and a
+   * title, `changes`, or a dev env's service name. A session has none — its id alone says which session it is, and a
    * dated id is long enough that a word beside it wins no reader.
    */
   label: string;
@@ -146,6 +156,14 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
         title: worktree?.branch ?? '',
       };
     }
+    case 'devenv':
+      return {
+        id: tab.worktreeId,
+        phase: null,
+        agentId: null,
+        label: tab.service,
+        title: world.worktrees[tab.worktreeId]?.branch ?? '',
+      };
   }
 }
 
@@ -167,6 +185,7 @@ function taskForTab(world: WorldView, tab: PanelTab): TaskRow | undefined {
       return world.tasks[doc?.taskId ?? ''] ?? world.tasks[agent?.taskId ?? ''];
     }
     case 'changes':
+    case 'devenv':
       return undefined;
   }
 }
@@ -211,16 +230,17 @@ function agentForTab(world: WorldView, tab: PanelTab): Agent | undefined {
     case 'document':
       return agentForDocument(world, tab.documentId);
     case 'changes':
+    case 'devenv':
       return undefined;
   }
 }
 
 /**
- * The worktree a tab belongs to: a changes tab's own, else the one its agent
- * runs in. `undefined` when the world cannot place it.
+ * The worktree a tab belongs to: a changes or dev env tab's own, else the one
+ * its agent runs in. `undefined` when the world cannot place it.
  */
 export function worktreeForTab(world: WorldView, tab: PanelTab): Worktree | undefined {
-  if (tab.kind === 'changes') return world.worktrees[tab.worktreeId];
+  if (tab.kind === 'changes' || tab.kind === 'devenv') return world.worktrees[tab.worktreeId];
   return world.worktrees[agentForTab(world, tab)?.worktreeId ?? ''];
 }
 

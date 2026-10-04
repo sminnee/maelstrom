@@ -9,12 +9,14 @@ import type { Zone } from '../protocol/progress';
 import type { MobileScreen } from '../selectors/navStack';
 
 /**
- * One tab in the panel: a session, a document, or a worktree's changes. A task expands on the canvas instead.
+ * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
+ * services. A task expands on the canvas instead.
  */
 export type PanelTab =
   | { key: string; kind: 'session'; agentId: AgentId }
   | { key: string; kind: 'document'; documentId: DocumentId }
-  | { key: string; kind: 'changes'; worktreeId: WorktreeId };
+  | { key: string; kind: 'changes'; worktreeId: WorktreeId }
+  | { key: string; kind: 'devenv'; worktreeId: WorktreeId; service: string };
 
 /** One item of the top bar's menu: a main view, or the panel, labelled `Tabs`. */
 export type Pane = 'canvas' | 'list' | 'worktrees' | 'tabs';

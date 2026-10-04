@@ -134,7 +134,7 @@ describe('the expanded node', () => {
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('link', { name: 'Dev env' })).toHaveAttribute(
         'href',
-        'http://localhost:4210',
+        '#panel/devenv/northwind-delta/web',
       );
       await user.click(within(expanded()).getByRole('button', { name: 'Stop env' }));
       await waitFor(() =>

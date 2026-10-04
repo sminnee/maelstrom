@@ -1,7 +1,8 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
 import { ChangesTab } from '../changes/ChangesTab';
+import { DevEnvTab } from '../devenv/DevEnvTab';
 import { DocumentTab } from '../documents/DocumentTab';
 import { SessionTab } from '../session/SessionTab';
 import { PANEL_BODY_ID, PANEL_GROUP_ID, PanelTabs } from './PanelTabs';
@@ -26,6 +27,7 @@ export function Panel({
   const { groups, activeGroup, close } = usePanelGroups();
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
   const active = tabs.find((t) => t.key === activeTabKey) ?? null;
+  const sideOf = (tab: PanelTab): Side | null => (tab === active ? 'left' : null);
   return (
     <aside className={styles.panel} data-testid="panel" hidden={hidden} {...slot}>
       <PanelSidebar groups={groups} activeGroup={activeGroup} onClose={close} />
@@ -38,10 +40,22 @@ export function Panel({
         <WorktreeBar group={activeGroup} />
         <PanelTabs group={activeGroup} onClose={close} />
         <div className={styles.body} role="tabpanel" id={PANEL_BODY_ID} data-testid="panel-body">
-          {active ? (
-            <TabBody tab={active} onTakenOffDesk={() => close([active.key])} />
-          ) : (
+          {!active && (
             <div className={styles.empty}>Open a session or a document from a node or a task.</div>
+          )}
+          {active && active.kind !== 'devenv' && (
+            <Half side="left">
+              <TabBody tab={active} onTakenOffDesk={() => close([active.key])} />
+            </Half>
+          )}
+          {/* Every dev env tab stays mounted, hidden when out of view, so its app keeps its state. */}
+          {tabs.map(
+            (tab) =>
+              tab.kind === 'devenv' && (
+                <Half key={tab.key} side={sideOf(tab)}>
+                  <DevEnvTab worktreeId={tab.worktreeId} service={tab.service} />
+                </Half>
+              ),
           )}
         </div>
       </div>
@@ -49,7 +63,24 @@ export function Panel({
   );
 }
 
-function TabBody({ tab, onTakenOffDesk }: { tab: PanelTab; onTakenOffDesk: () => void }) {
+type Side = 'left';
+
+/** The part of the body that shows a tab. A tab out of view is hidden. */
+function Half({ side, children }: { side: Side | null; children: ReactNode }) {
+  return (
+    <div className={styles.half} data-side={side ?? undefined} hidden={!side}>
+      {children}
+    </div>
+  );
+}
+
+function TabBody({
+  tab,
+  onTakenOffDesk,
+}: {
+  tab: Exclude<PanelTab, { kind: 'devenv' }>;
+  onTakenOffDesk: () => void;
+}) {
   switch (tab.kind) {
     case 'session':
       // Keyed, as the document tab below is: the tab holds a scroll position,

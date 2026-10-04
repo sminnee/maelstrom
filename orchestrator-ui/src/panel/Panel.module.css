@@ -19,11 +19,22 @@
 }
 .body {
   flex: 1;
+  display: flex;
+  min-height: 0;
+}
+/* The tab in view fills the body and scrolls on its own. */
+.half {
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
 }
+.half[hidden] {
+  display: none;
+}
 .empty {
+  flex: 1;
   padding: var(--u-3);
   color: var(--fg-faint);
   text-align: center;
