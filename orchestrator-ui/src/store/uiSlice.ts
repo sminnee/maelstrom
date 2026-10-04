@@ -56,6 +56,11 @@ export interface UiState {
   activeTabKey: string | null;
   /** Tab keys, most recently activated first. */
   tabRecency: string[];
+  /**
+   * Each worktree group's split tab, by group key: the tab the body shows in its right half,
+   * beside the active tab. Never the active tab itself. See CONTEXT.md, "Split tab".
+   */
+  splitTabs: Record<string, string>;
   /** The one node grown into a card on the canvas, if any: a task or an agent. */
   expandedNodeId: string | null;
   /**
@@ -118,6 +123,7 @@ export function initialUiState(): UiState {
     tabs: [],
     activeTabKey: null,
     tabRecency: [],
+    splitTabs: {},
     expandedNodeId: null,
     expandedWorktreeId: null,
     editingTaskId: null,

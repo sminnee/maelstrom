@@ -22,7 +22,7 @@
   display: flex;
   min-height: 0;
 }
-/* The tab in view fills the body and scrolls on its own. */
+/* Each half scrolls on its own; with no split tab the left one fills the body. */
 .half {
   flex: 1 1 0;
   min-width: 0;
@@ -32,6 +32,10 @@
 }
 .half[hidden] {
   display: none;
+}
+.half[data-side='right'] {
+  order: 1;
+  border-left: 1px solid var(--border-strong);
 }
 .empty {
   flex: 1;

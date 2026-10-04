@@ -20,6 +20,8 @@ export interface TabState {
   activeTabKey: string | null;
   /** Tab keys, most recently activated first. */
   tabRecency: string[];
+  /** Each worktree group's split tab, by group key. */
+  splitTabs: Record<string, string>;
 }
 
 /** `key` moved to the front of the recency list. */
@@ -37,8 +39,23 @@ export function mostRecentTab(keys: string[], recency: string[]): string | null 
 }
 
 /**
+ * The split tabs that still hold: a closed tab ends its group's split, and so
+ * does the tab becoming active, since one tab cannot fill both halves.
+ */
+function keepSplits(
+  splitTabs: Record<string, string>,
+  open: (key: string) => boolean,
+  activeTabKey: string | null,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(splitTabs).filter(([, key]) => open(key) && key !== activeTabKey),
+  );
+}
+
+/**
  * Remove the tabs. If the active one goes, the most recent tab left in its
- * group takes over, else the most recent tab left anywhere.
+ * group takes over, else the most recent tab left anywhere. A split tab
+ * takes over only when nothing else is left in its group, and its split ends.
  *
  * The group first, because the strip shows one group: a neighbour from
  * another group would switch the sidebar under the reader.
@@ -51,18 +68,94 @@ export function closeTabs(
   const closing = new Set(keys);
   const tabs = state.tabs.filter((t) => !closing.has(t.key));
   const tabRecency = state.tabRecency.filter((k) => !closing.has(k));
+  const done = (activeTabKey: string | null): TabState => ({
+    tabs,
+    activeTabKey,
+    tabRecency,
+    splitTabs: keepSplits(state.splitTabs, (k) => !closing.has(k), activeTabKey),
+  });
   const active = state.tabs.find((t) => t.key === state.activeTabKey);
-  if (!active || !closing.has(active.key))
-    return { tabs, activeTabKey: state.activeTabKey, tabRecency };
+  if (!active || !closing.has(active.key)) return done(state.activeTabKey);
   const group = groupOf(active);
   const sameGroup = tabs.filter((t) => groupOf(t) === group).map((t) => t.key);
-  const activeTabKey =
-    mostRecentTab(sameGroup, tabRecency) ??
+  const split = state.splitTabs[group];
+  return done(
     mostRecentTab(
-      tabs.map((t) => t.key),
+      sameGroup.filter((k) => k !== split),
       tabRecency,
-    );
-  return { tabs, activeTabKey, tabRecency };
+    ) ??
+      mostRecentTab(sameGroup, tabRecency) ??
+      mostRecentTab(
+        tabs.map((t) => t.key),
+        tabRecency,
+      ),
+  );
+}
+
+/** Whether `key` is the split tab of some group. A tab belongs to one group only. */
+const isSplitTab = (splitTabs: Record<string, string>, key: string): boolean =>
+  Object.values(splitTabs).includes(key);
+
+/** `key` as the active tab. A split tab that becomes active leaves its split. */
+const activate = (state: TabState, key: string): TabState => ({
+  ...state,
+  activeTabKey: key,
+  tabRecency: touchTab(state.tabRecency, key),
+  splitTabs: keepSplits(state.splitTabs, () => true, key),
+});
+
+/** Open a tab, or focus it. A link to the split tab ends the split, and the tab fills the body. */
+export const openTab = (state: TabState, tab: PanelTab): TabState =>
+  activate({ ...state, tabs: openOrFocusTab(state.tabs, tab) }, tab.key);
+
+/** A click on a tab in the strip. The split tab is already showing, so a click on it does nothing. */
+export const activateTab = (state: TabState, key: string): TabState =>
+  isSplitTab(state.splitTabs, key) ? state : activate(state, key);
+
+/**
+ * Show a worktree group: activate the most recent of its tabs, past its
+ * split tab. A group left with only its split tab shows that tab alone.
+ */
+export function selectGroup(state: TabState, tabKeys: string[]): TabState {
+  const key =
+    mostRecentTab(
+      tabKeys.filter((k) => !isSplitTab(state.splitTabs, k)),
+      state.tabRecency,
+    ) ?? mostRecentTab(tabKeys, state.tabRecency);
+  return key ? activate(state, key) : state;
+}
+
+/**
+ * A shift-click on a tab: show it in the right half of the body, beside the
+ * active tab, or take it out of there. One split tab per group, so a second
+ * replaces the first. The active tab hands over to the most recent other tab
+ * of the group, as it does on a close. A group of one tab has nothing to put
+ * beside it, and does not split.
+ */
+export function toggleSplit(
+  state: TabState,
+  key: string,
+  groupOf: (tab: PanelTab) => string,
+): TabState {
+  const tab = state.tabs.find((t) => t.key === key);
+  if (!tab) return state;
+  const group = groupOf(tab);
+  if (state.splitTabs[group] === key) {
+    const splitTabs = { ...state.splitTabs };
+    delete splitTabs[group];
+    return { ...state, splitTabs };
+  }
+  const others = state.tabs.filter((t) => t.key !== key && groupOf(t) === group).map((t) => t.key);
+  if (others.length === 0) return state;
+  const splitTabs = { ...state.splitTabs, [group]: key };
+  if (state.activeTabKey !== key) return { ...state, splitTabs };
+  const activeTabKey = mostRecentTab(others, state.tabRecency)!;
+  return {
+    ...state,
+    splitTabs,
+    activeTabKey,
+    tabRecency: touchTab(state.tabRecency, activeTabKey),
+  };
 }
 
 export const sessionTab = (agentId: AgentId): TabOf<'session'> => ({

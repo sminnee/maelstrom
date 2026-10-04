@@ -8,10 +8,11 @@ import type { WorktreeFilters } from '../selectors/worktrees';
 import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
+  activateTab as activateTabIn,
   closeTabs as closeTabsIn,
-  mostRecentTab,
-  openOrFocusTab,
-  touchTab,
+  openTab as openTabIn,
+  selectGroup as selectGroupIn,
+  toggleSplit as toggleSplitIn,
 } from '../selectors/tabs';
 import type { MobileScreen } from '../selectors/navStack';
 import { popScreen, pushScreen } from '../selectors/navStack';
@@ -41,14 +42,18 @@ export interface AppStore {
   setFilters(patch: Partial<Filters>): void;
   setListFilters(patch: Partial<ListFilters>): void;
   setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
+  /** Open a tab, or focus it. A split tab opened again leaves the split and fills the body. */
   openTab(tab: PanelTab): void;
+  /** Make a tab of the strip active. A click on the split tab does nothing: it is already showing. */
   activateTab(key: string): void;
+  /** Show a tab in the right half of its group's body, or take it out. `groupOf` as for `closeTabs`. */
+  toggleSplit(key: string, groupOf: (tab: PanelTab) => string): void;
   /**
    * Close tabs. `groupOf` names each tab's worktree group, which the store
    * cannot work out: the world lives in the query cache, not here.
    */
   closeTabs(keys: string[], groupOf: (tab: PanelTab) => string): void;
-  /** Show a worktree group: activate the most recent of its tabs. */
+  /** Show a worktree group: activate the most recent of its tabs, past its split tab. */
   selectGroup(tabKeys: string[]): void;
   /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
   expandNode(taskId: TaskId, toggle?: boolean): void;
@@ -100,33 +105,18 @@ export const useAppStore = create<AppStore>()((set) => ({
     set((s) => ({ ui: { ...s.ui, listFilters: { ...s.ui.listFilters, ...patch } } })),
   setWorktreeFilters: (patch) =>
     set((s) => ({ ui: { ...s.ui, worktreeFilters: { ...s.ui.worktreeFilters, ...patch } } })),
+  // Opening a tab always shows the panel: a link must show what it opened.
   openTab: (tab) =>
     set((s) => {
-      const tabs = openOrFocusTab(s.ui.tabs, tab);
-      // Opening a tab always shows the panel: a link must show what it opened.
-      return {
-        ui: {
-          ...s.ui,
-          ...showPaneIn(s.ui, 'tabs'),
-          tabs,
-          activeTabKey: tab.key,
-          tabRecency: touchTab(s.ui.tabRecency, tab.key),
-        },
-      };
+      const ui = { ...s.ui, ...openTabIn(s.ui, tab) };
+      return { ui: { ...ui, ...showPaneIn(ui, 'tabs') } };
     }),
-  activateTab: (key) =>
-    set((s) => ({
-      ui: { ...s.ui, activeTabKey: key, tabRecency: touchTab(s.ui.tabRecency, key) },
-    })),
+  activateTab: (key) => set((s) => ({ ui: { ...s.ui, ...activateTabIn(s.ui, key) } })),
+  toggleSplit: (key, groupOf) =>
+    set((s) => ({ ui: { ...s.ui, ...toggleSplitIn(s.ui, key, groupOf) } })),
   closeTabs: (keys, groupOf) =>
     set((s) => ({ ui: { ...s.ui, ...closeTabsIn(s.ui, keys, groupOf) } })),
-  selectGroup: (tabKeys) =>
-    set((s) => {
-      const key = mostRecentTab(tabKeys, s.ui.tabRecency);
-      return key
-        ? { ui: { ...s.ui, activeTabKey: key, tabRecency: touchTab(s.ui.tabRecency, key) } }
-        : s;
-    }),
+  selectGroup: (tabKeys) => set((s) => ({ ui: { ...s.ui, ...selectGroupIn(s.ui, tabKeys) } })),
   // One card at a time: opening either kind closes the other.
   expandNode: (nodeId, toggle = true) =>
     set((s) => ({

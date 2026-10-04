@@ -1021,7 +1021,7 @@ _Avoid_: Action bar, footer
 The tabs, drawn in one slot. A tab holds a session, a document, a worktree's changes (see
 **Changes tab**), or a running web service of a worktree (see **Dev env tab**). The panel sidebar
 on its left edge lists the worktree groups, and the tab strip shows the tabs of the group in view.
-The top bar labels the panel `Tabs`, and its anchor starts on
+The body shows the active tab, and the group's **Split tab** beside it when the group has one. The top bar labels the panel `Tabs`, and its anchor starts on
 the right. In the wide layout a click on `Tabs` closes the panel's slot, and a panel link shows the
 panel again. The narrow layout has no panel.
 _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
@@ -1032,7 +1032,7 @@ list, the worktree table or the panel. The wide layout draws both slots. A click
 closes its slot, and the other slot takes the full width. The body is never empty: closing the
 last open slot reopens the left slot on its most recent item. The code calls a top bar item a
 pane.
-_Avoid_: Column, region, split
+_Avoid_: Column, region, split (a split inside the panel is a **Split tab**)
 
 **Anchor**:
 The side, left or right, that a top bar item shows on. The three main views start anchored left
@@ -1074,6 +1074,12 @@ A panel tab that frames one running web service of a worktree, such as its app o
 toolbar has a reload button and an **External link** to the same URL. A stopped service shows the
 worktree's env control and no frame. The frame stays loaded while another tab is in view.
 _Avoid_: Preview tab, browser tab
+
+**Split tab**:
+The tab a worktree group shows in the right half of the panel body, beside its active tab. A
+shift-click on a tab in the strip sets it, and a second shift-click clears it. Each group keeps
+its own split tab, so the split comes back with the group. The active tab is never the split tab.
+_Avoid_: Split view, side-by-side, pinned tab
 
 **Panel link**:
 A link that opens a session, a document, a worktree's changes or its dev env as a tab in the

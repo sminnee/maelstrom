@@ -684,6 +684,11 @@ export const SCENARIOS = {
     screen: 'session=c3e8f1b5',
   },
   usage: { about: 'The seed with both usage windows read, one ahead of pace.', build: usage },
+  devenv: {
+    about: "The seed, with delta's session and its dev env tab side by side.",
+    build: seedWorld,
+    screen: 'session=e5b1d8c3&devenv=northwind-delta/web&split',
+  },
   empty: { about: 'An empty desk, with no worktree.', build: empty },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
 } satisfies Record<string, Scenario>;

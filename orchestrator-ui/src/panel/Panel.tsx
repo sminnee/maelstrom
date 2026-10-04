@@ -13,7 +13,8 @@ import styles from './Panel.module.css';
 
 /**
  * The pane the top bar calls `Tabs`: a sidebar of worktrees, and beside it the
- * worktree in view's bar, its tab strip and the active tab's body.
+ * worktree in view's bar, its tab strip and the active tab's body — with the
+ * group's split tab beside it in the right half, when it has one.
  */
 export function Panel({
   hidden = false,
@@ -26,8 +27,13 @@ export function Panel({
   const tabs = useAppStore((s) => s.ui.tabs);
   const { groups, activeGroup, close } = usePanelGroups();
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
+  const splitTabs = useAppStore((s) => s.ui.splitTabs);
   const active = tabs.find((t) => t.key === activeTabKey) ?? null;
-  const sideOf = (tab: PanelTab): Side | null => (tab === active ? 'left' : null);
+  const splitKey = activeGroup ? splitTabs[activeGroup.key] : undefined;
+  // From the group, not from every tab: a tab the world moves to another group leaves this one.
+  const split = activeGroup?.tabs.find((t) => t.key === splitKey) ?? null;
+  const sideOf = (tab: PanelTab): Side | null =>
+    tab === active ? 'left' : tab === split ? 'right' : null;
   return (
     <aside className={styles.panel} data-testid="panel" hidden={hidden} {...slot}>
       <PanelSidebar groups={groups} activeGroup={activeGroup} onClose={close} />
@@ -43,12 +49,16 @@ export function Panel({
           {!active && (
             <div className={styles.empty}>Open a session or a document from a node or a task.</div>
           )}
-          {active && active.kind !== 'devenv' && (
-            <Half side="left">
-              <TabBody tab={active} onTakenOffDesk={() => close([active.key])} />
-            </Half>
+          {[active, split].map(
+            (tab) =>
+              tab &&
+              tab.kind !== 'devenv' && (
+                <Half key={sideOf(tab)} side={sideOf(tab)}>
+                  <TabBody tab={tab} onTakenOffDesk={() => close([tab.key])} />
+                </Half>
+              ),
           )}
-          {/* Every dev env tab stays mounted, hidden when out of view, so its app keeps its state. */}
+          {/* Keyed by tab, not by half: a dev env frame survives a tab switch and a move between halves. */}
           {tabs.map(
             (tab) =>
               tab.kind === 'devenv' && (
@@ -63,9 +73,13 @@ export function Panel({
   );
 }
 
-type Side = 'left';
+type Side = 'left' | 'right';
 
-/** The part of the body that shows a tab. A tab out of view is hidden. */
+/**
+ * One half of the body: the left holds the active tab, the right the split
+ * tab. With no split the left fills the body. CSS `order` places a half, so
+ * the order of the children never has to change.
+ */
 function Half({ side, children }: { side: Side | null; children: ReactNode }) {
   return (
     <div className={styles.half} data-side={side ?? undefined} hidden={!side}>
