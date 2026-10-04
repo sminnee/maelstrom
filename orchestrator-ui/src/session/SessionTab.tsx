@@ -11,6 +11,8 @@ import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
 import { answeredOnCanvas } from '../selectors/transcript';
 import { PanelLink } from '../shell/PanelLink';
+import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
+import { useScreenChrome } from '../shell/screenChromeContext';
 import { useAppStore } from '../store/store';
 import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
@@ -111,6 +113,9 @@ export function SessionTab({
   const start = anchored >= 0 ? anchored : Math.max(0, count - WINDOW);
   const visible = transcript.items.slice(start);
   const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
+  // Stop is the one urgent control, so it takes the strip. See DESIGN.md, "The
+  // One Strip Rule".
+  const chrome = useScreenChrome();
   // A free agent draws under its own id, a task node under its task's.
   const deferred =
     !!agent?.pendingRequestIds.length && answeredOnCanvas(expandedNodeId, agent.taskId || agent.id);
@@ -134,7 +139,7 @@ export function SessionTab({
   // this, so its transcript is the only place it can be said. Empty fields
   // drop out, as on the node card.
   const where = world.worktrees[agent.worktreeId];
-  const meta = [
+  const metaParts = [
     // The qualified folder id, where the node card shows the bare nato word:
     // the card has a project above it to carry the prefix and this line has
     // nothing, so `bravo` alone would not say which project's bravo.
@@ -172,76 +177,114 @@ export function SessionTab({
         : agent.state !== 'processing'
           ? 'The agent is not running a turn.'
           : 'Abandon the turn the agent is running. The agent stays alive.';
+  const label = isChild ? `${agent.id} · ${agent.description}` : agent.id;
+  const live = (
+    <>
+      <span className={styles.state} data-state={agent.state}>
+        {progressOf(task, agent, Object.values(world.attention)).words}
+      </span>
+      {agent.permissionMode && !isChild && (
+        <AppButton
+          variant="quiet"
+          className={styles.mode}
+          title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
+          onClick={() => setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })}
+        >
+          {agent.permissionMode}
+        </AppButton>
+      )}
+      {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
+    </>
+  );
+  const meta = <span className={styles.meta}>{metaParts.join(' · ')}</span>;
+  const stop = (
+    <AppButton
+      variant="quiet"
+      className={styles.stop}
+      disabled={!canInterrupt}
+      title={interruptTitle}
+      onClick={() => interrupt.mutateAsync({ agentId })}
+    >
+      Stop
+    </AppButton>
+  );
+  const compact = (
+    <AppButton
+      variant="quiet"
+      className={styles.compact}
+      disabled={!canCompact}
+      title={compactTitle}
+      processingChildren="Compacting…"
+      onClick={async () => {
+        const removeLocal = streams.sendLocal(agentId, COMPACT_COMMAND);
+        // `say` resolves when the server accepts the relay, which is
+        // all the relay does. The compaction takes 10s–130s after
+        // that, so the button holds until the boundary says it ended.
+        await say.mutateAsync({ agentId, text: COMPACT_COMMAND }).catch((err) => {
+          removeLocal();
+          throw err;
+        });
+        await awaitCompact(agentId, (abandon) => {
+          abandonCompact.current = abandon;
+        });
+      }}
+    >
+      Compact
+    </AppButton>
+  );
+  // A subagent has no process of its own, so it gets none.
+  const controls = onTakenOffDesk && (
+    <AgentControls agent={agent} where={where} onTakenOffDesk={onTakenOffDesk} />
+  );
+  const strips = (
+    <>
+      {children.length > 0 && <SubagentStrip agents={children} />}
+      {agent.backgroundShells.length > 0 && <BackgroundShellStrip tasks={agent.backgroundShells} />}
+      {finished.length > 0 && <FinishedSubagents agents={finished} />}
+    </>
+  );
   return (
     <div className={styles.session} data-testid="session-tab">
-      <div className={styles.head} data-testid="session-head">
-        {/* One row, which a container query breaks into two when the panel is
-            dragged narrow. The groups are what it breaks on, so they are spans
-            rather than loose children. */}
-        <div className={styles.headLine} data-testid="session-head-row">
-          <span className={styles.live}>
-            <span className={styles.agent}>
-              {isChild ? `${agent.id} · ${agent.description}` : agent.id}
-            </span>
-            <span className={styles.state} data-state={agent.state}>
-              {progressOf(task, agent, Object.values(world.attention)).words}
-            </span>
-            {agent.permissionMode && !isChild && (
-              <AppButton
-                variant="quiet"
-                className={styles.mode}
-                title={`Permission mode: ${agent.permissionMode}. Click for ${nextMode(agent.permissionMode)}.`}
-                onClick={() =>
-                  setMode.mutateAsync({ agentId, mode: nextMode(agent.permissionMode) })
-                }
-              >
-                {agent.permissionMode}
-              </AppButton>
-            )}
-            {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
-          </span>
-          {!isChild && (
-            <span className={styles.standing}>
-              <span className={styles.meta}>{meta.join(' · ')}</span>
-              <AppButton
-                variant="quiet"
-                className={styles.stop}
-                disabled={!canInterrupt}
-                title={interruptTitle}
-                onClick={() => interrupt.mutateAsync({ agentId })}
-              >
-                Stop
-              </AppButton>
-              <AppButton
-                variant="quiet"
-                className={styles.compact}
-                disabled={!canCompact}
-                title={compactTitle}
-                processingChildren="Compacting…"
-                onClick={async () => {
-                  const removeLocal = streams.sendLocal(agentId, COMPACT_COMMAND);
-                  // `say` resolves when the server accepts the relay, which is
-                  // all the relay does. The compaction takes 10s–130s after
-                  // that, so the button holds until the boundary says it ended.
-                  await say.mutateAsync({ agentId, text: COMPACT_COMMAND }).catch((err) => {
-                    removeLocal();
-                    throw err;
-                  });
-                  await awaitCompact(agentId, (abandon) => {
-                    abandonCompact.current = abandon;
-                  });
-                }}
-              >
-                Compact
-              </AppButton>
-              {/* A subagent has no process of its own, so it gets none. */}
-              {onTakenOffDesk && (
-                <AgentControls agent={agent} where={where} onTakenOffDesk={onTakenOffDesk} />
+      {chrome ? (
+        <>
+          <ScreenStrip title={label}>{!isChild && stop}</ScreenStrip>
+          <ScreenSheet>
+            <div className={styles.sheet}>
+              <span className={styles.live}>{live}</span>
+              {!isChild && (
+                <>
+                  {meta}
+                  <span className={styles.standing}>
+                    {compact}
+                    {controls}
+                  </span>
+                </>
               )}
+              {strips}
+            </div>
+          </ScreenSheet>
+        </>
+      ) : (
+        <div className={styles.head} data-testid="session-head">
+          {/* One row, which a container query breaks into two when the panel is
+              dragged narrow. The groups are what it breaks on, so they are spans
+              rather than loose children. */}
+          <div className={styles.headLine} data-testid="session-head-row">
+            <span className={styles.live}>
+              <span className={styles.agent}>{label}</span>
+              {live}
             </span>
-          )}
+            {!isChild && (
+              <span className={styles.standing}>
+                {meta}
+                {stop}
+                {compact}
+                {controls}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
       <div
         className={styles.scroll}
         data-testid="transcript-scroll"
@@ -287,9 +330,7 @@ export function SessionTab({
         />
         <div ref={bottom} />
       </div>
-      {children.length > 0 && <SubagentStrip agents={children} />}
-      {agent.backgroundShells.length > 0 && <BackgroundShellStrip tasks={agent.backgroundShells} />}
-      {finished.length > 0 && <FinishedSubagents agents={finished} />}
+      {!chrome && strips}
       {!isChild && (
         <MessageInput
           project={agent.project}
