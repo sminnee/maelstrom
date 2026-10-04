@@ -369,5 +369,10 @@ def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def format_jig_hidden(branch: str) -> str:
+    """The message that tells the agents of a worktree the user hid its **Jig**."""
+    return f"The user hid the jig for {branch}."
+
+
 def _rev_label(rev: str) -> str:
     return rev if rev in (UNCOMMITTED, BRANCH) else f"commit {rev[:7]}"

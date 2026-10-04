@@ -1022,6 +1022,28 @@ began in the middle of a message cannot say which message the text belongs to.
 
 A subagent's stream and a Codex agent carry no partial message.
 
+## The jig socket
+
+`GET /api/jig` is a WebSocket that makes this server a **Jig provider**. The **Jig** owns the
+protocol; `orchestrator-ui/vite-plugin-mael-jig/plugin.ts` documents it, and
+[orchestrator-ui.md](orchestrator-ui.md), "The jig", lists the frames.
+
+The first frame is a `hello` with the jig's git top level. The server finds the worktree whose
+real path matches, and answers its `state`. A path that no worktree has closes the socket `4404`.
+
+| Frame in | What the server does |
+|---|---|
+| `{type: "feedback", id, feedback}` | Runs `worktree.feedback`, then answers `{type: "reply", id, ok, body}`. `body` is `{agentIds, refused}`, or `{error}`. |
+| `{type: "hide"}` | Hides the jig, and says `format_jig_hidden` to each agent in the worktree. |
+
+**An agent shows the jig with a marker.** `<jig show>` and `<jig hide>` in an agent's message set
+the state of the agent's worktree. `read_tags` cuts the marker from the transcript, as it cuts a
+milestone. Each socket of that worktree hears the change as a `state` frame.
+
+**The state is held in memory.** `JigHub` in `jig.py` holds the set of shown worktrees. A restart
+hides every jig. A marker in a replayed backlog changes nothing, so the restart does not show a
+jig again. The socket pings every 20 s, as a transcript socket does.
+
 ## Commands
 
 A command is one POST, PATCH or DELETE under `/api`. Each route builds the command dict the
@@ -1060,7 +1082,6 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
-| `POST /api/worktrees/{id}/feedback` | the feedback: `type`, then the type's fields | `worktree.feedback` | `{agentIds, refused}` |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
@@ -1161,8 +1182,8 @@ an empty body, and a worktree with no such agent. It answers ok when one agent o
 make the client keep the comments, and a retry would post twice to the agents that have them.
 When every agent refuses, the reply is the first refusal.
 
-`worktree.feedback` sends **Feedback**: the body of the post, typed by its `type`. The route
-passes the body through, and `validate.py` judges it, so a new type is a validator and a formatter.
+`worktree.feedback` sends **Feedback**: the `feedback` of a jig's frame, typed by its `type`. It
+has no route: the jig socket runs it (see "The jig socket"). The socket passes the body through, and `validate.py` judges it, so a new type is a validator and a formatter.
 The command reaches the same agents as `worktree.comment`, and answers the same reply. It refuses
 a body that is not an object, a type it does not know, and a worktree with no such agent.
 
