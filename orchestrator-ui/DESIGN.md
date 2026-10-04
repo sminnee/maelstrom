@@ -429,10 +429,11 @@ button in a line of text.
 The prose grid (`--prose-gap*`) and the canvas geometry are separate scales: see "Rhythm" and the
 canvas grid below.
 
-Two slots side by side under one bar. A top bar holds the brand, the menu and the attention
-chip. The menu has four items: Desk, Tasks, Worktrees and Tabs. Each item has an anchor, left or
-right, and shows in the slot of its anchor. The bar draws the left-anchored items beside the
-brand and the right-anchored items at its right edge, so each group sits over its slot.
+Two slots side by side under one bar. A top bar holds the brand, the menu, the filters, the
+attention chip and **New**, which ends the bar. The menu has four items: Desk, Tasks, Worktrees
+and Tabs. Each item has an anchor, left or right, and shows in the slot of its anchor. The bar
+draws the left-anchored items beside the brand and the right-anchored items just before New, so
+each group sits over its slot.
 
 Beneath the bar the body splits. The left slot takes the remaining width, and the right slot is
 resizable, with a 6px drag grip on its left edge. A click closes a slot and a shift-click moves
