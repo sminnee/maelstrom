@@ -139,15 +139,32 @@ describe('the narrow layout', () => {
     expect(screen.getByTestId('session-tab')).toBeInTheDocument();
     // No tab strip in the narrow layout: one thing owns the screen.
     expect(screen.queryAllByRole('tab', { name: /session/i })).toHaveLength(0);
-    // The node detail under it carries the end-of-work control, so the head does not.
-    expect(
-      within(screen.getByTestId('session-head')).queryByRole('button', { name: 'Terminate' }),
-    ).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
+  });
+
+  it('puts Stop in the session strip, and the head in the side sheet', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow' });
+    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await user.click(screen.getByRole('link', { name: /Session/ }));
+    const tab = await screen.findByTestId('session-tab');
+    const bar = screenStrip();
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('d9a4c7f1');
+    expect(bar.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    // The body is the transcript and the input.
+    expect(within(tab).queryByTestId('session-head')).toBeNull();
+    expect(within(tab).queryByRole('button', { name: 'Compact' })).toBeNull();
+    expect(within(tab).getByRole('textbox', { name: 'Message to agent' })).toBeInTheDocument();
+
+    const sheet = await openSheet(user);
+    expect(sheet.getByRole('button', { name: 'Compact' })).toBeInTheDocument();
+    expect(sheet.getByTitle(/^Permission mode/)).toBeInTheDocument();
+    // The node detail under it carries the end-of-work control, so the session does not.
+    expect(sheet.queryByRole('button', { name: 'Terminate' })).toBeNull();
   });
 
   it('answers a waiting agent from the deck, so a checkpoint is clearable on a phone', async () => {

@@ -205,3 +205,14 @@
   white-space: nowrap;
   color: var(--attention);
 }
+
+/* The head, in the side sheet on a phone: one group to a row. */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-2);
+}
+.sheet .live,
+.sheet .standing {
+  flex-wrap: wrap;
+}
