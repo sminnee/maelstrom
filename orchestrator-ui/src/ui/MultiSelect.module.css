@@ -1,0 +1,64 @@
+/*
+ * Drawn as a select box, not a button: a field's border, fill and corner, with
+ * the caret at the right edge. The trigger half of the anchor pair — see
+ * `useAnchorName`.
+ */
+.trigger {
+  anchor-name: var(--anchor-name);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u);
+  max-width: 180px;
+  padding: 0 var(--u);
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+}
+.trigger:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--border-strong);
+}
+/* The field gives way, not the caret: a long pick ends in an ellipsis. */
+.value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.caret {
+  flex: none;
+  width: 10px;
+  height: 6px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.item {
+  composes: item from './popoverMenu.module.css';
+  align-items: center;
+  gap: var(--u);
+}
+/* Drawn rather than a native checkbox: the item is the control, so the box
+   must not take a click or a focus of its own. */
+.box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--u-2);
+  height: var(--u-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+.item[aria-checked='true'] .box {
+  color: var(--fg-on-hue);
+  background: var(--accent);
+  border-color: var(--accent);
+}

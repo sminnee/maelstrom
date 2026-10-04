@@ -3,6 +3,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import cardStyles from '../canvas/NodeCard.module.css';
 import { makeTask, makeWorktree } from '../fake/fixtures';
 import tabStyles from '../panel/PanelTabs.module.css';
+import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import chipStyles from '../shell/AttentionChip.module.css';
 import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
@@ -11,6 +12,7 @@ import barStyles from '../shell/TopBar.module.css';
 import { AppButton } from './AppButton';
 import { ConfirmButton } from './ConfirmButton';
 import { DialogFooter } from './Dialog';
+import { MultiSelect } from './MultiSelect';
 import { SplitButton } from './SplitButton';
 import { SplitChip } from './SplitChip';
 import { StatusPicker } from './StatusPicker';
@@ -46,6 +48,19 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
         {children}
       </div>
     </div>
+  );
+}
+
+/** The task list's status filter, holding its own pick. */
+function StatusFilter() {
+  const [value, setValue] = useState<TaskStatus[]>(['todo', 'in-progress', 'blocked']);
+  return (
+    <MultiSelect
+      label="Status"
+      options={TASK_STATUSES.map((s) => ({ value: s, label: s }))}
+      value={value}
+      onChange={setValue}
+    />
   );
 }
 
@@ -149,13 +164,14 @@ function Board({ control, heading }: { control: string; heading: string }) {
             </button>
           ))}
         </div>
-        <button type="button" className={barStyles.new}>
-          New
-        </button>
+        <StatusFilter />
         <AppButton className={chipStyles.chip} data-count={2}>
           <span className={chipStyles.asks}>⚠ 2</span>
           <span className={chipStyles.unanswered}>1</span>
         </AppButton>
+        <button type="button" className={barStyles.new}>
+          New
+        </button>
       </Row>
       <Row label="A panel tab and a field">
         <div className={tabStyles.strip} role="tablist" style={{ flex: 'none' }}>

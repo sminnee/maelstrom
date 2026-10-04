@@ -20,12 +20,20 @@ describe('the task list', () => {
       .map((r) => r.getAttribute('data-task-id'))
       .filter(Boolean);
   const listedIds = () => rowOrder().sort();
-  /** Tick every status back on, so finished tasks are listed too. */
-  const showEveryStatus = async (user: ReturnType<typeof userEvent.setup>) => {
-    for (const status of ['done', 'cancelled', 'template']) {
-      await user.click(screen.getByRole('checkbox', { name: status }));
+  /** Toggle statuses in the Status menu, then close it. */
+  const toggleStatuses = async (
+    user: ReturnType<typeof userEvent.setup>,
+    ...statuses: string[]
+  ) => {
+    await user.click(screen.getByRole('button', { name: /^Status/ }));
+    for (const status of statuses) {
+      await user.click(screen.getByRole('menuitemcheckbox', { name: status }));
     }
+    await user.keyboard('{Escape}');
   };
+  /** Tick every status back on, so finished tasks are listed too. */
+  const showEveryStatus = (user: ReturnType<typeof userEvent.setup>) =>
+    toggleStatuses(user, 'done', 'cancelled', 'template');
   /**
    * How each of the dialog's fields is locked: `readonly` for the ones that
    * take it, `disabled` for the selects it is not a thing on, `null` when the
@@ -89,6 +97,18 @@ describe('the task list', () => {
 
     await showEveryStatus(user);
     expect(listedIds()).toEqual(tasks.map((t) => t.id).sort());
+  });
+
+  it('reads an empty status pick as every status, on the trigger as in the list', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+    const trigger = screen.getByRole('button', { name: /^Status/ });
+    expect(trigger).toHaveTextContent(/^todo, in-progress, blocked$/);
+
+    await toggleStatuses(user, 'todo', 'in-progress', 'blocked');
+    expect(trigger).toHaveTextContent(/^all$/);
+    expect(listedIds()).toEqual(Object.keys(seedWorld().world.tasks).sort());
   });
 
   it('adds a task to the desk, and it is then drawn on the canvas', async () => {
@@ -161,7 +181,7 @@ describe('the task list', () => {
     // The default filter hides done work, so the row goes. That is the filter
     // doing its job, not the move failing.
     await waitFor(() => expect(listRow('NORT-9')).toBeNull());
-    await user.click(screen.getByRole('checkbox', { name: 'done' }));
+    await toggleStatuses(user, 'done');
     expect(listRow('NORT-9')).not.toBeNull();
     expect(
       within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'done' }),
@@ -779,7 +799,7 @@ describe('the task list', () => {
       expect(bar()).toHaveTextContent(`${live.length} selected`);
       expect(all).toBeChecked();
       // A hidden row is not ticked with the rest.
-      await user.click(screen.getByRole('checkbox', { name: 'done' }));
+      await toggleStatuses(user, 'done');
       expect(screen.getByRole('checkbox', { name: 'Select NORT-3' })).not.toBeChecked();
 
       await user.click(all);
@@ -798,7 +818,7 @@ describe('the task list', () => {
 
       await waitFor(() => expect(listRow('NORT-9')).toBeNull());
       noBar();
-      await user.click(screen.getByRole('checkbox', { name: 'done' }));
+      await toggleStatuses(user, 'done');
       expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).not.toBeChecked();
     });
   });
