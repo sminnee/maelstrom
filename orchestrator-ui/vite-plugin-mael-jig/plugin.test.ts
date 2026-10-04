@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { createServer as createHttpServer } from 'node:http';
+import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type ViteDevServer } from 'vite';
+import { WebSocketServer, type WebSocket as ProviderSocket } from 'ws';
 import { maelJig } from './plugin';
 
 // As `mkdtemp` names it. On macOS that is under `/var`, whose real path is
@@ -16,12 +17,12 @@ let origin: string;
 const sockets: WebSocket[] = [];
 const closers: (() => void)[] = [];
 
-async function start(orchestratorUrl?: string) {
+async function start(providerUrl?: string) {
   server = await createServer({
     root: worktree,
     configFile: false,
     logLevel: 'silent',
-    plugins: [maelJig({ orchestratorUrl })],
+    plugins: [maelJig({ providerUrl })],
     server: { port: 0, host: '127.0.0.1' },
   });
   await server.listen();
@@ -41,75 +42,91 @@ afterEach(async () => {
   rmSync(worktree, { recursive: true, force: true });
 });
 
+type Frame = { type: string; [key: string]: unknown };
+
 /**
- * An orchestrator that lists one worktree at `path`, records each post and
- * answers it with `reply`.
+ * A jig provider: a socket server that records each frame the plugin sends,
+ * and answers each feedback frame with `reply`, or leaves it unanswered for `null`.
  */
-async function fakeOrchestrator(
-  path: string,
-  reply: { status: number; body: unknown } = {
-    status: 200,
+async function fakeProvider(
+  reply: { ok: boolean; body: unknown } | null = {
+    ok: true,
     body: { agentIds: ['ag1'], refused: [] },
   },
 ) {
-  const posts: { url: string; body: unknown }[] = [];
-  const orchestrator = createHttpServer((req, res) => {
-    let text = '';
-    req.on('data', (chunk) => (text += chunk));
-    req.on('end', () => {
-      res.setHeader('content-type', 'application/json');
-      if (req.method === 'GET') {
-        const worktrees = [
-          { id: 'northwind-bravo', path: '/elsewhere' },
-          { id: 'northwind-alpha', path },
-        ];
-        res.end(JSON.stringify({ worktrees }));
-        return;
+  const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await once(wss, 'listening');
+  closers.push(() => wss.close());
+  const frames: Frame[] = [];
+  let socket: ProviderSocket | undefined;
+  let wake = () => {};
+  wss.on('connection', (ws) => {
+    socket = ws;
+    ws.on('message', (data) => {
+      const frame = JSON.parse(String(data)) as Frame;
+      frames.push(frame);
+      wake();
+      if (frame.type === 'feedback' && reply) {
+        ws.send(JSON.stringify({ type: 'reply', id: frame.id, ...reply }));
       }
-      posts.push({ url: req.url ?? '', body: JSON.parse(text) });
-      res.statusCode = reply.status;
-      res.end(JSON.stringify(reply.body));
     });
   });
-  await new Promise<void>((resolve) => orchestrator.listen(0, '127.0.0.1', resolve));
-  closers.push(() => orchestrator.close());
-  return { url: `http://127.0.0.1:${(orchestrator.address() as AddressInfo).port}`, posts };
+  /** The `nth` frame of `type`, once it arrives. */
+  const frame = async (type: string, nth = 1): Promise<Frame> => {
+    for (;;) {
+      const found = frames.filter((f) => f.type === type)[nth - 1];
+      if (found) return found;
+      await new Promise<void>((resolve) => (wake = resolve));
+    }
+  };
+  return {
+    url: `ws://127.0.0.1:${(wss.address() as AddressInfo).port}/api/jig`,
+    frames,
+    frame,
+    send: (sent: Frame) => socket?.send(JSON.stringify(sent)),
+    drop: () => socket?.terminate(),
+  };
 }
 
 const patchFile = () => join(worktree, '.drafts', 'monkeypatch.css');
 
 type Update = { css: string; from: string | null };
 
-/**
- * A page's HMR socket, once Vite has greeted it and the watcher has seen the
- * monkeypatch file. `next()` is the next `mael-jig:monkeypatch` after that. The file
- * must not exist yet, and does not exist after.
- *
- * The watcher picks up `.drafts/` a moment after the server starts, and a
- * change before then raises no event. So the page writes a marker until one
- * comes back, rather than sleeping for a guess at the moment.
- */
-async function hmrPage() {
+/** A page's HMR socket, once Vite has greeted it. `next()` is the next event of `name`. */
+async function hmrSocket<T>(name: string) {
   const socket = new WebSocket(origin.replace('http', 'ws'), 'vite-hmr');
   sockets.push(socket);
-  const updates: Update[] = [];
+  const events: T[] = [];
   let wake = () => {};
   let connect = () => {};
   const connected = new Promise<void>((resolve) => (connect = resolve));
   socket.onmessage = (message) => {
     const payload = JSON.parse(String(message.data));
     if (payload.type === 'connected') connect();
-    if (payload.type === 'custom' && payload.event === 'mael-jig:monkeypatch') {
-      updates.push(payload.data);
+    if (payload.type === 'custom' && payload.event === name) {
+      events.push(payload.data);
       wake();
     }
   };
-  const next = async (): Promise<Update> => {
-    while (!updates.length) await new Promise<void>((resolve) => (wake = resolve));
-    return updates.shift()!;
+  const next = async (): Promise<T> => {
+    while (!events.length) await new Promise<void>((resolve) => (wake = resolve));
+    return events.shift()!;
   };
-
   await connected;
+  return { events, next };
+}
+
+/**
+ * A page's HMR socket, once the watcher has seen the monkeypatch file.
+ * `next()` is the next `mael-jig:monkeypatch` after that. The file must not
+ * exist yet, and does not exist after.
+ *
+ * The watcher picks up `.drafts/` a moment after the server starts, and a
+ * change before then raises no event. So the page writes a marker until one
+ * comes back, rather than sleeping for a guess at the moment.
+ */
+async function hmrPage() {
+  const { events: updates, next } = await hmrSocket<Update>('mael-jig:monkeypatch');
   const marker = '/* watched */';
   while (!updates.some((u) => u.css === marker)) {
     writeFileSync(patchFile(), marker);
@@ -127,8 +144,11 @@ const put = (css: string, client = 'c1') =>
     body: css,
   });
 
-const sendFeedback = (body: unknown) =>
-  fetch(`${origin}/__mael/feedback`, { method: 'POST', body: JSON.stringify(body) });
+const post = (path: string, body = '') => fetch(`${origin}${path}`, { method: 'POST', body });
+
+const sendFeedback = (body: unknown) => post('/__mael/feedback', JSON.stringify(body));
+
+const monkeypatchGet = async () => (await fetch(`${origin}/__mael/monkeypatch`)).json();
 
 describe('the jig plugin', () => {
   beforeEach(() => start());
@@ -137,13 +157,11 @@ describe('the jig plugin', () => {
     expect((await put('.chip { padding: 14px; }')).status).toBe(204);
     expect(readFileSync(patchFile(), 'utf8')).toBe('.chip { padding: 14px; }');
 
-    const got = await fetch(`${origin}/__mael/monkeypatch`);
-    expect(await got.json()).toEqual({ css: '.chip { padding: 14px; }', canSend: false });
+    expect(await monkeypatchGet()).toEqual({ css: '.chip { padding: 14px; }', visible: false });
   });
 
   it('reads an absent file as no CSS', async () => {
-    const got = await fetch(`${origin}/__mael/monkeypatch`);
-    expect(await got.json()).toEqual({ css: '', canSend: false });
+    expect(await monkeypatchGet()).toEqual({ css: '', visible: false });
   });
 
   it('writes the file after .drafts is cleaned away under the running server', async () => {
@@ -184,51 +202,99 @@ describe('the jig plugin', () => {
     expect(html).toMatch(/<script type="module" src="[^"]*client\.ts"><\/script>/);
   });
 
-  it('refuses a send when no orchestrator is set', async () => {
+  it('refuses a send and a hide when no provider is set', async () => {
     expect((await sendFeedback({ css: '.chip{padding:20px}' })).status).toBe(503);
+    expect((await post('/__mael/hide')).status).toBe(503);
   });
 
   it('refuses a method each route does not take', async () => {
     expect((await fetch(`${origin}/__mael/monkeypatch`, { method: 'DELETE' })).status).toBe(405);
     expect((await fetch(`${origin}/__mael/feedback`)).status).toBe(405);
+    expect((await fetch(`${origin}/__mael/hide`)).status).toBe(405);
   });
 });
 
-describe('send', () => {
-  it('turns Send on when an orchestrator is set', async () => {
-    await start('http://127.0.0.1:1');
+describe('the provider', () => {
+  it('is greeted with the worktree path', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
 
-    const got = await fetch(`${origin}/__mael/monkeypatch`);
-    expect(await got.json()).toEqual({ css: '', canSend: true });
+    expect(await provider.frame('hello')).toEqual({ type: 'hello', path: realpathSync(worktree) });
   });
 
-  it('posts to the worktree the orchestrator lists at this path', async () => {
-    const orchestrator = await fakeOrchestrator(realpathSync(worktree));
-    await start(orchestrator.url);
+  it('shows the jig on every page when it says so', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
 
-    const sent = await sendFeedback({
-      type: 'monkeypatch',
-      css: '.chip{padding:20px}',
-      note: 'tighter',
-    });
+    provider.send({ type: 'state', visible: true });
+
+    expect(await page.next()).toEqual({ visible: true });
+    expect(await monkeypatchGet()).toEqual({ css: '', visible: true });
+  });
+
+  it('hides the jig when its socket goes down', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
+    provider.send({ type: 'state', visible: true });
+    await page.next();
+
+    provider.drop();
+
+    expect(await page.next()).toEqual({ visible: false });
+    expect(await monkeypatchGet()).toEqual({ css: '', visible: false });
+  });
+
+  it('reconnects, greets the provider again and follows its state', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
+
+    provider.drop();
+    await provider.frame('hello', 2);
+    provider.send({ type: 'state', visible: true });
+
+    expect(await page.next()).toEqual({ visible: true });
+  });
+
+  it('answers 503 when the provider goes away before it replies', async () => {
+    const provider = await fakeProvider(null);
+    await start(provider.url);
+    await provider.frame('hello');
+
+    const sent = sendFeedback({ css: '.chip{padding:20px}' });
+    await provider.frame('feedback');
+    provider.drop();
+
+    expect((await sent).status).toBe(503);
+  });
+
+  it('relays feedback and answers with the reply', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    const feedback = { type: 'monkeypatch', css: '.chip{padding:20px}', note: 'tighter' };
+
+    const sent = await sendFeedback(feedback);
 
     expect(sent.status).toBe(200);
     expect(await sent.json()).toEqual({ agentIds: ['ag1'], refused: [] });
-    expect(orchestrator.posts).toEqual([
-      {
-        url: '/api/worktrees/northwind-alpha/feedback',
-        body: { type: 'monkeypatch', css: '.chip{padding:20px}', note: 'tighter' },
-      },
-    ]);
+    expect(await provider.frame('feedback')).toEqual({
+      type: 'feedback',
+      id: expect.any(Number),
+      feedback,
+    });
   });
 
-  it('passes an orchestrator refusal through', async () => {
+  it('passes a refusal through', async () => {
     const refusal = { error: { code: 'invalid', message: 'No agent is running in x' } };
-    const orchestrator = await fakeOrchestrator(realpathSync(worktree), {
-      status: 400,
-      body: refusal,
-    });
-    await start(orchestrator.url);
+    const provider = await fakeProvider({ ok: false, body: refusal });
+    await start(provider.url);
+    await provider.frame('hello');
 
     const sent = await sendFeedback({ css: '.chip{padding:20px}' });
 
@@ -236,13 +302,12 @@ describe('send', () => {
     expect(await sent.json()).toEqual(refusal);
   });
 
-  it('refuses a send when the orchestrator lists no worktree at this path', async () => {
-    const orchestrator = await fakeOrchestrator('/somewhere/else');
-    await start(orchestrator.url);
+  it('sends a hide', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
 
-    const sent = await sendFeedback({ css: '.chip{padding:20px}' });
-
-    expect(sent.status).toBe(404);
-    expect(orchestrator.posts).toEqual([]);
+    expect((await post('/__mael/hide')).status).toBe(204);
+    expect(await provider.frame('hide')).toEqual({ type: 'hide' });
   });
 });

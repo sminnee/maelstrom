@@ -1,24 +1,47 @@
 // The jig's dev-server half. See CONTEXT.md, "Jig", and
 // docs/dev/orchestrator-ui.md, "The jig".
+//
+// The jig owns its protocol with a **Jig provider**: JSON frames over one
+// WebSocket, at `MAEL_JIG_URL`.
+//
+//   jig → provider
+//     {type: "hello", path}             the git top level, sent on each open
+//     {type: "feedback", id, feedback}  the body `POST /__mael/feedback` took
+//     {type: "hide"}                    the user hid the jig
+//   provider → jig
+//     {type: "state", visible}          after the hello, and on each change
+//     {type: "reply", id, ok, body}     one per feedback frame
+//
+// The jig is shown only while the socket is open and the provider says so.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 interface Options {
-  /** The orchestrator server that feedback goes to. Unset, Send is off and live CSS still works. */
-  orchestratorUrl?: string;
+  /** The jig provider's WebSocket URL. Unset or empty, the jig is off. */
+  providerUrl?: string;
+}
+
+interface Reply {
+  type: 'reply';
+  id: number;
+  ok: boolean;
+  body: unknown;
 }
 
 /** The custom HMR event that carries the file to every page. */
 const UPDATE_EVENT = 'mael-jig:monkeypatch';
+/** The custom HMR event that tells every page whether to draw the jig. */
+const STATE_EVENT = 'mael-jig:state';
+const BACKOFF_MS = [250, 1000, 5000];
 const CLIENT_HEADER = 'x-mael-jig-client';
 const SETTLE_MS = 80;
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
-export function maelJig({ orchestratorUrl }: Options): Plugin {
+export function maelJig({ providerUrl }: Options): Plugin {
   // Empty until the server starts, and for good when it runs outside a git
   // checkout: the jig is a convenience, so it switches off rather than stop the server.
   let file = '';
@@ -64,9 +87,14 @@ export function maelJig({ orchestratorUrl }: Options): Plugin {
       server.watcher.on('change', broadcast);
       server.watcher.on('unlink', broadcast);
 
+      const provider = connect(usableUrl(providerUrl, server.config.logger), worktree, (visible) =>
+        server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
+      );
+      server.httpServer?.once('close', provider.stop);
+
       server.middlewares.use('/__mael/monkeypatch', (req, res) => {
         if (req.method === 'GET') {
-          json(res, 200, { css: read(), canSend: Boolean(orchestratorUrl) });
+          json(res, 200, { css: read(), visible: provider.visible() });
           return;
         }
         if (req.method !== 'PUT') {
@@ -90,16 +118,38 @@ export function maelJig({ orchestratorUrl }: Options): Plugin {
           json(res, 405, { error: { message: `${req.method} is not allowed` } });
           return;
         }
-        if (!orchestratorUrl) {
-          json(res, 503, { error: { message: 'No orchestrator is set for this dev server' } });
+        void body(req)
+          .then((sent) => {
+            let feedback: unknown;
+            try {
+              feedback = JSON.parse(sent);
+            } catch {
+              json(res, 400, { error: { message: 'The feedback is not JSON' } });
+              return;
+            }
+            // Through a promise, so a throw for no socket answers 503 too.
+            return Promise.resolve(feedback)
+              .then((sent) => provider.feedback(sent))
+              .then(
+                (reply) => json(res, reply.ok ? 200 : 400, reply.body),
+                (error: unknown) => json(res, 503, { error: { message: message(error) } }),
+              );
+          })
+          .catch((error: unknown) => json(res, 500, { error: { message: message(error) } }));
+      });
+
+      server.middlewares.use('/__mael/hide', (req, res) => {
+        if (req.method !== 'POST') {
+          json(res, 405, { error: { message: `${req.method} is not allowed` } });
           return;
         }
-        void body(req)
-          .then((sent) => send(orchestratorUrl, worktree, sent))
-          .then(
-            ({ status, reply }) => json(res, status, reply),
-            (error: unknown) => json(res, 502, { error: { message: String(error) } }),
-          );
+        try {
+          provider.hide();
+          res.statusCode = 204;
+          res.end();
+        } catch (error) {
+          json(res, 503, { error: { message: message(error) } });
+        }
       });
     },
     // The file is not a module, so nothing reloads for it: the event above is the update.
@@ -114,30 +164,105 @@ export function maelJig({ orchestratorUrl }: Options): Plugin {
 }
 
 /**
- * Post the feedback to the orchestrator, for the worktree it lists at this
- * path. The body passes through untouched: its type is the orchestrator's to judge.
+ * The socket to the provider, kept open: it reconnects with backoff, and
+ * reports the jig hidden while it is down. `onState` hears each change.
  */
-async function send(
-  orchestratorUrl: string,
-  worktree: string,
-  sent: string,
-): Promise<{ status: number; reply: unknown }> {
-  const answered = await fetch(`${orchestratorUrl}/api/worktrees`);
-  if (!answered.ok) return { status: answered.status, reply: await answered.json() };
-  const listed = (await answered.json()) as { worktrees: { id: string; path: string }[] };
-  const match = listed.worktrees.find((w) => samePath(w.path, worktree));
-  if (!match) {
-    return {
-      status: 404,
-      reply: { error: { message: `The orchestrator has no worktree at ${worktree}` } },
+function connect(url: string | undefined, worktree: string, onState: (visible: boolean) => void) {
+  let socket: WebSocket | null = null;
+  let visible = false;
+  let stopped = !url;
+  let attempt = 0;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let nextId = 1;
+  const waiting = new Map<
+    number,
+    { resolve: (reply: Reply) => void; reject: (e: Error) => void }
+  >();
+
+  const show = (next: boolean) => {
+    if (next === visible) return;
+    visible = next;
+    onState(visible);
+  };
+
+  const open = () => {
+    if (stopped || !url) return;
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.onopen = () => {
+      attempt = 0;
+      ws.send(JSON.stringify({ type: 'hello', path: worktree }));
     };
+    ws.onmessage = (event) => {
+      // A throw here would be uncaught, and would take the dev server down.
+      let frame;
+      try {
+        frame = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      if (typeof frame !== 'object' || frame === null) return;
+      if (frame.type === 'state') show(Boolean(frame.visible));
+      if (frame.type === 'reply') {
+        waiting.get(frame.id)?.resolve(frame);
+        waiting.delete(frame.id);
+      }
+    };
+    ws.onclose = () => {
+      socket = null;
+      show(false);
+      for (const { reject } of waiting.values()) reject(new Error('The jig provider went away'));
+      waiting.clear();
+      if (stopped) return;
+      retry = setTimeout(open, BACKOFF_MS[Math.min(attempt++, BACKOFF_MS.length - 1)]);
+    };
+  };
+
+  /** The open socket, or a throw that says why there is none. */
+  const live = () => {
+    if (socket?.readyState !== WebSocket.OPEN) {
+      throw new Error(url ? 'The jig provider is not reachable' : 'No jig provider is set');
+    }
+    return socket;
+  };
+
+  open();
+  return {
+    visible: () => visible,
+    feedback(feedback: unknown): Promise<Reply> {
+      const ws = live();
+      const id = nextId++;
+      return new Promise((resolve, reject) => {
+        waiting.set(id, { resolve, reject });
+        ws.send(JSON.stringify({ type: 'feedback', id, feedback }));
+      });
+    },
+    hide() {
+      live().send(JSON.stringify({ type: 'hide' }));
+    },
+    stop() {
+      stopped = true;
+      clearTimeout(retry);
+      socket?.close();
+    },
+  };
+}
+
+/**
+ * `url` when it can be dialled, else `undefined` with a warning: `new WebSocket`
+ * throws on a malformed URL, and the jig is a convenience, so it switches off
+ * rather than stop the server.
+ */
+function usableUrl(url: string | undefined, logger: { warn: (msg: string) => void }) {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') return url;
+  } catch {
+    // Reported below.
   }
-  const posted = await fetch(`${orchestratorUrl}/api/worktrees/${match.id}/feedback`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: sent,
-  });
-  return { status: posted.status, reply: await posted.json() };
+  logger.warn(`mael-jig: MAEL_JIG_URL is not a WebSocket URL (${url}), so the jig is off`);
+  return undefined;
 }
 
 /** The worktree that holds `root`, or `null` outside a git checkout. */
@@ -153,14 +278,6 @@ function gitToplevel(root: string): string | null {
   }
 }
 
-function samePath(a: string, b: string): boolean {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return false;
-  }
-}
-
 function body(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let text = '';
@@ -169,6 +286,10 @@ function body(req: IncomingMessage): Promise<string> {
     req.on('end', () => resolve(text));
     req.on('error', reject);
   });
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function json(res: ServerResponse, status: number, value: unknown): void {

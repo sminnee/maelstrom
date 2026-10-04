@@ -4,32 +4,36 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mountJig } from './overlay';
 
-type Listener = (data: { css: string; from: string | null }) => void;
 type Request = { method: string; url: string; body: string; client: string | null };
 
-let listener: Listener;
+const listeners = new Map<string, (data: never) => void>();
+const emit = (event: string, data: unknown) => listeners.get(event)!(data as never);
 let requests: Request[];
 let sendReply: Response;
+let hideReply: Response;
 let target: HTMLElement;
 let unmount: () => void;
 
-const hot = { on: (_event: string, callback: Listener) => (listener = callback) };
+const hot = {
+  on: (event: string, callback: (data: never) => void) => listeners.set(event, callback),
+};
 
-function fakeFetch(canSend: boolean) {
+function fakeFetch(visible: boolean) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const method = init?.method ?? 'GET';
     const client = new Headers(init?.headers).get('x-mael-jig-client');
     requests.push({ method, url: String(input), body: String(init?.body ?? ''), client });
     if (method === 'PUT') return new Response(null, { status: 204 });
+    if (String(input) === '/__mael/hide') return hideReply;
     if (method === 'POST') return sendReply;
-    return Response.json({ css: '.chip { margin: 3px; }', canSend });
+    return Response.json({ css: '.chip { margin: 3px; }', visible });
   };
 }
 
 const puts = () => requests.filter((r) => r.method === 'PUT');
 
-async function mount({ canSend }: { canSend: boolean }) {
-  unmount = await mountJig({ hot, fetch: fakeFetch(canSend), debounceMs: 5 });
+async function mount({ visible }: { visible: boolean }) {
+  unmount = await mountJig({ hot, fetch: fakeFetch(visible), debounceMs: 5 });
 }
 
 function jig() {
@@ -39,6 +43,8 @@ function jig() {
     textarea: root.querySelector('textarea') as HTMLTextAreaElement,
     note: root.querySelector('input[data-note]') as HTMLInputElement,
     send: root.querySelector('button[data-send]') as HTMLButtonElement,
+    hide: root.querySelector('button[data-hide]') as HTMLButtonElement,
+    panel: root.querySelector('.panel') as HTMLElement,
     status: root.querySelector('.status') as HTMLElement,
   };
 }
@@ -72,8 +78,33 @@ afterEach(() => {
   target.remove();
 });
 
+describe('a hidden jig', () => {
+  beforeEach(() => mount({ visible: false }));
+
+  it('puts nothing on the page', () => {
+    expect(document.querySelector('#mael-jig')).toBeNull();
+    expect(document.querySelector('style[data-mael-jig]')).toBeNull();
+    expect(getComputedStyle(target).marginTop).not.toBe('3px');
+  });
+
+  it('opens with the CSS applied when the provider shows it', () => {
+    emit('mael-jig:state', { visible: true });
+
+    expect(jig().panel.hidden).toBe(false);
+    expect(getComputedStyle(target).marginTop).toBe('3px');
+  });
+
+  it('comes off the page again when the provider hides it', () => {
+    emit('mael-jig:state', { visible: true });
+    emit('mael-jig:state', { visible: false });
+
+    expect(document.querySelector('#mael-jig')).toBeNull();
+    expect(document.querySelector('style[data-mael-jig]')).toBeNull();
+  });
+});
+
 describe('the jig overlay', () => {
-  beforeEach(() => mount({ canSend: false }));
+  beforeEach(() => mount({ visible: true }));
 
   it('applies the file it loads on start', () => {
     expect(jig().textarea.value).toBe('.chip { margin: 3px; }');
@@ -100,7 +131,7 @@ describe('the jig overlay', () => {
   });
 
   it('follows a change made elsewhere', () => {
-    listener({ css: '.chip { padding: 9px; }', from: null });
+    emit('mael-jig:monkeypatch', { css: '.chip { padding: 9px; }', from: null });
 
     expect(jig().textarea.value).toBe('.chip { padding: 9px; }');
     expect(getComputedStyle(target).paddingTop).toBe('9px');
@@ -111,51 +142,65 @@ describe('the jig overlay', () => {
     await until(() => expect(puts()).toHaveLength(1));
     type('.chip { padding: 12px; }');
 
-    listener({ css: '.chip { padding: 1px; }', from: puts()[0]!.client });
+    emit('mael-jig:monkeypatch', { css: '.chip { padding: 1px; }', from: puts()[0]!.client });
 
     expect(jig().textarea.value).toBe('.chip { padding: 12px; }');
   });
 
-  it('turns Send off when no orchestrator is set', () => {
-    expect(jig().send.disabled).toBe(true);
-  });
-});
-
-describe('send', () => {
-  beforeEach(() => mount({ canSend: true }));
-
-  it('writes the file first, then posts the CSS and the note', async () => {
-    sendReply = Response.json({ agentIds: ['ag1', 'ag2'], refused: [] });
-    type('.chip { padding: 20px; }');
-    jig().note.value = 'tighter';
-
-    jig().send.click();
-
-    await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
-    expect(requests.slice(1).map((r) => [r.method, r.url, r.body])).toEqual([
-      ['PUT', '/__mael/monkeypatch', '.chip { padding: 20px; }'],
-      [
-        'POST',
-        '/__mael/feedback',
-        JSON.stringify({ type: 'monkeypatch', css: '.chip { padding: 20px; }', note: 'tighter' }),
-      ],
-    ]);
-    expect(jig().note.value).toBe('');
-    expect(jig().send.disabled).toBe(false);
-  });
-
-  it('shows a refusal and keeps the note', async () => {
-    sendReply = Response.json(
-      { error: { code: 'invalid', message: 'No agent is running in northwind-alpha' } },
-      { status: 400 },
-    );
-    jig().note.value = 'tighter';
-
-    jig().send.click();
+  it('asks the provider to hide it, and stays until the provider has', async () => {
+    hideReply = new Response(null, { status: 204 });
+    jig().hide.click();
 
     await until(() =>
-      expect(jig().status.textContent).toBe('No agent is running in northwind-alpha'),
+      expect(requests.at(-1)).toMatchObject({ method: 'POST', url: '/__mael/hide' }),
     );
-    expect(jig().note.value).toBe('tighter');
+    expect(document.querySelector('#mael-jig')).not.toBeNull();
+  });
+
+  it('shows why a hide failed', async () => {
+    hideReply = Response.json(
+      { error: { message: 'The jig provider is not reachable' } },
+      { status: 503 },
+    );
+    jig().hide.click();
+
+    await until(() => expect(jig().status.textContent).toBe('The jig provider is not reachable'));
+  });
+
+  describe('send', () => {
+    it('writes the file first, then posts the CSS and the note', async () => {
+      sendReply = Response.json({ agentIds: ['ag1', 'ag2'], refused: [] });
+      type('.chip { padding: 20px; }');
+      jig().note.value = 'tighter';
+
+      jig().send.click();
+
+      await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
+      expect(requests.slice(1).map((r) => [r.method, r.url, r.body])).toEqual([
+        ['PUT', '/__mael/monkeypatch', '.chip { padding: 20px; }'],
+        [
+          'POST',
+          '/__mael/feedback',
+          JSON.stringify({ type: 'monkeypatch', css: '.chip { padding: 20px; }', note: 'tighter' }),
+        ],
+      ]);
+      expect(jig().note.value).toBe('');
+      expect(jig().send.disabled).toBe(false);
+    });
+
+    it('shows a refusal and keeps the note', async () => {
+      sendReply = Response.json(
+        { error: { code: 'invalid', message: 'No agent is running in northwind-alpha' } },
+        { status: 400 },
+      );
+      jig().note.value = 'tighter';
+
+      jig().send.click();
+
+      await until(() =>
+        expect(jig().status.textContent).toBe('No agent is running in northwind-alpha'),
+      );
+      expect(jig().note.value).toBe('tighter');
+    });
   });
 });

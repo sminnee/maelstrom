@@ -51,9 +51,8 @@ export default defineConfig(({ command }) => {
       react(),
       ...(fakeMode ? [serveFake] : []),
       // The jig (CONTEXT.md), on the dev server and Ladle but not under
-      // vitest, which serves no page. Send needs the orchestrator named
-      // explicitly: the default above is a guess, fine for a proxy, wrong for a post.
-      ...(!process.env.VITEST ? [maelJig({ orchestratorUrl: process.env.ORCHESTRATOR_URL })] : []),
+      // vitest, which serves no page. `mael env start` sets its provider.
+      ...(!process.env.VITEST ? [maelJig({ providerUrl: process.env.MAEL_JIG_URL })] : []),
     ],
     server: {
       // Every interface, so the tailnet reaches the dev server and localhost
