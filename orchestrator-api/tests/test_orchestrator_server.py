@@ -2335,7 +2335,7 @@ def test_a_tagged_message_mints_a_document_the_documents_route_serves(doc_harnes
     assert doc["markdown"].strip() == "- Do the thing."
 
 
-def test_approve_moves_the_document_to_approved_and_tells_nobody_else(doc_harness):
+def test_approve_moves_the_document_to_approved_and_tells_the_agent(doc_harness):
     harness = doc_harness
 
     async def scenario():
@@ -2351,8 +2351,33 @@ def test_approve_moves_the_document_to_approved_and_tells_nobody_else(doc_harnes
     reply, doc = run(scenario())
     assert reply.status == 200
     assert doc["status"] == "approved"
-    # Approval is the user's verdict, not a message: the child hears nothing.
-    assert host_calls(harness) == []
+    [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
+    assert said == {
+        "cmd": "say",
+        "id": "ag1",
+        "text": "Approved Iteration 1 in the orchestrator UI. Continue with the work.",
+    }
+
+
+def test_an_approval_the_host_refuses_still_stands(doc_harness):
+    harness = doc_harness
+    harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness)
+                reply = await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+                return reply, await api.get_json(f"/api/documents/{row['id']}")
+
+    reply, doc = run(scenario())
+    assert reply.status == 200
+    assert doc["status"] == "approved"
+    # The refusal happened: the say was sent and refused, not skipped.
+    assert [c["id"] for c in harness.daemon.calls if c["cmd"] == "say"] == ["ag1"]
 
 
 def test_approve_clears_the_attention_the_document_raised(doc_harness):
@@ -2513,6 +2538,9 @@ def test_approving_one_member_settles_the_whole_group(doc_harness):
     assert reply.status == 200
     assert [d["status"] for d in docs["documents"]] == ["approved"] * 3
     assert attention["attention"] == []
+    # One click, one message, naming the group.
+    [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
+    assert said["text"].startswith("Approved Notes in the orchestrator UI.")
 
 
 def test_request_changes_settles_the_group_and_relays_once(doc_harness):
@@ -4554,33 +4582,6 @@ def test_the_agent_is_told_its_drafts_became_tasks(notebook_harness):
         assert expected in said["text"]
 
 
-def test_approving_anything_but_a_task_set_still_tells_nobody(notebook_harness):
-    """A verdict alone is on the document; only a promote reaches the agent."""
-    harness = notebook_harness
-    write_draft(harness, "notes.md", "Not a task set")
-    tag = (
-        "Here are the notes.\n\n"
-        '<doc-file kind="other" filename="notes.md" title="Notes" review="true">'
-    )
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                harness.daemon.push("ag1", tag_event(tag))
-                body = await settled(
-                    stream, api, "document", "/api/documents", lambda b: b["documents"]
-                )
-                row = body["documents"][0]
-                return await api.post(
-                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
-                )
-
-    reply = run(scenario())
-    assert reply.status == 200
-    assert host_calls(harness) == []
-
-
 def test_the_chain_is_wired_in_document_order(notebook_harness):
     """The head is actionable; the second waits behind it.
 
@@ -4748,7 +4749,7 @@ def test_a_draft_path_that_escapes_the_worktree_is_refused(notebook_harness):
 
 
 def test_approving_a_document_of_another_kind_writes_no_task(notebook_harness):
-    """Only a task set promotes; every other kind is a verdict and nothing more."""
+    """Only a task set promotes; every other kind writes no task."""
     harness = notebook_harness
     write_draft(harness, "notes.md", "Not a task set")
     tag = (

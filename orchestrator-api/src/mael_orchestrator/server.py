@@ -1898,14 +1898,8 @@ class Orchestrator:
     async def _approve_document(self, command: dict[str, Any]) -> dict[str, Any]:
         """The user's verdict on a document, and — for a task set — the tasks.
 
-        Approving a task set also promotes its drafts; every other kind is the
-        verdict alone.
-
-        A verdict alone reaches nobody: the agent asked for one and the answer
-        is on the document. A promote does reach the agent, because it consumed
-        the agent's draft files and created work the agent has to know the ids
-        of. Without that message the session waits on a plan it cannot see was
-        approved.
+        Approving a task set also promotes its drafts. Either way the agent
+        hears the verdict — see ``_tell_agent_of_approval``.
         """
         document = self.world["documents"][command["documentId"]]
         members = self._group_members(document)
@@ -1915,31 +1909,37 @@ class Orchestrator:
             if refused:
                 return refused
         self._settle_group(members, "approved")
-        if created:
-            await self._tell_agent_of_promote(document, created)
+        await self._tell_agent_of_approval(document, created)
         return {"ok": True, "result": {"taskIds": created}}
 
-    async def _tell_agent_of_promote(
+    async def _tell_agent_of_approval(
         self, document: Document, created: list[str]
     ) -> None:
-        """Tell the agent its drafts became tasks, and which ones.
+        """Tell the agent its document is approved, and which tasks it became.
 
-        Best-effort, after the fact: the tasks exist and the document is
-        settled, so a host that will not carry the message must not turn a
-        successful approve into a refusal. The user sees the ids either way.
+        Best-effort: the document is settled and any tasks exist, so a host
+        that refuses the message must not turn the approve into a refusal. The
+        agent is left waiting, so the refusal is logged. A promote names the
+        tasks because it consumed the agent's drafts.
         """
-        ids = ", ".join(created)
-        await self._ask_host(
-            {
-                "cmd": "say",
-                "id": document["agentId"],
-                "text": (
-                    f"Approved {document['group']['title']} in the orchestrator UI, which "
-                    f"promoted the drafts. The tasks now exist: {ids}. "
-                    f"Do not promote them again."
-                ),
-            }
+        title = document["group"]["title"]
+        if created:
+            text = (
+                f"Approved {title} in the orchestrator UI, which promoted the "
+                f"drafts. The tasks now exist: {', '.join(created)}. "
+                f"Do not promote them again."
+            )
+        else:
+            text = f"Approved {title} in the orchestrator UI. Continue with the work."
+        refused = await self._ask_host(
+            {"cmd": "say", "id": document["agentId"], "text": text}
         )
+        if refused:
+            log.warning(
+                "agent %s: approval not delivered: %s",
+                document["agentId"],
+                refused["error"]["message"],
+            )
 
     def _group_members(self, document: Document) -> list[Document]:
         """The current members of ``document``'s review group, in tag order."""
