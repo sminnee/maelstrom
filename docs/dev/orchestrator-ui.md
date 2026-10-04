@@ -1221,6 +1221,10 @@ server through `AppDeps`. `src/fake/main.tsx` is the entry. The index lists the 
 `src/fake/scenarios.ts`, and `?scenario=<name>` opens one. `src/fake/deepLink.ts` lists the
 parameters that open a screen. `pnpm build` reads `index.html` only, so the fake does not ship.
 
+**The icons are static files in `public/`.** Vite serves them at `/` and copies them into the
+build. `logo.svg` is the one source. The PNG files and `favicon.ico` are committed, made from it
+by `orchestrator-ui/bin/render-icons`. Run it after `logo.svg` changes; CI does not.
+
 `pnpm dev` with no `FAKE_MODE` and no server behind it shows "Loading the world…" and a
 "Reconnecting…" banner until one appears.
 

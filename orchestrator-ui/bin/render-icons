@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Remakes every raster icon in public/ from logo.svg.
+#
+# Needs rsvg-convert (librsvg) and magick (ImageMagick 7).
+set -euo pipefail
+cd "$(dirname "$0")/../public"
+
+# tile <size> <mark %> <out>: the mark, centred on a console-slate square.
+# rsvg-convert matches no prefers-color-scheme query, so the mark takes
+# logo.svg's default colour: the dark theme's, which reads on slate.
+tile() {
+  local mark=$(($1 * $2 / 100))
+  rsvg-convert -w "$mark" -h "$mark" logo.svg |
+    magick -size "$1x$1" xc:'#0f1115' - -gravity center -composite "$3"
+}
+
+# iOS rounds the corners itself, so the touch icon is the plain square.
+tile 180 78 apple-touch-icon.png
+tile 192 78 icon-192.png
+tile 512 78 icon-512.png
+# An Android launcher may crop anything outside the centre 80 %.
+tile 512 60 icon-maskable-512.png
+
+# For browsers that do not take the SVG favicon. The tile, not the bare mark:
+# a transparent mark in one colour vanishes on a tab strip of that colour.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/icons.XXXX")
+trap 'rm -rf "$tmp"' EXIT
+for s in 16 32 48; do tile "$s" 78 "$tmp/$s.png"; done
+magick "$tmp/16.png" "$tmp/32.png" "$tmp/48.png" favicon.ico
