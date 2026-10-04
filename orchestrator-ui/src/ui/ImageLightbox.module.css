@@ -54,11 +54,17 @@
 /* `Dialog` sizes its box for 100 columns of text. A picture should be as wide
    as it is and no wider, so the lightbox overrides that one rule. Not `auto`:
    a modal dialog is fixed with both insets at 0, so `auto` fills the screen.
-   Only on a wide screen: below 839px `Dialog` is the whole screen,
-   top-anchored with no margin, and a shrunk box would sit in the top corner. */
+   Only on a wide screen: below 839px `Dialog` is the whole screen with no
+   margin, and a shrunk box would sit in a corner. There the picture sits in
+   the middle of the screen's height. */
 @media (min-width: 840px) {
   .box {
     width: fit-content;
+  }
+}
+@media (max-width: 839px) {
+  .box {
+    justify-content: center;
   }
 }
 

@@ -21,17 +21,18 @@ html {
   position: relative;
   overflow: hidden;
 }
-/* On a phone the page itself never moves: no rubber band, no pull-to-refresh,
-   and the root is pinned to the visual viewport (`layout/visualViewport.ts`).
-   Not on the wide layout, where `none` would also stop a trackpad's back swipe. */
+/* On a phone the page never moves. See DESIGN.md, "The Still Screen Rule".
+   Not on the wide layout, where `none` would also stop a trackpad's back
+   swipe. */
 @media (max-width: 839px) {
   html,
   body {
+    height: var(--vvh, 100%);
     overscroll-behavior: none;
   }
   #root {
     position: fixed;
-    top: var(--vvt, 0);
+    bottom: 0;
     left: 0;
     right: 0;
     height: var(--vvh, 100dvh);

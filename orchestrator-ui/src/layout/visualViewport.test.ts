@@ -1,39 +1,91 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { trackVisualViewport } from './visualViewport';
 
-/** A visual viewport the test can resize, scroll and zoom, as a soft keyboard and a pinch do. */
-function fakeViewport(height: number, offsetTop = 0) {
+/** A visual viewport the test can resize and zoom, as a soft keyboard and a pinch do. */
+function fakeViewport(height: number) {
   const target = new EventTarget();
-  return Object.assign(target, { height, offsetTop, scale: 1 });
+  return Object.assign(target, { height, scale: 1 });
 }
 
-const vars = (root: HTMLElement) => ({
-  vvh: root.style.getPropertyValue('--vvh'),
-  vvt: root.style.getPropertyValue('--vvt'),
-});
+const vvh = (root: HTMLElement) => root.style.getPropertyValue('--vvh');
+
+/** Fire `resize` with the viewport at `height`, and let the frame run. */
+function resize(viewport: ReturnType<typeof fakeViewport>, height: number) {
+  viewport.height = height;
+  viewport.dispatchEvent(new Event('resize'));
+}
+const nextFrame = () => vi.advanceTimersToNextFrame();
 
 describe('trackVisualViewport', () => {
-  it('writes the visible height and top, and follows the keyboard', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('writes the visible height, follows the keyboard, and writes no top', () => {
     const root = document.createElement('div');
     const viewport = fakeViewport(844);
     const stop = trackVisualViewport(root, viewport);
-    expect(vars(root)).toEqual({ vvh: '844px', vvt: '0px' });
+    // At once, so the first paint has it.
+    expect(vvh(root)).toBe('844px');
 
-    viewport.height = 508;
-    viewport.dispatchEvent(new Event('resize'));
-    expect(vars(root)).toEqual({ vvh: '508px', vvt: '0px' });
-
-    // iOS scrolls the layout viewport to show the focused field.
-    viewport.offsetTop = 336;
-    viewport.dispatchEvent(new Event('scroll'));
-    expect(vars(root)).toEqual({ vvh: '508px', vvt: '336px' });
+    resize(viewport, 508);
+    nextFrame();
+    expect(vvh(root)).toBe('508px');
+    // The app anchors to the bottom, so the top is not tracked.
+    expect(root.style.getPropertyValue('--vvt')).toBe('');
 
     stop();
-    viewport.height = 844;
-    viewport.offsetTop = 0;
-    viewport.dispatchEvent(new Event('resize'));
+    resize(viewport, 844);
+    nextFrame();
+    expect(vvh(root)).toBe('508px');
+  });
+
+  it('writes once for every event in one frame, with the last height', () => {
+    const root = document.createElement('div');
+    const viewport = fakeViewport(844);
+    trackVisualViewport(root, viewport);
+    const set = vi.spyOn(root.style, 'setProperty');
+
+    resize(viewport, 700);
     viewport.dispatchEvent(new Event('scroll'));
-    expect(vars(root)).toEqual({ vvh: '508px', vvt: '336px' });
+    resize(viewport, 508);
+    expect(set).not.toHaveBeenCalled();
+    nextFrame();
+    expect(set.mock.calls).toEqual([['--vvh', '508px']]);
+  });
+
+  it('writes whole pixels, as iOS reports a fraction', () => {
+    const root = document.createElement('div');
+    const viewport = fakeViewport(844);
+    trackVisualViewport(root, viewport);
+
+    resize(viewport, 507.6);
+    nextFrame();
+    expect(vvh(root)).toBe('508px');
+  });
+
+  it('drops a write still waiting for its frame when it stops', () => {
+    const root = document.createElement('div');
+    const viewport = fakeViewport(844);
+    const stop = trackVisualViewport(root, viewport);
+
+    resize(viewport, 508);
+    stop();
+    nextFrame();
+    expect(vvh(root)).toBe('844px');
+  });
+
+  it('ignores a height of 0, which iOS reports for a moment', () => {
+    const root = document.createElement('div');
+    const viewport = fakeViewport(844);
+    trackVisualViewport(root, viewport);
+
+    resize(viewport, 0);
+    nextFrame();
+    expect(vvh(root)).toBe('844px');
   });
 
   it('holds still while the page is pinch-zoomed, so the zoom pans over a still app', () => {
@@ -41,19 +93,20 @@ describe('trackVisualViewport', () => {
     const viewport = fakeViewport(844);
     trackVisualViewport(root, viewport);
 
-    Object.assign(viewport, { scale: 2, height: 422, offsetTop: 200 });
-    viewport.dispatchEvent(new Event('resize'));
-    viewport.dispatchEvent(new Event('scroll'));
-    expect(vars(root)).toEqual({ vvh: '844px', vvt: '0px' });
+    viewport.scale = 2;
+    resize(viewport, 422);
+    nextFrame();
+    expect(vvh(root)).toBe('844px');
 
-    Object.assign(viewport, { scale: 1, height: 844, offsetTop: 0 });
-    viewport.dispatchEvent(new Event('resize'));
-    expect(vars(root)).toEqual({ vvh: '844px', vvt: '0px' });
+    viewport.scale = 1;
+    resize(viewport, 844);
+    nextFrame();
+    expect(vvh(root)).toBe('844px');
   });
 
-  it('leaves both unset with no visual viewport, so the CSS fallback applies', () => {
+  it('leaves it unset with no visual viewport, so the CSS fallback applies', () => {
     const root = document.createElement('div');
     trackVisualViewport(root, null);
-    expect(vars(root)).toEqual({ vvh: '', vvt: '' });
+    expect(vvh(root)).toBe('');
   });
 });

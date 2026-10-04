@@ -122,19 +122,20 @@
 /*
  * On a narrow screen the dialog is the screen. Centred with a margin, it spends
  * a fifth of a phone's width on chrome, and a soft keyboard pushes the focused
- * field out of sight. Top-anchored and full-bleed instead, measured in `--vvh`
- * so the keyboard shrinks the box rather than covering it.
+ * field out of sight. Bottom-anchored and full-bleed instead, as `#root` is,
+ * measured in `--vvh` so the keyboard shrinks the box rather than covering it.
  */
 @media (max-width: 839px) {
   .dialog {
     width: 100%;
     max-width: none;
+    /* The dialog is in the top layer, outside `#root`, so it takes the
+       visible height itself. */
+    top: auto;
+    bottom: 0;
+    height: var(--vvh, 100dvh);
     max-height: var(--vvh, 100dvh);
-    /* The dialog is in the top layer, outside `#root`, so it follows the
-       visual viewport itself when iOS scrolls for the keyboard. */
-    top: var(--vvt, 0);
-    bottom: auto;
-    /* Top-anchored and full-bleed, so the UA's centring margin goes. */
+    /* Anchored and full-bleed, so the UA's centring margin goes. */
     margin: 0;
     border: none;
     border-radius: 0;

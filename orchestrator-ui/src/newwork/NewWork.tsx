@@ -577,9 +577,10 @@ function Capture({
       {kind === 'task' && <TaskTitleField draft={task} onChange={patchTask} />}
 
       {kind !== 'linear' && (
-        <div className={dialog.field}>
+        <div className={`${dialog.field} ${styles.draftField}`}>
           <label htmlFor={draftId}>What needs doing?</label>
           <AttachField
+            className={styles.draftAttach}
             project={project}
             bucket={bucket}
             attached={attached}
