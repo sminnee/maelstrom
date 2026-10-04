@@ -24,8 +24,8 @@
   },
   "include": [
     "src",
-    "vite-plugin-mael-tune/client.ts",
-    "vite-plugin-mael-tune/overlay.ts",
-    "vite-plugin-mael-tune/overlay.test.ts"
+    "vite-plugin-mael-jig/client.ts",
+    "vite-plugin-mael-jig/overlay.ts",
+    "vite-plugin-mael-jig/overlay.test.ts"
   ]
 }

@@ -18,7 +18,7 @@ const hot = { on: (_event: string, callback: Listener) => (listener = callback) 
 function fakeFetch(canSend: boolean) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const method = init?.method ?? 'GET';
-    const client = new Headers(init?.headers).get('x-mael-tune-client');
+    const client = new Headers(init?.headers).get('x-mael-jig-client');
     requests.push({ method, url: String(input), body: String(init?.body ?? ''), client });
     if (method === 'PUT') return new Response(null, { status: 204 });
     if (method === 'POST') return sendReply;
@@ -33,7 +33,7 @@ async function mount({ canSend }: { canSend: boolean }) {
 }
 
 function jig() {
-  const root = document.querySelector('#mael-tune-jig')?.shadowRoot;
+  const root = document.querySelector('#mael-jig')?.shadowRoot;
   if (!root) throw new Error('no jig');
   return {
     textarea: root.querySelector('textarea') as HTMLTextAreaElement,
@@ -133,11 +133,11 @@ describe('send', () => {
 
     await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
     expect(requests.slice(1).map((r) => [r.method, r.url, r.body])).toEqual([
-      ['PUT', '/__mael/tuning', '.chip { padding: 20px; }'],
+      ['PUT', '/__mael/monkeypatch', '.chip { padding: 20px; }'],
       [
         'POST',
-        '/__mael/send',
-        JSON.stringify({ css: '.chip { padding: 20px; }', note: 'tighter' }),
+        '/__mael/feedback',
+        JSON.stringify({ type: 'monkeypatch', css: '.chip { padding: 20px; }', note: 'tighter' }),
       ],
     ]);
     expect(jig().note.value).toBe('');

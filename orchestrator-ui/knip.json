@@ -1,5 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/**/*.stories.tsx", "src/fake/main.tsx", "vite-plugin-mael-tune/client.ts"],
+  "entry": ["src/**/*.stories.tsx", "src/fake/main.tsx", "vite-plugin-mael-jig/client.ts"],
   "ignoreExportsUsedInFile": true
 }
