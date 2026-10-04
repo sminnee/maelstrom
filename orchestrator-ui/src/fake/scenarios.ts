@@ -629,6 +629,28 @@ function empty(): Seed {
   return { world: worldWith({ projects: [makeProject()] }), transcripts: {} };
 }
 
+/**
+ * The seed with both usage windows read: the 5-hour ahead of pace, so it is
+ * amber and the narrow bar shows it, and the week on pace and neutral.
+ *
+ * Dated from the page load rather than {@link T}: the app reads the real
+ * clock, and a reading stamped at the seed's time would draw as stale.
+ */
+function usage(): Seed {
+  const seed = seedWorld();
+  const now = Date.now();
+  const resetsIn = (hours: number) => Math.round(now / 1000 + hours * 3600);
+  seed.world.host = {
+    ...seed.world.host!,
+    usage: {
+      fiveHour: { utilization: 0.55, resetsAt: resetsIn(3) },
+      sevenDay: { utilization: 0.05, resetsAt: resetsIn(6 * 24) },
+      at: new Date(now).toISOString(),
+    },
+  };
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -661,6 +683,7 @@ export const SCENARIOS = {
     build: transcript,
     screen: 'session=c3e8f1b5',
   },
+  usage: { about: 'The seed with both usage windows read, one ahead of pace.', build: usage },
   empty: { about: 'An empty desk, with no worktree.', build: empty },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
 } satisfies Record<string, Scenario>;
