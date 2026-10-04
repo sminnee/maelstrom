@@ -1219,7 +1219,7 @@ CSS modules hash their class names, so a rule matches on part of the name:
 mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
 mael env start                  # this worktree's own copy, on its floating ports
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
-mael env start web-fake         # the fake mode, alone, on this worktree's WEB_FAKE port
+mael env start web-fake         # the fake mode, alone, on this worktree's FAKE_FRONTEND port
 cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
 cd orchestrator-ui && pnpm test # vitest: the app in jsdom, the jig in Node
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
