@@ -25,6 +25,8 @@
   overflow: hidden;
 
   font-family: var(--font);
+  /* The value's size, and the size the label's `em` is a fraction of. */
+  font-size: var(--text-sm);
   line-height: 1;
   white-space: nowrap;
 }
@@ -50,14 +52,14 @@
   --chip-tone: var(--tone-archival);
 }
 
-/* Each chip takes one size and the chrome's face. See DESIGN.md, "Chips". */
-.label,
-.value {
-  font-size: var(--text-sm);
-}
-
-/* What is measured. It never changes, so it recedes and lets the number lead. */
+/*
+ * What is measured. It never changes, so it recedes and lets the number lead.
+ * No token is this small, so it derives from the chip's `--text-sm`. The
+ * margin's `em` is the label's own size.
+ */
 .label {
+  margin-bottom: 0.375em;
+  font-size: 0.6667em;
   color: var(--fg-faint);
   letter-spacing: var(--tracking-micro);
 }

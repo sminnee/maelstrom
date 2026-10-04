@@ -807,7 +807,9 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
 - **Split chip:** one box in two rows, with an 8px radius — what is measured, over what it
-  reads. Sunken ground, so it sits _in_ the raised bar; tabular value, so the chip holds
+  reads. The label is two thirds of `--text-sm` (8px on the wide layout) with 3px below it, so
+  the value leads. On the narrow layout the label is about 11px. It is the one text under the
+  Phone Type Rule's floor: a fixed word the eye does not read twice. Sunken ground, so it sits _in_ the raised bar; tabular value, so the chip holds
   its width as the number ticks. Only the value takes the tone. Both halves read at rest,
   unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
   vouch for drops to faint and dashes its outline, and the chip itself gives up the tone.
