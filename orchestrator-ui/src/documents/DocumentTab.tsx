@@ -13,6 +13,7 @@ import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { phaseForCommand, phaseLabel } from '../protocol/phase';
 import { groupOf } from '../selectors/documents';
+import type { DocumentRow } from '../selectors/world';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -21,6 +22,7 @@ import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
 import { AppButton } from '../ui/AppButton';
+import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { ReviewActions } from './ReviewActions';
 import styles from './DocumentTab.module.css';
 
@@ -104,18 +106,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
           )}
         </div>
         {members.length > 1 && (
-          <nav aria-label={row!.group.title} className={styles.siblings}>
-            <span>
-              {members.findIndex((d) => d.id === documentId) + 1} of {members.length}
-            </span>
-            {members
-              .filter((d) => d.id !== documentId)
-              .map((d) => (
-                <PanelLink key={d.id} tab={documentTab(d.id)} className={styles.siblingLink}>
-                  {d.title}
-                </PanelLink>
-              ))}
-          </nav>
+          <SiblingNav title={row!.group.title} members={members} documentId={documentId} />
         )}
       </header>
       <div className={styles.split}>
@@ -174,5 +165,50 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The other members of the review group. In a narrow panel the list clamps to
+ * the counter and two members, and a tap on it expands it.
+ */
+function SiblingNav({
+  title,
+  members,
+  documentId,
+}: {
+  title: string;
+  members: DocumentRow[];
+  documentId: string;
+}) {
+  const { expanded, clamped, collapse, bodyProps } = useExpandableClamp([
+    members.length,
+    documentId,
+  ]);
+  return (
+    <nav aria-label={title} className={styles.siblings}>
+      <div className={styles.siblingsBody} data-clamped={clamped || undefined} {...bodyProps}>
+        <span>
+          {members.findIndex((d) => d.id === documentId) + 1} of {members.length}
+        </span>
+        {members
+          .filter((d) => d.id !== documentId)
+          .map((d) => (
+            <PanelLink key={d.id} tab={documentTab(d.id)} className={styles.siblingLink}>
+              <span className={styles.siblingTitle}>{d.title}</span>
+            </PanelLink>
+          ))}
+      </div>
+      {expanded && (
+        <AppButton
+          variant="link"
+          className={styles.siblingsMore}
+          aria-controls={bodyProps.id}
+          onClick={collapse}
+        >
+          Show less
+        </AppButton>
+      )}
+    </nav>
   );
 }

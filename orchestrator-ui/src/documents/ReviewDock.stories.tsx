@@ -100,6 +100,8 @@ const GROUP_FILES = [
   '.drafts/rotate-observatory-api-credentials.md',
   '.drafts/prune-stale-session-transcripts.md',
   '.drafts/rerun-failed-horoscope-renders.md',
+  '.drafts/archive-last-quarters-observation-logs.md',
+  '.drafts/refresh-moon-phase-notification-schedule.md',
 ];
 
 /** A body longer than one screen, with a long `code` token and a long `pre` line. */
@@ -132,9 +134,9 @@ const GROUP_BODY = [
   'The cache directory. One fixture per feed shape, asserted through the reader.',
 ].join('\n');
 
-/** A task set of four, as a planner presents it: one tag, one verdict. */
-function taskGroup(): Document[] {
-  return GROUP_FILES.map((filename, position) => ({
+/** A task set of up to six, as a planner presents it: one tag, one verdict. */
+function taskGroup(size = GROUP_FILES.length): Document[] {
+  return GROUP_FILES.slice(0, size).map((filename, position) => ({
     id: `doc-group-${position}`,
     agentId: AGENT,
     taskId: GROUP_TASK,
@@ -224,12 +226,23 @@ export const AwaitingPermission: Story = () => <Harness wait={permissionItem} />
 export const Settled: Story = () => <Harness status="approved" wait={null} />;
 
 /**
- * A task set of four awaiting review, with no wait on the agent. Open NORT-9
+ * A task set of six awaiting review, with no wait on the agent. Open NORT-9
  * and follow the first document under `Daily maintenance`.
  *
  * What to look at, at 390px: the dock wraps to more than one row, and the body
  * still ends above it. Nothing is wider than the screen — not the header line,
  * the sibling links, the code block or the summary field. Scroll to the end and
- * the last paragraph clears the dock.
+ * the last paragraph clears the dock. The sibling list shows the counter and
+ * two one-line members under a fade; a tap on it shows all six.
  */
 export const AwaitingGroupReview: Story = () => <Harness wait={null} documents={taskGroup} />;
+
+/**
+ * A task set of two: the same document with one sibling.
+ *
+ * What to look at, at 390px: the sibling list fits, so it has no fade and is
+ * not a button.
+ */
+export const AwaitingPairReview: Story = () => (
+  <Harness wait={null} documents={() => taskGroup(2)} />
+);

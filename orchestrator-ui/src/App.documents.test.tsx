@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { addAttachedVerification, addNote, addPlan, addTaskSet } from './fake/moves';
 import { chipCount, expanded, tabBody, tabStrip, worktreeRow } from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('document tabs', () => {
   it('two documents from two expanded nodes open as two attributed tabs that survive a third', async () => {
@@ -333,6 +337,33 @@ describe('a document an agent tagged in its own message', () => {
     ).toEqual(['Execute: parse', 'Execute: show']);
     await user.click(within(tab).getByRole('button', { name: 'Approve and create 3 tasks' }));
     expect(await screen.findByTestId('created-tasks')).toHaveTextContent('Created 3 tasks');
+  });
+
+  it('a clamped sibling list expands on a tap, folds on Show less, and a tap on a member opens it', async () => {
+    // jsdom computes no layout, so stub the measure the clamp reads, as
+    // `QuietBlock.test.tsx` does. The CSS the clamp draws is checked in Ladle.
+    vi.spyOn(HTMLDivElement.prototype, 'scrollHeight', 'get').mockReturnValue(100);
+    vi.spyOn(HTMLDivElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addTaskSet(server);
+    clickNode('NORT-12');
+    const group = await within(expanded()).findByRole('group', { name: 'Iteration 3' });
+    await user.click(within(group).getByRole('link', { name: 'Execute: mint v1' }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Step 2.'));
+    const siblings = within(tab).getByRole('navigation', { name: 'Iteration 3' });
+    const list = await within(siblings).findByRole('button', { expanded: false });
+
+    await user.click(within(list).getByText('2 of 3'));
+    const showLess = within(siblings).getByRole('button', { name: 'Show less' });
+    expect(within(siblings).queryByRole('button', { expanded: false })).toBeNull();
+    await user.click(showLess);
+    expect(within(siblings).getByRole('button', { expanded: false })).toBe(list);
+
+    // The member opens in its own tab, collapsed.
+    await user.click(within(siblings).getByRole('link', { name: 'Execute: show' }));
+    await waitFor(() => expect(screen.getByTestId('document-tab')).toHaveTextContent('3 of 3'));
   });
 
   it('a superseded member stands alone in its tab', async () => {

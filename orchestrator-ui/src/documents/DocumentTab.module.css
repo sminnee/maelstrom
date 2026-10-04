@@ -61,17 +61,41 @@
   align-items: baseline;
   gap: var(--u);
 }
-/* The other members of the review group. */
+/*
+ * The other members of the review group, one compact row each. The rows sit
+ * below the control height on purpose, so a long group does not push the
+ * document off a phone screen.
+ */
 .siblings {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--u);
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
+.siblingsBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+/* `flex: none`, or the clamp squeezes the rows instead of clipping them. */
+.siblingsBody > * {
+  flex: none;
+  line-height: var(--u-3);
+}
 .siblingLink {
-  overflow-wrap: anywhere;
+  min-height: 0;
+  max-width: 100%;
+  min-width: 0;
+}
+/* The link is `inline-flex`, so the ellipsis goes on a child that can shrink,
+   and the open-in-panel icon stays visible. */
+.siblingTitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.siblingsMore {
+  margin-top: var(--u-half);
+  font-size: var(--text-sm);
 }
 .taskTitle {
   flex: 1;
@@ -134,6 +158,15 @@
 
 /* Tighter gutters once the panel is narrow. */
 @container (max-width: 26rem) {
+  /* The counter and two members, under the quiet block's fade. */
+  .siblingsBody:not([data-expanded]) {
+    max-height: calc(var(--u-3) * 3);
+    overflow: hidden;
+  }
+  .siblingsBody[data-clamped]:not([data-expanded]) {
+    -webkit-mask-image: var(--clamp-fade);
+    mask-image: var(--clamp-fade);
+  }
   .dock {
     padding-left: var(--u);
     padding-right: var(--u);
