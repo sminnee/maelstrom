@@ -64,7 +64,7 @@ export function ReviewActions({
           disabled={!summary.trim() && unresolved === 0}
           onClick={() => onRequestChanges(summary.trim())}
         >
-          {members > 1 ? `Request changes on all ${members}` : 'Request changes'}
+          {members > 1 ? `Decline all ${members}` : 'Decline'}
         </AppButton>
       </div>
     </div>

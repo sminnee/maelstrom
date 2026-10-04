@@ -29,21 +29,21 @@ describe('ReviewActions', () => {
   // DOM order is the tab order, and DESIGN.md wants it to match what the eye reads.
   it('puts the field first, with both buttons in a row under it, Approve leading', () => {
     bar('awaiting-review');
-    const [approve, field, changes] = [
+    const [approve, field, decline] = [
       screen.getByRole('button', { name: 'Approve' }),
       screen.getByRole('textbox', { name: 'Summary of requested changes' }),
-      screen.getByRole('button', { name: 'Request changes' }),
+      screen.getByRole('button', { name: 'Decline' }),
     ];
     expect(precedes(field, approve)).toBe(true);
-    expect(precedes(approve, changes)).toBe(true);
-    expect(approve.parentElement).toContainElement(changes);
+    expect(precedes(approve, decline)).toBe(true);
+    expect(approve.parentElement).toContainElement(decline);
     expect(approve.parentElement).not.toContainElement(field);
   });
 
   it('offers nothing once the plan has gone stale, and says why', () => {
     bar('stale');
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Decline' })).toBeNull();
     expect(screen.getByText('This version is stale.')).toBeInTheDocument();
   });
 
@@ -95,7 +95,7 @@ describe('ReviewActions', () => {
       />,
     );
     expect(screen.getByRole('button', { name: 'Approve all 3' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Request changes on all 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Decline all 3' })).toBeInTheDocument();
   });
 
   it('says a settled group is settled as a whole', () => {
