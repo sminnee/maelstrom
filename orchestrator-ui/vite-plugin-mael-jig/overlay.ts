@@ -6,8 +6,13 @@ interface Update {
   from: string | null;
 }
 
+interface Hot {
+  on(event: 'mael-jig:monkeypatch', callback: (data: Update) => void): void;
+  on(event: 'mael-jig:state', callback: (data: { visible: boolean }) => void): void;
+}
+
 interface Options {
-  hot: { on: (event: 'mael-jig:monkeypatch', callback: (data: Update) => void) => void };
+  hot: Hot;
   fetch?: typeof fetch;
   debounceMs?: number;
 }
@@ -35,7 +40,8 @@ const PANEL = `
 <style>${STYLE}</style>
 <button class="pill" data-toggle>Jig</button>
 <div class="panel" hidden>
-  <div class="row"><strong>Monkeypatch</strong><button data-close>Close</button></div>
+  <div class="row"><strong>Monkeypatch</strong>
+    <span><button data-hide>Hide jig</button> <button data-close>Close</button></span></div>
   <textarea spellcheck="false" aria-label="Monkeypatch"></textarea>
   <input data-note placeholder="Note to the agent (optional)" aria-label="Note" />
   <div class="row"><span class="status" role="status"></span>
@@ -43,7 +49,10 @@ const PANEL = `
 </div>
 `;
 
-/** Mount the jig on the page. The promise holds the function that takes it off again. */
+/**
+ * Mount the jig on the page. It draws nothing until the provider shows it.
+ * The promise holds the function that takes it off again.
+ */
 export async function mountJig({
   hot,
   fetch = window.fetch.bind(window),
@@ -58,17 +67,14 @@ export async function mountJig({
   const keepLast = () => {
     if (document.head.lastElementChild !== style) document.head.append(style);
   };
-  keepLast();
   // Vite appends a module's `<style>` when it loads or hot-updates, which would
   // put the app's rule after this one and win a tie of specificity.
   const observer = new MutationObserver(keepLast);
-  observer.observe(document.head, { childList: true });
 
   const host = document.createElement('div');
   host.id = 'mael-jig';
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = PANEL;
-  document.body.append(host);
 
   const $ = <T extends Element>(selector: string) => root.querySelector(selector) as T;
   const panel = $<HTMLDivElement>('.panel');
@@ -84,6 +90,37 @@ export async function mountJig({
   };
   pill.addEventListener('click', () => show(true));
   $<HTMLButtonElement>('[data-close]').addEventListener('click', () => show(false));
+
+  // Hidden, the page carries nothing of the jig: no pill, no panel, no CSS.
+  const attach = (visible: boolean) => {
+    if (visible === host.isConnected) return;
+    if (visible) {
+      keepLast();
+      observer.observe(document.head, { childList: true });
+      document.body.append(host);
+      show(true);
+    } else {
+      observer.disconnect();
+      style.remove();
+      host.remove();
+    }
+  };
+  // A state event during the first load is newer than what the load reads.
+  let heard = false;
+  hot.on('mael-jig:state', ({ visible }) => {
+    heard = true;
+    attach(visible);
+  });
+
+  // The jig goes when the provider says it has, not before.
+  $<HTMLButtonElement>('[data-hide]').addEventListener('click', async () => {
+    try {
+      const reply = await fetch('/__mael/hide', { method: 'POST' });
+      if (!reply.ok) status.textContent = (await reply.json()).error?.message ?? 'Hide failed';
+    } catch (error) {
+      status.textContent = `Hide failed: ${String(error)}`;
+    }
+  });
 
   const apply = (css: string) => {
     style.textContent = css;
@@ -143,14 +180,10 @@ export async function mountJig({
   textarea.readOnly = false;
   textarea.value = loaded.css;
   apply(loaded.css);
-  sendButton.disabled = !loaded.canSend;
-  if (!loaded.canSend) sendButton.title = 'No orchestrator is set for this dev server';
-  if (loaded.css) show(true);
+  if (!heard) attach(loaded.visible);
 
   return () => {
     clearTimeout(pending);
-    observer.disconnect();
-    style.remove();
-    host.remove();
+    attach(false);
   };
 }
