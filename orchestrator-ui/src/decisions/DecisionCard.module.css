@@ -101,15 +101,11 @@
 .decision[data-variant='dock'][data-binary] [data-role='prompt-text']:not([data-linked]) {
   display: none;
 }
-/* The actions on one row, the deny field taking what the buttons leave. */
+/* The actions take what the context control leaves. */
 .decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] {
   flex: 1;
-  flex-wrap: nowrap;
-  gap: var(--u);
 }
 .decision[data-variant='dock'][data-binary] [data-role='prompt-actions'] textarea {
-  flex: 1;
-  min-width: 0;
   /* Nothing around the review dock scrolls, so a long reason scrolls itself. */
   max-height: calc(var(--vvh, 100dvh) / 2);
   overflow-y: auto;

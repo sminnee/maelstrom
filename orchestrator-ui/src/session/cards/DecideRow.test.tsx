@@ -3,7 +3,29 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DecideRow } from './DecideRow';
 
+function precedes(a: Element, b: Element) {
+  return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+function parts() {
+  return [
+    screen.getByRole('button', { name: 'Approve' }),
+    screen.getByRole('textbox', { name: 'Deny reason' }),
+    screen.getByRole('button', { name: 'Deny' }),
+  ] as const;
+}
+
 describe('DecideRow', () => {
+  // DOM order is the tab order, and DESIGN.md wants it to match what the eye reads.
+  it('puts the field first, with both buttons in a row under it, Approve leading', () => {
+    render(<DecideRow onDecide={vi.fn()} />);
+    const [approve, field, deny] = parts();
+    expect(precedes(field, approve)).toBe(true);
+    expect(precedes(approve, deny)).toBe(true);
+    expect(approve.parentElement).toContainElement(deny);
+    expect(approve.parentElement).not.toContainElement(field);
+  });
+
   it('withholds Deny until there is a reason to give', async () => {
     render(<DecideRow onDecide={vi.fn()} />);
     const deny = screen.getByRole('button', { name: 'Deny' });
