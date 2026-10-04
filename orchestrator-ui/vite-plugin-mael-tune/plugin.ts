@@ -15,6 +15,7 @@ interface Options {
 /** The custom HMR event that carries the file to every page. */
 const UPDATE_EVENT = 'mael-tune:update';
 const CLIENT_HEADER = 'x-mael-tune-client';
+const SETTLE_MS = 80;
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
 export function maelTune({ orchestratorUrl }: Options): Plugin {
@@ -46,11 +47,18 @@ export function maelTune({ orchestratorUrl }: Options): Plugin {
       // The directory, not the file: a file that does not exist yet is not watched.
       mkdirSync(drafts, { recursive: true });
       server.watcher.add(drafts);
+      // Read a moment after the last event, not at it. A write truncates the file
+      // first, so an event can see it empty, and the watcher drops a second
+      // `change` that follows within 50 ms: the pages would keep the empty read.
+      let settle: ReturnType<typeof setTimeout> | undefined;
       const broadcast = (changed: string) => {
         if (changed !== file) return;
-        const css = read();
-        const from = lastWrite?.css === css ? lastWrite.from : null;
-        server.ws.send({ type: 'custom', event: UPDATE_EVENT, data: { css, from } });
+        clearTimeout(settle);
+        settle = setTimeout(() => {
+          const css = read();
+          const from = lastWrite?.css === css ? lastWrite.from : null;
+          server.ws.send({ type: 'custom', event: UPDATE_EVENT, data: { css, from } });
+        }, SETTLE_MS);
       };
       server.watcher.on('add', broadcast);
       server.watcher.on('change', broadcast);
