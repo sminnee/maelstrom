@@ -22,5 +22,10 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "vite-plugin-mael-tune/client.ts",
+    "vite-plugin-mael-tune/overlay.ts",
+    "vite-plugin-mael-tune/overlay.test.ts"
+  ]
 }
