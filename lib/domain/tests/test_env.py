@@ -58,6 +58,7 @@ from mael_domain.env import (
     tail_log_file,
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
+from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 from mael_domain.session_discovery import LiveSession
 from mael_domain.worktree import read_env_file
 from mael_domain.worktree_model import CopyBackResult
@@ -348,6 +349,19 @@ class TestEnvStateRoundTrip:
         assert store.exists("myproject/bravo.json")
 
 
+@pytest.fixture
+def home(_home, monkeypatch):
+    """A home whose projects directory is the default, ``~/Projects``.
+
+    ``build_service_env`` reads the notebook's ``orchestrator_url:``, so every
+    test of it pins the notebook root: the developer's real one would leak in.
+    """
+    monkeypatch.delenv("MAEL_FEEDBACK_URL", raising=False)
+    monkeypatch.delenv(NOTEBOOK_ROOT_ENV, raising=False)
+    return _home
+
+
+@pytest.mark.usefixtures("home")
 class TestBuildServiceEnv:
     """Tests for build_service_env function."""
 
@@ -416,6 +430,55 @@ class TestBuildServiceEnv:
             "DEV_HOST": "desk.tailnet.ts.net",
             "DEV_SCHEME": "http",
         }
+
+
+class TestFeedbackUrl:
+    """Every service hears where the notebook's orchestrator serves live feedback."""
+
+    @pytest.fixture
+    def notebook(self, home, monkeypatch):
+        root = home / ".maelstrom"
+        root.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv(NOTEBOOK_ROOT_ENV, str(root))
+        return root
+
+    def worktree(self, home: Path, env: str) -> Path:
+        path = home / "Projects" / "maelstrom" / "maelstrom-alpha"
+        path.mkdir(parents=True)
+        (path / ".env").write_text(env)
+        return path
+
+    @pytest.mark.parametrize(
+        ("orchestrator_url", "feedback_url"),
+        [
+            ("http://127.0.0.1:2770", "ws://127.0.0.1:2770/api/live-feedback"),
+            (
+                "https://desk.tailnet.ts.net:2770/",
+                "wss://desk.tailnet.ts.net:2770/api/live-feedback",
+            ),
+        ],
+        ids=["http", "https"],
+    )
+    def test_comes_from_the_orchestrator_url(
+        self, home, notebook, orchestrator_url, feedback_url
+    ):
+        (notebook / "config.yaml").write_text(f"orchestrator_url: {orchestrator_url}\n")
+        alpha = self.worktree(home, "ORCHESTRATOR_PORT=3460\n")
+
+        assert build_service_env(alpha)["MAEL_FEEDBACK_URL"] == feedback_url
+
+    def test_the_worktree_env_overrides_it(self, home, notebook):
+        (notebook / "config.yaml").write_text(
+            "orchestrator_url: http://127.0.0.1:2770\n"
+        )
+        alpha = self.worktree(home, "MAEL_FEEDBACK_URL=\n")
+
+        assert build_service_env(alpha)["MAEL_FEEDBACK_URL"] == ""
+
+    def test_is_absent_when_no_orchestrator_url_is_set(self, home, notebook):
+        alpha = self.worktree(home, "")
+
+        assert "MAEL_FEEDBACK_URL" not in build_service_env(alpha)
 
 
 class TestIsServiceAlive:
