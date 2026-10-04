@@ -33,8 +33,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
-- **The narrow layout is easier to press.** Each button, link and field is 48px high. The top
-  bar is two rows, and Back takes the second row on a pushed screen. On a node's detail screen
+- **The narrow layout is easier to press.** Each button, link and field is 48px high. On the
+  deck the top bar is two rows. A pushed screen has one row, the screen strip: Back, the title,
+  up to two actions and More. More opens a side sheet with the rest of the screen's chrome, the
+  readings and New. A soft keyboard shrinks the screen, so the field being written stays in
+  view, and field text is 16px. On a node's detail screen
   each link is a row, and the commands are a bar at the bottom of the screen. The task list and
   the worktree table stack their rows. The host banner now shows on a phone.
 - **Buttons are filled pills; chips are outlined.** A button is 32px high, with 12px side

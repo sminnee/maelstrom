@@ -1044,6 +1044,17 @@ slot and the top bar has one menu of four items. A click shows the item in place
 front. Above it is the wide layout, with two slots; below it is the narrow layout.
 _Avoid_: Tablet layout, laptop layout
 
+**Screen strip**:
+The one row of chrome on a pushed screen of the narrow layout: Back, the screen's title, the
+screen's actions, and More, which opens the **Side sheet**. See `orchestrator-ui/DESIGN.md`, "The
+One Strip Rule".
+_Avoid_: Header, title bar, back row
+
+**Side sheet**:
+The narrow layout's overlay for a pushed screen's secondary content, opened from the right edge
+by More.
+_Avoid_: Drawer, panel
+
 **Worktree group**:
 The open panel tabs of one worktree, shown as one row of the panel sidebar. A worktree group is
 derived from the open tabs and holds no state of its own: it shows while one of its tabs is open,

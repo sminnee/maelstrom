@@ -517,12 +517,12 @@ document each take the viewport. The wide layout's floating card has no
 place here, so the detail is flat — it overlaps nothing, and the Overlap Test says it earns no
 shadow.
 
-Three rules hold below the break:
+These rules hold below the break:
 
 **The Thumb Floor Rule.** Anything a finger presses is at least 48px high. `--control` is that
 height below the break, so a control meets the floor with no rule of its own. Density is bought
 back with space, never by going under the floor. The text of each field is at least
-`--text-md` (20px), because iOS zooms the page on text under 16px and does not zoom back.
+`--text-sm` (16px), because iOS zooms the page on text under 16px and does not zoom back.
 `base.css` sets both.
 
 **The Phone Type Rule.** A phone is held further from the eye than its pixels suggest, so the
@@ -530,13 +530,29 @@ narrow layout re-points all six `--text-*` tokens (§ Hierarchy): prose is 20px 
 16px. The chip height `--chip` goes from two units to three with them. At this scale the top bar
 does not hold the brand, so the brand is hidden visually and kept for a screen reader.
 
-**The Still Screen Rule.** The app is the visible area and does not move. `#root` is fixed to
-the visual viewport: `layout/visualViewport.ts` writes its height to `--vvh` and its top to
-`--vvt`, so when iOS scrolls the layout viewport for the keyboard the app follows. A modal
-dialog is outside `#root`, so it reads `--vvt` itself. The document has
-`overscroll-behavior: none`, each full-screen scroller has `contain`, and a double tap does not
-zoom. Pinch zoom stays: while the page is zoomed the two values hold, so the zoom pans over a
-still app.
+**The Still Screen Rule.** The app is the visible area and does not move.
+`layout/visualViewport.ts` writes the visual viewport's height to `--vvh`, once a frame at most.
+`#root` is fixed to the bottom at that height, so a soft keyboard shrinks the app from the top
+and the field being written stays on the keyboard. `html` and `body` take the same height, so
+iOS has no document to scroll toward a field. A modal dialog is outside `#root`, so it anchors to
+the bottom at `--vvh` itself. The top is not tracked: on an iPhone `offsetTop` stays 0. The
+document has `overscroll-behavior: none`, each full-screen scroller has `contain`, and a double
+tap does not zoom. Pinch zoom stays: while the page is zoomed `--vvh` holds, so the zoom pans
+over a still app.
+
+**The One Strip Rule.** A pushed screen has one row of chrome, the screen strip. It holds `←`,
+the screen's title, up to two actions of the screen, the attention chip while something waits,
+and `⋯` (More). The content gets the rest of the screen. Everything else is one tap away, in the
+side sheet that More opens from the right edge:
+
+| Screen   | Strip                         | Side sheet                                                 |
+| -------- | ----------------------------- | ---------------------------------------------------------- |
+| Changes  | the rev; `‹` `›` for a commit | the branch and Refresh, the rev list, the file tree        |
+| Session  | the agent; Stop               | the state, the mode, the meta line, Compact, the subagents |
+| Document | the title                     | the task, phase, version, status, Session link, siblings   |
+
+The readings and New are at the top of every sheet. A pick in the sheet that navigates closes it.
+The review dock stays on the Document screen, because it is the terminal act (§ Review Dock).
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
 draws as a field wash and an amber rule rather than the board's glow. An unanswered row draws
@@ -560,9 +576,10 @@ narrow bar stays quiet in the case the operator most often opens it. The wide ba
 stale figure is read: `SplitChip` greys it and its title gives its age. The narrow bar buys a
 quiet row at that cost.
 
-The chrome is two rows below the break. The first row holds the brand, the readings, the attention
-chip and New. The second row holds Desk, Tasks and Worktrees at equal thirds. On a pushed screen,
-Back and the screen's title take the second row, so no screen has a bar of its own.
+The chrome is two rows on the deck. The first row holds the brand, the readings, the attention
+chip and New. The second row holds Desk, Tasks and Worktrees at equal thirds. That row is
+navigation, not chrome, so the deck keeps it. A pushed screen replaces both rows with the screen
+strip (The One Strip Rule).
 
 The detail screen draws the node card's body as a screen. Each link and each document is a
 full-width row, `--control` high, with a hairline under it. The commands are a bar pinned to the
@@ -945,7 +962,9 @@ the interface font — a form control never falls back to the browser's own.
 A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its container scrolls.
 A field with no scrolling container, such as the conversation input or a review dock field, caps
 at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
-the visual viewport's height there, because a soft keyboard does not shrink `dvh`.
+the visual viewport's height there, because a soft keyboard does not shrink `dvh`. On a phone the
+conversation input may take the visible height less four controls, and the New work draft takes
+what its dialog leaves.
 
 ### Decision
 
