@@ -409,6 +409,10 @@ agent as `<bash-stderr>` text, and the caller still sees `{"ok": true}`: there i
 on this format to say otherwise. One command runs per agent at a time, and a second is refused
 rather than queued, so no client can starve the loop every agent shares.
 
+The turn goes out after the command ends, so the daemon checks the child's stdin first. A child
+that will not take a message is refused, and the command does not run. A child that closes its
+stdin while the command runs gets an error that says the command ran, because its output is lost.
+
 The command runs with the daemon's own privileges, and there is no allowlist. That is
 deliberate: the feature is "run what the user typed", and a filter would break it while only
 looking like safety. So the socket's mode is the whole boundary, and the daemon sets it —
