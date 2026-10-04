@@ -67,10 +67,7 @@ export default defineConfig(({ command }) => {
       // that starved, but the cap still earns its place while a runner has two
       // cores.
       poolOptions: { forks: { maxForks: 2 } },
-      environment: 'jsdom',
       globals: false,
-      setupFiles: ['./src/test/setup.ts'],
-      css: false,
       // A layout spy left standing leaks into whatever file runs next, and
       // surfaces as an unrelated test failing in file order. Two suites had
       // grown the same `afterEach(vi.restoreAllMocks())` to work around this.
@@ -86,6 +83,28 @@ export default defineConfig(({ command }) => {
       // for a while -- but measure first, because raising it has never once
       // fixed anything here.
       testTimeout: 30_000,
+      // The jig's plugin runs in Node against a real dev server, so it stays
+      // out of the app's jsdom and its setup file.
+      projects: [
+        {
+          extends: true,
+          test: {
+            name: 'app',
+            include: ['src/**/*.test.{ts,tsx}'],
+            environment: 'jsdom',
+            setupFiles: ['./src/test/setup.ts'],
+            css: false,
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: 'jig',
+            include: ['vite-plugin-mael-tune/**/*.test.ts'],
+            environment: 'node',
+          },
+        },
+      ],
     },
   };
 });
