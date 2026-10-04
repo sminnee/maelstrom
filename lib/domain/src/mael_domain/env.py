@@ -400,13 +400,28 @@ def remove_shared_state(store: EnvStore, project: str) -> None:
 # --- Environment Building & Liveness ---
 
 
+def live_feedback_url() -> str | None:
+    """Where the notebook's orchestrator serves as a **Live feedback provider**.
+
+    The ``orchestrator_url:`` the notebook names, as a WebSocket URL. The
+    agents run under that orchestrator, whichever worktree's dev server the jig
+    is on. ``None`` when no URL is set.
+    """
+    url = context.load_global_config().orchestrator_url
+    if not url:
+        return None
+    scheme, rest = url.split("://", 1)
+    ws_scheme = "wss" if scheme == "https" else "ws"
+    return f"{ws_scheme}://{rest.rstrip('/')}/api/live-feedback"
+
+
 def build_service_env(worktree_path: Path) -> dict[str, str]:
     """Build the environment dict for spawned services.
 
     Starts with the current process environment, minus the variables no child
-    should inherit, and overlays variables from the worktree's .env file. The
-    overlay runs second, so a worktree that names one of the stripped variables
-    deliberately still gets its value.
+    should inherit, adds ``MAEL_FEEDBACK_URL``, and overlays the worktree's .env
+    file. The overlay runs last, so the .env wins over both: it can restore a
+    stripped variable, and an empty ``MAEL_FEEDBACK_URL`` switches the jig off.
 
     The dev variables go in beneath the ``.env``, so a ``.env`` written before
     one of them existed still expands ``${DEV_SCHEME}`` in a service's ``env:``.
@@ -416,6 +431,9 @@ def build_service_env(worktree_path: Path) -> dict[str, str]:
     """
     env = sanitise_child_env(os.environ)
     env.update(dev_env_vars())
+    feedback_url = live_feedback_url()
+    if feedback_url:
+        env["MAEL_FEEDBACK_URL"] = feedback_url
     env.update(read_env_file(worktree_path))
     if env.get("DEV_SCHEME") != "https":
         for key in TLS_ENV_VARS:
