@@ -849,6 +849,19 @@ text** until the user posts them. One post sends them all, as one message, to ev
 agent in the worktree that has not exited.
 _Avoid_: Review comment, line note, inline comment, feedback (alone)
 
+**Jig**:
+A dev-only overlay that a Vite plugin puts on every page of a worktree's dev server: the app and
+each Ladle story. The user edits **Tuning CSS** in it, sees the result live, and sends it to the
+agents of the worktree.
+_Avoid_: Tuner, inspector, devtools panel
+
+**Tuning CSS**:
+The CSS that the user writes in the **Jig**. It is kept in `.drafts/tuning.css` in the worktree,
+not in the browser, so every page of the worktree applies the same text. One send delivers it, as
+one message, to every top-level agent in the worktree that has not exited. The agent applies it in
+source and deletes the file.
+_Avoid_: Overrides file, tweaks, patch CSS
+
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
 and cleared by the backend, never inferred by the UI. An **Unanswered agent** is not one.
