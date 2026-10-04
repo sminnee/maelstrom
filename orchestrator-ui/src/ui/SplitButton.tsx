@@ -1,5 +1,6 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import type { AppButtonProps } from './AppButton';
+import { actionIcon } from './actionIcons';
 import { Spinner } from './Spinner';
 import { useAnchorName } from './useAnchorName';
 import { useClickLifecycle } from './useClickLifecycle';
@@ -98,6 +99,7 @@ export function SplitButton({
         disabled={main.disabled || processing || asking !== null}
         aria-busy={processing || undefined}
         data-state={state.kind}
+        data-icon={main.icon === undefined ? undefined : ''}
         title={state.kind === 'error' ? state.message : undefined}
         onClick={() => choose(main)}
       >

@@ -14,6 +14,11 @@ export interface AppButtonProps extends Omit<
   ref?: React.Ref<HTMLButtonElement>;
   onClick?: ButtonClickHandler;
   variant?: 'plain' | 'primary' | 'quiet' | 'link';
+  /**
+   * Drawn before the text — one of `actionIcons.ts`. Decorative; the text
+   * stays the name. On the narrow layout the text is a caption under it.
+   */
+  icon?: ReactNode;
   /** Shown beside the spinner while the handler is pending. Defaults to `children`. */
   processingChildren?: ReactNode;
   /** Shown after the handler rejects. Defaults to "Failed"; the message goes in `title`. */
@@ -33,6 +38,7 @@ export interface AppButtonProps extends Omit<
 export function AppButton({
   onClick,
   variant = 'plain',
+  icon,
   processingChildren,
   errorChildren = 'Failed',
   errorResetMs = 3000,
@@ -61,6 +67,7 @@ export function AppButton({
       disabled={disabled || state.kind === 'processing'}
       aria-busy={state.kind === 'processing' || undefined}
       data-state={state.kind}
+      data-icon={icon === undefined ? undefined : ''}
       title={state.kind === 'error' ? state.message : title}
       onClick={handleClick}
     >
@@ -74,7 +81,10 @@ export function AppButton({
           {typeof errorChildren === 'function' ? errorChildren(state.error) : errorChildren}
         </span>
       ) : (
-        children
+        <>
+          {icon}
+          {children}
+        </>
       )}
     </button>
   );

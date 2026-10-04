@@ -60,6 +60,8 @@
 }
 .label > svg {
   flex: none;
+  width: var(--icon);
+  height: var(--icon);
 }
 .detail {
   font-size: var(--text-sm);

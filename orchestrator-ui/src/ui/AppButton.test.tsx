@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { AppButton } from './AppButton';
+import { actionIcon } from './actionIcons';
 
 /** A promise the test settles by hand. */
 function deferred<T = void>() {
@@ -118,6 +119,28 @@ describe('AppButton', () => {
     await act(async () => pending.resolve());
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+
+  it('names itself by its text, not its icon, which is decorative', () => {
+    render(<AppButton icon={actionIcon('start')}>Start</AppButton>);
+    const button = screen.getByRole('button', { name: 'Start' });
+    const svg = button.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg).toHaveAttribute('aria-hidden', 'true');
+    expect(button).not.toHaveAttribute('title');
+  });
+
+  it('draws the spinner in place of the icon while the handler is pending', () => {
+    const pending = deferred();
+    render(
+      <AppButton icon={actionIcon('start')} onClick={() => pending.promise}>
+        Start
+      </AppButton>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    const button = screen.getByRole('button');
+    expect(button.querySelector('[data-testid="spinner"]')).not.toBeNull();
+    expect(button.querySelector('svg')).toBeNull();
   });
 
   it('does not let the click reach the element behind it', () => {
