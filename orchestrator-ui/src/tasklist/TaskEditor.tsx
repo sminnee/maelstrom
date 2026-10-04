@@ -12,6 +12,7 @@ import { ConfirmButton } from '../ui/ConfirmButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import type { TaskDraft } from './TaskFields';
 import { TaskFields } from './TaskFields';
+import { actionIcon } from '../ui/actionIcons';
 import styles from './TaskEditor.module.css';
 
 /**
@@ -99,7 +100,7 @@ function TaskForm({ task }: { task: Task }) {
     else setConfirming(true);
   }, [close, dirty]);
 
-  // Prev/Next go through the same guard as the ×/Escape/backdrop: a dirty
+  // Prev/Next go through the same guard as the close/Escape/backdrop: a dirty
   // draft asks before it is dropped, whichever adjacent id it is dropped for.
   const go = useCallback(
     (id: TaskId | undefined) => {
@@ -137,10 +138,12 @@ function TaskForm({ task }: { task: Task }) {
     <Dialog label={task.title} onClose={leave}>
       <DialogHeader title={task.notebookId} onClose={leave}>
         <button type="button" disabled={prevId === undefined} onClick={() => go(prevId)}>
-          ‹ Prev
+          {actionIcon('pagePrevious')}
+          Prev
         </button>
         <button type="button" disabled={nextId === undefined} onClick={() => go(nextId)}>
-          Next ›
+          Next
+          {actionIcon('pageNext')}
         </button>
       </DialogHeader>
       <TaskFields

@@ -93,3 +93,8 @@
   background: var(--bg-raised);
   color: var(--fg);
 }
+/* The cross keeps the 12px of the inline icons beside it. */
+.close > svg {
+  width: 12px;
+  height: 12px;
+}

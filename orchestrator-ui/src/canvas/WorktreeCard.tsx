@@ -4,6 +4,7 @@ import { AppButton } from '../ui/AppButton';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { CanvasCard } from './CanvasCard';
 import { EMPTY_BOX } from './layout';
+import { actionIcon } from '../ui/actionIcons';
 import styles from './WorktreeCard.module.css';
 
 /** The card's width in flow units. Its height comes from its content. */
@@ -43,7 +44,7 @@ export function WorktreeCard({
           <span className={styles.project}>{worktree.project}</span>
         </div>
         <button type="button" className={styles.close} aria-label="Collapse" onClick={collapse}>
-          ×
+          {actionIcon('close')}
         </button>
       </header>
       <WorktreeSection worktree={worktree} />

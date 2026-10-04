@@ -5,7 +5,7 @@ import styles from './HueChip.module.css';
 export interface HueChipProps {
   /** Where the chip goes. Always external: it opens in a new tab. */
   href?: string;
-  /** A 12x12 inline icon, drawn as in `shell/ExternalLinkIcon.tsx`. */
+  /** An inline icon at the text's size, such as one from `actionIcons.ts`. */
   icon?: ComponentType<{ className?: string }>;
   /** A second mark before the icon, for the service the chip belongs to. */
   brand?: ComponentType<{ className?: string }>;

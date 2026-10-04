@@ -179,3 +179,8 @@
   flex-shrink: 0;
   opacity: 0.8;
 }
+/* The cross keeps the 12px of the inline icons beside it. */
+.close > svg {
+  width: 12px;
+  height: 12px;
+}

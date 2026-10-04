@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ExternalLinkIcon } from './ExternalLinkIcon';
+import { actionIcon, type ActionVerb } from '../ui/actionIcons';
 import styles from './link.module.css';
 
 /**
@@ -12,14 +12,14 @@ export function ExternalLink({
   href,
   children,
   className,
-  icon: Icon = ExternalLinkIcon,
+  icon = 'external',
   newTab = true,
   'aria-label': ariaLabel,
 }: {
   href: string;
   children: ReactNode;
   className?: string;
-  icon?: (props: { className?: string }) => ReactNode;
+  icon?: ActionVerb;
   /** Off for a link another app takes, such as `cmux:`: a new tab would stay blank. */
   newTab?: boolean;
   'aria-label'?: string;
@@ -34,7 +34,7 @@ export function ExternalLink({
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-      <Icon className={styles.icon} />
+      {actionIcon(icon, styles.icon)}
     </a>
   );
 }

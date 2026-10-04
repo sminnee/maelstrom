@@ -4,6 +4,7 @@ import { nodeTitle } from '../selectors/graph';
 import { CanvasCard } from './CanvasCard';
 import { NodeCardBody } from './NodeCardBody';
 import { NODE } from './layout';
+import { actionIcon } from '../ui/actionIcons';
 import styles from './NodeCard.module.css';
 
 /** The card's width in flow units. Its height comes from its content. */
@@ -43,7 +44,7 @@ export function NodeCard({
             aria-label="Collapse"
             onClick={collapseCard}
           >
-            ×
+            {actionIcon('close')}
           </button>
         }
       />

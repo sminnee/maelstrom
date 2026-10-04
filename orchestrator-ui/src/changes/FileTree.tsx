@@ -1,6 +1,6 @@
 import { type CSSProperties, memo, useMemo, useState } from 'react';
 import type { FileDiff } from '../protocol/entities';
-import { FolderIcon } from '../shell/FolderIcon';
+import { actionIcon } from '../ui/actionIcons';
 import { STATUS_LETTER } from './fileStatus';
 import { fileTree, type TreeNode } from './tree';
 import styles from './FileTree.module.css';
@@ -59,7 +59,7 @@ export const FileTree = memo(function FileTree({
             title={node.path}
             onClick={() => toggle(node.path)}
           >
-            <FolderIcon open={open} className={styles.folder} />
+            {actionIcon(open ? 'folderOpen' : 'folder', styles.folder)}
             <span className={styles.name}>{node.name}</span>
           </button>
           {open && <ul role="group">{level(node.children, depth + 1)}</ul>}

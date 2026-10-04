@@ -127,7 +127,7 @@ export function SplitButton({
             aria-label={menuLabel}
             disabled={processing || asking !== null}
           >
-            <span aria-hidden="true">▾</span>
+            {actionIcon('disclose')}
           </button>
           <div {...menu.menuProps} className={menuStyles.menu} style={anchorStyle}>
             {options.map((option, i) => {
