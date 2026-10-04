@@ -1846,6 +1846,7 @@ def _sending_agent(agent_id: str = "a1") -> tuple[Agent, list[dict]]:
         return True
 
     agent.send = record  # type: ignore[method-assign]
+    agent.can_send = lambda: True  # type: ignore[method-assign]
     return agent, sent
 
 
@@ -2735,6 +2736,44 @@ def test_a_shell_command_survives_a_working_directory_that_is_gone():
     reply = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
     assert reply["ok"] is True
     assert "could not run command" in _shell_output(sent[-1])
+
+
+def test_a_shell_command_does_not_run_when_the_agent_cannot_take_it(tmp_path):
+    """A child whose stdin is closing never sees the output, so nothing runs.
+
+    The turn goes out after the command ends. Without a check first, the
+    command's side effects would happen and its output would be lost.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        daemon.handle({"cmd": "run", "id": "a1", "command": "touch ran"})
+    )
+    assert "could not reach" in reply["error"]
+    assert not (tmp_path / "ran").exists()
+
+
+def test_a_shell_command_says_it_ran_when_the_turn_does_not_reach(tmp_path):
+    """The child can close its stdin while the command runs.
+
+    The command has run by then, so the refusal must say so: the caller
+    cannot otherwise tell a refused command from one with lost output.
+    """
+    daemon = AgentDaemon("/tmp/x.sock")
+    agent = _stub_agent()
+    agent.state = replace(agent.state, cwd=str(tmp_path))
+    # Open when the command starts, closed by the time the turn goes out.
+    agent.proc.stdin.is_closing.side_effect = [False, True]
+    daemon.agents["a1"] = agent
+    reply = asyncio.run(
+        daemon.handle({"cmd": "run", "id": "a1", "command": "touch ran"})
+    )
+    assert "the command ran" in reply["error"]
+    assert (tmp_path / "ran").exists()
+    # The slot frees on this path too.
+    assert daemon.running_shell == set()
 
 
 def test_one_shell_command_per_agent_at_a_time(tmp_path):

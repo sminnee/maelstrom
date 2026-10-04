@@ -438,6 +438,10 @@ class Agent:
         # while `mael agent list` still showed it running.
         self.pump_task: asyncio.Task[None] | None = None
 
+    def can_send(self) -> bool:
+        """Whether the child's stdin will still take a message."""
+        return self.proc.stdin is not None and not self.proc.stdin.is_closing()
+
     async def send(self, message: dict[str, Any]) -> bool:
         """Write one NDJSON message to the child's stdin.
 
@@ -1311,6 +1315,11 @@ class AgentDaemon:
                     "error": f"a shell command is already running on "
                     f"{agent.state.agent_id}"
                 }
+            # The turn goes out after the command ends, so a child that will
+            # not take it must be caught first. Otherwise the command's side
+            # effects happen and its output is lost.
+            if not agent.can_send():
+                return _unreachable(agent)
             self.running_shell.add(agent.state.agent_id)
             try:
                 stdout, stderr = await _run_shell(shell_command, agent.state.cwd)
@@ -1325,7 +1334,11 @@ class AgentDaemon:
             # "Running a shell command". Not recorded, for the reason `say`
             # gives above.
             if not await agent.send(shell_message(shell_command, stdout, stderr)):
-                return _unreachable(agent)
+                # The child closed its stdin while the command ran.
+                return {
+                    "error": f"could not reach agent {agent.state.agent_id}; "
+                    "the command ran"
+                }
             return {"ok": True}
 
         if command == "stop":
