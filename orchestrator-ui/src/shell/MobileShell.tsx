@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
 import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
@@ -14,9 +15,11 @@ import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useAppStore } from '../store/store';
+import { Dialog } from '../ui/Dialog';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
-import { TopBar } from './TopBar';
+import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
+import { SheetHead, TopBar } from './TopBar';
 import styles from './MobileShell.module.css';
 
 /**
@@ -36,29 +39,84 @@ export function MobileShell() {
   const popScreen = useAppStore((s) => s.popScreen);
   const top = stack[stack.length - 1];
   const title = useScreenTitle(top);
+  const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
   return (
-    <div className={styles.shell}>
-      <TopBar back={top ? { title, onBack: popScreen } : undefined} />
-      <ConnectionBanner hasData={status === 'ready'} />
-      <HostBanner />
-      <main className={styles.body}>
-        {top ? (
-          <Screen screen={top} />
-        ) : view === 'canvas' ? (
-          <DeckList />
-        ) : view === 'worktrees' ? (
-          <WorktreeTable />
-        ) : (
-          <TaskList />
+    <ScreenChromeContext.Provider value={chrome}>
+      <div className={styles.shell}>
+        <TopBar
+          actionsTarget={setActionsTarget}
+          back={
+            top && chrome
+              ? {
+                  title: chrome.title ?? title,
+                  onBack: popScreen,
+                  sheetOpen: chrome.sheetOpen,
+                  onMore: chrome.openSheet,
+                }
+              : undefined
+          }
+        />
+        <ConnectionBanner hasData={status === 'ready'} />
+        <HostBanner />
+        <main className={styles.body}>
+          {top ? (
+            <Screen screen={top} />
+          ) : view === 'canvas' ? (
+            <DeckList />
+          ) : view === 'worktrees' ? (
+            <WorktreeTable />
+          ) : (
+            <TaskList />
+          )}
+        </main>
+        {chrome?.sheetOpen && (
+          <Dialog label="More" placement="side" onClose={chrome.closeSheet}>
+            <SheetHead onClose={chrome.closeSheet} />
+            <div className={styles.sheetBody} data-sheet ref={setSheetTarget} />
+          </Dialog>
         )}
-      </main>
-      {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
-      {newWorkOpen && <NewWork />}
-    </div>
+        {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
+        {newWorkOpen && <NewWork />}
+      </div>
+    </ScreenChromeContext.Provider>
   );
 }
 
-/** What a pushed screen is, for the top bar's second row. */
+/**
+ * The chrome state of the pushed screen `top`, or `null` on the deck, and the
+ * callback refs that set its two DOM targets. They stay out of the context
+ * value: a screen portals into a target, it never sets one.
+ *
+ * The sheet is open for one screen, so a screen change, Back included, closes
+ * it with no effect to run.
+ */
+function useChrome(top: MobileScreen | undefined) {
+  const [title, setTitle] = useState<string | null>(null);
+  const [actions, setActionsTarget] = useState<HTMLElement | null>(null);
+  const [sheet, setSheetTarget] = useState<HTMLElement | null>(null);
+  const [sheetFor, setSheetFor] = useState<MobileScreen | null>(null);
+  const sheetOpen = top !== undefined && sheetFor === top;
+  const openSheet = useCallback(() => setSheetFor(top ?? null), [top]);
+  const closeSheet = useCallback(() => setSheetFor(null), []);
+  const chrome = useMemo(
+    () =>
+      top
+        ? ({
+            title,
+            setTitle,
+            actions,
+            sheet: sheetOpen ? sheet : null,
+            sheetOpen,
+            openSheet,
+            closeSheet,
+          } satisfies ScreenChrome)
+        : null,
+    [top, title, actions, sheet, sheetOpen, openSheet, closeSheet],
+  );
+  return { chrome, setActionsTarget, setSheetTarget };
+}
+
+/** What a pushed screen is, for the screen strip, when the screen names nothing better. */
 function useScreenTitle(screen: MobileScreen | undefined): string {
   const { world } = useWorld();
   const node = useDeck().byId.get(screen?.kind === 'detail' ? screen.nodeId : '');

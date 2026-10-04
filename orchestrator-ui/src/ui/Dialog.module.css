@@ -167,3 +167,25 @@
     min-width: var(--control);
   }
 }
+
+/*
+ * The side sheet. After the narrow block, so it wins over the full-bleed box
+ * there. See DESIGN.md, "The One Strip Rule".
+ */
+.dialog.side {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: min(85vw, 24rem);
+  height: var(--vvh, 100dvh);
+  max-height: var(--vvh, 100dvh);
+  margin: 0;
+  padding: var(--u-2);
+  padding-top: max(var(--u-2), env(safe-area-inset-top));
+  padding-bottom: max(var(--u-2), env(safe-area-inset-bottom));
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  font-family: var(--font);
+}

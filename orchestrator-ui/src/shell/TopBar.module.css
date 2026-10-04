@@ -80,7 +80,8 @@
   background: var(--bg-control-hover);
 }
 
-/* The narrow layout: two rows. See DESIGN.md, "The narrow layout". */
+/* The narrow layout: two rows on the deck, the screen strip on a pushed screen.
+   See DESIGN.md, "The narrow layout". */
 @media (max-width: 839px) {
   .bar {
     flex-direction: column;
@@ -98,12 +99,8 @@
     min-width: 0;
     padding: var(--u-half) var(--u-2);
   }
-  .row + .row,
   .views {
     border-top: 1px solid var(--border);
-  }
-  .row + .row {
-    padding: 0;
   }
   .views {
     border-radius: 0;
@@ -121,22 +118,54 @@
     background: transparent;
     box-shadow: inset 0 -2px 0 var(--accent);
   }
-  .back {
+  /* The screen strip: one row, a control high. See DESIGN.md, "The One Strip Rule". */
+  .back,
+  .more {
     flex: none;
-    display: flex;
-    align-items: center;
-    gap: var(--u);
-    padding: 0 var(--u-2);
-    color: var(--accent);
+    min-width: var(--control);
+    padding: 0;
     background: none;
     border: none;
   }
+  .back {
+    color: var(--accent);
+  }
+  .more {
+    color: var(--fg-muted);
+  }
   .screenTitle {
+    flex: 1;
     min-width: 0;
-    padding-right: var(--u-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: var(--weight-semibold);
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    flex: none;
+  }
+  .actions:empty {
+    display: none;
+  }
+  /* Bare, as Back and More are: a filled pill each would take the title's room. */
+  .actions > button {
+    min-width: calc(var(--u) * 5);
+    padding: 0 var(--u);
+    background: none;
+  }
+  .row:has(.back) {
+    gap: var(--u-half);
+    padding: 0 var(--u-half);
+  }
+  /* The readings and New, at the top of the side sheet. */
+  .sheetHead {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--u);
+    padding-bottom: var(--u-2);
+    border-bottom: 1px solid var(--border);
   }
 }

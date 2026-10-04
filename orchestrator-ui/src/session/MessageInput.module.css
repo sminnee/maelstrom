@@ -39,11 +39,11 @@
   overflow-y: auto;
 }
 /* A phone shows one thing at a time: the field may take the whole screen
-   above the keyboard, less what stays in view around it. Measured at 390x844:
-   235px above it (the app bar, Back, the session header, a subagent row) and
-   38px below (Attach). */
+   above the keyboard, less what stays in view around it. Four controls: the
+   screen strip, Attach below, the form's padding, and one line of transcript
+   so the reader still sees what they answer. */
 @media (max-width: 839px) {
   .input {
-    max-height: calc(var(--vvh, 100dvh) - 18rem);
+    max-height: calc(var(--vvh, 100dvh) - var(--control) * 4);
   }
 }

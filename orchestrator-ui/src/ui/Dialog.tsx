@@ -12,12 +12,16 @@ import styles from './Dialog.module.css';
  * `showModal()` is what puts it in the top layer, so a combo box offer inside
  * it can draw over the dialog rather than being clipped by it. It also traps
  * the focus and draws the `::backdrop`.
+ *
+ * `placement="side"` draws it as the narrow layout's side sheet: full height
+ * at the right edge, rather than centred.
  */
 export function Dialog({
   label,
   onClose,
   testId,
   className,
+  placement = 'centre',
   children,
 }: {
   /** The dialog's accessible name. */
@@ -27,6 +31,7 @@ export function Dialog({
   testId?: string;
   /** Added to the box, for a dialog whose content is not text. */
   className?: string;
+  placement?: 'centre' | 'side';
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDialogElement>(null);
@@ -59,7 +64,9 @@ export function Dialog({
   return (
     <dialog
       ref={open}
-      className={[styles.dialog, className].filter(Boolean).join(' ')}
+      className={[styles.dialog, placement === 'side' && styles.side, className]
+        .filter(Boolean)
+        .join(' ')}
       aria-label={label}
       data-testid={testId}
       tabIndex={-1}
