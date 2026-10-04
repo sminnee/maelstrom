@@ -580,7 +580,8 @@ whatever raised it — a plan review, or a tag the agent wrote in its own messag
 kind — Plans, Verifications, then Other — and by review group under each heading
 (`selectors/documents.ts`): a group of one is one row, and a larger group is its title and status
 over a link per member. A `superseded` member is left out. A member's tab shows
-its place in the group, `2 of 3`, with links to its siblings, so each file reads on its own.
+its place in the group, `2 of 3`, with links to its siblings, so each file reads on its own. In a
+narrow panel the list clamps to the counter and two members, and a tap expands it.
 
 The panel groups its tabs by worktree. `panel/PanelSidebar.tsx` lists the groups under their
 projects, and the strip shows the tabs of the group in view. `groupTabs` in `selectors/tabs.ts`
