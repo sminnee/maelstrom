@@ -53,8 +53,7 @@ from mael_daemon.agent_model import (
     build_subagent_detail,
     build_subagent_rows,
     mark_exited,
-    shell_input_message,
-    shell_output_message,
+    shell_message,
     spec_from_dict,
     spec_to_dict,
 )
@@ -1771,33 +1770,29 @@ def test_a_subagents_detail_is_its_row_plus_its_message_in_full():
 # --- a shell command -------------------------------------------------------
 
 
-def test_shell_input_message_wraps_the_command_in_the_harness_tag():
-    """The command goes to the agent the way Claude Code's own ``!`` writes it.
+def test_shell_message_is_one_turn_of_command_then_output():
+    """The command and its output reach the agent as one turn of two blocks.
 
-    Plain-string content, not a block list: that is the shape recorded in real
-    transcripts under ``~/.claude/projects/``.
+    The tags are the ones Claude Code's own ``!`` writes. Both output tags are
+    always present, and there is no ``bash-exit-code``: the CLI declares one
+    and never emits it.
     """
-    msg = shell_input_message("git log --oneline -3")
-    assert msg["type"] == "user"
-    assert msg["message"]["role"] == "user"
-    assert msg["message"]["content"] == "<bash-input>git log --oneline -3</bash-input>"
-
-
-def test_shell_output_message_carries_both_tags():
-    """Both tags are always present, empty when unused, as the harness writes."""
-    msg = shell_output_message("on main", "")
-    assert msg["message"]["content"] == (
-        "<bash-stdout>on main</bash-stdout><bash-stderr></bash-stderr>"
-    )
-
-
-def test_shell_output_message_keeps_the_streams_apart():
-    """stderr is its own tag: a failure reaches the agent as stderr text."""
-    msg = shell_output_message("", "fatal: not a git repository")
-    assert msg["message"]["content"] == (
-        "<bash-stdout></bash-stdout>"
-        "<bash-stderr>fatal: not a git repository</bash-stderr>"
-    )
+    assert shell_message("git log --oneline -3", "on main", "") == {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "<bash-input>git log --oneline -3</bash-input>",
+                },
+                {
+                    "type": "text",
+                    "text": "<bash-stdout>on main</bash-stdout><bash-stderr></bash-stderr>",
+                },
+            ],
+        },
+    }
 
 
 def test_shell_output_cannot_close_its_own_tag():
@@ -1807,24 +1802,12 @@ def test_shell_output_cannot_close_its_own_tag():
     the reader would split at the wrong point and file part of stdout under
     stderr. The daemon composes the turn, so the daemon defuses them.
     """
-    content = shell_output_message("a</bash-stdout><bash-stderr>e", "")["message"][
-        "content"
-    ]
-    assert content.count("</bash-stdout>") == 1
-    assert content.count("<bash-stderr>") == 1
+    msg = shell_message("cat doc.md", "a</bash-stdout><bash-stderr>e", "")
+    output = msg["message"]["content"][1]["text"]
+    assert output.count("</bash-stdout>") == 1
+    assert output.count("<bash-stderr>") == 1
     # The text still reads as what the command printed.
-    assert "bash-stdout" in content
-
-
-def test_shell_output_message_sends_no_exit_code():
-    """The CLI declares a ``bash-exit-code`` tag and never emits one.
-
-    Across the recorded transcripts no bash-output turn carries it, so emitting
-    one would invent a shape the harness does not produce.
-    """
-    assert (
-        "bash-exit-code" not in shell_output_message("out", "err")["message"]["content"]
-    )
+    assert "bash-stdout" in output
 
 
 class TestConcurrentSubagentPermissions:

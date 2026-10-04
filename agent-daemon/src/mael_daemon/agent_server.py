@@ -114,8 +114,7 @@ from .agent_model import (
     is_partial_text,
     mark_exited,
     open_asks,
-    shell_input_message,
-    shell_output_message,
+    shell_message,
     subagent_of,
 )
 from .agent_reconcile import Reconciliation, reconcile
@@ -447,10 +446,11 @@ class Agent:
         guard in :meth:`AgentDaemon.handle` and still reach nothing — the
         caller must refuse rather than report a reply that never went.
         """
-        if self.proc.stdin is None or self.proc.stdin.is_closing():
+        stdin = self.proc.stdin
+        if stdin is None or stdin.is_closing():
             return False
-        self.proc.stdin.write((json.dumps(message) + "\n").encode())
-        await self.proc.stdin.drain()
+        stdin.write((json.dumps(message) + "\n").encode())
+        await stdin.drain()
         return True
 
     def record(self, message: dict[str, Any]) -> list[PendingRequest]:
@@ -1312,12 +1312,6 @@ class AgentDaemon:
                     f"{agent.state.agent_id}"
                 }
             self.running_shell.add(agent.state.agent_id)
-            # The agent takes the command turn before the command runs, so a
-            # child that will not take it costs nothing. Sending the pair the
-            # other way round could leave a command turn with no output turn
-            # after it, and the UI holds that item open for ever.
-            if not await agent.send(shell_input_message(shell_command)):
-                return _unreachable(agent)
             try:
                 stdout, stderr = await _run_shell(shell_command, agent.state.cwd)
             except OSError as exc:
@@ -1327,8 +1321,10 @@ class AgentDaemon:
                 stdout, stderr = "", f"could not run command: {exc}"
             finally:
                 self.running_shell.discard(agent.state.agent_id)
-            # Neither turn is recorded, for the reason `say` gives above.
-            if not await agent.send(shell_output_message(stdout, stderr)):
+            # One turn, after the command ends: see docs/dev/agent-daemon.md,
+            # "Running a shell command". Not recorded, for the reason `say`
+            # gives above.
+            if not await agent.send(shell_message(shell_command, stdout, stderr)):
                 return _unreachable(agent)
             return {"ok": True}
 
