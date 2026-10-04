@@ -1002,7 +1002,9 @@ says so and stops offering to write the task again.
 
 `ui/AttachField.tsx` wraps a text field and adds a file picker, a clipboard paste handler and a
 strip of thumbnails. It wraps rather than replaces, so each surface keeps its own textarea, its
-own value and its own submit — and the four cannot drift on how attaching works.
+own value and its own submit — and the four cannot drift on how attaching works. A surface may
+pass `actions` to draw its own buttons at the far end of the Attach row; the session composer
+puts Send there on a phone.
 
 Four surfaces use it: the chat box (`session/MessageInput.tsx`), the new-work prose field, and
 task create and task edit, which are one component (`tasklist/TaskFields.tsx`).

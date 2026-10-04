@@ -39,6 +39,12 @@
   align-items: center;
   gap: var(--u);
 }
+/* The caller's buttons sit at the far end of the Attach row. */
+.end {
+  display: inline-flex;
+  gap: var(--u);
+  margin-left: auto;
+}
 .error {
   color: var(--danger, #c00);
   font-size: 0.85em;
