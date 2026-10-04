@@ -1098,7 +1098,7 @@ def test_a_user_turn_that_only_quotes_the_skill_line_stays_a_message():
 
 
 def test_a_shell_command_and_its_output_become_one_item():
-    """The two turns the host injects for a ``!`` fold into a single item.
+    """An older transcript's two turns for a ``!`` fold into a single item.
 
     The command arrives first and the output follows, so the item appends on
     the input turn and is updated by the output turn — the same shape a
@@ -1139,6 +1139,41 @@ def test_a_shell_command_and_its_output_become_one_item():
     # mark it working. An assistant event that follows moves the state on its
     # own — the point is that these two turns do not.
     assert agent_of(state)["state"] == "idle"
+
+
+def test_a_shell_command_and_its_output_in_one_turn_become_one_item():
+    """The daemon sends the command and its output as two blocks of one turn.
+
+    The input block opens the item and the output block closes it within the
+    same event, so the card arrives done. The two-turn shape above stays,
+    because older transcripts still hold it.
+    """
+    state = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    out = normalise_stream_event(
+        state.state,
+        context_for_agent("ag1"),
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "<bash-input>git status</bash-input>"},
+                    {
+                        "type": "text",
+                        "text": "<bash-stdout>on main</bash-stdout>"
+                        "<bash-stderr></bash-stderr>",
+                    },
+                ],
+            },
+        },
+        NOW,
+    )
+    state.take(out.events)
+    assert items_of(state, "message") == []
+    assert [
+        (i["command"], i["output"], i["status"]) for i in items_of(state, "shell")
+    ] == [("git status", "on main", "done")]
+    assert out.ctx.open_shell is None
 
 
 def test_a_shell_command_keeps_stderr():
@@ -1194,8 +1229,8 @@ def test_shell_output_with_no_command_before_it_still_shows():
 def test_an_interrupted_shell_pair_does_not_capture_a_later_command():
     """A command turn with no output turn must not swallow the next one.
 
-    The daemon sends the pair together, so only a restart between the two
-    breaks it. When that happens the later command needs its own item.
+    Transcripts written before the daemon sent one turn hold the pair as two,
+    and a restart between them broke it. The later command needs its own item.
     """
     state = Replayed(seed([make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")

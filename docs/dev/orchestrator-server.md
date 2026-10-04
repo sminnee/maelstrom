@@ -63,16 +63,17 @@ silently return the body to the transcript as an ordinary message.
 
 ## A shell command
 
-A `!` line in the composer runs a shell command on the agent host, and the host injects the
-command and its output as two user turns. The normaliser folds that pair into one `shell` item,
-which the web UI draws with the same card a `Bash` tool call gets. Folding here is the same
-mechanism as a loaded skill: the tags on the turn are the only mark the stream carries.
+A `!` line in the composer runs a shell command on the agent host. When the command ends, the
+host injects the command and its output as one user turn of two blocks. The normaliser folds the
+pair into one `shell` item, which the web UI draws with the same card a `Bash` tool call gets.
+Folding here is the same mechanism as a loaded skill: the tags on the turn are the only mark the
+stream carries.
 
-The item appends on the input turn and updates on the output turn, the way a `tool_call` and its
-`tool_result` already work. An output turn whose input turn the ring dropped still renders, so a
-gap never swallows output.
+The input block appends the item and the output block updates it, the way a `tool_call` and its
+`tool_result` already work. Older transcripts hold the pair as two turns, and the same rule reads
+them. An output block whose input the ring dropped still renders, so a gap never swallows output.
 
-A shell command does not move the agent to `processing`: the two turns carry no request. An
+A shell command does not move the agent to `processing`: its turn carries no request. An
 assistant event that follows moves the state on its own. See
 [agent-daemon.md](agent-daemon.md#running-a-shell-command) for the wire format.
 

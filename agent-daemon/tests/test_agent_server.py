@@ -2655,10 +2655,15 @@ def test_a_message_the_user_sends_is_not_recorded():
     ]
 
 
-def test_a_shell_command_reaches_the_agent_as_the_harness_two_turns(tmp_path):
-    """``run`` writes what Claude Code's own ``!`` writes: input, then output.
+def _shell_output(msg):
+    """The output block of the one turn a shell command sends."""
+    return msg["message"]["content"][1]["text"]
 
-    Neither turn is recorded, for the same reason a ``say`` is not: the child
+
+def test_a_shell_command_reaches_the_agent_as_one_turn(tmp_path):
+    """``run`` sends one turn: the command block, then the output block.
+
+    The turn is not recorded, for the same reason a ``say`` is not: the child
     echoes every stdin user turn back itself.
     """
     daemon = AgentDaemon("/tmp/x.sock")
@@ -2679,9 +2684,11 @@ def test_a_shell_command_reaches_the_agent_as_the_harness_two_turns(tmp_path):
 
     reply = asyncio.run(attach_then_run())
     assert reply["ok"] is True
-    assert [m["message"]["content"] for m in sent] == [
-        "<bash-input>printf hello</bash-input>",
-        "<bash-stdout>hello</bash-stdout><bash-stderr></bash-stderr>",
+    assert [[b["text"] for b in m["message"]["content"]] for m in sent] == [
+        [
+            "<bash-input>printf hello</bash-input>",
+            "<bash-stdout>hello</bash-stdout><bash-stderr></bash-stderr>",
+        ]
     ]
     assert [json.loads(line).get("type") for line in writer.lines] == [
         AGENT_DETAIL,
@@ -2697,7 +2704,7 @@ def test_a_shell_command_runs_in_the_agents_own_directory(tmp_path):
     agent.state = replace(agent.state, cwd=str(tmp_path))
     daemon.agents["a1"] = agent
     asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
-    assert "marker.txt" in sent[-1]["message"]["content"]
+    assert "marker.txt" in _shell_output(sent[-1])
 
 
 def test_a_failing_shell_command_sends_its_stderr_not_an_error(tmp_path):
@@ -2710,7 +2717,7 @@ def test_a_failing_shell_command_sends_its_stderr_not_an_error(tmp_path):
         daemon.handle({"cmd": "run", "id": "a1", "command": "printf oops >&2; exit 3"})
     )
     assert reply["ok"] is True
-    assert sent[-1]["message"]["content"] == (
+    assert _shell_output(sent[-1]) == (
         "<bash-stdout></bash-stdout><bash-stderr>oops</bash-stderr>"
     )
 
@@ -2727,7 +2734,7 @@ def test_a_shell_command_survives_a_working_directory_that_is_gone():
     daemon.agents["a1"] = agent
     reply = asyncio.run(daemon.handle({"cmd": "run", "id": "a1", "command": "ls"}))
     assert reply["ok"] is True
-    assert "could not run command" in sent[-1]["message"]["content"]
+    assert "could not run command" in _shell_output(sent[-1])
 
 
 def test_one_shell_command_per_agent_at_a_time(tmp_path):
@@ -2988,6 +2995,7 @@ def _answering_agent(subtype: str = "success", agent_id: str = "a1"):
         return True
 
     agent.send = record  # type: ignore[method-assign]
+    agent.can_send = lambda: True  # type: ignore[method-assign]
     return agent, sent
 
 

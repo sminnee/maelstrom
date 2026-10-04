@@ -370,27 +370,37 @@ The daemon runs it, because the daemon is where the agent's working directory is
 ran the command itself would need to learn that directory and keep it fresh, and the orchestrator
 server would run it on the wrong machine once the agent host moves.
 
-The result reaches the agent as **two user turns, in the tags Claude Code's own `!` writes**:
+The daemon does not hand a `!` line to Claude Code. Headless Claude Code has no `!` of its own: in
+stream-json mode the line reaches the model as an ordinary prompt, and the model decides whether
+to run it with its `Bash` tool. That puts the permission mode in front of the user's own command,
+and costs a model round trip before the command runs.
+
+The daemon runs the command first. Then it sends the agent **one user turn of two text blocks,
+in the tags Claude Code's own `!` writes**:
 
 ```json
-{"type": "user", "message": {"role": "user",
- "content": "<bash-input>git status</bash-input>"}}
-{"type": "user", "message": {"role": "user",
- "content": "<bash-stdout>On branch main</bash-stdout><bash-stderr></bash-stderr>"}}
+{"type": "user", "message": {"role": "user", "content": [
+ {"type": "text", "text": "<bash-input>git status</bash-input>"},
+ {"type": "text", "text": "<bash-stdout>On branch main</bash-stdout><bash-stderr></bash-stderr>"}]}}
 ```
 
-The content is a plain string, not a block list. Both output tags are always present, and empty
-when unused.
+It is one turn because each stdin user turn starts a model turn. Two turns would get a reply to
+the bare command before the agent sees the output. The normaliser still reads the older two-turn
+shape — see [orchestrator-server.md](orchestrator-server.md#a-shell-command).
 
-Three consequences worth knowing:
+Both output tags are always present, and empty when unused.
 
-- **Nothing is asked of the agent.** A shell command carries no request, so no surface shows
-  the agent working and the console does not wait on it. The agent usually remarks on what it
-  read anyway, as it does in the terminal. Maelstrom neither suppresses that nor counts on it.
+Four consequences worth knowing:
+
+- **The UI shows no running card.** The turn arrives after the command ends, so the shell item
+  appears already done. The `run` call blocks until the command ends, so the console still waits
+  on it.
+- **The agent replies.** The turn starts a model turn like any other, and the reply reads the
+  output. Maelstrom neither suppresses that reply nor counts on it.
 - **There is no exit code on the wire.** The CLI declares a `bash-exit-code` tag and emits it in
   none of the recorded transcripts, so neither does the daemon. A failing command reaches the
   agent as `<bash-stderr>` text, which is what it already reads.
-- **Neither turn is recorded**, for the same reason a `say` is not: the child echoes every stdin
+- **The turn is not recorded**, for the same reason a `say` is not: the child echoes every stdin
   user turn itself. That echo needs `--replay-user-messages` — see the flag table above.
 
 Output is capped per stream at the same bound a retained message keeps, and the command is

@@ -1651,31 +1651,33 @@ def _untagged(text: str) -> str:
     return text
 
 
-def shell_input_message(command: str) -> dict[str, Any]:
-    """The user turn naming a shell command the host is about to run.
+def shell_message(command: str, stdout: str, stderr: str) -> dict[str, Any]:
+    """The user turn carrying a shell command the host ran and what it wrote.
 
-    The content is a plain string rather than a block list, which is the shape
-    the harness itself writes. ``normalise._blocks`` reads both.
+    One turn of two text blocks, the command then its output. See
+    docs/dev/agent-daemon.md, "Running a shell command", for why it is one.
+
+    Both output tags are always present, empty when unused, the way the harness
+    writes them. The streams stay apart because a failure reaches the agent as
+    stderr text — there is no exit code on this format.
     """
-    return _string_turn(f"<{SHELL_INPUT_TAG}>{_untagged(command)}</{SHELL_INPUT_TAG}>")
-
-
-def shell_output_message(stdout: str, stderr: str) -> dict[str, Any]:
-    """The user turn carrying what a shell command wrote.
-
-    Both tags are always present, empty when unused, the way the harness writes
-    them. The streams stay apart because a failure reaches the agent as stderr
-    text — there is no exit code on this format.
-    """
-    return _string_turn(
-        f"<{SHELL_STDOUT_TAG}>{_untagged(stdout)}</{SHELL_STDOUT_TAG}>"
-        f"<{SHELL_STDERR_TAG}>{_untagged(stderr)}</{SHELL_STDERR_TAG}>"
-    )
-
-
-def _string_turn(text: str) -> dict[str, Any]:
-    """A user turn whose content is a plain string, as the harness writes one."""
-    return {"type": "user", "message": {"role": "user", "content": text}}
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"<{SHELL_INPUT_TAG}>{_untagged(command)}</{SHELL_INPUT_TAG}>",
+                },
+                {
+                    "type": "text",
+                    "text": f"<{SHELL_STDOUT_TAG}>{_untagged(stdout)}</{SHELL_STDOUT_TAG}>"
+                    f"<{SHELL_STDERR_TAG}>{_untagged(stderr)}</{SHELL_STDERR_TAG}>",
+                },
+            ],
+        },
+    }
 
 
 #: What an interrupted tool call is told, and what the turn's error says.
