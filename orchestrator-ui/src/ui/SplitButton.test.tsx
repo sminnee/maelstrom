@@ -78,6 +78,18 @@ describe('SplitButton', () => {
     expect(screen.getByRole('menuitem', { name: 'Terminate & take off desk' })).toHaveFocus();
   });
 
+  it('opens a menu that appeared when its options grew from one', async () => {
+    const user = userEvent.setup();
+    const options = three();
+    const { rerender } = render(<SplitButton options={options.slice(0, 1)} />);
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
+
+    rerender(<SplitButton options={options} />);
+    await user.click(chevron());
+    expect(screen.getByRole('menuitem', { name: 'Terminate' })).toHaveFocus();
+    expect(chevron()).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('does not run a disabled item, and says why it is disabled', async () => {
     const user = userEvent.setup();
     const options = three({

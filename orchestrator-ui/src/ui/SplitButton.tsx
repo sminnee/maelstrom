@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import type { AppButtonProps } from './AppButton';
 import { Spinner } from './Spinner';
 import { useAnchorName } from './useAnchorName';
 import { useClickLifecycle } from './useClickLifecycle';
+import { usePopoverMenu } from './usePopoverMenu';
 import buttonStyles from './AppButton.module.css';
 import confirmStyles from './ConfirmButton.module.css';
+import menuStyles from './popoverMenu.module.css';
 import styles from './SplitButton.module.css';
 
 export interface SplitOption {
@@ -54,42 +56,12 @@ export function SplitButton({
 } & Pick<AppButtonProps, 'variant' | 'errorResetMs' | 'onError'>) {
   const { state, run } = useClickLifecycle({ errorResetMs, onError });
   const [running, setRunning] = useState<SplitOption | null>(null);
-  const [open, setOpen] = useState(false);
   const [asking, setAsking] = useState<SplitOption | null>(null);
-  const openRef = useRef(false);
-  const openAtPress = useRef<boolean | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const chevronRef = useRef<HTMLButtonElement>(null);
   const { anchorStyle } = useAnchorName();
-  const menuId = useId();
+  const menu = usePopoverMenu();
   const main = options[0]!;
   const processing = state.kind === 'processing';
   const split = options.length > 1;
-
-  const items = () =>
-    Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-
-  // The popover's own events are the truth for `open`: a light dismiss closes
-  // it without any handler here running.
-  useEffect(() => {
-    const menu = menuRef.current;
-    if (!menu) return;
-    const onToggle = (e: Event) => {
-      const isOpen = (e as Event & { newState: string }).newState === 'open';
-      openRef.current = isOpen;
-      setOpen(isOpen);
-      if (isOpen)
-        items()
-          .find((i) => i.getAttribute('aria-disabled') !== 'true')
-          ?.focus();
-    };
-    menu.addEventListener('toggle', onToggle);
-    return () => menu.removeEventListener('toggle', onToggle);
-  }, [split]);
-
-  const hide = () => {
-    if (openRef.current) menuRef.current?.hidePopover();
-  };
 
   const choose = (option: SplitOption) => {
     if (option.confirm) {
@@ -110,32 +82,6 @@ export function SplitButton({
   const showAsk = useCallback((el: HTMLDivElement | null) => {
     el?.showPopover();
   }, []);
-
-  const onMenuKey = (e: React.KeyboardEvent) => {
-    const all = items();
-    const at = all.indexOf(document.activeElement as HTMLElement);
-    const to =
-      e.key === 'ArrowDown'
-        ? (at + 1) % all.length
-        : e.key === 'ArrowUp'
-          ? (at - 1 + all.length) % all.length
-          : e.key === 'Home'
-            ? 0
-            : e.key === 'End'
-              ? all.length - 1
-              : null;
-    if (to !== null) {
-      e.preventDefault();
-      all[to]?.focus();
-    } else if (e.key === 'Escape') {
-      // The Escape is the menu's: a card that collapses on Escape must not
-      // hear it too.
-      e.preventDefault();
-      e.stopPropagation();
-      hide();
-      chevronRef.current?.focus();
-    }
-  };
 
   const shown = processing ? (running?.processing ?? running?.label) : main.label;
   const segment = [buttonStyles.button, buttonStyles[variant]].join(' ');
@@ -172,41 +118,18 @@ export function SplitButton({
       {split && (
         <>
           <button
-            ref={chevronRef}
+            {...menu.triggerProps}
             type="button"
             className={`${segment} ${styles.chevron}`}
             style={anchorStyle}
             aria-label={menuLabel}
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-controls={menuId}
             disabled={processing || asking !== null}
-            // A click outside an open popover closes it before `click` fires,
-            // so the chevron reads the state as the press began: a click that
-            // closed the menu must not open it again.
-            onPointerDown={() => {
-              openAtPress.current = openRef.current;
-            }}
-            onClick={() => {
-              const wasOpen = openAtPress.current ?? openRef.current;
-              openAtPress.current = null;
-              if (wasOpen) hide();
-              else menuRef.current?.showPopover();
-            }}
           >
             <span aria-hidden="true">▾</span>
           </button>
-          <div
-            ref={menuRef}
-            id={menuId}
-            className={styles.menu}
-            style={anchorStyle}
-            role="menu"
-            popover="auto"
-            onKeyDown={onMenuKey}
-          >
+          <div {...menu.menuProps} className={menuStyles.menu} style={anchorStyle}>
             {options.map((option, i) => {
-              const detailId = `${menuId}-${i}`;
+              const detailId = `${menu.menuId}-${i}`;
               return (
                 <button
                   key={option.label}
@@ -219,8 +142,7 @@ export function SplitButton({
                   tabIndex={-1}
                   onClick={() => {
                     if (option.disabled) return;
-                    hide();
-                    chevronRef.current?.focus();
+                    menu.close();
                     choose(option);
                   }}
                 >
