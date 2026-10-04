@@ -2,10 +2,13 @@ import { useEffect } from 'react';
 import type { AgentStatusFilter } from '../selectors/filters';
 import { filterOptions } from '../selectors/filters';
 import { useWorld } from '../api/useWorld';
-import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
+import { TASK_STATUSES } from '../protocol/entities';
+import { MultiSelect } from '../ui/MultiSelect';
 import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import styles from './FilterBar.module.css';
+
+const TASK_STATUS_OPTIONS = TASK_STATUSES.map((status) => ({ value: status, label: status }));
 
 const AGENT_STATUS_OPTIONS: { value: AgentStatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -33,13 +36,6 @@ export function FilterBar() {
     // select shows "all"; drop it so the control says what the canvas does.
     if (stale) setFilters({ branch: null });
   }, [stale, setFilters]);
-
-  const toggleStatus = (status: TaskStatus) =>
-    setListFilters({
-      statuses: listFilters.statuses.includes(status)
-        ? listFilters.statuses.filter((item) => item !== status)
-        : [...listFilters.statuses, status],
-    });
 
   return (
     <div className={styles.bar}>
@@ -103,16 +99,15 @@ export function FilterBar() {
       )}
       {showing.includes('list') && (
         <>
-          {TASK_STATUSES.map((status) => (
-            <label key={status} className={styles.check}>
-              <input
-                type="checkbox"
-                checked={listFilters.statuses.includes(status)}
-                onChange={() => toggleStatus(status)}
-              />
-              <span>{status}</span>
-            </label>
-          ))}
+          <MultiSelect
+            className={styles.field}
+            label="Status"
+            options={TASK_STATUS_OPTIONS}
+            value={listFilters.statuses}
+            onChange={(statuses) => setListFilters({ statuses })}
+            // The list reads an empty pick as no filter.
+            emptyLabel="all"
+          />
           <label className={styles.field}>
             <span>Search</span>
             <input
