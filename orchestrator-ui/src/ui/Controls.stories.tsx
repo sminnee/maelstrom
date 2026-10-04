@@ -9,6 +9,7 @@ import { ExternalLink } from '../shell/ExternalLink';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import barStyles from '../shell/TopBar.module.css';
+import { actionIcon } from './actionIcons';
 import { AppButton } from './AppButton';
 import { ConfirmButton } from './ConfirmButton';
 import { DialogFooter } from './Dialog';
@@ -97,6 +98,32 @@ function Board({ control, heading }: { control: string; heading: string }) {
         <AppButton variant="quiet">Edit task</AppButton>
         <AppButton variant="link">Show more</AppButton>
         <AppButton disabled>Resume</AppButton>
+      </Row>
+      <Row label="AppButton with an icon">
+        <AppButton icon={actionIcon('stop')}>Stop</AppButton>
+        <AppButton icon={actionIcon('compact')}>Compact</AppButton>
+        <AppButton
+          variant="primary"
+          icon={actionIcon('launch')}
+          onClick={later}
+          processingChildren="Launching"
+        >
+          Launch
+        </AppButton>
+        <AppButton icon={actionIcon('approve')} onClick={() => Promise.reject(new Error('no'))}>
+          Approve
+        </AppButton>
+      </Row>
+      <Row label="SplitButton with an icon, and a failure">
+        <SplitButton
+          options={[
+            { label: 'Sync', icon: actionIcon('sync'), run: later },
+            { label: 'Squash', icon: actionIcon('merge'), run: later },
+          ]}
+        />
+        <AppButton icon={actionIcon('terminate')} onClick={() => Promise.reject(new Error('no'))}>
+          Terminate
+        </AppButton>
       </Row>
       <Row label="SplitButton and ConfirmButton">
         <SplitButton
@@ -207,7 +234,9 @@ export const Desktop: Story = () => (
 
 /**
  * The board at the narrow height. What to look at, at 390px: each control is
- * 48px high, and a row wraps and does not overflow.
+ * 48px high, and a row wraps and does not overflow. A button with an icon
+ * takes its narrow shape — the icon over a caption — from the viewport, not
+ * from this board, so open the story in a viewport under 840px to see it.
  */
 export const Narrow: Story = () => (
   <div style={{ maxWidth: 390 }}>

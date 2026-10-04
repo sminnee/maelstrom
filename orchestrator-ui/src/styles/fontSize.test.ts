@@ -4,11 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { lineOffences, SRC, sourceFiles } from '../test/sourceGate';
 
 /**
- * The font-size gate. A font size outside `tokens.css` is one of the six type
+ * The font-size gate. A font size outside `tokens.css` is one of the seven type
  * tokens, an `em` value relative to its parent, or `inherit`. A literal does
  * not follow the narrow layout's scale. See DESIGN.md § Hierarchy.
  */
-const TOKENS = ['sm', 'ui', 'control', 'md', 'lg', 'xl'];
+const TOKENS = ['sm', 'ui', 'control', 'md', 'lg', 'xl', 'caption'];
 
 const ALLOWED = new RegExp(
   `^(?:var\\(--text-(?:${TOKENS.join('|')})\\)|\\d*\\.?\\d+em|inherit)(?:\\s*!important)?$`,

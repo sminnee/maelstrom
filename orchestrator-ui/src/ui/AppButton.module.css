@@ -13,6 +13,10 @@
 .button > svg {
   flex: none;
 }
+.button[data-icon] > svg {
+  width: var(--icon);
+  height: var(--icon);
+}
 .primary {
   background: var(--accent);
   color: var(--fg-on-hue);
@@ -43,4 +47,17 @@
 .button[data-state='error'] {
   background: color-mix(in srgb, var(--danger) 20%, var(--bg-control));
   color: var(--danger);
+}
+
+/* On the narrow layout the icon sits over a caption: see DESIGN.md
+   § The narrow caption. */
+@media (max-width: 839px) {
+  .button[data-icon] {
+    flex-direction: column;
+    gap: 0;
+    min-width: var(--control);
+    padding: 0 var(--u);
+    font-size: var(--text-caption);
+    line-height: var(--leading-tight);
+  }
 }
