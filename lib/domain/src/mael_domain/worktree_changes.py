@@ -344,12 +344,12 @@ def format_change_comments(branch: str, comments: list[ChangeComment]) -> str:
     return "\n\n".join(blocks)
 
 
-#: Where the jig keeps the **Tuning CSS**, relative to the worktree root.
-TUNING_CSS_PATH = ".drafts/tuning.css"
+#: Where the jig keeps the **Monkeypatch**, relative to the worktree root.
+MONKEYPATCH_PATH = ".drafts/monkeypatch.css"
 
 
-def format_tuning_css(branch: str, css: str, note: str | None = None) -> str:
-    """The one message that carries the **Tuning CSS** to the agents of a worktree.
+def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
+    """The one message that carries a **Monkeypatch** to the agents of a worktree.
 
     The CSS is indented as a block, so a rule that holds a blank line stays
     one quote.
@@ -358,14 +358,14 @@ def format_tuning_css(branch: str, css: str, note: str | None = None) -> str:
         f"    {line}" if line else "" for line in css.strip().splitlines()
     )
     lines = [
-        f"Tuning CSS for {branch}, from the jig ({TUNING_CSS_PATH}):",
+        f"Monkeypatch for {branch}, from the jig ({MONKEYPATCH_PATH}):",
         "",
         quoted,
         "",
     ]
     if note and note.strip():
         lines.append(f"Note: {note.strip()}")
-    lines.append(f"Apply these in source, then delete {TUNING_CSS_PATH}.")
+    lines.append(f"Apply it in source, then delete {MONKEYPATCH_PATH}.")
     return "\n".join(lines)
 
 

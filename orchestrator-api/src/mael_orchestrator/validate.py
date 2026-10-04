@@ -80,7 +80,7 @@ WORKTREE_COMMANDS = (
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
-    "worktree.tune",
+    "worktree.feedback",
 )
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
@@ -103,12 +103,15 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
-    "worktree.tune",
+    "worktree.feedback",
 )
 
 #: The commands that relay a message to the agents in a worktree. Each needs
 #: an agent to tell, and ``agents_in_worktree`` names the same ones for all.
-RELAY_COMMANDS = ("worktree.comment", "worktree.tune")
+RELAY_COMMANDS = ("worktree.comment", "worktree.feedback")
+
+#: The kinds of **Feedback** the server can build a message from.
+FEEDBACK_TYPES = ("monkeypatch",)
 
 #: The three settings ``mael sync`` has, which the one sync command chooses
 #: between. ``--abort`` is implied on ``plain`` and ``squash``.
@@ -226,7 +229,7 @@ def _reaches(world: World, starts: list[str], goal: str) -> bool:
 
 
 def agents_in_worktree(world: World, worktree_id: str) -> list[Agent]:
-    """The agents a post of change comments or Tuning CSS reaches, in the world's order.
+    """The agents a post of change comments or feedback reaches, in the world's order.
 
     A subagent is driven through its parent, and an exited agent hears
     nothing. ``trackedAgents`` in the UI applies the same rule, so the dock
@@ -251,6 +254,20 @@ def _is_change_comment(comment: Any) -> bool:
         and isinstance(comment.get("lines"), list)
         and all(isinstance(line, str) for line in comment["lines"])
     )
+
+
+def _feedback_error(feedback: Any) -> dict[str, str] | None:
+    """Whether ``feedback`` holds a type the server knows, with its fields."""
+    if not isinstance(feedback, dict):
+        return _err("invalid", "Feedback is an object")
+    if feedback.get("type") not in FEEDBACK_TYPES:
+        return _err("invalid", f"Unknown feedback type: {feedback.get('type')!r}")
+    css = feedback.get("css")
+    if not isinstance(css, str) or not css.strip():
+        return _err("invalid", "No CSS to send")
+    if not isinstance(feedback.get("note"), str | None):
+        return _err("invalid", "A note is text")
+    return None
 
 
 def _worktree_error(
@@ -303,12 +320,10 @@ def _worktree_error(
             if not comment["body"].strip():
                 return _err("invalid", "A comment is empty")
 
-    if kind == "worktree.tune":
-        css = cmd.get("css")
-        if not isinstance(css, str) or not css.strip():
-            return _err("invalid", "No CSS to send")
-        if not isinstance(cmd.get("note"), str | None):
-            return _err("invalid", "A note is text")
+    if kind == "worktree.feedback":
+        error = _feedback_error(cmd.get("feedback"))
+        if error:
+            return error
 
     if kind in RELAY_COMMANDS and not agents_in_worktree(world, worktree_id):
         return _err("invalid", f"No agent is running in {worktree_id}")

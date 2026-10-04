@@ -72,7 +72,7 @@ from mael_domain.task_attachments import (
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
-from mael_domain.worktree_changes import format_change_comments, format_tuning_css
+from mael_domain.worktree_changes import format_change_comments, format_monkeypatch
 
 from . import desk as desk_model
 from . import linear_source
@@ -1531,7 +1531,7 @@ class Orchestrator:
             "worktree.env": self._env_worktree,
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
-            "worktree.tune": self._send_tuning_css,
+            "worktree.feedback": self._send_feedback,
             "worktree.refresh": self._refresh_worktrees_now,
         }
         handler = handlers.get(kind)
@@ -2026,13 +2026,17 @@ class Orchestrator:
         )
         return await self._say_to_worktree(worktree_id, text)
 
-    async def _send_tuning_css(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Send the jig's Tuning CSS to each agent in the worktree, as one message."""
+    async def _send_feedback(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Send the feedback to each agent in the worktree, as one message.
+
+        A monkeypatch is the one type so far, and validation refuses the rest.
+        """
         worktree_id = command["worktreeId"]
-        text = format_tuning_css(
+        feedback = command["feedback"]
+        text = format_monkeypatch(
             self.world["worktrees"][worktree_id]["branch"],
-            command["css"],
-            command.get("note"),
+            feedback["css"],
+            feedback.get("note"),
         )
         return await self._say_to_worktree(worktree_id, text)
 

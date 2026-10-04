@@ -1030,36 +1030,55 @@ class TestChangeComments:
         }
 
 
-def tune_cmd(**over) -> dict:
-    fields = {"css": ".chip{padding:2px}", "note": "", **over}
-    return worktree_cmd("worktree.tune", "northwind-alpha", **fields)
+def feedback_cmd(feedback=None, **over) -> dict:
+    sent = {"type": "monkeypatch", "css": ".chip{padding:2px}", "note": "", **over}
+    return worktree_cmd(
+        "worktree.feedback",
+        "northwind-alpha",
+        feedback=sent if feedback is None else feedback,
+    )
 
 
-class TestTuningCss:
-    """A send needs CSS to carry; the agents are the change comments' rule."""
+class TestFeedback:
+    """Feedback needs a type the server knows; the agents are the change comments' rule."""
 
-    def test_css_for_a_worktree_with_an_agent_is_allowed(self):
+    def test_a_monkeypatch_for_a_worktree_with_an_agent_is_allowed(self):
         world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
-        assert validate_command(world, tune_cmd()) is None
+        assert validate_command(world, feedback_cmd()) is None
 
-    def test_css_for_a_closed_worktree_is_refused(self):
+    def test_feedback_for_a_closed_worktree_is_refused(self):
         world = world_with(
             agents=[make_agent()],
             worktrees=[make_worktree(isClosed=True, branch="")],
         )
-        assert validate_command(world, tune_cmd()) == {
+        assert validate_command(world, feedback_cmd()) == {
             "code": "invalid",
             "message": "Worktree northwind-alpha is closed",
         }
 
-    def test_css_for_a_worktree_with_no_agent_is_refused(self):
+    def test_feedback_for_a_worktree_with_no_agent_is_refused(self):
         world = world_with(
             agents=[make_agent(state="exited")], worktrees=[make_worktree()]
         )
-        assert validate_command(world, tune_cmd()) == {
+        assert validate_command(world, feedback_cmd()) == {
             "code": "invalid",
             "message": "No agent is running in northwind-alpha",
         }
+
+    @pytest.mark.parametrize(
+        ("feedback", "message"),
+        [
+            (None, "Feedback is an object"),
+            ("x", "Feedback is an object"),
+            ({"css": ".a{}"}, "Unknown feedback type: None"),
+            ({"type": "poke"}, "Unknown feedback type: 'poke'"),
+        ],
+        ids=["none", "not an object", "no type", "unknown type"],
+    )
+    def test_feedback_of_no_known_type_is_refused(self, feedback, message):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        cmd = worktree_cmd("worktree.feedback", "northwind-alpha", feedback=feedback)
+        assert validate_command(world, cmd) == {"code": "invalid", "message": message}
 
     @pytest.mark.parametrize(
         ("over", "message"),
@@ -1071,9 +1090,11 @@ class TestTuningCss:
         ],
         ids=["no css", "blank css", "not text", "note not text"],
     )
-    def test_a_send_the_message_cannot_be_built_from_is_refused(self, over, message):
+    def test_a_monkeypatch_the_message_cannot_be_built_from_is_refused(
+        self, over, message
+    ):
         world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
-        assert validate_command(world, tune_cmd(**over)) == {
+        assert validate_command(world, feedback_cmd(**over)) == {
             "code": "invalid",
             "message": message,
         }

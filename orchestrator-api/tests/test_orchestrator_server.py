@@ -7092,27 +7092,30 @@ def test_comments_every_agent_refuses_answer_the_first_refusal(harness):
     assert reply.body["error"]["message"] == "agent ag1 has exited"
 
 
-# --- tuning CSS --------------------------------------------------------------
+# --- feedback ----------------------------------------------------------------
 
 
-def post_tuning(harness, body: dict):
+def post_feedback(harness, body: dict):
     async def scenario():
         async with harness.client() as api:
-            return await api.post("/api/worktrees/northwind-alpha/tuning", body)
+            return await api.post("/api/worktrees/northwind-alpha/feedback", body)
 
     return run(scenario())
 
 
-def test_tuning_css_reaches_every_top_level_agent_in_the_worktree(harness):
+def monkeypatch(css: str = ".chip{padding:20px}", **over) -> dict:
+    return {"type": "monkeypatch", "css": css, **over}
+
+
+def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.rows["ag1.1"] = agent_row("ag1.1", parent="ag1")
 
-    reply = post_tuning(
+    reply = post_feedback(
         harness,
-        {
-            "css": ".chip { padding: 14px; }\n\n.row { gap: 4px; }\n",
-            "note": " tighter ",
-        },
+        monkeypatch(
+            ".chip { padding: 14px; }\n\n.row { gap: 4px; }\n", note=" tighter "
+        ),
     )
 
     assert reply.status == 200
@@ -7122,14 +7125,14 @@ def test_tuning_css_reaches_every_top_level_agent_in_the_worktree(harness):
             "cmd": "say",
             "id": "ag1",
             "text": (
-                "Tuning CSS for feat/orders, from the jig (.drafts/tuning.css):\n"
+                "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
                 "\n"
                 "    .chip { padding: 14px; }\n"
                 "\n"
                 "    .row { gap: 4px; }\n"
                 "\n"
                 "Note: tighter\n"
-                "Apply these in source, then delete .drafts/tuning.css."
+                "Apply it in source, then delete .drafts/monkeypatch.css."
             ),
         }
     ]
@@ -7138,23 +7141,23 @@ def test_tuning_css_reaches_every_top_level_agent_in_the_worktree(harness):
 @pytest.mark.parametrize(
     "note", [{}, {"note": ""}, {"note": "  "}], ids=["absent", "empty", "blank"]
 )
-def test_tuning_css_without_a_note_omits_the_note_line(harness, note):
+def test_a_monkeypatch_without_a_note_omits_the_note_line(harness, note):
     """The jig sends an empty note field as ``""``, not as no key."""
     harness.daemon.rows["ag1"] = agent_row()
 
-    post_tuning(harness, {"css": ".chip{padding:20px}", **note})
+    post_feedback(harness, monkeypatch(**note))
 
     assert said(harness)[0]["text"] == (
-        "Tuning CSS for feat/orders, from the jig (.drafts/tuning.css):\n"
+        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
         "\n"
         "    .chip{padding:20px}\n"
         "\n"
-        "Apply these in source, then delete .drafts/tuning.css."
+        "Apply it in source, then delete .drafts/monkeypatch.css."
     )
 
 
-def test_tuning_css_with_no_agent_in_the_worktree_is_refused(harness):
-    reply = post_tuning(harness, {"css": ".chip{padding:20px}"})
+def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
+    reply = post_feedback(harness, monkeypatch())
 
     assert reply.status == 400
     assert reply.body["error"]["message"] == "No agent is running in northwind-alpha"
