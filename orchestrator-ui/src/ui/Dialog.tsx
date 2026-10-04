@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { actionIcon } from './actionIcons';
 import styles from './Dialog.module.css';
 
 /**
@@ -26,7 +27,7 @@ export function Dialog({
 }: {
   /** The dialog's accessible name. */
   label: string;
-  /** Escape or a click on the backdrop (both as `cancel`), or the header's ×. */
+  /** Escape or a click on the backdrop (both as `cancel`), or the header's close. */
   onClose: () => void;
   testId?: string;
   /** Added to the box, for a dialog whose content is not text. */
@@ -86,7 +87,7 @@ export function Dialog({
   );
 }
 
-/** The dialog's title row, with the × that closes it. */
+/** The dialog's title row, with the close button. */
 export function DialogHeader({
   title,
   onClose,
@@ -104,7 +105,7 @@ export function DialogHeader({
           beside the close button rather than spreading across the header. */}
       {children && <span className={styles.headerControls}>{children}</span>}
       <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
-        ×
+        {actionIcon('close')}
       </button>
     </header>
   );

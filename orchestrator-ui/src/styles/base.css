@@ -94,6 +94,13 @@ button {
 :where(button:hover:not(:disabled)) {
   background: var(--bg-control-hover);
 }
+/* An icon from `ui/actionIcons.ts` draws at its line's size, not lucide's own
+   24px. `:where`, so one class at a call site sizes it instead. */
+:where(svg.lucide) {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
 button:disabled {
   cursor: default;
   opacity: 0.5;

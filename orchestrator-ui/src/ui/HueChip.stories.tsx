@@ -2,8 +2,10 @@ import type { Story } from '@ladle/react';
 import { HueChip } from './HueChip';
 import { PrChip } from '../shell/PrChip';
 import { GitHubIcon } from '../shell/GitHubIcon';
-import { ExternalLinkIcon } from '../shell/ExternalLinkIcon';
+import { actionIcon } from './actionIcons';
 import type { PrState, Worktree } from '../protocol/entities';
+
+const External = ({ className }: { className?: string }) => actionIcon('external', className);
 
 export default { title: 'UI / HueChip' };
 
@@ -125,14 +127,7 @@ export const Tones: Story = () => (
       <HueChip brand={GitHubIcon} word="parked" tone="quiet" size="large" href="#" />
     </Row>
     <Row label="a second mark, for a chip that needs one">
-      <HueChip
-        brand={GitHubIcon}
-        icon={ExternalLinkIcon}
-        word="stale"
-        tone="bad"
-        size="large"
-        href="#"
-      >
+      <HueChip brand={GitHubIcon} icon={External} word="stale" tone="bad" size="large" href="#">
         #4021
       </HueChip>
     </Row>

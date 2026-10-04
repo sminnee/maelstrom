@@ -1,6 +1,6 @@
 import type { ProjectGroup, TabGroup } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
-import { CloseIcon } from '../shell/CloseIcon';
+import { actionIcon } from '../ui/actionIcons';
 import { PANEL_GROUP_ID } from './PanelTabs';
 import { rowId } from './usePanelGroups';
 import styles from './PanelSidebar.module.css';
@@ -87,7 +87,7 @@ export function PanelSidebar({
                     onClose(group.tabs.map((t) => t.key));
                   }}
                 >
-                  <CloseIcon />
+                  {actionIcon('close')}
                 </button>
               </div>
             );

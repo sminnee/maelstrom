@@ -5,7 +5,7 @@ import type { MobileScreen } from '../selectors/navStack';
 import type { PanelTab } from '../store/uiSlice';
 import type { TabOf } from '../selectors/tabs';
 import { ExternalLink } from './ExternalLink';
-import { OpenInPanelIcon } from './OpenInPanelIcon';
+import { actionIcon } from '../ui/actionIcons';
 import styles from './link.module.css';
 
 /** A tab the narrow layout also has a screen for. */
@@ -89,7 +89,7 @@ export function PanelLink({
       }}
     >
       {children}
-      {icon && <OpenInPanelIcon className={styles.icon} />}
+      {icon && actionIcon('openInPanel', styles.icon)}
     </a>
   );
 }

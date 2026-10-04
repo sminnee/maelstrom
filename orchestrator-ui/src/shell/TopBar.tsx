@@ -6,6 +6,8 @@ import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
 import { UsageChips } from './UsageChips';
+import { actionIcon } from '../ui/actionIcons';
+import { AppButton } from '../ui/AppButton';
 import styles from './TopBar.module.css';
 
 const PANES: { pane: Pane; label: string }[] = [
@@ -47,7 +49,7 @@ export function TopBar({
         <h1 className="srOnly">maelstrom</h1>
         <div className={styles.row}>
           <button type="button" className={styles.back} aria-label="Back" onClick={back.onBack}>
-            ←
+            {actionIcon('back')}
           </button>
           <span className={styles.screenTitle} data-testid="screen-title">
             {back.title}

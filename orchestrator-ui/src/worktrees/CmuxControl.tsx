@@ -1,8 +1,7 @@
 import { useCreateWorktreeTerminal } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import { ExternalLink } from '../shell/ExternalLink';
-import { PlusIcon } from '../shell/PlusIcon';
-import { TerminalIcon } from '../shell/TerminalIcon';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import styles from '../shell/link.module.css';
 
@@ -16,7 +15,7 @@ export function CmuxControl({ worktree }: { worktree: Worktree | undefined }) {
 
   if (worktree.shellUrl) {
     return (
-      <ExternalLink href={worktree.shellUrl} icon={TerminalIcon} newTab={false}>
+      <ExternalLink href={worktree.shellUrl} icon="terminal" newTab={false}>
         cmux
       </ExternalLink>
     );
@@ -31,7 +30,7 @@ export function CmuxControl({ worktree }: { worktree: Worktree | undefined }) {
       }}
     >
       cmux
-      <PlusIcon className={styles.icon} />
+      {actionIcon('new', styles.icon)}
     </AppButton>
   );
 }

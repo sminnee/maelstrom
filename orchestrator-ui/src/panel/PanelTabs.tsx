@@ -1,7 +1,7 @@
 import { groupKeyOf, tabAttribution } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
-import { CloseIcon } from '../shell/CloseIcon';
+import { actionIcon } from '../ui/actionIcons';
 import { TabChip } from './TabChip';
 import type { TabGroup } from '../selectors/tabs';
 import styles from './PanelTabs.module.css';
@@ -109,7 +109,7 @@ export function PanelTabs({
                 onClose([tab.key]);
               }}
             >
-              <CloseIcon />
+              {actionIcon('close')}
             </button>
           </div>
         );

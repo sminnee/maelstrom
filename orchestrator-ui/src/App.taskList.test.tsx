@@ -523,15 +523,15 @@ describe('the task list', () => {
     // NORT-9.1 is the row after NORT-9 in the live-status, oldest-first order
     // the list itself uses.
     let editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
-    await user.click(within(editor).getByRole('button', { name: 'Next ›' }));
+    await user.click(within(editor).getByRole('button', { name: 'Next' }));
     editor = await screen.findByRole('dialog', { name: 'Watch the migration PR' });
     expect(within(editor).getByLabelText('Title')).toHaveValue('Watch the migration PR');
 
-    await user.click(within(editor).getByRole('button', { name: '‹ Prev' }));
+    await user.click(within(editor).getByRole('button', { name: 'Prev' }));
     editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
     // Neither end of the list, so both directions stay live.
-    expect(within(editor).getByRole('button', { name: '‹ Prev' })).toBeEnabled();
-    expect(within(editor).getByRole('button', { name: 'Next ›' })).toBeEnabled();
+    expect(within(editor).getByRole('button', { name: 'Prev' })).toBeEnabled();
+    expect(within(editor).getByRole('button', { name: 'Next' })).toBeEnabled();
   });
 
   it('disables Prev on the first row and Next on the last', async () => {
@@ -543,14 +543,14 @@ describe('the task list', () => {
     const titleOf = (id: string) => server.world.tasks[id]!.title;
 
     const openFirst = await openTask(user, ids[0]!, titleOf(ids[0]!));
-    expect(within(openFirst).getByRole('button', { name: '‹ Prev' })).toBeDisabled();
-    expect(within(openFirst).getByRole('button', { name: 'Next ›' })).toBeEnabled();
+    expect(within(openFirst).getByRole('button', { name: 'Prev' })).toBeDisabled();
+    expect(within(openFirst).getByRole('button', { name: 'Next' })).toBeEnabled();
     await user.keyboard('{Escape}');
 
     const last = ids.at(-1)!;
     const openLast = await openTask(user, last, titleOf(last));
-    expect(within(openLast).getByRole('button', { name: 'Next ›' })).toBeDisabled();
-    expect(within(openLast).getByRole('button', { name: '‹ Prev' })).toBeEnabled();
+    expect(within(openLast).getByRole('button', { name: 'Next' })).toBeDisabled();
+    expect(within(openLast).getByRole('button', { name: 'Prev' })).toBeEnabled();
   });
 
   it('asks before Next drops an unsaved edit, and lands on the next task once confirmed', async () => {
@@ -562,7 +562,7 @@ describe('the task list', () => {
     const title = within(editor).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Never saved');
-    await user.click(within(editor).getByRole('button', { name: 'Next ›' }));
+    await user.click(within(editor).getByRole('button', { name: 'Next' }));
 
     expect(within(editor).getByText('Throw away your changes?')).toBeInTheDocument();
     await user.click(within(editor).getByRole('button', { name: 'Discard' }));

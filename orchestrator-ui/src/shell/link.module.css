@@ -18,5 +18,7 @@
 }
 .icon {
   flex-shrink: 0;
+  width: 12px;
+  height: 12px;
   opacity: 0.8;
 }
