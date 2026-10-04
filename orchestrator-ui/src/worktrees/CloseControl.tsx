@@ -7,7 +7,8 @@ import { trashConfirm } from './trashConfirm';
 
 /**
  * The worktree's close: Close, **Shelve** and **Trash**. Held while an agent
- * runs in the worktree — see `docs/dev/orchestrator-ui.md`, "The worktree area".
+ * runs in the worktree. A card does not draw it then at all — see
+ * `docs/dev/orchestrator-ui.md`, "The worktree area".
  */
 export function CloseControl({ worktree }: { worktree: Worktree }) {
   const { world } = useWorld();

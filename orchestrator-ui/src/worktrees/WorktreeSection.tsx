@@ -1,5 +1,6 @@
+import { useWorld } from '../api/useWorld';
 import type { Worktree } from '../protocol/entities';
-import { branchLabel } from '../selectors/worktrees';
+import { branchLabel, trackedAgents } from '../selectors/worktrees';
 import { CloseControl } from './CloseControl';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeSection.module.css';
@@ -10,6 +11,9 @@ import styles from './WorktreeSection.module.css';
  *
  * The node card and the **Worktree card** both draw this, so the two cannot
  * drift. `pr` is the worktree whose PR to show, as `WorktreeLinks` reads it.
+ *
+ * The close shows only while no agent runs in the worktree — see
+ * `docs/dev/orchestrator-ui.md`, "The worktree area".
  */
 export function WorktreeSection({
   worktree,
@@ -18,6 +22,8 @@ export function WorktreeSection({
   worktree: Worktree;
   pr?: Worktree | null;
 }) {
+  const { world } = useWorld();
+  const idle = trackedAgents(world, worktree.id).length === 0;
   return (
     <section className={styles.section} aria-label="Worktree" data-testid="worktree-section">
       <span className={styles.head}>Worktree</span>
@@ -31,7 +37,7 @@ export function WorktreeSection({
       </div>
       <div className={styles.commands}>
         <WorktreeCommands worktree={worktree} />
-        <CloseControl worktree={worktree} />
+        {idle && <CloseControl worktree={worktree} />}
       </div>
     </section>
   );
