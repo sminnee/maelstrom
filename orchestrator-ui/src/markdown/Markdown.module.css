@@ -179,9 +179,10 @@
  * cannot cross a block boundary — it would clamp the first block and leave
  * the rest full height.
  *
- * The fade starts at 55%, above the cut, because a hard cut slices a glyph
- * row whenever the block does not open with a plain paragraph, and a sliced
- * row under a hard cut reads as a rendering bug rather than as clamped.
+ * The fade (`--clamp-fade`) starts at 55%, above the cut, because a hard cut
+ * slices a glyph row whenever the block does not open with a plain paragraph,
+ * and a sliced row under a hard cut reads as a rendering bug rather than as
+ * clamped.
  *
  * No `aria-hidden` on the clipped overflow: the clamp is a visual economy,
  * and the full text stays in the accessibility tree.
@@ -195,8 +196,8 @@
      this property at all. */
   max-height: var(--quiet-clamp, none);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, var(--fg) 55%, transparent 100%);
-  mask-image: linear-gradient(to bottom, var(--fg) 55%, transparent 100%);
+  -webkit-mask-image: var(--clamp-fade);
+  mask-image: var(--clamp-fade);
 }
 .quietBody[data-expanded] {
   max-height: none;
