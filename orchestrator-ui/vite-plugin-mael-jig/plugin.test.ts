@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type ViteDevServer } from 'vite';
-import { maelTune } from './plugin';
+import { maelJig } from './plugin';
 
 // As `mkdtemp` names it. On macOS that is under `/var`, whose real path is
 // `/private/var`, so a lookup by path must compare real paths.
@@ -21,7 +21,7 @@ async function start(orchestratorUrl?: string) {
     root: worktree,
     configFile: false,
     logLevel: 'silent',
-    plugins: [maelTune({ orchestratorUrl })],
+    plugins: [maelJig({ orchestratorUrl })],
     server: { port: 0, host: '127.0.0.1' },
   });
   await server.listen();
@@ -29,7 +29,7 @@ async function start(orchestratorUrl?: string) {
 }
 
 beforeEach(() => {
-  worktree = mkdtempSync(join(tmpdir(), 'mael-tune-'));
+  worktree = mkdtempSync(join(tmpdir(), 'mael-jig-'));
   execFileSync('git', ['init', '-q'], { cwd: worktree });
   writeFileSync(join(worktree, 'index.html'), '<html><head></head><body></body></html>');
 });
@@ -76,13 +76,13 @@ async function fakeOrchestrator(
   return { url: `http://127.0.0.1:${(orchestrator.address() as AddressInfo).port}`, posts };
 }
 
-const tuningFile = () => join(worktree, '.drafts', 'tuning.css');
+const patchFile = () => join(worktree, '.drafts', 'monkeypatch.css');
 
 type Update = { css: string; from: string | null };
 
 /**
  * A page's HMR socket, once Vite has greeted it and the watcher has seen the
- * tuning file. `next()` is the next `mael-tune:update` after that. The file
+ * monkeypatch file. `next()` is the next `mael-jig:monkeypatch` after that. The file
  * must not exist yet, and does not exist after.
  *
  * The watcher picks up `.drafts/` a moment after the server starts, and a
@@ -99,7 +99,7 @@ async function hmrPage() {
   socket.onmessage = (message) => {
     const payload = JSON.parse(String(message.data));
     if (payload.type === 'connected') connect();
-    if (payload.type === 'custom' && payload.event === 'mael-tune:update') {
+    if (payload.type === 'custom' && payload.event === 'mael-jig:monkeypatch') {
       updates.push(payload.data);
       wake();
     }
@@ -112,37 +112,37 @@ async function hmrPage() {
   await connected;
   const marker = '/* watched */';
   while (!updates.some((u) => u.css === marker)) {
-    writeFileSync(tuningFile(), marker);
+    writeFileSync(patchFile(), marker);
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  rmSync(tuningFile());
+  rmSync(patchFile());
   for (let update = await next(); update.css !== ''; update = await next());
   return { next };
 }
 
 const put = (css: string, client = 'c1') =>
-  fetch(`${origin}/__mael/tuning`, {
+  fetch(`${origin}/__mael/monkeypatch`, {
     method: 'PUT',
-    headers: { 'x-mael-tune-client': client },
+    headers: { 'x-mael-jig-client': client },
     body: css,
   });
 
-const sendCss = (body: unknown) =>
-  fetch(`${origin}/__mael/send`, { method: 'POST', body: JSON.stringify(body) });
+const sendFeedback = (body: unknown) =>
+  fetch(`${origin}/__mael/feedback`, { method: 'POST', body: JSON.stringify(body) });
 
-describe('the tuning jig plugin', () => {
+describe('the jig plugin', () => {
   beforeEach(() => start());
 
-  it('writes a PUT to the tuning file and reads it back', async () => {
+  it('writes a PUT to the monkeypatch file and reads it back', async () => {
     expect((await put('.chip { padding: 14px; }')).status).toBe(204);
-    expect(readFileSync(tuningFile(), 'utf8')).toBe('.chip { padding: 14px; }');
+    expect(readFileSync(patchFile(), 'utf8')).toBe('.chip { padding: 14px; }');
 
-    const got = await fetch(`${origin}/__mael/tuning`);
+    const got = await fetch(`${origin}/__mael/monkeypatch`);
     expect(await got.json()).toEqual({ css: '.chip { padding: 14px; }', canSend: false });
   });
 
   it('reads an absent file as no CSS', async () => {
-    const got = await fetch(`${origin}/__mael/tuning`);
+    const got = await fetch(`${origin}/__mael/monkeypatch`);
     expect(await got.json()).toEqual({ css: '', canSend: false });
   });
 
@@ -150,13 +150,13 @@ describe('the tuning jig plugin', () => {
     rmSync(join(worktree, '.drafts'), { recursive: true });
 
     expect((await put('.chip{padding:2px}')).status).toBe(204);
-    expect(readFileSync(tuningFile(), 'utf8')).toBe('.chip{padding:2px}');
+    expect(readFileSync(patchFile(), 'utf8')).toBe('.chip{padding:2px}');
   });
 
   it('sends every page the file when someone else changes it', async () => {
     const page = await hmrPage();
 
-    writeFileSync(tuningFile(), '.row { gap: 4px; }');
+    writeFileSync(patchFile(), '.row { gap: 4px; }');
 
     expect(await page.next()).toEqual({ css: '.row { gap: 4px; }', from: null });
   });
@@ -171,10 +171,10 @@ describe('the tuning jig plugin', () => {
 
   it('sends no CSS when the agent deletes the file', async () => {
     const page = await hmrPage();
-    writeFileSync(tuningFile(), '.chip{padding:20px}');
+    writeFileSync(patchFile(), '.chip{padding:20px}');
     expect((await page.next()).css).toBe('.chip{padding:20px}');
 
-    rmSync(tuningFile());
+    rmSync(patchFile());
 
     expect(await page.next()).toEqual({ css: '', from: null });
   });
@@ -185,12 +185,12 @@ describe('the tuning jig plugin', () => {
   });
 
   it('refuses a send when no orchestrator is set', async () => {
-    expect((await sendCss({ css: '.chip{padding:20px}' })).status).toBe(503);
+    expect((await sendFeedback({ css: '.chip{padding:20px}' })).status).toBe(503);
   });
 
   it('refuses a method each route does not take', async () => {
-    expect((await fetch(`${origin}/__mael/tuning`, { method: 'DELETE' })).status).toBe(405);
-    expect((await fetch(`${origin}/__mael/send`)).status).toBe(405);
+    expect((await fetch(`${origin}/__mael/monkeypatch`, { method: 'DELETE' })).status).toBe(405);
+    expect((await fetch(`${origin}/__mael/feedback`)).status).toBe(405);
   });
 });
 
@@ -198,7 +198,7 @@ describe('send', () => {
   it('turns Send on when an orchestrator is set', async () => {
     await start('http://127.0.0.1:1');
 
-    const got = await fetch(`${origin}/__mael/tuning`);
+    const got = await fetch(`${origin}/__mael/monkeypatch`);
     expect(await got.json()).toEqual({ css: '', canSend: true });
   });
 
@@ -206,14 +206,18 @@ describe('send', () => {
     const orchestrator = await fakeOrchestrator(realpathSync(worktree));
     await start(orchestrator.url);
 
-    const sent = await sendCss({ css: '.chip{padding:20px}', note: 'tighter' });
+    const sent = await sendFeedback({
+      type: 'monkeypatch',
+      css: '.chip{padding:20px}',
+      note: 'tighter',
+    });
 
     expect(sent.status).toBe(200);
     expect(await sent.json()).toEqual({ agentIds: ['ag1'], refused: [] });
     expect(orchestrator.posts).toEqual([
       {
-        url: '/api/worktrees/northwind-alpha/tuning',
-        body: { css: '.chip{padding:20px}', note: 'tighter' },
+        url: '/api/worktrees/northwind-alpha/feedback',
+        body: { type: 'monkeypatch', css: '.chip{padding:20px}', note: 'tighter' },
       },
     ]);
   });
@@ -226,7 +230,7 @@ describe('send', () => {
     });
     await start(orchestrator.url);
 
-    const sent = await sendCss({ css: '.chip{padding:20px}' });
+    const sent = await sendFeedback({ css: '.chip{padding:20px}' });
 
     expect(sent.status).toBe(400);
     expect(await sent.json()).toEqual(refusal);
@@ -236,7 +240,7 @@ describe('send', () => {
     const orchestrator = await fakeOrchestrator('/somewhere/else');
     await start(orchestrator.url);
 
-    const sent = await sendCss({ css: '.chip{padding:20px}' });
+    const sent = await sendFeedback({ css: '.chip{padding:20px}' });
 
     expect(sent.status).toBe(404);
     expect(orchestrator.posts).toEqual([]);

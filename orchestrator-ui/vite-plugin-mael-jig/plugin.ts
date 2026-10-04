@@ -1,5 +1,5 @@
-// The tuning jig's dev-server half. See CONTEXT.md, "Jig", and
-// docs/dev/orchestrator-ui.md, "The tuning jig".
+// The jig's dev-server half. See CONTEXT.md, "Jig", and
+// docs/dev/orchestrator-ui.md, "The jig".
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -8,17 +8,17 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 interface Options {
-  /** The orchestrator server that Send posts to. Unset, Send is off and live CSS still works. */
+  /** The orchestrator server that feedback goes to. Unset, Send is off and live CSS still works. */
   orchestratorUrl?: string;
 }
 
 /** The custom HMR event that carries the file to every page. */
-const UPDATE_EVENT = 'mael-tune:update';
-const CLIENT_HEADER = 'x-mael-tune-client';
+const UPDATE_EVENT = 'mael-jig:monkeypatch';
+const CLIENT_HEADER = 'x-mael-jig-client';
 const SETTLE_MS = 80;
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
-export function maelTune({ orchestratorUrl }: Options): Plugin {
+export function maelJig({ orchestratorUrl }: Options): Plugin {
   // Empty until the server starts, and for good when it runs outside a git
   // checkout: the jig is a convenience, so it switches off rather than stop the server.
   let file = '';
@@ -34,16 +34,16 @@ export function maelTune({ orchestratorUrl }: Options): Plugin {
   };
 
   return {
-    name: 'mael-tune',
+    name: 'mael-jig',
     apply: 'serve',
     configureServer(server) {
       const worktree = gitToplevel(server.config.root);
       if (!worktree) {
-        server.config.logger.warn('mael-tune: not in a git checkout, so the jig is off');
+        server.config.logger.warn('mael-jig: not in a git checkout, so the jig is off');
         return;
       }
       const drafts = join(worktree, '.drafts');
-      file = join(drafts, 'tuning.css');
+      file = join(drafts, 'monkeypatch.css');
       // The directory, not the file: a file that does not exist yet is not watched.
       mkdirSync(drafts, { recursive: true });
       server.watcher.add(drafts);
@@ -64,7 +64,7 @@ export function maelTune({ orchestratorUrl }: Options): Plugin {
       server.watcher.on('change', broadcast);
       server.watcher.on('unlink', broadcast);
 
-      server.middlewares.use('/__mael/tuning', (req, res) => {
+      server.middlewares.use('/__mael/monkeypatch', (req, res) => {
         if (req.method === 'GET') {
           json(res, 200, { css: read(), canSend: Boolean(orchestratorUrl) });
           return;
@@ -85,7 +85,7 @@ export function maelTune({ orchestratorUrl }: Options): Plugin {
           .catch((error: unknown) => json(res, 500, { error: { message: String(error) } }));
       });
 
-      server.middlewares.use('/__mael/send', (req, res) => {
+      server.middlewares.use('/__mael/feedback', (req, res) => {
         if (req.method !== 'POST') {
           json(res, 405, { error: { message: `${req.method} is not allowed` } });
           return;
@@ -113,7 +113,10 @@ export function maelTune({ orchestratorUrl }: Options): Plugin {
   };
 }
 
-/** Post the CSS to the orchestrator, for the worktree it lists at this path. */
+/**
+ * Post the feedback to the orchestrator, for the worktree it lists at this
+ * path. The body passes through untouched: its type is the orchestrator's to judge.
+ */
 async function send(
   orchestratorUrl: string,
   worktree: string,
@@ -129,7 +132,7 @@ async function send(
       reply: { error: { message: `The orchestrator has no worktree at ${worktree}` } },
     };
   }
-  const posted = await fetch(`${orchestratorUrl}/api/worktrees/${match.id}/tuning`, {
+  const posted = await fetch(`${orchestratorUrl}/api/worktrees/${match.id}/feedback`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: sent,

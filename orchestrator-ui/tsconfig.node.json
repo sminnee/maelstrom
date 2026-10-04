@@ -19,7 +19,7 @@
   },
   "include": [
     "vite.config.ts",
-    "vite-plugin-mael-tune/plugin.ts",
-    "vite-plugin-mael-tune/plugin.test.ts"
+    "vite-plugin-mael-jig/plugin.ts",
+    "vite-plugin-mael-jig/plugin.test.ts"
   ]
 }
