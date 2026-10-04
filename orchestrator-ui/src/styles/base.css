@@ -114,7 +114,7 @@ button:disabled {
   input,
   select,
   textarea {
-    font-size: var(--text-md) !important;
+    font-size: var(--text-sm) !important;
   }
 }
 input[readonly],
