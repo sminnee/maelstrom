@@ -17,10 +17,14 @@ document::
 
     <note>Rebasing onto main, then re-running the failing port test</note>
 
-A last one marks a stage of the work as reached, so a reader can say where the
+Another marks a stage of the work as reached, so a reader can say where the
 token spend went::
 
     <milestone>built</milestone>
+
+The jig marker shows or hides the agent's worktree's **Jig**::
+
+    <jig show>
 
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
@@ -60,6 +64,10 @@ _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
 _MILESTONE_TAG = re.compile(
     rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
 )
+
+#: Shows or hides the agent's worktree's jig. A verb outside the two is not a
+#: marker, and stays as text.
+_JIG_TAG = re.compile(r"<jig\s+(show|hide)\s*>")
 
 #: The stages the task-completion flow passes through, in order. A name outside
 #: this set is recorded as written and flagged, so a typo is visible rather than
@@ -115,13 +123,15 @@ class TaggedMessage:
     ``note`` is what the agent said it is doing, and is empty when the message
     carried none. A note replaces rather than accumulates, so this is the
     latest one the message held. ``milestone`` follows the same rule, and names
-    the stage of the work the agent has just reached.
+    the stage of the work the agent has just reached. ``jig`` follows it too:
+    ``True`` to show the jig, ``False`` to hide it, ``None`` for no marker.
     """
 
     text: str
     tags: tuple[DocumentTag, ...]
     note: str = ""
     milestone: str = ""
+    jig: bool | None = None
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -178,6 +188,13 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         milestone = match.group(2).strip()
         spans.append(match.span())
 
+    jig: bool | None = None
+    for match in _JIG_TAG.finditer(text):
+        if any(start <= match.start() < end for start, end in spans):
+            continue
+        jig = match.group(1) == "show"
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a tag already cut is that tag's text.
@@ -199,12 +216,13 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         tags=tuple(tags),
         note=note,
         milestone=milestone,
+        jig=jig,
     )
 
 
 #: Every marker an agent writes in a message. The last is read by the
 #: renderer and not here, but half of it is as wrong on screen as half of any.
-_MARKER_NAMES = ("doc-file", "image", "note", "milestone", "user-attention")
+_MARKER_NAMES = ("doc-file", "image", "note", "milestone", "jig", "user-attention")
 #: The markers whose body is not prose: nothing of one shows until it closes.
 _BODY_MARKERS = ("note", "milestone")
 _PREFIXES = "|".join(
