@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
 import { TextArea } from '../../ui/TextArea';
 import styles from './cards.module.css';
@@ -30,10 +31,16 @@ export function DecideRow({
         onChange={(e) => setReason(e.target.value)}
       />
       <div className={styles.buttons}>
-        <AppButton variant="primary" disabled={!onDecide} onClick={() => onDecide?.('approve', '')}>
+        <AppButton
+          icon={actionIcon('approve')}
+          variant="primary"
+          disabled={!onDecide}
+          onClick={() => onDecide?.('approve', '')}
+        >
           Approve
         </AppButton>
         <AppButton
+          icon={actionIcon('deny')}
           disabled={!onDecide || !reason.trim()}
           onClick={() => onDecide?.('deny', reason.trim())}
         >

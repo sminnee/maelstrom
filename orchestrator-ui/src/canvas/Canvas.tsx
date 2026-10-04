@@ -11,6 +11,7 @@ import '@xyflow/react/dist/style.css';
 import { useUpdateTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import type { TaskId } from '../protocol/ids';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
@@ -248,7 +249,9 @@ export function Canvas() {
     return (
       <div className={styles.frame} role="alert" data-testid="canvas-error">
         <div>Could not load the world: {errors[0]?.message ?? 'unknown error'}</div>
-        <AppButton onClick={retry}>Retry</AppButton>
+        <AppButton icon={actionIcon('retry')} onClick={retry}>
+          Retry
+        </AppButton>
       </div>
     );
   }
@@ -258,7 +261,11 @@ export function Canvas() {
       {rewireError && (
         <div className={styles.rewireError} role="alert" data-testid="rewire-error">
           {rewireError}
-          <AppButton variant="quiet" onClick={() => setRewireError(null)}>
+          <AppButton
+            icon={actionIcon('dismiss')}
+            variant="quiet"
+            onClick={() => setRewireError(null)}
+          >
             Dismiss
           </AppButton>
         </div>

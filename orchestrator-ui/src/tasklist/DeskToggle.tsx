@@ -20,17 +20,10 @@ export function DeskToggle({
   return (
     <AppButton
       variant={variant}
+      icon={onDesk ? <OffDeskIcon /> : <OnDeskIcon />}
       onClick={() => (onDesk ? takeOffDesk : putOnDesk).mutateAsync({ id: deskIdForTask(taskId) })}
     >
-      {onDesk ? (
-        <>
-          <OffDeskIcon /> Off desk
-        </>
-      ) : (
-        <>
-          <OnDeskIcon /> On desk
-        </>
-      )}
+      {onDesk ? 'Off desk' : 'On desk'}
     </AppButton>
   );
 }

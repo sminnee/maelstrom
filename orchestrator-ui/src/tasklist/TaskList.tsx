@@ -10,6 +10,7 @@ import { sessionTab } from '../selectors/tabs';
 import { listTasks } from '../selectors/taskList';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { StatusPicker } from '../ui/StatusPicker';
@@ -179,7 +180,9 @@ export function TaskList() {
             <tr>
               <td colSpan={8} className={styles.empty} role="alert">
                 Could not load the tasks: {errors[0]?.message ?? 'unknown error'}{' '}
-                <AppButton onClick={retry}>Retry</AppButton>
+                <AppButton icon={actionIcon('retry')} onClick={retry}>
+                  Retry
+                </AppButton>
               </td>
             </tr>
           )}

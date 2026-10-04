@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Document } from '../protocol/documents';
 import { describeError } from '../api/http';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { TextArea } from '../ui/TextArea';
 import styles from './ReviewActions.module.css';
@@ -56,10 +57,16 @@ export function ReviewActions({
         onChange={(e) => setSummary(e.target.value)}
       />
       <div className={styles.buttons}>
-        <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>
+        <AppButton
+          icon={actionIcon('approve')}
+          variant="primary"
+          errorChildren={describeError}
+          onClick={() => onApprove()}
+        >
           {approveLabel(doc, members)}
         </AppButton>
         <AppButton
+          icon={actionIcon('decline')}
           errorChildren={describeError}
           disabled={!summary.trim() && unresolved === 0}
           onClick={() => onRequestChanges(summary.trim())}

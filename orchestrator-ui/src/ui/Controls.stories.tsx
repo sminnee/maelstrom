@@ -210,9 +210,9 @@ function Board({ control, heading }: { control: string; heading: string }) {
           <span className={chipStyles.asks}>⚠ 2</span>
           <span className={chipStyles.unanswered}>1</span>
         </AppButton>
-        <button type="button" className={barStyles.new}>
+        <AppButton variant="primary" icon={actionIcon('new')}>
           New
-        </button>
+        </AppButton>
       </Row>
       <Row label="A panel tab and a field">
         <div className={tabStyles.strip} role="tablist" style={{ flex: 'none' }}>

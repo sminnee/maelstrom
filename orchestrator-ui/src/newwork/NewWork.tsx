@@ -622,7 +622,11 @@ function Capture({
               <span>Branch</span>
               <ComboBox value={branch} options={branchOptions} onChange={setBranch} />
             </label>
-            <AppButton disabled={busy || !draft.trim()} onClick={onSuggest}>
+            <AppButton
+              icon={actionIcon('suggest')}
+              disabled={busy || !draft.trim()}
+              onClick={onSuggest}
+            >
               Suggest
             </AppButton>
           </div>
@@ -657,7 +661,11 @@ function Capture({
                 field it fills rather than a step in the way. An `AppButton`,
                 which owns the life of its click: the returned promise is what
                 puts the wait on the control that started it. */}
-            <AppButton disabled={busy || !draft.trim()} onClick={onSuggest}>
+            <AppButton
+              icon={actionIcon('suggest')}
+              disabled={busy || !draft.trim()}
+              onClick={onSuggest}
+            >
               Suggest
             </AppButton>
           </div>
