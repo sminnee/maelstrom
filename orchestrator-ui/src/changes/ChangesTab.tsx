@@ -27,6 +27,8 @@ import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
 import { DiffBlock, type DiffRowData, HighlightedRows } from '../ui/DiffRow';
 import { retainedKey } from '../ui/retained';
+import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
+import { useScreenChrome } from '../shell/screenChromeContext';
 import { useRetained } from '../ui/useRetained';
 import { useNow } from '../ui/useNow';
 import { ChangeCommentBox } from './comments/ChangeCommentBox';
@@ -96,6 +98,9 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const rev = changes.data ? revToShow(changes.data, picked) : null;
   const diff = useWorktreeDiff(worktreeId, rev);
   const worktree = world.worktrees[worktreeId];
+  // See DESIGN.md, "The One Strip Rule".
+  const chrome = useScreenChrome();
+
   // The folds live here, not beside the lines they fold: the scroll is keyed
   // on the rev, and a fold stays from one commit to the next.
   const [messageOpen, setMessageOpen] = useState(true);
@@ -108,6 +113,21 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const scrollToFile = useCallback(
     (path: string) => blocks.current.get(path)?.scrollIntoView({ block: 'start' }),
     [],
+  ); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
+  const closeSheet = chrome?.closeSheet;
+  const pickRevInSheet = useCallback(
+    (picked: string) => {
+      setPicked(picked);
+      closeSheet?.();
+    },
+    [closeSheet],
+  );
+  const pickFileInSheet = useCallback(
+    (path: string) => {
+      closeSheet?.();
+      scrollToFile(path);
+    },
+    [closeSheet, scrollToFile],
   );
   const [held, setHeld, clear] = useRetained(retainedKey.changeComments(worktreeId), NO_COMMENTS);
   const post = usePostChangeComments();
@@ -144,75 +164,77 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
     );
   }
 
-  const { dirtyFiles, commits, base } = changes.data;
+  const { commits, base } = changes.data;
   const at = commits.findIndex((c) => c.sha === rev);
+  const commit = commits[at];
+  const prev = commits[at - 1]?.sha;
+  const next = commits[at + 1]?.sha;
+  const header = (
+    <header className={styles.header}>
+      <span className={styles.where}>
+        <span className={styles.branch}>{worktree?.branch || worktreeId}</span>
+        <span className={styles.base}>on {base}</span>
+      </span>
+      <AppButton
+        variant="quiet"
+        processingChildren="Refreshing"
+        onClick={() =>
+          queryClient.invalidateQueries({ queryKey: keys.worktreeChanges.of(worktreeId) })
+        }
+      >
+        Refresh
+      </AppButton>
+    </header>
+  );
   return (
     <div className={styles.tab} data-testid="changes-tab">
-      <header className={styles.header}>
-        <span className={styles.where}>
-          <span className={styles.branch}>{worktree?.branch || worktreeId}</span>
-          <span className={styles.base}>on {base}</span>
-        </span>
-        <AppButton
-          variant="quiet"
-          processingChildren="Refreshing"
-          onClick={() =>
-            queryClient.invalidateQueries({ queryKey: keys.worktreeChanges.of(worktreeId) })
-          }
-        >
-          Refresh
-        </AppButton>
-      </header>
+      {chrome ? (
+        <>
+          <ScreenStrip
+            title={commit?.subject ?? (rev === UNCOMMITTED ? 'Uncommitted' : 'All commits')}
+          >
+            {commit && (
+              <CommitStep prev={prev} next={next} onPick={setPicked} labels={['‹', '›']} />
+            )}
+          </ScreenStrip>
+          <ScreenSheet>
+            {header}
+            {/* A pick in the side sheet closes it, so the diff it picked is in view. */}
+            <RevNav
+              changes={changes.data}
+              rev={rev}
+              files={diff.data?.files}
+              onPickRev={pickRevInSheet}
+              onPickFile={pickFileInSheet}
+            />
+          </ScreenSheet>
+        </>
+      ) : (
+        header
+      )}
       <div className={styles.body}>
-        {(dirtyFiles.length > 0 || commits.length > 0) && (
-          <nav className={styles.strip} aria-label="Changes to show">
-            {commits.length > 0 && (
-              <ul className={styles.revs}>
-                {commits.map((c) => (
-                  <RevEntry
-                    key={c.sha}
-                    rev={c.sha}
-                    current={rev}
-                    onPick={setPicked}
-                    title={c.subject}
-                  >
-                    <span className={styles.sha}>{c.shortSha}</span>{' '}
-                    <span className={styles.revLabel}>{c.subject}</span>
-                  </RevEntry>
-                ))}
-              </ul>
-            )}
-            <ul className={`${styles.revs} ${styles.summary}`}>
-              {commits.length > 0 && (
-                <RevEntry rev={BRANCH} current={rev} onPick={setPicked}>
-                  <span className={styles.revLabel}>All commits</span>{' '}
-                  <span className={styles.revCount}>{commits.length}</span>
-                </RevEntry>
-              )}
-              {dirtyFiles.length > 0 && (
-                <RevEntry rev={UNCOMMITTED} current={rev} onPick={setPicked}>
-                  <span className={styles.revLabel}>Uncommitted</span>{' '}
-                  <span className={styles.revCount}>{dirtyFiles.length}</span>
-                </RevEntry>
-              )}
-            </ul>
-            {diff.data && diff.data.files.length > 0 && (
-              <FileTree key={rev} files={diff.data.files} onPick={scrollToFile} />
-            )}
-          </nav>
+        {!chrome && (
+          <RevNav
+            changes={changes.data}
+            rev={rev}
+            files={diff.data?.files}
+            onPickRev={setPicked}
+            onPickFile={scrollToFile}
+          />
         )}
         {diff.data ? (
           <Files
             // A new rev opens at the top, not at the last rev's scroll position.
             key={rev}
+            flat={!!chrome}
             rev={diff.data.rev}
             held={held}
             setHeld={setHeld}
             files={diff.data.files}
             empty={emptyText(rev, base)}
-            commit={commits[at]}
-            prev={commits[at - 1]?.sha}
-            next={commits[at + 1]?.sha}
+            commit={commit}
+            prev={prev}
+            next={next}
             onPick={setPicked}
             holdFile={holdFile}
             scrollToFile={scrollToFile}
@@ -247,6 +269,87 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** The revs to show, and the file tree of the one in view. */
+function RevNav({
+  changes,
+  rev,
+  files,
+  onPickRev,
+  onPickFile,
+}: {
+  changes: WorktreeChanges;
+  rev: string | null;
+  files: FileDiff[] | undefined;
+  onPickRev: (rev: string) => void;
+  onPickFile: (path: string) => void;
+}) {
+  const { dirtyFiles, commits } = changes;
+  if (dirtyFiles.length === 0 && commits.length === 0) return null;
+  return (
+    <nav className={styles.strip} aria-label="Changes to show">
+      {commits.length > 0 && (
+        <ul className={styles.revs}>
+          {commits.map((c) => (
+            <RevEntry key={c.sha} rev={c.sha} current={rev} onPick={onPickRev} title={c.subject}>
+              <span className={styles.sha}>{c.shortSha}</span>{' '}
+              <span className={styles.revLabel}>{c.subject}</span>
+            </RevEntry>
+          ))}
+        </ul>
+      )}
+      <ul className={`${styles.revs} ${styles.summary}`}>
+        {commits.length > 0 && (
+          <RevEntry rev={BRANCH} current={rev} onPick={onPickRev}>
+            <span className={styles.revLabel}>All commits</span>{' '}
+            <span className={styles.revCount}>{commits.length}</span>
+          </RevEntry>
+        )}
+        {dirtyFiles.length > 0 && (
+          <RevEntry rev={UNCOMMITTED} current={rev} onPick={onPickRev}>
+            <span className={styles.revLabel}>Uncommitted</span>{' '}
+            <span className={styles.revCount}>{dirtyFiles.length}</span>
+          </RevEntry>
+        )}
+      </ul>
+      {files && files.length > 0 && <FileTree key={rev} files={files} onPick={onPickFile} />}
+    </nav>
+  );
+}
+
+/** Previous and Next commit. A button is disabled where there is no commit to step to. */
+function CommitStep({
+  prev,
+  next,
+  onPick,
+  labels,
+}: {
+  prev: string | undefined;
+  next: string | undefined;
+  onPick: (rev: string) => void;
+  labels: [string, string];
+}) {
+  return (
+    <>
+      <AppButton
+        variant="quiet"
+        aria-label="Previous commit"
+        disabled={!prev}
+        onClick={() => onPick(prev!)}
+      >
+        {labels[0]}
+      </AppButton>
+      <AppButton
+        variant="quiet"
+        aria-label="Next commit"
+        disabled={!next}
+        onClick={() => onPick(next!)}
+      >
+        {labels[1]}
+      </AppButton>
+    </>
   );
 }
 
@@ -331,8 +434,13 @@ function emptyText(rev: string | null, base: string): string {
  * One scroll: the commit, the file list, then every file's diff. The title
  * line and the stats line are direct children of the scroll, because a sticky
  * element holds only inside its parent.
+ *
+ * `flat` is the phone's screen: the strip carries the subject and Prev/Next,
+ * so there is no title line, and the folds scroll away. Only a file's head
+ * sticks.
  */
 const Files = memo(function Files({
+  flat,
   rev,
   held,
   setHeld,
@@ -349,6 +457,7 @@ const Files = memo(function Files({
   listOpen,
   onListOpen,
 }: {
+  flat: boolean;
   rev: string;
   held: HeldComments;
   setHeld: Dispatch<SetStateAction<HeldComments>>;
@@ -401,34 +510,26 @@ const Files = memo(function Files({
     <div
       className={styles.scroll}
       data-commit={commit !== undefined}
+      data-flat={flat || undefined}
       data-selecting={selection.dragging || undefined}
     >
-      {commit && (
+      {commit && flat && (
+        <>
+          <div className={styles.messageLine}>
+            <Fold open={messageOpen} onOpen={onMessageOpen} controls={messageId}>
+              <span className={styles.messageSubject}>{commit.subject}</span>
+            </Fold>
+          </div>
+          <CommitMessage commit={commit} id={messageId} open={messageOpen} />
+        </>
+      )}
+      {commit && !flat && (
         <>
           <div className={styles.titleLine}>
             <Fold open={messageOpen} onOpen={onMessageOpen} controls={messageId}>
               <span className={styles.subject}>{commit.subject}</span>
             </Fold>
-            <AppButton
-              variant="quiet"
-              aria-label="Previous commit"
-              disabled={!prev}
-              onClick={() => {
-                if (prev) onPick(prev);
-              }}
-            >
-              Prev
-            </AppButton>
-            <AppButton
-              variant="quiet"
-              aria-label="Next commit"
-              disabled={!next}
-              onClick={() => {
-                if (next) onPick(next);
-              }}
-            >
-              Next
-            </AppButton>
+            <CommitStep prev={prev} next={next} onPick={onPick} labels={['Prev', 'Next']} />
           </div>
           <CommitMessage commit={commit} id={messageId} open={messageOpen} />
         </>

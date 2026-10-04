@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { FileDiff } from './protocol/entities';
-import { expanded } from './test/appHelpers';
+import { expanded, openSheet, screenStrip } from './test/appHelpers';
 import type { FakeServer } from './fake/fakeServer';
 import { clickNode, renderApp } from './test/renderApp';
 import type * as DiffSign from './ui/diffSign';
@@ -462,13 +462,62 @@ describe('the Changes tab', () => {
     expect(screen.queryByRole('navigation', { name: 'Changes to show' })).toBeNull();
   });
 
-  it('pushes a screen in the narrow layout', async () => {
+  /** Push delta's Changes screen in the narrow layout, on its first commit. */
+  async function pushChanges(user: ReturnType<typeof userEvent.setup>) {
     const { server } = await renderApp({ viewport: 'narrow' });
     seedChanges(server);
-    await userEvent.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
-    await userEvent.click(screen.getByRole('link', { name: 'Changes' }));
+    await user.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
+    await user.click(screen.getByRole('link', { name: 'Changes' }));
     expect(await screen.findByText('new expiry')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+  }
+
+  it('pushes a screen in the narrow layout that names the rev in the strip and steps through it', async () => {
+    const user = userEvent.setup();
+    await pushChanges(user);
+    const bar = screenStrip();
+    const tab = screen.getByTestId('changes-tab');
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('feat: rotate on expiry');
+    // The body is the diff: no header, no rev list, no title line.
+    expect(within(tab).queryByRole('button', { name: 'Refresh' })).toBeNull();
+    expect(within(tab).queryByRole('navigation', { name: 'Changes to show' })).toBeNull();
+    expect(within(tab).queryByRole('button', { name: 'Next commit' })).toBeNull();
+
+    expect(bar.getByRole('button', { name: 'Previous commit' })).toBeDisabled();
+    await user.click(bar.getByRole('button', { name: 'Next commit' }));
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('fix: keep the old token a minute');
+    expect(await screen.findByText('new grace')).toBeInTheDocument();
+    expect(bar.getByRole('button', { name: 'Next commit' })).toBeDisabled();
+    await user.click(bar.getByRole('button', { name: 'Previous commit' }));
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('feat: rotate on expiry');
+  });
+
+  it('holds the header, the revs and the tree in the side sheet, and a rev pick closes it', async () => {
+    const user = userEvent.setup();
+    await pushChanges(user);
+    const sheet = await openSheet(user);
+    expect(sheet.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(sheet.getByRole('tree')).toBeInTheDocument();
+    const nav = within(sheet.getByRole('navigation', { name: 'Changes to show' }));
+    await user.click(nav.getByRole('button', { name: /^Uncommitted/ }));
+    // The strip names what is shown. A rev that is not a commit has no commit
+    // to step to.
+    const bar = screenStrip();
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('Uncommitted');
+    expect(bar.queryByRole('button', { name: 'Next commit' })).toBeNull();
+    expect(await screen.findByText('new tokens')).toBeInTheDocument();
+  });
+
+  it('picks a file from the sheet, which closes it and scrolls to the file', async () => {
+    const user = userEvent.setup();
+    await pushChanges(user);
+    const region = screen.getByRole('region', { name: 'auth/expiry.py' });
+    const tree = (await openSheet(user)).getByRole('tree');
+    await user.click(within(tree).getByRole('treeitem', { name: /auth/ }));
+    await user.click(within(tree).getByRole('treeitem', { name: /expiry\.py/ }));
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(scrolled.mock.contexts[0]).toBe(region);
   });
 });
 
