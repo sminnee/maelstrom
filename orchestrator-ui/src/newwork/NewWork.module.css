@@ -20,11 +20,18 @@
   color: var(--attention);
 }
 
-/* 12em is about half a phone's usable height once the keyboard is up, so the
-   draft field halves. `textarea.draft` matches the specificity of the
-   dialog's touch floor, `.field textarea`, and this sheet loads after it. */
+/* On a phone the dialog fills the screen above the keyboard, and the draft
+   takes what the other fields leave. Under the 6em floor the dialog scrolls.
+   `textarea.draft` matches the specificity of the dialog's touch floor,
+   `.field textarea`, and this sheet loads after it. */
 @media (max-width: 839px) {
+  .draftField,
+  .draftAttach {
+    flex: 1 0 auto;
+  }
   textarea.draft {
+    flex: 1 0 6em;
     min-height: 6em;
+    overflow-y: auto;
   }
 }
