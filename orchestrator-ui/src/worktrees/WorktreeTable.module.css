@@ -1,6 +1,7 @@
 .view {
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
 }
 .toolbar {
