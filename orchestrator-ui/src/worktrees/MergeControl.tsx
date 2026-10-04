@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMergePullRequest } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
+import { actionIcon } from '../ui/actionIcons';
 import { ConfirmButton } from '../ui/ConfirmButton';
 
 /**
@@ -15,6 +16,7 @@ export function MergeControl({ worktree }: { worktree: Worktree }) {
   return (
     <ConfirmButton
       variant="primary"
+      icon={actionIcon('merge')}
       question={`Merge PR #${worktree.prNumber} into ${worktree.base || 'main'}?`}
       confirm="Merge"
       confirmProcessing="Merging…"

@@ -30,6 +30,7 @@ import { phaseLabel } from '../protocol/phase';
 import { ago, clockTime, silentFor } from '../protocol/time';
 import { contextFigure } from '../protocol/tokens';
 import { useNow } from '../ui/useNow';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
@@ -213,6 +214,7 @@ export function NodeCardBody({
           {node.progress.fixStatus && (
             <AppButton
               variant="quiet"
+              icon={actionIcon('approve')}
               onClick={() =>
                 setStatus.mutateAsync({ taskId: task.id, status: node.progress.fixStatus! })
               }
@@ -322,6 +324,7 @@ export function NodeCardBody({
           {!agent && task?.actionable && (
             <AppButton
               variant="primary"
+              icon={actionIcon('launch')}
               processingChildren="Launching"
               onClick={() => launch.mutateAsync({ taskId: task.id })}
             >
@@ -329,7 +332,7 @@ export function NodeCardBody({
             </AppButton>
           )}
           {node.kind === 'task' && task && (
-            <AppButton variant="quiet" onClick={() => editTask(task.id)}>
+            <AppButton variant="quiet" icon={actionIcon('edit')} onClick={() => editTask(task.id)}>
               Edit task
             </AppButton>
           )}

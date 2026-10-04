@@ -52,6 +52,7 @@ export function WorktreeCard({
         <div className={styles.commands}>
           <AppButton
             variant="primary"
+            icon={actionIcon('freeAgent')}
             disabled={!worktree.branch}
             title={worktree.branch ? undefined : 'A detached worktree has no branch to start on'}
             onClick={() => {

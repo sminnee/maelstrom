@@ -172,15 +172,29 @@ function Board({ control, heading }: { control: string; heading: string }) {
       </Row>
       <Row label="The node card's command row">
         <div className={cardStyles.commands} style={{ alignSelf: 'auto' }}>
-          <AppButton variant="primary">Launch</AppButton>
-          <AppButton variant="quiet">Edit task</AppButton>
+          <AppButton variant="primary" icon={actionIcon('launch')}>
+            Launch
+          </AppButton>
+          <AppButton variant="quiet" icon={actionIcon('edit')}>
+            Edit task
+          </AppButton>
+          <AppButton variant="quiet" icon={actionIcon('resume')}>
+            Resume
+          </AppButton>
           <SplitButton
+            variant="quiet"
             options={[
-              { label: 'Sync', run: later },
-              { label: 'Squash', run: later },
+              { label: 'Terminate', icon: actionIcon('terminate'), run: later },
+              { label: 'Terminate & take off desk', run: later },
             ]}
           />
-          <AppButton variant="quiet">Off desk</AppButton>
+          <SplitButton
+            variant="quiet"
+            options={[
+              { label: 'Sync', icon: actionIcon('sync'), run: later },
+              { label: 'Sync & squash', icon: actionIcon('sync'), run: later },
+            ]}
+          />
         </div>
       </Row>
       <Row label="The top bar">

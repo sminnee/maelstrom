@@ -1,5 +1,6 @@
 import { useSyncWorktree, type SyncMode } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
+import { actionIcon } from '../ui/actionIcons';
 import { SplitButton, type SplitOption } from '../ui/SplitButton';
 
 /**
@@ -11,6 +12,7 @@ export function SyncControl({ worktree }: { worktree: Worktree }) {
   const sync = useSyncWorktree();
   const option = (label: string, processing: string, mode: SyncMode): SplitOption => ({
     label,
+    icon: actionIcon('sync'),
     processing,
     run: () => sync.mutateAsync({ worktreeId: worktree.id, mode }),
   });

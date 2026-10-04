@@ -471,9 +471,14 @@
     order: 3;
     position: sticky;
     bottom: 0;
+    /* Above the links it scrolls over: an icon at 0.8 opacity is its own
+       stacking context, which would otherwise paint over the bar. */
+    z-index: 1;
     align-self: stretch;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    /* Each button is as wide as its caption; a row that does not fit wraps. */
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
     gap: var(--u);
     /* The top margin takes the free space, so a short screen has the bar at
        its bottom edge too. The side margins bleed it to the screen's edges. */
@@ -482,8 +487,5 @@
     padding-bottom: max(var(--u), env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-raised);
-  }
-  .commands > * {
-    width: 100%;
   }
 }
