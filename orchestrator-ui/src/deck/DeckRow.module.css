@@ -29,7 +29,9 @@
   font-weight: 500;
   color: var(--fg);
   /* Two lines, then the ellipsis: a phone's width makes one line too little to
-     tell two tasks apart, and the row has the height to spare. */
+     tell two tasks apart, and the row has the height to spare. The row is a
+     button, and a button does not wrap its label, so the title wraps itself. */
+  white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
