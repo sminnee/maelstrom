@@ -41,6 +41,9 @@ services:
     ports: [LADLE_APP]
     dir: orchestrator-ui
     command: pnpm ladle --port ${LADLE_APP_PORT}
+    # For the tuning jig's Send. See CONTEXT.md, "Jig".
+    env:
+      ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
 
   # The fake mode (CONTEXT.md). Optional: `mael env start web-fake`.
   web-fake:

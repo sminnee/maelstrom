@@ -1164,6 +1164,36 @@ Three things differ below the 840px break beyond layout. The document tab draws 
 box rather than covering the focused field. And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 
+## The tuning jig
+
+The **Jig** lets the user change CSS on the live page and send the result to the agent. It lives
+in `vite-plugin-mael-tune/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
+config, so every story has the jig too. So does the everyday UI that `mael self-env` serves. A
+build and a vitest run do not load it, and outside a git checkout it switches itself off.
+
+| Part | File | What it does |
+|---|---|---|
+| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/tuning` on `.drafts/tuning.css`. Watches the file and sends the `mael-tune:update` event over HMR. Proxies `POST /__mael/send`. |
+| Overlay | `overlay.ts` | Draws the `Tune` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. |
+| Command | `worktree.tune` | Sends the **Tuning CSS** to the worktree's agents. See [orchestrator-server.md](orchestrator-server.md). |
+
+**The file is the shared state.** Each page applies the file when it loads and when the event
+arrives, so the app, every story and an edit by the agent stay in step. The event names the page
+that wrote the file, and that page ignores it. Otherwise an echo of an older write would replace
+what the user typed since.
+
+**The jig's `<style>` stays last in `<head>`.** Vite appends a module's `<style>` when the module
+loads or hot-updates. A `MutationObserver` moves the jig's element back to the end, so a tuning rule
+wins a tie of specificity.
+
+**Send finds the worktree by path.** The plugin asks `GET /api/worktrees` for the row whose `path`
+is its git top level, then posts to `/api/worktrees/{id}/tuning`. It reads `ORCHESTRATOR_URL` with
+no default: unset, Send is off and live CSS still works. The `ladle` service sets it for that
+reason.
+
+CSS modules hash their class names, so a rule matches on part of the name:
+`[class*="_chip_"] { padding: 6px; }`.
+
 ## How to run it
 
 ```
@@ -1172,7 +1202,7 @@ mael env start                  # this worktree's own copy, on its floating port
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
 mael env start web-fake         # the fake mode, alone, on this worktree's WEB_FAKE port
 cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
-cd orchestrator-ui && pnpm test # vitest, jsdom
+cd orchestrator-ui && pnpm test # vitest: the app in jsdom, the jig in Node
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
 bin/knip-check                  # dead code, both passes
 ```
@@ -1254,6 +1284,11 @@ medium layout and fails on a logged error.
 `margin` or `gap`. See `orchestrator-ui/DESIGN.md`, "Layout". `styles/fontSize.test.ts` reads each
 CSS and TSX file. It fails on a font size that is not a `--text-*` token, an `em` value or
 `inherit`. See "Hierarchy". Both gates share `test/sourceGate.ts`.
+
+The jig is its own vitest project, which runs in Node by default. `plugin.test.ts` starts a real
+Vite dev server and drives `/__mael/tuning`, the HMR event and Send against a fake orchestrator.
+`overlay.test.ts` opts into jsdom, which cascades the declared values of a `<style>` rule into
+`getComputedStyle` without layout.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.
