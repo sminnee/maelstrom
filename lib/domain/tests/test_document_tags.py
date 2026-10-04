@@ -91,6 +91,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ),
         ("Built.\n\n<milestone>built</milestone>", "Built."),
         ('Pushed.\n\n<link rel="gh-pr">118</link>', "Pushed."),
+        ("Look.\n\n<jig show>", "Look."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
@@ -107,6 +108,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ("Before\n\n<doc-", "Before"),
         ('Before\n\n<doc-file kind="pr" filename=".drafts', "Before"),
         ("Before\n\n<user-attention lo", "Before"),
+        ("Before\n\n<jig sh", "Before"),
         ("Before\n\n</no", "Before"),
         # The renderer reads this one, so it stays once it is whole.
         ("<user-attention high>\nHello", "<user-attention high>\nHello"),

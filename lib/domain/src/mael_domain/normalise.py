@@ -212,6 +212,10 @@ class Normalised:
     #: ``""``. The caller registers it on the agent's task, for the reason the
     #: caller writes a milestone.
     pr_link: str = ""
+    #: Whether the agent asked to show its worktree's jig (``True``) or hide it
+    #: (``False``), or ``None``. Not a :class:`ServerEvent` either: the jig's
+    #: state is the server's, and lives outside the world.
+    jig: bool | None = None
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -635,6 +639,8 @@ def normalise_stream_event(
                     )
                 if tagged and tagged.pr_link:
                     out.pr_link = tagged.pr_link
+                if tagged and tagged.jig is not None:
+                    out.jig = tagged.jig
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -893,6 +899,8 @@ class _Emitter:
         self.milestone: Milestone | None = None
         #: The PR the agent registered, if it named one. Last wins.
         self.pr_link = ""
+        #: The jig the agent asked for, if it asked. Last wins.
+        self.jig: bool | None = None
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1356,7 +1364,7 @@ class _Emitter:
             self.events.append(
                 {"type": "upsert", "kind": "agent", "entity": self.agent_entity}
             )
-        return Normalised(self.events, self.ctx, self.milestone, self.pr_link)
+        return Normalised(self.events, self.ctx, self.milestone, self.pr_link, self.jig)
 
 
 #: The line the harness opens an injected skill body with: the prefix, an
