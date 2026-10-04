@@ -43,10 +43,7 @@
   height: auto;
 }
 
-/* `Dialog` sizes its box for 100 columns of text. A picture should be as wide
-   as it is and no wider, so the lightbox overrides that one rule. */
 .box {
-  width: auto;
   max-width: 100%;
   /* The image is the only child, so the box may shrink to it. */
   padding: var(--u);
@@ -54,8 +51,20 @@
   position: relative;
 }
 
-/* Over the picture's top right, not above it: the box shrinks to the image, so
-   a row of its own would show as a band of chrome around every screenshot. */
+/* `Dialog` sizes its box for 100 columns of text. A picture should be as wide
+   as it is and no wider, so the lightbox overrides that one rule. Not `auto`:
+   a modal dialog is fixed with both insets at 0, so `auto` fills the screen.
+   Only on a wide screen: below 839px `Dialog` is the whole screen,
+   top-anchored with no margin, and a shrunk box would sit in the top corner. */
+@media (min-width: 840px) {
+  .box {
+    width: fit-content;
+  }
+}
+
+/* Over the box's top right, not above it: on a wide screen the box shrinks to
+   the image, so a row of its own would show as a band of chrome around every
+   screenshot. */
 .close {
   position: absolute;
   top: var(--u);
