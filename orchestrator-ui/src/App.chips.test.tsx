@@ -43,6 +43,13 @@ describe('the usage and agent chips', () => {
     // shape would pass on "0 of 0" and on any wrong arithmetic.
     expect(await screen.findByLabelText('4 of 6 agents working, 2 idle')).toBeInTheDocument();
   });
+
+  it('draws the count in the plain text colour while agents work', async () => {
+    await renderApp();
+    // Agents at work is the normal state, not news: a toned count would be lit
+    // all day and mean nothing.
+    expect(await screen.findByLabelText(/agents working/)).toHaveAttribute('data-tone', 'neutral');
+  });
 });
 
 describe('the attention chip', () => {

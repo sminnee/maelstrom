@@ -9,6 +9,9 @@ import { SplitChip } from '../ui/SplitChip';
  * subset of open. Shown as a fraction, the gap between them *is* the idle
  * count, which is the number the operator acts on, and it needs no second chip
  * or arithmetic to read.
+ *
+ * Untoned: agents at work is the normal state, so amber here would be lit all
+ * day and dull the amber that means the operator is needed.
  */
 export function AgentsChip() {
   const { world } = useWorld();
@@ -17,11 +20,7 @@ export function AgentsChip() {
   if (open === 0) return null;
   const idle = open - working;
   return (
-    <SplitChip
-      label="agents"
-      tone={working > 0 ? 'busy' : 'neutral'}
-      title={`${working} of ${open} agents working, ${idle} idle`}
-    >
+    <SplitChip label="agents" title={`${working} of ${open} agents working, ${idle} idle`}>
       {working}/{open}
     </SplitChip>
   );

@@ -140,7 +140,7 @@ export const InTheTopBar: Story = () => (
     >
       24%
     </SplitChip>
-    <SplitChip label="agents" title="3 of 5 agents working, 2 idle" tone="busy">
+    <SplitChip label="agents" title="3 of 5 agents working, 2 idle">
       3/5
     </SplitChip>
   </div>
