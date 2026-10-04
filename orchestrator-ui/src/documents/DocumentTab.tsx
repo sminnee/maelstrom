@@ -17,6 +17,8 @@ import type { DocumentRow } from '../selectors/world';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { ScreenSheet } from '../shell/ScreenChrome';
+import { useScreenChrome } from '../shell/screenChromeContext';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
@@ -45,6 +47,9 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const agent = doc ? world.agents[doc.agentId] : undefined;
   const body = useRef<HTMLDivElement>(null);
   const narrow = useLayoutMode() === 'narrow';
+  // The dock stays in the body: it is the terminal act. See DESIGN.md, "The
+  // One Strip Rule".
+  const chrome = useScreenChrome();
   const { selection, pending, startComment, clear } = useSelectionComment(
     body,
     doc?.markdown ?? '',
@@ -85,30 +90,33 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     );
   }
 
+  const header = (
+    <header className={styles.header}>
+      <div className={styles.line}>
+        <span className={styles.task}>{doc.taskId}</span>
+        {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
+        <span className={styles.title}>{doc.title}</span>
+        <span className={styles.version}>v{doc.version}</span>
+        <span className={styles.status} data-status={doc.status}>
+          {describeDocumentStatus(doc.status)}
+        </span>
+      </div>
+      <div className={styles.taskLine}>
+        {task && <span className={styles.taskTitle}>{task.title}</span>}
+        {agent && (
+          <PanelLink tab={sessionTab(agent.id)} className={styles.sessionLink}>
+            Session
+          </PanelLink>
+        )}
+      </div>
+      {members.length > 1 && (
+        <SiblingNav title={row!.group.title} members={members} documentId={documentId} />
+      )}
+    </header>
+  );
   return (
     <div className={styles.document} data-phase={phase ?? undefined} data-testid="document-tab">
-      <header className={styles.header}>
-        <div className={styles.line}>
-          <span className={styles.task}>{doc.taskId}</span>
-          {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
-          <span className={styles.title}>{doc.title}</span>
-          <span className={styles.version}>v{doc.version}</span>
-          <span className={styles.status} data-status={doc.status}>
-            {describeDocumentStatus(doc.status)}
-          </span>
-        </div>
-        <div className={styles.taskLine}>
-          {task && <span className={styles.taskTitle}>{task.title}</span>}
-          {agent && (
-            <PanelLink tab={sessionTab(agent.id)} className={styles.sessionLink}>
-              Session
-            </PanelLink>
-          )}
-        </div>
-        {members.length > 1 && (
-          <SiblingNav title={row!.group.title} members={members} documentId={documentId} />
-        )}
-      </header>
+      {chrome ? <ScreenSheet>{header}</ScreenSheet> : header}
       <div className={styles.split}>
         <div className={styles.body} ref={body} data-testid="document-body">
           <Markdown source={doc.markdown} className={styles.prose} />

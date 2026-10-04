@@ -3,7 +3,15 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { addAttachedVerification, addNote, addPlan, addTaskSet } from './fake/moves';
-import { chipCount, expanded, tabBody, tabStrip, worktreeRow } from './test/appHelpers';
+import {
+  chipCount,
+  expanded,
+  openSheet,
+  screenStrip,
+  tabBody,
+  tabStrip,
+  worktreeRow,
+} from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
 afterEach(() => {
@@ -368,6 +376,28 @@ describe('a document an agent tagged in its own message', () => {
     // The member opens in its own tab, collapsed.
     await user.click(within(siblings).getByRole('link', { name: 'Execute: show' }));
     await waitFor(() => expect(screen.getByTestId('document-tab')).toHaveTextContent('3 of 3'));
+  });
+
+  it('on a phone, the status and the siblings are in the side sheet, and the dock in the body', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ viewport: 'narrow' });
+    addTaskSet(server);
+    await user.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
+    const group = await screen.findByRole('group', { name: 'Iteration 3' });
+    await user.click(within(group).getByRole('link', { name: 'Execute: mint v1' }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Step 2.'));
+    const bar = screenStrip();
+    expect(bar.getByTestId('screen-title')).toHaveTextContent('Execute: mint');
+    expect(within(tab).queryByRole('navigation', { name: 'Iteration 3' })).toBeNull();
+    expect(within(tab).getByTestId('review-dock')).toBeInTheDocument();
+
+    const sheet = await openSheet(user);
+    expect(sheet.getByText('v1')).toBeInTheDocument();
+    const siblings = sheet.getByRole('navigation', { name: 'Iteration 3' });
+    await user.click(within(siblings).getByRole('link', { name: 'Execute: show' }));
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+    await waitFor(() => expect(bar.getByTestId('screen-title')).toHaveTextContent('Execute: show'));
   });
 
   it('a superseded member stands alone in its tab', async () => {
