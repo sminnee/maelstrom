@@ -59,8 +59,8 @@ describe('the expanded node', () => {
       expect(within(area).getByTestId('worktree-name')).toHaveTextContent(
         'delta · feat/rotate-auth-tokens-for-every-service',
       );
-      // The agent of NORT-12 still runs in delta, so the close is held. The
-      // agent's own commands are not here.
+      // The agent of NORT-12 still runs in delta, so the card offers no close.
+      // The agent's own commands are not here.
       expect(worktreeControls(expanded())).toEqual([
         ['Changes', false],
         ['PR #118, CI running', false],
@@ -70,8 +70,6 @@ describe('the expanded node', () => {
         ['More sync actions', false],
         ['Stop env', false],
         ['More actions', false],
-        ['Close', true],
-        ['More close actions', false],
       ]);
     });
 

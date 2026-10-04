@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FakeServer } from './fake/fakeServer';
+import { makeAgent } from './fake/fixtures';
 import { commandsSince, expanded, worktreeControls } from './test/appHelpers';
 import { useAppStore } from './store/store';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
@@ -133,6 +134,22 @@ describe('the Worktree card of a worktree with no node', () => {
     expect(commandsSince(server, before).at(-1)).toBe('POST /api/worktrees/northwind-charlie/env');
     expect(within(card()).getByRole('link', { name: 'Changes' })).toBeInTheDocument();
     expect(within(card()).getByRole('button', { name: 'cmux' })).toBeInTheDocument();
+  });
+
+  it('offers no close while an agent runs in the worktree', async () => {
+    const { server } = await renderWithCard();
+    expect(within(card()).getByRole('button', { name: 'Close' })).toBeEnabled();
+
+    act(() => {
+      server.change({ kind: 'agent', ids: ['in-charlie'] }, (w) => {
+        w.agents['in-charlie'] = makeAgent({
+          id: 'in-charlie',
+          taskId: '',
+          worktreeId: 'northwind-charlie',
+        });
+      });
+    });
+    await waitFor(() => expect(within(card()).queryByRole('button', { name: 'Close' })).toBeNull());
   });
 
   it('asks before it shelves, and before it trashes', async () => {

@@ -627,7 +627,9 @@ card is this area under a header. Both draw the one component, so the two cannot
 
 A close stops every agent in the worktree. The control is therefore held while an agent runs
 there, and each item says so. The node card's Terminate chains are the way to end live work. The
-control is absent on `_main` and on a closed worktree.
+node card and the Worktree card omit the control while an agent runs: the agent is in view, so a
+held close is noise. The panel's worktree bar and the worktree table keep the held control.
+The control is absent on `_main` and on a closed worktree.
 
 ### The Worktree card
 
