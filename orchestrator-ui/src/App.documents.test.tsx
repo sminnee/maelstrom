@@ -418,9 +418,9 @@ describe('a document an agent tagged in its own message', () => {
     expect(within(tab).queryByRole('navigation', { name: 'Iteration 3' })).toBeNull();
   });
 
-  it('a document asking for a verdict offers one, and approving moves its status', async () => {
+  it('a document asking for a verdict offers one, and approving moves its status and tells the agent', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
     expect(chipCount()).toBe(3);
     clickNode('NORT-12');
     await user.click(within(expanded()).getByRole('link', { name: /Iteration 2 v1/ }));
@@ -432,6 +432,11 @@ describe('a document an agent tagged in its own message', () => {
     await waitFor(() => expect(screen.getByTestId('document-tab')).toHaveTextContent('approved'));
     // The item it raised is retired with it.
     await waitFor(() => expect(chipCount()).toBe(2));
+    const { agentId } = server.world.documents['doc-nort12-tasks']!;
+    expect(server.transcripts[agentId]!.items.at(-1)).toMatchObject({
+      role: 'user',
+      markdown: expect.stringContaining('Approved Iteration 2'),
+    });
   });
 
   /*

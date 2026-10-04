@@ -801,6 +801,19 @@ function command(
       }
       server.change({ kind: 'task', ids: taskIds });
     }
+    if (approving) {
+      // Mirrors Orchestrator._tell_agent_of_approval's text.
+      server.append(doc.agentId, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'message',
+        role: 'user',
+        markdown: taskIds.length
+          ? `Approved ${doc.group.title} in the orchestrator UI, which promoted the drafts. ` +
+            `The tasks now exist: ${taskIds.join(', ')}. Do not promote them again.`
+          : `Approved ${doc.group.title} in the orchestrator UI. Continue with the work.`,
+      });
+    }
     const ids = new Set(members.map((d) => d.id));
     for (const member of members) {
       world.documents[member.id] = {
