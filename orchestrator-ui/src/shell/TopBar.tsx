@@ -61,7 +61,11 @@ export function TopBar({ back }: { back?: BackRow }) {
   }
   return (
     <header className={styles.bar} data-testid="top-bar">
-      <h1 className={styles.brand}>maelstrom</h1>
+      {/* The mark is decoration: the word beside it already names the app. */}
+      <h1 className={styles.brand}>
+        <img src="/logo.svg" alt="" className={styles.mark} />
+        maelstrom
+      </h1>
       <PaneMenu side={mode === 'wide' ? 'left' : null} />
       <FilterBar />
       <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>

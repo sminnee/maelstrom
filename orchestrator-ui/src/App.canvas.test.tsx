@@ -24,9 +24,10 @@ function menuLabels(card: HTMLElement): (string | null)[] {
 }
 
 describe('App', () => {
-  it('renders the app title', async () => {
+  it('renders the app title beside the mark', async () => {
     await renderApp();
-    expect(screen.getByRole('heading', { name: 'maelstrom' })).toBeInTheDocument();
+    const title = screen.getByRole('heading', { name: 'maelstrom' });
+    expect(title.querySelector('img')).toHaveAttribute('src', '/logo.svg');
   });
 
   it('renders one node per task on the desk, and one per free agent', async () => {

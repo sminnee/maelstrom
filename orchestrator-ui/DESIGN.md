@@ -634,6 +634,17 @@ edge means something else — a full border colour is node state, and a shifted 
 means attention or fault. The rule governs which channel the edge carries, not how brightly it
 burns: a stopped node drains its phase hue toward the border and the edge is still phase.
 
+### Brand mark
+
+The mark is a twister made of lines of code, between a half-height `}` at the top right and a
+half-height `{` at the bottom left. The twister curves in an S, so its tip reaches the `{`. It is
+one colour, the same as the word `maelstrom` beside it: `--n8` on the dark theme and `--n2` on the
+light theme. `logo.svg` switches between the two itself, with `prefers-color-scheme`, because an
+`<img>` does not inherit the page's colour.
+
+The home-screen icons put the mark on console-slate. The maskable icon keeps the mark inside the
+centre 80 %, which an Android launcher never crops.
+
 ## Components
 
 ### Task Node
