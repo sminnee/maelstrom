@@ -206,18 +206,27 @@
   text-align: right;
   font-family: var(--mono);
 }
-/* The buttons stay level with the last line of a reason that grows. */
+/* The field takes the width; the buttons sit under it. `align-self` because
+   the dock centres the prompt's children. */
 .decide {
-  align-items: end;
+  flex-direction: column;
+  align-self: stretch;
 }
 .reasonInput {
-  flex: 1;
-  min-width: 120px;
+  width: 100%;
+  box-sizing: border-box;
   font: inherit;
   color: inherit;
   background: var(--bg-field);
   border: 1px solid var(--border);
   padding: 0 var(--u);
+}
+/* Under the field, at the right edge: under the thumb on a phone. */
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--u);
 }
 .quiet {
   color: var(--fg-muted);

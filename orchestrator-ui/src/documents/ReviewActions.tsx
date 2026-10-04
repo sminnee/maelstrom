@@ -41,12 +41,10 @@ export function ReviewActions({
       </div>
     );
   }
-  // Approve leads, as the primary — see `orchestrator-ui/DESIGN.md`, "Review Dock".
+  // The field leads; Approve leads the buttons under it, as the primary. The
+  // tab order follows the DOM — see `orchestrator-ui/DESIGN.md`, "Review Dock".
   return (
     <div className={styles.bar}>
-      <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>
-        {approveLabel(doc, members)}
-      </AppButton>
       <TextArea
         grow
         rows={1}
@@ -57,13 +55,18 @@ export function ReviewActions({
         value={summary}
         onChange={(e) => setSummary(e.target.value)}
       />
-      <AppButton
-        errorChildren={describeError}
-        disabled={!summary.trim() && unresolved === 0}
-        onClick={() => onRequestChanges(summary.trim())}
-      >
-        {members > 1 ? `Request changes on all ${members}` : 'Request changes'}
-      </AppButton>
+      <div className={styles.buttons}>
+        <AppButton variant="primary" errorChildren={describeError} onClick={() => onApprove()}>
+          {approveLabel(doc, members)}
+        </AppButton>
+        <AppButton
+          errorChildren={describeError}
+          disabled={!summary.trim() && unresolved === 0}
+          onClick={() => onRequestChanges(summary.trim())}
+        >
+          {members > 1 ? `Request changes on all ${members}` : 'Request changes'}
+        </AppButton>
+      </div>
     </div>
   );
 }

@@ -8,7 +8,8 @@ import styles from './cards.module.css';
  * A permission request and a plan review ask the same thing of the user, so
  * they ask it in the same shape.
  *
- * Approve leads, as the primary — see `orchestrator-ui/DESIGN.md`, "Review Dock".
+ * The field leads, and Approve leads the buttons under it, as the primary —
+ * see `orchestrator-ui/DESIGN.md`, "Review Dock".
  */
 export function DecideRow({
   onDecide,
@@ -19,9 +20,6 @@ export function DecideRow({
   const [reason, setReason] = useState('');
   return (
     <div className={`${styles.options} ${styles.decide}`} data-role="prompt-actions">
-      <AppButton variant="primary" disabled={!onDecide} onClick={() => onDecide?.('approve', '')}>
-        Approve
-      </AppButton>
       <TextArea
         grow
         rows={1}
@@ -31,12 +29,17 @@ export function DecideRow({
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
-      <AppButton
-        disabled={!onDecide || !reason.trim()}
-        onClick={() => onDecide?.('deny', reason.trim())}
-      >
-        Deny
-      </AppButton>
+      <div className={styles.buttons}>
+        <AppButton variant="primary" disabled={!onDecide} onClick={() => onDecide?.('approve', '')}>
+          Approve
+        </AppButton>
+        <AppButton
+          disabled={!onDecide || !reason.trim()}
+          onClick={() => onDecide?.('deny', reason.trim())}
+        >
+          Deny
+        </AppButton>
+      </div>
     </div>
   );
 }

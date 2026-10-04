@@ -201,9 +201,10 @@ function Harness({
  * A plan awaiting the agent's own review. Open NORT-9 and follow `Plan`.
  *
  * What to look at: the plan reads from its first line, the dock is one band at
- * the bottom carrying the amber rule and wash, and the whole band is one row on
- * a wide panel — `Before this`, Approve, the reason field, Deny. Drag the panel
- * under 30rem and `Before this` takes a line of its own.
+ * the bottom carrying the amber rule and wash. On a wide panel `Before this`
+ * sits beside the reason field, and Approve and Deny sit under the field at its
+ * right edge. Drag the panel under 30rem and `Before this` takes a line of its
+ * own.
  */
 export const AwaitingReview: Story = () => <Harness />;
 
@@ -221,7 +222,7 @@ export const AwaitingPermission: Story = () => <Harness wait={permissionItem} />
  *
  * What to look at: the two share a chassis. The rule goes back to the plain
  * hairline and the ground back to the raised tone, because nothing is asking.
- * Approve leads here too, drawn as the primary.
+ * The field leads here too, with Approve, drawn as the primary, under it.
  */
 export const Settled: Story = () => <Harness status="approved" wait={null} />;
 
