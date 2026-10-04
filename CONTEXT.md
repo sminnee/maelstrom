@@ -851,16 +851,21 @@ _Avoid_: Review comment, line note, inline comment, feedback (alone)
 
 **Jig**:
 A dev-only overlay that a Vite plugin puts on every page of a worktree's dev server: the app and
-each Ladle story. The user edits **Tuning CSS** in it, sees the result live, and sends it to the
-agents of the worktree.
-_Avoid_: Tuner, inspector, devtools panel
+each Ladle story. It carries changes into the page and **Feedback** out to the agent. A
+**Monkeypatch** is the first thing it does.
+_Avoid_: Tuner, tuning jig, inspector, devtools panel
 
-**Tuning CSS**:
-The CSS that the user writes in the **Jig**. It is kept in `.drafts/tuning.css` in the worktree,
-not in the browser, so every page of the worktree applies the same text. One send delivers it, as
-one message, to every top-level agent in the worktree that has not exited. The agent applies it in
-source and deletes the file.
-_Avoid_: Overrides file, tweaks, patch CSS
+**Feedback**:
+A typed message from a short-lived dev asset, such as a **Jig**, to the agents of a worktree. One
+post sends it, as one message, to every top-level agent in the worktree that has not exited. Its
+`type` names what it carries: `monkeypatch` is the one type so far.
+_Avoid_: Tuning, report, event
+
+**Monkeypatch**:
+The CSS that the user writes in the **Jig**. It is kept in `.drafts/monkeypatch.css` in the
+worktree, not in the browser, so every page of the worktree applies the same text. Send delivers
+it as **Feedback**. The agent applies it in source and deletes the file.
+_Avoid_: Tuning CSS, overrides file, tweaks
 
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
