@@ -1246,7 +1246,9 @@ suite until a scenario shows the member. The same test mounts each scenario on t
 medium layout and fails on a logged error.
 
 `styles/spacing.test.ts` reads each CSS file under `src/`. It fails on a px literal in `padding`,
-`margin` or `gap`. See `orchestrator-ui/DESIGN.md`, "Layout".
+`margin` or `gap`. See `orchestrator-ui/DESIGN.md`, "Layout". `styles/fontSize.test.ts` reads each
+CSS and TSX file. It fails on a font size that is not a `--text-*` token, an `em` value or
+`inherit`. See "Hierarchy". Both gates share `test/sourceGate.ts`.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.
