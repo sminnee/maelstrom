@@ -1059,6 +1059,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
+| `POST /api/worktrees/{id}/tuning` | `css`, `note` | `worktree.tune` | `{agentIds, refused}` |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
 
@@ -1155,6 +1156,12 @@ an empty body, and a worktree with no such agent. It answers ok when one agent o
 make the client keep the comments, and a retry would post twice to the agents that have them.
 When every agent refuses, the reply is the first refusal.
 
+`worktree.tune` sends the **Tuning CSS** of the **Jig**. `format_tuning_css` builds one message
+that quotes the CSS and the optional note, and tells the agent to delete `.drafts/tuning.css`
+when it has applied the change. The command reaches the same agents as `worktree.comment`, and
+answers the same reply. It refuses blank CSS, a note that is not text, and a worktree with no such
+agent.
+
 `comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
 question.
 
@@ -1168,7 +1175,7 @@ stops.
 
 The commands that write to the child are pure relays: `agent.approve`, `agent.deny`,
 `agent.answer`, `agent.say`, the `say` a `document.requestChanges` sends, and each `say` a
-`worktree.comment` sends. The server validates, asks the host, and returns. It builds no
+`worktree.comment` or a `worktree.tune` sends. The server validates, asks the host, and returns. It builds no
 reply of its own.
 
 This works because the host records the `control_response` it writes onto the child's event

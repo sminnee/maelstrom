@@ -1028,3 +1028,52 @@ class TestChangeComments:
             "code": "invalid",
             "message": "No agent is running in northwind-alpha",
         }
+
+
+def tune_cmd(**over) -> dict:
+    fields = {"css": ".chip{padding:2px}", "note": "", **over}
+    return worktree_cmd("worktree.tune", "northwind-alpha", **fields)
+
+
+class TestTuningCss:
+    """A send needs CSS to carry; the agents are the change comments' rule."""
+
+    def test_css_for_a_worktree_with_an_agent_is_allowed(self):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, tune_cmd()) is None
+
+    def test_css_for_a_closed_worktree_is_refused(self):
+        world = world_with(
+            agents=[make_agent()],
+            worktrees=[make_worktree(isClosed=True, branch="")],
+        )
+        assert validate_command(world, tune_cmd()) == {
+            "code": "invalid",
+            "message": "Worktree northwind-alpha is closed",
+        }
+
+    def test_css_for_a_worktree_with_no_agent_is_refused(self):
+        world = world_with(
+            agents=[make_agent(state="exited")], worktrees=[make_worktree()]
+        )
+        assert validate_command(world, tune_cmd()) == {
+            "code": "invalid",
+            "message": "No agent is running in northwind-alpha",
+        }
+
+    @pytest.mark.parametrize(
+        ("over", "message"),
+        [
+            ({"css": None}, "No CSS to send"),
+            ({"css": " \n"}, "No CSS to send"),
+            ({"css": 3}, "No CSS to send"),
+            ({"note": ["x"]}, "A note is text"),
+        ],
+        ids=["no css", "blank css", "not text", "note not text"],
+    )
+    def test_a_send_the_message_cannot_be_built_from_is_refused(self, over, message):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, tune_cmd(**over)) == {
+            "code": "invalid",
+            "message": message,
+        }
