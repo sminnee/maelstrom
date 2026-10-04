@@ -11,10 +11,17 @@
   background: var(--bg-raised);
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--u-half);
   font-size: var(--text-control);
   font-weight: 700;
   margin: 0;
   letter-spacing: 0.02em;
+}
+.mark {
+  width: 20px;
+  height: 20px;
 }
 .spacer {
   flex: 1;
