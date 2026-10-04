@@ -23,6 +23,7 @@ export function AttachField({
   onRemove,
   disabled,
   className,
+  actions,
   children,
 }: {
   project: string;
@@ -35,6 +36,8 @@ export function AttachField({
   disabled?: boolean;
   /** The caller's own layout for the wrapper: it sits in the caller's flow. */
   className?: string;
+  /** The surface's own buttons, at the far end of the Attach row. */
+  actions?: ReactNode;
   /** The surface's own textarea. */
   children: ReactNode;
 }) {
@@ -121,6 +124,7 @@ export function AttachField({
             {failed.join('; ')}
           </span>
         )}
+        {actions && <span className={styles.end}>{actions}</span>}
       </div>
     </div>
   );
