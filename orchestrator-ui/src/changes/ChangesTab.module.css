@@ -183,6 +183,24 @@
   font-weight: var(--weight-semibold);
 }
 
+/* `flat`: see `Files` in ChangesTab.tsx. */
+.scroll[data-flat] {
+  --title-h: 0px;
+  --stats-h: 0px;
+}
+.scroll[data-flat] .statsLine {
+  position: static;
+  height: var(--control);
+}
+.messageLine {
+  display: flex;
+  padding: var(--u) var(--u-2) 0;
+}
+.messageSubject {
+  min-width: 0;
+  font-weight: var(--weight-semibold);
+}
+
 /* -- the commit message -- */
 .message {
   padding: var(--u) var(--u-2);
@@ -321,4 +339,17 @@
   padding: var(--u) var(--u-2);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+/* In the side sheet, the rev list is the sheet's content, not a strip beside
+   the diff: no cap, no rule, no ground of its own. */
+:global([data-sheet]) .strip {
+  flex: none;
+  max-height: none;
+  overflow: visible;
+  border: none;
+  background: none;
+}
+:global([data-sheet]) .header {
+  padding: 0 0 var(--u);
 }

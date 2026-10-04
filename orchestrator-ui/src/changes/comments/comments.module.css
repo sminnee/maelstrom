@@ -62,3 +62,11 @@
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }
+
+/* Writing a comment on a phone: the dock gives its room to the box and the
+   lines it is on. The dock's parent is the tab that holds the box. */
+@media (max-width: 839px) {
+  :has(textarea:focus) > .dock {
+    display: none;
+  }
+}
