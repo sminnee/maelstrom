@@ -672,6 +672,9 @@ In a panel narrower than 40rem, the strip stacks above the diff and hides the tr
 short there, and the file list in the scroll already jumps to a file. A container query sets
 this, because the panel's width, not the window's, decides.
 
+On a phone the rev list and the tree are in the side sheet. The screen strip names the rev and
+holds Prev and Next, so the scroll draws no title line. Only a file's head sticks there.
+
 The scroll holds five parts, in this order:
 
 | Part | Content | Sticks |
@@ -1157,12 +1160,23 @@ deck itself. A row pushes a node's detail, and the detail's links push a session
 Back pops one level. `selectors/navStack.ts` holds the transitions. `shell/PanelLink.tsx` is the
 only control that opens a session or a document, so branching it there carries every link at once.
 
+**The screen strip and the side sheet.** A pushed screen has one row of chrome. `MobileShell` owns
+the open state and two DOM targets: the strip's action slot and the sheet's body. A screen renders
+`<ScreenStrip>` and `<ScreenSheet>` from `shell/ScreenChrome.tsx`, which portal into those targets.
+`useScreenChrome()` in `shell/screenChromeContext.ts` returns `null` outside a pushed narrow screen,
+so a panel tab draws its own head. The screen decides in TypeScript, not CSS, because the suite
+runs with no CSS. The open state holds the screen it was opened for, so a screen change closes the
+sheet. The two target setters stay out of the context value: the React compiler lint reads an
+object that holds a callback ref as a ref. `orchestrator-ui/DESIGN.md`, "The One Strip Rule", says
+what each screen puts where.
+
 The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also renders. Only the
 shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
 width and the grow animation.
 
-Three things differ below the 840px break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and top-anchored, measured in `dvh` so a soft keyboard shrinks the
-box rather than covering the focused field. And Enter makes a newline in the message input, since
+Three things differ below the 840px break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and
+bottom-anchored at `--vvh`, as `#root` is, so a soft keyboard shrinks the box rather than covering
+the focused field. And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 
 ## The jig
