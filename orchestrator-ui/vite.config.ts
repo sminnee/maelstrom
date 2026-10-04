@@ -108,7 +108,7 @@ export default defineConfig(({ command }) => {
           extends: true,
           test: {
             name: 'jig',
-            include: ['vite-plugin-mael-tune/**/*.test.ts'],
+            include: ['vite-plugin-mael-jig/**/*.test.ts'],
             environment: 'node',
           },
         },
