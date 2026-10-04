@@ -156,7 +156,7 @@ describe('review in a document tab', () => {
     expect(dock).toHaveAttribute('data-waiting');
     // The same dock, unlit, once nothing is asking. Two states on one element
     // is what makes "one chassis" true rather than two bands that look alike.
-    expect(within(tab).queryByRole('button', { name: 'Request changes' })).toBeNull();
+    expect(within(tab).queryByRole('button', { name: 'Decline' })).toBeNull();
     // In the plan's own tab the link leads nowhere.
     expect(within(dock).queryByRole('link', { name: 'Read the plan' })).toBeNull();
   });
@@ -177,7 +177,7 @@ describe('a document an agent tagged in its own message', () => {
     await waitFor(() => expect(tab).toHaveTextContent('fails on collation'));
     // Nothing waits on the user, so there is no verdict to give.
     expect(within(tab).queryByRole('button', { name: 'Approve' })).toBeNull();
-    expect(within(tab).queryByRole('button', { name: 'Request changes' })).toBeNull();
+    expect(within(tab).queryByRole('button', { name: 'Decline' })).toBeNull();
     expect(tab).not.toHaveTextContent('This version is draft.');
   });
 

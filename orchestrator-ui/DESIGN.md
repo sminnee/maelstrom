@@ -1039,7 +1039,7 @@ above a heading. A permission's tool input goes with them, because a band is no 
 block of JSON.
 
 **The field, then Approve, as the primary.** The field takes the full width (§ Fields). Under it,
-at the right edge, Approve leads the negative act — Deny, or Request changes. Every approval in the dock
+at the right edge, Approve leads the negative act — Deny, or Decline. Every approval in the dock
 reads the same way round, whether it answers the agent or the document. The band's whole claim
 is that the reader learns one shape. Button rank carries the affirmative act; colour does not,
 so Approve takes no green of its own. The tab order is the visual order: the field, Approve, then
