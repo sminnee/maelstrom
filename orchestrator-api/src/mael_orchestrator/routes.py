@@ -35,7 +35,7 @@ SHUTDOWN_SECS = 1.0
 #: How often a transcript socket pings, so a proxy keeps it open.
 HEARTBEAT_SECS = 20.0
 
-#: Close codes a transcript socket uses; the browser reads them.
+#: Close codes a transcript or live feedback socket uses; the client reads them.
 CLOSE_UNKNOWN_ID = 4404
 CLOSE_LAGGING = 4409
 
@@ -116,6 +116,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/desk", _desk)
     app.router.add_get("/api/host", _host)
     app.router.add_get("/api/events", _events)
+    app.router.add_get("/api/live-feedback", _live_feedback_socket)
     app.router.add_post("/api/agents/{id}/{action}", _agent_command)
     app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
@@ -131,7 +132,6 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
-    app.router.add_post("/api/worktrees/{id}/feedback", _send_feedback)
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_get("/api/operations", _operations)
     app.router.add_get("/api/operations/{id}/log", _operation_log)
@@ -801,22 +801,6 @@ async def _comment_on_changes(request: web.Request) -> web.StreamResponse:
     )
 
 
-async def _send_feedback(request: web.Request) -> web.StreamResponse:
-    """Post feedback from a jig. It reaches each agent in the worktree as a message.
-
-    The body is the feedback itself, typed by its ``type``.
-    """
-    worktree_id = request.match_info["id"]
-    return await _command(
-        request,
-        lambda body: {
-            "type": "worktree.feedback",
-            "worktreeId": worktree_id,
-            "feedback": body,
-        },
-    )
-
-
 async def _infer_task(request: web.Request) -> web.StreamResponse:
     """Name a task from its prose. Slow: it calls the task metadata generator."""
     return await _command(
@@ -1099,6 +1083,104 @@ async def _until_closed(ws: web.WebSocketResponse) -> None:
     async for message in ws:
         if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.ERROR):
             return
+
+
+# -- live feedback --
+
+
+async def _live_feedback_socket(request: web.Request) -> web.WebSocketResponse:
+    """A **Live feedback** socket: this server as its provider.
+
+    The client, a jig, opens with a hello naming its git top level; a path the
+    world holds no worktree at is closed ``4404``. Then the socket carries the
+    worktree's jig state out, and the jig's feedback and hide in. The protocol
+    is documented in ``docs/dev/orchestrator-ui.md``, "The jig".
+    """
+    orch = await _ready(request)
+    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
+    await ws.prepare(request)
+    hello = await _next_frame(ws)
+    worktree_id = (
+        orch.live_feedback_worktree(str(hello.get("path", "")))
+        if hello is not None
+        else None
+    )
+    if worktree_id is None:
+        await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
+        return ws
+    request.app[SOCKETS].add(ws)
+    try:
+        with orch.live_feedback.subscribe(worktree_id) as states:
+            await ws.send_json(
+                {"type": "state", "visible": orch.live_feedback.visible(worktree_id)}
+            )
+            pushing = asyncio.create_task(_push_live_feedback_states(ws, states))
+            try:
+                while (frame := await _next_frame(ws)) is not None:
+                    await _live_feedback_frame(orch, ws, worktree_id, frame)
+            finally:
+                await _stop(pushing)
+    finally:
+        request.app[SOCKETS].discard(ws)
+    return ws
+
+
+async def _live_feedback_frame(
+    orch: Orchestrator, ws: web.WebSocketResponse, worktree_id: str, frame: dict
+) -> None:
+    """Act on one frame from a jig. A type this server does not know is ignored.
+
+    A fault is logged and, for feedback, answered, as ``_command`` answers it:
+    one bad frame must not close the socket every page of a dev server shares.
+    """
+    kind = frame.get("type")
+    if kind not in ("hide", "feedback"):
+        return
+    try:
+        if kind == "hide":
+            await orch.hide_jig(worktree_id)
+            return
+        reply = await orch.handle_command(
+            {
+                "type": "worktree.feedback",
+                "worktreeId": worktree_id,
+                "feedback": frame.get("feedback"),
+            }
+        )
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        log.exception("live feedback frame %s failed", kind)
+        if kind == "hide":
+            return
+        reply = {"ok": False, "error": {"code": "invalid", "message": repr(exc)}}
+    body = reply["result"] if reply["ok"] else {"error": reply["error"]}
+    await ws.send_json(
+        {"type": "reply", "id": frame.get("id"), "ok": reply["ok"], "body": body}
+    )
+
+
+async def _push_live_feedback_states(
+    ws: web.WebSocketResponse, states: asyncio.Queue
+) -> None:
+    while True:
+        visible = await states.get()
+        await ws.send_json({"type": "state", "visible": visible})
+
+
+async def _next_frame(ws: web.WebSocketResponse) -> dict | None:
+    """The next JSON object the client sends, or ``None`` once it has gone.
+
+    A frame that is not a JSON object is skipped.
+    """
+    async for message in ws:
+        if message.type != WSMsgType.TEXT:
+            continue
+        try:
+            frame = json.loads(message.data)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(frame, dict):
+            return frame
+    return None
 
 
 def _int_or_none(raw: str | None) -> int | None:
