@@ -9,10 +9,9 @@
      container cannot be styled by its own container query. */
   --gutter: 3.5rem;
   container-type: inline-size;
-  /* Two 20px line boxes at 13px quiet prose, in ems so a size change carries
-     it. Only the transcript clamps — a reading surface takes `.quiet`
+  /* Two quiet line boxes. Only the transcript clamps — a reading surface takes `.quiet`
      unclamped, which is why this lives here and not in `Markdown.module.css`. */
-  --quiet-clamp: 3.08em;
+  --quiet-clamp: calc(var(--quiet-row) * 2);
 }
 /* A fixed time column, then the card. The times form a clean vertical rule
    down the left edge and the cards keep their own, so the eye reads either

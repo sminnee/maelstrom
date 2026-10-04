@@ -139,7 +139,7 @@
   --leading-tight: 1.3;
   --leading-ui: 1.4;
   /*
-   * 1.5, not 1.55, so that at `--text-md` the line box is exactly 24px. That
+   * `--prose-row` / `--text-md`, so the line box is exactly one row. That
    * makes the leading and the prose grid below the same number, which is what
    * lets every block advance a whole number of rows.
    */
@@ -148,14 +148,17 @@
   --tracking-micro: 0.08em;
 
   /*
-   * The prose grid: multiples of the 24px line box. Whole pixels, so a document
-   * and the transcript beside it share one rhythm. Never `--space-*`, which is
-   * the chrome's scale. See DESIGN.md § Rhythm.
+   * The prose grid: multiples of one line box, `--prose-row`. Whole pixels, so
+   * a document and the transcript beside it share one rhythm. Never `--u-*`,
+   * which is the chrome's scale. See DESIGN.md § Rhythm.
    */
-  --prose-gap: 24px;
-  /* A half row, between list items. See the accepted exception in Markdown.module.css. */
-  --prose-gap-tight: 12px;
-  --prose-gap-loose: 48px;
+  --prose-row: 24px;
+  --prose-gap: var(--prose-row);
+  /* A half row, between list items. */
+  --prose-gap-tight: calc(var(--prose-row) / 2);
+  --prose-gap-loose: calc(var(--prose-row) * 2);
+  /* The row of quiet prose, at `--text-ui`: the transcript's second rank. */
+  --quiet-row: 20px;
 
   /* One measure for both reading surfaces. 72ch, not 80 — see DESIGN.md § Measure. */
   --measure-prose: 72ch;
@@ -238,6 +241,10 @@
     --text-md: 20px;
     --text-lg: 24px;
     --text-xl: 28px;
+
+    --prose-row: 30px;
+    /* Quiet prose is the reading size here, so it shares the prose row. */
+    --quiet-row: var(--prose-row);
   }
 }
 
