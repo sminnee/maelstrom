@@ -969,6 +969,12 @@ the visual viewport's height there, because a soft keyboard does not shrink `dvh
 conversation input may take the visible height less four controls, and the New work draft takes
 what its dialog leaves.
 
+A text field does not share its row with the buttons that submit it. The field takes the full
+width, and its buttons sit in a row under it, at the right edge. A field between two buttons gets
+a sliver of a phone's width and reads as a stray control on a wide screen. One shape on every
+layout also means the field does not move when the layout changes, so a draft keeps its caret.
+The Review Dock shows the rule; the session composer puts Send in the Attach row.
+
 ### Decision
 
 The block shown when an agent waits. The expanded node and the document tab render one component,
@@ -1032,11 +1038,12 @@ the sentence naming the ask: Approve and Deny say the act, and a sentence above 
 above a heading. A permission's tool input goes with them, because a band is no place to read a
 block of JSON.
 
-**Approve leads, as the primary.** Then the field, then the negative act — Deny, or Request
-changes. Every approval in the dock reads the same way round, whether it answers the agent or
-the document. The band's whole claim is that the reader learns one shape. Button rank carries
-the affirmative act; colour does not, so Approve takes no green of its own. Approve leads the
-tab order too: the visual and keyboard orders agree.
+**The field, then Approve, as the primary.** The field takes the full width (§ Fields). Under it,
+at the right edge, Approve leads the negative act — Deny, or Request changes. Every approval in the dock
+reads the same way round, whether it answers the agent or the document. The band's whole claim
+is that the reader learns one shape. Button rank carries the affirmative act; colour does not,
+so Approve takes no green of its own. The tab order is the visual order: the field, Approve, then
+the negative act.
 
 The context is offered, not spent. `Before this · 3` leads the band and opens the rail as a sheet
 over the document rather than pushing it — the document never reflows for a decision. The sheet
