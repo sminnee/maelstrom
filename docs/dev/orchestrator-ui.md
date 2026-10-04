@@ -1164,18 +1164,19 @@ Three things differ below the 840px break beyond layout. The document tab draws 
 box rather than covering the focused field. And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 
-## The tuning jig
+## The jig
 
-The **Jig** lets the user change CSS on the live page and send the result to the agent. It lives
-in `vite-plugin-mael-tune/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
+The **Jig** lets the user change the live page and send **Feedback** to the agent. Its one use so
+far is a **Monkeypatch**: CSS that every page applies at once. It lives in
+`vite-plugin-mael-jig/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
 config, so every story has the jig too. So does the everyday UI that `mael self-env` serves. A
 build and a vitest run do not load it, and outside a git checkout it switches itself off.
 
 | Part | File | What it does |
 |---|---|---|
-| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/tuning` on `.drafts/tuning.css`. Watches the file and sends the `mael-tune:update` event over HMR. Proxies `POST /__mael/send`. |
-| Overlay | `overlay.ts` | Draws the `Tune` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. |
-| Command | `worktree.tune` | Sends the **Tuning CSS** to the worktree's agents. See [orchestrator-server.md](orchestrator-server.md). |
+| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Proxies `POST /__mael/feedback`. |
+| Overlay | `overlay.ts` | Draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. |
+| Command | `worktree.feedback` | Sends the **Feedback** to the worktree's agents. See [orchestrator-server.md](orchestrator-server.md). |
 
 **The file is the shared state.** Each page applies the file when it loads and when the event
 arrives, so the app, every story and an edit by the agent stay in step. The event names the page
@@ -1183,11 +1184,12 @@ that wrote the file, and that page ignores it. Otherwise an echo of an older wri
 what the user typed since.
 
 **The jig's `<style>` stays last in `<head>`.** Vite appends a module's `<style>` when the module
-loads or hot-updates. A `MutationObserver` moves the jig's element back to the end, so a tuning rule
-wins a tie of specificity.
+loads or hot-updates. A `MutationObserver` moves the jig's element back to the end, so a monkeypatch
+rule wins a tie of specificity.
 
 **Send finds the worktree by path.** The plugin asks `GET /api/worktrees` for the row whose `path`
-is its git top level, then posts to `/api/worktrees/{id}/tuning`. It reads `ORCHESTRATOR_URL` with
+is its git top level, then posts to `/api/worktrees/{id}/feedback`. It passes the body through
+untouched, so the plugin learns nothing new when the orchestrator learns a new type. It reads `ORCHESTRATOR_URL` with
 no default: unset, Send is off and live CSS still works. The `ladle` service sets it for that
 reason.
 
@@ -1282,7 +1284,7 @@ CSS and TSX file. It fails on a font size that is not a `--text-*` token, an `em
 `inherit`. See "Hierarchy". Both gates share `test/sourceGate.ts`.
 
 The jig is its own vitest project, which runs in Node by default. `plugin.test.ts` starts a real
-Vite dev server and drives `/__mael/tuning`, the HMR event and Send against a fake orchestrator.
+Vite dev server and drives `/__mael/monkeypatch`, the HMR event and Send against a fake orchestrator.
 `overlay.test.ts` opts into jsdom, which cascades the declared values of a `<style>` rule into
 `getComputedStyle` without layout.
 

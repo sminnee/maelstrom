@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
-import { maelTune } from './vite-plugin-mael-tune/plugin';
+import { maelJig } from './vite-plugin-mael-jig/plugin';
 
 // Under maelstrom the dev server binds the worktree's FRONTEND port, and HMR
 // its FRONTEND_HMR port, so several worktrees can serve at once.
@@ -44,10 +44,10 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       ...(fakeMode ? [serveFake] : []),
-      // The tuning jig (CONTEXT.md), on the dev server and Ladle but not under
+      // The jig (CONTEXT.md), on the dev server and Ladle but not under
       // vitest, which serves no page. Send needs the orchestrator named
       // explicitly: the default above is a guess, fine for a proxy, wrong for a post.
-      ...(!process.env.VITEST ? [maelTune({ orchestratorUrl: process.env.ORCHESTRATOR_URL })] : []),
+      ...(!process.env.VITEST ? [maelJig({ orchestratorUrl: process.env.ORCHESTRATOR_URL })] : []),
     ],
     server: {
       // Every interface, so the tailnet reaches the dev server and localhost
