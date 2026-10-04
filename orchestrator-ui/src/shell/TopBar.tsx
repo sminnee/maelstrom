@@ -30,7 +30,10 @@ export function TopBar({ back }: { back?: BackRow }) {
     return (
       <header className={styles.bar} data-narrow data-testid="top-bar">
         <div className={styles.row}>
-          <h1 className={styles.brand}>maelstrom</h1>
+          {/* At the narrow type scale the row cannot hold the brand beside the
+              readings and both actions. The brand shows on the wide layout only;
+              a screen reader keeps it here. */}
+          <h1 className="srOnly">maelstrom</h1>
           <div className={styles.readings}>
             <UsageChips />
             <AgentsChip />
