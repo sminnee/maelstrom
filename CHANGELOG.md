@@ -170,6 +170,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A full-size image keeps its shape.** The lightbox shows a picture at its own size, or
+  smaller to fit the screen, and never stretches it. Before, a small screenshot grew to the
+  screen width and lost its ratio.
 - **Images in a task and in your messages now show.** An image in a task shows as a thumbnail
   on its node card, and an image in a message you sent shows in the transcript. A click opens
   it full size. Before, neither picture loaded.

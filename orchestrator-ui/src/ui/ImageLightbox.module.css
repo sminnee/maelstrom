@@ -26,6 +26,13 @@
 }
 .full {
   display: block;
+  /* `Dialog`'s box is a flex column, and a stretched flex item takes the box's
+     width and loses its ratio. Out of the flex sizing, `auto` is the natural
+     size again, so the caps below can only shrink the picture. */
+  align-self: center;
+  flex: none;
+  /* Keeps the ratio if a later rule sizes both axes. */
+  object-fit: contain;
   /* `max-height: 100%` resolves against a parent with no definite height, so
      it does not bound the picture. `dvh` does, and it tracks a mobile
      browser's retracting toolbar. The subtraction is the scrim's padding plus
