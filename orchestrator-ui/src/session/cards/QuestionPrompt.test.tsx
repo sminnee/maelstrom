@@ -75,7 +75,7 @@ describe('QuestionPrompt', () => {
     expect(onAnswer).toHaveBeenCalledWith({ [EXPORT.question]: 'Stream, but cap at 10k rows' });
   });
 
-  it('two questions step through, and one Answer sends both keyed by question text', async () => {
+  it('two questions step through and back, and one Answer sends both keyed by question text', async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn();
     render(<QuestionPrompt item={item([COLUMNS, EXPORT])} onAnswer={onAnswer} />);
@@ -88,6 +88,10 @@ describe('QuestionPrompt', () => {
     expect(
       screen.getByText('Status', { selector: '[data-testid="step-answer"]' }),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('1 of 2')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Status/ })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('radio', { name: /Stream/ }));
     await user.click(screen.getByRole('button', { name: 'Answer' }));
     expect(onAnswer).toHaveBeenCalledWith({

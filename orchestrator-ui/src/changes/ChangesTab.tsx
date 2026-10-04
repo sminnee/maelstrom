@@ -23,6 +23,7 @@ import { Markdown } from '../markdown/Markdown';
 import type { BranchCommit, ChangeComment, FileDiff, WorktreeChanges } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { clockTime } from '../protocol/time';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
 import { DiffBlock, type DiffRowData, HighlightedRows } from '../ui/DiffRow';
@@ -155,7 +156,9 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
         ) : changes.isError ? (
           <>
             Could not read the changes: {changes.error.message}{' '}
-            <AppButton onClick={() => changes.refetch()}>Retry</AppButton>
+            <AppButton icon={actionIcon('retry')} onClick={() => changes.refetch()}>
+              Retry
+            </AppButton>
           </>
         ) : (
           'Reading the changes…'
@@ -176,6 +179,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
         <span className={styles.base}>on {base}</span>
       </span>
       <AppButton
+        icon={actionIcon('refresh')}
         variant="quiet"
         processingChildren="Refreshing"
         onClick={() =>
@@ -263,7 +267,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             Posted, but not to {missed.map((m) => `${nameOf(m.agentId)} (${m.message})`).join(', ')}
             .
           </span>
-          <AppButton variant="quiet" onClick={() => setMissed([])}>
+          <AppButton icon={actionIcon('dismiss')} variant="quiet" onClick={() => setMissed([])}>
             Dismiss
           </AppButton>
         </div>

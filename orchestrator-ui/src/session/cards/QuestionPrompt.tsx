@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import type { Question, QuestionItem } from '../../protocol/transcript';
+import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
 import { SplitButton, type SplitOption } from '../../ui/SplitButton';
 import styles from './cards.module.css';
@@ -111,7 +112,12 @@ export function QuestionPrompt({
 
   const declines: SplitOption[] = onDecline
     ? [
-        { label: 'Decline', detail: 'The agent continues without an answer.', run: onDecline },
+        {
+          label: 'Decline',
+          icon: actionIcon('decline'),
+          detail: 'The agent continues without an answer.',
+          run: onDecline,
+        },
         ...(onDeclineAndStop
           ? [
               {
@@ -221,11 +227,16 @@ export function QuestionPrompt({
       </div>
       <div className={styles.options}>
         {step > 0 && (
-          <button type="button" className={styles.quiet} onClick={() => setStep(step - 1)}>
+          <AppButton variant="quiet" icon={actionIcon('back')} onClick={() => setStep(step - 1)}>
             Back
-          </button>
+          </AppButton>
         )}
-        <AppButton variant="primary" disabled={!onAnswer || !complete} onClick={submit}>
+        <AppButton
+          icon={actionIcon('next')}
+          variant="primary"
+          disabled={!onAnswer || !complete}
+          onClick={submit}
+        >
           {last ? 'Answer' : 'Next'}
         </AppButton>
         {declines.length > 0 && (

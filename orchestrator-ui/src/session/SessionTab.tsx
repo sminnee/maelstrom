@@ -14,6 +14,7 @@ import { PanelLink } from '../shell/PanelLink';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
 import { awaitCompact } from './awaitCompact';
@@ -199,6 +200,7 @@ export function SessionTab({
   const meta = <span className={styles.meta}>{metaParts.join(' · ')}</span>;
   const stop = (
     <AppButton
+      icon={actionIcon('stop')}
       variant="quiet"
       className={styles.stop}
       disabled={!canInterrupt}
@@ -210,6 +212,7 @@ export function SessionTab({
   );
   const compact = (
     <AppButton
+      icon={actionIcon('compact')}
       variant="quiet"
       className={styles.compact}
       disabled={!canCompact}

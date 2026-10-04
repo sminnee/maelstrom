@@ -82,9 +82,13 @@ export function TopBar({
           <Readings />
           <div className={styles.spacer} />
           <AttentionChip />
-          <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
+          <AppButton
+            variant="primary"
+            icon={actionIcon('new')}
+            onClick={() => setNewWorkOpen(true)}
+          >
             New
-          </button>
+          </AppButton>
         </div>
         <PaneMenu side={null} />
       </header>
@@ -105,9 +109,9 @@ export function TopBar({
       {/* Over the slot its items show in. */}
       {mode === 'wide' && <PaneMenu side="right" />}
       {/* The one action ends the bar, as it does on the narrow layout. */}
-      <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
+      <AppButton variant="primary" icon={actionIcon('new')} onClick={() => setNewWorkOpen(true)}>
         New
-      </button>
+      </AppButton>
     </header>
   );
 }
@@ -135,16 +139,16 @@ export function SheetHead({ onClose }: { onClose: () => void }) {
     <div className={styles.sheetHead}>
       <Readings />
       <div className={styles.spacer} />
-      <button
-        type="button"
-        className={styles.new}
+      <AppButton
+        variant="primary"
+        icon={actionIcon('new')}
         onClick={() => {
           onClose();
           setNewWorkOpen(true);
         }}
       >
         New
-      </button>
+      </AppButton>
     </div>
   );
 }

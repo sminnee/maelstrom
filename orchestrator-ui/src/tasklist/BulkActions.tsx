@@ -78,6 +78,7 @@ export function BulkActions({
       </select>
       <AppButton
         disabled={busy}
+        icon={<OnDeskIcon />}
         onClick={() =>
           run(
             rows.filter((r) => !r.onDesk),
@@ -85,11 +86,12 @@ export function BulkActions({
           )
         }
       >
-        <OnDeskIcon /> On desk
+        On desk
       </AppButton>
       {/* Only the rows on the desk: a DELETE for one that is not is a 404. */}
       <AppButton
         disabled={busy}
+        icon={<OffDeskIcon />}
         onClick={() =>
           run(
             rows.filter((r) => r.onDesk),
@@ -97,7 +99,7 @@ export function BulkActions({
           )
         }
       >
-        <OffDeskIcon /> Off desk
+        Off desk
       </AppButton>
       <AppButton disabled={busy} onClick={onClear}>
         Clear

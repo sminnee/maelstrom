@@ -23,6 +23,7 @@ import { useLayoutMode } from '../layout/useLayoutMode';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { ReviewActions } from './ReviewActions';
@@ -81,7 +82,9 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         ) : document.isError ? (
           <>
             Could not load the document: {document.error.message}{' '}
-            <AppButton onClick={() => document.refetch()}>Retry</AppButton>
+            <AppButton icon={actionIcon('retry')} onClick={() => document.refetch()}>
+              Retry
+            </AppButton>
           </>
         ) : (
           'Loading…'

@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { useLayoutMode } from '../layout/useLayoutMode';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { AttachField } from '../ui/AttachField';
 import { retainedKey } from '../ui/retained';
@@ -97,7 +98,12 @@ export function MessageInput({
     <div className={styles.form} data-inline={inline ? '' : undefined}>
       <AttachField
         actions={
-          <AppButton ref={sendButton} disabled={disabled || !canSend} onClick={send}>
+          <AppButton
+            icon={actionIcon('send')}
+            ref={sendButton}
+            disabled={disabled || !canSend}
+            onClick={send}
+          >
             Send
           </AppButton>
         }

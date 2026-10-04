@@ -33,6 +33,7 @@ export function ChangeCommentBox(props: Props) {
         <p className={styles.body}>{props.body}</p>
         <div className={styles.actions}>
           <AppButton
+            icon={actionIcon('edit')}
             variant="quiet"
             disabled={props.editDisabled}
             title={props.editDisabled ? 'Add or cancel the open comment first' : undefined}
@@ -40,7 +41,7 @@ export function ChangeCommentBox(props: Props) {
           >
             Edit
           </AppButton>
-          <AppButton variant="quiet" onClick={props.onDelete}>
+          <AppButton icon={actionIcon('delete')} variant="quiet" onClick={props.onDelete}>
             Delete
           </AppButton>
         </div>

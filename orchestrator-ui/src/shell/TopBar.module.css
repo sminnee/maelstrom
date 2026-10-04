@@ -30,14 +30,6 @@
 }
 /* The one way to start new work, so it reads as the bar's action rather than
    another view toggle. */
-.new {
-  background: var(--accent);
-  color: var(--fg-on-hue);
-  font-weight: var(--weight-semibold);
-}
-.new:hover {
-  background: color-mix(in srgb, var(--accent), var(--fg-on-hue) 15%);
-}
 /* The readings, as one group: they are read together and must not be split
    across a wrap boundary while the bar is still wide enough to hold them. */
 .readings {

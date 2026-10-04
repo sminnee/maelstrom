@@ -6,6 +6,7 @@ import type { WorktreeId } from '../protocol/ids';
 import { listWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { CloseControl } from './CloseControl';
@@ -39,7 +40,9 @@ export function WorktreeTable() {
     ) : status === 'error' ? (
       <p className={styles.terminal} role="alert">
         Could not load the worktrees: {errors[0]?.message ?? 'unknown error'}{' '}
-        <AppButton onClick={retry}>Retry</AppButton>
+        <AppButton icon={actionIcon('retry')} onClick={retry}>
+          Retry
+        </AppButton>
       </p>
     ) : groups.length === 0 ? (
       <p className={styles.terminal}>No worktree matches these filters.</p>
@@ -49,6 +52,7 @@ export function WorktreeTable() {
     <div className={styles.view} data-testid="worktree-table">
       <div className={styles.toolbar}>
         <AppButton
+          icon={actionIcon('refresh')}
           variant="quiet"
           processingChildren="Refreshing…"
           onClick={() => refresh.mutateAsync()}

@@ -228,9 +228,6 @@
   justify-content: flex-end;
   gap: var(--u);
 }
-.quiet {
-  color: var(--fg-muted);
-}
 .steps {
   display: flex;
   flex-wrap: wrap;

@@ -77,6 +77,7 @@ export function CommentMargin({
         {c.resolved ? ' · resolved' : ''}
         {!c.resolved && (
           <AppButton
+            icon={actionIcon('resolve')}
             className={styles.resolve}
             errorChildren={describeError}
             onClick={() => onResolve(c.id)}

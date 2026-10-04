@@ -1,3 +1,4 @@
+import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
 import styles from './comments.module.css';
 
@@ -21,6 +22,7 @@ export function CommentDock({
   return (
     <div className={styles.dock} role="region" aria-label="Change comments">
       <AppButton
+        icon={actionIcon('send')}
         variant="primary"
         disabled={recipients.length === 0}
         processingChildren="Posting"

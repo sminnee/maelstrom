@@ -4,6 +4,7 @@ import { ZONES } from '../protocol/progress';
 import { emptyZoneWords, zoneLabel } from '../selectors/deck';
 import { useDeck } from './useDeck';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { DeckRow } from './DeckRow';
 import styles from './DeckList.module.css';
@@ -31,7 +32,9 @@ export function DeckList() {
     return (
       <div className={styles.frame} role="alert" data-testid="deck-error">
         <div>Could not load the world: {errors[0]?.message ?? 'unknown error'}</div>
-        <AppButton onClick={retry}>Retry</AppButton>
+        <AppButton icon={actionIcon('retry')} onClick={retry}>
+          Retry
+        </AppButton>
       </div>
     );
   }
