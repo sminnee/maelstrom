@@ -34,6 +34,7 @@ from .services import (
 )
 from .session_discovery import LiveSession
 from .worktree import read_env_file, regenerate_env_file, run_install_cmd
+from .worktree_model import MAIN_WORKTREE_FOLDER
 
 # --- Dataclasses ---
 
@@ -391,13 +392,29 @@ def remove_shared_state(store: EnvStore, project: str) -> None:
 # --- Environment Building & Liveness ---
 
 
+#: The project whose ``_main`` is maelstrom's own environment, the self-env.
+SELF_ENV_PROJECT = "maelstrom"
+
+
+def self_env_jig_url() -> str | None:
+    """Where the self-env's orchestrator serves as a **Jig provider**.
+
+    The agents run under that orchestrator, whichever worktree's dev server
+    the jig is on. ``None`` when the self-env's ``.env`` names no port.
+    """
+    projects_dir = context.load_global_config().projects_dir
+    main = projects_dir / SELF_ENV_PROJECT / MAIN_WORKTREE_FOLDER
+    port = read_env_file(main).get("ORCHESTRATOR_PORT")
+    return f"ws://127.0.0.1:{port}/api/jig" if port else None
+
+
 def build_service_env(worktree_path: Path) -> dict[str, str]:
     """Build the environment dict for spawned services.
 
     Starts with the current process environment, minus the variables no child
-    should inherit, and overlays variables from the worktree's .env file. The
-    overlay runs second, so a worktree that names one of the stripped variables
-    deliberately still gets its value.
+    should inherit, adds ``MAEL_JIG_URL``, and overlays the worktree's .env
+    file. The overlay runs last, so the .env wins over both: it can restore a
+    stripped variable, and an empty ``MAEL_JIG_URL`` switches the jig off.
 
     The dev variables go in beneath the ``.env``, so a ``.env`` written before
     one of them existed still expands ``${DEV_SCHEME}`` in a service's ``env:``.
@@ -407,6 +424,9 @@ def build_service_env(worktree_path: Path) -> dict[str, str]:
     """
     env = sanitise_child_env(os.environ)
     env.update(dev_env_vars())
+    jig_url = self_env_jig_url()
+    if jig_url:
+        env["MAEL_JIG_URL"] = jig_url
     env.update(read_env_file(worktree_path))
     if env.get("DEV_SCHEME") != "https":
         for key in TLS_ENV_VARS:

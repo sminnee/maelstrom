@@ -336,6 +336,18 @@ class TestEnvStateRoundTrip:
         assert store.exists("myproject/bravo.json")
 
 
+@pytest.fixture
+def home(_home, monkeypatch):
+    """A home whose projects directory is the default, ``~/Projects``.
+
+    ``build_service_env`` reads the self-env's ``.env`` under it, so every test
+    of it pins one: the developer's real home would leak in.
+    """
+    monkeypatch.delenv("MAEL_JIG_URL", raising=False)
+    return _home
+
+
+@pytest.mark.usefixtures("home")
 class TestBuildServiceEnv:
     """Tests for build_service_env function."""
 
@@ -404,6 +416,36 @@ class TestBuildServiceEnv:
             "DEV_HOST": "desk.tailnet.ts.net",
             "DEV_SCHEME": "http",
         }
+
+
+class TestJigUrl:
+    """Every service hears where the self-env's jig provider listens."""
+
+    def worktree(self, home: Path, folder: str, env: str) -> Path:
+        path = home / "Projects" / "maelstrom" / folder
+        path.mkdir(parents=True)
+        (path / ".env").write_text(env)
+        return path
+
+    def test_comes_from_the_self_env_orchestrator_port(self, home):
+        self.worktree(home, "_main", "ORCHESTRATOR_PORT=2770\n")
+        alpha = self.worktree(home, "maelstrom-alpha", "ORCHESTRATOR_PORT=3460\n")
+
+        env = build_service_env(alpha)
+
+        assert env["MAEL_JIG_URL"] == "ws://127.0.0.1:2770/api/jig"
+
+    def test_the_worktree_env_overrides_it(self, home):
+        self.worktree(home, "_main", "ORCHESTRATOR_PORT=2770\n")
+        alpha = self.worktree(home, "maelstrom-alpha", "MAEL_JIG_URL=\n")
+
+        assert build_service_env(alpha)["MAEL_JIG_URL"] == ""
+
+    def test_is_absent_when_the_self_env_has_no_orchestrator_port(self, home):
+        self.worktree(home, "_main", "FRONTEND_PORT=2771\n")
+        alpha = self.worktree(home, "maelstrom-alpha", "")
+
+        assert "MAEL_JIG_URL" not in build_service_env(alpha)
 
 
 class TestIsServiceAlive:
