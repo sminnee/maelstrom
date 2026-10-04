@@ -73,6 +73,18 @@ Use `<image src="docs/shot.png" alt="The failing dialog">` to place a picture in
 flow. `src` is a worktree-relative path under the same path rule as `filename`. `alt` defaults to
 the filename. An unavailable image leaves explanatory prose instead of a broken picture.
 
+## Jig
+
+The jig is an overlay on the pages of your worktree's dev servers: the app and each Ladle story.
+In it, the user writes CSS that applies to the page at once, and sends it to you. It is hidden
+until you show it.
+
+Write `<jig show>` when you start to shape a visual detail with the user on a dev-server page.
+Write `<jig hide>` when that work is done, or when the user moves on to other work.
+
+The user can hide the jig too. You then get a message that says so. Do not show it again until
+the user asks for it, or until the next visual detail.
+
 ## User attention
 
 Every message opens with `<user-attention high>` or `<user-attention low>`. Repeat the tag to
