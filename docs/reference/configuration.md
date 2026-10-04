@@ -84,7 +84,7 @@ Each entry is a named service. Maelstrom infers the type: an `engine` makes it a
 | `publish` | list of string | container | Host-to-container port mappings, e.g. `["${DB_PORT}:5432"]`. |
 | `volume` | string | container | Mount path. The named volume derives from the container name. |
 | `host_var` | string | container | Variable that receives the polled VM IP. Only valid for `apple-container`, and only meaningful when `shared: true`. |
-| `ports` | list of string | both | Named ports this service owns. Each becomes `${<NAME>_PORT}`. |
+| `ports` | list of string | both | Named ports this service owns. Each becomes `${<NAME>_PORT}`. A port whose name has an `APP` or `FRONTEND` segment, such as `LADLE_APP` or `FAKE_FRONTEND_HMR`, is web-facing: the service's first one is its link in the orchestrator. |
 | `env` | map | both | Extra environment variables for the service. |
 | `shared` | bool | both | Default `false`. When true, the service is shared across worktrees in the project. |
 | `optional` | bool | both | Default `false`. When true, `mael env start` skips the service. Start it with `mael env start <name>`. |
