@@ -172,3 +172,8 @@
     padding-right: var(--u);
   }
 }
+
+/* In the side sheet the sheet brings the gutter, so the header brings none. */
+:global([data-sheet]) .header {
+  padding: 0 0 var(--u-2);
+}
