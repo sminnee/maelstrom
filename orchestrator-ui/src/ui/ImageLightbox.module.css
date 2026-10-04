@@ -35,10 +35,10 @@
   object-fit: contain;
   /* `max-height: 100%` resolves against a parent with no definite height, so
      it does not bound the picture. `dvh` does, and it tracks a mobile
-     browser's retracting toolbar. The subtraction is the scrim's padding plus
-     the box's own, which `.box` keeps small for this reason. */
+     browser's retracting toolbar. The subtraction is `Dialog`'s gap, plus the
+     box's padding and border, which `.box` keeps small for this reason. */
   max-width: 100%;
-  max-height: calc(100dvh - 2 * (20px + var(--u)));
+  max-height: calc(100dvh - 2 * (20px + var(--u) + 1px));
   width: auto;
   height: auto;
 }
