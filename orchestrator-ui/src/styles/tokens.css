@@ -164,6 +164,9 @@
   --measure-prose: 72ch;
   --measure-panel: 72ch;
 
+  /* The fade over a clamped body. `markdown/Markdown.module.css` says why 55%. */
+  --clamp-fade: linear-gradient(to bottom, var(--fg) 55%, transparent 100%);
+
   --weight-medium: 500;
   --weight-semibold: 600;
 
