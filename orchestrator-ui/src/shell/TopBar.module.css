@@ -19,8 +19,9 @@
   letter-spacing: 0.02em;
 }
 .mark {
-  width: 20px;
-  height: 20px;
+  /* As tall as the bar's buttons. */
+  width: var(--control);
+  height: var(--control);
 }
 .spacer {
   flex: 1;

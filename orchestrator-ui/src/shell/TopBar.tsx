@@ -97,16 +97,15 @@ export function TopBar({
       </h1>
       <PaneMenu side={mode === 'wide' ? 'left' : null} />
       <FilterBar />
+      <div className={styles.spacer} />
+      <Readings />
+      <AttentionChip />
+      {/* Over the slot its items show in. */}
+      {mode === 'wide' && <PaneMenu side="right" />}
+      {/* The one action ends the bar, as it does on the narrow layout. */}
       <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
         New
       </button>
-      <div className={styles.spacer} />
-      {/* The readings sit between New and the attention chip, so the one
-          action and the one alarm keep the edges they already had. */}
-      <Readings />
-      <AttentionChip />
-      {/* At the right edge, over the slot its items show in. */}
-      {mode === 'wide' && <PaneMenu side="right" />}
     </header>
   );
 }
