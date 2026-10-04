@@ -96,6 +96,11 @@ export function MessageInput({
   return (
     <div className={styles.form} data-inline={inline ? '' : undefined}>
       <AttachField
+        actions={
+          <AppButton ref={sendButton} disabled={disabled || !canSend} onClick={send}>
+            Send
+          </AppButton>
+        }
         className={styles.attach}
         project={project}
         bucket={bucket}
@@ -137,9 +142,6 @@ export function MessageInput({
           }}
         />
       </AttachField>
-      <AppButton ref={sendButton} disabled={disabled || !canSend} onClick={send}>
-        Send
-      </AppButton>
     </div>
   );
 }
