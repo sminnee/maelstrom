@@ -92,6 +92,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--prose-gap-loose) var(--u-2) 0;
 }
 .prose {

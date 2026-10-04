@@ -123,6 +123,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 
   /* Each line holds a control, so neither is lower than one. */
   --title-h: max(2.25rem, calc(var(--control) + var(--u)));

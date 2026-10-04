@@ -48,6 +48,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   /* Clear of the home indicator on a phone that has one. */
   padding-bottom: max(var(--u-2), env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
