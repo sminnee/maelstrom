@@ -600,6 +600,22 @@ When the active tab closes, the most recent tab left in its group takes over, el
 recent tab left anywhere. The group comes first because a tab from another group would switch
 the sidebar under the reader. A row's close button closes every tab in the group.
 
+**The split tab.** A shift-click or Shift+Enter on a tab in the strip toggles the group's
+**Split tab**; see `CONTEXT.md`. `ui.splitTabs` holds one tab key per group key. The store cannot
+work out a group key, because the world lives in the query cache, so `toggleSplit` takes
+`groupOf`, as `closeTabs` does. The rules are pure functions in `selectors/tabs.ts`, and the store
+actions only call them:
+
+- A tab is never active and split at once. Splitting the active tab hands the active place to the
+  group's most recent other tab. Opening the split tab through a link ends its split.
+- A click on the split tab changes nothing, because it is already showing. The arrow keys pass
+  over it.
+- A sidebar row and a close pass over a group's split tab when they choose the next active tab.
+  A group left with only its split tab shows that tab, and the split ends.
+- A group of one tab does not split. Closing the split tab ends the split.
+
+A shift-click on a top bar item keeps its own meaning: it moves the item's anchor.
+
 `panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls: the
 `worktrees/WorktreeControls.tsx` pieces and the close control, as the worktree area does.
 
@@ -658,9 +674,12 @@ external link and a reload button, over an iframe of the URL. A service with a U
 so `Worktree.env.services[]` is all the tab reads.
 
 The frame stays mounted while another tab is in view, so the framed app keeps its state.
-`panel/Panel.tsx` draws the active tab through `TabBody`. It also draws every open dev env tab,
-keyed by tab key, with `hidden` on each that is not showing. A hidden frame keeps its app running,
-timers and sockets too, until its tab closes.
+`panel/Panel.tsx` draws the active tab and the split tab through `TabBody`. It also draws every
+open dev env tab, keyed by tab key, with `hidden` on each that is not showing. A hidden frame keeps
+its app running, timers and sockets too, until its tab closes. A session or document tab that moves
+between halves remounts. A half is
+placed with CSS `order`, as `SlotShell` places a slot, so a frame that moves between the halves
+does not reload.
 
 The narrow layout has no panel and no screen for a dev env, so `PanelLink` takes the service URL
 with a dev env tab and draws an external link there.

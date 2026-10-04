@@ -170,3 +170,12 @@
   background: var(--bg-raised);
   color: var(--fg);
 }
+/* The split tab shows in the body as much as the active one does, so it
+   reads as in view, not as a tab waiting behind the strip. */
+.tab[data-split] {
+  color: var(--fg-muted);
+}
+.splitMark {
+  flex-shrink: 0;
+  opacity: 0.8;
+}

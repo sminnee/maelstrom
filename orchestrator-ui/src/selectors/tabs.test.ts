@@ -8,6 +8,7 @@ import {
   groupTabs,
   mostRecentTab,
   openOrFocusTab,
+  selectGroup,
   sessionTab,
   tabAttribution,
   worktreeForTab,
@@ -42,10 +43,11 @@ describe('closeTabs', () => {
   ];
   const groupOf = (tab: { key: string }) =>
     ['session:a1', 'document:d0'].includes(tab.key) ? 'alpha' : 'bravo';
-  const state = (activeTabKey: string, tabRecency: string[]) => ({
+  const state = (activeTabKey: string, tabRecency: string[], splitTabs = {}) => ({
     tabs,
     activeTabKey,
     tabRecency,
+    splitTabs,
   });
 
   it("closing the active tab activates its group's most recent remaining tab", () => {
@@ -54,6 +56,7 @@ describe('closeTabs', () => {
       tabs: [sessionTab('a1'), sessionTab('a2'), documentTab('d1'), documentTab('d2')],
       activeTabKey: 'session:a1',
       tabRecency: ['session:a2', 'document:d1', 'session:a1'],
+      splitTabs: {},
     });
   });
 
@@ -89,8 +92,52 @@ describe('closeTabs', () => {
   });
 
   it('closing the only tab leaves nothing active', () => {
-    const one = { tabs: [documentTab('d0')], activeTabKey: 'document:d0', tabRecency: [] };
+    const one = {
+      tabs: [documentTab('d0')],
+      activeTabKey: 'document:d0',
+      tabRecency: [],
+      splitTabs: {},
+    };
     expect(closeTabs(one, ['document:d0'], groupOf).activeTabKey).toBeNull();
+  });
+
+  it('passes over the split tab for the active one, and takes it with nothing else left', () => {
+    const recency = ['session:a2', 'document:d1', 'document:d2'];
+    const split = { bravo: 'document:d1' };
+    const next = closeTabs(state('session:a2', recency, split), ['session:a2'], groupOf);
+    expect(next.activeTabKey).toBe('document:d2');
+    expect(next.splitTabs).toEqual(split);
+
+    const last = closeTabs(
+      state('session:a2', recency, split),
+      ['session:a2', 'document:d2'],
+      groupOf,
+    );
+    expect(last.activeTabKey).toBe('document:d1');
+    expect(last.splitTabs).toEqual({});
+  });
+});
+
+// The app tests reach these only when a tab changes group under its split:
+// a regroup leaves the split tab the most recent, or alone, in its group.
+describe('selectGroup', () => {
+  const state = (tabRecency: string[]) => ({
+    tabs: [sessionTab('a1'), documentTab('d0'), sessionTab('a2')],
+    activeTabKey: 'session:a2',
+    tabRecency,
+    splitTabs: { alpha: 'document:d0' },
+  });
+
+  it('passes over the split tab, even when it is the most recent', () => {
+    const next = selectGroup(state(['document:d0', 'session:a1']), ['session:a1', 'document:d0']);
+    expect(next.activeTabKey).toBe('session:a1');
+    expect(next.splitTabs).toEqual({ alpha: 'document:d0' });
+  });
+
+  it('shows a group left with only its split tab, and ends the split', () => {
+    const next = selectGroup(state(['document:d0']), ['document:d0']);
+    expect(next.activeTabKey).toBe('document:d0');
+    expect(next.splitTabs).toEqual({});
   });
 });
 

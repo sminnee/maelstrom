@@ -202,6 +202,11 @@ On a wide or medium screen the link opens the service in a panel tab, framed in 
 orchestrator, and the tab keeps the app loaded while you read another tab. Its toolbar links to
 the same URL in a new browser tab. On a phone the link opens a new browser tab.
 
+To see the dev env beside the agent's session, shift-click the dev env tab in the panel's tab
+strip. That
+tab shows in the right half of the panel, beside the tab you have open. Each worktree keeps its
+own split. A second shift-click on the tab ends the split.
+
 A service that refuses to be framed shows its error inside the tab. A Vite dev server allows a
 frame, but it refuses an unknown host with "Blocked request". List the dev host in its
 `server.allowedHosts`. If the config reads `DEV_HOST` and the worktree's `.env` has none, run
