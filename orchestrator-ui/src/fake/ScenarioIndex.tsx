@@ -3,7 +3,7 @@ import { SCENARIOS, screenOf, type ScenarioName } from './scenarios';
 /** The page the fake mode opens on with no scenario: each scenario, with a link. */
 export function ScenarioIndex() {
   return (
-    <main style={{ padding: 'var(--u-2)', maxWidth: '40rem' }}>
+    <main style={{ height: '100%', overflow: 'auto', padding: 'var(--u-2)', maxWidth: '40rem' }}>
       <h1 style={{ fontSize: 'var(--text-lg)' }}>Scenarios</h1>
       <ul style={{ padding: 0, listStyle: 'none' }}>
         {Object.entries(SCENARIOS).map(([name, { about }]) => (

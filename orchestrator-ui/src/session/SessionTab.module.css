@@ -9,7 +9,7 @@
   gap: var(--u-half);
   padding: var(--u) var(--u-2);
   border-bottom: 1px solid var(--border);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--mono);
   /* Measures the head itself, so the head answers to the panel's width rather
      than the window's. `inline-size` measures the content box — the 12px
@@ -125,6 +125,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .empty {
   padding: var(--u-3);
@@ -136,7 +137,7 @@
   gap: var(--u-half);
   padding: var(--u) var(--u-2);
   border-top: 1px solid var(--border);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--mono);
 }
 /* An escape hatch, not a feature: pale, and quieter than the strip above it. */
@@ -146,7 +147,7 @@
   gap: var(--u-half);
   padding: var(--u) var(--u-2);
   border-top: 1px solid var(--border);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--mono);
   color: var(--fg-muted);
 }

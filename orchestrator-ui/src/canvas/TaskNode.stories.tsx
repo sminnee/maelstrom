@@ -48,7 +48,7 @@ function Label({ children }: { children: ReactNode }) {
   return (
     <span
       style={{
-        fontSize: 'var(--text-2xs)',
+        fontSize: 'var(--text-sm)',
         letterSpacing: 'var(--tracking-micro)',
         textTransform: 'uppercase',
         color: 'var(--fg-faint)',

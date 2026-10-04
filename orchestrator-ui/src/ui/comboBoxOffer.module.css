@@ -38,7 +38,7 @@
 /* The label explains the value, so it gives way first when the row is tight. */
 .label {
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

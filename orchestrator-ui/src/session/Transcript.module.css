@@ -9,10 +9,9 @@
      container cannot be styled by its own container query. */
   --gutter: 3.5rem;
   container-type: inline-size;
-  /* Two 20px line boxes at 13px quiet prose, in ems so a size change carries
-     it. Only the transcript clamps — a reading surface takes `.quiet`
+  /* Two quiet line boxes. Only the transcript clamps — a reading surface takes `.quiet`
      unclamped, which is why this lives here and not in `Markdown.module.css`. */
-  --quiet-clamp: 3.08em;
+  --quiet-clamp: calc(var(--quiet-row) * 2);
 }
 /* A fixed time column, then the card. The times form a clean vertical rule
    down the left edge and the cards keep their own, so the eye reads either
@@ -56,7 +55,7 @@
   text-align: right;
 }
 .time {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
   white-space: nowrap;
 }
@@ -92,7 +91,7 @@
 }
 .note,
 .system {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
   font-family: var(--mono);
 }
@@ -103,7 +102,7 @@
   display: flex;
   align-items: center;
   gap: var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
   font-family: var(--mono);
 }
@@ -121,7 +120,7 @@
   display: flex;
   align-items: center;
   gap: var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
   font-family: var(--mono);
 }
@@ -162,7 +161,7 @@
 }
 .decision {
   margin-left: auto;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 .error {
@@ -216,7 +215,7 @@
   gap: var(--u);
   align-items: baseline;
   padding: 0 var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--leading-ui);
 }
 .skillLabel {
@@ -230,7 +229,7 @@
 .rawEventHead {
   padding: 0 var(--u);
   font-family: var(--mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--leading-ui);
 }
 .rawJson {
@@ -239,7 +238,7 @@
   padding: var(--u);
   border-top: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--leading-ui);
   white-space: pre;
 }

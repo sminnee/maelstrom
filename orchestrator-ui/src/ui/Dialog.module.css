@@ -11,6 +11,7 @@
   max-height: calc(100% - 40px);
   margin: auto;
   overflow: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--u);
@@ -58,7 +59,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--u-half);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 .field input,
@@ -79,7 +80,7 @@
   gap: var(--u);
   margin: 0;
   padding: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
   border: none;
 }
@@ -98,7 +99,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--u);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-muted);
 }
 .advanced summary {
@@ -129,6 +130,10 @@
     width: 100%;
     max-width: none;
     max-height: var(--vvh, 100dvh);
+    /* The dialog is in the top layer, outside `#root`, so it follows the
+       visual viewport itself when iOS scrolls for the keyboard. */
+    top: var(--vvt, 0);
+    bottom: auto;
     /* Top-anchored and full-bleed, so the UA's centring margin goes. */
     margin: 0;
     border: none;

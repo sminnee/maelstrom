@@ -20,7 +20,7 @@
   flex-wrap: wrap;
   gap: 0 var(--u);
   align-items: baseline;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--mono);
   color: var(--fg-muted);
 }
@@ -34,7 +34,7 @@
   color: var(--phase);
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro);
-  font-size: var(--text-2xs);
+  font-size: var(--text-sm);
 }
 .title {
   min-width: 0;
@@ -80,7 +80,7 @@
   color: var(--fg-muted);
 }
 .sessionLink {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 /*
  * The prose column. The comment margin beside it is a fixed 220px that never
@@ -92,6 +92,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--prose-gap-loose) var(--u-2) 0;
 }
 .prose {

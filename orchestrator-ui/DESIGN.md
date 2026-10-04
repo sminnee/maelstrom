@@ -38,17 +38,17 @@ typography:
     fontSize: '13px'
     fontWeight: 400
     lineHeight: 1.4
+  control:
+    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
+    fontSize: '14px'
+    fontWeight: 400
   label:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
     fontSize: '12px'
     fontWeight: 500
-  small:
-    fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '11px'
-    fontWeight: 400
   micro:
     fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif"
-    fontSize: '10px'
+    fontSize: '12px'
     fontWeight: 500
     letterSpacing: '0.08em'
   mono:
@@ -245,35 +245,46 @@ installed, but no metric depends on them.
 
 ### Hierarchy
 
-Five steps, each with one job. Sizes are the `--text-*` tokens; no component names its own.
+Six sizes, each with one job. Sizes are the `--text-*` tokens; no component names its own, and
+`styles/fontSize.test.ts` fails on a literal. Steps 1px apart do not read as ranks, so rank
+inside a size comes from weight, case and tone.
 
 The ramp has two halves, because the app has two jobs. The chrome is scanned and must stay
 dense; prose is read and must not.
 
-- **Reading** (`--text-md`, 400, 16px, 1.5): markdown, wherever it appears — a transcript
-  message, a document, the decision rail. Prose is read start to end, so it is set well above
-  the chrome around it rather than on the same step.
-- **Chrome** (`--text-ui`, 400, 13px, 1.4): the body size everything else inherits. Node titles,
-  table rows, links, the task list. The canvas keeps this size whatever prose does, because
-  the board's job is to hold many units at once.
-- **Control** (`--text-control`, 14px): a button's label. A step over the chrome, so the text
-  holds its fill.
-- **Chip** (`--text-chip`, 10px): the text of a chip, in the chrome's face, never mono.
-- **Display** (`--text-lg` 18px, `--text-xl` 21px): markdown's own `h2` and `h1`. Nothing in the
-  chrome uses them.
-- **Section head** (`--text-md-plus`, 17px): markdown's `h3`. One step over body, because at
-  reading size a section head separated by weight alone does not rank. Nothing in the chrome
-  uses it.
-- **Label** (500, 12px): metadata and secondary lines — the state line, the footer, filter
-  fields, tab titles. Also the mono step: task ids, branches, worktree paths, code.
-- **Small** (400, 11px): the dense mono register — a tool call's summary row, the transcript's
-  time gutter, the session head.
-- **Micro** (500, 10px, `0.08em`, uppercase): the phase name, section heads such as "NOW", the
-  `AGENT` label, a tool call's status. Uppercase and tracked so it reads as a category, not a
-  value.
+| Token            | Wide | Narrow | Job                                                      |
+| ---------------- | ---- | ------ | -------------------------------------------------------- |
+| `--text-sm`      | 12px | 16px   | labels, metadata, ids, tool rows, chips, the micro-label |
+| `--text-ui`      | 13px | 20px   | the chrome: node titles, table rows, links               |
+| `--text-control` | 14px | 22px   | a button's label                                         |
+| `--text-md`      | 16px | 20px   | prose, and markdown's `h3`                               |
+| `--text-lg`      | 18px | 24px   | markdown's `h2`                                          |
+| `--text-xl`      | 21px | 28px   | markdown's `h1`                                          |
+
+- **Reading** (`--text-md`, 400): markdown, wherever it appears — a transcript message, a
+  document, the decision rail. Prose is read start to end, so it is set well above the chrome
+  around it rather than on the same step.
+- **Chrome** (`--text-ui`, 400, 1.4): the body size everything else inherits. The canvas keeps
+  this size whatever prose does, because the board's job is to hold many units at once.
+- **Control** (`--text-control`): a button's label. One step over the chrome on both layouts, so
+  the text holds its fill.
+- **Display** (`--text-lg`, `--text-xl`): markdown's own `h2` and `h1`. Nothing in the chrome
+  uses them.
+- **Section head** (`--text-md`, 600, display face): markdown's `h3`. It ranks over body by face
+  and weight, not by size. Nothing in the chrome uses it.
+- **Label** (`--text-sm`, 500): metadata and secondary lines — the state line, the footer,
+  filter fields, tab titles. Also the mono step: task ids, branches, worktree paths, code, a
+  tool call's summary row, the transcript's time gutter, the session head.
+- **Chip** (`--text-sm`): the text of a chip, in the chrome's face, never mono.
+- **Micro** (`--text-sm`, 500, `0.08em`, uppercase): the phase name, section heads such as
+  "NOW", the `AGENT` label, a tool call's status. Uppercase and tracked so it reads as a
+  category, not a value.
+
+A mark is not text. A drift triangle beside a line keeps an `em` size relative to that line.
 
 Leading is a token too, chosen by job rather than by a single ratio: `--leading-tight` (1.3) for
 a heading, `--leading-ui` (1.4) for an interface line, `--leading-prose` (1.5) for a paragraph.
+`--leading-prose` is `--prose-row` / `--text-md`, so it is 1.5 on both layouts.
 
 ### Measure
 
@@ -293,25 +304,29 @@ message there already reads narrower than the number says.
 
 ### Rhythm
 
-Reading surfaces advance on a 24px grid. The grid is not laid over the text — it is the text:
-at 16px with 1.5 leading the line box is exactly 24px, so the leading and the grid are one
-number. A paragraph break is one row, a list gap a half row, the space above a heading two rows.
+Reading surfaces advance on a grid of `--prose-row`: 24px on the wide layout, 30px on the narrow. The grid is not
+laid over the text — it is the text: at 16px with 1.5 leading the line box is exactly 24px, so
+the leading and the grid are one number. The narrow layout keeps the ratio: 20px at 1.5 is 30px.
+The `--prose-gap*` tokens derive from the row, so the narrow layout changes one number. A paragraph break is one row, a list gap a half row, the space above a heading two rows.
 
 `--u` is the chrome's scale and never sets prose spacing. That scale is tuned against 13px
-chrome, so on a 16px surface every step lands under the line box it is meant to separate. The
+chrome, so on a reading surface every step lands under the line box it is meant to separate. The
 `--prose-gap*` tokens exist so that a gap can never be narrower than the leading it separates.
 
 Three pieces of arithmetic keep blocks on the grid, and each fails silently if changed:
 
-| Block                  | Rule                               | Why                                                                                           |
-| ---------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| Heading                | `line-height: 24px`, a fixed pixel | A ratio re-derives from the size, so a later size change walks the page off the grid          |
-| Heading with a literal | mono drops to `1em`                | At `0.92em` the mono inline box overflows a 24px line and adds a pixel                        |
-| Code block             | `padding: 11px`                    | With the 1px border the box chrome is one row, so a block is `(lines + 1) × 24` at any length |
+| Block                  | Rule                            | Why                                                                                         |
+| ---------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| Heading                | `line-height: var(--prose-row)` | A ratio re-derives from the size, so a later size change walks the page off the grid        |
+| Heading with a literal | mono drops to `1em`             | At `0.92em` the mono inline box overflows a one-row line and adds a pixel                   |
+| Code block             | padding is half a row less 1px  | With the 1px border the box chrome is one row, so a block is `lines + 1` rows at any length |
 
 The space above a heading comes from the heading's own top margin. That margin collapses with
 the paragraph's bottom margin rather than adding to it, so raising the paragraph gap does not
 widen the space above a heading.
+
+Quiet prose (`--text-ui`) has its own row, `--quiet-row`: 20px on the wide layout. On the narrow layout quiet
+prose is the reading size, so it shares `--prose-row`.
 
 Two blocks sit off the grid on purpose. List items take a half row, because a full row makes a
 list of short items read as separate paragraphs; a list with an even number of items therefore
@@ -328,11 +343,10 @@ collinear with body text — and chasing that with nudges would break whenever t
 spacing scale. A reading surface takes `--prose-gap*`; a gap narrower than the leading it
 separates is the failure this prevents.
 
-**The Legibility Floor Rule.** 10px is the smallest type in the system. It is used only for a
-tracked uppercase micro-label and for the text of a chip — never for prose, and never for a
-sentence. Chrome is 13px, a button label is 14px, and prose is 16px. Density is bought with tighter space and shorter lines, never by shrinking type below
-the floor. Every step clears WCAG AA against its own ground in both schemes; the 10px label is
-the tightest, and it is measured, not assumed.
+**The Legibility Floor Rule.** `--text-sm` is the smallest type in the system: 12px on the wide
+layout, 16px on the narrow. Density is bought with tighter space and shorter lines, never by shrinking type below
+the floor. Every step clears WCAG AA against its own ground in both schemes; the micro-label in
+`--fg-faint` is the tightest, and it is measured, not assumed.
 
 `--fg-recessed` is the measured case this rule stops from regressing. It tracks `--fg-faint`,
 which clears AA against `--bg`, `--bg-raised` and `--bg-sunken` in dark, and against `--bg` and
@@ -396,7 +410,7 @@ component names a px value for a gap, a padding or a margin.
 | `--u`       | 8px                | the gap between items, and the margin round a control |
 | `--u-half`  | 4px                | inside one item: an icon and its label                |
 | `--u-2`     | 16px               | between groups, and the inset of a screen or a card   |
-| `--u-3`     | 24px               | between sections. Equal to the prose line box         |
+| `--u-3`     | 24px               | between sections. Equal to the wide prose row         |
 | `--control` | 32px; narrow: 48px | the height of each button, link, field and tab        |
 
 `--control` is set once, in `tokens.css`, and the narrow layout re-points it there. `base.css`
@@ -405,7 +419,7 @@ that is not a control opts out with `min-height: 0`: a diff gutter, a thumbnail,
 button in a line of text.
 
 `src/styles/spacing.test.ts` is the gate. It fails on a px literal in `padding`, `margin` or
-`gap`. A hairline (`1px`) passes, and so does a documented exception, listed in the test by file.
+`gap`. Only a hairline (`1px`) passes.
 The prose grid (`--prose-gap*`) and the canvas geometry are separate scales: see "Rhythm" and the
 canvas grid below.
 
@@ -427,7 +441,7 @@ separated by 56px horizontally and 14px vertically. The vertical gap grows where
 border sits between two rows. A lane has 42px of padding, for its worktree boxes, and 28px
 between lanes. Every lane is as wide as the board, not as wide as its own content.
 
-A lane's label sits on the lane's top border, as a fieldset legend does: mono, 11px, in the case
+A lane's label sits on the lane's top border, as a fieldset legend does: mono, `--text-sm`, in the case
 of the name, centred on the line. The label has the `--bg` ground and 2px of side padding, so the
 border stops clear of the text. The label starts 28px from the lane's left border, clear of the
 corner.
@@ -507,8 +521,22 @@ Three rules hold below the break:
 
 **The Thumb Floor Rule.** Anything a finger presses is at least 48px high. `--control` is that
 height below the break, so a control meets the floor with no rule of its own. Density is bought
-back with space, never by going under the floor. The 12px type floor still holds. The text of
-each field goes to 16px, because iOS zooms the page on a smaller one and does not zoom back. `base.css` sets both.
+back with space, never by going under the floor. The text of each field is at least
+`--text-md` (20px), because iOS zooms the page on text under 16px and does not zoom back.
+`base.css` sets both.
+
+**The Phone Type Rule.** A phone is held further from the eye than its pixels suggest, so the
+narrow layout re-points all six `--text-*` tokens (§ Hierarchy): prose is 20px and the floor is
+16px. The chip height `--chip` goes from two units to three with them. At this scale the top bar
+does not hold the brand, so the brand is hidden visually and kept for a screen reader.
+
+**The Still Screen Rule.** The app is the visible area and does not move. `#root` is fixed to
+the visual viewport: `layout/visualViewport.ts` writes its height to `--vvh` and its top to
+`--vvt`, so when iOS scrolls the layout viewport for the keyboard the app follows. A modal
+dialog is outside `#root`, so it reads `--vvt` itself. The document has
+`overscroll-behavior: none`, each full-screen scroller has `contain`, and a double tap does not
+zoom. Pinch zoom stays: while the page is zoomed the two values hold, so the zoom pans over a
+still app.
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
 draws as a field wash and an amber rule rather than the board's glow. An unanswered row draws
@@ -720,7 +748,7 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 
 - **Shape:** a filled pill (`--radius-pill`) on `--bg-control`, with no visible border,
   `--control` high. The side padding is `--control-pad`: 12px at 32px, 18px at 48px. The label is
-  `--text-control` (14px). No component sets a button's padding or its font size.
+  `--text-control` (14px; narrow: 22px). No component sets a button's padding or its font size.
 - **Filled, not outlined:** a button is filled and a chip is outlined. The two never share a
   look, so the eye can tell what to press from what to read.
 - **Hover:** the fill steps to `--bg-control-hover`. Nothing moves.
@@ -742,9 +770,9 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   is the number of `needs-attention` nodes drawn. A second count follows in `--unanswered`,
   behind a 6px dot, when an unanswered node is drawn. The chip is disabled only when both
   counts are zero.
-- **Height and type:** a chip is not a control. A hue chip and a split chip are two units (16px)
-  high on each layout, outlined, with `--text-chip` (10px) text in the chrome's face. A chip
-  never takes the mono face; tabular digits hold its width. The attention chip is a button,
+- **Height and type:** a chip is not a control. A hue chip and a split chip are
+  `--chip` high: 16px on the wide layout, 24px on the narrow. Outlined, with `--text-sm` text
+  in the chrome's face. A chip never takes the mono face; tabular digits hold its width. The attention chip is a button,
   so it is `--control` high and filled.
 - **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
@@ -794,7 +822,7 @@ age: see **Node Card**.
 
 A horizontally scrolling strip of tabs on `--bg-raised`, divided by hairlines, 32px minimum
 height, each tab as wide as what it holds. A tab leads with its identity: the qualified task id,
-mono at `--text-xs`, or a free agent's own id in the same slot.
+mono at `--text-sm`, or a free agent's own id in the same slot.
 
 A session tab carries nothing else. The id alone says which session it is, and a real qualified
 id — `maelstrom/2026-09-22.1` — is long enough that a word beside it squeezes to a letter. Only
@@ -931,7 +959,7 @@ A question the agent asked reads four ways, depending on what has happened to it
 
 **Answered** is the operator's voice, so it takes the operator's wash rather than the amber
 `.prompt` chassis. The question sits as a caption
-at `--text-xs` `--fg-muted`; the answer reads on its own line at the reading rank in `--fg`.
+at `--text-sm` `--fg-muted`; the answer reads on its own line at the reading rank in `--fg`.
 
 **Open** carries Answer as the one primary button. A plain split button at the row's right end
 holds **Decline** and, in its menu, **Decline & stop**. It is plain because refusing is the rare
@@ -944,7 +972,7 @@ question on the operator's behalf, as an interrupt does. That reason follows the
 caption, so the transcript does not claim a refusal the operator did not make.
 
 **Stale** — nobody answered before the ask closed — is not the operator's voice, so it takes no
-wash. It reads in the `.note` register: `--text-xs`, `--fg-faint`, mono, the same reading the
+wash. It reads in the `.note` register: `--text-sm`, `--fg-faint`, mono, the same reading the
 session's own remarks about itself take elsewhere in the transcript.
 
 **A permission** keeps `.prompt`, whether decided or stale. This is the deliberate asymmetry: a
@@ -987,7 +1015,7 @@ one row on a phone.
   List Rule holds here as it does on a deck row: a docked band signals with a rule and a wash,
   never a glow.
 - **Settled:** the plain hairline and the raised ground, because nothing is asking.
-- **Narrow:** every control is `--control` high, and a field goes to 16px so iOS does not zoom.
+- **Narrow:** every control is `--control` high, and a field takes `--text-md` so iOS does not zoom.
 
 A plan review answers the agent, never the document. Approving the document would flip it and
 retire the attention item pointing at it, leaving the agent blocked on a request nothing had
@@ -1092,7 +1120,7 @@ browser with the scheme forced — rather than trusting the toggle.
   opacity step) — so no state depends on colour alone.
 - **Do** use `color-mix(in srgb, var(--token) N%, transparent)` for washes, glows and
   highlights, so they follow the scheme automatically.
-- **Do** keep the chrome at 13px (`--text-ui`). Only a micro-label and a chip go below 12px.
+- **Do** keep the wide layout's chrome at 13px (`--text-ui`). Nothing goes below `--text-sm`.
 - **Do** read a gap, a padding or a margin from `--u`, `--u-half`, `--u-2` or `--u-3`.
 - **Do** give every interactive element a visible `:focus-visible` ring, and make every action
   reachable from the keyboard — this is a power tool and hands stay on the keys.

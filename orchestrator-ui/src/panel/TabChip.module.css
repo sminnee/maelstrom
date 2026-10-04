@@ -4,7 +4,7 @@
 .chip {
   flex: none;
   font-family: var(--mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
   white-space: nowrap;
   color: var(--tab-id-color, var(--fg-faint));

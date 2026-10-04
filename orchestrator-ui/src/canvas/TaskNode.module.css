@@ -164,7 +164,7 @@
 .drift {
   flex: none;
   color: var(--attention);
-  font-size: 9px;
+  font-size: 0.75em;
   line-height: 1;
 }
 
@@ -177,7 +177,7 @@
   align-items: baseline;
   gap: var(--u);
   min-width: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--fg-faint);
   line-height: 1.2;
 }
@@ -199,7 +199,7 @@
   margin-left: auto;
   padding-left: var(--u);
   color: var(--phase);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   letter-spacing: 0.06em;
 }
 
@@ -219,7 +219,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   text-decoration: none;
 }
 .head .badge:hover {

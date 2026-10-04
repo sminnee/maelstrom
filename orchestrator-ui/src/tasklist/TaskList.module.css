@@ -1,12 +1,13 @@
 .view {
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
 }
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .table th,
 .table td {
@@ -15,7 +16,7 @@
   border-top: 1px solid var(--border);
 }
 .table th {
-  font-size: 10px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
   color: var(--fg-faint);
 }
@@ -42,7 +43,7 @@
 
 .drift {
   color: var(--attention);
-  font-size: 9px;
+  font-size: 0.75em;
 }
 
 /*

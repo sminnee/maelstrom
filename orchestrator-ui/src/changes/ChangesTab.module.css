@@ -123,6 +123,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
 
   /* Each line holds a control, so neither is lower than one. */
   --title-h: max(2.25rem, calc(var(--control) + var(--u)));
@@ -196,9 +197,9 @@
   font-size: var(--text-sm);
   line-height: var(--leading-prose);
 
-  --prose-gap: 12px;
-  --prose-gap-tight: 6px;
-  --prose-gap-loose: 24px;
+  --prose-gap: var(--text-sm);
+  --prose-gap-tight: calc(var(--text-sm) / 2);
+  --prose-gap-loose: calc(var(--text-sm) * 2);
 }
 .byline {
   margin: 0;

@@ -77,7 +77,7 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
               borderBottom: '1px solid var(--border)',
               color: 'var(--fg-muted)',
               fontFamily: 'var(--mono)',
-              fontSize: 'var(--text-xs)',
+              fontSize: 'var(--text-sm)',
             }}
           >
             <span>The status row. The tab in view opens onto it.</span>

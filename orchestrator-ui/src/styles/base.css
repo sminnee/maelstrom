@@ -21,6 +21,22 @@ html {
   position: relative;
   overflow: hidden;
 }
+/* On a phone the page itself never moves: no rubber band, no pull-to-refresh,
+   and the root is pinned to the visual viewport (`layout/visualViewport.ts`).
+   Not on the wide layout, where `none` would also stop a trackpad's back swipe. */
+@media (max-width: 839px) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+  #root {
+    position: fixed;
+    top: var(--vvt, 0);
+    left: 0;
+    right: 0;
+    height: var(--vvh, 100dvh);
+  }
+}
 body {
   background: var(--bg);
   color: var(--fg);
@@ -29,6 +45,9 @@ body {
   line-height: 1.4;
   scrollbar-color: var(--border-strong) transparent;
   accent-color: var(--accent);
+  /* No double-tap zoom, so a tap is not delayed. Pinch zoom stays. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 ::selection {
   background: color-mix(in srgb, var(--accent) 35%, transparent);

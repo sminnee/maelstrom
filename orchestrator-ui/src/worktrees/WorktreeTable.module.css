@@ -1,6 +1,7 @@
 .view {
   height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
 }
 .toolbar {
@@ -16,7 +17,7 @@
 .heading {
   margin: 0;
   padding: var(--u-half) var(--u-2);
-  font-size: 10px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -25,7 +26,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .table th,
 .table td {
@@ -34,7 +35,7 @@
   border-top: 1px solid var(--border);
 }
 .table th {
-  font-size: 10px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
   color: var(--fg-faint);
 }
