@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState } from 'react';
 
 /**
  * Whether a clamped element is actually cutting anything off.
@@ -8,6 +8,8 @@ import { useEffect, useState, type RefObject } from 'react';
  * short content that already fits — and a control that reveals nothing is worse
  * than no control.
  *
+ * Put the returned ref on the clamped element. It is a callback ref, so an
+ * element that mounts after the caller, behind a condition, is still measured.
  * Pass the deps that change the content or the clamp, the way you would to
  * `useEffect`: the measurement re-runs for each.
  *
@@ -18,11 +20,13 @@ import { useEffect, useState, type RefObject } from 'react';
  * snapshot and reduce — and losing that race is visible. See
  * `docs/dev/orchestrator-ui.md`, "Transcripts are sockets".
  */
-export function useClamped(ref: RefObject<HTMLElement | null>, deps: unknown[]): boolean {
+export function useClamped(
+  deps: unknown[],
+): [ref: (el: HTMLElement | null) => void, clamped: boolean] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
   const [clamped, setClamped] = useState(false);
 
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
     measure();
@@ -32,9 +36,8 @@ export function useClamped(ref: RefObject<HTMLElement | null>, deps: unknown[]):
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-    // The ref identity is stable; the caller's deps are what move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [el, ...deps]);
 
-  return clamped;
+  return [setEl, clamped];
 }
