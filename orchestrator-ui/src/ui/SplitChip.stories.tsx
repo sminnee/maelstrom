@@ -5,7 +5,7 @@ export default { title: 'UI / SplitChip' };
 
 /**
  * jsdom computes no layout, so the claims the suite cannot hold are the ones
- * framed here: that the divider reads as a divider, that the value holds its
+ * framed here: that the two rows read as two parts, that the value holds its
  * width as digits change, and that the stale state is legible without colour.
  */
 function Board({ children }: { children: React.ReactNode }) {
@@ -90,7 +90,7 @@ export const Tones: Story = () => (
 
 /**
  * Stale beside fresh. The question is whether the state survives without
- * colour: the divider dashes, which is the second channel DESIGN.md asks for.
+ * colour: the outline dashes, which is the second channel DESIGN.md asks for.
  */
 export const Stale: Story = () => (
   <Board>

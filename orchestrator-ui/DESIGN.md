@@ -781,18 +781,19 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   is the number of `needs-attention` nodes drawn. A second count follows in `--unanswered`,
   behind a 6px dot, when an unanswered node is drawn. The chip is disabled only when both
   counts are zero.
-- **Height and type:** a chip is not a control. A hue chip and a split chip are
-  `--chip` high: 16px on the wide layout, 24px on the narrow. Outlined, with `--text-sm` text
-  in the chrome's face. A chip never takes the mono face; tabular digits hold its width. The attention chip is a button,
-  so it is `--control` high and filled.
+- **Height and type:** a chip is not a control. A hue chip is `--chip` high: 16px on the wide
+  layout, 24px on the narrow. Outlined, with `--text-sm` text in the chrome's face. A chip never
+  takes the mono face; tabular digits hold its width. The attention chip is a button, so it is
+  `--control` high and filled. A split chip is also `--control` high, so the readings, the
+  attention chip and the tabs in the top bar are one height.
 - **Tab chip:** a mono task id, one step back from the label. The smallest possible restatement
   of "which agent is this". Phase is not repeated here — it runs down the tab's leading edge.
 - **Count badge:** a 16px amber pill, 700 weight, on the sunken ground. Circular by construction.
-- **Split chip:** one pill in two halves, divided by a hairline — what is measured, then what it
+- **Split chip:** one box in two rows, with an 8px radius — what is measured, over what it
   reads. Sunken ground, so it sits _in_ the raised bar; tabular value, so the chip holds
   its width as the number ticks. Only the value takes the tone. Both halves read at rest,
   unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
-  vouch for drops to faint and dashes its divider, and the chip itself gives up the tone.
+  vouch for drops to faint and dashes its outline, and the chip itself gives up the tone.
   On a usage chip the tone reads pace, not the number beside it. A high percentage near a
   reset stays quiet; a low one early in a window can sit amber. The title carries both figures
   — what is consumed and what the window allows for by now — because colour alone cannot

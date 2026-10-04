@@ -1,5 +1,5 @@
 /*
- * Two halves in one pill, divided by a hairline.
+ * Two rows in one box: what is measured over what it reads.
  *
  * The chip sits on the raised top bar, so it takes the sunken `--bg` ground:
  * it reads as set into the bar rather than stacked on it, which is what keeps
@@ -11,13 +11,15 @@
  */
 .chip {
   display: inline-flex;
-  align-items: stretch;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
   flex: none;
 
   box-sizing: border-box;
-  /* The same height as a `HueChip`, so a row of chips is one height. */
-  height: var(--chip);
-  border-radius: var(--radius-pill);
+  height: var(--control);
+  padding: 0 var(--u);
+  border-radius: var(--u);
   border: 1px solid var(--border);
   background: var(--bg);
   overflow: hidden;
@@ -51,9 +53,6 @@
 /* Each chip takes one size and the chrome's face. See DESIGN.md, "Chips". */
 .label,
 .value {
-  display: flex;
-  align-items: center;
-  padding: 0 var(--u);
   font-size: var(--text-sm);
 }
 
@@ -68,7 +67,6 @@
  * ticks: proportional digits would shift the whole bar on every poll.
  */
 .value {
-  border-left: 1px solid var(--border);
   color: var(--chip-tone);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
@@ -78,8 +76,8 @@
  * A reading too old to trust: present, unlit, not hidden, as the attention
  * chip is at zero. `selectors/usage.ts` says why the tone goes with it.
  *
- * Two channels, never colour alone — a dashed divider carries the state for a
- * reader who cannot separate the faint grey from the neutral one. The divider
+ * Two channels, never colour alone — a dashed outline carries the state for a
+ * reader who cannot separate the faint grey from the neutral one. The outline
  * is already the chip's one structural line, so breaking it says "this is not
  * a live reading" without adding a mark.
  */
@@ -87,6 +85,6 @@
 .chip[data-stale] .value {
   color: var(--fg-faint);
 }
-.chip[data-stale] .value {
-  border-left-style: dashed;
+.chip[data-stale] {
+  border-style: dashed;
 }

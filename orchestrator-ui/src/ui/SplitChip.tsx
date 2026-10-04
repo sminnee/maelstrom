@@ -16,14 +16,14 @@ export interface SplitChipProps {
 }
 
 /**
- * A pill in two halves: what is measured, then what it reads.
+ * A chip in two rows: what is measured, over what it reads.
  *
  * Unlike `HueChip`, which holds its word until a pointer asks, both halves are
  * readable at rest. That is the point — a reading nobody hovers is a reading
  * nobody has, and the top bar exists to be glanced at rather than explored.
  *
- * The divider is what makes it read as two parts. Without it the label and the
- * value run together as one string, and the eye has to parse where one ends.
+ * The row break and the faint label over the toned value make it read as two
+ * parts.
  */
 export function SplitChip({ label, children, tone = 'neutral', title, stale }: SplitChipProps) {
   return (
