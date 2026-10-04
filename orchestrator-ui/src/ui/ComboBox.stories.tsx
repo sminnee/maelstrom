@@ -28,7 +28,7 @@ function Field({
         <span>{label}</span>
         <ComboBox value={value} options={options} onChange={setValue} placeholder={placeholder} />
       </label>
-      <p style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)' }}>
         Value: <code>{value || '(empty)'}</code>
       </p>
     </div>
@@ -88,7 +88,7 @@ export const InAScrollingBox: Story = () => (
     }}
   >
     <Field label="Branch" options={BRANCHES} />
-    <p style={{ fontSize: 12, color: 'var(--fg-muted)', padding: '0 20px 20px' }}>
+    <p style={{ fontSize: 'var(--text-sm)', color: 'var(--fg-muted)', padding: '0 20px 20px' }}>
       The dashed edge is the scroll box. The offer draws past it.
     </p>
   </div>

@@ -6,7 +6,7 @@
   align-items: center;
   gap: var(--u);
   padding: var(--u-half) var(--u-2);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--fg-muted);
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
