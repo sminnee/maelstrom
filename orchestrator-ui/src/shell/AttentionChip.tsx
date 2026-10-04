@@ -19,8 +19,8 @@ import styles from './AttentionChip.module.css';
  * Two components, not one branch: `WideChip` calls `useReactFlow`, and the
  * narrow layout mounts no React Flow provider for it to read.
  */
-export function AttentionChip() {
-  return useLayoutMode() === 'narrow' ? <NarrowChip /> : <WideChip />;
+export function AttentionChip({ hideWhenClear = false }: { hideWhenClear?: boolean }) {
+  return useLayoutMode() === 'narrow' ? <NarrowChip hideWhenClear={hideWhenClear} /> : <WideChip />;
 }
 
 /**
@@ -42,7 +42,7 @@ function useAttention() {
 }
 
 /** The chip on a phone: it takes the deck list to the node and opens it. */
-function NarrowChip() {
+function NarrowChip({ hideWhenClear }: { hideWhenClear: boolean }) {
   const { nodes, count, unanswered } = useAttention();
   const stack = useAppStore((s) => s.ui.mobileStack);
   const pushScreen = useAppStore((s) => s.pushScreen);
@@ -63,6 +63,7 @@ function NarrowChip() {
     pushScreen({ kind: 'detail', nodeId: next });
   };
 
+  if (hideWhenClear && count === 0 && unanswered === 0) return null;
   return <Chip count={count} unanswered={unanswered} onClick={go} />;
 }
 

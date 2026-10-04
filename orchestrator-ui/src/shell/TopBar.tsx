@@ -15,17 +15,60 @@ const PANES: { pane: Pane; label: string }[] = [
   { pane: 'tabs', label: 'Tabs' },
 ];
 
-/** The way back from a pushed screen of the narrow layout, and what the screen is. */
-export interface BackRow {
+/**
+ * The screen strip of a pushed screen of the narrow layout: the way back, what
+ * the screen is, where its actions go, and the side sheet's button.
+ */
+export interface StripState {
   title: string;
   onBack: () => void;
+  sheetOpen: boolean;
+  onMore: () => void;
 }
 
-/** The top bar. On the narrow layout `back` takes the second row: see DESIGN.md, "The narrow layout". */
-export function TopBar({ back }: { back?: BackRow }) {
+/**
+ * The top bar. On the narrow layout `back` replaces it with the screen strip:
+ * see DESIGN.md, "The One Strip Rule".
+ */
+export function TopBar({
+  back,
+  actionsTarget,
+}: {
+  back?: StripState;
+  /** Receives the element the screen's actions portal into. */
+  actionsTarget?: (el: HTMLElement | null) => void;
+}) {
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
+  if (narrow && back) {
+    return (
+      <header className={styles.bar} data-narrow data-testid="top-bar">
+        <h1 className="srOnly">maelstrom</h1>
+        <div className={styles.row}>
+          <button type="button" className={styles.back} aria-label="Back" onClick={back.onBack}>
+            ←
+          </button>
+          <span className={styles.screenTitle} data-testid="screen-title">
+            {back.title}
+          </span>
+          <span className={styles.actions} ref={actionsTarget} />
+          {/* A chip that reads 0 is noise on the screen strip. */}
+          <AttentionChip hideWhenClear />
+          <button
+            type="button"
+            className={styles.more}
+            aria-label="More"
+            aria-haspopup="dialog"
+            aria-expanded={back.sheetOpen}
+            onClick={back.onMore}
+          >
+            ⋯
+          </button>
+        </div>
+      </header>
+    );
+  }
   if (narrow) {
     return (
       <header className={styles.bar} data-narrow data-testid="top-bar">
@@ -34,28 +77,14 @@ export function TopBar({ back }: { back?: BackRow }) {
               readings and both actions. The brand shows on the wide layout only;
               a screen reader keeps it here. */}
           <h1 className="srOnly">maelstrom</h1>
-          <div className={styles.readings}>
-            <UsageChips />
-            <AgentsChip />
-          </div>
+          <Readings />
           <div className={styles.spacer} />
           <AttentionChip />
           <button type="button" className={styles.new} onClick={() => setNewWorkOpen(true)}>
             New
           </button>
         </div>
-        {back ? (
-          <div className={styles.row}>
-            <button type="button" className={styles.back} onClick={back.onBack}>
-              <span aria-hidden="true">←</span> Back
-            </button>
-            <span className={styles.screenTitle} data-testid="screen-title">
-              {back.title}
-            </span>
-          </div>
-        ) : (
-          <PaneMenu side={null} />
-        )}
+        <PaneMenu side={null} />
       </header>
     );
   }
@@ -74,16 +103,48 @@ export function TopBar({ back }: { back?: BackRow }) {
       <div className={styles.spacer} />
       {/* The readings sit between New and the attention chip, so the one
           action and the one alarm keep the edges they already had. */}
-      <div className={styles.readings}>
-        {/* The chips decide what a phone has room for, so the bar never has
-            to know what a reading means. */}
-        <UsageChips />
-        <AgentsChip />
-      </div>
+      <Readings />
       <AttentionChip />
       {/* At the right edge, over the slot its items show in. */}
       {mode === 'wide' && <PaneMenu side="right" />}
     </header>
+  );
+}
+
+/**
+ * The readings, as one group. The chips decide what a phone has room for, so
+ * the bar never has to know what a reading means.
+ */
+function Readings() {
+  return (
+    <div className={styles.readings}>
+      <UsageChips />
+      <AgentsChip />
+    </div>
+  );
+}
+
+/**
+ * The head of the side sheet: the readings and New, which the screen strip has
+ * no room for. New closes the sheet, as anything that navigates does.
+ */
+export function SheetHead({ onClose }: { onClose: () => void }) {
+  const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
+  return (
+    <div className={styles.sheetHead}>
+      <Readings />
+      <div className={styles.spacer} />
+      <button
+        type="button"
+        className={styles.new}
+        onClick={() => {
+          onClose();
+          setNewWorkOpen(true);
+        }}
+      >
+        New
+      </button>
+    </div>
   );
 }
 

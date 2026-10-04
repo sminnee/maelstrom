@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { nodeState } from './test/appHelpers';
+import { nodeState, openSheet, screenStrip } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import type { FakeServer } from './fake/fakeServer';
 
@@ -68,7 +68,7 @@ describe('the narrow layout', () => {
     await waitFor(() => expect(screen.getByTestId('deck-empty')).toHaveTextContent(/waiting/i));
   });
 
-  it('opens a node full-screen from its row, and Back takes the nav row until it returns', async () => {
+  it('opens a node full-screen from its row, and the screen strip replaces the top bar until it returns', async () => {
     await renderApp({ viewport: 'narrow' });
     const bar = () => within(screen.getByTestId('top-bar'));
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
@@ -76,14 +76,48 @@ describe('the narrow layout', () => {
     await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
-    // One chrome row for the way back, not a bar of its own under the nav.
+    // One strip: the way back, what the screen is, and More. The readings and
+    // New move into the side sheet.
     expect(bar().queryByRole('group', { name: 'Views' })).toBeNull();
     expect(bar().getByTestId('screen-title')).toHaveTextContent('Migrate to Postgres 16');
+    expect(bar().queryByRole('button', { name: 'New' })).toBeNull();
 
     await userEvent.click(bar().getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
     expect(bar().queryByRole('button', { name: 'Back' })).toBeNull();
+  });
+
+  it('opens the side sheet from More, with New in it, which closes it', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow' });
+    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    const more = screenStrip().getByRole('button', { name: 'More' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    const sheet = screen.getByRole('dialog', { name: 'More' });
+    await user.click(within(sheet).getByRole('button', { name: 'New' }));
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
+  });
+
+  it('draws the attention chip on a pushed screen only while something waits, and on the deck always', async () => {
+    const { server } = await renderApp({ viewport: 'narrow' });
+    await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    const bar = screenStrip();
+    expect(bar.getByTestId('attention-chip')).toBeInTheDocument();
+    act(() => {
+      server.change({ kind: 'attention', ids: Object.keys(server.world.attention) }, (w) => {
+        w.attention = {};
+        for (const agent of Object.values(w.agents)) agent.pendingRequestIds = [];
+      });
+    });
+    await waitFor(() => expect(bar.queryByTestId('attention-chip')).toBeNull());
+    // The deck's bar keeps the chip at 0: it is where the chip lives.
+    await userEvent.click(bar.getByRole('button', { name: 'Back' }));
+    expect(screenStrip().getByTestId('attention-chip')).toHaveAttribute('data-count', '0');
   });
 
   it('puts the status control on the id line of the detail', async () => {

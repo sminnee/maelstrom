@@ -32,6 +32,15 @@ export const stripKeys = () =>
     .getAllByRole('tab')
     .map((t) => t.getAttribute('data-tab-key'));
 
+/** The narrow layout's top bar: the screen strip on a pushed screen. */
+export const screenStrip = () => within(screen.getByTestId('top-bar'));
+
+/** Open the side sheet of a pushed narrow screen from More, and read inside it. */
+export async function openSheet(user: UserEvent) {
+  await user.click(screenStrip().getByRole('button', { name: 'More' }));
+  return within(screen.getByRole('dialog', { name: 'More' }));
+}
+
 /** Open a node's session from its expanded card. */
 export async function openSession(user: UserEvent, taskId: string) {
   clickNode(taskId);
