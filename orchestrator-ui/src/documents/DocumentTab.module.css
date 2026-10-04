@@ -141,8 +141,8 @@
   flex: none;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
-  padding: var(--u) var(--u-2);
-  padding-bottom: max(var(--u), env(safe-area-inset-bottom));
+  padding: var(--bar-pad);
+  padding-bottom: max(var(--bar-pad), env(safe-area-inset-bottom));
 }
 /* Waiting. The Quiet List Rule gives it a rule and a wash, never a glow. */
 .dock[data-waiting] {
@@ -156,9 +156,9 @@
   font-size: var(--text-sm);
 }
 
-/* Tighter gutters once the panel is narrow. */
+/* Once the panel is narrow, the sibling list clamps to the counter and two
+   members, under the quiet block's fade. */
 @container (max-width: 26rem) {
-  /* The counter and two members, under the quiet block's fade. */
   .siblingsBody:not([data-expanded]) {
     max-height: calc(var(--u-3) * 3);
     overflow: hidden;
@@ -166,10 +166,6 @@
   .siblingsBody[data-clamped]:not([data-expanded]) {
     -webkit-mask-image: var(--clamp-fade);
     mask-image: var(--clamp-fade);
-  }
-  .dock {
-    padding-left: var(--u);
-    padding-right: var(--u);
   }
 }
 

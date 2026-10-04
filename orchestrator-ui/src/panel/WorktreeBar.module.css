@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   gap: var(--u);
-  padding: var(--u-half) var(--u);
+  padding: var(--bar-pad);
   background: var(--bg-raised);
   font-size: var(--text-sm);
   min-width: 0;

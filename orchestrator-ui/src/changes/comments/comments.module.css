@@ -43,8 +43,8 @@
   gap: var(--u);
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
-  padding: var(--u) var(--u-2);
-  padding-bottom: max(var(--u), env(safe-area-inset-bottom));
+  padding: var(--bar-pad);
+  padding-bottom: max(var(--bar-pad), env(safe-area-inset-bottom));
 }
 .summary {
   flex: 1 1 12ch;
