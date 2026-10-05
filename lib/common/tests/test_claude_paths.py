@@ -27,6 +27,13 @@ class TestSanitisePathForClaude:
         result = sanitise_path_for_claude(Path("/private/tmp/claude.501/x"))
         assert result == "-private-tmp-claude-501-x"
 
+    def test_collapses_underscore_like_claude(self):
+        # Claude replaces every character that is not a letter or a digit.
+        # `_main` is every project's main worktree, so a miss here makes the
+        # daemon resume a known session with --session-id, which Claude refuses.
+        result = sanitise_path_for_claude(Path("/Users/sminnee/Projects/foo/_main"))
+        assert result == "-Users-sminnee-Projects-foo--main"
+
 
 class TestClaudeTranscript:
     """Tests for claude_transcript_path / has_claude_transcript."""

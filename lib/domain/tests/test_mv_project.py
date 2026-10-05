@@ -104,7 +104,8 @@ class TestBuildMovePlan:
         assert "/home/u/.claude/projects/-Projects-new" in new_dirs
         assert "/home/u/.claude/projects/-Projects-new-new-alpha" in new_dirs
         # `_main` keeps its folder name but still lands under the new project.
-        assert "/home/u/.claude/projects/-Projects-new-_main" in new_dirs
+        # Claude slugs its `_` as `-`, as it does every non-alphanumeric.
+        assert "/home/u/.claude/projects/-Projects-new--main" in new_dirs
 
     def test_task_rekeys_use_each_task_status(self):
         plan = self._plan(
