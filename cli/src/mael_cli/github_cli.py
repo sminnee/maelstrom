@@ -90,13 +90,25 @@ REFRESH_PATH = "/api/worktrees/refresh"
 @click.option(
     "--autorepair",
     is_flag=True,
-    help="On a conflict in the pre-push sync, run a headless Claude session (/resolve-rebase-conflicts) to resolve it and continue",
+    help="On a conflict in the rebase before the push, run a headless Claude session (/resolve-rebase-conflicts) to resolve it and continue",
+)
+@click.option(
+    "--skip-pre-push",
+    is_flag=True,
+    help="Push without running the project's pre_push_cmd (emergency only)",
 )
 @click.option(
     "--target", default=None, help="Project/worktree target for directory resolution"
 )
-def gh_create_pr(draft, wait, wait_for_review_flag, squash, autorepair, target):
-    """Create a PR for the current worktree (or push if PR exists)."""
+def gh_create_pr(
+    draft, wait, wait_for_review_flag, squash, autorepair, skip_pre_push, target
+):
+    """Create a PR for the current worktree (or push if PR exists).
+
+    Rebases onto the branch's base, runs the project's pre_push_cmd, then
+    pushes. If the base moves while the check runs, it rebases and checks
+    again, up to 3 times.
+    """
     if wait and wait_for_review_flag:
         raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
 
@@ -118,6 +130,7 @@ def gh_create_pr(draft, wait, wait_for_review_flag, squash, autorepair, target):
             task_id=os.environ.get("MAEL_TASK_ID"),
             squash=squash,
             autorepair=autorepair,
+            pre_push=not skip_pre_push,
             announce=click.echo,
         )
         if created:

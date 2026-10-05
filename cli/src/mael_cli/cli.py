@@ -1212,7 +1212,12 @@ def cmd_eject(target):
     help="On rebase conflict, run a headless Claude session "
     "(/resolve-rebase-conflicts) to resolve and continue",
 )
-def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
+@click.option(
+    "--skip-pre-push",
+    is_flag=True,
+    help="Push without running the project's pre_push_cmd (emergency only)",
+)
+def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_push):
     """Rebase worktree against its base branch (origin/main by default).
 
     With --autorepair, a rebase conflict starts a headless Claude session that
@@ -1223,6 +1228,9 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
     With --no-push the branch is rebased and left unpushed, so the remote keeps
     the history it has. Use it when something else may be working in the
     worktree: `--squash --no-push` tidies fixup! commits without publishing them.
+
+    Before the push, the project's pre_push_cmd runs on the rebased branch. A
+    failed check leaves the branch rebased and unpushed.
     """
     # --close deletes the remote branch, which is a push.
     if no_push and close:
@@ -1269,6 +1277,7 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
             worktree_path,
             squash=squash,
             close_if_empty=close,
+            pre_push=not skip_pre_push,
             announce=click.echo,
         )
     else:
@@ -1277,6 +1286,7 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair):
             squash=squash,
             abort_on_conflict=abort,
             close_if_empty=close,
+            pre_push=not skip_pre_push,
         )
 
     if result.success:

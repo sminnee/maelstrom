@@ -20,6 +20,7 @@ from mael_domain.github_model import (
     PRInfo,
     SyncFailed,
 )
+from mael_domain.worktree_model import PrePushFailed
 
 
 class TestFormatSize:
@@ -167,6 +168,12 @@ class TestGhCliRegistration:
         """A PR push must not start an agent unasked."""
         assert self._run_create_pr([])["autorepair"] is False
 
+    def test_create_pr_runs_the_pre_push_check_by_default(self):
+        assert self._run_create_pr([])["pre_push"] is True
+
+    def test_skip_pre_push_reaches_create_pr(self):
+        assert self._run_create_pr(["--skip-pre-push"])["pre_push"] is False
+
     def test_create_pr_uses_the_running_task_id(self, monkeypatch):
         monkeypatch.setenv("MAEL_TASK_ID", "maintenance.2026-09-17")
 
@@ -286,6 +293,11 @@ class TestCreatePrErrorHandling:
         result = self._invoke(GitHubCommandFailed("push branch", "rejected"))
         assert result.exit_code == 1
         assert "Failed to push branch: rejected" in result.output
+
+    def test_a_failed_pre_push_check_reads_as_a_clean_message(self):
+        result = self._invoke(PrePushFailed("bin/gates", 2))
+        assert result.exit_code == 1
+        assert "Pre-push check `bin/gates` failed (exit 2)" in result.output
 
     def test_a_sync_failure_reads_as_a_clean_message(self):
         result = self._invoke(SyncFailed("Sync failed: conflicts"))
