@@ -7,6 +7,8 @@ finds and leaves the rest alone.
 import json
 from pathlib import Path
 
+import pytest
+
 from mael_cli.claude_integration import (
     SANDBOX_EXCLUSIONS,
     install_sandbox_exclusions,
@@ -14,7 +16,7 @@ from mael_cli.claude_integration import (
     remove_session_hooks,
 )
 from mael_domain import shared_dir
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
 
 
 def _settings(tmp_path: Path, data: dict) -> Path:
@@ -194,3 +196,55 @@ def test_no_shared_dir_means_no_agent_prompt_file(monkeypatch):
 
     monkeypatch.setattr(shared_dir, "get_shared_dir", gone)
     assert agent_prompt_file() is None
+
+
+@pytest.fixture
+def shared(monkeypatch, tmp_path):
+    """A shared dir of two known prompt files, and a home for the joined one."""
+    root = tmp_path / "shared"
+    root.mkdir()
+    (root / "agent-prompt.md").write_text("markers\n")
+    (root / "investigation-prompt.md").write_text("rules\n")
+    monkeypatch.setattr(shared_dir, "get_shared_dir", lambda: root)
+    monkeypatch.setattr(shared_dir, "get_maelstrom_dir", lambda: tmp_path / "home")
+    return root
+
+
+def test_the_investigation_prompt_file_joins_the_markers_and_the_rules(
+    shared, tmp_path
+):
+    """The daemon takes one prompt file, so an investigation's carries both."""
+    prompt = investigation_prompt_file()
+    assert prompt == tmp_path / "home" / "agent-prompts" / "investigation.md"
+    assert prompt.read_text() == "markers\n\nrules\n"
+
+
+def test_an_unchanged_investigation_prompt_is_not_rewritten(shared):
+    """A resumed agent names the file again; its content stays the same file."""
+    first = investigation_prompt_file()
+    assert first is not None
+    stamp = first.stat().st_mtime_ns
+    assert investigation_prompt_file() == first
+    assert first.stat().st_mtime_ns == stamp
+
+
+def test_changed_rules_reach_the_investigation_prompt(shared):
+    """An upgrade that edits the rules must not leave agents on the old ones."""
+    investigation_prompt_file()
+    (shared / "investigation-prompt.md").write_text("new rules\n")
+    prompt = investigation_prompt_file()
+    assert prompt is not None
+    assert prompt.read_text() == "markers\n\nnew rules\n"
+
+
+def test_no_investigation_rules_means_no_investigation_prompt_file(shared):
+    """Without its rules an investigation is an ordinary free agent: no file."""
+    (shared / "investigation-prompt.md").unlink()
+    assert investigation_prompt_file() is None
+
+
+def test_the_shipped_investigation_rules_forbid_a_commit(monkeypatch, tmp_path):
+    monkeypatch.setattr(shared_dir, "get_maelstrom_dir", lambda: tmp_path)
+    prompt = investigation_prompt_file()
+    assert prompt is not None
+    assert "Do not commit" in prompt.read_text()
