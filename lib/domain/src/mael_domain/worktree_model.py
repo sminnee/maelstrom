@@ -479,6 +479,21 @@ class WorktreeSetupError(WorktreeError):
     """Raised when a git command that builds a worktree fails."""
 
 
+class PrePushFailed(WorktreeError):
+    """The project's ``pre_push_cmd`` exited non-zero, so nothing was pushed."""
+
+    def __init__(self, cmd: str, returncode: int) -> None:
+        super().__init__(cmd, returncode)
+        self.cmd = cmd
+        self.returncode = returncode
+
+    def __str__(self) -> str:
+        return (
+            f"Pre-push check `{self.cmd}` failed (exit {self.returncode}); "
+            "nothing was pushed."
+        )
+
+
 def sanitize_branch_name(branch: str) -> str:
     """Convert branch name to directory-safe name (slashes → dashes)."""
     return branch.replace("/", "-")

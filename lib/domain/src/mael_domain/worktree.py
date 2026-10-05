@@ -19,6 +19,7 @@ from mael_common.util import locked_file
 
 from .base_store import BaseStore, GitConfigBaseStore
 from .config import (
+    MaelstromConfig,
     load_config_or_default,
     service_port_names,
     shared_service_port_names,
@@ -52,6 +53,7 @@ from .worktree_model import (
     CollapsedCommit,
     CopyBackResult,
     EnvConflict,
+    PrePushFailed,
     RebasePlan,
     SquashResult,
     SquashScope,
@@ -2632,6 +2634,27 @@ def run_install_cmd(worktree_path: Path) -> None:
     config = load_config_or_default(worktree_path)
     if config.install_cmd:
         run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
+
+
+def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
+    """Run the project's pre-push check in the worktree, if it has one.
+
+    Callers run it after their last rebase, so the check sees the commit the
+    push publishes.
+
+    Raises:
+        PrePushFailed: If the command exits non-zero.
+    """
+    if not config.pre_push_cmd:
+        return
+    result = run_cmd(
+        ["sh", "-c", config.pre_push_cmd],
+        cwd=worktree_path,
+        stream=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise PrePushFailed(config.pre_push_cmd, result.returncode)
 
 
 def create_worktree(
