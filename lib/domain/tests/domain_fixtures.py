@@ -224,3 +224,38 @@ def project_with_worktree():
             patch("pathlib.Path.home", return_value=tmp / "home"),
         ):
             yield project_path, worktree_path, remote_path
+
+
+_FAKE_TAILSCALE = """#!/bin/sh
+echo "$@" >> "$ARGV_LOG"
+if [ -n "$REFUSE" ]; then
+  echo "your Tailscale account does not support getting TLS certs" >&2
+  exit 1
+fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cert-file) echo CERT > "$2"; shift ;;
+    --key-file) echo KEY > "$2"; chmod 644 "$2"; shift ;;
+  esac
+  shift
+done
+"""
+
+
+@pytest.fixture
+def fake_tailscale(tmp_path, monkeypatch) -> Path:
+    """A stand-in ``tailscale`` on ``PATH``; returns its argv log.
+
+    It writes the files the way the real one does, with a world-readable key.
+    Set ``REFUSE`` in the environment to make it refuse, as an account without
+    HTTPS certificates does.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    exe = bin_dir / "tailscale"
+    exe.write_text(_FAKE_TAILSCALE)
+    exe.chmod(0o755)
+    log = tmp_path / "tailscale-argv"
+    monkeypatch.setenv("PATH", f"{bin_dir}:/bin:/usr/bin")
+    monkeypatch.setenv("ARGV_LOG", str(log))
+    return log
