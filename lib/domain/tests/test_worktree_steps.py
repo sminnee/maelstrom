@@ -336,7 +336,9 @@ class TestTheProductionCallSites:
             held.append(_repo_scope_is_taken(repo))
             raise _StopAfterClaim()
 
-        monkeypatch.setattr(worktree_mod, "find_worktree_by_branch", lambda *a: None)
+        monkeypatch.setattr(
+            worktree_mod, "find_worktree_by_branch", lambda *a, **k: None
+        )
         monkeypatch.setattr(worktree_mod, "_branch_exists_anywhere", lambda *a: False)
         monkeypatch.setattr(
             worktree_mod, "_resolve_new_branch_base", lambda *a, **k: "main"

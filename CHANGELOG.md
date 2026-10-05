@@ -191,6 +191,10 @@ release while that section is empty, and retitles it to the version it is releas
   agent in `_main` exited 1. `mael mv-project` and the worktree memory symlink also find the right
   Claude directory now, for `_main` and for any path with `_` or other punctuation.
 
+- **Work on the main branch opens `_main`.** "Start free agent" from `_main`'s Worktree card, and
+  `mael add main`, failed because git refused a second worktree for `main`. They now use `_main`,
+  and do not rebase it.
+
 - **A full-size image keeps its shape.** The lightbox shows a picture at its own size, or
   smaller to fit the screen, and never stretches it. Before, a small screenshot grew to the
   screen width and lost its ratio.

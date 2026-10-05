@@ -3071,14 +3071,15 @@ class WorktreeSetup:
 
     ``sync`` is the result of the rebase that runs when the worktree is opened.
     Only ``"reused"`` skips the push, and only ``"reused"`` leaves ``sync`` at
-    ``None`` — a live session in the worktree skips the rebase. A ``sync`` that
+    ``None`` — a live session in the worktree skips the rebase, and ``_main`` is
+    never rebased. A ``sync`` that
     failed means the branch was not rebased: the caller must block the launch
     rather than start a session on stale code. The worktree itself is still set
     up, so a repair in place and a re-run will pick it up.
     """
 
     path: Path
-    name: str  # NATO name, e.g. "bravo"
+    name: str  # worktree folder name: a NATO name, e.g. "bravo", or "_main"
     action: str  # "reused" | "recycled" | "created"
     sync: SyncResult | None = None
 
@@ -3220,7 +3221,8 @@ def setup_worktree_for_branch(
     Does NOT launch anything. An existing worktree for ``branch`` keeps its setup
     — no recycle/create, no install, no CLAUDE.local.md rewrite — but its branch
     is still rebased onto its base, so a reopened worktree never starts on stale
-    code. That rebase does not push.
+    code. That rebase does not push. ``_main`` is the exception: it is the
+    user's own checkout, so a request for its branch returns it unrebased.
 
     Args:
         base: Branch to stack ``branch`` on. ``None`` uses the stack tip, which
@@ -3240,9 +3242,13 @@ def setup_worktree_for_branch(
     """
     project_path = project_path.resolve()
 
+    existing = find_worktree_by_branch(project_path, branch, include_main=True)
+    # Git refuses a second worktree for the branch _main holds.
+    if existing is not None and existing.name == MAIN_WORKTREE_FOLDER:
+        return WorktreeSetup(path=existing, name=MAIN_WORKTREE_FOLDER, action="reused")
+
     # Reuse: an existing worktree keeps its setup, but not its stale code.
     # squash=False — reopening is not the moment to autosquash someone's fixups.
-    existing = find_worktree_by_branch(project_path, branch)
     if existing is not None:
         name = extract_worktree_name_from_folder(project_name, existing.name)
         if name is None:
