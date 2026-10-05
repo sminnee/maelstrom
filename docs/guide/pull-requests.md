@@ -246,6 +246,20 @@ alone.
 
 The title is never touched on an open PR. Set it with `gh pr edit <n> --title` if it is wrong.
 
+### The pre-push check
+
+A project can name a check in [`pre_push_cmd`](../reference/configuration.md#pre_push_cmd).
+`create-pr` runs it after its last rebase, so the check sees the commit that is pushed. A failed
+check pushes nothing and opens no PR.
+
+The check can take many minutes, and the base can move while it runs. Then the pushed commit
+would not be the one the check saw. So `create-pr` rebases and checks again, up to 3 times. After
+the third check it pushes anyway, with a warning that CI may not reuse the project's records.
+
+`/watch-pr` pushes its fixes with `mael sync`, which runs the same check before the push.
+
+`--skip-pre-push` pushes without the check. Keep it for an emergency.
+
 Other flags:
 
 ```bash

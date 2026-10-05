@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Check the exact commit before a push with `pre_push_cmd`.** Set it in `.maelstrom.yaml`.
+  `mael gh create-pr` runs it after its last rebase. When the base moves during the check, it
+  rebases and checks again, up to 3 times. `mael sync` runs it before it pushes. A failed check
+  pushes nothing. `--skip-pre-push` on both commands pushes without it. See
+  [`pre_push_cmd`](docs/reference/configuration.md#pre_push_cmd).
+
 - **Serve dev environments over HTTPS on the tailnet.** Set `dev_https: true` beside `dev_host:`
   in `~/.maelstrom/config.yaml`. Maelstrom then gets a Tailscale certificate for the dev host,
   renews it on `mael env start`, and reports `https://` URLs. Each worktree's `.env` gains

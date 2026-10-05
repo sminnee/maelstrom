@@ -645,6 +645,11 @@ A gate that cannot fail is not a gate. A point where a human approves something 
 *checkpoint*, not a gate.
 _Avoid_: Gate (for a human approval step)
 
+**Pre-push check**:
+The project's `pre_push_cmd`: a gate that runs after the last rebase and before a push, so it
+sees the commit the push publishes. Maelstrom only runs it; what it verifies is the project's.
+_Avoid_: pre-push hook (git's own client-side hook), pre-push gates
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a
