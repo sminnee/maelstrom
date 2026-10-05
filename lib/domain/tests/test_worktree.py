@@ -19,6 +19,7 @@ from mael_common.claude_paths import sanitise_path_for_claude
 from mael_domain.ports import get_port_allocation, record_port_allocation
 from mael_domain.worktree import (
     WorktreeInfo,
+    WorktreeSetup,
     _build_env_file,
     _commits_ahead_batch,
     _write_agents_md,
@@ -1088,6 +1089,24 @@ class TestSetupWorktreeForBranch:
         assert result.action == "created"
         assert result.path.exists()
         assert install.call_count == 0
+
+    def test_the_main_branch_opens_the_main_worktree(self, git_repo_with_remote):
+        """An investigation, or a free agent from _main's card, runs on main.
+
+        _main holds main, so git refuses a second worktree for it. The user's
+        own checkout is not rebased under them.
+        """
+        main_path = git_repo_with_remote / "_main"
+        subprocess.run(
+            ["git", "worktree", "add", str(main_path), "main"],
+            cwd=git_repo_with_remote,
+            check=True,
+            capture_output=True,
+        )
+        result = setup_worktree_for_branch(git_repo_with_remote, "test-repo", "main")
+        assert result == WorktreeSetup(
+            path=main_path.resolve(), name="_main", action="reused", sync=None
+        )
 
     def test_idempotent_reuse(self, git_repo_with_remote):
         """Calling twice for the same branch reuses the worktree's setup.
