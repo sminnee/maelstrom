@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mael_domain.config import ServiceDef
+from mael_domain.dev_cert import DevCertError
 from mael_domain.env import (
     MAX_LOG_BYTES,
     EnvState,
@@ -48,6 +49,15 @@ from mael_domain.env import (
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
 from mael_domain.session_discovery import LiveSession
+
+
+@pytest.fixture(autouse=True)
+def _home(tmp_path, monkeypatch):
+    """A home of its own, so a developer's ``dev_https:`` cannot reach
+    ``start_env`` and run the real ``tailscale``."""
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    return home
 
 
 class TestParseProcfile:
@@ -365,6 +375,36 @@ class TestBuildServiceEnv:
         env = build_service_env(Path("/some/worktree"))
         assert env["VIRTUAL_ENV"] == "/p/alpha/.venv"
 
+    @staticmethod
+    def _dev_vars(worktree: Path, home: Path, env_text: str) -> dict[str, str]:
+        """The ``DEV_*`` variables a service gets under ``dev_https: true``."""
+        (home / ".maelstrom").mkdir(parents=True)
+        (home / ".maelstrom" / "config.yaml").write_text(
+            "dev_host: desk.tailnet.ts.net\ndev_https: true\n"
+        )
+        (worktree / ".env").write_text(env_text)
+        env = build_service_env(worktree)
+        return {k: v for k, v in env.items() if k.startswith("DEV_")}
+
+    def test_a_env_older_than_the_dev_variables_still_gets_them(self, tmp_path, _home):
+        """The config fills dev variables a ``.env`` lacks, so ``${DEV_SCHEME}``
+        expands; the ``.env``'s own values still win."""
+        certs = _home / ".maelstrom" / "certs"
+        assert self._dev_vars(tmp_path, _home, "DEV_HOST=old.ts.net\n") == {
+            "DEV_HOST": "old.ts.net",
+            "DEV_SCHEME": "https",
+            "DEV_TLS_CERT": str(certs / "desk.tailnet.ts.net.crt"),
+            "DEV_TLS_KEY": str(certs / "desk.tailnet.ts.net.key"),
+        }
+
+    def test_a_env_that_says_http_gets_no_certificate(self, tmp_path, _home):
+        """A ``.env`` written while ``dev_https:`` was off: a server that read
+        the paths would serve TLS to clients that dial plain HTTP."""
+        assert self._dev_vars(tmp_path, _home, "DEV_SCHEME=http\n") == {
+            "DEV_HOST": "desk.tailnet.ts.net",
+            "DEV_SCHEME": "http",
+        }
+
 
 class TestIsServiceAlive:
     """Tests for is_service_alive function."""
@@ -387,6 +427,66 @@ class TestIsServiceAlive:
         """Returns True on PermissionError (process exists, can't signal)."""
         mock_kill.side_effect = PermissionError
         assert is_service_alive(12345) is True
+
+
+class TestStartEnvDevCert:
+    """Under ``dev_https:`` a start renews the dev certificate first."""
+
+    @pytest.fixture
+    def started(self, tmp_path, _home, fake_tailscale):
+        """A ``start_env`` with one service, the ``tailscale`` argv log, and
+        whether the certificate existed at each spawn."""
+        (_home / ".maelstrom").mkdir(parents=True)
+        cert = _home / ".maelstrom" / "certs" / "desk.tailnet.ts.net.crt"
+        cert_at_spawn: list[bool] = []
+
+        def spawn(*_args, **_kwargs):
+            cert_at_spawn.append(cert.exists())
+            return MagicMock(pid=1)
+
+        popen = MagicMock(side_effect=spawn)
+
+        def start(config_text: str) -> None:
+            (_home / ".maelstrom" / "config.yaml").write_text(config_text)
+            with (
+                patch("mael_domain.env.save_env_state"),
+                patch("mael_domain.env.Popen", popen),
+                patch("mael_domain.env.build_service_env", return_value={}),
+                patch(
+                    "mael_domain.env.get_services",
+                    return_value=[ResolvedService(name="web", command="vite")],
+                ),
+                patch("mael_domain.env.get_env_status", return_value=None),
+                patch("mael_domain.env._get_log_dir", return_value=tmp_path / "logs"),
+            ):
+                start_env(
+                    InMemoryEnvStore(),
+                    "proj",
+                    "bravo",
+                    Path("/project/bravo"),
+                    skip_install=True,
+                )
+
+        return start, fake_tailscale, cert_at_spawn
+
+    def test_renews_the_certificate_before_anything_spawns(self, started):
+        start, _log, cert_at_spawn = started
+        start("dev_host: desk.tailnet.ts.net\ndev_https: true\n")
+        assert cert_at_spawn == [True]
+
+    def test_leaves_tailscale_alone_without_https(self, started):
+        start, log, cert_at_spawn = started
+        start("dev_host: desk.tailnet.ts.net\n")
+        assert not log.exists()
+        assert cert_at_spawn == [False]
+
+    def test_a_refused_certificate_stops_the_start(self, started, monkeypatch):
+        """An app that reads a missing key fails later and less clearly."""
+        start, _log, cert_at_spawn = started
+        monkeypatch.setenv("REFUSE", "1")
+        with pytest.raises(DevCertError, match="HTTPS Certificates"):
+            start("dev_host: desk.tailnet.ts.net\ndev_https: true\n")
+        assert cert_at_spawn == []
 
 
 class TestStartEnv:
