@@ -6,6 +6,8 @@ every suite. It imports no package: a member's suite must run without the
 """
 
 import socket
+import ssl
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -61,3 +63,35 @@ def _pin_harness_env(monkeypatch):
     """
     monkeypatch.delenv("CLAUDECODE", raising=False)
     monkeypatch.delenv("OPENCODE_TERMINAL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_dev_certificate(monkeypatch):
+    """Keep a developer's dev certificate out of the tests.
+
+    ``mael-orchestrator serve`` takes ``DEV_TLS_CERT`` and ``DEV_TLS_KEY`` as
+    defaults, so a shell under ``dev_https:`` would turn every serve test to TLS.
+    """
+    monkeypatch.delenv("DEV_TLS_CERT", raising=False)
+    monkeypatch.delenv("DEV_TLS_KEY", raising=False)
+
+
+@pytest.fixture
+def self_signed_cert(tmp_path) -> tuple[Path, Path]:
+    """A throwaway certificate and key for ``localhost``, made by ``openssl``."""
+    cert, key = tmp_path / "dev.crt", tmp_path / "dev.key"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1"]
+        + ["-subj", "/CN=localhost", "-keyout", str(key), "-out", str(cert)],
+        check=True,
+        capture_output=True,
+    )
+    return cert, key
+
+
+@pytest.fixture
+def tls_server_context(self_signed_cert) -> ssl.SSLContext:
+    """A server-side TLS context on :func:`self_signed_cert`."""
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(*self_signed_cert)
+    return context

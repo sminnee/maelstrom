@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import socket
+import ssl
 import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -965,12 +966,19 @@ def _int_or_none(raw: str | None) -> int | None:
 
 
 @asynccontextmanager
-async def serving(app: web.Application, host: str, port: int) -> AsyncIterator[int]:
+async def serving(
+    app: web.Application,
+    host: str,
+    port: int,
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> AsyncIterator[int]:
     """Serve ``app`` for the length of the block, yielding the bound port.
 
-    ``port`` 0 picks a free one. The socket binds before the orchestrator
-    starts, so a port in use fails at once rather than after the first source
-    reads. A client that connects before those reads finish waits for them.
+    ``port`` 0 picks a free one. An ``ssl_context`` serves HTTPS on it. The
+    socket binds before the orchestrator starts, so a port in use fails at once
+    rather than after the first source reads. A client that connects before
+    those reads finish waits for them.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -988,7 +996,7 @@ async def serving(app: web.Application, host: str, port: int) -> AsyncIterator[i
     try:
         sock.bind((host, port))
         await runner.setup()
-        await web.SockSite(runner, sock).start()
+        await web.SockSite(runner, sock, ssl_context=ssl_context).start()
         started = True
         yield sock.getsockname()[1]
     finally:
@@ -998,7 +1006,13 @@ async def serving(app: web.Application, host: str, port: int) -> AsyncIterator[i
         await runner.cleanup()
 
 
-async def serve_app(app: web.Application, host: str, port: int) -> None:
+async def serve_app(
+    app: web.Application,
+    host: str,
+    port: int,
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> None:
     """Serve until cancelled."""
-    async with serving(app, host, port):
+    async with serving(app, host, port, ssl_context=ssl_context):
         await asyncio.Event().wait()

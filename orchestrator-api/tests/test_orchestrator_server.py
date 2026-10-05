@@ -7163,3 +7163,19 @@ def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
     assert reply.status == 400
     assert reply.body["error"]["message"] == "No agent is running in northwind-alpha"
     assert said(harness) == []
+
+
+@pytest.mark.binds_socket
+def test_the_server_answers_over_tls_with_a_certificate(harness, tls_server_context):
+    """Under ``dev_https:`` the page is a secure context, so the server it
+    dials must speak TLS on the same port."""
+
+    async def scenario():
+        app = build_app(harness.orch)
+        async with serving(app, "127.0.0.1", 0, ssl_context=tls_server_context) as port:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://127.0.0.1:{port}/api/desk"
+                async with session.get(url, ssl=False) as response:
+                    return response.status
+
+    assert run(scenario()) == 200

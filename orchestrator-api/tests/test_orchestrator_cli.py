@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import signal
+import ssl
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -48,14 +49,38 @@ def test_serve_passes_its_flags_to_the_server():
             cli, ["serve", "--host", "0.0.0.0", "--port", "9000"]
         )
     assert result.exit_code == 0, result.output
-    run_server.assert_called_once_with("0.0.0.0", 9000, DEFAULT_LOG_LEVEL)
+    run_server.assert_called_once_with(
+        "0.0.0.0", 9000, DEFAULT_LOG_LEVEL, ssl_context=None
+    )
 
 
 def test_serve_defaults_to_localhost_and_the_default_port():
     with patch("mael_orchestrator.cli.run_server") as run_server:
         result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 0, result.output
-    run_server.assert_called_once_with(DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL)
+    run_server.assert_called_once_with(
+        DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL, ssl_context=None
+    )
+
+
+def test_serve_reads_its_certificate_from_the_worktree_env(self_signed_cert):
+    """``.env`` names the dev certificate, so the service command needs no
+    flags and no shell test for HTTPS."""
+    cert, key = self_signed_cert
+    env = {"DEV_TLS_CERT": str(cert), "DEV_TLS_KEY": str(key)}
+    with patch("mael_orchestrator.cli.run_server") as run_server:
+        result = CliRunner().invoke(cli, ["serve", "--port", "9000"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Serving on https://127.0.0.1:9000" in result.output
+    assert isinstance(run_server.call_args.kwargs["ssl_context"], ssl.SSLContext)
+
+
+def test_serve_refuses_a_certificate_without_its_key(tmp_path):
+    cert = tmp_path / "dev.crt"
+    cert.write_text("")
+    result = CliRunner().invoke(cli, ["serve", "--tls-cert", str(cert)])
+    assert result.exit_code == 2
+    assert "--tls-key" in result.output
 
 
 def test_serve_takes_no_root_flag():
@@ -303,7 +328,7 @@ def test_an_exception_that_escapes_a_task_is_logged(capsys):
     """A task that dies with nobody awaiting it must still say so."""
     captured = {}
 
-    async def scenario(*_args):
+    async def scenario(*_args, **_kwargs):
         captured["handler"] = asyncio.get_running_loop().get_exception_handler()
 
     with (
@@ -334,7 +359,7 @@ def test_a_sigterm_shuts_the_server_down_cleanly():
     """
     stopped = []
 
-    async def scenario(*_args):
+    async def scenario(*_args, **_kwargs):
         loop = asyncio.get_running_loop()
         # The handler must be installed by the time the server is serving.
         assert loop._signal_handlers.get(signal.SIGTERM) is not None, (
