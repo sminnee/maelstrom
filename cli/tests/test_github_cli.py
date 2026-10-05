@@ -1,8 +1,11 @@
 """Tests for mael_cli.github_cli module."""
 
+import socket
 import subprocess
+import threading
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 from domain_fixtures import IN_A_PANE
 
@@ -227,6 +230,31 @@ class TestGhCliRegistration:
         read as nothing to tell, not as a failure."""
         assert orchestrator_url(tmp_path, "/x") is None
         tell_orchestrator(tmp_path, "/x")
+
+    @pytest.mark.binds_socket
+    def test_an_https_orchestrator_is_told_over_tls(self, tmp_path, tls_server_context):
+        """Under ``dev_https:`` the notify reaches a TLS-only server whose
+        certificate does not name ``127.0.0.1``."""
+        listener = socket.create_server(("127.0.0.1", 0))
+        listener.settimeout(5)
+        heard: list[list[str]] = []
+
+        def answer_one() -> None:
+            conn, _ = listener.accept()
+            with tls_server_context.wrap_socket(conn, server_side=True) as tls:
+                heard.append(tls.recv(4096).decode().split(" ")[:2])
+                tls.sendall(b"HTTP/1.1 204 No Content\r\n\r\n")
+
+        thread = threading.Thread(target=answer_one, daemon=True)
+        thread.start()
+        port = listener.getsockname()[1]
+        (tmp_path / ".env").write_text(f"DEV_SCHEME=https\nORCHESTRATOR_PORT={port}\n")
+        try:
+            tell_orchestrator(tmp_path, "/api/worktrees/refresh")
+        finally:
+            thread.join(timeout=5)
+            listener.close()
+        assert heard == [["POST", "/api/worktrees/refresh"]]
 
     def test_show_code_smoke(self):
         with (
