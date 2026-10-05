@@ -37,14 +37,16 @@ import dialog from '../ui/Dialog.module.css';
 import styles from './NewWork.module.css';
 
 /**
- * What the user is starting: a task in the notebook, an agent tied to none, or
- * a Linear issue to plan.
+ * What the user is starting: a task in the notebook, an agent tied to none, an
+ * investigation, or a Linear issue to plan.
+ *
+ * `investigate` is a free agent told not to change code -- see `CONTEXT.md`.
  *
  * `linear` is offered only for a project that names a Linear team, and is the
  * one kind whose work is defined elsewhere. It is expected to go once the
  * notebook covers the same ground -- see `docs/dev/orchestrator-ui.md`.
  */
-type Kind = 'task' | 'agent' | 'linear';
+type Kind = 'task' | 'agent' | 'investigate' | 'linear';
 
 /**
  * Where the planning radios start: `regular`, which runs the task itself under
@@ -114,6 +116,9 @@ const initialCaptured: Captured = {
   taskExecuteModel: UNSET_MODEL,
   taskBase: '',
 };
+
+/** The modes an investigation offers -- see `CONTEXT.md`, "Investigation". */
+const INVESTIGATE_MODES: readonly PermissionMode[] = ['auto', 'normal'];
 
 /** A bucket for a dialog that has none held yet. */
 const mintBucket = () => `draft-${Math.random().toString(36).slice(2, 10)}`;
@@ -238,6 +243,11 @@ export function NewWork() {
     [worktrees.data, chosen],
   );
 
+  const mainBranch =
+    worktrees.data?.worktrees.find((w) => w.project === chosen && w.nato === '_main')?.branch ||
+    'main';
+  const investigateMode: PermissionMode = mode === 'plan' ? 'auto' : mode;
+
   // The submits and the naming they wait on, not Suggest: Suggest is an
   // `AppButton` and shows its own wait.
   const busy = create.isPending || start.isPending || plan.isPending || naming.isPending;
@@ -249,7 +259,7 @@ export function NewWork() {
   // Suggest button says so on itself. A submit's naming is: it runs before the
   // submit, so its refusal is the newer, and `nameEmpty` clears it when skipped.
   const failure =
-    showing === 'agent'
+    showing === 'agent' || showing === 'investigate'
       ? (naming.error ?? start.error)
       : showing === 'linear'
         ? plan.error
@@ -301,6 +311,19 @@ export function NewWork() {
     });
     // Submitted, so the held copy is spent. Before the close, which unmounts the
     // dialog and would otherwise flush what is still in the field.
+    release();
+    close(false);
+  };
+
+  const startInvestigation = async () => {
+    await start.mutateAsync({
+      project: chosen,
+      branch: branch.trim() || mainBranch,
+      prompt: draft,
+      mode: investigateMode,
+      model,
+      investigate: true,
+    });
     release();
     close(false);
   };
@@ -386,8 +409,9 @@ export function NewWork() {
         setModel={(next) => patch({ model: next })}
         executeModel={executeModel}
         setExecuteModel={(next) => patch({ executeModel: next })}
-        mode={mode}
+        mode={showing === 'investigate' ? investigateMode : mode}
         setMode={(next) => patch({ mode: next })}
+        mainBranch={mainBranch}
         bucket={bucket}
         attached={attached}
         onAttached={(a, at) =>
@@ -431,12 +455,12 @@ export function NewWork() {
         }
       >
         {busy && <Spinner />}
-        {showing === 'agent' ? (
+        {showing === 'agent' || showing === 'investigate' ? (
           <AppButton
             variant="primary"
             icon={actionIcon('start')}
             disabled={busy || !chosen || !draft.trim()}
-            onClick={() => startFreeAgent()}
+            onClick={() => (showing === 'agent' ? startFreeAgent() : startInvestigation())}
           >
             Start
           </AppButton>
@@ -507,6 +531,7 @@ function Capture({
   setExecuteModel,
   mode,
   setMode,
+  mainBranch,
   bucket,
   attached,
   onAttached,
@@ -537,6 +562,8 @@ function Capture({
   setExecuteModel: (model: string) => void;
   mode: PermissionMode;
   setMode: (mode: PermissionMode) => void;
+  /** The branch an investigation runs on when the field is empty. */
+  mainBranch: string;
   bucket: string;
   attached: Attachment[];
   /** The image, and the bucket it was stored under, which the dialog then keeps. */
@@ -563,6 +590,7 @@ function Capture({
           [
             ['task', 'Task'],
             ['agent', 'Free agent'],
+            ['investigate', 'Investigation'],
             // Only where a Linear team is configured. Everything else about
             // this kind is walled off in `LinearFields`.
             ...(hasLinear ? ([['linear', 'Linear']] as const) : []),
@@ -642,6 +670,31 @@ function Capture({
             <label className={dialog.field}>
               <span>Execute Model</span>
               <ExecuteModelSelect model={executeModel} onChange={setExecuteModel} />
+            </label>
+          </div>
+        </>
+      )}
+
+      {/* No Suggest: the branch is not new work. */}
+      {kind === 'investigate' && (
+        <>
+          <label className={dialog.field}>
+            <span>Branch</span>
+            <ComboBox
+              value={branch}
+              options={branchOptions}
+              onChange={setBranch}
+              placeholder={mainBranch}
+            />
+          </label>
+          <div className={dialog.row}>
+            <label className={dialog.field}>
+              <span>Mode</span>
+              <ModeSelect mode={mode} onChange={setMode} modes={INVESTIGATE_MODES} />
+            </label>
+            <label className={dialog.field}>
+              <span>Model</span>
+              <ModelSelect model={model} onChange={setModel} />
             </label>
           </div>
         </>

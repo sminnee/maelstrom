@@ -151,8 +151,9 @@ opens in a tab too. A shift-click on a tab shows it beside the tab you have open
 desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project and branch filters apply
 to both views. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
-The top bar's "New" control starts new work without leaving the page: a task, or a free agent in
-a branch's worktree. Save and Start name an empty title or branch from the prose you type. They
+The top bar's "New" control starts new work without leaving the page: a task, a free agent in
+a branch's worktree, or an investigation. An investigation is a free agent on the main branch
+that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start name an empty title or branch from the prose you type. They
 use OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line otherwise.
 `uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
 from the task notebook, `list-all` and the agent host. See

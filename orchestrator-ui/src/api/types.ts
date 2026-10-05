@@ -56,6 +56,8 @@ export interface AgentStart {
   mode: TaskMode;
   model?: string;
   executeModel?: string;
+  /** An investigation: the agent is told not to change code. Never `plan`. */
+  investigate?: boolean;
 }
 
 /** The server's refusal codes, plus the two the client makes for itself. */

@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Start an investigation from the orchestrator.** The new-work form has an Investigation kind.
+  It starts a free agent on the project's main branch, in `auto` or `normal` mode. The agent is
+  told not to edit tracked files, commit, push, or open a PR. It can write files under `.drafts/`
+  and show them to you. A resumed agent keeps its system prompt file, so it keeps these rules.
+  Restart a shared agent daemon to get this.
+
 - **Check the exact commit before a push with `pre_push_cmd`.** Set it in `.maelstrom.yaml`.
   `mael gh create-pr` runs it after its last rebase. When the base moves during the check, it
   rebases and checks again, up to 3 times. `mael sync` runs it before it pushes. A failed check

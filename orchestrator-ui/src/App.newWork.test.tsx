@@ -380,6 +380,38 @@ describe('new work', () => {
     expect(started?.body).toMatchObject({ branch: 'feat/read-the-logs' });
   });
 
+  it("starts an investigation on the _main worktree's branch, in auto or normal only", async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // Not `main`, so the placeholder can only come from the `_main` lookup.
+    server.world.worktrees['_main']!.branch = 'trunk';
+    server.change({ kind: 'worktree', ids: ['_main'] });
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
+    await user.click(within(form).getByRole('radio', { name: 'Investigation' }));
+    // No branch typed: the main branch is the default, and nothing is named.
+    await waitFor(() =>
+      expect(within(form).getByLabelText('Branch')).toHaveAttribute('placeholder', 'trunk'),
+    );
+    expect(within(form).queryByRole('button', { name: 'Suggest' })).toBeNull();
+    const mode = within(form).getByLabelText('Mode');
+    expect(
+      within(mode)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['auto', 'normal']);
+    expect(mode).toHaveValue('auto');
+    expect(within(form).queryByLabelText('Execute Model')).toBeNull();
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Why is the export slow?');
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(false);
+    const started = server.requests.find((r) => r.path === '/api/agents' && r.method === 'POST');
+    expect(started?.body).toMatchObject({ branch: 'trunk', mode: 'auto', investigate: true });
+    expect(started?.body).not.toHaveProperty('executeModel');
+  });
+
   it('starts a free agent under the mode and model the form chose', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

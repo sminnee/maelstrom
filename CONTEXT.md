@@ -924,6 +924,14 @@ an agent whose worktree the world has not read yet falls back to its own project
 name. A free agent has no task list row, so its node is the only place to take it **Off desk**.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
+**Investigation**:
+A **Free agent** told not to change code. It runs on the project's main branch unless the user
+names another, in `auto` or `normal` mode only: a plan hands over to an execute session, which
+changes code. It can write files under `.drafts/` and show them as documents.
+`shared/investigation-prompt.md` holds its rules. Only that prompt stops it changing code: no
+permission rule backs it.
+_Avoid_: Research agent, read-only agent
+
 **Canvas**:
 The view that draws the desk as one lane per project, with a **Worktree box** round the nodes of
 each worktree. It draws one node per task and one per free agent. A node is drawn when it is on
