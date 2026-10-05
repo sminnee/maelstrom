@@ -368,15 +368,41 @@ class TestBuildEnvFileServices:
         assert shared_base != base
 
     @pytest.mark.parametrize(
-        ("config_text", "dev_host"),
+        ("config_text", "expected"),
         [
-            ("dev_host: desk.tailnet.ts.net\n", "desk.tailnet.ts.net"),
-            ("", "localhost"),
+            (
+                "dev_host: desk.tailnet.ts.net\n",
+                {
+                    "DEV_HOST": "desk.tailnet.ts.net",
+                    "DEV_SCHEME": "http",
+                    "PUBLIC_URL": "http://desk.tailnet.ts.net:8000",
+                },
+            ),
+            (
+                "dev_host: desk.tailnet.ts.net\ndev_https: true\n",
+                {
+                    "DEV_HOST": "desk.tailnet.ts.net",
+                    "DEV_SCHEME": "https",
+                    "DEV_TLS_CERT": "{certs}/desk.tailnet.ts.net.crt",
+                    "DEV_TLS_KEY": "{certs}/desk.tailnet.ts.net.key",
+                    "PUBLIC_URL": "https://desk.tailnet.ts.net:8000",
+                },
+            ),
+            (
+                "",
+                {
+                    "DEV_HOST": "localhost",
+                    "DEV_SCHEME": "http",
+                    "PUBLIC_URL": "http://localhost:8000",
+                },
+            ),
         ],
     )
-    def test_writes_the_dev_host(self, tmp_path, monkeypatch, config_text, dev_host):
-        """The dev host lands in the managed block, where a template line can
-        use it and copy-back leaves it alone. It is ``localhost`` with no key."""
+    def test_writes_the_dev_variables(
+        self, tmp_path, monkeypatch, config_text, expected
+    ):
+        """The dev host and scheme land in the managed block, where a template
+        line can use them; the certificate paths only under HTTPS."""
         from mael_domain.worktree import _build_env_file
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -385,15 +411,34 @@ class TestBuildEnvFileServices:
         project_path = tmp_path / "Projects" / "myproject"
         worktree_path = project_path / "myproject-alpha"
         worktree_path.mkdir(parents=True)
-        (project_path / ".env").write_text("PUBLIC_URL=http://$DEV_HOST:8000\n")
+        (project_path / ".env").write_text("PUBLIC_URL=$DEV_SCHEME://$DEV_HOST:8000\n")
 
         _build_env_file(project_path, worktree_path, "alpha")
 
         env = read_env_file(worktree_path)
-        assert env["DEV_HOST"] == dev_host
-        assert env["PUBLIC_URL"] == f"http://{dev_host}:8000"
+        certs = tmp_path / ".maelstrom" / "certs"
+        assert {k: env[k] for k in env if k.startswith(("DEV_", "PUBLIC_"))} == {
+            k: v.format(certs=certs) for k, v in expected.items()
+        }
+
+    def test_copy_back_leaves_the_dev_variables_alone(self, tmp_path, monkeypatch):
+        """They are maelstrom's, so the project's template never gains them."""
+        from mael_domain.worktree import _build_env_file
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".maelstrom").mkdir()
+        (tmp_path / ".maelstrom" / "config.yaml").write_text(
+            "dev_host: desk.tailnet.ts.net\ndev_https: true\n"
+        )
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (project_path / ".env").write_text("")
+
+        _build_env_file(project_path, worktree_path, "alpha")
         copy_back_new_env_vars(project_path, worktree_path)
-        assert "DEV_HOST" not in parse_env_text((project_path / ".env").read_text())
+
+        assert parse_env_text((project_path / ".env").read_text()) == {}
 
 
 class TestBuildEnvFileForMain:

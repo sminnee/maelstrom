@@ -23,11 +23,11 @@ from .config import (
     service_port_names,
     shared_service_port_names,
 )
+from .dev_cert import dev_env_vars
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
     get_allocated_port_bases,
-    get_dev_host,
     get_port_allocation,
     load_port_allocations,
     record_port_allocation,
@@ -2322,7 +2322,7 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
         {
             "WORKTREE": "alpha",
             "WORKTREE_NUM": str(worktree_num("alpha")),
-            "DEV_HOST": get_dev_host(),
+            **dev_env_vars(),
         },
     )
 
@@ -2370,8 +2370,7 @@ def _build_env_file(
     generated_vars = {
         "WORKTREE": worktree_name,
         "WORKTREE_NUM": str(worktree_num(worktree_name)),
-        # Always written, so a template can use $DEV_HOST without a guard.
-        "DEV_HOST": get_dev_host(),
+        **dev_env_vars(),
     }
 
     # Derive the flat port-name lists. Structured `services:` (when present) owns
