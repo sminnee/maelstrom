@@ -19,13 +19,21 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   /* Near the bottom of the screen the menu opens upward instead. With no
-     room to its left, it pins to the screen's left edge. */
-  position-try-fallbacks:
-    flip-block,
-    --pin-left,
-    --pin-left flip-block;
+     room to its left, it pins to the screen's left edge. Named fallbacks,
+     not `flip-block`, so no engine has to flip `anchor()` inside `calc()`. */
+  position-try-fallbacks: --above, --pin-left, --pin-left-above;
+}
+@position-try --above {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
 }
 @position-try --pin-left {
+  right: auto;
+  left: var(--u);
+}
+@position-try --pin-left-above {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
   right: auto;
   left: var(--u);
 }
