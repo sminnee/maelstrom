@@ -22,6 +22,7 @@ from .config import (
     ServiceDef,
     load_config_or_default,
 )
+from .dev_cert import TLS_ENV_VARS, dev_env_vars, ensure_configured_dev_cert
 from .env_store import EnvStore
 from .protocol import EnvStateName
 from .services import (
@@ -397,9 +398,19 @@ def build_service_env(worktree_path: Path) -> dict[str, str]:
     should inherit, and overlays variables from the worktree's .env file. The
     overlay runs second, so a worktree that names one of the stripped variables
     deliberately still gets its value.
+
+    The dev variables go in beneath the ``.env``, so a ``.env`` written before
+    one of them existed still expands ``${DEV_SCHEME}`` in a service's ``env:``.
+    The certificate paths go only with ``DEV_SCHEME=https``. A ``.env`` written
+    while ``dev_https:`` was off says ``http``, and a server that read the
+    filled-in paths would serve TLS to clients that dial plain HTTP.
     """
     env = sanitise_child_env(os.environ)
+    env.update(dev_env_vars())
     env.update(read_env_file(worktree_path))
+    if env.get("DEV_SCHEME") != "https":
+        for key in TLS_ENV_VARS:
+            env.pop(key, None)
     return env
 
 
@@ -713,7 +724,11 @@ def start_env(
         RuntimeError: If the project defines no services.
         ValueError: If a named service is not declared.
         TimeoutError: If an apple-container host var never resolves (start aborts).
+        DevCertError: If ``dev_https:`` is on and the certificate is refused.
     """
+    # Before anything spawns: an app that reads a missing key fails later and
+    # less clearly.
+    ensure_configured_dev_cert()
     cleanup_stale_env(store, project, worktree)
 
     all_services = get_services(worktree_path, project, names=services)
