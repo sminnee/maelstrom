@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
@@ -13,6 +14,11 @@ const orchestratorUrl = process.env.ORCHESTRATOR_URL ?? 'http://localhost:8765';
 // Vite answers 403 to a Host header it does not know, so the dev host must be allowed.
 const devHost = process.env.DEV_HOST;
 const allowedHosts = devHost ? [devHost] : undefined;
+// The dev certificate under `dev_https:`. See docs/guide/dev-environments.md, "Serve over HTTPS".
+const tlsCert = process.env.DEV_TLS_CERT;
+const tlsKey = process.env.DEV_TLS_KEY;
+const https =
+  tlsCert && tlsKey ? { cert: readFileSync(tlsCert), key: readFileSync(tlsKey) } : undefined;
 // The change stream dials the orchestrator directly, so the dev server hands
 // the bundle its port. Set on `process.env` under vite's own `VITE_` prefix
 // rather than through `define`, which would rewrite `import.meta.env` for the
@@ -56,6 +62,7 @@ export default defineConfig(({ command }) => {
       // whatever wifi the machine joins — close that off at the firewall.
       host: true,
       allowedHosts,
+      https,
       port,
       strictPort: true,
       // Only the port here. HMR has no host of its own: the client dials the
