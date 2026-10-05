@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from git_helpers import create_commit
+from git_helpers import advance_origin_main, create_commit, remote_tip
 from git_helpers import run_git as git
 
 from mael_domain.ports import get_port_allocation, record_port_allocation
@@ -2073,6 +2073,89 @@ class TestSyncWorktreeSquash:
         log_after = run_git(repo, "log", "--oneline").stdout
         assert "fixup!" in log_after
         assert len(log_after.strip().splitlines()) == 3
+
+
+def _hook_recording(worktree_path, log, extra=""):
+    """Configure a pre_push_cmd that logs HEAD, then origin's branch tip.
+
+    The two lines tell a test what the hook saw: the commit it verified, and
+    whether the push had happened yet.
+    """
+    cmd = (
+        f"git rev-parse HEAD > {log}; "
+        f"git ls-remote origin refs/heads/feature/work | cut -f1 >> {log}"
+        f"{extra}"
+    )
+    (worktree_path / ".maelstrom.yaml").write_text(f"pre_push_cmd: {json.dumps(cmd)}\n")
+
+
+class TestSyncWorktreePrePush:
+    """``sync_worktree`` runs the project's pre_push_cmd after the rebase.
+
+    The project's check must see the commit that is published, so the hook runs
+    once the rebase is done and before the push.
+    """
+
+    def _pushed_branch(self, worktree_path):
+        create_commit(worktree_path, "a.txt", "a\n", "feat: a")
+        git(worktree_path, "push", "origin", "feature/work:feature/work")
+        advance_origin_main(worktree_path)
+        return git(worktree_path, "rev-parse", "HEAD").stdout.strip()
+
+    def test_the_hook_sees_the_rebased_commit_before_the_push(
+        self, project_with_worktree, tmp_path
+    ):
+        _, worktree_path, _ = project_with_worktree
+        before = self._pushed_branch(worktree_path)
+        log = tmp_path / "hook.log"
+        _hook_recording(worktree_path, log)
+
+        result = sync_worktree(worktree_path)
+
+        assert result.success, result.message
+        head = git(worktree_path, "rev-parse", "HEAD").stdout.strip()
+        assert head != before
+        assert log.read_text().split() == [head, before]
+        assert remote_tip(worktree_path, "feature/work") == head
+
+    def test_a_failing_hook_leaves_the_branch_unpushed(
+        self, project_with_worktree, tmp_path
+    ):
+        _, worktree_path, _ = project_with_worktree
+        before = self._pushed_branch(worktree_path)
+        _hook_recording(worktree_path, tmp_path / "hook.log", extra="; exit 3")
+
+        result = sync_worktree(worktree_path)
+
+        assert not result.success
+        assert not result.pushed
+        assert "git rev-parse HEAD" in result.message
+        assert remote_tip(worktree_path, "feature/work") == before
+
+    def test_with_no_remote_branch_the_hook_does_not_run(
+        self, project_with_worktree, tmp_path
+    ):
+        """Nothing is pushed, so there is nothing to verify."""
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "feat: a")
+        log = tmp_path / "hook.log"
+        _hook_recording(worktree_path, log)
+
+        result = sync_worktree(worktree_path)
+
+        assert result.success, result.message
+        assert not log.exists()
+
+    def test_skipping_the_hook_still_pushes(self, project_with_worktree, tmp_path):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path)
+        log = tmp_path / "hook.log"
+        _hook_recording(worktree_path, log, extra="; exit 3")
+
+        result = sync_worktree(worktree_path, pre_push=False)
+
+        assert result.pushed, result.push_message
+        assert not log.exists()
 
 
 class TestSquashWorktree:

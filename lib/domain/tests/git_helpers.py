@@ -37,6 +37,22 @@ def setup_origin_main(repo_path):
     run_git(repo_path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
+def advance_origin_main(worktree_path):
+    """Put a new commit on origin's main, as another merged PR would."""
+    run_git(worktree_path, "fetch", "origin")
+    tree = run_git(worktree_path, "rev-parse", "origin/main^{tree}").stdout.strip()
+    sha = run_git(
+        worktree_path, "commit-tree", tree, "-p", "origin/main", "-m", "main moves"
+    ).stdout.strip()
+    run_git(worktree_path, "push", "origin", f"{sha}:refs/heads/main")
+
+
+def remote_tip(worktree_path, branch):
+    """The commit origin holds for ``branch``, or None when it has none."""
+    out = run_git(worktree_path, "ls-remote", "origin", f"refs/heads/{branch}").stdout
+    return out.split("\t")[0] if out else None
+
+
 def three_commits(worktree_path):
     """Three ordinary commits on the current branch."""
     create_commit(worktree_path, "one.txt", "one\n", "feat: one")

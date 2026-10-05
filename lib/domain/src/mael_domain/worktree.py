@@ -1023,6 +1023,7 @@ def sync_worktree(
     squash: bool = False,
     abort_on_conflict: bool = False,
     close_if_empty: bool = False,
+    pre_push: bool = True,
 ) -> SyncResult:
     """Sync a worktree by rebasing against origin/main, then pushing.
 
@@ -1040,6 +1041,9 @@ def sync_worktree(
         close_if_empty: If True and the branch is empty after a successful rebase
             (HEAD == origin/main), delete the branch (local + remote) and close the
             worktree instead of pushing.
+        pre_push: If True, run the project's ``pre_push_cmd`` between the
+            rebase and the push. A failed check leaves the branch rebased and
+            unpushed.
 
     Returns:
         SyncResult with status and message.
@@ -1152,6 +1156,17 @@ def sync_worktree(
     )
 
     if remote_check.returncode == 0:
+        if pre_push:
+            try:
+                run_pre_push_cmd(worktree_path, load_config_or_default(worktree_path))
+            except PrePushFailed as e:
+                return SyncResult(
+                    success=False,
+                    branch=branch,
+                    message=f"{result.message}. {e}",
+                    base=result.base,
+                    base_collapsed=result.base_collapsed,
+                )
         # Remote branch exists - push with force-with-lease
         push_result = run_cmd(
             ["git", "push", "--force-with-lease", "origin", branch],
@@ -1305,6 +1320,7 @@ def sync_worktree_with_autorepair(
     skip_fetch: bool = False,
     squash: bool = False,
     close_if_empty: bool = False,
+    pre_push: bool = True,
     repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
     announce: Callable[[str], None] = print_flushed,
 ) -> SyncResult:
@@ -1325,6 +1341,7 @@ def sync_worktree_with_autorepair(
         skip_fetch: If True, skip the fetch step.
         squash: If True, autosquash ``fixup!`` commits while rebasing.
         close_if_empty: If True, delete an empty branch and close the worktree.
+        pre_push: If True, run the project's ``pre_push_cmd`` before the push.
         repair_runner: Callable taking the worktree path and returning a
             ``CompletedProcess``. Defaults to the real headless session; tests
             substitute their own.
@@ -1340,6 +1357,7 @@ def sync_worktree_with_autorepair(
         squash=squash,
         abort_on_conflict=False,
         close_if_empty=close_if_empty,
+        pre_push=pre_push,
     )
     if first.success or not first.had_conflicts:
         return first  # success, or a fetch failure there is no repairing
@@ -1355,6 +1373,7 @@ def sync_worktree_with_autorepair(
         squash=squash,
         abort_on_conflict=True,
         close_if_empty=close_if_empty,
+        pre_push=pre_push,
     )
     return dataclasses.replace(final, repaired=True) if final.success else final
 
@@ -1916,7 +1935,8 @@ def close_worktree(
     committed_wip = force and commit_wip(worktree_path)
 
     # Sync. With --force, abort a conflicting rebase instead of leaving it in progress.
-    sync_result = sync_worktree(worktree_path, abort_on_conflict=force)
+    # No pre-push check: a close must not wait for it.
+    sync_result = sync_worktree(worktree_path, abort_on_conflict=force, pre_push=False)
     if not sync_result.success and not force:
         return CloseResult(
             success=False,
@@ -3274,8 +3294,10 @@ def setup_worktree_for_branch(
     # locally or on origin — is checked out at its own tip, which can be many
     # commits behind origin/main. Sync before install so install runs against the
     # rebased tree. close_if_empty stays off: a brand-new branch is "empty" and
-    # must never be deleted here.
-    sync = sync_worktree_with_autorepair(worktree_path, announce=announce)
+    # must never be deleted here. No pre-push check: an open must not wait for it.
+    sync = sync_worktree_with_autorepair(
+        worktree_path, pre_push=False, announce=announce
+    )
 
     # Finalize (recycle + create): write CLAUDE.local.md, run install command.
     # CLAUDE.local.md is written even when the sync failed. The worktree exists
