@@ -1027,6 +1027,51 @@ def test_a_resume_takes_the_system_prompt_file_a_client_sends(prompt_file):
     assert specs.read("a1").system_prompt_file == prompt_file
 
 
+def test_a_resume_keeps_a_recorded_system_prompt_file_over_the_clients(
+    prompt_file, tmp_path
+):
+    """An investigation's rules must outlive a resume by a client that knows only the markers."""
+    daemon, specs = _daemon_with_specs()
+    rules = tmp_path / "investigation.md"
+    rules.write_text("You run under the maelstrom agent daemon. Do not commit.")
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            system_prompt_file=str(rules),
+        )
+    )
+    spawn = _spawning(
+        daemon,
+        [{"cmd": "resume", "id": "a1", "system_prompt_file": prompt_file}],
+    )
+    assert _argv_prompt(spawn) == str(rules)
+    assert specs.read("a1").system_prompt_file == str(rules)
+
+
+def test_a_recorded_system_prompt_file_that_is_gone_gives_way_to_the_clients(
+    prompt_file, tmp_path
+):
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            system_prompt_file=str(tmp_path / "closed" / "agent-prompt.md"),
+        )
+    )
+    spawn = _spawning(
+        daemon,
+        [{"cmd": "resume", "id": "a1", "system_prompt_file": prompt_file}],
+    )
+    assert _argv_prompt(spawn) == prompt_file
+    assert specs.read("a1").system_prompt_file == prompt_file
+
+
 def test_start_keeps_the_session_id_the_caller_pinned():
     daemon, specs = _daemon_with_specs()
     _spawning(daemon, [{"cmd": "start", "cwd": "/tmp/x", "session": "sid-1"}])
