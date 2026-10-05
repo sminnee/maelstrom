@@ -17,6 +17,9 @@ generated variables below.
 | `WORKTREE` | `bravo` | The worktree's NATO name, or `_main`. |
 | `WORKTREE_NUM` | `1` | The name's index modulo 16: alpha = 0, papa = 15, quebec = 0, `_main` = 0. See the caveat below. |
 | `DEV_HOST` | `desk.tailnet.ts.net` | The dev host, from the global `dev_host:` key. The value is `localhost` when the key is unset, so the variable is always present. |
+| `DEV_SCHEME` | `https` | `https` when the global `dev_https:` key is on, else `http`. Always present. |
+| `DEV_TLS_CERT` | `/Users/sam/.maelstrom/certs/desk.tailnet.ts.net.crt` | The dev certificate file, as an absolute path. Present only when `DEV_SCHEME` is `https`. |
+| `DEV_TLS_KEY` | `/Users/sam/.maelstrom/certs/desk.tailnet.ts.net.key` | The dev certificate's private key, as an absolute path. Present only when `DEV_SCHEME` is `https`. |
 | `PORT_BASE` | `300` | The worktree's port base. A NATO worktree gets a 3-digit number from 300-999; `_main` gets the reserved `main_port_base`. Written whenever the project configures any port. See the caveat below. |
 | `<NAME>_PORT` | `FRONTEND_PORT=3010` | One per named port. A local port is `<local base> * 10 + index`; a shared port is `SHARED_PORT_BASE * 10 + index`. |
 | `SHARED_PORT_BASE` | `300` | The project's shared port base. Written only when shared ports are configured. |

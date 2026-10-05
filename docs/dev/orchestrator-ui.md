@@ -1299,6 +1299,11 @@ so the tailnet reaches it, and an address pinned to `localhost` would leave a re
 its own machine. `GET /api/events` echoes the request's `Origin` back, so the cross-origin read is
 allowed.
 
+Under `dev_https:` the page is `https://`, so the stream dials `https://` too, and the orchestrator
+must speak TLS on its port. `mael-orchestrator serve` reads `DEV_TLS_CERT` and `DEV_TLS_KEY` from
+the worktree's `.env` for this. The dev server's proxy dials `ORCHESTRATOR_URL`, which names the
+dev host rather than `localhost`, because the certificate names the dev host.
+
 The dev server accepts the dev host. `vite.config.ts` puts `DEV_HOST` in `server.allowedHosts`,
 and Ladle loads the same file. Ladle pins its HMR socket to `localhost`, so `.ladle/config.mjs`
 sets `hmrHost` to the dev host. See

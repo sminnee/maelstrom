@@ -800,7 +800,7 @@ group: the published `mael` package does not include the server. Run it with `uv
 
 | Command | Description |
 |---|---|
-| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 uv run mael-orchestrator serve                     # http://127.0.0.1:8765
@@ -817,7 +817,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 
 | Command | Description |
 |---|---|
-| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. |
+| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. Under `dev_https:` it renews the dev certificate first, and stops if Tailscale refuses. |
 | `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
 | `mael env status` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
