@@ -369,8 +369,9 @@ project root's `.env` template:
 PUBLIC_URL=$DEV_SCHEME://$DEV_HOST:$FRONTEND_PORT
 ```
 
-Keep `localhost` for a URL that one service on the machine uses to reach another. A proxy
-target is the usual case. Under HTTPS this changes: see [Serve over HTTPS](#serve-over-https).
+A URL that one service uses to reach another, such as a proxy target, also uses the dev host,
+with `$DEV_SCHEME`. The same line then works with HTTPS on or off: see
+[Serve over HTTPS](#serve-over-https).
 
 A server that listens on every interface also serves each other network the machine joins.
 Close the dev ports to those networks at the firewall.
