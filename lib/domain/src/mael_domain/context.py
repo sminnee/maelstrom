@@ -38,12 +38,32 @@ class GlobalConfig:
     open_command: str = "code"
     #: The host reported URLs name. ``None`` means ``localhost``.
     dev_host: str | None = None
+    #: Serve dev envs over HTTPS with a tailnet certificate. Needs ``dev_host``.
+    dev_https: bool = False
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
     openai_api_key: str | None = None
     github_merge_token: str | None = None
     slack_webhooks: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def url_host(self) -> str:
+        """The host every reported URL names: the dev host, or ``localhost``."""
+        return self.dev_host or "localhost"
+
+    @property
+    def tls_host(self) -> str | None:
+        """The host the dev certificate names, or ``None`` when TLS is off.
+
+        A certificate names the dev host, so ``dev_https`` without one is off.
+        """
+        return self.dev_host if self.dev_https else None
+
+    @property
+    def dev_scheme(self) -> str:
+        """``https`` when dev envs serve TLS, else ``http``."""
+        return "https" if self.tls_host else "http"
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -95,6 +115,7 @@ class GlobalConfig:
             projects_dir=Path(projects_dir).expanduser(),
             open_command=open_command,
             dev_host=dev_host,
+            dev_https=data.get("dev_https") is True,
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,

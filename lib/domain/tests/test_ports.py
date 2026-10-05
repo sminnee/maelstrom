@@ -431,6 +431,35 @@ class TestGetAppUrl:
 
         assert result == ("http://desk.tailnet.ts.net:3000", False)
 
+    @pytest.mark.parametrize(
+        ("config_text", "expected"),
+        [
+            (
+                "dev_host: desk.tailnet.ts.net\ndev_https: true\n",
+                "https://desk.tailnet.ts.net:3000",
+            ),
+            ("dev_https: true\n", "http://localhost:3000"),
+        ],
+    )
+    def test_dev_https_names_the_https_scheme(
+        self, tmp_path, monkeypatch, config_text, expected
+    ):
+        """``dev_https:`` reports ``https://``, but only with a dev host: no
+        certificate names ``localhost``."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".maelstrom").mkdir()
+        (tmp_path / ".maelstrom" / "config.yaml").write_text(config_text)
+        project_path = tmp_path / "Projects" / "myproject"
+        worktree_path = project_path / "myproject-alpha"
+        worktree_path.mkdir(parents=True)
+        (worktree_path / ".maelstrom.yaml").write_text("port_names: [APP, SERVER]")
+        record_port_allocation(project_path, "alpha", 300)
+
+        with patch("mael_domain.ports.is_port_free", return_value=True):
+            result = get_app_url(project_path, "alpha")
+
+        assert result == (expected, False)
+
     def test_no_web_port_name(self, tmp_path, monkeypatch):
         """Test None returned when config has no web-facing port name."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)

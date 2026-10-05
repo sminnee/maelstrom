@@ -231,22 +231,23 @@ def test_a_worktree_row_carries_its_env_from_its_own_config(
 
 def test_a_worktree_row_links_to_the_dev_host(project_with_worktree):
     """With a global ``dev_host:``, the app URL and each dev env link name it,
-    so a device on another machine can open them."""
+    so a device on another machine can open them. ``dev_https:`` makes them
+    ``https://``."""
     from mael_domain import context
 
     project_path, worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
     (context.get_maelstrom_dir() / "config.yaml").write_text(
-        "dev_host: desk.tailnet.ts.net\n"
+        "dev_host: desk.tailnet.ts.net\ndev_https: true\n"
     )
     (worktree_path / ".maelstrom.yaml").write_text(
         "services:\n  web:\n    command: run web\n    ports: [FRONTEND]\n"
     )
     record_port_allocation(project_path, "alpha", 321)
     row = _row_for(project_path, None)
-    assert row["app_url"] == "http://desk.tailnet.ts.net:3210"
+    assert row["app_url"] == "https://desk.tailnet.ts.net:3210"
     assert [s["url"] for s in row["env"]["services"]] == [
-        "http://desk.tailnet.ts.net:3210"
+        "https://desk.tailnet.ts.net:3210"
     ]
 
 
