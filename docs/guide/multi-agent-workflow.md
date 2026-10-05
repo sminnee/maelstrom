@@ -176,20 +176,22 @@ Three or four in flight is comfortable; ten means the pull requests queue up beh
 
 ## 4. Finish
 
-When an execute session's gates pass, it runs the finishing sequence **without asking**. The
-gates are the project's automated checks — tests, lint and type check, as CLAUDE.md defines
-them:
+When an execute session's implementation is written, it runs the finishing sequence **without
+asking**. The gates are the project's automated checks — tests, lint and type check, as
+CLAUDE.md defines them:
 
-1. Commit the implementation.
-2. Write `.drafts/pr.md` — the decisions and their rationale, which review reads first.
-3. Run `/code-review` — it uncommits the branch and reviews the working tree, applying findings
+1. Rebase onto the current base: `mael sync --no-push`.
+2. Commit the implementation, then run the gates on the clean tree.
+3. Write `.drafts/pr.md` — the decisions and their rationale, which review reads first.
+4. Run `/code-review` — it uncommits the branch and reviews the working tree, applying findings
    as plain edits and committing them.
-4. Run `/present` — re-cut the reviewed tree into story commits, one per design decision, so the
+5. Run `/present` — re-cut the reviewed tree into story commits, one per design decision, so the
    reviewer reads the change as a story rather than as the order the work happened in.
-5. Push: `mael gh create-pr --squash`. The `--squash` autosquashes any fixups into
+6. Push: `mael gh create-pr --squash`. The `--squash` autosquashes any fixups into
    their targets while rebasing onto the branch's base, so the PR lands with clean history.
-6. Close the task: `mael task status done`.
-7. Run `/watch-pr` to take CI (continuous integration) to green.
+   The project's [pre-push check](pull-requests.md#the-pre-push-check) runs after that rebase.
+7. Close the task: `mael task status done`.
+8. Run `/watch-pr` to take CI (continuous integration) to green.
 
 When the work has a result you can see, the session also writes a **verification** at
 `.drafts/verification.md`. It says what the session checked, with screenshots and Playwright

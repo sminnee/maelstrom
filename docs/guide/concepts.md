@@ -194,7 +194,7 @@ mael task promote <draft>…  →  mael task status done  →  mael task next --
    │
    ▼
 Execute session (auto mode, own worktree, own ports)
-   │  implement → commit → /code-review → /present
+   │  implement → sync → commit + gates → /code-review → /present
    ▼
 mael gh create-pr --squash            →   mael task status done   →   /watch-pr
    │
