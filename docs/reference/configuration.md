@@ -29,6 +29,7 @@ Put this file in your repository root.
 | `shared_port_names` | list of string | `[]` | Legacy flat port names shared across worktrees in the project. |
 | `main_port_base` | int | — | Port base reserved for the `_main` worktree, making it the project's fixed environment. Must be 1-6552 and outside 300-999. See below. |
 | `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation and on `mael env start`. |
+| `pre_push_cmd` | string | — | Check that runs after the last rebase and before a push. See below. |
 | `start_cmd` | string | `""` | Fallback start command when there is no `services:` block and no Procfile. |
 | `linear` | map | — | Linear settings. See below. |
 | `sentry` | map | — | Sentry settings. See below. |
@@ -68,6 +69,28 @@ without a word; above 6552 the derived ports pass 65535 and no service can bind.
 
 Omit the key and `_main` keeps no ports and no `.env`. See
 [the fixed environment](../guide/worktrees.md#the-fixed-environment).
+
+### `pre_push_cmd:`
+
+A shell command that verifies the exact commit maelstrom is about to push. Use it when the project
+records that its checks passed on a commit, and CI reuses that record. The record is only useful
+when the pushed commit is the one the check saw.
+
+```yaml
+pre_push_cmd: bin/pre-push-gates
+```
+
+The command runs with `sh -c` in the worktree, after the rebase. Its output streams to the
+console. A non-zero exit stops the push, and the branch stays rebased and unpushed.
+
+| Command | When the check runs |
+|---|---|
+| `mael gh create-pr` | Always. When the base moves during the check, it rebases and checks again, up to 3 times. |
+| `mael sync` | When the branch is on the remote, so the sync will push. |
+| `mael sync-all`, the orchestrator's sync, opening and closing a worktree | Never. These push without the check. |
+
+`--skip-pre-push` on `mael sync` and `mael gh create-pr` pushes without the check. Keep it for an
+emergency.
 
 ### `services:`
 

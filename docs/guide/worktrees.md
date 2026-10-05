@@ -249,6 +249,10 @@ mael sync --autorepair     # on conflict, let a headless Claude session resolve 
 mael sync-all              # every worktree in the project
 ```
 
+When the branch is on the remote, `mael sync` runs the project's
+[pre-push check](../reference/configuration.md#pre_push_cmd) before it pushes. A failed check
+leaves the branch rebased and unpushed. `--skip-pre-push` pushes without it.
+
 `--abort` is worth knowing: without it, a conflicting rebase leaves the worktree
 mid-operation for you to resolve. With it, the worktree returns to its prior state.
 
@@ -295,7 +299,7 @@ Every command that rebases takes the flag:
 mael sync --autorepair                    # this worktree
 mael sync --squash --no-push --autorepair # tidy fixups, publish nothing
 mael sync-all --autorepair                # every worktree, one session per conflict
-mael gh create-pr --autorepair            # the pre-push sync
+mael gh create-pr --autorepair            # the rebase before the push
 ```
 
 `--autorepair` is off by default on all four. The flag starts an unattended agent, so it

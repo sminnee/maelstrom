@@ -208,6 +208,10 @@ environment, asks the agent daemon to stop the agents running there, then signal
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. Rejected with `--no-push`. |
 | `--no-push` | Rebase only, and leave the remote branch alone. Use it when something else may be working in the worktree. |
 | `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue the rebase. Announces the repair, then streams the session's output to the console. Supersedes `--abort`: a failure aborts and restores the worktree, except where the session finished the rebase on another branch and there is nothing to abort. |
+| `--skip-pre-push` | Push without running the project's `pre_push_cmd`. For an emergency only. |
+
+Before it pushes, `mael sync` runs the project's [`pre_push_cmd`](configuration.md#pre_push_cmd)
+on the rebased branch. A failed check leaves the branch rebased and unpushed.
 
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
@@ -221,6 +225,8 @@ mael sync --base main              # unstack it again
 | Option | Description |
 |---|---|
 | `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. One session runs per conflicting worktree, in turn. |
+
+`mael sync-all` does not run the project's [`pre_push_cmd`](configuration.md#pre_push_cmd).
 
 ```bash
 mael sync-all --autorepair         # repair each conflicting worktree in the sweep
@@ -887,13 +893,17 @@ The PR body comes from the PR draft — see [the pull requests guide](../guide/p
 
 A failed body write warns and still returns the PR URL — the branch is pushed either way.
 
+The command runs the project's [pre-push check](../guide/pull-requests.md#the-pre-push-check)
+after its last rebase, then pushes once. A failed check pushes nothing and opens no PR.
+
 | Option | Description |
 |---|---|
 | `--draft` | Create as a draft PR. |
 | `--wait` | Wait for CI checks to finish after creating the PR. |
 | `--wait-for-review` | Wait until a reviewer leaves feedback. Exits 0 on the first review, 2 on timeout. |
 | `--squash` | Autosquash `fixup!` commits before pushing. |
-| `--autorepair` | On a conflict in the pre-push sync, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. |
+| `--autorepair` | On a conflict in the rebase before the push, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. |
+| `--skip-pre-push` | Push without running the project's `pre_push_cmd`. For an emergency only. |
 | `--target TEXT` | Project/worktree target for directory resolution. |
 
 **`mael gh read-pr`**
