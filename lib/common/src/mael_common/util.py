@@ -109,7 +109,11 @@ def atomic_write_json(
 #: ``_main/.venv/bin`` — so every process it spawns inherits ``_main``'s venv.
 #: That value names the wrong venv in every worktree but ``_main``, and means
 #: nothing at all to a child that is not a Python program.
-STRIPPED_CHILD_ENV = ("VIRTUAL_ENV",)
+#:
+#: The dev certificate paths come from a service's ``.env``, so the orchestrator
+#: and every agent carry them. Inherited after ``dev_https:`` is turned off, a
+#: stale pair would turn TLS back on in whatever server the child starts.
+STRIPPED_CHILD_ENV = ("VIRTUAL_ENV", "DEV_TLS_CERT", "DEV_TLS_KEY")
 
 
 def sanitise_child_env(env: Mapping[str, str]) -> dict[str, str]:
