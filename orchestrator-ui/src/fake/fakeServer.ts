@@ -1028,6 +1028,10 @@ function command(
     if (!world.projects[project]) return notFound(`project ${project}`);
     if (!str('branch')?.trim()) return error(400, 'invalid', 'A branch is required');
     if (!str('prompt')?.trim()) return error(400, 'invalid', 'A prompt is required');
+    // As `validate.py`.
+    if (b.investigate && str('mode') === 'plan') {
+      return error(400, 'invalid', 'An investigation cannot plan');
+    }
     // `validate.py` refuses a non-Claude execute model here, so the fake holds
     // the same line: `/model` cannot change which binary is running.
     const executeModel = str('executeModel');

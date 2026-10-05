@@ -356,10 +356,13 @@ export function ModeSelect({
   mode,
   onChange,
   readOnly,
+  modes = MODES,
 }: {
   mode: PermissionMode;
   onChange: (mode: PermissionMode) => void;
   readOnly?: boolean;
+  /** The modes on offer, for work that cannot run under all of them. */
+  modes?: readonly PermissionMode[];
 }) {
   return (
     <select
@@ -367,7 +370,7 @@ export function ModeSelect({
       disabled={readOnly}
       onChange={(e) => onChange(e.target.value as PermissionMode)}
     >
-      {MODES.map((m) => (
+      {modes.map((m) => (
         <option key={m} value={m}>
           {m}
         </option>

@@ -915,8 +915,8 @@ none and the button says so.
 The top bar's "New" control opens `newwork/NewWork.tsx`, in both views so the affordance never
 moves. The form is one step: everything the work needs is on one surface.
 
-- **Every kind** takes a project, a kind — task, free agent or Linear — and the prose that says
-  what the work is. The prose is the only field a task needs.
+- **Every kind** takes a project, a kind — task, free agent, investigation or Linear — and the
+  prose that says what the work is. The prose is the only field a task needs.
 - **A task** also shows its title, its branch, its planning level, and Advanced. "Save" writes the
   task as `todo`; "Start" writes it and launches it. Both put it on the desk. The prose becomes
   the task's content unchanged, so the surface shows no second content field. Advanced's Model and
@@ -935,6 +935,10 @@ moves. The form is one step: everything the work needs is on one surface.
   new task's own default — and `opus`, the UI's shortlist default. Model and Execute Model sit
   side by side, the same as a task's Advanced row — defaulting the same way too, though a free
   agent has no plan to default "same as" from. "Start" runs `useStartAgent`.
+- **An investigation** is a free agent told not to change code. Its branch field is empty, with
+  the project's `_main` worktree branch as its placeholder, and an empty field starts on that
+  branch. It has no Suggest, because the branch is not new work. Mode offers `auto` and `normal`
+  only, and a held `plan` shows as `auto`. It has no Execute Model. "Start" runs `useStartAgent` with `investigate: true`.
 - **The Linear kind** shows only for a project whose `.maelstrom.yaml` names a `linear.team_id`,
   which reaches the UI as `hasLinear` on the wire project. One combobox offers the current cycle's
   issues, each row showing the issue id and its title; the field carries the id. "Save" and "Start"
