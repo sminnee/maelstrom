@@ -614,6 +614,9 @@ def validate_command(
         mode = cmd.get("mode")
         if mode is not None and mode not in MODES:
             return _err("invalid", f"No mode {mode}")
+        if cmd.get("investigate") and mode == "plan":
+            # A plan hands over to an execute session, which changes code.
+            return _err("invalid", "An investigation cannot plan")
         execute_model = cmd.get("executeModel")
         if execute_model:
             # Unlike `model`, which the daemon refuses if it cannot use it, a

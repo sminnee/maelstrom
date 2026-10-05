@@ -766,6 +766,12 @@ Four commands write new work.
   session id, and nothing exports `MAEL_TASK_*`. Those two absences are the whole definition of
   a free agent.
 
+  `investigate: true` starts an investigation. The payload names `investigation_prompt_file()`
+  in place of `agent_prompt_file()`: one file that holds the markers and the no-code rules,
+  because the daemon takes one file. `validate.py` refuses `investigate` with `mode: "plan"`.
+  When a shared prompt file is missing, the server refuses the start before it opens the
+  worktree: without its rules an investigation is an ordinary free agent.
+
 Not built: the opencode harness, and the cmux placement the CLI does.
 
 ## Closing a worktree

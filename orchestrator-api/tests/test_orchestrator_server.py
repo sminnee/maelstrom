@@ -4081,6 +4081,58 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
     assert [entry["id"] for entry in desk["desk"]] == ["agent:new1"]
 
 
+def _investigate(harness, **over):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents",
+                {
+                    "project": PROJECT,
+                    "branch": "main",
+                    "prompt": "Why is the export slow?",
+                    "mode": "auto",
+                    "investigate": True,
+                    **over,
+                },
+            )
+
+    return run(scenario())
+
+
+def test_an_investigation_sends_the_investigation_prompt_file(
+    harness, monkeypatch, tmp_path
+):
+    from mael_domain import shared_dir
+
+    monkeypatch.setattr(shared_dir, "get_maelstrom_dir", lambda: tmp_path)
+    reply = _investigate(harness)
+    assert reply.status == 200
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    assert start["system_prompt_file"] == str(
+        tmp_path / "agent-prompts" / "investigation.md"
+    )
+
+
+def test_an_investigation_without_its_rules_is_refused_before_the_worktree(
+    harness, monkeypatch, tmp_path
+):
+    """Without the rules it would be an ordinary free agent in the user's checkout."""
+    from mael_domain import shared_dir
+
+    markers_only = tmp_path / "shared"
+    markers_only.mkdir()
+    (markers_only / "agent-prompt.md").write_text("markers")
+    monkeypatch.setattr(shared_dir, "get_shared_dir", lambda: markers_only)
+    opened: list[str] = []
+    harness.tasks.open_worktree = lambda project, branch, base: opened.append(branch)
+
+    reply = _investigate(harness)
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert opened == []
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
 def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
     opened: list[tuple[str, str, str]] = []
 
