@@ -1294,6 +1294,21 @@ class TestSyncNoPush:
         sync.assert_called_once()
         squash.assert_not_called()
 
+    def test_the_pre_push_check_runs_by_default(self):
+        _, (sync, _, _, _) = self._run([])
+
+        assert sync.call_args.kwargs["pre_push"] is True
+
+    def test_skip_pre_push_reaches_the_sync(self):
+        _, (sync, _, _, _) = self._run(["--skip-pre-push"])
+
+        assert sync.call_args.kwargs["pre_push"] is False
+
+    def test_skip_pre_push_reaches_the_repairing_sync(self):
+        _, (_, sync_repair, _, _) = self._run(["--autorepair", "--skip-pre-push"])
+
+        assert sync_repair.call_args.kwargs["pre_push"] is False
+
     def test_no_push_with_close_is_a_usage_error(self):
         """--close deletes the remote branch, which is a push."""
         result, (_, _, squash, _) = self._run(["--no-push", "--close"])
