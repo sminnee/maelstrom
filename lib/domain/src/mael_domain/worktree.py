@@ -1311,6 +1311,7 @@ def rebase_worktree_with_autorepair(
         branch=first.branch,
         message=f"Rebased {first.branch} onto origin/main",
         repaired=True,
+        base=first.base,
     )
 
 
@@ -2675,6 +2676,33 @@ def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
     )
     if result.returncode != 0:
         raise PrePushFailed(config.pre_push_cmd, result.returncode)
+
+
+def base_moved(worktree_path: Path, base: str) -> bool:
+    """True when origin's ``base`` has a commit this branch does not hold.
+
+    Compares against ``HEAD``, not ``origin/<base>``: every worktree shares that
+    ref, so another worktree's fetch can move it during a long check. Asks the
+    remote without fetching, so it writes no refs and needs no lock. An
+    unanswered question is not a move: the caller pushes either way.
+    """
+    remote = run_git(
+        ["ls-remote", "origin", f"refs/heads/{base}"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    if remote.returncode != 0 or not remote.stdout.strip():
+        return False
+    tip = remote.stdout.split()[0]
+    # A tip that is not a local object fails this too, and is a move.
+    held = run_git(
+        ["merge-base", "--is-ancestor", tip, "HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    return held.returncode != 0
 
 
 def create_worktree(

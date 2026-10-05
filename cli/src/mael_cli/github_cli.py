@@ -21,6 +21,7 @@ from mael_domain.github import (
     wait_for_review,
 )
 from mael_domain.github_model import GitHubError, NoPullRequest, SyncFailed
+from mael_domain.worktree_model import PrePushFailed
 
 from .orchestrator_notify import tell_orchestrator
 
@@ -128,7 +129,12 @@ def gh_create_pr(draft, wait, wait_for_review_flag, squash, autorepair, target):
         # worktree poll is up to a minute away — landing on exactly the moment
         # the user looks at the card for it. Never raises; see the module.
         tell_orchestrator(cwd, REFRESH_PATH)
-    except (GitHubError, SyncFailed, subprocess.CalledProcessError) as e:
+    except (
+        GitHubError,
+        SyncFailed,
+        PrePushFailed,
+        subprocess.CalledProcessError,
+    ) as e:
         # CalledProcessError is the belt to `create_pr`'s braces: it converts the
         # git calls it makes directly, but `sync_worktree` and `update_local_main`
         # are not bounded to GitHubError yet. A git failure must read as a

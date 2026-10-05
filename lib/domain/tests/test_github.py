@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from git_helpers import advance_origin_main, create_commit, remote_tip
+from git_helpers import run_git as git
 
 from mael_domain import github
 from mael_domain.base_store import InMemoryBaseStore
@@ -39,8 +41,8 @@ from mael_domain.github_model import (
     PullRequestNotMergeable,
     SyncFailed,
 )
-from mael_domain.worktree import SyncResult
-from mael_domain.worktree_model import BaseRef
+from mael_domain.worktree import SyncResult, base_moved
+from mael_domain.worktree_model import BaseRef, PrePushFailed
 
 
 def _pr(state="OPEN", merged=False, number=7):
@@ -261,17 +263,17 @@ class TestCreateProjectRepo:
 
 
 class TestCreatePrAutorepair:
-    """`create_pr` chooses its pre-push sync by the ``autorepair`` argument."""
+    """`create_pr` chooses its pre-push rebase by the ``autorepair`` argument."""
 
     def _run(self, tmp_path, **kwargs):
         """Call create_pr with both syncs stubbed; return (plain, repair)."""
         sync_result = SyncResult(success=True, branch="feature/work", message="ok")
         with (
             patch(
-                "mael_domain.github.sync_worktree", return_value=sync_result
+                "mael_domain.github.rebase_worktree", return_value=sync_result
             ) as plain,
             patch(
-                "mael_domain.github.sync_worktree_with_autorepair",
+                "mael_domain.github.rebase_worktree_with_autorepair",
                 return_value=sync_result,
             ) as repair,
             patch("mael_domain.github.run_cmd") as run,
@@ -326,7 +328,7 @@ class TestCreatePrAutorepair:
         )
         with (
             patch(
-                "mael_domain.github.sync_worktree_with_autorepair",
+                "mael_domain.github.rebase_worktree_with_autorepair",
                 return_value=repaired,
             ),
             patch("mael_domain.github.run_cmd") as run,
@@ -364,10 +366,166 @@ class TestCreatePrAutorepair:
             aborted=False,
         )
         with patch(
-            "mael_domain.github.sync_worktree_with_autorepair", return_value=stranded
+            "mael_domain.github.rebase_worktree_with_autorepair", return_value=stranded
         ):
             with pytest.raises(SyncFailed, match="git rebase --continue"):
                 create_pr(cwd=tmp_path, autorepair=True)
+
+
+_MOVING_HOOK = """\
+git rev-parse HEAD >> {log}
+git ls-remote origin refs/heads/feature/work | cut -f1 >> {remote_log}
+if [ "$(wc -l < {log})" -le {moves} ]; then
+  main=$(git ls-remote origin refs/heads/main | cut -f1)
+  c=$(git commit-tree "$(git rev-parse "$main^{{tree}}")" -p "$main" -m "main moves")
+  # Through origin, so the shared origin/main moves too, as another
+  # worktree's fetch would move it.
+  git push -q origin "$c:refs/heads/main"
+fi
+exit {exit_code}
+"""
+
+
+class TestCreatePrRunsThePrePushCheck:
+    """``create_pr`` runs the project's pre_push_cmd after its last rebase.
+
+    A project can record that its checks passed on a commit. The record is only
+    reused when the pushed commit is the one the check saw, so the check runs
+    after the rebase, and again whenever the base moved while it ran.
+
+    Real git against a bare remote; only ``gh`` is faked. Every ``run_cmd`` is
+    recorded, so a push from the worktree module counts as one from here. The
+    hook is a real shell command that logs the commit it saw and can move
+    origin's main, as another merged PR would.
+    """
+
+    def _run(self, project_with_worktree, tmp_path, *, moves=0, exit_code=0, **kw):
+        _, cwd, _ = project_with_worktree
+        create_commit(cwd, "a.txt", "a\n", "feat: a")
+        git(cwd, "push", "-q", "origin", "feature/work:feature/work")
+        # Main moves first, so the rebase gives a new commit and the order of
+        # the check and the push shows.
+        advance_origin_main(cwd)
+        before = git(cwd, "rev-parse", "HEAD").stdout.strip()
+
+        log, remote_log = tmp_path / "hook.log", tmp_path / "remote.log"
+        hook = _MOVING_HOOK.format(
+            log=log, remote_log=remote_log, moves=moves, exit_code=exit_code
+        )
+        (cwd / ".maelstrom.yaml").write_text(f"pre_push_cmd: {json.dumps(hook)}\n")
+
+        calls: list[list[str]] = []
+        announced: list[str] = []
+        real_run_cmd = github.run_cmd
+
+        def fake_run_cmd(cmd, *args, **kwargs):
+            calls.append(list(cmd))
+            if cmd[:3] == ["gh", "pr", "view"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "no pull requests")
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return subprocess.CompletedProcess(cmd, 0, "https://example/pr", "")
+            return real_run_cmd(cmd, *args, **kwargs)
+
+        error = None
+        with (
+            patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
+            patch("mael_domain.worktree.run_cmd", side_effect=fake_run_cmd),
+        ):
+            try:
+                create_pr(cwd=cwd, announce=announced.append, **kw)
+            except Exception as e:  # noqa: BLE001 - the test inspects it
+                error = e
+
+        seen = log.read_text().split() if log.exists() else []
+        remote_seen = remote_log.read_text().split() if remote_log.exists() else []
+        return SimpleNamespace(
+            cwd=cwd,
+            before=before,
+            head=git(cwd, "rev-parse", "HEAD").stdout.strip(),
+            remote=remote_tip(cwd, "feature/work"),
+            seen=seen,
+            remote_seen=remote_seen,
+            pushes=[c for c in calls if c[:2] == ["git", "push"]],
+            creates=[c for c in calls if c[:3] == ["gh", "pr", "create"]],
+            announced=announced,
+            error=error,
+        )
+
+    def test_the_check_sees_the_commit_that_is_pushed(
+        self, project_with_worktree, tmp_path
+    ):
+        r = self._run(project_with_worktree, tmp_path)
+
+        assert r.error is None
+        assert r.seen == [r.head]
+        assert r.remote == r.head
+
+    def test_the_branch_is_pushed_once_after_the_check(
+        self, project_with_worktree, tmp_path
+    ):
+        """The check runs before any push, and one push follows it."""
+        r = self._run(project_with_worktree, tmp_path)
+
+        assert r.head != r.before
+        assert r.remote_seen == [r.before]
+        assert len(r.pushes) == 1
+
+    def test_an_unreachable_remote_is_not_a_moved_base(self, project_with_worktree):
+        """The caller pushes either way, so an unanswered question must not loop."""
+        _, cwd, _ = project_with_worktree
+        git(cwd, "remote", "set-url", "origin", "/nowhere/at/all.git")
+
+        assert base_moved(cwd, "main") is False
+
+    def test_a_failing_check_raises_before_the_pr_is_created(
+        self, project_with_worktree, tmp_path
+    ):
+        r = self._run(project_with_worktree, tmp_path, exit_code=3)
+
+        assert isinstance(r.error, PrePushFailed)
+        assert r.creates == []
+        assert r.pushes == []
+        assert r.remote == r.before
+
+    def test_a_base_that_moved_during_the_check_is_rebased_and_checked_again(
+        self, project_with_worktree, tmp_path
+    ):
+        r = self._run(project_with_worktree, tmp_path, moves=1)
+
+        assert r.error is None
+        assert len(r.seen) == 2
+        assert r.seen[-1] == r.head
+        assert r.seen[0] != r.head
+        # The second check saw main's new commit under the branch.
+        assert git(r.cwd, "log", "-1", "--format=%s", "HEAD~1").stdout.strip() == (
+            "main moves"
+        )
+        assert r.remote == r.head
+        assert r.announced == [
+            "main moved during the pre-push check; rebasing and checking again."
+        ]
+
+    def test_after_three_checks_it_pushes_and_warns(
+        self, project_with_worktree, tmp_path
+    ):
+        """A base that never settles must not hold the push forever."""
+        r = self._run(project_with_worktree, tmp_path, moves=99)
+
+        assert r.error is None
+        assert len(r.seen) == 3
+        assert r.remote == r.head == r.seen[-1]
+        assert len(r.pushes) == 1
+        assert r.announced[-1] == (
+            "Warning: main moved during each of 3 pre-push checks. Pushing "
+            "anyway; CI may not reuse the project's records."
+        )
+
+    def test_skipping_the_check_still_pushes(self, project_with_worktree, tmp_path):
+        r = self._run(project_with_worktree, tmp_path, exit_code=3, pre_push=False)
+
+        assert r.error is None
+        assert r.seen == []
+        assert r.remote == r.head
 
 
 def _graphql_page(by_branch):
@@ -908,7 +1066,7 @@ class TestCreatePrRegistersTheStack:
             )
 
         with (
-            patch("mael_domain.github.sync_worktree", return_value=sync_result),
+            patch("mael_domain.github.rebase_worktree", return_value=sync_result),
             patch("mael_domain.github.GitConfigBaseStore", return_value=store),
             patch("mael_domain.github.get_current_branch", return_value=branch),
             patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
@@ -988,7 +1146,7 @@ class TestCreatePrRegistersTheStack:
 
         with (
             patch(
-                "mael_domain.github.sync_worktree",
+                "mael_domain.github.rebase_worktree",
                 return_value=SyncResult(
                     success=True, branch="feat/child", message="ok"
                 ),
@@ -1216,7 +1374,7 @@ class TestCreatePrUsesThePrDraft:
             )
 
         with (
-            patch("mael_domain.github.sync_worktree", return_value=sync_result),
+            patch("mael_domain.github.rebase_worktree", return_value=sync_result),
             patch(
                 "mael_domain.github.GitConfigBaseStore",
                 return_value=InMemoryBaseStore(),
