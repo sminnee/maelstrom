@@ -9,6 +9,7 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 import asyncio
 import logging
 import signal
+import ssl
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import suppress
@@ -309,8 +310,16 @@ def _log_unhandled(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
     )
 
 
-def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None:
+def run_server(
+    host: str,
+    port: int,
+    log_level: str = DEFAULT_LOG_LEVEL,
+    *,
+    ssl_context: ssl.SSLContext | None = None,
+) -> None:
     """Build the orchestrator and serve it until interrupted.
+
+    An ``ssl_context`` serves HTTPS, for a page that is a secure context.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
@@ -325,7 +334,9 @@ def run_server(host: str, port: int, log_level: str = DEFAULT_LOG_LEVEL) -> None
         # check runs on the loop, because that is the thread the connection
         # binds to and every later call has to come from the same one.
         await db.check()
-        serving = asyncio.ensure_future(serve_app(build_app(orchestrator), host, port))
+        serving = asyncio.ensure_future(
+            serve_app(build_app(orchestrator), host, port, ssl_context=ssl_context)
+        )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
         # and the orchestrator never stops its pollers or flushes the desk.
@@ -385,15 +396,37 @@ def cli() -> None:
     type=click.Choice(LOG_LEVELS, case_sensitive=False),
     help="How much to log.",
 )
-def cmd_serve(host: str, port: int, log_level: str) -> None:
+@click.option(
+    "--tls-cert",
+    envvar="DEV_TLS_CERT",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Certificate file. Serves HTTPS with --tls-key. [env: DEV_TLS_CERT]",
+)
+@click.option(
+    "--tls-key",
+    envvar="DEV_TLS_KEY",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Private key file for --tls-cert. [env: DEV_TLS_KEY]",
+)
+def cmd_serve(
+    host: str, port: int, log_level: str, tls_cert: str | None, tls_key: str | None
+) -> None:
     """Run the orchestrator server in the foreground.
 
     The agent host is the daemon ``MAEL_AGENT_ROOT`` names, so a worktree's
-    orchestrator talks to that worktree's daemon.
+    orchestrator talks to that worktree's daemon. The TLS options default to
+    the dev certificate a worktree ``.env`` names under ``dev_https:``.
     """
-    click.echo(f"Serving on http://{host}:{port}", err=True)
+    ssl_context = None
+    if tls_cert or tls_key:
+        if not (tls_cert and tls_key):
+            raise click.UsageError("--tls-cert and --tls-key go together.")
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(tls_cert, tls_key)
+    scheme = "https" if ssl_context else "http"
+    click.echo(f"Serving on {scheme}://{host}:{port}", err=True)
     try:
-        run_server(host, port, log_level)
+        run_server(host, port, log_level, ssl_context=ssl_context)
     except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
         # bury it.
