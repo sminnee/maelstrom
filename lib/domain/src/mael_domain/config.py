@@ -179,6 +179,8 @@ class MaelstromConfig:
     shared_port_names: list[str] = field(default_factory=list)
     start_cmd: str = ""
     install_cmd: str = ""
+    # The project's pre-push check — see "Pre-push check" in CONTEXT.md.
+    pre_push_cmd: str | None = None
     # Structured service definitions (preferred over Procfile / start_cmd).
     # Insertion order is preserved for deterministic port allocation.
     services: list[ServiceDef] = field(default_factory=list)
@@ -226,6 +228,7 @@ class MaelstromConfig:
             shared_port_names=data.get("shared_port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
+            pre_push_cmd=data.get("pre_push_cmd"),
             services=services,
             main_port_base=main_port_base,
             linear_team_id=linear_config.get("team_id"),

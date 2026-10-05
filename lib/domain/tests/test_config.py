@@ -34,11 +34,13 @@ class TestMaelstromConfig:
             "port_names": ["FRONTEND", "SERVER", "DB"],
             "start_cmd": "ult",
             "install_cmd": "npm install",
+            "pre_push_cmd": "bin/pre-push-gates",
         }
         config = MaelstromConfig.from_dict(data)
         assert config.port_names == ["FRONTEND", "SERVER", "DB"]
         assert config.start_cmd == "ult"
         assert config.install_cmd == "npm install"
+        assert config.pre_push_cmd == "bin/pre-push-gates"
 
     def test_from_dict_partial(self):
         """Test creating config from partial dictionary."""
@@ -54,6 +56,7 @@ class TestMaelstromConfig:
         assert config.port_names == []
         assert config.start_cmd == ""
         assert config.install_cmd == ""
+        assert config.pre_push_cmd is None
 
     def test_from_dict_uptimerobot_monitors(self):
         """Test parsing uptimerobot.monitors list."""
