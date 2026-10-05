@@ -12,6 +12,7 @@ fail, or print, because nothing was listening.
 
 import http.client
 import logging
+import ssl
 import urllib.request
 from pathlib import Path
 
@@ -26,17 +27,28 @@ PORT_VAR = "ORCHESTRATOR_PORT"
 #: its work and is holding the user's terminal open only for this.
 TIMEOUT_SECS = 2.0
 
+#: TLS for the loopback dial, unverified: the dev certificate names the dev
+#: host, not ``127.0.0.1``, and a uv-built Python may have no CA store. Plain
+#: ``http://`` URLs ignore it.
+_LOOPBACK_TLS = ssl.create_default_context()
+_LOOPBACK_TLS.check_hostname = False
+_LOOPBACK_TLS.verify_mode = ssl.CERT_NONE
+
 
 def orchestrator_url(worktree_path: Path, path: str) -> str | None:
     """The URL for ``path`` on this worktree's orchestrator, if it has one.
 
     ``None`` when the worktree's ``.env`` names no port — a worktree made
     before the service existed, or a directory that is not a worktree at all.
+    The scheme is the ``.env``'s ``DEV_SCHEME``: under ``dev_https:`` the
+    server speaks only TLS.
     """
-    port = read_env_file(worktree_path).get(PORT_VAR, "").strip()
+    env = read_env_file(worktree_path)
+    port = env.get(PORT_VAR, "").strip()
     if not port.isdigit():
         return None
-    return f"http://127.0.0.1:{port}{path}"
+    scheme = "https" if env.get("DEV_SCHEME") == "https" else "http"
+    return f"{scheme}://127.0.0.1:{port}{path}"
 
 
 def tell_orchestrator(worktree_path: Path, path: str) -> None:
@@ -61,7 +73,9 @@ def tell_orchestrator(worktree_path: Path, path: str) -> None:
         request = urllib.request.Request(
             url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST"
         )
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECS) as response:
+        with urllib.request.urlopen(
+            request, timeout=TIMEOUT_SECS, context=_LOOPBACK_TLS
+        ) as response:
             response.read()
     except (OSError, http.client.HTTPException, ValueError) as exc:
         log.debug("no orchestrator answered at %s: %s", url, exc)
