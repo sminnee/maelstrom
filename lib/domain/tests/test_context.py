@@ -53,6 +53,13 @@ class TestGlobalConfig:
         assert GlobalConfig.from_dict({}).dev_host is None
 
     @pytest.mark.parametrize(
+        ("value", "expected"), [(True, True), ("yes", False), (1, False), (None, False)]
+    )
+    def test_from_dict_reads_dev_https_only_when_true(self, value, expected):
+        """Only a YAML ``true`` turns HTTPS on; a string or number is not consent."""
+        assert GlobalConfig.from_dict({"dev_https": value}).dev_https is expected
+
+    @pytest.mark.parametrize(
         "value",
         ["http://desk.ts.net", "desk.ts.net:8080", "desk.ts.net/", "a b", ["a"], True],
     )

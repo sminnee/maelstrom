@@ -219,7 +219,7 @@ def get_app_url(
     worktree_name: str,
     service: str | None = None,
     *,
-    host: str | None = None,
+    origin: str | None = None,
 ) -> tuple[str, bool] | None:
     """Get the app URL and running status for a worktree.
 
@@ -235,7 +235,7 @@ def get_app_url(
         project_path: Path to the project.
         worktree_name: Name of the worktree (e.g., "alpha").
         service: Restrict the search to this declared service's ports.
-        host: The dev host, as :func:`service_url` takes it.
+        origin: The scheme and dev host, as :func:`get_dev_origin` returns them.
 
     Returns:
         Tuple of (url, is_running) e.g. ("http://localhost:3010", True),
@@ -276,23 +276,27 @@ def get_app_url(
         return None
 
     port = port_base * 10 + web_index
-    url = service_url(port, host)
+    url = service_url(port, origin)
     is_running = not is_port_free(port)
     return (url, is_running)
 
 
-def get_dev_host() -> str:
-    """The dev host: the global ``dev_host:`` key, or ``localhost`` without it."""
-    return context.load_global_config().dev_host or "localhost"
+def get_dev_origin() -> str:
+    """The scheme and dev host every reported URL starts with, without a port.
+
+    The host is the global ``dev_host:`` key, or ``localhost`` without it.
+    """
+    config = context.load_global_config()
+    return f"{config.dev_scheme}://{config.url_host}"
 
 
-def service_url(port: int, host: str | None = None) -> str:
+def service_url(port: int, origin: str | None = None) -> str:
     """The URL a reader opens to reach ``port`` on this machine.
 
-    ``host`` is the dev host. A caller that builds many URLs passes it, so the
-    config is read once. Without it, :func:`get_dev_host` answers.
+    ``origin`` is :func:`get_dev_origin`. A caller that builds many URLs passes
+    it, so the config is read once.
     """
-    return f"http://{host or get_dev_host()}:{port}"
+    return f"{origin or get_dev_origin()}:{port}"
 
 
 def generate_port_env_vars(port_base: int, port_names: list[str]) -> dict[str, str]:

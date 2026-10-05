@@ -38,7 +38,7 @@ from .github import get_open_prs, get_pr_for_branch
 from .github_model import PrStatus, RateLimited, is_open_pr
 from .ports import (
     get_app_url,
-    get_dev_host,
+    get_dev_origin,
     get_port_allocation,
     is_web_port_name,
     service_url,
@@ -205,7 +205,7 @@ async def build_list_all_data(
     # coroutine that waits on another: a project holding a permit while its
     # worktrees queue for one would deadlock the whole read.
     limit = asyncio.Semaphore(concurrency)
-    dev_host = get_dev_host()
+    dev_origin = get_dev_origin()
     # Projects whose pull request read was refused for quota. Collected rather
     # than raised per project: every project fails the same way once the budget
     # is spent, and the caller needs to hear it once.
@@ -219,7 +219,7 @@ async def build_list_all_data(
                 project_path,
                 live_sessions,
                 limit,
-                dev_host,
+                dev_origin,
                 active_branches=active_branches,
                 pr_cache=(pr_cache or {}).get(project_path.name, {}),
                 spent=spent,
@@ -274,8 +274,8 @@ class _ProjectContext:
     live_sessions: session_discovery.LiveSessionSet
     #: The project's shared services, read once for every row's env state.
     shared_status: list[ServiceStatus] | None
-    #: The host every reported URL names.
-    dev_host: str
+    #: The scheme and host every reported URL starts with.
+    dev_origin: str
     limit: asyncio.Semaphore
 
 
@@ -283,7 +283,7 @@ async def _project_data(
     project_path: Path,
     live_sessions: session_discovery.LiveSessionSet,
     limit: asyncio.Semaphore,
-    dev_host: str,
+    dev_origin: str,
     *,
     active_branches: set[str] | None = None,
     pr_cache: dict[str, PrStatus] | None = None,
@@ -366,7 +366,7 @@ async def _project_data(
         shared_status=await asyncio.to_thread(
             get_shared_status, JsonEnvStore(), project_name
         ),
-        dev_host=dev_host,
+        dev_origin=dev_origin,
         limit=limit,
     )
     read = await asyncio.gather(
@@ -452,7 +452,7 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
 
     app_url = None
     app_running = False
-    app_info = get_app_url(ctx.path, display_name, host=ctx.dev_host)
+    app_info = get_app_url(ctx.path, display_name, origin=ctx.dev_origin)
     if app_info:
         app_url, app_running = app_info
     env = await asyncio.to_thread(_env_summary, wt.path, display_name, ctx, app_url)
@@ -488,7 +488,7 @@ def _web_urls(
     port_base: int | None,
     declared: list[ServiceDef],
     port_names: list[str],
-    host: str,
+    origin: str,
 ) -> dict[str, str]:
     """Each per-worktree service's URL, on its first web-facing port."""
     if port_base is None:
@@ -498,7 +498,7 @@ def _web_urls(
         web = [p.name for p in svc.ports if is_web_port_name(p.name)]
         if not svc.shared and web and web[0] in port_names:
             urls[svc.name] = service_url(
-                port_base * 10 + port_names.index(web[0]), host
+                port_base * 10 + port_names.index(web[0]), origin
             )
     return urls
 
@@ -515,7 +515,7 @@ def _env_summary(
     config = load_config_or_default(worktree_path)
     declared = config.services
     port_base = get_port_allocation(ctx.path, worktree)
-    urls = _web_urls(port_base, declared, service_port_names(config), ctx.dev_host)
+    urls = _web_urls(port_base, declared, service_port_names(config), ctx.dev_origin)
     if not declared and app_url:
         urls["app"] = app_url
     tracked = get_env_status(JsonEnvStore(), ctx.name, worktree)
