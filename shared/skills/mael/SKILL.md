@@ -12,7 +12,7 @@ If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the us
 ## Reference files
 
 - Read [dev-env.md](dev-env.md) before you add or change a service, a port, a `.env` value, or a dev URL.
-- [verification.md](verification.md) is read from step 1 of "Completion".
+- [verification.md](verification.md) is read from step 2 of "Completion".
 
 ## Tasks and planning
 
@@ -32,17 +32,20 @@ Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the br
 
 ## Completion
 
-After green gates, run this unattended sequence:
+When the implementation is written, run this unattended sequence:
 
-1. Commit the implementation.
-2. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
-3. Run `/code-review`. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
-4. Run `/present`, which writes `<milestone>presented</milestone>`.
-5. Push with `mael gh create-pr --squash`.
-6. Run `mael task status done`.
-7. Run `/watch-pr` until CI passes or times out.
+1. Run `mael sync --no-push`, so the gates run on the current base.
+2. Commit the implementation, then run the project gates on the clean tree. Continue when they pass.
+3. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
+4. Run `/code-review`. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
+5. Run `/present`, which writes `<milestone>presented</milestone>`.
+6. Push with `mael gh create-pr --squash`, in the background. It rebases, runs the project's `pre_push_cmd`, then pushes. When the check fails, nothing is pushed: fix the failure and run step 6 again.
+7. Run `mael task status done`.
+8. Run `/watch-pr` until CI passes or times out.
 
-When the work has a result the user can see, write a verification after step 1. Read [verification.md](verification.md).
+When the work has a result the user can see, write a verification after step 2. Read [verification.md](verification.md).
+
+Use `--skip-pre-push` only when the user asks for an emergency push.
 
 Run waits in the background and read their body, not only exit status.
 

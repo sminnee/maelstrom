@@ -4,18 +4,23 @@ How work leaves an agent session and lands on GitHub.
 
 ## The finishing sequence
 
-When an execute session's implementation is done and the project's gates pass, it runs this
-sequence **without asking**. The gates are the project's automated checks — tests, lint and
-type check, as CLAUDE.md defines them:
+When an execute session's implementation is written, it runs this sequence **without asking**.
+The gates are the project's automated checks — tests, lint and type check, as CLAUDE.md defines
+them:
 
-1. Commit the implementation.
-2. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and test seams. It is what
+1. Rebase onto the current base: `mael sync --no-push`.
+2. Commit the implementation, then run the gates on the clean tree.
+3. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and test seams. It is what
    review reads first, and it becomes the PR body.
-3. Run `/code-review`. It uncommits the branch, reviews the working tree, and commits its fixes.
-4. Run `/present` to re-cut the reviewed tree into story commits.
-5. Push: `mael gh create-pr --squash`.
-6. **Close the task:** `mael task status done`.
-7. Run `/watch-pr` to take CI (continuous integration) to green.
+4. Run `/code-review`. It uncommits the branch, reviews the working tree, and commits its fixes.
+5. Run `/present` to re-cut the reviewed tree into story commits.
+6. Push: `mael gh create-pr --squash`. It rebases, runs the project's pre-push check, then
+   pushes.
+7. **Close the task:** `mael task status done`.
+8. Run `/watch-pr` to take CI (continuous integration) to green.
+
+The gates run on the current base and on a clean tree, so a project can record that they passed
+on that commit. The project's pre-push check can then reuse that record.
 
 Review triages its own findings: it applies what is correct and in scope, discards what does not
 apply, and writes scope changes and potential refactors into `.drafts/pr.md` under
@@ -239,7 +244,7 @@ mael gh create-pr --squash
 - **`--squash`** — autosquashes `fixup!` commits into their targets while rebasing onto
   `origin/main`, then force-pushes with `--force-with-lease`.
 
-**The PR body comes from `.drafts/pr.md`**, written at step 2. A new PR gets the draft as its
+**The PR body comes from `.drafts/pr.md`**, written at step 3. A new PR gets the draft as its
 body; an open PR has its body replaced. The command deletes the draft once the PR has it, so a failed push keeps the draft
 for the next attempt. With no draft file, a new PR gets an empty body and an open PR's body is left
 alone.
@@ -269,7 +274,7 @@ mael gh create-pr --wait        # block until CI finishes
 
 ## Why the task closes before the CI watch
 
-Step 6 comes before step 7 deliberately.
+Step 7 comes before step 8 deliberately.
 
 **The pull request is the completion signal.** Once it is raised the work cannot be
 forgotten: an open PR is visible on GitHub and gets chased.
