@@ -12,6 +12,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Serve dev environments over HTTPS on the tailnet.** Set `dev_https: true` beside `dev_host:`
+  in `~/.maelstrom/config.yaml`. Maelstrom then gets a Tailscale certificate for the dev host,
+  renews it on `mael env start`, and reports `https://` URLs. Each worktree's `.env` gains
+  `DEV_SCHEME`, and `DEV_TLS_CERT` and `DEV_TLS_KEY` under HTTPS. Run `mael env reset` in each
+  open worktree after you turn it on. See
+  [Serve over HTTPS](docs/guide/dev-environments.md#serve-over-https).
+
 - **Set unmerged work aside with `mael close --trash`.** The branch moves to `trash/<branch>`,
   locally and on origin, its open PR closes with a comment, and the worktree closes. Uncommitted
   changes are committed first. The orchestrator's end-of-work control offers the same as

@@ -610,6 +610,12 @@ The host name in every dev environment URL that maelstrom reports. The global `d
 sets it for the machine, and it is `localhost` without the key. Each worktree's `.env` carries
 it as `DEV_HOST`. Port probes do not use it: they stay on `127.0.0.1`.
 
+**Dev certificate**:
+The TLS certificate for the dev host that Tailscale issues, kept in `~/.maelstrom/certs`. The
+global `dev_https:` key turns it on, and it needs a dev host. `mael env start` renews it, and
+each worktree's `.env` names its files as `DEV_TLS_CERT` and `DEV_TLS_KEY`. Each app ends TLS
+itself; maelstrom runs no proxy.
+
 **Subscriber**:
 A worktree currently using a project's shared services. Shared services stop when the
 subscriber list empties.

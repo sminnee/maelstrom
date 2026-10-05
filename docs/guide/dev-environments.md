@@ -304,6 +304,7 @@ a template, with `$VAR` substitution — with the generated variables:
 ```
 # Maelstrom port allocations
 DEV_HOST=localhost
+DEV_SCHEME=http
 FRONTEND_PORT=3000
 PORT_BASE=300
 WORKTREE=bravo
@@ -365,14 +366,80 @@ An app that holds an absolute URL to itself needs the dev host too. Use `$DEV_HO
 project root's `.env` template:
 
 ```
-PUBLIC_URL=http://$DEV_HOST:$FRONTEND_PORT
+PUBLIC_URL=$DEV_SCHEME://$DEV_HOST:$FRONTEND_PORT
 ```
 
 Keep `localhost` for a URL that one service on the machine uses to reach another. A proxy
-target is the usual case.
+target is the usual case. Under HTTPS this changes: see [Serve over HTTPS](#serve-over-https).
 
 A server that listens on every interface also serves each other network the machine joins.
 Close the dev ports to those networks at the firewall.
+
+## Serve over HTTPS
+
+A page at `http://desk.tailnet.ts.net:3010` is not a secure context. The browser then gives it
+no `crypto.randomUUID`, no clipboard API and no service workers. Tailscale issues a free Let's
+Encrypt certificate for the machine's `*.ts.net` name. Maelstrom gets this **dev certificate**
+for the dev host and tells each app where it is. Each app ends TLS itself, on its own port.
+
+Set it up once:
+
+1. In the Tailscale admin console, on the DNS page, enable **MagicDNS** and **HTTPS
+   Certificates**. The machine name and the tailnet name go into the public Certificate
+   Transparency log.
+2. Add the key to `~/.maelstrom/config.yaml`, beside the dev host:
+
+   ```yaml
+   dev_host: desk.tailnet.ts.net
+   dev_https: true
+   ```
+
+3. In each open worktree, run `mael env reset`, then restart its services.
+
+Every reported URL then starts with `https://`. The ports do not change.
+
+`mael env start` runs `tailscale cert` before it starts a service. The command does nothing
+while the certificate has 30 or more days left, so the certificate renews itself. If Tailscale
+refuses, the start stops and names the console setting.
+
+Each worktree's `.env` gets three variables:
+
+| Variable | Value |
+|---|---|
+| `DEV_SCHEME` | `https`, or `http` when `dev_https:` is off. Always present. |
+| `DEV_TLS_CERT` | The certificate file, in `~/.maelstrom/certs`. Present only under HTTPS. |
+| `DEV_TLS_KEY` | The private key file, mode 0600. Present only under HTTPS. |
+
+An app serves HTTPS when the two paths are set. For Vite:
+
+```ts
+import { readFileSync } from 'node:fs';
+
+const cert = process.env.DEV_TLS_CERT;
+const key = process.env.DEV_TLS_KEY;
+
+export default defineConfig({
+  server: {
+    https: cert && key ? { cert: readFileSync(cert), key: readFileSync(key) } : undefined,
+  },
+});
+```
+
+HMR on its own port follows to `wss://`. Ladle reads the same `server.https` setting. Any
+other server takes the two files the same way, for example
+`uvicorn --ssl-certfile "$DEV_TLS_CERT" --ssl-keyfile "$DEV_TLS_KEY"`.
+
+A port serves one scheme. Once an app serves TLS, `http://localhost:<port>` stops working,
+and so does `https://localhost:<port>`, because the certificate names only the dev host. A
+URL that one service uses to reach another must use the dev host, with `$DEV_SCHEME`:
+
+```yaml
+env:
+  ORCHESTRATOR_URL: ${DEV_SCHEME}://${DEV_HOST}:${ORCHESTRATOR_PORT}
+```
+
+`mael env start` fills in `DEV_SCHEME` for a `.env` that predates it, so this line works
+before `mael env reset`.
 
 ## Procfile fallback
 

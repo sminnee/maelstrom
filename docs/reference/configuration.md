@@ -201,6 +201,7 @@ uptimerobot:
 | `projects_dir` | path | `~/Projects` | Base directory for projects. `~` expands. |
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
 | `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
+| `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Run `mael env reset` in a worktree after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -212,6 +213,7 @@ uptimerobot:
 projects_dir: ~/Projects
 open_command: "cursor"
 dev_host: desk.tailnet.ts.net
+dev_https: true
 
 linear:
   api_key: "lin_api_xxx"
