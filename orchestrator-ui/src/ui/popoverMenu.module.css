@@ -8,7 +8,10 @@
   margin: 0;
   padding: var(--u-half);
   flex-direction: column;
-  min-width: max-content;
+  /* Capped at the screen: a menu no fallback fits keeps its base position
+     and overflows. */
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--u));
   font-size: var(--text-sm);
   color: var(--fg);
   background: var(--bg-raised);
@@ -38,9 +41,13 @@
 .item {
   display: flex;
   width: 100%;
-  padding: 0 var(--u);
+  /* Block padding keeps a wrapped item apart from the next one. A one-line
+     item still takes the control's min-height. */
+  padding: var(--u-half) var(--u);
   text-align: left;
-  white-space: nowrap;
+  /* Not the pill's `nowrap` from `base.css`: an item wraps once the menu
+     meets the screen's width. */
+  white-space: normal;
   background: none;
   border: none;
   border-radius: var(--radius-sm);
