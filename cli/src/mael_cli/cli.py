@@ -1570,14 +1570,16 @@ def cmd_sync_all(project, autorepair):
             or wt.path.name
         )
         click.echo(f"Syncing {display_name} ({wt.branch})...")
+        # No pre-push check: a sweep would run it once per worktree.
         if autorepair:
             result = sync_worktree_with_autorepair(
                 wt.path,
                 skip_fetch=True,
+                pre_push=False,
                 announce=click.echo,
             )
         else:
-            result = sync_worktree(wt.path, skip_fetch=True)
+            result = sync_worktree(wt.path, skip_fetch=True, pre_push=False)
 
         if result.success:
             click.echo(f"  {result.message}")

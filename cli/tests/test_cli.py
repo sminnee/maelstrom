@@ -1537,6 +1537,8 @@ class TestCmdSyncAutorepair:
         repair.assert_called_once()
         plain.assert_not_called()
         assert "resolved by a headless Claude session" in result.output
+        # A sweep would run the project's pre-push check once per worktree.
+        assert repair.call_args.kwargs["pre_push"] is False
 
     def test_sync_all_without_the_flag_uses_the_plain_sync(self, tmp_path):
         from contextlib import ExitStack
@@ -1570,6 +1572,7 @@ class TestCmdSyncAutorepair:
         assert result.exit_code == 0, result.output
         plain.assert_called_once()
         repair.assert_not_called()
+        assert plain.call_args.kwargs["pre_push"] is False
 
     def test_the_start_of_an_autorepair_reaches_the_terminal(self, tmp_path):
         """The model layer stays click-free, so it announces with bare print.

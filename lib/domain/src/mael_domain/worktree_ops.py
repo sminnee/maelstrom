@@ -35,12 +35,16 @@ STOP = "stop"
 RESTART = "restart"
 
 
+# No pre-push check: the sync runs in a locked step, and a long check would
+# hold the worktree lock and hide its output from the UI.
 def _sync(worktree_path: Path, squash: bool, abort: bool) -> SyncResult:
-    return sync_worktree(worktree_path, squash=squash, abort_on_conflict=abort)
+    return sync_worktree(
+        worktree_path, squash=squash, abort_on_conflict=abort, pre_push=False
+    )
 
 
 def _autorepair(worktree_path: Path) -> SyncResult:
-    return sync_worktree_with_autorepair(worktree_path)
+    return sync_worktree_with_autorepair(worktree_path, pre_push=False)
 
 
 def _start(
