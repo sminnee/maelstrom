@@ -359,8 +359,9 @@ def build_resume_payload(
 
     ``text`` is the turn the agent gets back; without it the daemon picks one
     (see "The resume rules" in ``docs/dev/agent-daemon.md``).
-    ``system_prompt_file`` overrides the one on the spawn record, so a record
-    written before the daemon kept one still resumes with it.
+    ``system_prompt_file`` fills in for a record with none, or one whose file
+    is gone; a recorded file that exists wins (see ``resume`` in
+    ``docs/dev/agent-daemon.md``).
     """
     payload: dict[str, Any] = {"cmd": "resume", "id": agent_id}
     if text:

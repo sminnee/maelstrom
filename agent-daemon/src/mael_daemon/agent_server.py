@@ -1053,8 +1053,12 @@ class AgentDaemon:
         Claude already knows is refused — so the agent would be unrecoverable
         rather than awkward.
 
-        A ``system_prompt_file`` the client sends overrides the record's.
+        The record's ``system_prompt_file`` wins while the file exists; the
+        client's fills in otherwise. See ``resume`` in ``docs/dev/agent-daemon.md``.
         """
+        recorded = spec.system_prompt_file
+        if not (recorded and Path(recorded).is_file()):
+            recorded = ""
         replay = self.has_transcript(Path(spec.cwd), spec.session_id)
         if text:
             prompt = text
@@ -1077,7 +1081,7 @@ class AgentDaemon:
             env=spec.env or None,
             resume=replay,
             record_prompt=spec.prompt,
-            system_prompt_file=system_prompt_file or spec.system_prompt_file,
+            system_prompt_file=recorded or system_prompt_file,
         )
 
     async def _gc(self, *, resume_strays: bool) -> Reconciliation:

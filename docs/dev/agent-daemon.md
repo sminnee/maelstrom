@@ -939,8 +939,10 @@ id being absent from `list` (see [orchestrator-server.md](orchestrator-server.md
 agent appearing there would sit on the canvas for ever.
 
 `resume` starts an exited agent again under its own id, and sends it one turn: `text`, or the
-default nudge. See "The resume rules". A `system_prompt_file` in the request overrides the one on
-the record, so a resume uses the client's current file.
+default nudge. See "The resume rules". The record's `system_prompt_file` wins while the file
+exists, because it can carry more than the markers every client sends: an investigation's file
+also has its rules. A `system_prompt_file` in the request is used only when the record has none,
+or its file is gone.
 
 `start` and `resume` both report the spawn, not the run. A child that dies straight after
 spawning — a bad `--model`, an expired login, a `--resume` Claude will not accept — is reported
