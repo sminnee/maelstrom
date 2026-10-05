@@ -232,6 +232,14 @@ class TestSanitiseChildEnv:
         assert "VIRTUAL_ENV" not in env
         assert env["HOME"] == "/Users/x"
 
+    def test_drops_the_inherited_dev_certificate(self):
+        """An agent runs with a service's environment. A stale pair would turn
+        TLS back on in a server it starts after ``dev_https:`` is off."""
+        env = sanitise_child_env(
+            {"DEV_TLS_CERT": "/c.crt", "DEV_TLS_KEY": "/c.key", "DEV_HOST": "d"}
+        )
+        assert env == {"DEV_HOST": "d"}
+
     def test_leaves_path_alone(self):
         # PATH is deliberately untouched: a child that resolves `mael` or `uv`
         # through it must keep finding the same binary.
