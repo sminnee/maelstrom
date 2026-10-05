@@ -59,7 +59,7 @@ from mael_domain.protocol import (
     World,
     group_members,
 )
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
 from mael_domain.task import mode_for_command
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
@@ -1856,7 +1856,15 @@ class Orchestrator:
         A launch's payload less ``session`` and ``env`` — see
         ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
         a branch with none gets one provisioned.
+
+        An investigation whose rules file is gone is refused before the
+        worktree opens: without the rules it is an ordinary free agent.
         """
+        prompt_file = agent_prompt_file()
+        if command.get("investigate"):
+            prompt_file = investigation_prompt_file()
+            if prompt_file is None:
+                return _refused("invalid", "The investigation rules are missing")
         try:
             setup = await self._run(
                 self.tasks.worktree_for, command["project"], command["branch"]
@@ -1873,7 +1881,7 @@ class Orchestrator:
             permission_mode=model_permission_mode(command.get("mode", "")),
             model=command.get("model") or None,
             execute_model=command.get("executeModel") or None,
-            system_prompt_file=agent_prompt_file(),
+            system_prompt_file=prompt_file,
         )
         reply = await self.daemon.request(payload)
         agent_id = reply.get("id") if "error" not in reply else None

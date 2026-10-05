@@ -644,6 +644,20 @@ def test_invalid_for_a_free_agent_in_a_mode_the_host_cannot_start():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+def test_invalid_for_an_investigation_in_plan_mode():
+    """A plan leads to an execute session, which changes code."""
+    world = world_with(projects=[PROJECT])
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "main",
+        "prompt": "Look at the logs",
+        "mode": "plan",
+        "investigate": True,
+    }
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
 def test_a_free_agent_on_a_branch_with_a_prompt_is_allowed():
     world = world_with(projects=[PROJECT])
     cmd = {
