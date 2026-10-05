@@ -1,6 +1,6 @@
 ---
 name: mael
-description: Git, task, PR, environment, Linear, Sentry, and UptimeRobot workflow for maelstrom projects. Load before git work.
+description: Git, task, PR, dev environment, Linear, Sentry, and UptimeRobot workflow for maelstrom projects. Load before git work or dev environment work.
 ---
 
 # Maelstrom workflow
@@ -8,6 +8,11 @@ description: Git, task, PR, environment, Linear, Sentry, and UptimeRobot workflo
 Use `mael --help` for the command surface. Prefer `mael` over raw `git` or `gh`. Network commands need the approved unsandboxed path. Read-only git does not. Mael owns the branch: never create, switch, or check out one.
 
 If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the user must reload it. A recycled branch is normal: `mael sync` rebases onto its real base and `create-pr` can open a new PR after an old one merged. If old or merged commits look wrong, ask rather than making a branch.
+
+## Reference files
+
+- Read [dev-env.md](dev-env.md) before you add or change a service, a port, a `.env` value, or a dev URL.
+- [verification.md](verification.md) is read from step 1 of "Completion".
 
 ## Tasks and planning
 
@@ -37,13 +42,7 @@ After green gates, run this unattended sequence:
 6. Run `mael task status done`.
 7. Run `/watch-pr` until CI passes or times out.
 
-When the work has a result the user can see, write a verification after step 1:
-
-- Write `.drafts/verification.md`. Say what you checked and how.
-- Put each screenshot and Playwright video in the body as a markdown image ref.
-- When the project runs Ladle, link a story as plain markdown: `http://<host>:<Ladle port>/?story=<title-id>--<export>&mode=preview`. `<host>` is the host of the app URL in your Environment section.
-- Show it with `<doc-file kind="verification" filename=".drafts/verification.md" title="...">`.
-- When a review fix changes what the verification shows, update the file and write the tag again.
+When the work has a result the user can see, write a verification after step 1. Read [verification.md](verification.md).
 
 Run waits in the background and read their body, not only exit status.
 
