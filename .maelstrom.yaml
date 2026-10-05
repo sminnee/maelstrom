@@ -12,7 +12,9 @@ services:
     dir: orchestrator-ui
     command: pnpm dev
     env:
-      ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
+      # The dev host, not localhost: under `dev_https:` the certificate names
+      # only the dev host. This dials the dev host with HTTPS off too.
+      ORCHESTRATOR_URL: ${DEV_SCHEME}://${DEV_HOST}:${ORCHESTRATOR_PORT}
 
   # Bound on every interface, as the web service is: the change stream is
   # dialled directly rather than through the dev server's proxy, so a page
@@ -43,7 +45,7 @@ services:
     command: pnpm ladle --port ${LADLE_APP_PORT}
     # For the jig's Send. See CONTEXT.md, "Jig".
     env:
-      ORCHESTRATOR_URL: http://localhost:${ORCHESTRATOR_PORT}
+      ORCHESTRATOR_URL: ${DEV_SCHEME}://${DEV_HOST}:${ORCHESTRATOR_PORT}
 
   # The fake mode (CONTEXT.md). Optional: `mael env start web-fake`.
   web-fake:
