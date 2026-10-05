@@ -29,6 +29,7 @@ from typing import Callable, TypeVar
 from mael_common.shell import run_cmd, run_cmd_async
 
 from .base_store import GitConfigBaseStore
+from .config import load_config_or_default
 from .github_model import (
     PASSING_STATES,
     PR_DRAFT_PATH,
@@ -60,14 +61,21 @@ from .github_model import (
 from .integrations._auth import resolve_secret
 from .project_scaffold import scaffold_files
 from .worktree import (
+    SyncResult,
+    base_moved,
     get_current_branch,
+    rebase_worktree,
+    rebase_worktree_with_autorepair,
     run_git,
-    sync_worktree,
-    sync_worktree_with_autorepair,
+    run_pre_push_cmd,
     update_local_main,
 )
 from .worktree_changes import base_refs_for_diff
 from .worktree_model import REPAIRED_MESSAGE, print_flushed
+
+#: How many times ``create_pr`` runs the pre-push check when the base keeps
+#: moving under it. After the last one it pushes anyway.
+PRE_PUSH_ATTEMPTS = 3
 
 
 def get_repo_info(cwd: Path) -> tuple[str, str]:
@@ -526,21 +534,25 @@ def create_pr(
     task_id: str | None = None,
     squash: bool = False,
     autorepair: bool = False,
+    pre_push: bool = True,
     announce: Callable[[str], None] = print_flushed,
 ) -> tuple[str, bool]:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
-    Syncs (rebases onto this branch's base) before pushing. A stacked chain is
-    registered on GitHub with ``gh stack link`` once the PR exists.
+    Rebases onto this branch's base, runs the project's ``pre_push_cmd``, then
+    pushes once. A stacked chain is registered on GitHub with ``gh stack link``
+    once the PR exists.
 
     Args:
         cwd: Current working directory (default: actual cwd).
         draft: Create as draft PR (only if creating new PR).
         task_id: Optional Mael task id to append to a new PR title.
-        squash: If True, autosquash ``fixup!`` commits during the pre-push sync.
-        autorepair: If True, a conflict in the pre-push sync starts a headless
+        squash: If True, autosquash ``fixup!`` commits during the rebase.
+        autorepair: If True, a conflict in the rebase starts a headless
             Claude session to resolve it. Off by default: a PR push must not
             start an agent unasked.
+        pre_push: If True, run the project's ``pre_push_cmd`` after the last
+            rebase. Off only for an emergency push.
         announce: Callable taking one line of progress text. Defaults to a
             flushed ``print``; the CLI passes ``click.echo``.
 
@@ -549,37 +561,37 @@ def create_pr(
 
     Raises:
         SyncFailed: If the pre-push rebase fails.
+        PrePushFailed: If the project's pre-push check fails.
         GitHubCommandFailed: If the push or the PR creation fails.
         GitHubCliMissing: If gh or git is not installed.
     """
     if cwd is None:
         cwd = Path.cwd()
 
-    # Sync first (rebase onto origin/main)
-    if autorepair:
-        sync_result = sync_worktree_with_autorepair(
-            cwd, squash=squash, announce=announce
+    config = load_config_or_default(cwd)
+    check = pre_push and bool(config.pre_push_cmd)
+    # The check must see the commit that is pushed. A base that moved while it
+    # ran means one more rebase, so the check runs again on the new commit.
+    for attempt in range(1, PRE_PUSH_ATTEMPTS + 1):
+        rebased = _rebase_before_push(
+            cwd, squash=squash, autorepair=autorepair, announce=announce
         )
-    else:
-        sync_result = sync_worktree(cwd, squash=squash)
-    if not sync_result.success:
-        # An aborted rebase is restored, so the manual-resolution steps would
-        # name a rebase that is no longer there. A repair that failed without
-        # aborting — one that landed on the wrong branch — still needs them.
-        if sync_result.had_conflicts and not sync_result.aborted:
-            raise SyncFailed(
-                "Sync failed due to conflicts. Resolve them first:\n"
-                "  git status\n"
-                "  # resolve conflicts\n"
-                "  git add <files>\n"
-                "  git rebase --continue"
+        if not check:
+            break
+        run_pre_push_cmd(cwd, config)
+        if not base_moved(cwd, rebased.base):
+            break
+        if attempt == PRE_PUSH_ATTEMPTS:
+            announce(
+                f"Warning: {rebased.base} moved during each of {PRE_PUSH_ATTEMPTS} "
+                "pre-push checks. Pushing anyway; CI may not reuse the project's "
+                "records."
             )
-        raise SyncFailed(f"Sync failed: {sync_result.message}")
-
-    # The push publishes commits the session rewrote, so say so before it lands
-    # in a PR.
-    if sync_result.repaired:
-        announce(REPAIRED_MESSAGE)
+        else:
+            announce(
+                f"{rebased.base} moved during the pre-push check; "
+                "rebasing and checking again."
+            )
 
     # Check if PR already exists (and is open)
     pr_exists = False
@@ -689,6 +701,39 @@ def create_pr(
         discard_pr_draft(cwd)
     _register_stack(cwd, branch_name, announce=announce)
     return new_url, True
+
+
+def _rebase_before_push(
+    cwd: Path,
+    *,
+    squash: bool,
+    autorepair: bool,
+    announce: Callable[[str], None],
+) -> SyncResult:
+    """Rebase onto the branch's base without pushing; raise if it fails."""
+    if autorepair:
+        result = rebase_worktree_with_autorepair(cwd, squash=squash, announce=announce)
+    else:
+        result = rebase_worktree(cwd, squash=squash)
+    if not result.success:
+        # An aborted rebase is restored, so the manual-resolution steps would
+        # name a rebase that is no longer there. A repair that failed without
+        # aborting — one that landed on the wrong branch — still needs them.
+        if result.had_conflicts and not result.aborted:
+            raise SyncFailed(
+                "Sync failed due to conflicts. Resolve them first:\n"
+                "  git status\n"
+                "  # resolve conflicts\n"
+                "  git add <files>\n"
+                "  git rebase --continue"
+            )
+        raise SyncFailed(f"Sync failed: {result.message}")
+
+    # The push publishes commits the session rewrote, so say so before it lands
+    # in a PR.
+    if result.repaired:
+        announce(REPAIRED_MESSAGE)
+    return result
 
 
 def _write_pr_body(
