@@ -15,6 +15,7 @@ import pytest
 from git_helpers import advance_origin_main, create_commit, remote_tip
 from git_helpers import run_git as git
 
+from mael_common.claude_paths import sanitise_path_for_claude
 from mael_domain.ports import get_port_allocation, record_port_allocation
 from mael_domain.worktree import (
     WorktreeInfo,
@@ -1910,8 +1911,8 @@ class TestSetupClaudeMemorySymlink:
 
         claude_projects = tmp_path / ".claude" / "projects"
         claude_projects.mkdir(parents=True)
-        project_sanitised = str(project_path.resolve()).replace("/", "-")
-        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+        project_sanitised = sanitise_path_for_claude(project_path)
+        worktree_sanitised = sanitise_path_for_claude(worktree_path)
 
         with patch("mael_domain.worktree.Path.home", return_value=tmp_path):
             setup_claude_memory_symlink(project_path, worktree_path)
@@ -1931,7 +1932,7 @@ class TestSetupClaudeMemorySymlink:
         worktree_path.mkdir()
 
         claude_projects = tmp_path / ".claude" / "projects"
-        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+        worktree_sanitised = sanitise_path_for_claude(worktree_path)
 
         # Pre-create worktree memory with a file
         wt_memory = claude_projects / worktree_sanitised / "memory"
@@ -1941,7 +1942,7 @@ class TestSetupClaudeMemorySymlink:
         with patch("mael_domain.worktree.Path.home", return_value=tmp_path):
             setup_claude_memory_symlink(project_path, worktree_path)
 
-        project_sanitised = str(project_path.resolve()).replace("/", "-")
+        project_sanitised = sanitise_path_for_claude(project_path)
         central = claude_projects / project_sanitised / "memory"
 
         # File should be migrated to central
@@ -1958,8 +1959,8 @@ class TestSetupClaudeMemorySymlink:
         worktree_path.mkdir()
 
         claude_projects = tmp_path / ".claude" / "projects"
-        project_sanitised = str(project_path.resolve()).replace("/", "-")
-        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+        project_sanitised = sanitise_path_for_claude(project_path)
+        worktree_sanitised = sanitise_path_for_claude(worktree_path)
 
         # Pre-create central memory with a file
         central = claude_projects / project_sanitised / "memory"
@@ -2004,8 +2005,8 @@ class TestSetupClaudeMemorySymlink:
             setup_claude_memory_symlink(project_path, worktree_path)
 
         claude_projects = tmp_path / ".claude" / "projects"
-        project_sanitised = str(project_path.resolve()).replace("/", "-")
-        worktree_sanitised = str(worktree_path.resolve()).replace("/", "-")
+        project_sanitised = sanitise_path_for_claude(project_path)
+        worktree_sanitised = sanitise_path_for_claude(worktree_path)
         central = claude_projects / project_sanitised / "memory"
         wt_memory = claude_projects / worktree_sanitised / "memory"
 

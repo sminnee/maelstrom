@@ -5,6 +5,7 @@ transcript store and the worktree commands all derive Claude's directory
 names here, so they agree on the slug.
 """
 
+import re
 from pathlib import Path
 
 
@@ -20,9 +21,10 @@ def sanitise_path_for_claude(path: Path) -> str:
     """Convert a filesystem path to Claude Code's sanitised project directory name.
 
     Claude Code stores per-project data in ~/.claude/projects/<sanitised>/
-    where the sanitised name is the absolute path with both '/' and '.'
-    replaced by '-'. The '.' substitution matters for real temp paths like
-    ``/private/tmp/claude.501`` (→ ``-private-tmp-claude-501``).
+    where the sanitised name is the absolute path with every character that is
+    not a letter or a digit replaced by '-'. That covers the '.' of a real temp
+    path like ``/private/tmp/claude.501`` (→ ``-private-tmp-claude-501``) and
+    the '_' of ``_main`` (→ ``--main``).
 
     Args:
         path: Absolute path to sanitise.
@@ -30,7 +32,7 @@ def sanitise_path_for_claude(path: Path) -> str:
     Returns:
         Sanitised path string (e.g., '-Users-sminnee-Projects-foo').
     """
-    return str(path.resolve()).replace("/", "-").replace(".", "-")
+    return re.sub(r"[^A-Za-z0-9]", "-", str(path.resolve()))
 
 
 def claude_transcript_path(
