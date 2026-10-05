@@ -6,6 +6,7 @@ import tabStyles from '../panel/PanelTabs.module.css';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import chipStyles from '../shell/AttentionChip.module.css';
 import { ExternalLink } from '../shell/ExternalLink';
+import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import barStyles from '../shell/TopBar.module.css';
@@ -265,4 +266,43 @@ export const Narrow: Story = () => (
   <div style={{ maxWidth: 390 }}>
     <Board control="calc(var(--u) * 6)" heading="--control: 6 units, 48px" />
   </div>
+);
+
+const terminateAt = (corner: CSSProperties) => (
+  <div style={{ position: 'fixed', ...corner }}>
+    <SplitButton
+      options={[
+        { label: 'Terminate', icon: actionIcon('terminate'), run: later },
+        { label: 'Terminate & take off desk', icon: <OffDeskIcon />, run: later },
+        {
+          label: 'Terminate, take off desk & close charlie',
+          icon: <OffDeskIcon />,
+          disabled: true,
+          detail: '2 other agents still running in charlie',
+          run: later,
+        },
+        {
+          label: 'Terminate, take off desk & trash charlie',
+          icon: <OffDeskIcon />,
+          disabled: true,
+          detail: '2 other agents still running in charlie',
+          run: later,
+        },
+      ]}
+    />
+  </div>
+);
+
+/**
+ * A split button in each corner of the screen, as the detail screen's command
+ * bar draws Terminate. What to look at, at 390px: each menu opens toward the
+ * free space and stays on the screen.
+ */
+export const MenuAtTheEdges: Story = () => (
+  <>
+    {terminateAt({ top: 'var(--u)', left: 'var(--u)' })}
+    {terminateAt({ top: 'var(--u)', right: 'var(--u)' })}
+    {terminateAt({ bottom: 'var(--u)', left: 'var(--u)' })}
+    {terminateAt({ bottom: 'var(--u)', right: 'var(--u)' })}
+  </>
 );
