@@ -8,20 +8,22 @@ project, so no git or cwd resolution happens.
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import click
 import pytest
 from click.testing import CliRunner
 
 from mael_agent.harness_model import TRANSPORT_CLI, TRANSPORT_DAEMON
-from mael_cli import task_cli
+from mael_cli import env_cli, task_cli
 from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
+from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
+from mael_domain.worktree_model import CopyBackResult
 
 
 @pytest.fixture
@@ -95,7 +97,9 @@ def launch(monkeypatch, tmp_path):
     session = AsyncMock(return_value=True)
     exec_cmd = MagicMock()
     ensure_cmux = MagicMock(return_value=True)
+    refresh = MagicMock(return_value=EnvRefresh(CopyBackResult(), changed=True))
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
+    monkeypatch.setattr(env_cli, "refresh_env", refresh)
     monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
     monkeypatch.setattr(task_cli, "exec_cmd", exec_cmd)
     monkeypatch.setattr(task_cli, "ensure_cmux_running", ensure_cmux)
@@ -108,6 +112,7 @@ def launch(monkeypatch, tmp_path):
         session=session,
         exec=exec_cmd,
         ensure_cmux=ensure_cmux,
+        refresh=refresh,
         wt_path=wt_path,
     )
 
@@ -623,6 +628,42 @@ class TestRun:
         assert kwargs["worktree"] == "bravo"
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
+
+    async def test_run_refreshes_a_reused_worktrees_env(self, runner, store, launch):
+        launch.setup.return_value = WorktreeSetup(
+            path=launch.wt_path, name="bravo", action="reused"
+        )
+        t = await model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        launch.refresh.assert_called_once_with(
+            ANY,
+            "p",
+            "bravo",
+            launch.setup.call_args.args[0],
+            launch.wt_path,
+            force_restart=False,
+        )
+        assert "Regenerated .env for p/bravo." in result.output
+
+    async def test_run_leaves_mains_env_alone(self, runner, store, launch):
+        launch.setup.return_value = WorktreeSetup(
+            path=launch.wt_path, name="_main", action="reused"
+        )
+        t = await model.create(store, project="p", title="Plan it")
+        assert runner.invoke(task_cli.task, ["run", t.id]).exit_code == 0
+        launch.refresh.assert_not_called()
+
+    async def test_run_launches_when_the_refresh_fails(self, runner, store, launch):
+        launch.setup.return_value = WorktreeSetup(
+            path=launch.wt_path, name="bravo", action="reused"
+        )
+        launch.refresh.side_effect = OSError("boom")
+        t = await model.create(store, project="p", title="Plan it")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        assert ".env not refreshed: boom" in result.output
+        launch.session.assert_called_once()
 
     async def test_run_passes_the_tasks_model_to_the_launcher(
         self, runner, store, launch

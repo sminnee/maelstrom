@@ -26,7 +26,6 @@ from mael_domain.context import (
     resolve_context,
     validate_project_name,
 )
-from mael_domain.env import regenerate_and_restart_if_running
 from mael_domain.github import create_project_repo, get_open_prs, wait_for_merge
 from mael_domain.github_model import (
     GitHubError,
@@ -44,7 +43,6 @@ from mael_domain.worktree import (
     add_project,
     check_base_exists,
     closed_worktrees,
-    copy_back_new_env_vars,
     create_worktree,
     current_stack_tip,
     get_current_branch,
@@ -82,13 +80,11 @@ from mael_domain.worktree_trash import trash_worktree_fully
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .env_cli import (
-    ensure_cmux_browser,
-    make_store,
-    print_copy_back_result,
-    print_service_status,
+    env as env_cli,
 )
 from .env_cli import (
-    env as env_cli,
+    print_copy_back_result,
+    refresh_worktree_env,
 )
 from .git_cli import git as git_cli
 from .git_cli import print_rebase_conflict_help
@@ -515,33 +511,6 @@ async def cmd_add(
 
     if result.action == "recycled":
         click.echo(f"Worktree recycled at: {worktree_path}")
-        # Rescue any stale worktree-only vars into the parent before the recreate.
-        copy_back = copy_back_new_env_vars(project_path, worktree_path)
-        print_copy_back_result(copy_back, project_path)
-        try:
-            stop_messages, new_state = regenerate_and_restart_if_running(
-                make_store(),
-                ctx.project,
-                wt_name,
-                project_path,
-                worktree_path,
-            )
-        # Broad on purpose: `open_worktree` and worktree setup still raise bare
-        # RuntimeError. Narrowing waits on the worktree/env typed-error
-        # increment (architecture-patterns.md §3).
-        except RuntimeError as e:
-            raise click.ClickException(str(e))
-
-        if stop_messages:
-            for msg in stop_messages:
-                click.echo(msg)
-            click.echo(f"Environment stopped for {ctx.project}/{wt_name}.")
-
-        click.echo(f"Regenerated .env for {ctx.project}/{wt_name}.")
-
-        if new_state is not None:
-            ensure_cmux_browser(new_state, project_path, wt_name)
-            print_service_status(ctx.project, wt_name, project_path)
     elif result.action == "created":
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")
@@ -549,6 +518,15 @@ async def cmd_add(
     # Opening a worktree rebases its branch onto its base first. A failed sync
     # blocks the launch: a session must never start on unrebased code.
     _report_open_sync(result.sync)
+
+    if result.rebuilds_env:
+        refresh_worktree_env(
+            ctx.project,
+            wt_name,
+            project_path,
+            worktree_path,
+            fatal=result.action == "recycled",
+        )
 
     app_info = get_app_url(project_path, wt_name)
     if app_info:

@@ -134,7 +134,9 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         patch(
             "mael_orchestrator.cli.setup_worktree_for_branch", return_value=setup
         ) as open_wt,
+        patch("mael_orchestrator.cli.refresh_env") as refresh,
     ):
+        refresh.return_value.changed = False
         orchestrator = build_orchestrator()
         opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
@@ -159,6 +161,40 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
     assert open_wt.call_args.kwargs["run_install"] is False
     assert open_wt.call_args.kwargs["base"] == "feat/base"
+    # A reused worktree's .env is rebuilt from the parent template.
+    refresh.assert_called_once()
+    assert refresh.call_args.args[1:] == (
+        "northwind",
+        "alpha",
+        projects_dir / "northwind",
+        setup.path,
+    )
+
+
+def test_a_failed_env_refresh_warns_and_still_opens(tmp_path, monkeypatch, capsys):
+    """A stale .env must not refuse a launch from the UI."""
+    monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
+    from types import SimpleNamespace
+
+    from mael_domain.worktree import WorktreeSetup
+
+    setup = WorktreeSetup(path=tmp_path / "p-alpha", name="alpha", action="reused")
+    with (
+        patch(
+            "mael_orchestrator.cli.load_global_config",
+            return_value=SimpleNamespace(projects_dir=tmp_path),
+        ),
+        patch("mael_orchestrator.cli.SqliteTaskTable"),
+        patch("mael_orchestrator.cli.open_state_db"),
+        patch("mael_orchestrator.cli.setup_worktree_for_branch", return_value=setup),
+        patch(
+            "mael_orchestrator.cli.refresh_env",
+            side_effect=ValueError("bad yaml"),
+        ),
+    ):
+        opened = build_orchestrator().tasks.open_worktree("p", "feat/x", "")
+    assert opened is setup
+    assert "Warning: .env not refreshed: bad yaml" in capsys.readouterr().err
 
 
 def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:
