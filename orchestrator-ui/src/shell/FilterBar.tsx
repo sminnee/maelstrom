@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { AgentStatusFilter } from '../selectors/filters';
-import { filterOptions } from '../selectors/filters';
+import { AGENT_STATUS_LABELS, filterOptions } from '../selectors/filters';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES } from '../protocol/entities';
 import { MultiSelect } from '../ui/MultiSelect';
@@ -10,14 +10,10 @@ import styles from './FilterBar.module.css';
 
 const TASK_STATUS_OPTIONS = TASK_STATUSES.map((status) => ({ value: status, label: status }));
 
-const AGENT_STATUS_OPTIONS: { value: AgentStatusFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'working', label: 'Working' },
-  { value: 'idle', label: 'Idle' },
-  { value: 'working-idle', label: 'Working + Idle' },
-  { value: 'terminated', label: 'Terminated' },
-  { value: 'planned', label: 'Planned' },
-];
+const AGENT_STATUS_OPTIONS = Object.entries(AGENT_STATUS_LABELS).map(([value, label]) => ({
+  value: value as AgentStatusFilter,
+  label,
+}));
 
 /** The shared filters, plus the controls of each main view on screen. */
 export function FilterBar() {
