@@ -11,6 +11,7 @@ from mael_domain.config import load_config_or_default
 from mael_domain.context import ResolvedContext, resolve_context
 from mael_domain.env import (
     EnvState,
+    VersionChange,
     get_env_status,
     get_log_files,
     get_shared_status,
@@ -19,6 +20,7 @@ from mael_domain.env import (
     load_env_state,
     read_service_logs,
     regenerate_and_restart_if_running,
+    restart_changed,
     restart_services,
     save_env_state,
     start_env,
@@ -417,16 +419,32 @@ def env_stop(service, worktree_opt):
     _report_stop(ctx.project, ctx.worktree, messages, service_name)
 
 
+def report_version_changes(changes: list[VersionChange]) -> None:
+    """Print each restarted service with its old and new service version."""
+    if not changes:
+        click.echo("Nothing changed.")
+    for change in changes:
+        click.echo(f"{change.name}: {change.old or '(none)'} → {change.new}")
+
+
 @env.command("restart")
 @click.argument("service", required=False, default=None)
 @click.option("--install", is_flag=True, help="Run the install step before starting")
+@click.option(
+    "--changed",
+    is_flag=True,
+    help="Restart only the running services whose service version moved",
+)
 @worktree_option
-def env_restart(service, install, worktree_opt):
+def env_restart(service, install, changed, worktree_opt):
     """Restart services for a worktree environment.
 
     SERVICE names one declared service. Without it, the whole environment
-    restarts.
+    restarts. With --changed, only the running services whose service version
+    moved since they started restart. That needs a pipeline.toml.
     """
+    if changed and (service or install):
+        raise click.UsageError("--changed takes no SERVICE and no --install.")
     try:
         ctx, service_name = resolve_service(service, worktree_opt)
     except ValueError as e:
@@ -441,6 +459,14 @@ def env_restart(service, install, worktree_opt):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     store = make_store()
+    if changed:
+        try:
+            changes = restart_changed(store, ctx.project, ctx.worktree, worktree_path)
+        except (RuntimeError, ValueError, TimeoutError) as e:
+            raise click.ClickException(str(e))
+        report_version_changes(changes)
+        return
+
     try:
         messages, state = restart_services(
             store,

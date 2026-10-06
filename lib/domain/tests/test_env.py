@@ -3,6 +3,7 @@
 import itertools
 import os
 import signal
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -21,9 +22,11 @@ from mael_domain.env import (
     ServiceStatus,
     ServiceVersionError,
     SharedEnvState,
+    VersionChange,
     WorktreeService,
     _spawn_services,
     build_service_env,
+    changed_services,
     cleanup_stale_env,
     cleanup_stale_shared,
     get_env_status,
@@ -41,6 +44,7 @@ from mael_domain.env import (
     regenerate_and_restart_if_running,
     remove_env_state,
     remove_shared_state,
+    restart_changed,
     restart_services,
     save_env_state,
     save_shared_state,
@@ -3792,6 +3796,35 @@ class TestStartEnvRecordsServiceVersions:
         assert not log.exists()
 
 
+def _versioned(name: str, version: str | None, pid: int = 1) -> ServiceState:
+    return ServiceState(
+        name=name,
+        command=f"serve-{name}",
+        pid=pid,
+        log_file=f"/tmp/{name}.log",
+        started_at="2026-10-06T00:00:00+00:00",
+        version=version,
+    )
+
+
+class TestChangedServices:
+    """A service changed when its bucket hash moved since it started."""
+
+    def test_a_moved_hash_is_a_change_and_a_still_one_is_not(self):
+        services = [_versioned("web", "w1"), _versioned("agent-daemon", "a1")]
+        current = {"web": "w2", "agent-daemon": "a1"}
+        assert changed_services(services, current) == [VersionChange("web", "w1", "w2")]
+
+    def test_a_service_started_without_a_version_counts_as_changed(self):
+        """So the first update records one."""
+        assert changed_services([_versioned("web", None)], {"web": "w1"}) == [
+            VersionChange("web", None, "w1")
+        ]
+
+    def test_a_service_with_no_bucket_never_changes(self):
+        assert changed_services([_versioned("ladle", None)], {"web": "w1"}) == []
+
+
 @pytest.fixture
 def reaped():
     """Let the kernel reap each stopped child.
@@ -3869,3 +3902,96 @@ class TestRestartServices:
             assert "web" not in self._pids(store)
         finally:
             stop_env(store, "proj", "bravo", timeout=2)
+
+
+class TestRestartChanged:
+    """An update restarts only the running services whose version moved."""
+
+    def _worktree(self, tmp_path, *, pipeline=True):
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        if pipeline:
+            (worktree / "pipeline.toml").write_text("")
+        (worktree / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  web:\n    command: exec sleep 60\n"
+            "  agent-daemon:\n    command: exec sleep 60\n"
+        )
+        return worktree
+
+    def _pids(self, store):
+        state = load_env_state(store, "proj", "bravo")
+        assert state is not None
+        return {s.name: (s.pid, s.version) for s in state.services}
+
+    @pytest.mark.usefixtures("reaped")
+    def test_only_the_moved_service_restarts(self, tmp_path, monkeypatch):
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        logs = patch("mael_domain.env._get_log_dir", return_value=tmp_path / "logs")
+        _fake_tangier_sha(
+            tmp_path, monkeypatch, "WEB_VERSION=w1\nAGENT_DAEMON_VERSION=a1\n"
+        )
+        with logs:
+            start_env(store, "proj", "bravo", worktree, skip_install=True)
+        try:
+            before = self._pids(store)
+            _fake_tangier_sha(
+                tmp_path, monkeypatch, "WEB_VERSION=w2\nAGENT_DAEMON_VERSION=a1\n"
+            )
+            with logs:
+                changes = restart_changed(store, "proj", "bravo", worktree)
+            after = self._pids(store)
+
+            assert changes == [VersionChange("web", "w1", "w2")]
+            assert after["agent-daemon"] == before["agent-daemon"]
+            assert after["web"][0] != before["web"][0]
+            assert after["web"][1] == "w2"
+            assert all(is_service_alive(pid) for pid, _ in after.values())
+        finally:
+            stop_env(store, "proj", "bravo", timeout=2)
+
+    def test_a_stopped_service_is_not_started(self, tmp_path, monkeypatch):
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        save_env_state(
+            store,
+            EnvState(
+                project="proj",
+                worktree="bravo",
+                worktree_path=str(worktree),
+                started_at="2026-10-06T00:00:00+00:00",
+                services=[_versioned("web", "w1", pid=gone.pid)],
+            ),
+        )
+        _fake_tangier_sha(tmp_path, monkeypatch, "WEB_VERSION=w2\n")
+        assert restart_changed(store, "proj", "bravo", worktree) == []
+        assert self._pids(store) == {"web": (gone.pid, "w1")}
+
+    def test_a_failed_tangier_is_an_error_not_nothing_changed(
+        self, tmp_path, monkeypatch
+    ):
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        save_env_state(
+            store,
+            EnvState(
+                project="proj",
+                worktree="bravo",
+                worktree_path=str(worktree),
+                started_at="2026-10-06T00:00:00+00:00",
+                services=[_versioned("web", "w1", pid=gone.pid)],
+            ),
+        )
+        _fake_tangier_sha(tmp_path, monkeypatch, "", exit_code=2)
+        with pytest.raises(ServiceVersionError):
+            restart_changed(store, "proj", "bravo", worktree)
+
+    def test_a_project_without_a_pipeline_is_refused(self, tmp_path):
+        worktree = self._worktree(tmp_path, pipeline=False)
+        with pytest.raises(ValueError, match="pipeline.toml"):
+            restart_changed(InMemoryEnvStore(), "proj", "bravo", worktree)

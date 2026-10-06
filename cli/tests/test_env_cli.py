@@ -14,7 +14,13 @@ from mael_cli.env_cli import (
     resolve_service,
 )
 from mael_domain.config import MaelstromConfig
-from mael_domain.env import EnvState, RestartFailed, ServiceState, ServiceStatus
+from mael_domain.env import (
+    EnvState,
+    RestartFailed,
+    ServiceState,
+    ServiceStatus,
+    VersionChange,
+)
 
 
 def _make_state(project="proj", worktree="bravo", pid=100):
@@ -1222,6 +1228,59 @@ class TestEnvRestartNamedService:
             result = CliRunner().invoke(cli, ["env", "restart", "ladle"])
         assert result.exit_code == 0, result.output
         assert restart.call_args.kwargs["services"] == ["ladle"]
+
+
+class TestEnvRestartChanged:
+    """`mael env restart --changed` restarts only the services whose version moved."""
+
+    def _invoke(self, tmp_path, changes, *args, error=None):
+        with (
+            patch(
+                "mael_cli.env_cli.resolve_context",
+                return_value=_mock_ctx_with_path(tmp_path),
+            ),
+            patch(
+                "mael_cli.env_cli.restart_changed",
+                return_value=changes,
+                side_effect=error,
+            ) as fn,
+            patch("mael_cli.env_cli.stop_env") as stop,
+            patch("mael_cli.env_cli.start_env") as start,
+        ):
+            result = CliRunner().invoke(cli, ["env", "restart", "--changed", *args])
+        return result, fn, stop, start
+
+    def test_each_restarted_service_names_its_old_and_new_version(self, tmp_path):
+        changes = [
+            VersionChange("orchestrator", "aaaaaaaaaa", "bbbbbbbbbb"),
+            VersionChange("web", None, "cccccccccc"),
+        ]
+        result, fn, stop, start = self._invoke(tmp_path, changes)
+        assert result.exit_code == 0, result.output
+        assert "orchestrator: aaaaaaaaaa → bbbbbbbbbb" in result.output
+        assert "web: (none) → cccccccccc" in result.output
+        fn.assert_called_once_with(ANY, "proj", "bravo", tmp_path / "bravo")
+        stop.assert_not_called()
+        start.assert_not_called()
+
+    def test_no_change_says_so(self, tmp_path):
+        result, *_ = self._invoke(tmp_path, [])
+        assert result.exit_code == 0, result.output
+        assert "Nothing changed." in result.output
+
+    def test_a_project_without_a_pipeline_is_an_error(self, tmp_path):
+        result, *_ = self._invoke(
+            tmp_path, [], error=ValueError("Service versions need a pipeline.toml.")
+        )
+        assert result.exit_code != 0
+        assert "pipeline.toml" in result.output
+
+    @pytest.mark.parametrize("extra", [["web"], ["--install"]])
+    def test_a_service_or_install_cannot_be_combined(self, tmp_path, extra):
+        result, fn, *_ = self._invoke(tmp_path, [], *extra)
+        assert result.exit_code != 0
+        assert "--changed" in result.output
+        fn.assert_not_called()
 
 
 class TestResolveServiceOutsideAProject:

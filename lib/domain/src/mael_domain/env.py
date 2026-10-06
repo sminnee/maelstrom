@@ -494,6 +494,31 @@ def service_versions(worktree_path: Path, names: list[str]) -> dict[str, str]:
     }
 
 
+@dataclass(frozen=True)
+class VersionChange:
+    """A service whose version moved since it started."""
+
+    name: str
+    old: str | None
+    new: str
+
+
+def changed_services(
+    services: list[ServiceState], current: dict[str, str]
+) -> list[VersionChange]:
+    """The services whose recorded version differs from ``current``.
+
+    A service with no entry in ``current`` has no SHA bucket, so it never
+    changes.
+    A recorded None counts as a change, so the first update records a version.
+    """
+    return [
+        VersionChange(s.name, s.version, current[s.name])
+        for s in services
+        if s.name in current and s.version != current[s.name]
+    ]
+
+
 # --- Start / Stop / Status ---
 
 
@@ -1260,6 +1285,38 @@ def restart_services(
             raise RestartFailed(services, e) from e
         raise
     return messages, state
+
+
+def restart_changed(
+    store: EnvStore,
+    project: str,
+    worktree: str,
+    worktree_path: Path,
+) -> list[VersionChange]:
+    """Restart the running services whose service version moved.
+
+    A service that is not running is left stopped. A service with no SHA bucket is
+    left alone. Returns the changes, in state order; an empty list restarted
+    nothing.
+
+    Raises:
+        ValueError: If the worktree has no ``pipeline.toml``.
+        ServiceVersionError: If tangier cannot hash the SHA buckets.
+    """
+    if not has_service_versions(worktree_path):
+        raise ValueError(f"Service versions need a {PIPELINE_FILE} in {worktree_path}.")
+    state = load_env_state(store, project, worktree)
+    if state is None:
+        return []
+    running = [s for s in state.services if is_service_alive(s.pid)]
+    changes = changed_services(
+        running, service_versions(worktree_path, [s.name for s in running])
+    )
+    if changes:
+        restart_services(
+            store, project, worktree, worktree_path, [c.name for c in changes]
+        )
+    return changes
 
 
 def get_env_status(
