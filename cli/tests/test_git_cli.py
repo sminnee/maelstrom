@@ -349,13 +349,15 @@ class TestGitMergeCommand:
             message="Merged feat/test into main",
             pushed=True,
             push_message="Pushed main to origin",
+            push_warning="Warning: tangier gate push failed: denied",
         )
 
         runner = CliRunner()
         result = runner.invoke(cli, ["git", "merge"])
         assert result.exit_code == 0
         assert "Merged feat/test into main" in result.output
-        assert "Pushed main to origin" in result.output
+        assert "Pushed main to origin" in result.stdout
+        assert result.stderr == "Warning: tangier gate push failed: denied\n"
         # Defaults: squash on, close off.
         _, kwargs = mock_merge.call_args
         assert kwargs.get("squash") is True

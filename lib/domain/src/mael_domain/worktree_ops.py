@@ -118,7 +118,8 @@ async def run_sync(
             result = steps.sync(worktree_path, mode == SQUASH, True)
         if not result.success:
             return StepOutcome(blocked=result.message)
-        return StepOutcome(messages=[result.message])
+        pushed = [line for line in (result.push_message, result.push_warning) if line]
+        return StepOutcome(messages=[result.message, *pushed])
 
     return await run_sequence(
         [Step(name="rebase", run=rebase, scopes=(Scope.WORKTREE,))],

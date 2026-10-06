@@ -477,6 +477,7 @@ class SyncResult:
     upstream_head: str | None = None  # SHA of origin/main
     pushed: bool = False  # Whether the branch was pushed to remote
     push_message: str | None = None  # Push status message
+    push_warning: str | None = None  # a successful push's follow-up failed
     aborted: bool = False  # rebase aborted on conflict (--abort)
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
