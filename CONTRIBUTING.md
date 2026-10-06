@@ -9,6 +9,7 @@ git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync --all-extras
 uv tool install --editable ./cli
+uv tool install 'git+https://github.com/sminnee/tangier@e86d406f6d7948d4313abf670c80f7b6f74d0702'   # tangier v0.2.0
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
@@ -27,9 +28,9 @@ bin/lint                           # ruff lint, ruff format check, pyright, impo
 ```
 
 These are the three Python gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the
-same three before it uploads anything. They run when the change touches code. A change that
-touches none skips all three, and a skipped job reports success, so the merge gate is always
-satisfied. During development `uv run pytest -m 'not slow'` skips the slow tests for a faster
+same three before it uploads anything. `pipeline.toml` defines them for tangier, and CI skips a
+gate whose content already has a record. The pre-push check runs `tangier gate run test lint web`;
+`tangier gate push` sends those records to CI. See [CI gates](docs/dev/ci.md). During development `uv run pytest -m 'not slow'` skips the slow tests for a faster
 loop, but run the full set before you push.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
@@ -42,8 +43,7 @@ cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 bin/knip-check                     # dead code in orchestrator-ui/
 ```
 
-CI runs those web gates as a fourth job, on its own path filter, so a change under
-`orchestrator-ui/` alone still gets checked.
+CI runs those web gates as a fourth job, `web`.
 
 `bin/lint` runs vulture and `bin/knip-check` runs knip. Each finds code nothing calls. See
 [dead code](docs/dev/dead-code.md) for how the two passes differ, what to do with a finding, and

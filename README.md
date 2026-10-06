@@ -24,6 +24,7 @@ git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync
 uv tool install --editable ./cli
+uv tool install 'git+https://github.com/sminnee/tangier@e86d406f6d7948d4313abf670c80f7b6f74d0702'   # tangier v0.2.0, for the gates and service versions
 ```
 
 Then install the Claude Code skills and hooks:
@@ -125,6 +126,7 @@ deliberate local-shell escape hatch.
 - [The task domain model](docs/dev/tasks.md) — `parent` vs `follows`, ids, session discovery.
 - [Scheduled tasks](docs/dev/scheduled-tasks.md) — launchd firing mechanics.
 - [cmux control](docs/dev/cmux.md) — how maelstrom drives the cmux socket.
+- [CI gates](docs/dev/ci.md) — the tangier gates, and how CI reuses a local pass.
 
 ## Development
 

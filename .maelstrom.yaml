@@ -2,6 +2,9 @@
 main_port_base: 277
 install_cmd: uv sync --extra dev && pnpm --dir orchestrator-ui install --frozen-lockfile
 
+# tangier gates; e2e runs in CI only. See docs/dev/ci.md.
+pre_push_cmd: tangier gate run test lint web
+
 linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
   product_label: Maelstrom
