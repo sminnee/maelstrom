@@ -3083,6 +3083,14 @@ class WorktreeSetup:
     action: str  # "reused" | "recycled" | "created"
     sync: SyncResult | None = None
 
+    @property
+    def rebuilds_env(self) -> bool:
+        """Whether this open should rebuild the worktree's ``.env``.
+
+        A created worktree's ``.env`` is fresh. ``_main``'s is the user's own.
+        """
+        return self.action != "created" and self.name != MAIN_WORKTREE_FOLDER
+
 
 def check_base_exists(project_path: Path, base: str) -> None:
     """Raise if ``base`` names no branch that could be rebased onto.

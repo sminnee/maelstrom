@@ -955,6 +955,23 @@ class TestFindWorktreeByBranch:
             assert result == main_wt.path
 
 
+class TestWorktreeSetupRebuildsEnv:
+    """An open rebuilds the .env of a recycled or reused NATO worktree."""
+
+    @pytest.mark.parametrize(
+        ("name", "action", "expected"),
+        [
+            ("bravo", "recycled", True),
+            ("bravo", "reused", True),
+            ("bravo", "created", False),
+            ("_main", "reused", False),
+        ],
+    )
+    def test_rebuilds_env(self, tmp_path, name, action, expected):
+        setup = WorktreeSetup(path=tmp_path, name=name, action=action)
+        assert setup.rebuilds_env is expected
+
+
 class TestSetupWorktreeForBranch:
     """Integration tests for setup_worktree_for_branch (the shared core fn)."""
 
