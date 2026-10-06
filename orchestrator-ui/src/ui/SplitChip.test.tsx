@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { SplitChip } from './SplitChip';
 
 describe('SplitChip', () => {
@@ -70,5 +71,26 @@ describe('SplitChip', () => {
       </SplitChip>,
     );
     expect(screen.getByTitle('t')).not.toHaveAttribute('data-stale');
+  });
+
+  it('is a button named by its title when it takes a click', async () => {
+    const onClick = vi.fn();
+    render(
+      <SplitChip label="agents" title="4 of 6 agents working" onClick={onClick}>
+        {'4/6'}
+      </SplitChip>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: '4 of 6 agents working' }));
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it('is a reading, not a control, without a click', () => {
+    render(
+      <SplitChip label="agents" title="t">
+        {'4/6'}
+      </SplitChip>,
+    );
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByRole('img', { name: 't' })).toBeInTheDocument();
   });
 });
