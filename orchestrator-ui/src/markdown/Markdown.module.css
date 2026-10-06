@@ -209,9 +209,16 @@
   font-size: var(--text-sm);
 }
 
+/* A table wider than the surface scrolls in its wrapper and does not widen
+   the prose. `max-content` keeps a narrow table at its own width. */
+.tableScroll {
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--prose-gap);
+}
 .markdown table {
   border-collapse: collapse;
-  margin: 0 0 var(--prose-gap);
 }
 /*
  * Rows come to 32px, off the prose grid. A table is an inset object read as a

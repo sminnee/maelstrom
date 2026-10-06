@@ -85,6 +85,14 @@ const MarkdownContent = memo(function MarkdownContent({ source }: { source: stri
           }
           return <ImageLightbox src={src} alt={alt ?? ''} />;
         },
+        // The wrapper scrolls, not the table: a table set to `display: block`
+        // loses its semantics in some screen readers. Focusable, so a keyboard
+        // can scroll it.
+        table: ({ children }) => (
+          <div className={styles.tableScroll} role="region" aria-label="Table" tabIndex={0}>
+            <table>{children}</table>
+          </div>
+        ),
       }}
     >
       {source}
