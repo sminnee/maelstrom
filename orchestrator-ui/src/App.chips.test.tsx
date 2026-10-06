@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { endTurn } from './fake/moves';
 import { chipCount, expanded, nodeState, unansweredCount } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
+import agentsChipStyles from './shell/AgentsChip.module.css';
 
 describe('the usage and agent chips', () => {
   it('shows no usage chip until the host has a reading', async () => {
@@ -41,7 +42,7 @@ describe('the usage and agent chips', () => {
     // The seed is deterministic: six top-level agents, four of them mid-turn.
     // The literal is what makes this catch a miscount -- a regex over the
     // shape would pass on "0 of 0" and on any wrong arithmetic.
-    expect(await screen.findByLabelText('4 of 6 agents working, 2 idle')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/^4 of 6 agents working, 2 idle\./)).toBeInTheDocument();
   });
 
   it('draws the count in the plain text colour while agents work', async () => {
@@ -49,6 +50,81 @@ describe('the usage and agent chips', () => {
     // Agents at work is the normal state, not news: a toned count would be lit
     // all day and mean nothing.
     expect(await screen.findByLabelText(/agents working/)).toHaveAttribute('data-tone', 'neutral');
+  });
+});
+
+describe('the agents chip as a filter', () => {
+  const agentStatus = () => (screen.getByLabelText('Agent status') as HTMLSelectElement).value;
+  const chip = () => screen.getByLabelText(/agents working/);
+  /** The value spans the stylesheet greys out, by their text. */
+  const faint = () =>
+    Array.from(chip().querySelectorAll(`.${agentsChipStyles.faint}`)).map((n) => n.textContent);
+  const reading = () => ({ status: agentStatus(), faint: faint(), name: chip().ariaLabel });
+  const counts = '4 of 6 agents working, 2 idle';
+
+  it('steps the agent status filter through all, working + idle and working', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const seen = [reading()];
+    for (let i = 0; i < 3; i++) {
+      await user.click(chip());
+      seen.push(reading());
+    }
+    expect(seen).toEqual([
+      {
+        status: 'all',
+        faint: [],
+        name: `${counts}. Agent status: All. Click to show Working + Idle.`,
+      },
+      {
+        status: 'working-idle',
+        faint: ['4/'],
+        name: `${counts}. Agent status: Working + Idle. Click to show Working.`,
+      },
+      {
+        status: 'working',
+        faint: ['/6'],
+        name: `${counts}. Agent status: Working. Click to show All.`,
+      },
+      {
+        status: 'all',
+        faint: [],
+        name: `${counts}. Agent status: All. Click to show Working + Idle.`,
+      },
+    ]);
+  });
+
+  it('filters the desk: working + idle leaves out a task with no agent', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    expect(document.querySelector('[data-task-id="NORT-15"]')).toBeInTheDocument();
+    await user.click(chip());
+    expect(document.querySelector('[data-task-id="NORT-15"]')).not.toBeInTheDocument();
+  });
+
+  it('names a status outside its cycle, and steps from it as from all', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.selectOptions(screen.getByLabelText('Agent status'), 'planned');
+    expect(reading()).toEqual({
+      status: 'planned',
+      faint: [],
+      name: `${counts}. Agent status: Planned. Click to show Working + Idle.`,
+    });
+    await user.click(chip());
+    expect(agentStatus()).toBe('working-idle');
+  });
+
+  it('is a plain reading while the desk is off screen', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(chip());
+    await user.click(chip());
+    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    expect(screen.queryByRole('button', { name: /agents working/ })).toBeNull();
+    // The filter still holds `working`, but the chip neither greys nor names it.
+    expect(faint()).toEqual([]);
+    expect(chip()).toHaveAccessibleName(counts);
   });
 });
 
