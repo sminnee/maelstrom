@@ -1,0 +1,27 @@
+name: Sync gate records
+# Deletes old gate records under refs/tangier/gates/. See docs/dev/ci.md.
+on:
+  schedule:
+    - cron: "0 15 1 * *" # monthly, on the 2nd at 03:00 NZST
+
+  # Allow manual triggers
+  workflow_dispatch:
+
+permissions:
+  # Deleting a ref on origin is a push.
+  contents: write
+
+jobs:
+  sync:
+    name: Sync gate records
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7.0.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Sync, and delete old records
+        run: uvx tangier gate sync

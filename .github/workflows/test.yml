@@ -4,10 +4,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  # tangier v0.2.0. The tag is not on GitHub, so the commit is pinned.
-  TANGIER: git+https://github.com/sminnee/tangier@e86d406f6d7948d4313abf670c80f7b6f74d0702
-
 jobs:
   # Decides which gates have anything to run. See docs/dev/ci.md.
   #
@@ -37,12 +33,12 @@ jobs:
         # Fail open. A failed step sets no output, and each job below runs
         # unless its output is exactly `false`.
         continue-on-error: true
-        run: uvx --from "$TANGIER" tangier gate github-outputs --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate github-outputs --base "origin/$GITHUB_BASE_REF"
 
       # A broken SHA bucket gives `mael self-update` no service versions, and
       # nothing else reports it.
       - name: Hash the SHA buckets
-        run: uvx --from "$TANGIER" tangier changemap sha --all
+        run: uvx tangier changemap sha --all
 
   test:
     needs: gates
@@ -66,7 +62,7 @@ jobs:
 
       # The command is `[gate.test]` in pipeline.toml. `--read-only`: CI records nothing.
       - name: Run tests
-        run: uvx --from "$TANGIER" tangier gate run test --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run test --read-only --base "origin/$GITHUB_BASE_REF"
 
   lint:
     needs: gates
@@ -88,7 +84,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run linting
-        run: uvx --from "$TANGIER" tangier gate run lint --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run lint --read-only --base "origin/$GITHUB_BASE_REF"
 
   e2e:
     needs: gates
@@ -110,7 +106,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run e2e tests
-        run: uvx --from "$TANGIER" tangier gate run e2e --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run e2e --read-only --base "origin/$GITHUB_BASE_REF"
 
   # One step for each member of `[gate.web]`. A member whose record exists
   # reports `verified` in seconds.
@@ -143,20 +139,20 @@ jobs:
         run: pnpm --dir orchestrator-ui install --frozen-lockfile
 
       - name: Lint
-        run: uvx --from "$TANGIER" tangier gate run web.lint --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.lint --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Typecheck
         if: ${{ !cancelled() }}
-        run: uvx --from "$TANGIER" tangier gate run web.typecheck --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.typecheck --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Dead code
         if: ${{ !cancelled() }}
-        run: uvx --from "$TANGIER" tangier gate run web.knip --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.knip --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Test
         if: ${{ !cancelled() }}
-        run: uvx --from "$TANGIER" tangier gate run web.test --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.test --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Build
         if: ${{ !cancelled() }}
-        run: uvx --from "$TANGIER" tangier gate run web.build --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.build --read-only --base "origin/$GITHUB_BASE_REF"
