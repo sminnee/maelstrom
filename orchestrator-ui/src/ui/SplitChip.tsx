@@ -13,6 +13,8 @@ export interface SplitChipProps {
   title: string;
   /** The reading is too old to stand behind, so both halves go quiet. */
   stale?: boolean;
+  /** Makes the chip a button. Without it, the chip is a reading alone. */
+  onClick?: () => void;
 }
 
 /**
@@ -25,23 +27,16 @@ export interface SplitChipProps {
  * The row break and the faint label over the toned value make it read as two
  * parts.
  */
-export function SplitChip({ label, children, tone = 'neutral', title, stale }: SplitChipProps) {
-  return (
-    <span
-      className={styles.chip}
-      // A stale reading gives up its tone with its authority, here rather than
-      // at each call site: a caller cannot pair `stale` with an alarming tone
-      // and get a chip that shouts about a number it cannot vouch for.
-      data-tone={stale ? 'quiet' : tone}
-      data-stale={stale || undefined}
-      // `img` because the chip is one composite reading rather than two texts.
-      // A name on a bare span is a name on an element with the `generic` role,
-      // which a screen reader discards -- and the halves below are hidden, so
-      // the chip would then announce nothing at all.
-      role="img"
-      aria-label={title}
-      title={title}
-    >
+export function SplitChip({
+  label,
+  children,
+  tone = 'neutral',
+  title,
+  stale,
+  onClick,
+}: SplitChipProps) {
+  const halves = (
+    <>
       {/* The label is said by `aria-label` in full, so the visible halves are
           decoration to a screen reader and would otherwise be read twice. */}
       <span className={styles.label} aria-hidden="true">
@@ -50,6 +45,36 @@ export function SplitChip({ label, children, tone = 'neutral', title, stale }: S
       <span className={styles.value} aria-hidden="true">
         {children}
       </span>
+    </>
+  );
+  const shared = {
+    className: styles.chip,
+    // A stale reading gives up its tone with its authority, here rather than
+    // at each call site: a caller cannot pair `stale` with an alarming tone
+    // and get a chip that shouts about a number it cannot vouch for.
+    'data-tone': stale ? 'quiet' : tone,
+    'data-stale': stale || undefined,
+    'aria-label': title,
+    title,
+  };
+  if (onClick) {
+    // A button names itself, so it needs no role over it.
+    return (
+      <button type="button" {...shared} onClick={onClick}>
+        {halves}
+      </button>
+    );
+  }
+  return (
+    <span
+      {...shared}
+      // `img` because the chip is one composite reading rather than two texts.
+      // A name on a bare span is a name on an element with the `generic` role,
+      // which a screen reader discards -- and the halves below are hidden, so
+      // the chip would then announce nothing at all.
+      role="img"
+    >
+      {halves}
     </span>
   );
 }

@@ -31,6 +31,13 @@
   white-space: nowrap;
 }
 
+/* The clickable form is a `<button>`. `.chip` outweighs the pill rule in
+   `base.css`, so it keeps the chip's shape and ground; `base.css` gives it the
+   pointer and the focus ring. */
+button.chip:hover {
+  border-color: var(--border-strong);
+}
+
 /* One place a tone becomes a colour, as `HueChip.module.css` does. Only the
    value reads it: the label says what is measured, which is not news. */
 .chip[data-tone='neutral'] {
