@@ -843,7 +843,7 @@ the same `DialogFooter`.
   is the number of `needs-attention` nodes drawn. A second count follows in `--unanswered`,
   behind a 6px dot, when an unanswered node is drawn. The chip is disabled only when both
   counts are zero.
-- **Height and type:** a chip is not a control. A hue chip is `--chip` high: 16px on the wide
+- **Height and type:** a chip is not a control, except the agents chip on the Desk. A hue chip is `--chip` high: 16px on the wide
   layout, 24px on the narrow. Outlined, with `--text-sm` text in the chrome's face. A chip never
   takes the mono face; tabular digits hold its width. The attention chip is a button, so it is
   `--control` high and filled. A split chip is also `--control` high, so the readings, the
@@ -862,6 +862,13 @@ the same `DialogFooter`.
   reset stays quiet; a low one early in a window can sit amber. The title carries both figures
   — what is consumed and what the window allows for by now — because colour alone cannot
   explain a tone the value contradicts, and the gap between the two numbers is the reading.
+- **Agents chip:** a split chip that is also a button while the Desk shows. A click sets the
+  agent status filter to the next of All, Working + Idle and Working. The chip greys the count
+  that the filter leaves out: `6/` for Working + Idle, `/11` for Working. The filter is the
+  only state, so the chip and the Agent status dropdown always agree, and they share their
+  labels. A status outside the cycle, such as Planned, greys nothing, and a click goes on as
+  from All. Off the Desk the chip is a plain reading: the filter's effect is drawn on the Desk,
+  so a click elsewhere would change nothing in view.
 
 ### Shell command
 

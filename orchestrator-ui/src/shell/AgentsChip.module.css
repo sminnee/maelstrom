@@ -1,0 +1,5 @@
+/* The count the filtered view leaves out. Only the colour moves: the weight
+   stays, so the chip holds its width as the view changes. */
+.faint {
+  color: var(--fg-faint);
+}

@@ -176,7 +176,8 @@ filter bar, and it draws the controls of each main view on screen. Project appli
 main views and is always drawn.
 Branch applies to Desk and Tasks only: its options are built from tasks, so a worktree on a branch
 no task names would silently vanish from a table meant to show every one of them. Desk has an
-Agent status control, Tasks has status and text controls, and Worktrees has "show closed".
+Agent status control, which the top bar's agents chip also steps through; Tasks has status and
+text controls, and Worktrees has "show closed".
 
 `View` is a union nothing switches on exhaustively; its docstring in `store/uiSlice.ts` lists the
 sites to edit by hand when it widens.
