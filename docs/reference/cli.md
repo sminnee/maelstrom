@@ -1203,7 +1203,7 @@ None of these take options beyond `--help`.
 | `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. |
+| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. After the pull it reinstalls the CLI only when its `cli` SHA bucket moved, runs `install_cmd` in `_main`, then restarts the `_main` services whose [service version](../../CONTEXT.md) moved. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 
 ```bash
@@ -1211,7 +1211,7 @@ mael admin migrate           # create or upgrade ~/.maelstrom/state.db
 mael admin export-queue      # what the markdown export still owes
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
-mael self-update
+mael self-update             # pull, then restart only what the pull changed
 mael self-env start          # maelstrom's own orchestrator, web UI and the everyday daemon
 mael self-env status
 mael self-env restart agent-daemon   # the everyday daemon picks up new code

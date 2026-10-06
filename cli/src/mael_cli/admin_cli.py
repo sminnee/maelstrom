@@ -12,6 +12,7 @@ from mael_common.cli_async import AsyncGroup
 from mael_common.shell import mael_path
 from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
 from mael_domain.context import harden_global_config
+from mael_domain.env import ServiceVersionError, restart_changed, service_versions
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -19,10 +20,11 @@ from mael_domain.state_db.types import StateDbError
 from mael_domain.task import task_key
 from mael_domain.task_export import Queued, SqliteExportQueue
 from mael_domain.task_table import TABLE as TASKS_TABLE
+from mael_domain.worktree import run_install_cmd
 from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 
 from .claude_integration import install_claude_integration
-from .env_cli import WORKTREE_PARAM, env
+from .env_cli import WORKTREE_PARAM, env, make_store, report_version_changes
 
 
 @click.command("install")
@@ -135,6 +137,13 @@ def resolve_install_root(module_dir: Path) -> Path:
     return main if main.is_dir() else repo_root
 
 
+#: The tangier SHA bucket that hashes the CLI and the libraries it bundles.
+CLI_BUCKET = "cli"
+
+#: The self-env service whose restart interrupts running agents.
+AGENT_DAEMON_SERVICE = "agent-daemon"
+
+
 @click.command("self-update")
 def cmd_self_update():
     """Update maelstrom to the latest version from git."""
@@ -148,6 +157,10 @@ def cmd_self_update():
             "Cannot self-update: maelstrom is not installed from a git checkout. "
             "Please reinstall from git or use your package manager to update."
         )
+
+    # The `cli` SHA bucket before the pull. Only a change to the CLI or its
+    # libraries needs the slow reinstall.
+    cli_before = _cli_hash(repo_root)
 
     # Run git pull
     click.echo(f"Updating maelstrom from {repo_root}...")
@@ -175,8 +188,12 @@ def cmd_self_update():
     # This is best-effort: the pull already landed, so a missing/failing uv must
     # warn rather than abort. Installs that aren't uv tools (plain `uv run`, a
     # system package manager) handle their own deps and simply skip this.
+    cli_after = _cli_hash(repo_root)
     uv = shutil.which("uv")
-    if uv is None:
+    if cli_before is not None and cli_before == cli_after:
+        # No version on either side fails open: the reinstall runs.
+        click.echo("CLI unchanged; skipping its reinstall.")
+    elif uv is None:
         click.echo(
             "  Warning: 'uv' not found; skipping dependency sync. If a new "
             "dependency was added, reinstall maelstrom to pick it up.",
@@ -225,7 +242,46 @@ def cmd_self_update():
 
     click.echo(f"  {_write_daemon_root_shim()}")
 
+    _update_self_env(repo_root)
+
     click.echo("Update complete.")
+
+
+def _cli_hash(repo_root: Path) -> str | None:
+    """The `cli` SHA bucket's hash, or None when tangier cannot give one."""
+    try:
+        return service_versions(repo_root, [CLI_BUCKET]).get(CLI_BUCKET)
+    except ServiceVersionError:
+        return None
+
+
+def _update_self_env(repo_root: Path) -> None:
+    """Install new dependencies in `_main`, then restart its changed services.
+
+    Best-effort, as the dependency sync is: the pull has already landed.
+    """
+    click.echo("Installing dependencies in _main...")
+    try:
+        run_install_cmd(repo_root)
+    except (OSError, subprocess.CalledProcessError) as e:
+        click.echo(f"  Warning: install_cmd failed: {e}", err=True)
+
+    click.echo("Restarting changed services...")
+    try:
+        changes = restart_changed(
+            make_store(), SELF_ENV_PROJECT, MAIN_WORKTREE_FOLDER, repo_root
+        )
+    except (RuntimeError, ValueError, TimeoutError) as e:
+        # A start can fail after its stop, so a changed service may be down.
+        click.echo(
+            f"  Warning: the restart failed: {e}. A changed service may be "
+            "stopped; run `mael self-env start` to start it.",
+            err=True,
+        )
+        return
+    report_version_changes(changes)
+    if any(c.name == AGENT_DAEMON_SERVICE for c in changes):
+        click.echo("  The agent daemon restarted. Mid-turn agents resume.")
 
 
 # `mael self-env <verb>` is `mael env <verb>` aimed at the maelstrom project's

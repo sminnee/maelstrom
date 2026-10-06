@@ -63,6 +63,14 @@ Use it for one always-there instance of the app: the same address every day, sep
 whatever a NATO worktree is running. Maelstrom does this for itself — `mael self-env start`
 runs the orchestrator and web UI from the maelstrom project's own `_main`.
 
+`mael self-update` pulls `_main`, then restarts only the services whose code the pull changed.
+Each service records its [service version](../../CONTEXT.md) when it starts. An update that
+does not touch `agent-daemon/` or the libraries it uses leaves the agent daemon running, so no
+agent is interrupted. `mael self-env restart --changed` does the same restart without a pull.
+
+Run both from a shell, not from an agent of the `_main` agent daemon. Stopping that daemon also
+stops the command, so the daemon stays down until `mael self-env start`.
+
 ## Naming
 
 Worktrees take NATO phonetic alphabet names, in order:
