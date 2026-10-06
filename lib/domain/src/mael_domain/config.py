@@ -61,19 +61,18 @@ class ServiceDef:
         return self.engine is not None
 
 
-def _parse_bool(name: str, data: dict, key: str) -> bool:
-    """Read a bool service key, rejecting anything that is not a YAML boolean.
+def _parse_bool(owner: str, data: dict, key: str) -> bool:
+    """Read a bool key, rejecting anything that is not a YAML boolean.
 
     ``optional: "no"`` is a string, and ``bool()`` would read it as True.
+    ``owner`` names where the key sits, for the error.
 
     Raises:
         ValueError: If the key holds a non-boolean value.
     """
     value = data.get(key, False)
     if not isinstance(value, bool):
-        raise ValueError(
-            f"Service {name!r}: {key!r} must be true or false, got {value!r}"
-        )
+        raise ValueError(f"{owner}: {key!r} must be true or false, got {value!r}")
     return value
 
 
@@ -106,8 +105,8 @@ def _parse_service(name: str, data: dict) -> ServiceDef:
 
     svc = ServiceDef(
         name=name,
-        shared=_parse_bool(name, data, "shared"),
-        optional=_parse_bool(name, data, "optional"),
+        shared=_parse_bool(f"Service {name!r}", data, "shared"),
+        optional=_parse_bool(f"Service {name!r}", data, "optional"),
         engine=engine,
         ports=ports,
         publish=list(data.get("publish", [])),
