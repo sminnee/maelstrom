@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   # Decides which gates have anything to run. See docs/dev/ci.md.
   #
@@ -15,7 +18,6 @@ jobs:
     outputs:
       test-run: ${{ steps.gates.outputs.test-run }}
       lint-run: ${{ steps.gates.outputs.lint-run }}
-      e2e-run: ${{ steps.gates.outputs.e2e-run }}
       web-run: ${{ steps.gates.outputs.web-run }}
     steps:
       # The gates diff from the merge base. `blob:none` fetches commits and
@@ -48,8 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 20
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -62,7 +63,7 @@ jobs:
 
       # The command is `[gate.test]` in pipeline.toml. `--read-only`: CI records nothing.
       - name: Run tests
-        run: uvx tangier gate run test --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run test --read-only --base HEAD^1
 
   lint:
     needs: gates
@@ -71,8 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 20
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -84,12 +84,14 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run linting
-        run: uvx tangier gate run lint --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run lint --read-only --base HEAD^1
 
+  # A CI-only gate: CI writes its record, and accepts only CI's runs. It runs
+  # on every pull request; `gate run` skips content CI has already passed.
   e2e:
-    needs: gates
-    if: ${{ !cancelled() && needs.gates.outputs.e2e-run != 'false' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7.0.0
         with:
@@ -106,7 +108,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run e2e tests
-        run: uvx tangier gate run e2e --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run e2e --accept ci
 
   # One step for each member of `[gate.web]`. A member whose record exists
   # reports `verified` in seconds.
@@ -117,8 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 20
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -139,20 +140,20 @@ jobs:
         run: pnpm --dir orchestrator-ui install --frozen-lockfile
 
       - name: Lint
-        run: uvx tangier gate run web.lint --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.lint --read-only --base HEAD^1
 
       - name: Typecheck
         if: ${{ !cancelled() }}
-        run: uvx tangier gate run web.typecheck --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.typecheck --read-only --base HEAD^1
 
       - name: Dead code
         if: ${{ !cancelled() }}
-        run: uvx tangier gate run web.knip --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.knip --read-only --base HEAD^1
 
       - name: Test
         if: ${{ !cancelled() }}
-        run: uvx tangier gate run web.test --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.test --read-only --base HEAD^1
 
       - name: Build
         if: ${{ !cancelled() }}
-        run: uvx tangier gate run web.build --read-only --base "origin/$GITHUB_BASE_REF"
+        run: uvx tangier gate run web.build --read-only --base HEAD^1

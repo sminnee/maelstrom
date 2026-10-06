@@ -2,7 +2,8 @@
 
 Maelstrom's CI runs four gates: `test`, `lint`, `e2e` and `web`. [tangier](https://github.com/sminnee/tangier)
 defines them in `pipeline.toml` at the repository root. A gate whose content already has a record
-from a dev machine does not run again in CI, so a push after a local run costs CI almost nothing.
+does not run again in CI, so a push after a local run costs CI almost nothing. `e2e` accepts only
+a record from CI.
 
 ## The gates
 
@@ -18,17 +19,25 @@ its commit.
 ## How CI uses them
 
 `.github/workflows/test.yml` has a `gates` job first. It runs
-`tangier gate github-outputs` and emits `<gate>-run` for each gate. Each gate job runs only when
-its output is not `false`:
+`tangier gate github-outputs` and emits `<gate>-run` for each gate. The `test`, `lint` and `web`
+jobs run only when their output is not `false`:
 
 - A gate whose gate scope the diff does not touch is `not-needed`. Its job is skipped.
 - A gate whose content has a record is `verified`. Its job is skipped.
 - Any other gate is `required`. Its job runs `tangier gate run <gate> --read-only`. CI records
   nothing.
 
-The detection fails open. When the `gates` step fails, it sets no output, and every gate job
-runs. A job skipped by its `if:` reports success, so the required checks `test`, `lint`, `e2e`
-and `web` are always satisfied.
+These jobs check out 20 commits and pass `--base HEAD^1`. `HEAD^1` is the PR merge commit's first
+parent: the tip of the base branch. The diff from it is the PR's change.
+
+`e2e` is a CI-only gate. Its job runs on every pull request and runs
+`tangier gate run e2e --accept ci`. It counts only CI's runs, and it writes its own record, so the
+job has `contents: write`. `gate run` skips the suite when the content is `not-needed`, or CI has
+already passed it.
+
+The detection fails open. When the `gates` step fails, it sets no output, and the `test`, `lint`
+and `web` jobs run. A job skipped by its `if:` reports success, so the required checks `test`,
+`lint` and `web` are always satisfied. `e2e` always runs.
 
 Every gate job runs its gate through `uvx tangier`, so each one needs PyPI to serve tangier. CI
 installs the latest release, not a pinned version. When the fetch fails, the jobs fail red. They
