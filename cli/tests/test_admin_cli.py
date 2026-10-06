@@ -18,13 +18,14 @@ from mael_cli.admin_cli import (
     resolve_install_root,
 )
 from mael_domain import task as task_model
-from mael_domain.env import EnvState, ServiceVersionError, VersionChange
+from mael_domain.env import EnvRefresh, EnvState, ServiceVersionError, VersionChange
 from mael_domain.state_db import migrate as state_db_migrate
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.migrations.desk import DESK
 from mael_domain.state_db.types import Migration
 from mael_domain.task_export import SqliteExportQueue
 from mael_domain.task_table import SqliteTaskTable
+from mael_domain.worktree_model import CopyBackResult
 
 
 @pytest.fixture(autouse=True)
@@ -285,7 +286,7 @@ class TestSelfEnv:
         ("stop", "stop_env"),
         ("restart", "restart_services"),
         ("status", "get_env_status"),
-        ("reset", "regenerate_and_restart_if_running"),
+        ("reset", "refresh_env"),
         ("logs", "get_log_files"),
         ("open", "load_env_state"),
     ]
@@ -310,11 +311,10 @@ class TestSelfEnv:
             "get_app_url": None,
             "get_log_files": {},
             "read_service_logs": "",
-            "regenerate_and_restart_if_running": ([], None),
+            "refresh_env": EnvRefresh(CopyBackResult(), changed=True),
             "restart_services": ([], state),
             "ensure_cmux_browser": None,
             "update_claude_local_md": None,
-            "copy_back_new_env_vars": MagicMock(added={}, conflicts=[]),
         }
 
         patches = {

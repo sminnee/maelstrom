@@ -10,6 +10,7 @@ from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.config import load_config_or_default
 from mael_domain.context import ResolvedContext, resolve_context
 from mael_domain.env import (
+    EnvRefresh,
     EnvState,
     VersionChange,
     get_env_status,
@@ -19,7 +20,7 @@ from mael_domain.env import (
     list_project_envs,
     load_env_state,
     read_service_logs,
-    regenerate_and_restart_if_running,
+    refresh_env,
     restart_changed,
     restart_services,
     save_env_state,
@@ -29,7 +30,7 @@ from mael_domain.env import (
 )
 from mael_domain.env_store import JsonEnvStore
 from mael_domain.ports import get_app_url, wait_for_port
-from mael_domain.worktree import copy_back_new_env_vars, update_claude_local_md
+from mael_domain.worktree import update_claude_local_md
 from mael_domain.worktree_model import CopyBackResult, get_worktree_folder_name
 
 from .table_cli import draw_table
@@ -217,6 +218,52 @@ def _get_app_display(project_path: Path, worktree: str) -> str:
 def env():
     """Manage dev environments (start/stop/list services)."""
     pass
+
+
+def refresh_worktree_env(
+    project: str,
+    wt_name: str,
+    project_path: Path,
+    worktree_path: Path,
+    *,
+    fatal: bool,
+    force_restart: bool = False,
+) -> EnvRefresh | None:
+    """Rebuild a worktree's ``.env`` and echo what changed.
+
+    ``fatal=False`` turns any failure into a warning and returns ``None``: an
+    open that launched before the rebuild existed must not be refused by it.
+    """
+    try:
+        refresh = refresh_env(
+            make_store(),
+            project,
+            wt_name,
+            project_path,
+            worktree_path,
+            force_restart=force_restart,
+        )
+    # Broad on purpose: a bad `.maelstrom.yaml` or an unwritable `.env` must
+    # not block a non-fatal open either.
+    except Exception as e:  # noqa: BLE001
+        if not fatal:
+            click.echo(f"Warning: .env not refreshed: {e}", err=True)
+            return None
+        if isinstance(e, RuntimeError):
+            raise click.ClickException(str(e))
+        raise
+
+    print_copy_back_result(refresh.copy_back, project_path)
+    if refresh.stop_messages:
+        for msg in refresh.stop_messages:
+            click.echo(msg)
+        click.echo(f"Environment stopped for {project}/{wt_name}.")
+    if refresh.changed:
+        click.echo(f"Regenerated .env for {project}/{wt_name}.")
+    if refresh.new_state is not None:
+        ensure_cmux_browser(refresh.new_state, project_path, wt_name)
+        print_service_status(project, wt_name, project_path)
+    return refresh
 
 
 def print_service_status(
@@ -508,34 +555,18 @@ def env_reset(worktree_opt, target):
     if not worktree_path or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    # Rescue any new worktree vars into the parent before regenerating, so the
-    # regenerate is a clean recreate from the parent template.
-    copy_back = copy_back_new_env_vars(ctx.project_path, worktree_path)
-    print_copy_back_result(copy_back, ctx.project_path)
-
-    try:
-        stop_messages, new_state = regenerate_and_restart_if_running(
-            make_store(),
-            ctx.project,
-            ctx.worktree,
-            ctx.project_path,
-            worktree_path,
-        )
-    except RuntimeError as e:
-        raise click.ClickException(str(e))
-
-    if stop_messages:
-        for msg in stop_messages:
-            click.echo(msg)
-        click.echo(f"Environment stopped for {ctx.project}/{ctx.worktree}.")
-
-    click.echo(f"Regenerated .env for {ctx.project}/{ctx.worktree}.")
+    refresh = refresh_worktree_env(
+        ctx.project,
+        ctx.worktree,
+        ctx.project_path,
+        worktree_path,
+        fatal=True,
+        force_restart=True,
+    )
+    if refresh is not None and not refresh.changed:
+        click.echo(f".env for {ctx.project}/{ctx.worktree} is already current.")
 
     update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
-
-    if new_state is not None:
-        ensure_cmux_browser(new_state, ctx.project_path, ctx.worktree)
-        print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
 
 @env.command("list")

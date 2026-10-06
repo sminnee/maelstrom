@@ -15,12 +15,14 @@ from mael_cli.env_cli import (
 )
 from mael_domain.config import MaelstromConfig
 from mael_domain.env import (
+    EnvRefresh,
     EnvState,
     RestartFailed,
     ServiceState,
     ServiceStatus,
     VersionChange,
 )
+from mael_domain.worktree_model import CopyBackResult
 
 
 def _make_state(project="proj", worktree="bravo", pid=100):
@@ -771,7 +773,8 @@ class TestEnvReset:
     """Tests for mael env reset command."""
 
     @patch(
-        "mael_cli.env_cli.regenerate_and_restart_if_running", return_value=([], None)
+        "mael_cli.env_cli.refresh_env",
+        return_value=EnvRefresh(CopyBackResult(), changed=True),
     )
     @patch("mael_cli.env_cli.resolve_context")
     def test_reset_not_running(self, mock_ctx, mock_helper, tmp_path):
@@ -789,12 +792,26 @@ class TestEnvReset:
             "bravo",
             ctx.project_path,
             ctx.worktree_path,
+            force_restart=True,
         )
+
+    @patch(
+        "mael_cli.env_cli.refresh_env",
+        return_value=EnvRefresh(CopyBackResult(), changed=False),
+    )
+    @patch("mael_cli.env_cli.resolve_context")
+    def test_reset_unchanged_says_so(self, mock_ctx, mock_helper, tmp_path):
+        mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
+
+        result = CliRunner().invoke(cli, ["env", "reset"])
+        assert result.exit_code == 0, result.output
+        assert ".env for proj/bravo is already current." in result.output
+        assert "Regenerated" not in result.output
 
     @patch("mael_cli.env_cli.get_app_url", return_value=None)
     @patch("mael_cli.env_cli.get_env_status")
     @patch("mael_cli.env_cli.load_env_state")
-    @patch("mael_cli.env_cli.regenerate_and_restart_if_running")
+    @patch("mael_cli.env_cli.refresh_env")
     @patch("mael_cli.env_cli.resolve_context")
     def test_reset_running_stops_and_restarts(
         self,
@@ -809,7 +826,12 @@ class TestEnvReset:
         ctx = _mock_ctx_with_path(tmp_path)
         mock_ctx.return_value = ctx
         state = _make_state()
-        mock_helper.return_value = (["web (pid 100): stopped"], state)
+        mock_helper.return_value = EnvRefresh(
+            CopyBackResult(),
+            changed=True,
+            stop_messages=["web (pid 100): stopped"],
+            new_state=state,
+        )
         mock_load.return_value = state
         mock_status.return_value = [_make_status()]
 
@@ -824,33 +846,21 @@ class TestEnvReset:
             "bravo",
             ctx.project_path,
             ctx.worktree_path,
+            force_restart=True,
         )
 
     @patch(
-        "mael_cli.env_cli.regenerate_and_restart_if_running", return_value=([], None)
+        "mael_cli.env_cli.refresh_env",
+        return_value=EnvRefresh(CopyBackResult(added={"FOO": "bar"}), changed=True),
     )
     @patch("mael_cli.env_cli.resolve_context")
-    def test_reset_copies_back_new_worktree_var(self, mock_ctx, mock_helper, tmp_path):
-        """Copies a new worktree var back to the parent before regenerating."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        # Parent template has only an existing var.
-        (ctx.project_path / ".env").write_text("EXISTING=1\n")
-        # Worktree .env carries a managed section plus a brand-new user var.
-        (ctx.worktree_path / ".env").write_text(
-            "# Maelstrom port allocations\n"
-            "WORKTREE=bravo\n"
-            "# End Maelstrom port allocations\n"
-            "\nEXISTING=1\nFOO=bar\n"
-        )
+    def test_reset_reports_a_copied_back_var(self, mock_ctx, mock_helper, tmp_path):
+        mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "reset"])
+        result = CliRunner().invoke(cli, ["env", "reset"])
         assert result.exit_code == 0, result.output
         assert "Copied 1 new var(s) back" in result.output
         assert "+FOO=bar" in result.output
-        parent_text = (ctx.project_path / ".env").read_text()
-        assert "FOO=bar" in parent_text
 
     @patch("mael_cli.env_cli.resolve_context")
     def test_reset_worktree_not_found(self, mock_ctx):
