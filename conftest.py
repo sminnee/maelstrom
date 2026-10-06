@@ -76,6 +76,18 @@ def _no_dev_certificate(monkeypatch):
     monkeypatch.delenv("DEV_TLS_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _outside_a_task_session(monkeypatch):
+    """Keep the outer task session out of the tests.
+
+    A task session exports ``MAEL_TASK_ID`` and ``MAEL_TASK_PARENT``, and
+    ``mael task add`` reads them as defaults. The pre-push check runs the suite
+    inside that session, so a leaked value would block every push from it.
+    """
+    monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+    monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
+
+
 @pytest.fixture
 def self_signed_cert(tmp_path) -> tuple[Path, Path]:
     """A throwaway certificate and key for ``localhost``, made by ``openssl``."""
