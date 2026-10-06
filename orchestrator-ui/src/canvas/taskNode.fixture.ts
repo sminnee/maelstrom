@@ -1,7 +1,7 @@
 import type { Attention } from '../protocol/attention';
 import type { Agent, Phase, Task, Worktree } from '../protocol/entities';
 import type { NodeState } from '../protocol/progress';
-import { phaseForCommand } from '../protocol/phase';
+import { phaseForTask } from '../protocol/phase';
 import { progressOf } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 
@@ -116,9 +116,9 @@ function node(over: {
     agent: a,
     worktree: over.worktree ?? worktree(),
     progress: progressOf(t, a, []),
-    // Read from the command, never set by hand: a free agent has no task and
-    // so no phase, exactly as `deriveGraph` has it.
-    phase: t ? phaseForCommand(t.command) : null,
+    // Read from the task, never set by hand: a free agent has no task and so
+    // no phase, exactly as `deriveGraph` has it.
+    phase: t ? phaseForTask(t, a) : null,
     groupId: 'maelstrom',
     attention: [],
     reason: '',

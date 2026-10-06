@@ -11,8 +11,9 @@ import { ApiError } from '../api/http';
 import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
-import { phaseForCommand, phaseLabel } from '../protocol/phase';
+import { phaseForTask, phaseLabel } from '../protocol/phase';
 import { groupOf } from '../selectors/documents';
+import { agentsByTask } from '../selectors/graph';
 import type { DocumentRow } from '../selectors/world';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
@@ -66,7 +67,7 @@ export function DocumentTab({ documentId }: { documentId: string }) {
 
   // Narrowed, so the dock's `DecisionCard` branch keeps a defined agent.
   const waiting = agent !== undefined && agent.pendingRequestIds.length > 0 ? agent : null;
-  const phase = task ? phaseForCommand(task.command) : null;
+  const phase = task ? phaseForTask(task, agentsByTask(world).get(task.id)) : null;
   const created = approveDocument.data?.taskIds;
   // The list row carries the group; the detail may be a version behind it.
   const row = world.documents[documentId];

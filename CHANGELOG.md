@@ -131,6 +131,12 @@ release while that section is empty, and retitles it to the version it is releas
   uv tool install --editable ~/Projects/maelstrom/_main/cli --reinstall --force
   ```
 
+### Fixed
+
+- **A plan-mode build task draws as Plan until its plan is approved.** Its card, tabs and
+  document drew Build while the agent wrote the plan. They now switch to Build when you approve
+  the plan.
+
 ### Added
 
 - **A task node's card lists what its task follows and what follows it.** The expanded card has

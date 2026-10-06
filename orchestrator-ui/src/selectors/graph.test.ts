@@ -99,6 +99,17 @@ describe('deriveGraph', () => {
     });
   });
 
+  it('draws a plan-mode task as plan until its agent leaves plan mode', () => {
+    const tasks = [makeTask({ id: 'T1', command: '', mode: 'plan' })];
+    const phaseWith = (permissionMode: 'plan' | 'auto') =>
+      deriveGraph(
+        drawnWorld({ tasks, agents: [makeAgent({ taskId: 'T1', permissionMode })] }),
+        unfiltered,
+      ).nodes[0]?.phase;
+    expect(phaseWith('plan')).toBe('plan');
+    expect(phaseWith('auto')).toBe('build');
+  });
+
   // A running agent works in one worktree, and that is how two runs are told
   // apart on a board of many.
   describe('worktree', () => {

@@ -2,8 +2,8 @@ import type { TaskRow } from '../api/types';
 import type { Agent, Phase, Worktree } from '../protocol/entities';
 import type { WorldView } from './world';
 import type { AgentId, ProjectId, TaskId, WorktreeId } from '../protocol/ids';
-import { phaseForCommand } from '../protocol/phase';
-import { isLive } from './graph';
+import { phaseForTask } from '../protocol/phase';
+import { agentsByTask, isLive } from './graph';
 import type { PanelTab } from '../store/uiSlice';
 
 /** The tab of one kind. */
@@ -205,9 +205,13 @@ export interface TabAttribution {
   title: string;
 }
 
-/** A tab can outlive its task, and a phase it cannot read is drawn as none. */
-const phaseOf = (task: TaskRow | undefined): Phase | null =>
-  task ? phaseForCommand(task.command) : null;
+/**
+ * A tab can outlive its task, and a phase it cannot read is drawn as none. The
+ * task's own agent decides, as on the canvas, so a subagent's tab or an old
+ * run's tab draws the phase the card does.
+ */
+const phaseOf = (world: WorldView, task: TaskRow | undefined): Phase | null =>
+  task ? phaseForTask(task, agentsByTask(world).get(task.id)) : null;
 
 /** Which task (and phase) a tab belongs to, so two tabs from two agents are told apart. */
 export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution {
@@ -217,7 +221,7 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
       const task = taskForTab(world, tab);
       return {
         id: task?.notebookId || agent?.taskId || tab.agentId,
-        phase: phaseOf(task),
+        phase: phaseOf(world, task),
         agentId: tab.agentId,
         label: '',
         title: task?.title ?? '',
@@ -230,7 +234,7 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
         // `tab.documentId` is the last resort, as `tab.agentId` is for a
         // session: a tab the world can tell nothing about still names itself.
         id: task?.notebookId || doc?.taskId || doc?.agentId || tab.documentId,
-        phase: phaseOf(task),
+        phase: phaseOf(world, task),
         agentId: doc?.agentId ?? null,
         // `||`, not `??`: a document's title is agent-authored, so an empty
         // one is possible, and a label-less document tab reads as a session.
