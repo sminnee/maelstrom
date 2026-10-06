@@ -15,6 +15,7 @@ from mael_domain.env import (
     EnvSummary,
     ProcfileEntry,
     ResolvedService,
+    RestartFailed,
     ServiceState,
     ServiceStatus,
     SharedEnvState,
@@ -38,6 +39,7 @@ from mael_domain.env import (
     regenerate_and_restart_if_running,
     remove_env_state,
     remove_shared_state,
+    restart_services,
     save_env_state,
     save_shared_state,
     start_env,
@@ -3692,3 +3694,82 @@ class TestSummariseEnv:
         assert summary == EnvSummary(
             "stopped", [WorktreeService("app", False, False, "http://localhost:3010")]
         )
+
+
+@pytest.fixture
+def reaped():
+    """Let the kernel reap each stopped child.
+
+    A child this process never waits on stays a zombie, which signal 0 still
+    reaches, so a stop would wait out its whole timeout.
+
+    While it applies, no exit status can be read: a stand-in tangier reads as
+    exit 0 whatever it returns. Test a failing tangier without it.
+    """
+    previous = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+    yield
+    signal.signal(signal.SIGCHLD, previous)
+
+
+class TestRestartServices:
+    """A restart stops the named services, then starts them again."""
+
+    def _worktree(self, tmp_path, services=("web", "worker")):
+        worktree = tmp_path / "wt"
+        worktree.mkdir(exist_ok=True)
+        (worktree / ".maelstrom.yaml").write_text(
+            "services:\n"
+            + "".join(f"  {name}:\n    command: exec sleep 60\n" for name in services)
+        )
+        return worktree
+
+    def _pids(self, store):
+        state = load_env_state(store, "proj", "bravo")
+        return {} if state is None else {s.name: s.pid for s in state.services}
+
+    @pytest.fixture
+    def logs(self, tmp_path):
+        with patch("mael_domain.env._get_log_dir", return_value=tmp_path / "logs"):
+            yield
+
+    @pytest.mark.usefixtures("reaped", "logs")
+    def test_only_the_named_service_cycles(self, tmp_path):
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", worktree, skip_install=True)
+        try:
+            before = self._pids(store)
+            messages, _ = restart_services(
+                store, "proj", "bravo", worktree, services=["web"]
+            )
+            after = self._pids(store)
+            assert messages == [f"web (pid {before['web']}): stopped"]
+            assert after["worker"] == before["worker"]
+            assert after["web"] != before["web"]
+        finally:
+            stop_env(store, "proj", "bravo", timeout=2)
+
+    @pytest.mark.usefixtures("reaped", "logs")
+    def test_an_environment_that_is_not_running_just_starts(self, tmp_path):
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        try:
+            messages, state = restart_services(store, "proj", "bravo", worktree)
+            assert messages == []
+            assert [s.name for s in state.services] == ["web", "worker"]
+        finally:
+            stop_env(store, "proj", "bravo", timeout=2)
+
+    @pytest.mark.usefixtures("reaped", "logs")
+    def test_a_start_that_fails_after_the_stop_names_what_is_down(self, tmp_path):
+        """A pull can rename a service, so the stopped one no longer starts."""
+        worktree = self._worktree(tmp_path)
+        store = InMemoryEnvStore()
+        start_env(store, "proj", "bravo", worktree, skip_install=True)
+        try:
+            self._worktree(tmp_path, services=("www", "worker"))
+            with pytest.raises(RestartFailed, match="Stopped web"):
+                restart_services(store, "proj", "bravo", worktree, services=["web"])
+            assert "web" not in self._pids(store)
+        finally:
+            stop_env(store, "proj", "bravo", timeout=2)
