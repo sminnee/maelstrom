@@ -4,6 +4,9 @@
 # A SHA bucket named after a `.maelstrom.yaml` service gives it a service
 # version (CONTEXT.md).
 
+[gate]
+prune-after-days = 30
+
 # --------------------------------------------------------------------------
 # Gates: `tangier gate run <name>`. Each command runs without a shell.
 #

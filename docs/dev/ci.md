@@ -30,27 +30,26 @@ The detection fails open. When the `gates` step fails, it sets no output, and ev
 runs. A job skipped by its `if:` reports success, so the required checks `test`, `lint`, `e2e`
 and `web` are always satisfied.
 
-Every gate job runs its gate through `uvx --from git+…`, so each one needs GitHub to serve the
-pinned tangier commit. When that fetch fails, the jobs fail red. They do not fall back to the raw
-command.
+Every gate job runs its gate through `uvx tangier`, so each one needs PyPI to serve tangier. CI
+installs the latest release, not a pinned version. When the fetch fails, the jobs fail red. They
+do not fall back to the raw command.
 
 ## Local passes
 
 `.maelstrom.yaml` sets `pre_push_cmd: tangier gate run test lint web`. `mael gh create-pr` and
-`mael sync` run that check before they push, and it records each pass locally. CI finds a record
-only on origin. tangier v0.2.0 does not push records from `gate run`, so run `tangier gate push`
-to send them. `e2e` is too slow for the pre-push check, so it runs in CI only.
+`mael sync` run that check before they push, and it records each pass locally. `gate run` then
+publishes each record to origin, where CI finds it. `e2e` is too slow for the pre-push check, so it runs in CI only.
 
-Install tangier v0.2.0 to run the check. The tag is not on GitHub, so install it by commit:
+Install tangier to run the check:
 
 ```bash
-uv tool install 'git+https://github.com/sminnee/tangier@e86d406f6d7948d4313abf670c80f7b6f74d0702'
+uv tool install tangier
 tangier gate run test lint web     # run, and record each pass
-tangier gate push                  # send the records to origin
 tangier gate run --all --dry-run   # each gate's status, and what it would run
 ```
 
-`.github/workflows/gate-prune.yaml` deletes records older than 30 days, once a month.
+`.github/workflows/gate-sync.yaml` runs `tangier gate sync` once a month. It deletes records older
+than `[gate] prune-after-days` in `pipeline.toml`, which is 30.
 
 ## Change a gate scope
 
