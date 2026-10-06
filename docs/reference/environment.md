@@ -8,7 +8,8 @@ What maelstrom reads, and what it sets.
 
 ### In each worktree's `.env`
 
-`mael add` writes a `.env` file in the worktree. `mael env reset` regenerates it. The file
+`mael add` writes a `.env` file in the worktree. Each later open of the worktree regenerates
+it, and so does `mael env reset`. The file
 merges the project root's `.env` (as a template, with `$VAR` substitution) with the
 generated variables below.
 

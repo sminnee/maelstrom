@@ -346,11 +346,22 @@ WORKTREE_NUM=1
 The marked block is maelstrom's; anything outside it is yours and survives regeneration.
 Add `.env` to `.gitignore` — it is per-worktree and generated.
 
-After changing ports in `.maelstrom.yaml`:
+Each open of an existing worktree rebuilds its `.env`: `mael add`, `mael task run`, and a
+launch from the orchestrator. The rebuild keeps `PORT_BASE`. Vars that only the worktree has
+go to the project root's `.env` first, so the rebuild loses none of them. A worktree value
+that differs from the project root's is overwritten, with a warning. Use a blank value
+(`KEY=`) in the project root's `.env` for a var each worktree keeps for itself. Running services
+restart only when the `.env` changed. A new worktree is skipped: its `.env` is already fresh.
+`_main` is skipped too, because its `.env` is yours.
+
+A worktree that stays open does not see a change to the template or to `.maelstrom.yaml`.
+Rebuild its `.env` by hand:
 
 ```bash
 mael env reset
 ```
+
+`mael env reset` always restarts running services.
 
 ## Open an environment from another device
 
