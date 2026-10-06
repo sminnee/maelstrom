@@ -1,6 +1,7 @@
 """Tests for mael_domain.env module."""
 
 import itertools
+import os
 import signal
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -18,6 +19,7 @@ from mael_domain.env import (
     RestartFailed,
     ServiceState,
     ServiceStatus,
+    ServiceVersionError,
     SharedEnvState,
     WorktreeService,
     _spawn_services,
@@ -42,6 +44,7 @@ from mael_domain.env import (
     restart_services,
     save_env_state,
     save_shared_state,
+    service_versions,
     start_env,
     stop_all_envs,
     stop_env,
@@ -3694,6 +3697,99 @@ class TestSummariseEnv:
         assert summary == EnvSummary(
             "stopped", [WorktreeService("app", False, False, "http://localhost:3010")]
         )
+
+
+def _fake_tangier_sha(tmp_path, monkeypatch, output: str, exit_code: int = 0):
+    """Put a stand-in ``tangier`` first on PATH that prints ``output``.
+
+    ``output`` takes the shape of ``tangier changemap sha --all``: one
+    ``<BUCKET>_VERSION=<sha>`` line per bucket. Returns the file that logs each
+    call's arguments.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir(exist_ok=True)
+    log = tmp_path / "tangier-args.log"
+    script = bin_dir / "tangier"
+    script.write_text(
+        f"#!/bin/sh\necho \"$*\" >> {log}\ncat <<'OUT'\n{output}OUT\nexit {exit_code}\n"
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    return log
+
+
+class TestServiceVersions:
+    """A service's version is the tangier bucket hash of the same name."""
+
+    OUTPUT = (
+        "AGENT_DAEMON_VERSION=aaaaaaaaaa\n"
+        "CLI_VERSION=cccccccccc\n"
+        "WEB_VERSION=wwwwwwwwww\n"
+    )
+
+    def test_each_named_service_with_a_bucket_gets_its_hash(
+        self, tmp_path, monkeypatch
+    ):
+        log = _fake_tangier_sha(tmp_path, monkeypatch, self.OUTPUT)
+        versions = service_versions(tmp_path, ["agent-daemon", "web", "ladle"])
+        assert versions == {"agent-daemon": "aaaaaaaaaa", "web": "wwwwwwwwww"}
+        assert log.read_text() == "changemap sha --all\n"
+
+    def test_a_failed_call_is_an_error(self, tmp_path, monkeypatch):
+        """Not "no versions": that would read as "nothing changed"."""
+        _fake_tangier_sha(tmp_path, monkeypatch, self.OUTPUT, exit_code=2)
+        with pytest.raises(ServiceVersionError, match="exit 2"):
+            service_versions(tmp_path, ["web"])
+
+    def test_no_tangier_on_path_is_an_error(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        with pytest.raises(ServiceVersionError, match="not on PATH"):
+            service_versions(tmp_path, ["web"])
+
+
+class TestStartEnvRecordsServiceVersions:
+    """A start records each service's version, so an update can see what moved."""
+
+    def _start(self, tmp_path, *, pipeline: bool):
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        if pipeline:
+            (worktree / "pipeline.toml").write_text("")
+        (worktree / ".maelstrom.yaml").write_text(
+            "services:\n"
+            "  web:\n    command: serve-web\n"
+            "  worker:\n    command: serve-worker\n"
+        )
+        store = InMemoryEnvStore()
+        pids = itertools.count(500)
+        with (
+            patch("mael_domain.env.Popen", lambda *a, **k: MagicMock(pid=next(pids))),
+            patch("mael_domain.env._get_log_dir", return_value=tmp_path / "logs"),
+        ):
+            start_env(store, "proj", "bravo", worktree, skip_install=True)
+        state = load_env_state(store, "proj", "bravo")
+        assert state is not None
+        return {s.name: s.version for s in state.services}
+
+    def test_a_project_with_a_pipeline_records_the_bucket_hash(
+        self, tmp_path, monkeypatch
+    ):
+        _fake_tangier_sha(tmp_path, monkeypatch, "WEB_VERSION=wwwwwwwwww\n")
+        assert self._start(tmp_path, pipeline=True) == {
+            "web": "wwwwwwwwww",
+            "worker": None,
+        }
+
+    def test_a_failed_tangier_records_no_version_and_still_starts(
+        self, tmp_path, monkeypatch
+    ):
+        _fake_tangier_sha(tmp_path, monkeypatch, "", exit_code=2)
+        assert self._start(tmp_path, pipeline=True) == {"web": None, "worker": None}
+
+    def test_without_a_pipeline_nothing_is_hashed(self, tmp_path, monkeypatch):
+        log = _fake_tangier_sha(tmp_path, monkeypatch, "WEB_VERSION=wwwwwwwwww\n")
+        assert self._start(tmp_path, pipeline=False) == {"web": None, "worker": None}
+        assert not log.exists()
 
 
 @pytest.fixture

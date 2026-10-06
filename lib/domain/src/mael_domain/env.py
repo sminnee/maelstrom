@@ -79,6 +79,8 @@ class ServiceState:
     started_at: str  # ISO 8601
     engine: str | None = None
     container_name: str | None = None
+    # The service version at spawn, or None. See "Service version" in CONTEXT.md.
+    version: str | None = None
 
 
 @dataclass
@@ -155,8 +157,8 @@ def is_shared_service(name: str) -> bool:
 def _service_state_from_dict(data: dict) -> ServiceState:
     """Build a ServiceState from a persisted dict, tolerant of older records.
 
-    ``engine`` / ``container_name`` are read via ``.get`` so state written before
-    those fields existed still loads.
+    ``engine`` / ``container_name`` / ``version`` are read via ``.get`` so state
+    written before those fields existed still loads.
     """
     return ServiceState(
         name=data["name"],
@@ -166,6 +168,7 @@ def _service_state_from_dict(data: dict) -> ServiceState:
         started_at=data["started_at"],
         engine=data.get("engine"),
         container_name=data.get("container_name"),
+        version=data.get("version"),
     )
 
 
@@ -428,6 +431,69 @@ def is_service_alive(pid: int) -> bool:
         return True
 
 
+# --- Service versions ---
+
+#: Seconds ``tangier changemap sha --all`` may take. A start must not hang on it.
+TANGIER_SHA_TIMEOUT = 60
+
+#: The tangier config. A worktree that has one gets service versions.
+PIPELINE_FILE = "pipeline.toml"
+
+
+def has_service_versions(worktree_path: Path) -> bool:
+    """Whether the worktree's services get a version: it has a ``pipeline.toml``."""
+    return (worktree_path / PIPELINE_FILE).is_file()
+
+
+def _version_var(name: str) -> str:
+    """The variable tangier prints a SHA bucket's hash under: ``agent-daemon`` gives
+    ``AGENT_DAEMON_VERSION``."""
+    return f"{name.upper().replace('-', '_')}_VERSION"
+
+
+class ServiceVersionError(RuntimeError):
+    """tangier could not hash the SHA buckets."""
+
+
+def service_versions(worktree_path: Path, names: list[str]) -> dict[str, str]:
+    """The service version of each of ``names`` that has a SHA bucket.
+
+    See "Service version" in CONTEXT.md. One ``tangier changemap sha --all``
+    call hashes every SHA bucket at ``HEAD``. A name with no SHA bucket of the
+    same name is left out.
+
+    Raises:
+        ServiceVersionError: If ``tangier`` is missing, times out or fails. An
+            empty answer would read as "no service has a SHA bucket".
+    """
+    try:
+        result = subprocess.run(
+            ["tangier", "changemap", "sha", "--all"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=TANGIER_SHA_TIMEOUT,
+        )
+    except FileNotFoundError as e:
+        raise ServiceVersionError("tangier is not on PATH") from e
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise ServiceVersionError(f"tangier changemap sha failed: {e}") from e
+    if result.returncode != 0:
+        output = (result.stderr or result.stdout).strip()
+        raise ServiceVersionError(
+            f"tangier changemap sha failed (exit {result.returncode}): {output}"
+        )
+    printed = dict(
+        line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+    )
+    return {
+        name: printed[_version_var(name)]
+        for name in names
+        if _version_var(name) in printed
+    }
+
+
 # --- Start / Stop / Status ---
 
 
@@ -457,8 +523,12 @@ def _spawn_services(
     env: dict[str, str],
     log_dir: Path,
     now: str,
+    versions: dict[str, str] | None = None,
 ) -> list[ServiceState]:
     """Spawn a list of services and return their states.
+
+    ``versions`` maps a service name to the service version recorded on its
+    state.
 
     Each service is started via ``sh -c`` in a new session, with
     stdout/stderr redirected to a log file. A service's own ``env`` overrides are
@@ -502,6 +572,7 @@ def _spawn_services(
                 started_at=now,
                 engine=svc.engine,
                 container_name=svc.container_name,
+                version=(versions or {}).get(svc.name),
             )
         )
 
@@ -555,6 +626,7 @@ def _spawn_phased(
     log_dir: Path,
     now: str,
     runner: ContainerRunner,
+    versions: dict[str, str] | None = None,
 ) -> tuple[list[ServiceState], dict[str, str]]:
     """Spawn ``services`` container-first, injecting host vars before commands.
 
@@ -565,9 +637,9 @@ def _spawn_phased(
     containers = [s for s in services if s.engine is not None]
     commands = [s for s in services if s.engine is None]
 
-    container_states = _spawn_services(containers, cwd, env, log_dir, now)
+    container_states = _spawn_services(containers, cwd, env, log_dir, now, versions)
     host_vars = _inject_host_vars(containers, env, runner)
-    command_states = _spawn_services(commands, cwd, env, log_dir, now)
+    command_states = _spawn_services(commands, cwd, env, log_dir, now, versions)
 
     # Re-order states to match input order for deterministic state files.
     by_name = {s.name: s for s in container_states + command_states}
@@ -771,6 +843,13 @@ def start_env(
         runner,
     )
 
+    versions: dict[str, str] = {}
+    if local_services and has_service_versions(worktree_path):
+        # Fail open: a service with no version still starts, and the next
+        # `restart --changed` restarts it to record one.
+        with suppress(ServiceVersionError):
+            versions = service_versions(worktree_path, [s.name for s in local_services])
+
     # Start local services (container-first, injecting any local host vars)
     log_dir = _get_log_dir(project, worktree)
     service_states, _ = _spawn_phased(
@@ -780,6 +859,7 @@ def start_env(
         log_dir,
         now,
         runner,
+        versions,
     )
 
     existing = load_env_state(store, project, worktree)

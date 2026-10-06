@@ -582,6 +582,17 @@ _Avoid_: Env (as a standalone noun for the running services)
 One process maelstrom spawns for a worktree, declared in `.maelstrom.yaml`. A service that
 declares an `engine` is a container service; every other service is a command service.
 
+**Service version**:
+The hash of the **SHA bucket** named after the service, recorded when the service starts. It
+covers the committed files the service runs, so it moves only when a commit changes them. A
+service with no SHA bucket of its name has no version.
+_Avoid_: service hash, build id
+
+**SHA bucket**:
+A tangier tag in `pipeline.toml` with `sha = true`. Its hash covers its own paths and the paths of
+the tags it `depends` on. Distinct from a **Bucket**, which holds a task's attachments.
+_Avoid_: bucket (alone)
+
 **Shared service**:
 A service marked `shared: true`, started once for the whole project rather than once per
 worktree. A database is the usual case. The project owns shared services; worktrees subscribe
