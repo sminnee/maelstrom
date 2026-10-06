@@ -64,7 +64,6 @@ from .worktree import (
     SyncResult,
     base_moved,
     get_current_branch,
-    push_tangier_refs,
     rebase_worktree,
     rebase_worktree_with_autorepair,
     run_git,
@@ -644,8 +643,6 @@ def create_pr(
             print(result.stderr.strip())
     except FileNotFoundError:
         raise GitHubCliMissing("git")
-    if warning := push_tangier_refs(cwd, config):
-        announce(warning)
 
     # `get_current_branch` goes through `run_git` with check=True, so a
     # detached HEAD raises CalledProcessError. Convert it: this function

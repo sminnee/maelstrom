@@ -341,8 +341,6 @@ async def _run_task(
     # is watching this run to notice.
     if result.sync is not None and result.sync.push_message:
         click.echo(result.sync.push_message, err=True)
-    if result.sync is not None and result.sync.push_warning:
-        click.echo(result.sync.push_warning, err=True)
 
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
