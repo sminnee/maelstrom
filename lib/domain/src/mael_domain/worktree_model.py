@@ -50,33 +50,25 @@ WORKTREE_NAMES = [
 # Single-letter shortcodes for worktree names (all 26 first letters are unique)
 WORKTREE_SHORTCODES = {name[0]: name for name in WORKTREE_NAMES}
 
-# WORKTREE_NUM wraps at this value. Redis numbers its databases 0-15, and
-# WORKTREE_NUM selects one.
-WORKTREE_NUM_MODULUS = 16
-
 
 def worktree_num(worktree_name: str) -> int:
     """Return the WORKTREE_NUM for a worktree.
 
-    The number is the NATO name's index, wrapped at WORKTREE_NUM_MODULUS. The
-    wrap keeps the number valid as a Redis database, so it is unique only for
-    the first WORKTREE_NUM_MODULUS worktrees.
-
-    ``_main`` takes 0, which alpha also has — see the ``WORKTREE_NUM`` caveat in
-    `docs/reference/environment.md`.
+    The number is unique per worktree: the NATO name's index, 0-25, and 26 for
+    ``_main``.
 
     Args:
         worktree_name: A full NATO worktree name, or ``_main``.
 
     Returns:
-        The worktree number, from 0 to WORKTREE_NUM_MODULUS - 1.
+        The worktree number.
 
     Raises:
         ValueError: If worktree_name is neither a NATO name nor ``_main``.
     """
     if worktree_name == MAIN_WORKTREE_FOLDER:
-        return 0
-    return WORKTREE_NAMES.index(worktree_name) % WORKTREE_NUM_MODULUS
+        return len(WORKTREE_NAMES)
+    return WORKTREE_NAMES.index(worktree_name)
 
 
 def resolve_worktree_shortcode(name: str) -> str:

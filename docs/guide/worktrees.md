@@ -36,8 +36,7 @@ be closed and recycled.
 By default `_main` has no ports and no `.env`, so `mael list` shows it with an empty APP
 column. A project can give it both — see [the fixed environment](#the-fixed-environment).
 
-`_main` gets `WORKTREE_NUM=0`, the same number alpha has — see
-[the `WORKTREE_NUM` caveat](../reference/environment.md).
+`_main` gets `WORKTREE_NUM=26`, after zulu's 25.
 
 ## The fixed environment
 

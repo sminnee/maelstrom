@@ -112,10 +112,6 @@ class TestMainWorktree:
         for name in WORKTREE_NAMES:
             assert is_worktree_closable(name) is True
 
-    def test_main_takes_worktree_num_zero(self):
-        """`_main` shares 0 with alpha — 26 NATO names already wrap onto 16."""
-        assert worktree_num("_main") == 0
-
 
 class TestWorktreeShortcodes:
     """Tests for worktree shortcode mapping and resolution."""
@@ -164,17 +160,19 @@ class TestWorktreeNum:
             ("alpha", 0),
             ("bravo", 1),
             ("papa", 15),
-            ("quebec", 0),
-            ("zulu", 9),
+            ("quebec", 16),
+            ("zulu", 25),
+            ("_main", 26),
         ],
     )
-    def test_index_wraps_at_sixteen(self, name, expected):
-        """Test that the number is the name's index, wrapped at 16."""
+    def test_number_is_the_name_index(self, name, expected):
+        """Test that a NATO name's number is its index, and `_main` follows zulu."""
         assert worktree_num(name) == expected
 
-    def test_every_name_is_a_valid_redis_database(self):
-        """Test that no NATO name gives a number Redis rejects."""
-        assert all(0 <= worktree_num(name) <= 15 for name in WORKTREE_NAMES)
+    def test_numbers_are_unique_and_contiguous(self):
+        """Test that the 27 worktrees, `_main` included, take exactly 0-26."""
+        names = [*WORKTREE_NAMES, "_main"]
+        assert sorted(worktree_num(name) for name in names) == list(range(27))
 
     def test_unknown_name_rejected(self):
         """Test that a name outside the NATO list raises."""
