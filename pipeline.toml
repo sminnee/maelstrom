@@ -1,0 +1,138 @@
+# The tangier pipeline config: the CI gates and the service versions.
+# See docs/dev/ci.md, and the tangier README for the schema.
+#
+# A SHA bucket named after a `.maelstrom.yaml` service gives it a service
+# version (CONTEXT.md).
+
+# --------------------------------------------------------------------------
+# Gates: `tangier gate run <name>`. Each command runs without a shell.
+#
+# A gate scope must name every file its command reads: see docs/dev/ci.md.
+# --------------------------------------------------------------------------
+
+[gate.test]
+cmd = "uv run pytest -m 'not e2e'"
+scope = ["python-gate-inputs", "ci-inputs"]
+
+[gate.lint]
+cmd = "bin/lint"
+scope = ["python-gate-inputs", "ci-inputs"]
+
+# CI-only: too slow for the pre-push check.
+[gate.e2e]
+cmd = "uv run pytest -m e2e -v"
+scope = ["python-gate-inputs", "ci-inputs"]
+
+# Each member keeps its own record.
+[gate.web]
+scope = ["web-gate-inputs", "ci-inputs"]
+
+[gate.web.lint]
+cmd = "pnpm --dir orchestrator-ui lint"
+
+[gate.web.typecheck]
+cmd = "pnpm --dir orchestrator-ui typecheck"
+
+# Knip resolves imports through the TypeScript program. On a broken graph an
+# unresolved import makes the export it points at look unused, so read a knip
+# failure after the typecheck's.
+[gate.web.knip]
+cmd = "bin/knip-check"
+
+[gate.web.test]
+cmd = "pnpm --dir orchestrator-ui test"
+
+[gate.web.build]
+cmd = "pnpm --dir orchestrator-ui build"
+
+# --------------------------------------------------------------------------
+# Gate inputs. These carry no `sha`, so they version nothing.
+# --------------------------------------------------------------------------
+
+[python-gate-inputs]
+paths = [
+  "cli/**",
+  "lib/**",
+  "agent-daemon/**",
+  "orchestrator-api/**",
+  # The normaliser tests read these.
+  "orchestrator-ui/fixtures/**",
+  # The skill tests read these, and the pipeline test reads the services.
+  "shared/**",
+  ".maelstrom.yaml",
+  "bin/**",
+  "conftest.py",
+  "pyproject.toml",
+  "uv.lock",
+  ".python-version",
+  ".vulture_whitelist.py",
+]
+
+[web-gate-inputs]
+paths = [
+  "orchestrator-ui/**",
+  "bin/**",
+  # The UI's wire types and normaliser goldens come from these.
+  "lib/domain/src/mael_domain/protocol.py",
+  "lib/domain/src/mael_domain/normalise.py",
+  "lib/domain/fixtures/normalised/**",
+]
+
+# A change to how CI runs reruns every gate.
+[ci-inputs]
+paths = ["pipeline.toml", ".github/workflows/test.yml"]
+
+# --------------------------------------------------------------------------
+# Service buckets. Each `depends` list follows the `dependencies` of the
+# member's pyproject.toml; the CLI's follows its `dev-mode-dirs`, because its
+# wheel bundles the libraries rather than depending on them. Tests and READMEs
+# never restart a service.
+# --------------------------------------------------------------------------
+
+[web]
+paths = "orchestrator-ui/**"
+exclude = [
+  "**/tests/**",
+  "**/README.md",
+  "orchestrator-ui/fixtures/**",
+  "orchestrator-ui/src/test/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.stories.tsx",
+]
+sha = true
+
+[orchestrator]
+paths = "orchestrator-api/**"
+exclude = ["**/tests/**", "**/README.md"]
+depends = ["common", "agent", "domain", "python-deps"]
+sha = true
+
+[agent-daemon]
+paths = "agent-daemon/**"
+exclude = ["**/tests/**", "**/README.md"]
+depends = ["common", "agent", "python-deps"]
+sha = true
+
+# Not a service: `mael self-update` reinstalls the CLI when this moves.
+[cli]
+paths = ["cli/**", "shared/**"]
+exclude = ["**/tests/**", "**/README.md"]
+depends = ["common", "agent", "domain", "python-deps"]
+sha = true
+
+# Shared libraries. A library's tests sit outside `src/`, so they move nothing.
+
+[common]
+paths = "lib/common/src/**"
+
+[agent]
+paths = "lib/agent/src/**"
+depends = "common"
+
+[domain]
+paths = "lib/domain/src/**"
+depends = ["common", "agent"]
+
+[python-deps]
+paths = ["uv.lock", "pyproject.toml"]

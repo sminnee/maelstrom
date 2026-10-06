@@ -35,6 +35,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
   stack tip, and why only `gh stack link` is used.
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
+- `docs/dev/ci.md` — the CI gates in `pipeline.toml`: how CI reuses a local pass, and the
+  service buckets that give each service its version.
 - `docs/dev/dead-code.md` — the vulture and knip gates: why each runs twice, and where a false
   positive goes.
 - `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent

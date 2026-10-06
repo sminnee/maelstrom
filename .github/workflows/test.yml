@@ -4,56 +4,56 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # tangier v0.2.0. The tag is not on GitHub, so the commit is pinned.
+  TANGIER: git+https://github.com/sminnee/tangier@e86d406f6d7948d4313abf670c80f7b6f74d0702
+
 jobs:
-  # A job skipped by a job-level `if:` reports success, so the required contexts
-  # stay satisfied. A workflow skipped by a `paths:` filter does not report them
-  # at all, which is why this is a job and not a filter. It decides whether the
-  # three gates have anything to run.
-  changes:
+  # Decides which gates have anything to run. See docs/dev/ci.md.
+  #
+  # A job skipped by a job-level `if:` reports success, so the required
+  # contexts stay satisfied. A workflow skipped by a `paths:` filter does not
+  # report them at all, which is why this is a job and not a filter.
+  gates:
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      web: ${{ steps.filter.outputs.web }}
+      test-run: ${{ steps.gates.outputs.test-run }}
+      lint-run: ${{ steps.gates.outputs.lint-run }}
+      e2e-run: ${{ steps.gates.outputs.e2e-run }}
+      web-run: ${{ steps.gates.outputs.web-run }}
+    steps:
+      # The gates diff from the merge base. `blob:none` fetches commits and
+      # trees only.
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Find the gates to run
+        id: gates
+        # Fail open. A failed step sets no output, and each job below runs
+        # unless its output is exactly `false`.
+        continue-on-error: true
+        run: uvx --from "$TANGIER" tangier gate github-outputs --base "origin/$GITHUB_BASE_REF"
+
+      # A broken SHA bucket gives `mael self-update` no service versions, and
+      # nothing else reports it.
+      - name: Hash the SHA buckets
+        run: uvx --from "$TANGIER" tangier changemap sha --all
+
+  test:
+    needs: gates
+    # `!cancelled()`, so a failed `gates` job runs the gate rather than skipping it.
+    if: ${{ !cancelled() && needs.gates.outputs.test-run != 'false' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 0
-
-      - name: Detect code changes
-        id: filter
-        run: |
-          # Fail open. Only a detection that runs cleanly may skip e2e. A job
-          # skipped because `needs` failed does not report success, so a broken
-          # detection would leave the same stuck gate this workflow removes.
-          code=true
-          web=true
-          base_ref="refs/remotes/origin/$GITHUB_BASE_REF"
-          if git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:$base_ref" &&
-             base=$(git merge-base "$base_ref" HEAD) &&
-             changed=$(git diff --name-only "$base" HEAD) &&
-             [ -n "$changed" ]; then
-            echo "Changed files:"
-            echo "$changed"
-            if ! echo "$changed" | grep -Eq '^(cli/|lib/|agent-daemon/|orchestrator-api/|orchestrator-ui/fixtures/|bin/|conftest\.py$|pyproject\.toml$|\.vulture_whitelist\.py$|\.github/workflows/test\.yml$)'; then
-              code=false
-            fi
-            if ! echo "$changed" | grep -Eq '^(orchestrator-ui/|bin/|lib/domain/src/mael_domain/(protocol|normalise)\.py$|lib/domain/fixtures/normalised/|\.github/workflows/test\.yml$)'; then
-              web=false
-            fi
-          else
-            echo "Could not read the changed files."
-          fi
-          echo "Run the gates: $code"
-          echo "Run the web gates: $web"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "web=$web" >> "$GITHUB_OUTPUT"
-
-  test:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.0
+          filter: blob:none
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -64,15 +64,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # The command is `[gate.test]` in pipeline.toml. `--read-only`: CI records nothing.
       - name: Run tests
-        run: uv run pytest -m 'not e2e'
+        run: uvx --from "$TANGIER" tangier gate run test --read-only --base "origin/$GITHUB_BASE_REF"
 
   lint:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: gates
+    if: ${{ !cancelled() && needs.gates.outputs.lint-run != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -84,14 +88,17 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run linting
-        run: bin/lint
+        run: uvx --from "$TANGIER" tangier gate run lint --read-only --base "origin/$GITHUB_BASE_REF"
 
   e2e:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: gates
+    if: ${{ !cancelled() && needs.gates.outputs.e2e-run != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.3.2
@@ -103,22 +110,26 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run e2e tests
-        run: uv run pytest -m e2e -v
+        run: uvx --from "$TANGIER" tangier gate run e2e --read-only --base "origin/$GITHUB_BASE_REF"
 
+  # One step for each member of `[gate.web]`. A member whose record exists
+  # reports `verified` in seconds.
   web:
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
+    needs: gates
+    if: ${{ !cancelled() && needs.gates.outputs.web-run != 'false' }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: orchestrator-ui
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4.4.0
         with:
-          # `working-directory` does not reach a `uses` step.
           package_json_file: orchestrator-ui/package.json
 
       - name: Set up Node
@@ -129,24 +140,23 @@ jobs:
           cache-dependency-path: orchestrator-ui/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm --dir orchestrator-ui install --frozen-lockfile
 
       - name: Lint
-        run: pnpm lint
+        run: uvx --from "$TANGIER" tangier gate run web.lint --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Typecheck
-        run: pnpm typecheck
+        if: ${{ !cancelled() }}
+        run: uvx --from "$TANGIER" tangier gate run web.typecheck --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Dead code
-        # Knip resolves imports through the TypeScript program, so it runs
-        # after the typecheck: on a broken graph an unresolved import makes the
-        # export it points at look unused. Runs from the repository root, so
-        # drop out of `working-directory`.
-        working-directory: .
-        run: bin/knip-check
+        if: ${{ !cancelled() }}
+        run: uvx --from "$TANGIER" tangier gate run web.knip --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Test
-        run: pnpm test
+        if: ${{ !cancelled() }}
+        run: uvx --from "$TANGIER" tangier gate run web.test --read-only --base "origin/$GITHUB_BASE_REF"
 
       - name: Build
-        run: pnpm build
+        if: ${{ !cancelled() }}
+        run: uvx --from "$TANGIER" tangier gate run web.build --read-only --base "origin/$GITHUB_BASE_REF"
