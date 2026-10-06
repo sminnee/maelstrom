@@ -45,15 +45,33 @@ do not fall back to the raw command.
 
 ## Local passes
 
-`.maelstrom.yaml` sets `pre_push_cmd: tangier gate run test lint web`. `mael gh create-pr` and
-`mael sync` run that check before they push, and it records each pass locally. `gate run` then
-publishes each record to origin, where CI finds it. `e2e` is too slow for the pre-push check, so it runs in CI only.
+Commit your work, then run the pre-PR gate on the clean tree before you open a PR. Run it again
+after any rebase:
 
-Install tangier to run the check:
+```bash
+tangier gate run lint test web --fail-fast
+```
+
+`e2e` runs in CI only.
+
+`gate run` starts a background job and waits 60 seconds for it. Exit 3 means the job is still
+running. Run the printed `tangier gate wait --job <n>`, and repeat it while it exits 3. Do not
+start `gate run` again: a second run exits 2 while the job runs. Do not edit the worktree while
+the job runs: a gate whose files change under it writes no record. `tangier gate status` shows
+each recent job and its gates.
+
+Each pass is recorded locally, and `gate run` then publishes it to origin, where CI finds it. A
+failed publish prints `warning: gate records stay local` and does not change the exit code. After
+that warning, run `tangier gate sync`.
+
+In CI, `gate run` runs inline and does not start a job.
+
+The project sets no `pre_push_cmd`, so `mael gh create-pr` and `mael sync` push without a check.
+
+Install tangier, and see each gate's status:
 
 ```bash
 uv tool install tangier
-tangier gate run test lint web     # run, and record each pass
 tangier gate run --all --dry-run   # each gate's status, and what it would run
 ```
 

@@ -19,31 +19,39 @@ skip them, so each line keeps its real author. GitHub does this for you.
 Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/). `mael install` puts the Claude Code
 skills and hooks in place if you want to use maelstrom on itself.
 
-## Before you commit
+## Before you open a PR
+
+Run the pre-PR gate before you open a PR:
 
 ```bash
-uv run pytest -m 'not e2e'         # unit tests
-uv run pytest -m e2e -v            # end-to-end tests
-bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture
+tangier gate run lint test web --fail-fast
 ```
 
-These are the three Python gates `.github/workflows/test.yml` enforces, and `bin/publish` runs the
-same three before it uploads anything. `pipeline.toml` defines them for tangier, and CI skips a
-gate whose content already has a record. The pre-push check runs `tangier gate run test lint web`;
-`gate run` publishes those records to CI. See [CI gates](docs/dev/ci.md). During development `uv run pytest -m 'not slow'` skips the slow tests for a faster
-loop, but run the full set before you push.
+`pipeline.toml` defines the gates. When `gate run` exits 3, or warns `gate records stay local`,
+see [CI gates](docs/dev/ci.md#local-passes).
+
+These are the Python commands each gate runs:
+
+```bash
+uv run pytest -m 'not e2e'         # test: unit tests
+uv run pytest -m e2e -v            # e2e: end-to-end tests
+bin/lint                           # lint: ruff lint, ruff format check, pyright, import contracts, vulture
+```
+
+`bin/publish` runs the same three before it uploads anything. During development
+`uv run pytest -m 'not slow'` skips the slow tests for a faster loop.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run
 `uv run ruff format src tests lib agent-daemon orchestrator-api conftest.py` to apply it.
 
-A change under `orchestrator-ui/` runs its own gates, which CI keeps in a separate job:
+The `web` gate runs these commands for a change under `orchestrator-ui/`:
 
 ```bash
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 bin/knip-check                     # dead code in orchestrator-ui/
 ```
 
-CI runs those web gates as a fourth job, `web`.
+CI runs them in the `web` job.
 
 `bin/lint` runs vulture and `bin/knip-check` runs knip. Each finds code nothing calls. See
 [dead code](docs/dev/dead-code.md) for how the two passes differ, what to do with a finding, and

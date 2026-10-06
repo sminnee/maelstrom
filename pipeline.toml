@@ -13,15 +13,16 @@ prune-after-days = 30
 # A gate scope must name every file its command reads: see docs/dev/ci.md.
 # --------------------------------------------------------------------------
 
-[gate.test]
-cmd = "uv run pytest -m 'not e2e'"
-scope = ["python-gate-inputs", "ci-inputs"]
-
+# lint runs first: it is fast, and `--fail-fast` stops at the first failure.
 [gate.lint]
 cmd = "bin/lint"
 scope = ["python-gate-inputs", "ci-inputs"]
 
-# CI-only: too slow for the pre-push check.
+[gate.test]
+cmd = "uv run pytest -m 'not e2e'"
+scope = ["python-gate-inputs", "ci-inputs"]
+
+# CI-only: too slow for the pre-PR gate. CI records its pass.
 [gate.e2e]
 cmd = "uv run pytest -m e2e -v"
 scope = ["python-gate-inputs", "ci-inputs"]

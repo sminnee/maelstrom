@@ -663,6 +663,11 @@ The project's `pre_push_cmd`: a gate that runs after the last rebase and before 
 sees the commit the push publishes. Maelstrom only runs it; what it verifies is the project's.
 _Avoid_: pre-push hook (git's own client-side hook), pre-push gates
 
+**Pre-PR gate**:
+Maelstrom's own `tangier gate run lint test web --fail-fast`, run by hand on the committed tree
+before a PR. It is not a pre-push check: no command runs it for you.
+_Avoid_: pre-push check (for this command)
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a
