@@ -23,6 +23,8 @@ from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
+from mael_domain.env import refresh_env
+from mael_domain.env_store import JsonEnvStore
 from mael_domain.github_model import GitHubError
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.state_db.db import StateDb
@@ -70,6 +72,31 @@ log = logging.getLogger(__name__)
 WORKTREE_WORKERS = 4
 
 
+def _refresh_env(
+    project: str, nato: str, project_path: Path, worktree_path: Path
+) -> None:
+    """Rebuild a reopened worktree's ``.env``; any failure only warns."""
+    try:
+        refresh = refresh_env(
+            JsonEnvStore(), project, nato, project_path, worktree_path
+        )
+    # Broad on purpose: a bad `.maelstrom.yaml` or an unwritable `.env` must
+    # not refuse a launch.
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Warning: .env not refreshed: {exc}", err=True)
+        return
+    for key in refresh.copy_back.added:
+        click.echo(f"Copied {key} back to {project_path / '.env'}.", err=True)
+    for conflict in refresh.copy_back.conflicts:
+        click.echo(
+            f"Warning: {conflict.key} differs from {project_path / '.env'}; "
+            "the worktree value was overwritten.",
+            err=True,
+        )
+    if refresh.changed:
+        click.echo(f"Regenerated .env for {project}/{nato}.", err=True)
+
+
 def build_orchestrator(
     *,
     executor: Executor | None = None,
@@ -105,7 +132,7 @@ def build_orchestrator(
         # server: LaunchBlocked is the wire's word for "this task could not
         # start, and here is why", so the domain errors are converted to it.
         try:
-            return setup_worktree_for_branch(
+            setup = setup_worktree_for_branch(
                 projects_dir / project,
                 project,
                 branch,
@@ -115,6 +142,9 @@ def build_orchestrator(
             )
         except (ValueError, WorktreeError) as exc:
             raise LaunchBlocked(str(exc)) from exc
+        if setup.rebuilds_env:
+            _refresh_env(project, setup.name, projects_dir / project, setup.path)
+        return setup
 
     async def close_worktree(project: str, nato: str, path: str) -> None:
         # Not forced: unmerged work is refused, and the model's own message is

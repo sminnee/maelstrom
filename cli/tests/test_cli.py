@@ -14,6 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 from mael_cli.cli import cli, cmd_list_all, pr_display
+from mael_domain.env import EnvRefresh
 from mael_domain.github_model import PrState, PrStatus, PullRequestNotMergeable
 from mael_domain.list_all import resolve_pr
 from mael_domain.project_scaffold import scaffold_files
@@ -1069,8 +1070,10 @@ class TestStaleSymlinkCleanup:
 class TestCmdAddRecycle:
     """Tests for `mael add` recycle path triggering env regeneration/restart."""
 
-    def _setup_recycle_mocks(self, stack, tmp_path, helper_return=([], None)):
+    def _setup_recycle_mocks(self, stack, tmp_path, helper_return=None):
         """Patch the recycle path of cmd_add. Returns the helper mock."""
+        if helper_return is None:
+            helper_return = EnvRefresh(CopyBackResult(), changed=True)
 
         project_path = tmp_path / "proj"
         project_path.mkdir()
@@ -1144,14 +1147,14 @@ class TestCmdAddRecycle:
 
         helper = stack.enter_context(
             patch(
-                "mael_cli.cli.regenerate_and_restart_if_running",
+                "mael_cli.env_cli.refresh_env",
                 return_value=helper_return,
             )
         )
         return helper, project_path, worktree_path
 
     def test_recycle_invokes_helper(self, tmp_path):
-        """The recycle branch calls regenerate_and_restart_if_running with NATO name."""
+        """The recycle branch refreshes the .env under the NATO name."""
         from contextlib import ExitStack
 
         with ExitStack() as stack:
@@ -1169,6 +1172,7 @@ class TestCmdAddRecycle:
                 "bravo",
                 project_path,
                 worktree_path,
+                force_restart=False,
             )
             assert "Regenerated .env for proj/bravo." in result.output
 
@@ -1181,16 +1185,21 @@ class TestCmdAddRecycle:
             helper, project_path, worktree_path = self._setup_recycle_mocks(
                 stack,
                 tmp_path,
-                helper_return=(["web (pid 100): stopped"], new_state),
+                helper_return=EnvRefresh(
+                    CopyBackResult(),
+                    changed=True,
+                    stop_messages=["web (pid 100): stopped"],
+                    new_state=new_state,
+                ),
             )
             ensure_browser = stack.enter_context(
                 patch(
-                    "mael_cli.cli.ensure_cmux_browser",
+                    "mael_cli.env_cli.ensure_cmux_browser",
                 )
             )
             print_status = stack.enter_context(
                 patch(
-                    "mael_cli.cli.print_service_status",
+                    "mael_cli.env_cli.print_service_status",
                 )
             )
 
@@ -1201,6 +1210,33 @@ class TestCmdAddRecycle:
             assert "Environment stopped for proj/bravo." in result.output
             ensure_browser.assert_called_once_with(new_state, project_path, "bravo")
             print_status.assert_called_once_with("proj", "bravo", project_path)
+
+    def test_recycle_refuses_when_the_refresh_fails(self, tmp_path):
+        """A failed refresh on recycle is fatal: nothing launches."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            helper, _, _ = self._setup_recycle_mocks(stack, tmp_path)
+            helper.side_effect = RuntimeError("boom")
+            launch = stack.enter_context(patch("mael_cli.cli.launch_add_in_worktree"))
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 1
+            assert "boom" in result.output
+            launch.assert_not_called()
+
+    def test_recycle_unchanged_env_reports_no_regenerate(self, tmp_path):
+        """An unchanged .env prints no regenerate line."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            self._setup_recycle_mocks(
+                stack, tmp_path, helper_return=EnvRefresh(CopyBackResult(), False)
+            )
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+            assert "Regenerated .env" not in result.output
 
 
 class TestCmdAddExistingBranch:
@@ -1279,8 +1315,47 @@ class TestCmdAddExistingBranch:
             "update_claude_local_md": stack.enter_context(
                 patch("mael_domain.worktree.update_claude_local_md", return_value=False)
             ),
+            "refresh_env": stack.enter_context(
+                patch(
+                    "mael_cli.env_cli.refresh_env",
+                    return_value=EnvRefresh(CopyBackResult(), changed=True),
+                )
+            ),
         }
         return worktree_path, mocks
+
+    def test_existing_worktree_refreshes_its_env(self, tmp_path):
+        """A reused worktree gets its .env rebuilt from the parent template."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            existing_wt, mocks = self._setup(stack, tmp_path)
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+
+            mocks["refresh_env"].assert_called_once_with(
+                ANY,
+                "proj",
+                "bravo",
+                tmp_path / "proj",
+                existing_wt,
+                force_restart=False,
+            )
+            assert "Regenerated .env for proj/bravo." in result.output
+
+    def test_existing_worktree_launches_when_the_refresh_fails(self, tmp_path):
+        """A reused worktree warns on a failed refresh and still launches."""
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            _, mocks = self._setup(stack, tmp_path)
+            mocks["refresh_env"].side_effect = RuntimeError("boom")
+
+            result = CliRunner().invoke(cli, ["add", "feat-x"])
+            assert result.exit_code == 0, result.output
+            assert "Warning: .env not refreshed: boom" in result.output
+            mocks["launch_add_in_worktree"].assert_called_once()
 
     def test_existing_worktree_reuses_via_launcher(self, tmp_path):
         """Existing worktree → reused (no git touch); the launcher places it.

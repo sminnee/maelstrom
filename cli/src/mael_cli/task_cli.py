@@ -53,6 +53,7 @@ from mael_domain.worktree import (
 )
 from mael_domain.worktree_model import WorktreeError
 
+from .env_cli import refresh_worktree_env
 from .table_cli import draw_table
 from .worktree_launcher import (
     build_task_launch_line,
@@ -341,6 +342,10 @@ async def _run_task(
     # is watching this run to notice.
     if result.sync is not None and result.sync.push_message:
         click.echo(result.sync.push_message, err=True)
+    if result.rebuilds_env:
+        refresh_worktree_env(
+            project, result.name, project_path, result.path, fatal=False
+        )
 
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.

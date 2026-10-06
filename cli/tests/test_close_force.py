@@ -290,7 +290,6 @@ class TestCloseForceCli:
     def _run(self, args, close_result, table=None):
         """Run ``mael close``, and return the result and the tasks it left."""
         runner = CliRunner()
-        env_store = MagicMock()
         table = table or InMemoryTaskTable()
 
         async def task_table():
@@ -301,7 +300,6 @@ class TestCloseForceCli:
             patch(
                 "mael_domain.worktree_close.close_worktree", return_value=close_result
             ),
-            patch("mael_cli.cli.make_store", return_value=env_store),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
             patch("mael_cli.cli.task_table", task_table),
         ):
@@ -380,7 +378,6 @@ class TestCloseForceCli:
             patch(
                 "mael_domain.worktree_close.close_worktree", return_value=close_result
             ) as mock_close,
-            patch("mael_cli.cli.make_store", return_value=MagicMock()),
             patch("mael_domain.worktree_close.get_env_status", return_value=[]),
             patch("mael_cli.cli.task_table", AsyncMock()),
         ):
