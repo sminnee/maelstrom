@@ -766,7 +766,7 @@ directory and nothing outside it. Each file becomes one document, and the files 
 **Review group** the tag's `title` names. The tag is cut out of the message the transcript shows.
 A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
 what raises an attention item.
-One of five markers, with the **Image tag**, the **Note** and the **Milestone**. The names carry
+One of five markers, with the **Image tag**, the **Note**, the **Milestone** and `<jig>`. The names carry
 nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
 
@@ -784,7 +784,7 @@ replaces the one before it. The expanded card shows it in place of the agent's l
 is whatever prose happened to end a turn. A message carrying no note leaves the standing one
 alone, and a subagent writes none. The card still dates its block from the last message, because
 silence means the agent said nothing, and a note is not speech. One of five markers, with the
-**Document tag**, the **Image tag** and the **Milestone**.
+**Document tag**, the **Image tag**, the **Milestone** and `<jig>`.
 _Avoid_: Status, Progress (that is a node's state), Activity
 
 **Milestone**:
@@ -795,7 +795,7 @@ and flagged, never dropped. The marker is cut from the message and writes a **mi
 snapshot**; the latest one in a message wins, as a note does. `planned` is Maelstrom's own: it is
 written when the user approves a plan, because the approval clears the agent before it could
 write one. One of five markers, with the
-**Document tag**, the **Image tag** and the **Note**. A subagent writes none.
+**Document tag**, the **Image tag**, the **Note** and `<jig>`. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
 
@@ -823,7 +823,7 @@ The marker an agent writes in the text of an ordinary message to show the user a
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
 may not show, or one that is not there, leaves prose saying so, never a broken picture. One of five
-markers, with the **Document tag**, the **Note** and the **Milestone**.
+markers, with the **Document tag**, the **Note**, the **Milestone** and `<jig>`.
 _Avoid_: Screenshot tag, figure, embed
 
 **User attention**:
@@ -861,15 +861,25 @@ agent in the worktree that has not exited.
 _Avoid_: Review comment, line note, inline comment, feedback (alone)
 
 **Jig**:
-A dev-only overlay that a Vite plugin puts on every page of a worktree's dev server: the app and
-each Ladle story. It carries changes into the page and **Feedback** out to the agent. A
-**Monkeypatch** is the first thing it does.
+A dev-only overlay that a Vite plugin can put on every page of a worktree's dev server: the app
+and each Ladle story. It shows only while its **Jig provider** says so, which is when an agent of
+the worktree asks for it. Hidden, it puts nothing on the page. It carries changes into the page
+and **Feedback** out to the agent. A **Monkeypatch** is the first thing it does.
 _Avoid_: Tuner, tuning jig, inspector, devtools panel
+
+**Jig provider**:
+The service that a **Jig** connects to, over one socket at `MAEL_JIG_URL`. It tells the jig when to
+show, and takes its **Feedback** to the agents. The jig owns the protocol. The self-env
+orchestrator is the one provider so far. An agent shows the jig with `<jig show>` and hides it with
+`<jig hide>`, one of five markers with the **Document tag**, the **Image tag**, the **Note** and
+the **Milestone**.
+_Avoid_: Jig server, jig backend
 
 **Feedback**:
 A typed message from a short-lived dev asset, such as a **Jig**, to the agents of a worktree. One
-post sends it, as one message, to every top-level agent in the worktree that has not exited. Its
-`type` names what it carries: `monkeypatch` is the one type so far.
+send delivers it, as one message, to every top-level agent in the worktree that has not exited.
+Its `type` names what it carries: `monkeypatch` is the one type so far. When the user hides the
+jig, the agents get a hide message in the same way.
 _Avoid_: Tuning, report, event
 
 **Monkeypatch**:

@@ -12,6 +12,7 @@ from mael_common.cli_async import AsyncGroup
 from mael_common.shell import mael_path
 from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
 from mael_domain.context import harden_global_config
+from mael_domain.env import SELF_ENV_PROJECT
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -230,7 +231,6 @@ def cmd_self_update():
 
 # `mael self-env <verb>` is `mael env <verb>` aimed at the maelstrom project's
 # own `_main` — see `docs/guide/worktrees.md`.
-SELF_ENV_PROJECT = "maelstrom"
 SELF_ENV_TARGET = f"{SELF_ENV_PROJECT}.{MAIN_WORKTREE_FOLDER}"
 
 

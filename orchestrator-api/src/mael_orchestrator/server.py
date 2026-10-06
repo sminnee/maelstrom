@@ -11,6 +11,7 @@ serve is documented in ``docs/dev/orchestrator-server.md``.
 import asyncio
 import inspect
 import logging
+import os
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Executor
@@ -72,13 +73,18 @@ from mael_domain.task_attachments import (
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
-from mael_domain.worktree_changes import format_change_comments, format_monkeypatch
+from mael_domain.worktree_changes import (
+    format_change_comments,
+    format_jig_hidden,
+    format_monkeypatch,
+)
 
 from . import desk as desk_model
 from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
+from .jig import JigHub
 from .notices import notices_for
 from .sources import CloseBlocked, TaskSource, WorktreeSource
 from .transcript_log import (
@@ -271,6 +277,8 @@ class Orchestrator:
         self._transcripts: dict[str, TranscriptLog] = {}
         self._transcript_ring = transcript_ring
         self.transcripts = TranscriptHub(ws_queue_limit, on_idle=self._transcript_idle)
+        #: Set by an agent's `<jig>` marker and by the user's hide.
+        self.jig = JigHub()
         self._child_detach = child_detach
         #: Per subagent, the detach waiting for its grace to pass.
         self._detaches: dict[str, asyncio.Task[None]] = {}
@@ -1258,6 +1266,12 @@ class Orchestrator:
                 # second marker in one turn replaces the first, as last-wins
                 # says.
                 watch.pending_milestone = out.milestone
+        # A replayed marker is history: a restart hides every jig, and the
+        # backlog must not show one again.
+        if out.jig is not None and watch.caught_up.is_set():
+            agent = self.world["agents"].get(watch.agent_id)
+            if agent and agent["worktreeId"]:
+                self.jig.set(agent["worktreeId"], out.jig)
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
@@ -2039,6 +2053,25 @@ class Orchestrator:
             feedback.get("note"),
         )
         return await self._say_to_worktree(worktree_id, text)
+
+    def jig_worktree(self, path: str) -> str | None:
+        """The id of the worktree a jig at ``path`` serves, by real path."""
+        real = os.path.realpath(path)
+        for worktree in self.world["worktrees"].values():
+            if os.path.realpath(worktree["path"]) == real:
+                return worktree["id"]
+        return None
+
+    async def hide_jig(self, worktree_id: str) -> None:
+        """The user hid the worktree's jig: hide it everywhere, and tell its agents.
+
+        The agents hear it whether or not the jig was shown, and a refusal is
+        nobody's to answer: the jig is gone either way.
+        """
+        self.jig.set(worktree_id, False)
+        if agents_in_worktree(self.world, worktree_id):
+            branch = self.world["worktrees"][worktree_id]["branch"]
+            await self._say_to_worktree(worktree_id, format_jig_hidden(branch))
 
     async def _say_to_worktree(self, worktree_id: str, text: str) -> dict[str, Any]:
         """Say ``text`` to each agent in the worktree. Ok when one agent or more took it."""

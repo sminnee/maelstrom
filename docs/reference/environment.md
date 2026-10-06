@@ -61,15 +61,17 @@ because the shared pass wrote last. That is the clobber described above.
 
 ### Into service processes
 
-`mael env start` builds each service's environment in three layers. A later layer wins:
+`mael env start` builds each service's environment in four layers. A later layer wins:
 
 1. The environment of the `mael` process itself, less the variables in
    [Variables never passed on](#variables-never-passed-on).
-2. The worktree's `.env` file.
-3. The service's own `env:` block in `.maelstrom.yaml`, with `$VAR` substituted from layers 1
-   and 2. An unknown `$VAR` is left as written, matching shell behaviour.
+2. `MAEL_JIG_URL`, which points at the self-env orchestrator. See its row in
+   [Other](#other).
+3. The worktree's `.env` file.
+4. The service's own `env:` block in `.maelstrom.yaml`, with `$VAR` substituted from layers 1
+   to 3. An unknown `$VAR` is left as written, matching shell behaviour.
 
-Layer 3 applies to one service only. Two services in one worktree can therefore hold different
+Layer 4 applies to one service only. Two services in one worktree can therefore hold different
 values for the same name.
 
 | Variable | Set by | Meaning |
@@ -167,9 +169,10 @@ that lack the key.
 | `CMUX_SOCKET_PATH` | `~/.local/state/cmux/cmux.sock` | Socket maelstrom uses to drive cmux. Set it when cmux listens elsewhere. |
 | `CMUX_WORKSPACE_ID` | — | Set by cmux in each of its panes. `mael gh create-pr`, `mael gh read-pr`, `mael add` and `mael env open`, `start`, `restart` and `reset` open a browser only when it is set and `MAEL_HARNESS_TYPE` is not `daemon`. `mael env stop` hides the browser under the same rule. The agent daemon removes it, and the other variables of its own pane, from the agents it starts. |
 | `MAEL_AGENT_ROOT` | — | The agent daemon's root: the one directory holding its socket (`agent-daemon.sock`), lock, pid file, log and `agents/` spawn records. There is no default. `mael-agent-daemon serve` exits 2 without it, and every `mael agent` command reports that it has no daemon to reach. Each worktree's `.env` carries it, substituted from the project root's `.env` template; a daemon exports its own root to every agent it starts; and `mael self-update` puts the everyday root into the `mael` on your PATH. Replaces `MAEL_AGENT_SOCKET`, `MAEL_AGENT_LOG` and `MAEL_AGENT_SPEC_DIR`. |
+| `MAEL_JIG_URL` | — | The **Jig provider**'s WebSocket URL, read by the jig's Vite plugin. Unset or empty, the jig is off. `mael env start` sets it for every service to `ws://127.0.0.1:<port>/api/jig`, where the port is `ORCHESTRATOR_PORT` from the `.env` of `maelstrom._main`. A value in the worktree's `.env` wins, so an empty one switches the jig off. When `_main` names no port, it is not set. |
 | `MAEL_NOTEBOOK_ROOT` | — | The State database root. `mael self-update` puts `~/.maelstrom` into the `mael` on your PATH unless this variable is already set. |
 | `MAEL_PRODUCTION` | — | Suppresses the non-production environment warning. The PATH `mael` shim sets it. Worktree `uv run mael` commands leave it unset and print their agent daemon root and State database root. |
-| `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes and its per-agent sockets. Read by `vite.config.ts`, which also passes its port to the dev bundle as `VITE_ORCHESTRATOR_PORT` for the change stream — see [orchestrator-ui.md](../dev/orchestrator-ui.md). The **Jig** reads it too, with no default: unset, its Send is off. |
+| `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes and its per-agent sockets. Read by `vite.config.ts`, which also passes its port to the dev bundle as `VITE_ORCHESTRATOR_PORT` for the change stream — see [orchestrator-ui.md](../dev/orchestrator-ui.md). |
 | `ORCHESTRATOR_PORT` | — | The port this worktree's orchestrator serves on, allocated into its `.env`. `mael gh create-pr` reads it to tell that orchestrator a pull request was raised, so the chip appears at once rather than at the next poll. A worktree whose `.env` names no port simply tells nobody; run `mael env reset` to add one. |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |

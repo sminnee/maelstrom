@@ -1226,14 +1226,33 @@ a soft keyboard sends no other key; the Send button sends.
 The **Jig** lets the user change the live page and send **Feedback** to the agent. Its one use so
 far is a **Monkeypatch**: CSS that every page applies at once. It lives in
 `vite-plugin-mael-jig/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
-config, so every story has the jig too. So does the everyday UI that `mael self-env` serves. A
-build and a vitest run do not load it, and outside a git checkout it switches itself off.
+config, so every story has the jig too. A build and a vitest run do not load it, and outside a git
+checkout it switches itself off.
+
+**The jig is off until a provider shows it.** The plugin keeps one WebSocket open to the
+**Jig provider** at `MAEL_JIG_URL`. The jig draws only while that socket is open and the provider
+says `visible`. Hidden, the page carries nothing of the jig: no pill, no panel and no Monkeypatch
+`<style>`.
 
 | Part | File | What it does |
 |---|---|---|
-| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Proxies `POST /__mael/feedback`. |
-| Overlay | `overlay.ts` | Draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. |
-| Command | `worktree.feedback` | Sends the **Feedback** to the worktree's agents. See [orchestrator-server.md](orchestrator-server.md). |
+| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Keeps the provider socket, and relays its state as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
+| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. "Hide jig" asks the provider to hide it. |
+| Provider | `GET /api/jig` | The self-env orchestrator's socket. See [orchestrator-server.md](orchestrator-server.md). |
+
+**The protocol belongs to the jig.** `plugin.ts` documents it. Each frame is JSON:
+
+| Direction | Frame | When |
+|---|---|---|
+| jig → provider | `{type: "hello", path}` | On each open. `path` is the git top level. |
+| jig → provider | `{type: "feedback", id, feedback}` | On Send. `feedback` is the body the page posted. |
+| jig → provider | `{type: "hide"}` | On "Hide jig". |
+| provider → jig | `{type: "state", visible}` | After the hello, and on each change. |
+| provider → jig | `{type: "reply", id, ok, body}` | Once for each feedback frame. |
+
+The plugin reconnects with backoff, and reports `visible: false` while the socket is down. A send
+or a hide with no open socket answers 503. A feedback reply answers 200 when `ok`, else 400, with
+`body` as it came.
 
 **The file is the shared state.** Each page applies the file when it loads and when the event
 arrives, so the app, every story and an edit by the agent stay in step. The event names the page
@@ -1244,11 +1263,9 @@ what the user typed since.
 loads or hot-updates. A `MutationObserver` moves the jig's element back to the end, so a monkeypatch
 rule wins a tie of specificity.
 
-**Send finds the worktree by path.** The plugin asks `GET /api/worktrees` for the row whose `path`
-is its git top level, then posts to `/api/worktrees/{id}/feedback`. It passes the body through
-untouched, so the plugin learns nothing new when the orchestrator learns a new type. It reads `ORCHESTRATOR_URL` with
-no default: unset, Send is off and live CSS still works. The `ladle` service sets it for that
-reason.
+**`MAEL_JIG_URL` points at the self-env.** The agents run under the self-env orchestrator, not
+under the worktree's own dev orchestrator. `mael env start` sets the variable for every service.
+See [environment.md](../reference/environment.md).
 
 CSS modules hash their class names, so a rule matches on part of the name:
 `[class*="_chip_"] { padding: 6px; }`.

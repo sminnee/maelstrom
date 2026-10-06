@@ -7093,13 +7093,29 @@ def test_comments_every_agent_refuses_answer_the_first_refusal(harness):
     assert reply.body["error"]["message"] == "agent ag1 has exited"
 
 
-# --- feedback ----------------------------------------------------------------
+# --- the jig provider --------------------------------------------------------
 
 
-def post_feedback(harness, body: dict):
+@asynccontextmanager
+async def jig_socket(api: Api, path: str = WORKTREE_PATH):
+    """A jig's socket, past its hello. The state that answers it is the caller's to read."""
+    async with api.session.ws_connect("/api/jig") as ws:
+        await ws.send_json({"type": "hello", "path": path})
+        yield ws
+
+
+async def next_state(ws) -> bool:
+    return (await ws_next(ws, lambda m: m["type"] == "state"))["visible"]
+
+
+def jig_feedback(harness, feedback: dict) -> dict:
+    """Send one feedback frame, and return the reply frame."""
+
     async def scenario():
-        async with harness.client() as api:
-            return await api.post("/api/worktrees/northwind-alpha/feedback", body)
+        async with harness.client() as api, jig_socket(api) as ws:
+            await next_state(ws)
+            await ws.send_json({"type": "feedback", "id": "f1", "feedback": feedback})
+            return await ws_next(ws, lambda m: m["type"] == "reply")
 
     return run(scenario())
 
@@ -7108,19 +7124,112 @@ def monkeypatch(css: str = ".chip{padding:20px}", **over) -> dict:
     return {"type": "monkeypatch", "css": css, **over}
 
 
+def test_a_jig_is_told_its_worktree_hides_it_until_an_agent_asks(harness):
+    async def scenario():
+        async with harness.client() as api, jig_socket(api) as ws:
+            return await ws_next(ws)
+
+    assert run(scenario()) == {"type": "state", "visible": False}
+
+
+def test_a_jig_marker_shows_the_jig_and_leaves_the_transcript(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with (
+                api.transcript_stream("ag1") as transcript,
+                jig_socket(api) as ws,
+            ):
+                await ws_next(transcript)
+                assert await next_state(ws) is False
+                harness.daemon.push("ag1", tag_event("Look at the chip.\n\n<jig show>"))
+                message = await ws_next(transcript, is_event("transcript.append"))
+                return await next_state(ws), message["event"]["item"]
+
+    visible, item = run(scenario())
+    assert visible is True
+    assert item["markdown"] == "Look at the chip."
+
+
+def test_a_hide_reaches_every_jig_of_the_worktree_and_its_agents(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with jig_socket(api) as one, jig_socket(api) as two:
+                await next_state(one)
+                await next_state(two)
+                harness.daemon.push("ag1", tag_event("<jig show>"))
+                assert await next_state(one) is True
+                assert await next_state(two) is True
+                await one.send_json({"type": "hide"})
+                states = await next_state(one), await next_state(two)
+                await wait_until(lambda: len(said(harness)) >= 2)
+                return states
+
+    assert run(scenario()) == (False, False)
+    text = "The user hid the jig for feat/orders."
+    assert said(harness) == [
+        {"cmd": "say", "id": "ag1", "text": text},
+        {"cmd": "say", "id": "ag2", "text": text},
+    ]
+
+
+def test_a_hide_with_no_agent_in_the_worktree_still_hides_the_jig(harness):
+    async def scenario():
+        async with harness.client() as api, jig_socket(api) as ws:
+            await next_state(ws)
+            harness.orch.jig.set("northwind-alpha", True)
+            assert await next_state(ws) is True
+            await ws.send_json({"type": "hide"})
+            return await next_state(ws)
+
+    assert run(scenario()) is False
+    assert said(harness) == []
+
+
+def test_a_jig_marker_in_the_replayed_backlog_shows_nothing(harness):
+    """A restart hides every jig, and re-reading the backlog must not undo that."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = [tag_event("<jig show>")]
+
+    async def scenario():
+        async with harness.client() as api:
+            await transcript_of(api)
+            async with jig_socket(api) as ws:
+                return await next_state(ws)
+
+    assert run(scenario()) is False
+
+
+def test_a_jig_at_a_path_the_orchestrator_does_not_know_is_closed_4404(harness):
+    async def scenario():
+        async with harness.client() as api, jig_socket(api, "/elsewhere") as ws:
+            message = await asyncio.wait_for(ws.receive(), 2.0)
+            return message.type, ws.close_code
+
+    assert run(scenario()) == (aiohttp.WSMsgType.CLOSE, 4404)
+
+
 def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.rows["ag1.1"] = agent_row("ag1.1", parent="ag1")
 
-    reply = post_feedback(
+    reply = jig_feedback(
         harness,
         monkeypatch(
             ".chip { padding: 14px; }\n\n.row { gap: 4px; }\n", note=" tighter "
         ),
     )
 
-    assert reply.status == 200
-    assert reply.body == {"agentIds": ["ag1"], "refused": []}
+    assert reply == {
+        "type": "reply",
+        "id": "f1",
+        "ok": True,
+        "body": {"agentIds": ["ag1"], "refused": []},
+    }
     assert said(harness) == [
         {
             "cmd": "say",
@@ -7146,7 +7255,7 @@ def test_a_monkeypatch_without_a_note_omits_the_note_line(harness, note):
     """The jig sends an empty note field as ``""``, not as no key."""
     harness.daemon.rows["ag1"] = agent_row()
 
-    post_feedback(harness, monkeypatch(**note))
+    jig_feedback(harness, monkeypatch(**note))
 
     assert said(harness)[0]["text"] == (
         "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
@@ -7158,10 +7267,10 @@ def test_a_monkeypatch_without_a_note_omits_the_note_line(harness, note):
 
 
 def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
-    reply = post_feedback(harness, monkeypatch())
+    reply = jig_feedback(harness, monkeypatch())
 
-    assert reply.status == 400
-    assert reply.body["error"]["message"] == "No agent is running in northwind-alpha"
+    assert reply["ok"] is False
+    assert reply["body"]["error"]["message"] == "No agent is running in northwind-alpha"
     assert said(harness) == []
 
 

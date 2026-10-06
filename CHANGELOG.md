@@ -25,6 +25,10 @@ release while that section is empty, and retitles it to the version it is releas
   open worktree after you turn it on. See
   [Serve over HTTPS](docs/guide/dev-environments.md#serve-over-https).
 
+- **The jig shows only when an agent asks for it.** An agent writes `<jig show>` while it shapes a
+  visual detail with you, and `<jig hide>` after. Until then a dev-server page carries no pill and
+  no panel. "Hide jig" in the panel hides it and tells the agent. `mael env start` points each
+  service at the self-env orchestrator through `MAEL_JIG_URL`.
 - **Set unmerged work aside with `mael close --trash`.** The branch moves to `trash/<branch>`,
   locally and on origin, its open PR closes with a comment, and the worktree closes. Uncommitted
   changes are committed first. The orchestrator's end-of-work control offers the same as
