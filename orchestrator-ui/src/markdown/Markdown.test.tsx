@@ -173,3 +173,19 @@ describe('a video in a document', () => {
     expect(screen.getByAltText('The failing dialog')).toBeInTheDocument();
   });
 });
+
+describe('a table in a message', () => {
+  const TABLE = '| Feature | Action |\n| --- | --- |\n| Files | File existing |';
+
+  it('scrolls in a region a keyboard can reach, and stays a table', async () => {
+    const user = userEvent.setup();
+    render(<Markdown source={TABLE} />);
+
+    await user.tab();
+
+    const region = screen.getByRole('region', { name: 'Table' });
+    expect(region).toHaveFocus();
+    const table = within(region).getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Action' })).toBeInTheDocument();
+  });
+});

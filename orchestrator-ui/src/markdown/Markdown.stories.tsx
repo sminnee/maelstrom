@@ -25,3 +25,22 @@ export const PlanDocument: Story = () => (
     <Markdown source={planDocument} />
   </div>
 );
+
+const wideTable = `The commands each surface can run today.
+
+| Feature | Action | Today | Backend support |
+| --- | --- | --- | --- |
+| Files | File existing | Yes | \`DocumentStore.read_file(worktree, path)\` |
+| Tasks | Close task | No | \`mael task status done --task-id <id>\` via \`run_cmd_async\` |
+| Agents | Resume a stopped agent | Partly | \`AgentDaemon.resume(session_id, spec=AgentSpec(...))\` |
+`;
+
+/**
+ * A table wider than its 480px column. Each column should keep its longest
+ * word, and the table should scroll sideways while the paragraph keeps its width.
+ */
+export const WideTable: Story = () => (
+  <div style={{ maxWidth: 480, margin: '0 auto', padding: 24 }}>
+    <Markdown source={wideTable} />
+  </div>
+);
