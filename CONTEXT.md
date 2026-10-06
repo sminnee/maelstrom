@@ -40,7 +40,9 @@ that sets unmerged work aside.
 **Open**:
 Put a branch into a worktree ready to work in: create the worktree, recycle a closed one, or
 reuse the one that already holds the branch, then rebase the branch onto its base before the
-session starts. A reused worktree keeps the setup it has, and its rebase does not push.
+session starts. A reused worktree keeps the setup it has, except its `.env`, and its rebase
+does not push. A recycled or reused worktree gets its `.env` rebuilt from the project root's
+`.env`.
 _Avoid_: Set up, provision
 
 **Base**:

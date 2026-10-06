@@ -114,7 +114,7 @@ Run `mael doctor NEW` afterwards.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. A recycled or reused worktree gets its `.env` rebuilt; running services restart only when the `.env` changed. A failed rebuild stops a recycle, and only warns on a reuse. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
 | `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
@@ -404,7 +404,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
-| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. |
+| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
@@ -832,7 +832,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
 | `mael env stop-all` | Stop every running environment. |
-| `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. |
+| `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. Always restarts running services. |
 | `mael env open` | Open the browser pane for a running environment. |
 
 ```bash

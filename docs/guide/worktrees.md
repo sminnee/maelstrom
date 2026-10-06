@@ -134,6 +134,10 @@ differs from a fresh open in three ways:
 - It leaves `fixup!` commits alone.
 - It stashes uncommitted work, rebases, and puts the work back.
 
+Every reopen, and every recycle, also rebuilds the worktree's `.env` from the project root's
+`.env`. A new template var or a new service port reaches the worktree without
+`mael env reset`. See [the `.env` file](dev-environments.md#the-env-file).
+
 ## Recycling
 
 Recycling is why the naming works. `mael close` resets a worktree to main but keeps
