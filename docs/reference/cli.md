@@ -826,6 +826,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. Under `dev_https:` it renews the dev certificate first, and stops if Tailscale refuses. |
 | `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
+| `mael env restart --changed` | Restart only the running services whose [service version](../../CONTEXT.md) moved since they started. Prints `<service>: <old> → <new>` for each, or `Nothing changed.` Needs a `pipeline.toml` — see [Service versions](../guide/dev-environments.md#service-versions). |
 | `mael env status` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
 | `mael env logs [SERVICE]` | Show service logs, or one service's log. |
 | `mael env list [PROJECT]` | List running environments for a project. |
@@ -843,12 +844,14 @@ mael env logs -f                   # follow every service's log
 mael env logs frontend -f          # ...or one named service
 mael env stop                      # before heavy multi-file editing
 mael env reset                     # regenerate .env after changing ports
+mael env restart --changed         # restart what the last pull changed
 ```
 
 | Command | Option | Description |
 |---|---|---|
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
+| `env restart` | `--changed` | Restart only the running services whose service version moved. Takes no `SERVICE` and no `--install`. |
 | `env start`, `env stop`, `env restart`, `env logs`, `env status`, `env reset`, `env open` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. A positional `TARGET` on `status`, `reset` and `open` is a deprecated alias for `-w`. |
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |

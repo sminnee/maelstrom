@@ -296,6 +296,37 @@ mael env stop-all      # stop them all
 **Stop environments during heavy editing.** File watchers rebuild on every save, which is
 wasted work when an agent is rewriting many files. Start again when you want to test.
 
+## Service versions
+
+A project with a `pipeline.toml` at its root gets service versions. When `mael env start`
+starts a service, it runs `tangier changemap sha --all` and records the hash of the
+[tangier](https://github.com/sminnee/tangier) SHA bucket named after the service. A SHA bucket
+is a tag with `sha = true` in `pipeline.toml`. The hash covers committed files only, so an
+uncommitted edit does not move it.
+
+```toml
+# The `orchestrator` service's version
+[orchestrator]
+paths = "orchestrator-api/**"
+exclude = ["**/tests/**"]
+sha = true
+```
+
+`mael env restart --changed` then restarts only the running services whose service version
+moved:
+
+```bash
+mael env restart --changed     # orchestrator: a6e1031a02 → 0c3f9e21d4
+```
+
+A service with no SHA bucket of its name has no version, and `--changed` never restarts it. A
+stopped service stays stopped. A service started without a version counts as changed, so the
+first `--changed` restart records one. At start, a missing `tangier` or a failed call records no
+version, and the start still succeeds. The same failure stops `--changed` with an error, so it
+never reads as "nothing changed".
+
+`mael self-update` uses this to restart only the `_main` services that its pull changed.
+
 ## The `.env` file
 
 `mael add` writes `.env` in the worktree. It merges the **project root's** `.env` — used as
