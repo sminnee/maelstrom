@@ -174,7 +174,8 @@ Two things have no phase — an agent with no task, and a task whose `command` n
 Guessing a phase for either would state something the notebook never said.
 
 - **Shape Violet** (`--phase-shape`): exploring a brief until tasks are agreed.
-- **Plan Blue** (`--phase-plan`): producing a plan for one task.
+- **Plan Blue** (`--phase-plan`): producing a plan for one task, or a plan-mode build task until its
+  plan is approved.
 - **Build Teal** (`--phase-build`): building, reviewing, opening the PR.
 - **Land Amber** (`--phase-land`): answering CI and review on an open PR.
 

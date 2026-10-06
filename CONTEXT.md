@@ -722,7 +722,8 @@ _Avoid_: Curate, reorganise, tidy
 Which of four stages a task's work is in: shape, plan, build, land. A phase is named as the
 imperative of the work, which is what keeps it apart from the agent's state — a task is in build
 whether or not an agent runs on it now. Read from the task's `command`, and never stored: an
-agent shows the phase of its task. A command nobody recognises has no phase, and neither does an
+agent shows the phase of its task. A build task in plan mode reads plan until its agent leaves
+plan mode, which plan approval does. A command nobody recognises has no phase, and neither does an
 agent with no task.
 _Avoid_: Stage, step, executing, finalising. **Shape** and **plan** are the phases' own names, so
 they are used for those phases and not as loose synonyms: shaping creates the tasks that planning

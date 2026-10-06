@@ -20,7 +20,8 @@ unit that needs orders shows it on the canvas itself.
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, `fake/` for the fake server and its scenarios, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
-`command` and decides whether a task is actionable. The phase is never sent on the wire, so this
+`command`, its `mode` and its agent's permission mode, and decides whether a task is actionable.
+The phase is never sent on the wire, so this
 is the one place the reading happens. An unrecognised command reads as no phase, so a typo in a
 task's frontmatter shows as a node with no phase rather than one claiming a phase it never had.
 
