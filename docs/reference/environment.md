@@ -15,7 +15,7 @@ generated variables below.
 | Variable | Example | Meaning |
 |---|---|---|
 | `WORKTREE` | `bravo` | The worktree's NATO name, or `_main`. |
-| `WORKTREE_NUM` | `1` | The name's index modulo 16: alpha = 0, papa = 15, quebec = 0, `_main` = 0. See the caveat below. |
+| `WORKTREE_NUM` | `1` | The name's index: alpha = 0, bravo = 1, …, zulu = 25, `_main` = 26. |
 | `DEV_HOST` | `desk.tailnet.ts.net` | The dev host, from the global `dev_host:` key. The value is `localhost` when the key is unset, so the variable is always present. |
 | `DEV_SCHEME` | `https` | `https` when the global `dev_https:` key is on, else `http`. Always present. |
 | `DEV_TLS_CERT` | `/Users/sam/.maelstrom/certs/desk.tailnet.ts.net.crt` | The dev certificate file, as an absolute path. Present only when `DEV_SCHEME` is `https`. |
@@ -25,13 +25,6 @@ generated variables below.
 | `SHARED_PORT_BASE` | `300` | The project's shared port base. Written only when shared ports are configured. |
 
 A project with no ports at all gets neither base.
-
-> **`WORKTREE_NUM` repeats after the 16th worktree.** The number is the NATO name's index
-> modulo 16, because it names a Redis database and Redis numbers its databases 0-15. The
-> wrap makes the number valid, but it is unique only for alpha to papa. quebec gets 0, the
-> same number as alpha, so two live worktrees can share whatever you key on it. `_main` gets 0
-> too, for the same reason: there is no free slot left. Use `WORKTREE` for a value that is
-> unique across every worktree.
 
 > **`PORT_BASE` is unreliable when a project has both local and shared ports.** Maelstrom
 > writes the local ports first and the shared ports second, and each pass writes `PORT_BASE`.

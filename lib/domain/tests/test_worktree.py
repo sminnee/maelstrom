@@ -484,14 +484,14 @@ class TestBuildEnvFileForMain:
 
         assert get_port_allocation(project_path, "_main") == 277
 
-    def test_main_gets_worktree_num_zero(self, tmp_path, monkeypatch):
+    def test_main_gets_worktree_num_26(self, tmp_path, monkeypatch):
         project_path, worktree_path = self._project(
             tmp_path, monkeypatch, "_main", "main_port_base: 277\n" + self.SERVICES
         )
 
         _build_env_file(project_path, worktree_path, "_main")
 
-        assert read_env_file(worktree_path)["WORKTREE_NUM"] == "0"
+        assert read_env_file(worktree_path)["WORKTREE_NUM"] == "26"
 
     def test_main_without_the_key_gets_a_dynamic_base(self, tmp_path, monkeypatch):
         """Opt-out is not opt-in-with-zero: no key means the ordinary path."""

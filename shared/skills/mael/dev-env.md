@@ -23,7 +23,6 @@ services:
 Read the worktree's `.env` for the values. These rules are not in the file:
 
 - Use `<NAME>_PORT`. Do not calculate a port from `PORT_BASE`: it holds the wrong base when the project has shared ports.
-- Use `WORKTREE` for a key that is unique to the worktree. `WORKTREE_NUM` repeats after 16 worktrees.
 - `DEV_HOST` and `DEV_SCHEME` are always present.
 - `DEV_TLS_CERT` and `DEV_TLS_KEY` are present only when `DEV_SCHEME` is `https`.
 - A server must accept the dev host: listen on every interface, and allow `DEV_HOST` as a `Host` header. For Vite: `server.host: true` and `server.allowedHosts: process.env.DEV_HOST ? [process.env.DEV_HOST] : undefined`.
