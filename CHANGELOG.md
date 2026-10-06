@@ -12,6 +12,15 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Restart only the services an update changed.** In a project with a `pipeline.toml`, each
+  service records its service version when it starts: the hash of the tangier SHA bucket named
+  after it. `mael env restart --changed` restarts only the running services whose service
+  version moved.
+  `mael self-update` now runs `install_cmd` in `_main`, restarts the changed `_main` services,
+  and reinstalls the CLI only when the CLI changed. An update that does not touch the agent
+  daemon leaves your agents running. See
+  [Service versions](docs/guide/dev-environments.md#service-versions).
+
 - **Start an investigation from the orchestrator.** The new-work form has an Investigation kind.
   It starts a free agent on the project's main branch, in `auto` or `normal` mode. The agent is
   told not to edit tracked files, commit, push, or open a PR. It can write files under `.drafts/`
