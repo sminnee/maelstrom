@@ -725,6 +725,8 @@ function command(
     );
     world.agents[agentId] = {
       ...agent,
+      // The success path of the daemon's `_approve_plan`: the agent moves to auto.
+      ...(action === 'approve' && wait?.type === 'plan_review' ? { permissionMode: 'auto' } : {}),
       state: held.length > 0 ? agent.state : 'processing',
       pendingRequestIds: held,
       waitingOn: oldest ? summaryOf(oldest) : '',

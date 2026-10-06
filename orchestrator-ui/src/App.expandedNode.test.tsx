@@ -349,6 +349,19 @@ describe('the expanded node', () => {
     expect(chipCount()).toBe(before - 1);
   });
 
+  it('a plan-mode build task draws plan until its plan is approved, then build', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const phase = () =>
+      document.querySelector('[data-task-id="NORT-7"]')?.getAttribute('data-phase');
+    server.world.tasks['NORT-7'] = { ...server.world.tasks['NORT-7']!, command: '', mode: 'plan' };
+    server.change({ kind: 'task', ids: ['NORT-7'] });
+    await waitFor(() => expect(phase()).toBe('plan'));
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(phase()).toBe('build'));
+  });
+
   it('a refused approve shows Failed on the button and leaves the node needing attention', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
