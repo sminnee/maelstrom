@@ -13,6 +13,7 @@ from mael_domain.config import ServiceDef
 from mael_domain.dev_cert import DevCertError
 from mael_domain.env import (
     MAX_LOG_BYTES,
+    EnvRefresh,
     EnvState,
     EnvSummary,
     ProcfileEntry,
@@ -41,7 +42,7 @@ from mael_domain.env import (
     load_shared_state,
     parse_procfile,
     read_service_logs,
-    regenerate_and_restart_if_running,
+    refresh_env,
     remove_env_state,
     remove_shared_state,
     restart_changed,
@@ -58,6 +59,8 @@ from mael_domain.env import (
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
 from mael_domain.session_discovery import LiveSession
+from mael_domain.worktree import read_env_file
+from mael_domain.worktree_model import CopyBackResult
 
 
 @pytest.fixture(autouse=True)
@@ -3301,135 +3304,150 @@ class TestListProjectEnvsShared:
         assert result[0].worktree == "alpha"
 
 
-class TestRegenerateAndRestartIfRunning:
-    """Tests for regenerate_and_restart_if_running helper."""
+class TestRefreshEnv:
+    """A refresh rebuilds a worktree's ``.env`` from the parent template."""
 
+    @pytest.fixture
+    def opened(self, tmp_path):
+        """A project with one service, and a bravo worktree on PORT_BASE 417."""
+        from mael_domain.ports import record_port_allocation
+        from mael_domain.worktree import regenerate_env_file
+
+        project_path = tmp_path / "proj"
+        project_path.mkdir()
+        worktree_path = project_path / "proj-bravo"
+        worktree_path.mkdir()
+        (worktree_path / ".maelstrom.yaml").write_text(
+            "services:\n  web:\n    command: run-web\n    ports: [WEB]\n"
+        )
+        (project_path / ".env").write_text("OLD=1\n")
+        record_port_allocation(project_path, "bravo", 417)
+        regenerate_env_file(project_path, worktree_path, "bravo")
+        return project_path, worktree_path
+
+    @staticmethod
+    def _web_state(worktree_path: Path) -> EnvState:
+        return EnvState(
+            project="proj",
+            worktree="bravo",
+            worktree_path=str(worktree_path),
+            started_at="2025-01-01T00:00:00+00:00",
+            services=[
+                ServiceState(
+                    name="web",
+                    command="run-web",
+                    pid=100,
+                    log_file="/tmp/web.log",
+                    started_at="2025-01-01T00:00:00+00:00",
+                ),
+            ],
+        )
+
+    def test_a_new_template_var_reaches_the_worktree(self, opened):
+        project_path, worktree_path = opened
+        (project_path / ".env").write_text("OLD=1\nNEW=2\n")
+
+        result = refresh_env(
+            InMemoryEnvStore(), "proj", "bravo", project_path, worktree_path
+        )
+
+        env = read_env_file(worktree_path)
+        assert {k: env[k] for k in ("OLD", "NEW", "PORT_BASE", "WEB_PORT")} == {
+            "OLD": "1",
+            "NEW": "2",
+            "PORT_BASE": "417",
+            "WEB_PORT": "4170",
+        }
+        assert result == EnvRefresh(CopyBackResult(), changed=True)
+
+    def test_a_worktree_only_var_is_rescued_into_the_parent(self, opened):
+        project_path, worktree_path = opened
+        with (worktree_path / ".env").open("a") as f:
+            f.write("MINE=x\n")
+
+        result = refresh_env(
+            InMemoryEnvStore(), "proj", "bravo", project_path, worktree_path
+        )
+
+        assert result.copy_back.added == {"MINE": "x"}
+        assert read_env_file(project_path) == {"OLD": "1", "MINE": "x"}
+        assert read_env_file(worktree_path)["MINE"] == "x"
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
     @patch("mael_domain.env.start_env")
     @patch("mael_domain.env.stop_env")
-    @patch("mael_domain.env.regenerate_env_file")
-    @patch("mael_domain.env.load_env_state", return_value=None)
-    def test_when_stopped(self, mock_load, mock_regen, mock_stop, mock_start, tmp_path):
-        """When env not running: regenerate .env, no stop/start, returns ([], None)."""
+    def test_an_unchanged_env_does_not_restart_running_services(
+        self, mock_stop, mock_start, mock_alive, opened
+    ):
+        project_path, worktree_path = opened
         store = InMemoryEnvStore()
-        result = regenerate_and_restart_if_running(
-            store,
-            "proj",
-            "bravo",
-            tmp_path / "proj",
-            tmp_path / "wt",
-        )
-        assert result == ([], None)
-        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        save_env_state(store, self._web_state(worktree_path))
+
+        result = refresh_env(store, "proj", "bravo", project_path, worktree_path)
+
+        assert result.changed is False
+        assert result.stop_messages == []
+        assert result.new_state is None
         mock_stop.assert_not_called()
         mock_start.assert_not_called()
 
     @patch("mael_domain.env.is_service_alive", return_value=True)
     @patch("mael_domain.env.start_env")
     @patch("mael_domain.env.stop_env", return_value=["web (pid 100): stopped"])
-    @patch("mael_domain.env.regenerate_env_file")
-    @patch("mael_domain.env.load_env_state")
-    def test_when_running(
-        self,
-        mock_load,
-        mock_regen,
-        mock_stop,
-        mock_start,
-        mock_alive,
-        tmp_path,
+    def test_a_forced_restart_restarts_an_unchanged_env(
+        self, mock_stop, mock_start, mock_alive, opened
     ):
-        """When env running: stop, regenerate, start with skip_install=True."""
-        state = EnvState(
-            project="proj",
-            worktree="bravo",
-            worktree_path=str(tmp_path / "wt"),
-            started_at="2025-01-01T00:00:00+00:00",
-            services=[
-                ServiceState(
-                    name="web",
-                    command="python app.py",
-                    pid=100,
-                    log_file="/tmp/web.log",
-                    started_at="2025-01-01T00:00:00+00:00",
-                ),
-            ],
-        )
-        mock_load.return_value = state
-        new_state = EnvState(
-            project="proj",
-            worktree="bravo",
-            worktree_path=str(tmp_path / "wt"),
-            started_at="2025-01-01T00:00:01+00:00",
-            services=[],
-        )
-        mock_start.return_value = new_state
-
+        project_path, worktree_path = opened
         store = InMemoryEnvStore()
-        stop_messages, returned_state = regenerate_and_restart_if_running(
-            store,
-            "proj",
-            "bravo",
-            tmp_path / "proj",
-            tmp_path / "wt",
+        save_env_state(store, self._web_state(worktree_path))
+
+        result = refresh_env(
+            store, "proj", "bravo", project_path, worktree_path, force_restart=True
         )
 
-        assert stop_messages == ["web (pid 100): stopped"]
-        assert returned_state is new_state
-        mock_stop.assert_called_once_with(store, "proj", "bravo")
-        mock_regen.assert_called_once_with(tmp_path / "proj", tmp_path / "wt", "bravo")
+        assert result.changed is False
+        assert result.stop_messages == ["web (pid 100): stopped"]
         mock_start.assert_called_once_with(
-            store,
-            "proj",
-            "bravo",
-            tmp_path / "wt",
-            skip_install=True,
+            store, "proj", "bravo", worktree_path, skip_install=True, services=None
         )
 
     @patch("mael_domain.env.is_service_alive", return_value=False)
     @patch("mael_domain.env.start_env")
     @patch("mael_domain.env.stop_env")
-    @patch("mael_domain.env.regenerate_env_file")
-    @patch("mael_domain.env.load_env_state")
-    def test_state_exists_but_dead(
-        self,
-        mock_load,
-        mock_regen,
-        mock_stop,
-        mock_start,
-        mock_alive,
-        tmp_path,
+    def test_a_changed_env_leaves_dead_services_alone(
+        self, mock_stop, mock_start, mock_alive, opened
     ):
-        """State file exists but no services alive: treat as stopped."""
-        state = EnvState(
-            project="proj",
-            worktree="bravo",
-            worktree_path=str(tmp_path / "wt"),
-            started_at="2025-01-01T00:00:00+00:00",
-            services=[
-                ServiceState(
-                    name="web",
-                    command="python app.py",
-                    pid=100,
-                    log_file="/tmp/web.log",
-                    started_at="2025-01-01T00:00:00+00:00",
-                ),
-            ],
-        )
-        mock_load.return_value = state
-
+        project_path, worktree_path = opened
+        (project_path / ".env").write_text("OLD=1\nNEW=2\n")
         store = InMemoryEnvStore()
-        stop_messages, returned_state = regenerate_and_restart_if_running(
-            store,
-            "proj",
-            "bravo",
-            tmp_path / "proj",
-            tmp_path / "wt",
-        )
+        save_env_state(store, self._web_state(worktree_path))
 
-        assert stop_messages == []
-        assert returned_state is None
+        result = refresh_env(store, "proj", "bravo", project_path, worktree_path)
+
+        assert result == EnvRefresh(CopyBackResult(), changed=True)
         mock_stop.assert_not_called()
         mock_start.assert_not_called()
-        mock_regen.assert_called_once()
+
+    @patch("mael_domain.env.is_service_alive", return_value=True)
+    @patch("mael_domain.env.start_env")
+    @patch("mael_domain.env.stop_env", return_value=["web (pid 100): stopped"])
+    def test_a_changed_env_restarts_running_services(
+        self, mock_stop, mock_start, mock_alive, opened
+    ):
+        project_path, worktree_path = opened
+        (project_path / ".env").write_text("OLD=1\nNEW=2\n")
+        store = InMemoryEnvStore()
+        save_env_state(store, self._web_state(worktree_path))
+
+        result = refresh_env(store, "proj", "bravo", project_path, worktree_path)
+
+        assert result.changed is True
+        assert result.stop_messages == ["web (pid 100): stopped"]
+        assert result.new_state is mock_start.return_value
+        mock_stop.assert_called_once_with(store, "proj", "bravo", services=None)
+        mock_start.assert_called_once_with(
+            store, "proj", "bravo", worktree_path, skip_install=True, services=None
+        )
 
 
 class TestStartEnvSharedOnlySelection:

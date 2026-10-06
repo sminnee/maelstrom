@@ -33,7 +33,13 @@ from .services import (
     discover_container_ip,
 )
 from .session_discovery import LiveSession
-from .worktree import read_env_file, regenerate_env_file, run_install_cmd
+from .worktree import (
+    copy_back_new_env_vars,
+    read_env_file,
+    regenerate_env_file,
+    run_install_cmd,
+)
+from .worktree_model import CopyBackResult
 
 # --- Dataclasses ---
 
@@ -1206,36 +1212,50 @@ def stop_env(
     return messages
 
 
-def regenerate_and_restart_if_running(
+@dataclass
+class EnvRefresh:
+    """Outcome of :func:`refresh_env`."""
+
+    copy_back: CopyBackResult
+    changed: bool
+    stop_messages: list[str] = field(default_factory=list)
+    new_state: EnvState | None = None
+
+
+def refresh_env(
     store: EnvStore,
     project: str,
     worktree: str,
     project_path: Path,
     worktree_path: Path,
-) -> tuple[list[str], EnvState | None]:
-    """Regenerate .env; if env was running, stop+start it.
+    *,
+    force_restart: bool = False,
+) -> EnvRefresh:
+    """Rebuild a worktree's ``.env`` from the parent template.
 
-    Returns (stop_messages, new_state). new_state is None if the env was
-    not running. stop_messages is empty if nothing was stopped.
+    Worktree-only vars go to the parent first, so the rebuild loses nothing.
+    Running services restart only when the content changed: a reopen that
+    changes nothing must not bounce a running env. ``force_restart`` restarts
+    them anyway, for an explicit ``mael env reset``.
+
+    Raises:
+        RestartFailed: If the services stopped and could not start again.
     """
-    state = load_env_state(store, project, worktree)
-    was_running = state is not None and any(
-        is_service_alive(s.pid) for s in state.services
-    )
-
-    stop_messages: list[str] = []
-    if was_running:
-        stop_messages = stop_env(store, project, worktree)
-
+    copy_back = copy_back_new_env_vars(project_path, worktree_path)
+    env_file = worktree_path / ".env"
+    before = env_file.read_bytes() if env_file.exists() else None
     regenerate_env_file(project_path, worktree_path, worktree)
+    changed = env_file.read_bytes() != before
 
-    if was_running:
-        new_state = start_env(
-            store, project, worktree, worktree_path, skip_install=True
-        )
-        return stop_messages, new_state
+    state = load_env_state(store, project, worktree)
+    if not (changed or force_restart) or state is None:
+        return EnvRefresh(copy_back, changed)
+    if not any(is_service_alive(s.pid) for s in state.services):
+        return EnvRefresh(copy_back, changed)
 
-    return stop_messages, None
+    # stop_env reads no .env, so stopping after the rewrite is safe.
+    stop_messages, new_state = restart_services(store, project, worktree, worktree_path)
+    return EnvRefresh(copy_back, changed, stop_messages, new_state)
 
 
 class RestartFailed(RuntimeError):
