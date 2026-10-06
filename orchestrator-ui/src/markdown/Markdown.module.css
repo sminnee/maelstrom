@@ -225,6 +225,9 @@
   padding: var(--u-half) var(--u);
   text-align: left;
   vertical-align: top;
+  /* The inherited `anywhere` sets each column's min-content floor to one
+     glyph, and auto layout crushes a column down to it. */
+  overflow-wrap: break-word;
 }
 .markdown th {
   font-weight: var(--weight-semibold);
