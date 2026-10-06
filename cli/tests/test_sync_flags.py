@@ -1169,6 +1169,21 @@ class TestSyncCli:
         assert result.exit_code == 0
         assert "Pushed feature/work to origin" in result.output
 
+    def test_a_push_warning_goes_to_stderr(self):
+        sync_result = SyncResult(
+            success=True,
+            branch="feature/work",
+            message="Successfully rebased feature/work onto origin/main",
+            pushed=True,
+            push_message="Pushed feature/work to origin",
+            push_warning="Warning: tangier gate push failed: denied",
+        )
+        result, _ = self._run([], sync_result)
+
+        assert result.exit_code == 0
+        assert "Pushed feature/work to origin" in result.stdout
+        assert result.stderr == "Warning: tangier gate push failed: denied\n"
+
     def test_abort_and_close_on_conflict_aborts_cleanly(self):
         """--abort --close: a conflict aborts; close/delete is never attempted."""
         sync_result = SyncResult(

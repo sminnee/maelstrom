@@ -197,6 +197,8 @@ def _report_open_sync(sync: SyncResult | None) -> None:
         # ahead — but the branch and its remote have diverged, which is a
         # warning, not progress.
         click.echo(sync.push_message, err=not sync.pushed)
+    if sync.push_warning:
+        click.echo(sync.push_warning, err=True)
 
 
 @click.group(cls=AsyncGroup)
@@ -1298,6 +1300,8 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_p
             click.echo(REPAIRED_MESSAGE)
         if result.push_message:
             click.echo(result.push_message)
+        if result.push_warning:
+            click.echo(result.push_warning, err=True)
         return
 
     # Handle conflicts. An aborted rebase is restored, so the manual-resolution
@@ -1597,6 +1601,8 @@ def cmd_sync_all(project, autorepair):
                 click.echo(f"  {REPAIRED_MESSAGE}")
             if result.push_message:
                 click.echo(f"  {result.push_message}")
+            if result.push_warning:
+                click.echo(f"  {result.push_warning}", err=True)
             click.echo()
             continue
 

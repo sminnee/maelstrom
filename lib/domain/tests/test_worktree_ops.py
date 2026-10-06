@@ -116,6 +116,32 @@ class TestSyncModes:
         assert not result.ok
         assert result.blocked == "Rebase conflicted"
 
+    async def test_the_push_and_its_warning_are_reported(self):
+        """The UI shows a push's outcome; a failed gate push is a warning there."""
+        result = await run_sync(
+            "myproject",
+            "alpha",
+            WORKTREE_PATH,
+            PROJECT_PATH,
+            "plain",
+            steps=sync_steps(
+                sync=lambda path, squash, abort: SyncResult(
+                    success=True,
+                    branch="feat/x",
+                    message="Rebased",
+                    pushed=True,
+                    push_message="Pushed feat/x to origin",
+                    push_warning="Warning: tangier gate push failed: denied",
+                )
+            ),
+        )
+        assert result.ok
+        assert result.messages == [
+            "Rebased",
+            "Pushed feat/x to origin",
+            "Warning: tangier gate push failed: denied",
+        ]
+
 
 class TestEnvActions:
     async def test_start_starts_and_never_stops(self):

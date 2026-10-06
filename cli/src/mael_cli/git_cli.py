@@ -324,6 +324,8 @@ def git_merge(target, close, no_squash):
         click.echo(result.message)
         if result.push_message:
             click.echo(result.push_message)
+        if result.push_warning:
+            click.echo(result.push_warning, err=True)
         return
 
     if result.had_conflicts:
