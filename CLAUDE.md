@@ -6,6 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running Commands
 
+Before a PR, run the pre-PR gate: `tangier gate run lint test web --fail-fast`. On exit 3, see
+"Local passes" in `docs/dev/ci.md`.
+
 Use `uv run` to execute commands in the project's virtual environment:
 
 ```bash
@@ -16,7 +19,7 @@ uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=mael_cli --cov=mael_domain  # Run with coverage
 uv run mael --help                 # Run the CLI
 uv run mael-agent-daemon status     # Which agent daemon answers, and whose code it runs
-bin/lint                           # ruff lint, ruff format check, pyright, import contracts, vulture (gate before commit)
+bin/lint                           # fast lint check: ruff lint, ruff format check, pyright, import contracts, vulture
 bin/knip-check                     # dead code in orchestrator-ui/
 ```
 

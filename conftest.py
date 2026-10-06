@@ -81,8 +81,8 @@ def _outside_a_task_session(monkeypatch):
     """Keep the outer task session out of the tests.
 
     A task session exports ``MAEL_TASK_ID`` and ``MAEL_TASK_PARENT``, and
-    ``mael task add`` reads them as defaults. The pre-push check runs the suite
-    inside that session, so a leaked value would block every push from it.
+    ``mael task add`` reads them as defaults. The pre-PR gate runs the suite
+    inside that session, so a leaked value would fail it.
     """
     monkeypatch.delenv("MAEL_TASK_ID", raising=False)
     monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
