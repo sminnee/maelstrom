@@ -116,8 +116,8 @@ class TestSyncModes:
         assert not result.ok
         assert result.blocked == "Rebase conflicted"
 
-    async def test_the_push_and_its_warning_are_reported(self):
-        """The UI shows a push's outcome; a failed gate push is a warning there."""
+    async def test_the_push_is_reported(self):
+        """The UI shows a push's outcome, as the CLI does."""
         result = await run_sync(
             "myproject",
             "alpha",
@@ -131,7 +131,6 @@ class TestSyncModes:
                     message="Rebased",
                     pushed=True,
                     push_message="Pushed feat/x to origin",
-                    push_warning="Warning: tangier gate push failed: denied",
                 )
             ),
         )
@@ -139,7 +138,6 @@ class TestSyncModes:
         assert result.messages == [
             "Rebased",
             "Pushed feat/x to origin",
-            "Warning: tangier gate push failed: denied",
         ]
 
 

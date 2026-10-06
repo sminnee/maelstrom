@@ -477,7 +477,6 @@ class SyncResult:
     upstream_head: str | None = None  # SHA of origin/main
     pushed: bool = False  # Whether the branch was pushed to remote
     push_message: str | None = None  # Push status message
-    push_warning: str | None = None  # a successful push's follow-up failed
     aborted: bool = False  # rebase aborted on conflict (--abort)
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
@@ -1146,7 +1145,6 @@ def sync_worktree(
     # Rebase succeeded - check if remote branch exists and push
     pushed = False
     push_message = None
-    push_warning = None
 
     # Check if remote branch exists
     remote_branch = f"origin/{branch}"
@@ -1158,10 +1156,9 @@ def sync_worktree(
     )
 
     if remote_check.returncode == 0:
-        config = load_config_or_default(worktree_path)
         if pre_push:
             try:
-                run_pre_push_cmd(worktree_path, config)
+                run_pre_push_cmd(worktree_path, load_config_or_default(worktree_path))
             except PrePushFailed as e:
                 return SyncResult(
                     success=False,
@@ -1179,7 +1176,6 @@ def sync_worktree(
         if push_result.returncode == 0:
             pushed = True
             push_message = f"Pushed {branch} to origin"
-            push_warning = push_tangier_refs(worktree_path, config)
         else:
             push_message = f"Push failed: {push_result.stderr or push_result.stdout}"
 
@@ -1189,7 +1185,6 @@ def sync_worktree(
         message=result.message,
         pushed=pushed,
         push_message=push_message,
-        push_warning=push_warning,
     )
 
 
@@ -1435,9 +1430,7 @@ def merge_to_main(
             ["update-ref", f"refs/heads/{MAIN_BRANCH}", branch_sha], cwd=project_path
         )
 
-    # 3. push main (carries any local-only commits). The config loads first,
-    #    so a broken file fails before anything moves.
-    config = load_config_or_default(worktree_path)
+    # 3. push main (carries any local-only commits)
     push = run_cmd(
         ["git", "push", "origin", MAIN_BRANCH], cwd=project_path, check=False
     )
@@ -1449,7 +1442,6 @@ def merge_to_main(
         )
 
     pushed, push_message = True, f"Pushed {MAIN_BRANCH} to origin"
-    push_warning = push_tangier_refs(worktree_path, config)
 
     # 4. optional teardown (close + delete branch together)
     close_suffix = ""
@@ -1462,7 +1454,6 @@ def merge_to_main(
                 message=f"Merged and pushed, but close failed: {close_result.message}",
                 pushed=pushed,
                 push_message=push_message,
-                push_warning=push_warning,
             )
 
         # delete_branch uses check=False and never raises; a failed delete
@@ -1477,7 +1468,6 @@ def merge_to_main(
                 message=f"Merged, pushed, and closed worktree, but failed to delete local branch {branch}",
                 pushed=pushed,
                 push_message=push_message,
-                push_warning=push_warning,
             )
         close_suffix = (
             " and closed worktree"
@@ -1491,7 +1481,6 @@ def merge_to_main(
         message=f"Merged {branch} into {MAIN_BRANCH}{close_suffix}",
         pushed=pushed,
         push_message=push_message,
-        push_warning=push_warning,
     )
 
 
@@ -2687,42 +2676,6 @@ def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
     )
     if result.returncode != 0:
         raise PrePushFailed(config.pre_push_cmd, result.returncode)
-
-
-#: Seconds ``tangier gate push`` may take. The branch is already pushed, so a
-#: hang must not hold the sync.
-TANGIER_PUSH_TIMEOUT = 120
-
-
-def push_tangier_refs(worktree_path: Path, config: MaelstromConfig) -> str | None:
-    """Run ``tangier gate push`` in the worktree, if the project uses tangier.
-
-    Call it after a branch push succeeds. See "Tangier gate refs" in CONTEXT.md.
-
-    Returns:
-        A warning when the gate push fails, else None. The branch push still
-        counts as a success.
-    """
-    if not config.tangier:
-        return None
-    try:
-        result = run_cmd(
-            ["tangier", "gate", "push"],
-            cwd=worktree_path,
-            quiet=True,
-            check=False,
-            timeout=TANGIER_PUSH_TIMEOUT,
-        )
-    except FileNotFoundError:
-        reason = "tangier is not on PATH"
-    except subprocess.TimeoutExpired:
-        reason = f"timed out after {TANGIER_PUSH_TIMEOUT}s"
-    else:
-        if result.returncode == 0:
-            return None
-        output = (result.stderr or result.stdout).strip()
-        reason = output or f"exit {result.returncode}"
-    return f"Warning: tangier gate push failed: {reason}"
 
 
 def base_moved(worktree_path: Path, base: str) -> bool:
@@ -4093,7 +4046,6 @@ def tidy_branch(
 
     # Branch has unmerged work - push if it has a remote
     if has_remote:
-        config = load_config_or_default(temp_worktree_path)
         push_result = run_cmd(
             ["git", "push", "--force-with-lease", "origin", branch],
             cwd=temp_worktree_path,
@@ -4101,14 +4053,11 @@ def tidy_branch(
             check=False,
         )
         if push_result.returncode == 0:
-            message = f"Rebased and pushed '{branch}'"
-            if warning := push_tangier_refs(temp_worktree_path, config):
-                message = f"{message}. {warning}"
             return TidyBranchResult(
                 branch=branch,
                 action="pushed",
                 success=True,
-                message=message,
+                message=f"Rebased and pushed '{branch}'",
             )
         else:
             return TidyBranchResult(

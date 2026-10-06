@@ -12,12 +12,6 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
-- **Push tangier gate refs with each branch push.** Set `tangier: true` in `.maelstrom.yaml`.
-  After each successful branch push, maelstrom runs `tangier gate push` in the worktree, so CI
-  sees a gate pass recorded on a dev machine. A failed gate push is a warning; the branch push
-  still succeeds. `tangier` must be on `PATH`. See
-  [`tangier`](docs/reference/configuration.md#tangier).
-
 - **Start an investigation from the orchestrator.** The new-work form has an Investigation kind.
   It starts a free agent on the project's main branch, in `auto` or `normal` mode. The agent is
   told not to edit tracked files, commit, push, or open a PR. It can write files under `.drafts/`
