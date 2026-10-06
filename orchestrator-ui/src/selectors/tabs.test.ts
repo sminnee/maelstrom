@@ -327,6 +327,24 @@ describe('tabAttribution', () => {
     });
   });
 
+  // The task's own agent decides, as on the canvas: an old run's tab and the
+  // document it wrote draw what the card draws.
+  it("reads a plan-mode task's phase through the task's live agent", () => {
+    const relaunched = (permissionMode: 'plan' | 'auto') =>
+      worldWith({
+        tasks: [makeTask({ id: 'NORT-7', command: '', mode: 'plan' })],
+        agents: [
+          makeAgent({ id: 'a-old', taskId: 'NORT-7', state: 'exited', permissionMode: 'plan' }),
+          makeAgent({ id: 'a-new', taskId: 'NORT-7', permissionMode }),
+        ],
+        documents: [makeDocument({ id: 'doc-1', agentId: 'a-old', taskId: 'NORT-7' })],
+      });
+    for (const tab of [sessionTab('a-old'), sessionTab('a-new'), documentTab('doc-1')]) {
+      expect(tabAttribution(relaunched('plan'), tab).phase).toBe('plan');
+      expect(tabAttribution(relaunched('auto'), tab).phase).toBe('build');
+    }
+  });
+
   // The agent id is the failover task id: the same slot, filled from the next
   // source down, so a free agent's tab is never a bare swatch.
   it('a free agent names its own agent id in the id slot', () => {

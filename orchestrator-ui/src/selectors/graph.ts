@@ -5,7 +5,7 @@ import type { TaskRow } from '../api/types';
 import type { Agent, Phase, Worktree } from '../protocol/entities';
 import type { WorldView } from './world';
 import type { TaskId } from '../protocol/ids';
-import { phaseForCommand } from '../protocol/phase';
+import { phaseForTask } from '../protocol/phase';
 import type { Progress } from '../protocol/progress';
 import { isWorking, progressOf } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
@@ -194,7 +194,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
         (agent ? world.worktrees[agent.worktreeId] : undefined) ??
         worktreeByBranch.get(branchKey(task.project, task.branch)),
       progress: progressOf(task, agent, attention),
-      phase: phaseForCommand(task.command),
+      phase: phaseForTask(task, agent),
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
