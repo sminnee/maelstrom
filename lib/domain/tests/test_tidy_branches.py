@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from git_helpers import create_commit, run_git, setup_git_repo
+from git_helpers import create_commit, fake_tangier, run_git, setup_git_repo
 
 from mael_domain.worktree import (
     branch_exists_on_remote,
@@ -312,6 +312,24 @@ class TestTidyBranchesIntegration:
         assert pushed_result is not None
         assert pushed_result.action == "pushed"
         assert pushed_result.success is True
+
+    def test_tidy_pushes_tangier_gate_refs_after_the_branch(
+        self, git_repo_with_remote, tmp_path, monkeypatch
+    ):
+        """The opt-in comes from the branch's own committed config."""
+        project_path, helper_wt = git_repo_with_remote
+        run_git(helper_wt, "checkout", "-b", "feature/with-remote")
+        create_commit(helper_wt, ".maelstrom.yaml", "tangier: true\n", "Use tangier")
+        run_git(helper_wt, "push", "-u", "origin", "feature/with-remote")
+        run_git(helper_wt, "checkout", "--detach", "origin/main")
+        log = fake_tangier(tmp_path, monkeypatch, branch="feature/with-remote")
+
+        results = tidy_branches(project_path)
+
+        pushed = next(r for r in results if r.branch == "feature/with-remote")
+        assert pushed.action == "pushed"
+        tip = run_git(project_path, "rev-parse", "feature/with-remote").stdout.strip()
+        assert log.read_text().splitlines()[1:] == ["gate push", tip]
 
     def test_tidy_skips_branch_with_conflicts(self, git_repo_with_remote):
         """Test that a branch with rebase conflicts is skipped."""

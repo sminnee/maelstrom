@@ -8,7 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from git_helpers import advance_origin_main, create_commit, remote_tip
+from git_helpers import (
+    advance_origin_main,
+    create_commit,
+    fake_tangier,
+    remote_tip,
+)
 from git_helpers import run_git as git
 
 from mael_domain import github
@@ -399,7 +404,16 @@ class TestCreatePrRunsThePrePushCheck:
     origin's main, as another merged PR would.
     """
 
-    def _run(self, project_with_worktree, tmp_path, *, moves=0, exit_code=0, **kw):
+    def _run(
+        self,
+        project_with_worktree,
+        tmp_path,
+        *,
+        moves=0,
+        exit_code=0,
+        extra_yaml="",
+        **kw,
+    ):
         _, cwd, _ = project_with_worktree
         create_commit(cwd, "a.txt", "a\n", "feat: a")
         git(cwd, "push", "-q", "origin", "feature/work:feature/work")
@@ -412,7 +426,9 @@ class TestCreatePrRunsThePrePushCheck:
         hook = _MOVING_HOOK.format(
             log=log, remote_log=remote_log, moves=moves, exit_code=exit_code
         )
-        (cwd / ".maelstrom.yaml").write_text(f"pre_push_cmd: {json.dumps(hook)}\n")
+        (cwd / ".maelstrom.yaml").write_text(
+            f"pre_push_cmd: {json.dumps(hook)}\n{extra_yaml}"
+        )
 
         calls: list[list[str]] = []
         announced: list[str] = []
@@ -617,6 +633,37 @@ def _query_of(call):
     """The GraphQL document a ``run_cmd_async`` call carries."""
     argv = call[0][0]
     return argv[argv.index("-f") + 1]
+
+
+class TestCreatePrPushesTangierRefs:
+    """A ``tangier: true`` project pushes its gate refs with the PR push."""
+
+    def test_the_gate_refs_are_pushed_from_the_worktree(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, cwd, _ = project_with_worktree
+        log = fake_tangier(tmp_path, monkeypatch, branch="feature/work")
+
+        r = TestCreatePrRunsThePrePushCheck()._run(
+            project_with_worktree, tmp_path, extra_yaml="tangier: true\n"
+        )
+
+        assert r.error is None
+        assert log.read_text().splitlines() == [str(cwd.resolve()), "gate push", r.head]
+
+    def test_a_failed_gate_push_is_announced(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        fake_tangier(
+            tmp_path, monkeypatch, branch="feature/work", exit_code=1, stderr="denied"
+        )
+
+        r = TestCreatePrRunsThePrePushCheck()._run(
+            project_with_worktree, tmp_path, extra_yaml="tangier: true\n"
+        )
+
+        assert r.error is None
+        assert "Warning: tangier gate push failed: denied" in r.announced
 
 
 class TestGetPrForBranch:

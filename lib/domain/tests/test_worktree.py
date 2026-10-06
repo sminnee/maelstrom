@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import shutil
 import subprocess
 from functools import partial
 from pathlib import Path
@@ -12,7 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from git_helpers import advance_origin_main, create_commit, remote_tip
+from git_helpers import (
+    advance_origin_main,
+    create_commit,
+    fake_tangier,
+    remote_tip,
+)
 from git_helpers import run_git as git
 
 from mael_common.claude_paths import sanitise_path_for_claude
@@ -2176,6 +2182,91 @@ class TestSyncWorktreePrePush:
 
         assert result.pushed, result.push_message
         assert not log.exists()
+
+
+class TestSyncWorktreeTangierRefs:
+    """A ``tangier: true`` project runs ``tangier gate push`` after the branch push."""
+
+    def _pushed_branch(self, worktree_path, yaml=""):
+        create_commit(worktree_path, "a.txt", "a\n", "feat: a")
+        git(worktree_path, "push", "origin", "feature/work:feature/work")
+        # Main moves, so the sync publishes a new commit and the order shows.
+        advance_origin_main(worktree_path)
+        (worktree_path / ".maelstrom.yaml").write_text(yaml)
+
+    def test_the_gate_refs_are_pushed_from_the_worktree_after_the_branch(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path, "tangier: true\n")
+        log = fake_tangier(tmp_path, monkeypatch, branch="feature/work")
+
+        result = sync_worktree(worktree_path)
+
+        assert result.pushed, result.push_message
+        head = git(worktree_path, "rev-parse", "HEAD").stdout.strip()
+        assert log.read_text().splitlines() == [
+            str(worktree_path.resolve()),
+            "gate push",
+            head,
+        ]
+
+    def test_without_tangier_nothing_runs(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path)
+        log = fake_tangier(tmp_path, monkeypatch, branch="feature/work")
+
+        result = sync_worktree(worktree_path)
+
+        assert result.pushed, result.push_message
+        assert not log.exists()
+
+    def test_a_failed_branch_push_skips_the_gate_push(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path, "tangier: true\n")
+        git(worktree_path, "config", "remote.origin.pushurl", "/nowhere/at/all.git")
+        log = fake_tangier(tmp_path, monkeypatch, branch="feature/work")
+
+        result = sync_worktree(worktree_path)
+
+        assert not result.pushed
+        assert not log.exists()
+
+    def test_a_failed_gate_push_is_a_warning(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path, "tangier: true\n")
+        fake_tangier(
+            tmp_path, monkeypatch, branch="feature/work", exit_code=1, stderr="denied"
+        )
+
+        result = sync_worktree(worktree_path)
+
+        assert result.success, result.message
+        assert result.push_message == "Pushed feature/work to origin"
+        assert result.push_warning == "Warning: tangier gate push failed: denied"
+
+    def test_a_missing_tangier_is_a_warning(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        _, worktree_path, _ = project_with_worktree
+        self._pushed_branch(worktree_path, "tangier: true\n")
+        git_only = tmp_path / "git-only"
+        git_only.mkdir()
+        (git_only / "git").symlink_to(shutil.which("git"))
+        monkeypatch.setenv("PATH", str(git_only))
+
+        result = sync_worktree(worktree_path)
+
+        assert result.pushed, result.push_message
+        assert result.push_warning == (
+            "Warning: tangier gate push failed: tangier is not on PATH"
+        )
 
 
 class TestSquashWorktree:

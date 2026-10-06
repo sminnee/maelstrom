@@ -58,6 +58,11 @@ class TestMaelstromConfig:
         assert config.install_cmd == ""
         assert config.pre_push_cmd is None
 
+    def test_a_tangier_string_is_refused(self):
+        """``tangier: "true"`` must not quietly turn the gate push off."""
+        with pytest.raises(ValueError, match="'tangier' must be true or false"):
+            MaelstromConfig.from_dict({"tangier": "true"})
+
     def test_from_dict_uptimerobot_monitors(self):
         """Test parsing uptimerobot.monitors list."""
         data = {"uptimerobot": {"monitors": ["111", "222"]}}
