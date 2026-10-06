@@ -19,6 +19,7 @@ from mael_domain.env import (
     load_env_state,
     read_service_logs,
     regenerate_and_restart_if_running,
+    restart_services,
     save_env_state,
     start_env,
     stop_all_envs,
@@ -440,30 +441,19 @@ def env_restart(service, install, worktree_opt):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     store = make_store()
-    state = load_env_state(store, ctx.project, ctx.worktree)
-    if state:
-        try:
-            messages = stop_env(
-                store,
-                ctx.project,
-                ctx.worktree,
-                services=[service_name] if service_name else None,
-            )
-        except ValueError as e:
-            raise click.ClickException(str(e))
-        _report_stop(ctx.project, ctx.worktree, messages, service_name)
-
     try:
-        state = start_env(
+        messages, state = restart_services(
             store,
             ctx.project,
             ctx.worktree,
             worktree_path,
-            skip_install=not install,
             services=[service_name] if service_name else None,
+            skip_install=not install,
         )
-    except (RuntimeError, ValueError) as e:
+    except (RuntimeError, ValueError, TimeoutError) as e:
         raise click.ClickException(str(e))
+    if messages:
+        _report_stop(ctx.project, ctx.worktree, messages, service_name)
 
     ensure_cmux_browser(state, ctx.project_path, ctx.worktree, service=service_name)
 

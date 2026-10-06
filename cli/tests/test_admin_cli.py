@@ -158,7 +158,7 @@ class TestSelfEnv:
     VERBS = [
         ("start", "start_env"),
         ("stop", "stop_env"),
-        ("restart", "start_env"),
+        ("restart", "restart_services"),
         ("status", "get_env_status"),
         ("reset", "regenerate_and_restart_if_running"),
         ("logs", "get_log_files"),
@@ -186,6 +186,7 @@ class TestSelfEnv:
             "get_log_files": {},
             "read_service_logs": "",
             "regenerate_and_restart_if_running": ([], None),
+            "restart_services": ([], state),
             "ensure_cmux_browser": None,
             "update_claude_local_md": None,
             "copy_back_new_env_vars": MagicMock(added={}, conflicts=[]),

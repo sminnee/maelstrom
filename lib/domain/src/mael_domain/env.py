@@ -1133,6 +1133,55 @@ def regenerate_and_restart_if_running(
     return stop_messages, None
 
 
+class RestartFailed(RuntimeError):
+    """A restart stopped services, then could not start them again."""
+
+    def __init__(self, services: list[str] | None, cause: Exception):
+        stopped = ", ".join(services) if services else "the environment"
+        super().__init__(
+            f"Stopped {stopped} but could not start it again: {cause}. "
+            "Run `mael env start` to start it."
+        )
+
+
+def restart_services(
+    store: EnvStore,
+    project: str,
+    worktree: str,
+    worktree_path: Path,
+    services: list[str] | None = None,
+    *,
+    skip_install: bool = True,
+) -> tuple[list[str], EnvState]:
+    """Stop ``services``, then start them. Omit ``services`` for the whole environment.
+
+    An environment that is not running only starts. Returns the stop messages
+    and the new state.
+
+    Raises:
+        RestartFailed: If the start fails after the stop, so the services are down.
+        ValueError: If a named service is not declared, and nothing was stopped.
+        RuntimeError: If the project defines no services, and nothing was stopped.
+    """
+    messages: list[str] = []
+    if load_env_state(store, project, worktree) is not None:
+        messages = stop_env(store, project, worktree, services=services)
+    try:
+        state = start_env(
+            store,
+            project,
+            worktree,
+            worktree_path,
+            skip_install=skip_install,
+            services=services,
+        )
+    except (RuntimeError, ValueError, TimeoutError) as e:
+        if messages:
+            raise RestartFailed(services, e) from e
+        raise
+    return messages, state
+
+
 def get_env_status(
     store: EnvStore, project: str, worktree: str
 ) -> list[ServiceStatus] | None:

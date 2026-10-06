@@ -14,7 +14,7 @@ from mael_cli.env_cli import (
     resolve_service,
 )
 from mael_domain.config import MaelstromConfig
-from mael_domain.env import EnvState, ServiceState, ServiceStatus
+from mael_domain.env import EnvState, RestartFailed, ServiceState, ServiceStatus
 
 
 def _make_state(project="proj", worktree="bravo", pid=100):
@@ -700,100 +700,50 @@ class TestEnvStopShared:
 class TestEnvRestart:
     """Tests for mael env restart command."""
 
-    @patch("mael_cli.env_cli.get_app_url", return_value=None)
-    @patch("mael_cli.env_cli.get_env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.stop_env", return_value=["web (pid 100): stopped"])
-    @patch("mael_cli.env_cli.load_env_state")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_restart_stops_and_starts(
-        self,
-        mock_ctx,
-        mock_load,
-        mock_stop,
-        mock_start,
-        mock_status,
-        mock_app,
-        tmp_path,
+    def _invoke(
+        self, tmp_path, *args, messages=("web (pid 100): stopped",), error=None
     ):
-        """Stops running env and starts it again with skip_install=True."""
         ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
         state = _make_state()
-        mock_load.return_value = state
-        mock_start.return_value = state
-        mock_status.return_value = [_make_status()]
+        with (
+            patch("mael_cli.env_cli.resolve_context", return_value=ctx),
+            patch("mael_cli.env_cli.get_app_url", return_value=None),
+            patch("mael_cli.env_cli.load_env_state", return_value=state),
+            patch("mael_cli.env_cli.get_env_status", return_value=[_make_status()]),
+            patch(
+                "mael_cli.env_cli.restart_services",
+                return_value=(list(messages), state),
+                side_effect=error,
+            ) as restart,
+        ):
+            result = CliRunner().invoke(cli, ["env", "restart", *args])
+        return result, restart, ctx
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "restart"])
-        assert result.exit_code == 0
+    def test_restart_cycles_the_environment_without_install(self, tmp_path):
+        result, restart, ctx = self._invoke(tmp_path)
+        assert result.exit_code == 0, result.output
         assert "Environment stopped" in result.output
-        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=None)
-        mock_start.assert_called_once_with(
-            ANY,
-            "proj",
-            "bravo",
-            ctx.worktree_path,
-            skip_install=True,
-            services=None,
+        restart.assert_called_once_with(
+            ANY, "proj", "bravo", ctx.worktree_path, services=None, skip_install=True
         )
 
-    @patch("mael_cli.env_cli.get_app_url", return_value=None)
-    @patch("mael_cli.env_cli.get_env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.stop_env", return_value=["web (pid 100): stopped"])
-    @patch("mael_cli.env_cli.load_env_state")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_restart_with_install(
-        self,
-        mock_ctx,
-        mock_load,
-        mock_stop,
-        mock_start,
-        mock_status,
-        mock_app,
-        tmp_path,
-    ):
-        """Passes --install flag to start with skip_install=False."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        state = _make_state()
-        mock_load.return_value = state
-        mock_start.return_value = state
-        mock_status.return_value = [_make_status()]
+    def test_restart_with_install(self, tmp_path):
+        result, restart, _ = self._invoke(tmp_path, "--install")
+        assert result.exit_code == 0, result.output
+        assert restart.call_args.kwargs["skip_install"] is False
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "restart", "--install"])
-        assert result.exit_code == 0
-        mock_start.assert_called_once_with(
-            ANY,
-            "proj",
-            "bravo",
-            ctx.worktree_path,
-            skip_install=False,
-            services=None,
+    def test_restart_not_running_reports_no_stop(self, tmp_path):
+        result, restart, _ = self._invoke(tmp_path, messages=())
+        assert result.exit_code == 0, result.output
+        assert "Environment stopped" not in result.output
+        restart.assert_called_once()
+
+    def test_a_restart_that_leaves_services_down_says_so(self, tmp_path):
+        result, *_ = self._invoke(
+            tmp_path, error=RestartFailed(None, TimeoutError("no address"))
         )
-
-    @patch("mael_cli.env_cli.env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.stop_env")
-    @patch("mael_cli.env_cli.load_env_state", return_value=None)
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_restart_not_running(
-        self, mock_ctx, mock_load, mock_stop, mock_start, mock_status, tmp_path
-    ):
-        """When no env state exists, restart skips stop and just starts."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        state = MagicMock()
-        mock_start.return_value = state
-        mock_status.return_value = [_make_status()]
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "restart"])
-        assert result.exit_code == 0
-        mock_stop.assert_not_called()
-        mock_start.assert_called_once()
+        assert result.exit_code != 0
+        assert "Stopped the environment" in result.output
 
     @patch("mael_cli.env_cli.resolve_context")
     def test_restart_worktree_not_found(self, mock_ctx):
@@ -1245,41 +1195,33 @@ class TestEnvStatusDeclaredServices:
 class TestEnvRestartNamedService:
     """Tests for `mael env restart <service>`."""
 
-    @patch("mael_cli.env_cli.get_app_url", return_value=None)
-    @patch("mael_cli.env_cli.get_env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.stop_env")
-    @patch("mael_cli.env_cli.load_env_state")
-    @patch("mael_cli.env_cli.load_config_or_default")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_restart_cycles_only_that_service(
-        self,
-        mock_ctx,
-        mock_config,
-        mock_load,
-        mock_stop,
-        mock_start,
-        mock_status,
-        mock_app,
-        tmp_path,
-    ):
-        """The service name reaches both stop_env and start_env."""
+    def test_restart_cycles_only_that_service(self, tmp_path):
+        """The service name reaches restart_services."""
         ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        mock_config.return_value = MaelstromConfig.from_dict(
-            {"services": {"ladle": {"command": "ladle serve", "optional": True}}}
-        )
         state = _make_state()
-        mock_load.return_value = state
-        mock_start.return_value = state
-        mock_stop.return_value = ["ladle (pid 200): stopped"]
-        mock_status.return_value = [_make_status()]
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "restart", "ladle"])
-        assert result.exit_code == 0
-        mock_stop.assert_called_once_with(ANY, "proj", "bravo", services=["ladle"])
-        assert mock_start.call_args[1]["services"] == ["ladle"]
+        with (
+            patch("mael_cli.env_cli.resolve_context", return_value=ctx),
+            patch(
+                "mael_cli.env_cli.load_config_or_default",
+                return_value=MaelstromConfig.from_dict(
+                    {
+                        "services": {
+                            "ladle": {"command": "ladle serve", "optional": True}
+                        }
+                    }
+                ),
+            ),
+            patch("mael_cli.env_cli.get_app_url", return_value=None),
+            patch("mael_cli.env_cli.load_env_state", return_value=state),
+            patch("mael_cli.env_cli.get_env_status", return_value=[_make_status()]),
+            patch(
+                "mael_cli.env_cli.restart_services",
+                return_value=(["ladle (pid 200): stopped"], state),
+            ) as restart,
+        ):
+            result = CliRunner().invoke(cli, ["env", "restart", "ladle"])
+        assert result.exit_code == 0, result.output
+        assert restart.call_args.kwargs["services"] == ["ladle"]
 
 
 class TestResolveServiceOutsideAProject:
