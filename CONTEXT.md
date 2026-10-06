@@ -650,6 +650,11 @@ The project's `pre_push_cmd`: a gate that runs after the last rebase and before 
 sees the commit the push publishes. Maelstrom only runs it; what it verifies is the project's.
 _Avoid_: pre-push hook (git's own client-side hook), pre-push gates
 
+**Tangier gate refs**:
+The git refs under `refs/tangier/gates/` where tangier records that a gate passed. CI reads them
+from origin. With `tangier: true`, maelstrom runs `tangier gate push` after each branch push.
+_Avoid_: tangier records
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a

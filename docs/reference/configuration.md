@@ -30,6 +30,7 @@ Put this file in your repository root.
 | `main_port_base` | int | — | Port base reserved for the `_main` worktree, making it the project's fixed environment. Must be 1-6552 and outside 300-999. See below. |
 | `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation and on `mael env start`. |
 | `pre_push_cmd` | string | — | Check that runs after the last rebase and before a push. See below. |
+| `tangier` | bool | `false` | Run `tangier gate push` after each branch push. See below. |
 | `start_cmd` | string | `""` | Fallback start command when there is no `services:` block and no Procfile. |
 | `linear` | map | — | Linear settings. See below. |
 | `sentry` | map | — | Sentry settings. See below. |
@@ -91,6 +92,27 @@ console. A non-zero exit stops the push, and the branch stays rebased and unpush
 
 `--skip-pre-push` on `mael sync` and `mael gh create-pr` pushes without the check. Keep it for an
 emergency.
+
+### `tangier:`
+
+Set `tangier: true` in a project that records gate passes with tangier. CI reads a gate pass
+from origin, so a pass recorded on a dev machine counts only after its ref is pushed.
+
+```yaml
+tangier: true
+```
+
+After each successful branch push, maelstrom runs `tangier gate push` in the worktree. This
+applies to `mael sync`, `mael sync-all`, `mael gh create-pr`, `mael git merge` and
+`mael tidy-branches`. It also applies to the orchestrator's sync and to the sync that opens or
+closes a worktree.
+
+The value must be `true` or `false`; a string such as `"true"` fails when the config loads.
+`tangier` must be on `PATH`. A failed gate push is a warning, not a failed push. The same goes
+for a gate push that takes more than 120 seconds. The CLI prints the warning on stderr; the
+orchestrator shows it with the sync's result. The branch is on origin already, and the next
+push sends the refs again. Maelstrom does not fetch gate
+refs: `tangier gate verified` reads origin itself.
 
 ### `services:`
 

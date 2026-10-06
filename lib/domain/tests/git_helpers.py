@@ -1,5 +1,7 @@
 """Shared git test helpers used across unit and e2e tests."""
 
+import os
+import shlex
 import subprocess
 
 from mael_domain.worktree_model import history_ref_prefix
@@ -51,6 +53,29 @@ def remote_tip(worktree_path, branch):
     """The commit origin holds for ``branch``, or None when it has none."""
     out = run_git(worktree_path, "ls-remote", "origin", f"refs/heads/{branch}").stdout
     return out.split("\t")[0] if out else None
+
+
+def fake_tangier(tmp_path, monkeypatch, *, branch, exit_code=0, stderr=""):
+    """Put a stand-in ``tangier`` first on PATH. Returns its log.
+
+    Each call appends three lines: the directory it ran in, its arguments, and
+    origin's tip of ``branch`` at that moment, which shows whether the branch
+    push came first.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    log = tmp_path / "tangier.log"
+    script = bin_dir / "tangier"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'{{ pwd -P; echo "$*"; git ls-remote origin refs/heads/{branch} | cut -f1; }}'
+        f" >> {log}\n"
+        f"printf %s {shlex.quote(stderr)} >&2\n"
+        f"exit {exit_code}\n"
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    return log
 
 
 def three_commits(worktree_path):
