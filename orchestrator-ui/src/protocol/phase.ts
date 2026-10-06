@@ -1,4 +1,4 @@
-import type { Phase, Task } from './entities';
+import type { Agent, Phase, Task } from './entities';
 import type { TaskId } from './ids';
 
 /**
@@ -53,13 +53,31 @@ export const KNOWN_COMMANDS = [
 ] as const satisfies readonly (keyof typeof PHASES)[];
 
 /**
- * The phase a task's `command` puts it in. The phase is not sent on the wire:
- * it is a reading of `command`, and this is the one place that reading happens.
+ * The phase a task's `command` puts it in. `phaseForTask` is the full reading;
+ * the phase is never sent on the wire.
  */
 export function phaseForCommand(command: string): Phase | null {
   // An execute task runs no skill, so no command is the ordinary build case.
   if (command === '') return 'build';
   return (PHASES as Record<string, Phase>)[command] ?? null;
+}
+
+/**
+ * The phase a task is in now. A plan-mode build task plans until its agent
+ * leaves plan mode — which plan approval does — and then builds. Any other
+ * phase, or none, is the command's alone: the mode does not change that work.
+ *
+ * With no agent, only a task not yet started reads as planning. A finished
+ * task's agent can leave the world, and the task did not go back to planning.
+ */
+export function phaseForTask(
+  task: Pick<Task, 'command' | 'mode' | 'status'>,
+  agent?: Pick<Agent, 'permissionMode'>,
+): Phase | null {
+  const phase = phaseForCommand(task.command);
+  if (task.mode !== 'plan' || phase !== 'build') return phase;
+  if (!agent) return task.status === 'todo' ? 'plan' : phase;
+  return agent.permissionMode === '' || agent.permissionMode === 'plan' ? 'plan' : phase;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isActionable, KNOWN_COMMANDS, phaseForCommand } from './phase';
-import { makeTask } from '../fake/fixtures';
+import { isActionable, KNOWN_COMMANDS, phaseForCommand, phaseForTask } from './phase';
+import { makeAgent, makeTask } from '../fake/fixtures';
 
 describe('phaseForCommand', () => {
   it.each([
@@ -40,6 +40,44 @@ describe('phaseForCommand', () => {
     for (const command of KNOWN_COMMANDS) {
       expect(phaseForCommand(command), command).not.toBeNull();
     }
+  });
+});
+
+describe('phaseForTask', () => {
+  const planning = makeTask({ command: '', mode: 'plan' });
+
+  it('plans while a plan-mode task has not started', () => {
+    expect(phaseForTask({ ...planning, status: 'todo' })).toBe('plan');
+  });
+
+  // A server restart drops exited agents; the finished task stays built.
+  it.each(['in-progress', 'done'] as const)(
+    'builds when a %s plan-mode task has no agent',
+    (status) => {
+      expect(phaseForTask({ ...planning, status })).toBe('build');
+    },
+  );
+
+  it.each(['', 'plan'] as const)('plans while its agent is in mode %j', (permissionMode) => {
+    expect(phaseForTask(planning, makeAgent({ permissionMode }))).toBe('plan');
+  });
+
+  it.each(['auto', 'normal'] as const)('builds once its agent is in mode %j', (permissionMode) => {
+    expect(phaseForTask(planning, makeAgent({ permissionMode }))).toBe('build');
+  });
+
+  it.each([
+    ['impeccable critique', 'shape'],
+    ['watch-pr', 'land'],
+    ['some-other-skill', null],
+  ])("keeps %j's own phase in plan mode", (command, phase) => {
+    const task = makeTask({ command, mode: 'plan' });
+    expect(phaseForTask(task, makeAgent({ permissionMode: 'plan' }))).toBe(phase);
+  });
+
+  it('reads a task outside plan mode from its command alone', () => {
+    const task = makeTask({ command: '', mode: 'auto' });
+    expect(phaseForTask(task, makeAgent({ permissionMode: 'plan' }))).toBe('build');
   });
 });
 
