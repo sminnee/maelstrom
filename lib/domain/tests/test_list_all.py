@@ -92,6 +92,9 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     assert row["dirty_files"] == 0
     assert row["pr_number"] is None
     assert row["session_count"] == 0
+    assert row["head_oid"] == (
+        run_git(["rev-parse", "HEAD"], cwd=worktree_path).stdout.strip()
+    )
 
 
 @pytest.mark.parametrize(
@@ -488,6 +491,7 @@ def _quiet_worktree_reads(**overrides):
         "project_repo_url": None,
         "get_worktree_dirty_files_async": [],
         "get_local_only_commits_async": 0,
+        "get_head_sha_async": None,
         "get_pushed_commit_count_async": 0,
         "get_app_url": None,
         "get_env_status": None,
