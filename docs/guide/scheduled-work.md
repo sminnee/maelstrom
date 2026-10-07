@@ -1,11 +1,12 @@
 # Scheduled work
 
-Run a task on a schedule — a nightly dependency check, a weekly triage sweep.
+Run a task on a schedule or when a build finishes — a nightly dependency check, a weekly triage
+sweep, a fix for a failed nightly build.
 
 ## Templates
 
 A **template** is a task parked in `template/` status carrying a `schedule` cron
-expression. It is a reusable recipe, never actionable itself.
+expression, a `trigger`, or both. It is a reusable recipe, never actionable itself.
 
 ```bash
 mael task add "Triage Sentry issues" \
@@ -24,6 +25,7 @@ Make an existing task a template:
 mael task status template <id>
 mael task update <id> --schedule '0 9 * * 1-5'
 mael task update <id> --schedule ''          # clear it
+mael task update <id> --trigger gh-action/nightly.yml
 ```
 
 List them:
@@ -63,6 +65,65 @@ a cmux workspace instead.
 The run starts on the everyday agent daemon, which `mael self-env start` runs. If that daemon
 is down, the run goes back to `todo`. The next hourly fire does not retry it. Launch it with
 `mael task run <id>`.
+
+## Fire on a finished build
+
+A `trigger` fires a template when a GitHub Actions run finishes. Use it to start an agent
+when the nightly build fails:
+
+```bash
+mael task add "Fix the nightly build" --template --trigger gh-action/nightly.yml --mode auto
+```
+
+The trigger is `gh-action/<workflow>[@<branch>] [<conclusion>,...]`.
+
+| Part | Meaning | Default |
+|---|---|---|
+| `<workflow>` | The workflow file name, such as `nightly.yml`. Not its display name. | Required |
+| `@<branch>` | The branch the run is on. | `main` |
+| `<conclusion>,...` | GitHub run conclusions that fire, such as `failure` or `success`. `failed` means `failure,timed_out,startup_failure`. | `failed` |
+
+To fire on a green release build instead:
+
+```bash
+mael task add "Announce the release" --template \
+  --trigger 'gh-action/release.yml@release success'
+```
+
+A run whose conclusion is not on the list does not fire. With the default list, a
+`cancelled` run does not fire.
+
+### Trigger alone
+
+On each hourly tick, maelstrom reads the workflow's completed runs. It takes the newest run
+that finished after the watermark. That run fires when its conclusion is on the list, and the
+watermark moves to it either way. A failure that a newer green run has already fixed does not
+fire. The delay is one hour or less.
+
+The run is named by the date the build finished, such as `nightly.2026-10-07`.
+
+### Trigger and schedule
+
+With a `schedule` as well, the cron boundary decides when maelstrom looks. The boundary fires
+only when the newest completed run has a listed conclusion. That run need not be new: a build
+that stays red fires at every boundary. Otherwise the boundary is skipped, and the watermark
+still moves to it.
+
+```bash
+mael task add "Morning build triage" --template \
+  --schedule '0 9 * * 1-5' --trigger gh-action/nightly.yml
+```
+
+### Rules
+
+- **There is no backfill.** Runs that finished before the template was made do not fire.
+- **One run per day.** A second listed run on the same day fires nothing, because its run id is
+  taken. The watermark still moves past it.
+- **A failed read is unknown.** When `gh` cannot read the runs, nothing fires and the
+  watermark stays. The next tick reads again. `schedule.log` records a warning.
+- **The run's content gains a "Build run" section.** It names the workflow, the branch, the
+  conclusion, the run URL and the commit, and gives the `mael gh check-log` command for the
+  failed jobs.
 
 ## The scheduler is opt-in per machine
 

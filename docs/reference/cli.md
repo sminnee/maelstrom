@@ -417,7 +417,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task status <state> [ID]` | Move a task between lifecycle states. |
 | `mael task prompt ID` | Print the initial Claude prompt for a task. |
 | `mael task reconcile` | Reconcile in-progress tasks against live Claude sessions. |
-| `mael task add-scheduled` | Fire every due template: duplicate it into a dated run and advance its watermark. |
+| `mael task add-scheduled` | Fire every due template: duplicate it into a dated run and advance its watermark. A template with a `trigger` reads its workflow's completed runs first. |
 
 ```bash
 mael task add "Add avatar upload" --run       # plan-mode session, launched now
@@ -460,6 +460,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--from TEXT` | Seed the new task by duplicating this task's recipe. Other flags override. |
 | `--template` | Park the new task in `template` status: a reusable, non-actionable recipe. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks, e.g. `'0 9 * * 1-5'`. |
+| `--trigger TEXT` | Fire on a finished GitHub Actions run: `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. A value that does not parse is refused. See [Fire on a finished build](../guide/scheduled-work.md#fire-on-a-finished-build). |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task as a session immediately. |
 | `--here` | With `--run`, launch in the current shell. No worktree, no new workspace. |
@@ -530,10 +531,11 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. |
 | `--base TEXT` | Branch this task's branch stacks on. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
+| `--trigger TEXT` | Build trigger, `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
-Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base` or
-`--schedule` to clear the field.
+Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base`,
+`--schedule` or `--trigger` to clear the field.
 
 **`mael task list`**
 

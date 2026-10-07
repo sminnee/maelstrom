@@ -181,7 +181,13 @@ _Avoid_: Ready, unblocked
 
 **Template**:
 A task parked in `template/` as a recipe to duplicate from. A template never launches directly.
-A `schedule` on a template drives the scheduler.
+A `schedule`, a `trigger`, or both on a template drive the scheduler.
+
+**Trigger**:
+The event that fires a template, written `<kind>/<spec>`. `gh-action/nightly.yml` fires when a
+run of that GitHub Actions workflow finishes with a listed conclusion. With a `schedule` too, a
+cron boundary fires only when the newest completed run has a listed conclusion.
+_Avoid_: Gate, condition
 
 **Chain**:
 The sibling tasks that share one parent, ordered by follows, merging as a single pull request.

@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Fire a template when a GitHub build finishes.** `mael task add --template --trigger
+  gh-action/nightly.yml` starts a run when the nightly workflow fails. A trigger can list other
+  conclusions, such as `success`, and can work with a `schedule`. The run's content gains a
+  `## Build run` section with the run URL and the `mael gh check-log` command. See
+  [Fire on a finished build](docs/guide/scheduled-work.md#fire-on-a-finished-build).
+
 - **Follow a task past done with `mael comms list`.** The orchestrator server reads each
   tracked task's **Landing** from GitHub on its worktree poll: merged, then each deploy named
   in the new `deploy:` block. See [`deploy:`](docs/reference/configuration.md#deploy). The
