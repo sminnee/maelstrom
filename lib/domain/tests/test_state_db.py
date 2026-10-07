@@ -211,6 +211,29 @@ class TestTheTasksLadderUpgrade:
         finally:
             db.close()
 
+    async def test_an_older_database_gains_the_landing_tables(self, tmp_path):
+        """A database from before the ladder gains both tables, and they differ.
+
+        ``pull_requests`` is GitHub's data, so it is cached and takes a stamp.
+        ``task_steps`` is the flush baseline, which a restore must keep, so it is
+        canonical and refuses one.
+        """
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders.pop("landings")
+            await db.migrate()
+            assert not await db.has_table("pull_requests")
+
+            db.ladders["landings"] = full
+            await db.migrate()
+
+            await db.upsert("pull_requests", "p/1", fetched_at="t", title="x")
+            assert (await db.read("pull_requests", "p/1"))["fetched_at"] == "t"
+            with pytest.raises(ValueError, match="canonical"):
+                await db.upsert("task_steps", "p/t/done", fetched_at="t", step="done")
+        finally:
+            db.close()
+
 
 class TestFailedMigration:
     """Slice 3: a migration that raises leaves the schema where it was."""
