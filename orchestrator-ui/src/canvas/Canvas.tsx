@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   ReactFlow,
@@ -69,7 +69,7 @@ export function Canvas() {
   const expandedWorktreeId = useAppStore((s) => s.ui.expandedWorktreeId);
   const expandNode = useAppStore((s) => s.expandNode);
   const collapseCard = useAppStore((s) => s.collapseCard);
-  const { getZoom, setCenter } = useReactFlow();
+  const { fitView, getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();
   const panelShowing = useShowing().includes('tabs');
   // A panel off screen shows no tab, so no node is marked as its source.
@@ -193,6 +193,17 @@ export function Canvas() {
     // Only on expand: a later relayout must not move the viewport.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedNodeId, expandedWorktreeId]);
+
+  // A filter change re-lays the lanes, so the view fits the whole desk again.
+  // The `fitView` prop fits at mount; a world update must not move the viewport.
+  const seenFilters = useRef(filters);
+  useEffect(() => {
+    if (seenFilters.current === filters) return;
+    seenFilters.current = filters;
+    if (status !== 'ready') return;
+    void fitView({ duration: VIEW_MOVE_MS });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   // A filter that hides the expanded node collapses it, so a later click
   // reopens it. A worktree whose box no longer draws collapses the same way:

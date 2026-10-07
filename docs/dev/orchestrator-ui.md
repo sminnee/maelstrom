@@ -180,7 +180,8 @@ screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's op
 `deriveGraph`, so no Desk option filters the canvas to nothing. A selected value stays offered
 across a view switch. A selected branch drops out once no view in the world names it. Desk has an
 Agent status control, which the top bar's agents chip also steps through; Tasks has status and
-text controls, and Worktrees has "show closed".
+text controls, and Worktrees has "show closed". A change to any Desk filter fits the canvas to the
+whole desk again. A world update never moves the viewport.
 
 `View` has one exhaustive switch, in `selectors/filterOptions.ts`. Its docstring in
 `store/uiSlice.ts` lists the other sites to edit by hand when it widens.
