@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentStatusFilter, Filters } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { filterOptions } from '../selectors/filterOptions';
@@ -104,27 +104,73 @@ export function FilterBar() {
         </label>
       )}
       {showing.includes('list') && (
-        <>
-          <MultiSelect
-            className={styles.field}
-            label="Status"
-            options={TASK_STATUS_OPTIONS}
-            value={listFilters.statuses}
-            onChange={(statuses) => go({ listFilters: { statuses } })}
-            // The list reads an empty pick as no filter.
-            emptyLabel="all"
-          />
-          <label className={styles.field}>
-            <span>Search</span>
-            <input
-              type="search"
-              value={listFilters.text}
-              // One entry for a search, not one per key: Back leaves the search, not a letter.
-              onChange={(e) => go({ listFilters: { text: e.target.value } }, { replace: true })}
-            />
-          </label>
-        </>
+        <MultiSelect
+          className={styles.field}
+          label="Status"
+          options={TASK_STATUS_OPTIONS}
+          value={listFilters.statuses}
+          onChange={(statuses) => go({ listFilters: { statuses } })}
+          // The list reads an empty pick as no filter.
+          emptyLabel="all"
+        />
       )}
+      {(showing.includes('canvas') || showing.includes('list')) && <SearchField />}
     </div>
+  );
+}
+
+/** How long typing pauses before the Search text reaches the URL. */
+const SEARCH_COMMIT_MS = 200;
+
+/**
+ * The Search field. It holds what is typed and commits it after a pause, so a
+ * keystroke does not re-derive every view and refit the canvas.
+ */
+function SearchField() {
+  const committed = useLoc().filters.text;
+  const go = useGo();
+  const [draft, setDraft] = useState(committed);
+  // The text this field last committed, so its own commit coming back from
+  // the URL is not read as a change made elsewhere, such as Back.
+  const [sent, setSent] = useState(committed);
+  const [seen, setSeen] = useState(committed);
+  if (seen !== committed) {
+    setSeen(committed);
+    if (committed !== sent) setDraft(committed);
+  }
+  const latest = useRef(draft);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One entry for a search, not one per pause: Back leaves the search, not a word.
+  const commit = (text: string) => {
+    setSent(text);
+    go({ filters: { text } }, { replace: true });
+  };
+  useEffect(
+    () => () => {
+      // Closing the Filters side sheet inside the pause must not drop the text.
+      if (timer.current === null) return;
+      clearTimeout(timer.current);
+      go({ filters: { text: latest.current } }, { replace: true });
+    },
+    [go],
+  );
+  return (
+    <label className={styles.field}>
+      <span>Search</span>
+      <input
+        type="search"
+        value={draft}
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          latest.current = text;
+          if (timer.current !== null) clearTimeout(timer.current);
+          timer.current = setTimeout(() => {
+            timer.current = null;
+            commit(text);
+          }, SEARCH_COMMIT_MS);
+        }}
+      />
+    </label>
   );
 }

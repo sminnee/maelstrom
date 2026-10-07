@@ -9,7 +9,7 @@ import { phaseForTask } from '../protocol/phase';
 import type { Progress } from '../protocol/progress';
 import { isWorking, progressOf } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
-import { branchKey } from './filters';
+import { branchKey, matchesText, searching } from './filters';
 import { byName } from './worktrees';
 
 /** What a node stands for: a notebook task, or an agent with no task. */
@@ -150,6 +150,7 @@ function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
     .filter((t) => t.status !== 'template')
     .filter((t) => !filters.project || t.project === filters.project)
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
+    .filter((t) => matchesText([t.id, t.notebookId, t.title], filters))
     .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
 }
 
@@ -212,8 +213,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     if (!allowsAgentStatus(opts.filters.agentStatus, agent)) continue;
     const attention = attentionFrom(attentionIndex, undefined, agent);
     const groupId = agent.project || worktree?.project || '';
-    laneOf(groupId).nodeIds.push(agent.id);
-    nodes.push({
+    const node: GraphNode = {
       id: agent.id,
       kind: 'freeAgent',
       task: undefined,
@@ -224,12 +224,16 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
-    });
+    };
+    if (!matchesText([agent.id, nodeTitle(node)], opts.filters)) continue;
+    laneOf(groupId).nodeIds.push(agent.id);
+    nodes.push(node);
   }
 
-  // A branch or status filter hides nodes, so a worktree with no node drawn
-  // may still hold work. An empty box would then say what is not true.
-  const hidesNodes = opts.filters.branch || (opts.filters.agentStatus ?? 'all') !== 'all';
+  // A branch, status or text filter hides nodes, so a worktree with no node
+  // drawn may still hold work. An empty box would then say what is not true.
+  const hidesNodes =
+    opts.filters.branch || (opts.filters.agentStatus ?? 'all') !== 'all' || searching(opts.filters);
   if (!hidesNodes) listEmptyWorktrees(world, opts.filters, nodes, laneOf);
 
   const visible = new Set(nodes.map((n) => n.id));

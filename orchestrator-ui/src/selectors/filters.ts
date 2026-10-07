@@ -17,12 +17,14 @@ export interface Filters {
   /** A branch key, `<project>/<branch>`: two projects may share a branch name. */
   branch: string | null;
   agentStatus?: AgentStatusFilter;
+  /** The Search text. The Desk and Tasks share it. */
+  text: string;
 }
 
 export const branchKey = (project: string, branch: string) => `${project}/${branch}`;
 
 export function noFilters(): Filters {
-  return { project: null, branch: null, agentStatus: 'all' };
+  return { project: null, branch: null, agentStatus: 'all', text: '' };
 }
 
 /**
@@ -30,3 +32,15 @@ export function noFilters(): Filters {
  * to name it, so it does while the project filter names none.
  */
 export const showsProject = (filters: Filters) => !filters.project;
+
+/** The Search text as it matches: trimmed, lower case. Empty means no search. */
+const needleOf = (filters: Filters) => filters.text.trim().toLowerCase();
+
+/** Whether a Search is in force. */
+export const searching = (filters: Filters) => needleOf(filters) !== '';
+
+/** Whether one of `fields` holds the Search text, whatever its case. No search matches all. */
+export function matchesText(fields: string[], filters: Filters): boolean {
+  const needle = needleOf(filters);
+  return !needle || fields.some((field) => field.toLowerCase().includes(needle));
+}

@@ -35,7 +35,7 @@ describe('the URL of a location', () => {
       { view: 'list', listFilters: { statuses: ['done', 'cancelled'] } },
     ],
     ['/tasks?status=all', { view: 'list', listFilters: { statuses: [] } }],
-    ['/tasks?q=fix%20%26%20test', { view: 'list', listFilters: { text: 'fix & test' } }],
+    ['/tasks?q=fix%20%26%20test', { view: 'list', filters: { text: 'fix & test' } }],
     ['/worktrees?closed=1', { view: 'worktrees', worktreeFilters: { showClosed: true } }],
     ['/desk?zone=done', { zone: 'done' }],
     ['/tasks?edit=maelstrom/2026-09-22.1', { view: 'list', edit: 'maelstrom/2026-09-22.1' }],
@@ -48,8 +48,8 @@ describe('the URL of a location', () => {
 
   it('leaves out every default', () => {
     const loc = withLoc(defaultLoc(), {
-      filters: { agentStatus: 'all' },
-      listFilters: { statuses: ['blocked', 'todo', 'in-progress'], text: '' },
+      filters: { agentStatus: 'all', text: '' },
+      listFilters: { statuses: ['blocked', 'todo', 'in-progress'] },
       zone: 'running',
     });
     expect(toHref(loc)).toBe('/desk');
@@ -87,6 +87,7 @@ describe('withLoc', () => {
       project: 'northwind',
       branch: null,
       agentStatus: 'idle',
+      text: '',
     });
   });
 });

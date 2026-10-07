@@ -315,6 +315,31 @@ describe('deriveGraph', () => {
     expect(graph.groups.map((g) => g.id)).toEqual(['maelstrom']);
   });
 
+  it('the text filter keeps tasks whose id, notebook id or title holds it, whatever its case', () => {
+    const world = drawnWorld({
+      tasks: [
+        makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', title: 'Add order export' }),
+        makeTask({ id: 'maelstrom/MAEL-1', notebookId: 'MAEL-1', title: 'Draw the canvas' }),
+      ],
+    });
+    const shown = (text: string) =>
+      deriveGraph(world, { filters: { ...noFilters(), text } }).nodes.map((n) => n.id);
+    expect(shown('ORDER')).toEqual(['northwind/NORT-7']);
+    expect(shown('mael-1')).toEqual(['maelstrom/MAEL-1']);
+    expect(shown('maelstrom/')).toEqual(['maelstrom/MAEL-1']);
+  });
+
+  it('a text filter hides the empty worktrees, which it cannot match', () => {
+    const world = drawnWorld({
+      worktrees: [makeWorktree({ id: 'northwind-bravo', nato: 'bravo' })],
+      tasks: [makeTask({ id: 'T1', title: 'Add order export' })],
+    });
+    const graph = deriveGraph(world, { filters: { ...noFilters(), text: 'order' } });
+    expect(graph.groups.map((g) => [g.id, g.nodeIds, g.emptyWorktrees])).toEqual([
+      ['northwind', ['T1'], []],
+    ]);
+  });
+
   it('a node shows its own Registered PR, not one its chain registered', () => {
     const url = 'https://github.com/acme/northwind/pull/42';
     const root = makeTask({ id: 'P', notebookId: 'P', prNumber: 42, prUrl: url });
@@ -397,18 +422,31 @@ describe('free agents', () => {
       agents: [freeAgent()],
       desk: [],
     });
-    const kept = { filters: { project: 'northwind', branch: null } };
+    const kept = { filters: { ...noFilters(), project: 'northwind' } };
     expect(deriveGraph(world, kept).nodes.map((n) => n.id)).toEqual(['free1']);
 
     const otherProject = {
-      filters: { project: 'maelstrom', branch: null },
+      filters: { ...noFilters(), project: 'maelstrom' },
     };
     expect(deriveGraph(world, otherProject).nodes).toHaveLength(0);
 
     const otherBranch = {
-      filters: { project: null, branch: 'northwind/feat/other' },
+      filters: { ...noFilters(), branch: 'northwind/feat/other' },
     };
     expect(deriveGraph(world, otherBranch).nodes).toHaveLength(0);
+  });
+
+  it('the text filter matches a free agent by its id and its drawn title', () => {
+    const world = worldWith({
+      worktrees: [makeWorktree({ id: 'northwind-alpha', nato: 'alpha', branch: 'feat/orders' })],
+      agents: [freeAgent()],
+      desk: [],
+    });
+    const shown = (text: string) =>
+      deriveGraph(world, { filters: { ...noFilters(), text } }).nodes.map((n) => n.id);
+    expect(shown('FREE1')).toEqual(['free1']);
+    expect(shown('alpha · feat/orders')).toEqual(['free1']);
+    expect(shown('feat/db')).toEqual([]);
   });
 
   it("a subagent is neither its task node's agent nor a free-agent node", () => {
