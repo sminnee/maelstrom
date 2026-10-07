@@ -194,6 +194,19 @@ earlier one. A task card shows its task's Registered PR, else the highest-number
 recycled branch carries PRs that earlier tasks made. The worktree table shows the branch's PR.
 _Avoid_: Linked PR, task PR
 
+**Landing**:
+A task's status after `done`: `done → merged → uat → live`. Each of these is a **Landing
+step**. The landing is derived, never stored on the task. It joins the task's **Registered PR**
+to GitHub's data about that PR, which the orchestrator server reads on its worktree poll.
+- `merged` comes from the PR's merge commit. `uat` and `live` come from the deploys to the
+  GitHub environment that `deploy.environments` names for each step.
+- An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
+  `unknown` never counts as reached.
+- A project with no `deploy:` block stops at `merged`.
+- The server records each landing step the first time a task reaches it, with the time it
+  recorded it.
+_Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phase, milestone
+
 **Draft**:
 A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
 directory.
