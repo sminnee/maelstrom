@@ -134,7 +134,7 @@ class TestTheTasksLadderUpgrade:
     needs an ``ALTER TABLE`` rung as well. This holds both halves honest.
     """
 
-    async def test_an_older_database_gains_execute_model(self, tmp_path):
+    async def test_an_older_database_gains_the_later_columns(self, tmp_path):
         db = open_state_db(tmp_path / "state.db")
         try:
             # Stand the database up at the ladder as it was before the field —
@@ -152,6 +152,7 @@ class TestTheTasksLadderUpgrade:
             row = await db.read("tasks", "maelstrom/2026-06-11.1")
             assert row is not None
             assert row["execute_model"] == ""
+            assert (row["pr_number"], row["pr_url"]) == (0, "")
         finally:
             db.close()
 

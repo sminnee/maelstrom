@@ -105,4 +105,11 @@ TASKS: tuple[Rung, ...] = (
             "ALTER TABLE tasks DROP COLUMN steps",
         )
     ),
+    # The Registered PR. See CONTEXT.md, "Registered PR".
+    Migration(
+        (
+            "ALTER TABLE tasks ADD COLUMN pr_number INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''",
+        )
+    ),
 )

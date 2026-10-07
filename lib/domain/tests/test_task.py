@@ -101,9 +101,9 @@ class TestRoundTrip:
         )
         assert Task.from_markdown(text).base == ""
 
-    def test_execute_model_is_last_in_the_frontmatter_order(self):
+    def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-1] == "execute-model"
+        assert model.FRONTMATTER_KEYS[-3:] == ("execute-model", "pr", "pr-url")
 
     def test_execute_model_round_trips(self):
         # The model the session switches to when its plan is approved. Free-form
@@ -666,6 +666,43 @@ class TestMove:
     async def test_move_missing_task(self, store):
         with pytest.raises(KeyError):
             await model.move(store, "p", "nope", "in-progress", now=NOW)
+
+
+class TestRegisterPr:
+    """A task's **Registered PR**: what put a PR on its card."""
+
+    async def test_register_then_read_back(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(
+            store, "p", a.id, 118, "https://github.com/o/r/pull/118", now=NOW2
+        )
+        back = await model.load(store, "p", a.id)
+        assert (back.pr_number, back.pr_url) == (
+            118,
+            "https://github.com/o/r/pull/118",
+        )
+        assert back.updated == NOW2
+
+    async def test_a_later_registration_replaces_the_earlier(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
+        await model.register_pr(store, "p", a.id, 2, "https://x/pull/2", now=NOW2)
+        assert (await model.load(store, "p", a.id)).pr_number == 2
+
+    async def test_register_on_a_missing_task(self, store):
+        with pytest.raises(KeyError):
+            await model.register_pr(store, "p", "nope", 1, "https://x/pull/1")
+
+    def test_the_registration_round_trips_the_frontmatter(self):
+        t = Task(
+            id="x", title="t", project="p", pr_number=118, pr_url="https://x/pull/118"
+        )
+        back = Task.from_markdown(t.to_markdown())
+        assert (back.pr_number, back.pr_url) == (118, "https://x/pull/118")
+
+    def test_a_task_with_no_registration_reads_zero(self):
+        text = "---\nid: x\ntitle: t\nproject: p\n---\n\n## Content\n\n"
+        assert Task.from_markdown(text).pr_number == 0
 
 
 # --- is_safe_id ---
