@@ -208,6 +208,10 @@ class Normalised:
     #: it changes no world entity, and the ledger it writes is the server's
     #: own table. The caller writes it; this module stays a pure function.
     milestone: "Milestone | None" = None
+    #: The PR number or URL the event's ``<link rel="gh-pr">`` named, else
+    #: ``""``. The caller registers it on the agent's task, for the reason the
+    #: caller writes a milestone.
+    pr_link: str = ""
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -629,6 +633,8 @@ def normalise_stream_event(
                         at=out.event_ts or out.now,
                         recognised=tagged.milestone in MILESTONES,
                     )
+                if tagged and tagged.pr_link:
+                    out.pr_link = tagged.pr_link
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -885,6 +891,8 @@ class _Emitter:
         self.local_documents: dict[str, Document] = {}
         #: The stage the agent marked, if it marked one. Last wins, as a note does.
         self.milestone: Milestone | None = None
+        #: The PR the agent registered, if it named one. Last wins.
+        self.pr_link = ""
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1348,7 +1356,7 @@ class _Emitter:
             self.events.append(
                 {"type": "upsert", "kind": "agent", "entity": self.agent_entity}
             )
-        return Normalised(self.events, self.ctx, self.milestone)
+        return Normalised(self.events, self.ctx, self.milestone, self.pr_link)
 
 
 #: The line the harness opens an injected skill body with: the prefix, an

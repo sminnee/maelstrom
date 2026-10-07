@@ -98,6 +98,8 @@ def task_entity(task: model.Task, *, actionable: bool, started_at: str = "") -> 
         "model": task.model,
         "base": task.base,
         "executeModel": task.execute_model,
+        "prNumber": task.pr_number,
+        "prUrl": task.pr_url,
         "content": task.content.strip(),
         "log": parse_log(task.log),
         "created": task.created,

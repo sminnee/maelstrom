@@ -32,8 +32,9 @@ from mael_domain.attachments import attachment_urls
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.file_registry import FileRegistry
-from mael_domain.github_model import RateLimited
+from mael_domain.github_model import RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
+from mael_domain.list_all import project_repo_url
 from mael_domain.normalise import (
     DRAFT_KIND,
     Milestone,
@@ -1260,6 +1261,10 @@ class Orchestrator:
                 # second marker in one turn replaces the first, as last-wins
                 # says.
                 watch.pending_milestone = out.milestone
+        if out.pr_link:
+            await self._register_pr(
+                watch.agent_id, out.pr_link, replay=not watch.caught_up.is_set()
+            )
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
@@ -1376,6 +1381,37 @@ class Orchestrator:
         }
         if shown != current:
             self._apply([{"type": "upsert", "kind": "document", "entity": shown}])
+
+    async def _register_pr(self, agent_id: str, ref: str, *, replay: bool) -> None:
+        """Register the PR an agent's ``<link rel="gh-pr">`` named on its task.
+
+        A free agent registers nothing. A bare number takes its URL from the
+        repo of the agent's worktree. A replayed tag registers only on a task
+        with no Registered PR; see docs/dev/orchestrator-server.md.
+        """
+        agent = self.world["agents"].get(agent_id)
+        task_id = agent.get("taskId") if agent else ""
+        if not agent or not task_id:
+            return
+        task = self.world["tasks"].get(task_id)
+        if replay and (task is None or task["prNumber"]):
+            return
+        worktree = self.world["worktrees"].get(agent.get("worktreeId", ""))
+        repo_url = await project_repo_url(Path(worktree["path"])) if worktree else None
+        try:
+            number, url = parse_pr_ref(ref, repo_url)
+        except ValueError:
+            log.warning("agent %s named no PR in its gh-pr link: %r", agent_id, ref)
+            return
+        reply = await self._write_task(self.tasks.register_pr, task_id, number, url)
+        if not reply["ok"]:
+            log.warning(
+                "agent %s could not register PR #%s on %s: %s",
+                agent_id,
+                number,
+                task_id,
+                reply.get("error"),
+            )
 
     async def _record_milestone(self, watch: AgentWatch, milestone: Milestone) -> None:
         """Snapshot what the agent had spent when it marked a stage reached.

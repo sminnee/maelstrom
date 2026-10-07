@@ -22,6 +22,10 @@ token spend went::
 
     <milestone>built</milestone>
 
+Another registers a pull request on the agent's task, by number or URL::
+
+    <link rel="gh-pr">118</link>
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -59,6 +63,14 @@ _NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
 #: marker by shape, so only this module knows what a milestone is called.
 _MILESTONE_TAG = re.compile(
     rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
+)
+
+#: A PR the agent registers on its task. Only ``rel="gh-pr"`` is read; a link
+#: of any other ``rel`` is left as text. The body may not cross another
+#: ``<link``, so an unclosed HTML ``<link>`` cannot swallow a real one.
+_PR_LINK_OPENING = r'<link\b[^>]*\brel\s*=\s*"gh-pr"[^>]*>'
+_LINK_TAG = re.compile(
+    rf"{_PR_LINK_OPENING}\s*((?:(?!<link\b).)*?)\s*</link>", re.DOTALL
 )
 
 #: The stages the task-completion flow passes through, in order. A name outside
@@ -115,13 +127,15 @@ class TaggedMessage:
     ``note`` is what the agent said it is doing, and is empty when the message
     carried none. A note replaces rather than accumulates, so this is the
     latest one the message held. ``milestone`` follows the same rule, and names
-    the stage of the work the agent has just reached.
+    the stage of the work the agent has just reached. ``pr_link`` follows it
+    too, and is the PR number or URL the agent registered on its task.
     """
 
     text: str
     tags: tuple[DocumentTag, ...]
     note: str = ""
     milestone: str = ""
+    pr_link: str = ""
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -178,6 +192,17 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         milestone = match.group(2).strip()
         spans.append(match.span())
 
+    pr_link = ""
+    # Unlike the other markers, a PR link writes to the task store, so one an
+    # agent quotes in code must not register.
+    quoted = spans + _code_spans(text)
+    for match in _LINK_TAG.finditer(text):
+        if any(start <= match.start() < end for start, end in quoted):
+            continue
+        # The last one wins: a later registration replaces the earlier.
+        pr_link = match.group(1)
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a tag already cut is that tag's text.
@@ -199,13 +224,22 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         tags=tuple(tags),
         note=note,
         milestone=milestone,
+        pr_link=pr_link,
     )
 
 
 #: Every marker an agent writes in a message. The last is read by the
 #: renderer and not here, but half of it is as wrong on screen as half of any.
-_MARKER_NAMES = ("doc-file", "image", "note", "milestone", "user-attention")
+_MARKER_NAMES = (
+    "doc-file",
+    "image",
+    "note",
+    "milestone",
+    "link",
+    "user-attention",
+)
 #: The markers whose body is not prose: nothing of one shows until it closes.
+#: A PR link is one only with its ``rel``: an HTML ``<link>`` never closes.
 _BODY_MARKERS = ("note", "milestone")
 _PREFIXES = "|".join(
     sorted({re.escape(name[:n]) for name in _MARKER_NAMES for n in range(1, len(name))})
@@ -217,7 +251,9 @@ _NAMES = "|".join(re.escape(name) for name in _MARKER_NAMES)
 _HALF_TAG = re.compile(
     rf'</?(?:{_PREFIXES})?$|</?(?:{_NAMES})\b(?:"[^"]*"|[^>"])*(?:"[^"]*)?$'
 )
-_BODY_OPENING = re.compile(rf"<({'|'.join(_BODY_MARKERS)})\b{_ATTRIBUTES}>")
+_BODY_OPENING = re.compile(
+    rf"<({'|'.join(_BODY_MARKERS)})\b{_ATTRIBUTES}>|(?P<link>{_PR_LINK_OPENING})"
+)
 _FENCE_OPENING = re.compile(r"^(```|~~~)", re.MULTILINE)
 #: Stands where an image tag was while :func:`read_tags` runs, and is then cut.
 _NO_IMAGE = "\x00"
@@ -230,7 +266,7 @@ def partial_text(text: str) -> str:
     for is discarded. An image is cut too, because showing one registers a file.
 
     A marker the text stops inside is held back with everything after it: a
-    half-written tag, or an unclosed ``<note>`` or ``<milestone>``. A marker in
+    half-written tag, or an unclosed ``<note>``, ``<milestone>`` or ``<link>``. A marker in
     a code span or a fence is not held back.
     """
     code = _code_spans(text)
@@ -242,7 +278,8 @@ def partial_text(text: str) -> str:
     for match in _BODY_OPENING.finditer(text):
         if in_code(match.start()):
             continue
-        if f"</{match.group(1)}>" not in text[match.end() :]:
+        name = "link" if match.group("link") else match.group(1)
+        if f"</{name}>" not in text[match.end() :]:
             cut = match.start()
             break
     # Each `<` in turn, not one search: the leftmost match can start in code

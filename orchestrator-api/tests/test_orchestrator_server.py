@@ -5634,6 +5634,117 @@ def test_a_message_with_no_milestone_writes_nothing(harness):
     assert run(scenario()) == []
 
 
+PR_URL = "https://github.com/o/r/pull/118"
+
+
+def pr_of(harness, task_id: str = "NORT-7") -> tuple[int, str]:
+    """The task's Registered PR as the world carries it to the card."""
+    task = harness.orch.world["tasks"][f"{PROJECT}/{task_id}"]
+    return task["prNumber"], task["prUrl"]
+
+
+def an_agent_on_a_task(harness, *, backlog=(), **task_fields) -> None:
+    harness.add_task("NORT-7", **task_fields)
+    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.daemon.rows["ag1"] = agent_row(session=session)
+    harness.daemon.backlog["ag1"] = list(backlog)
+
+
+async def then_settled(harness, api, stream) -> None:
+    """Push one more message and wait for it: ag1's stream runs in order."""
+    harness.daemon.push("ag1", tag_event("Working."))
+    await settled(
+        stream,
+        api,
+        "agent",
+        "/api/agents/ag1",
+        lambda b: b["lastMessage"] == "Working.",
+    )
+
+
+def test_a_pr_link_tag_registers_the_pr_on_the_agents_task(harness):
+    an_agent_on_a_task(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>')
+                )
+                await wait_until(lambda: pr_of(harness)[0] != 0)
+
+    run(scenario())
+    assert pr_of(harness) == (118, PR_URL)
+
+
+def test_a_replayed_pr_link_registers_on_a_task_with_none(harness):
+    """A tag written while the server was down arrives only in the backlog."""
+    an_agent_on_a_task(
+        harness, backlog=[tag_event(f'<link rel="gh-pr">{PR_URL}</link>')]
+    )
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: pr_of(harness)[0] != 0)
+
+    run(scenario())
+    assert pr_of(harness) == (118, PR_URL)
+
+
+def test_a_replayed_pr_link_does_not_replace_a_registration(harness):
+    """A later `link-pr` must survive a restart that re-reads an older tag."""
+    an_agent_on_a_task(
+        harness,
+        backlog=[tag_event(f'<link rel="gh-pr">{PR_URL}</link>')],
+    )
+    run(
+        model.register_pr(
+            harness.store, PROJECT, "NORT-7", 120, "https://github.com/o/r/pull/120"
+        )
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await then_settled(harness, api, stream)
+
+    run(scenario())
+    assert pr_of(harness)[0] == 120
+
+
+def test_a_live_pr_link_replaces_an_earlier_registration(harness):
+    an_agent_on_a_task(harness)
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 99, "u99"))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>')
+                )
+                await wait_until(lambda: pr_of(harness)[0] == 118)
+
+    run(scenario())
+
+
+def test_a_free_agents_pr_link_registers_nothing(harness):
+    harness.add_task("NORT-7")
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event('<link rel="gh-pr">118</link>'))
+                await then_settled(harness, api, stream)
+
+    run(scenario())
+    assert pr_of(harness)[0] == 0
+
+
 def milestone_items(harness) -> list[dict]:
     """Every milestone bar in ag1's transcript."""
     return [

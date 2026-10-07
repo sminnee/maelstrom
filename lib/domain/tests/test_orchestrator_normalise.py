@@ -2607,3 +2607,45 @@ def test_a_whole_message_that_is_not_the_partial_one_is_appended_beside_it():
     assert partial["partial"] is False
     assert whole["markdown"] == "Other."
     assert "partial" not in whole
+
+
+# -- the PR an agent registers on its task --
+
+
+@pytest.mark.parametrize("ref", ["118", "https://github.com/o/r/pull/118"])
+def test_a_pr_link_tag_is_reported_beside_the_events(ref):
+    _, out = replay_milestone(f'Pushed.\n\n<link rel="gh-pr">{ref}</link>')
+    assert out.pr_link == ref
+
+
+def test_the_pr_link_tag_is_cut_from_the_message_the_transcript_shows():
+    replayed, _ = replay_milestone('Pushed.\n\n<link rel="gh-pr">118</link>')
+    [message] = items_of(replayed, "message")
+    assert message["markdown"] == "Pushed."
+
+
+def test_the_last_pr_link_in_a_message_wins():
+    _, out = replay_milestone(
+        '<link rel="gh-pr">1</link> then <link rel="gh-pr">2</link>'
+    )
+    assert out.pr_link == "2"
+
+
+def test_a_pr_link_quoted_in_code_registers_nothing():
+    """A PR link writes to the task store, so an example must not."""
+    _, out = replay_milestone('Write `<link rel="gh-pr">118</link>` to register.')
+    assert out.pr_link == ""
+
+
+def test_an_unclosed_html_link_does_not_swallow_a_pr_link():
+    _, out = replay_milestone(
+        '<link rel="stylesheet" href="x.css"> then <link rel="gh-pr">118</link>'
+    )
+    assert out.pr_link == "118"
+
+
+def test_a_link_of_another_rel_is_left_as_text():
+    replayed, out = replay_milestone('<link rel="stylesheet">x</link>')
+    assert out.pr_link == ""
+    [message] = items_of(replayed, "message")
+    assert "<link" in message["markdown"]

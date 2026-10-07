@@ -199,6 +199,9 @@ class Task(TypedDict):
     model: str
     base: str
     executeModel: str
+    #: The Registered PR: its number, 0 for none, and its URL.
+    prNumber: int
+    prUrl: str
     content: str
     log: list[TaskLogEntry]
     created: str
@@ -230,6 +233,8 @@ class TaskRow(TypedDict):
     model: str
     base: str
     executeModel: str
+    prNumber: int
+    prUrl: str
     created: str
     updated: str
     actionable: bool

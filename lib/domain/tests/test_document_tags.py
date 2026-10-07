@@ -90,10 +90,18 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
             "Done.\n\nNext",
         ),
         ("Built.\n\n<milestone>built</milestone>", "Built."),
+        ('Pushed.\n\n<link rel="gh-pr">118</link>', "Pushed."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
         ("Before\n\n<milestone>bui", "Before"),
+        ('Before\n\n<link rel="gh-pr">https://github.com/o/r/pu', "Before"),
+        # An HTML link never closes, so it is prose, not a held-back marker.
+        (
+            'a <link rel="stylesheet" href="x.css"> b',
+            'a <link rel="stylesheet" href="x.css"> b',
+        ),
+        ("Before\n\n<lin", "Before"),
         # A half-written tag is held back, whatever it will turn out to be.
         ("Before\n\n<", "Before"),
         ("Before\n\n<doc-", "Before"),
