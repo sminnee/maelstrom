@@ -27,7 +27,7 @@ export function Dialog({
 }: {
   /** The dialog's accessible name. */
   label: string;
-  /** Escape or a click on the backdrop (both as `cancel`), or the header's close. */
+  /** Escape or a click on the backdrop, or the header's close. */
   onClose: () => void;
   testId?: string;
   /** Added to the box, for a dialog whose content is not text. */
@@ -36,6 +36,10 @@ export function Dialog({
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDialogElement>(null);
+  // Whether the last press was on the backdrop. A click lands on the nearest
+  // element both the press and the release were in, so a drag from a field out
+  // to the backdrop clicks the dialog too.
+  const backdropPress = useRef(false);
 
   // Open from a callback ref, not an effect: `showModal()` throws on a dialog
   // that is already open, and a callback ref fires only when the DOM node
@@ -75,15 +79,40 @@ export function Dialog({
       // box's edge, is inside by the DOM tree; the box's own padding is inside
       // by its rect.
       closedby="any"
-      // Escape and a backdrop click both arrive as `cancel`. Taking it here, not
-      // on the document, lets a control inside stop Escape first; the combo box does.
+      // Escape, and a backdrop click under `closedby`, arrive as `cancel`. Taking
+      // it here, not on the document, lets a control inside stop Escape first;
+      // the combo box does.
       onCancel={(e) => {
         e.preventDefault();
         onClose();
       }}
+      {...(!hasLightDismiss() && {
+        onPointerDown: (e: React.PointerEvent<HTMLDialogElement>) => {
+          backdropPress.current = onBackdrop(e);
+        },
+        onClick: (e: React.MouseEvent<HTMLDialogElement>) => {
+          if (backdropPress.current && onBackdrop(e)) onClose();
+          backdropPress.current = false;
+        },
+      })}
     >
       {children}
     </dialog>
+  );
+}
+
+/** Whether `closedby` works here. Where it does, the fallback would close twice. */
+const hasLightDismiss = () => 'closedBy' in HTMLDialogElement.prototype;
+
+/**
+ * Whether a pointer event is on the backdrop: on the dialog itself, at a point
+ * outside its box. The box's own padding is the dialog too, but inside the box.
+ */
+function onBackdrop(e: React.MouseEvent<HTMLDialogElement>): boolean {
+  if (e.target !== e.currentTarget) return false;
+  const box = e.currentTarget.getBoundingClientRect();
+  return (
+    e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom
   );
 }
 
