@@ -160,13 +160,4 @@
     gap: var(--u-half);
     padding: 0 var(--u-half);
   }
-  /* The readings and New, at the top of the side sheet. */
-  .sheetHead {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--u);
-    padding-bottom: var(--u-2);
-    border-bottom: 1px solid var(--border);
-  }
 }

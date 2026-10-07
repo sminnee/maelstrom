@@ -129,13 +129,13 @@ function Readings() {
 }
 
 /**
- * The head of the side sheet: the readings and New, which the screen strip has
- * no room for. New closes the sheet, as anything that navigates does.
+ * The head of the More side sheet: the readings and New, which the screen
+ * strip has no room for. New closes the sheet, as anything that navigates does.
  */
 export function SheetHead({ onClose }: { onClose: () => void }) {
   const newWork = useNewWork();
   return (
-    <div className={styles.sheetHead}>
+    <>
       <Readings />
       <div className={styles.spacer} />
       <AppButton
@@ -148,7 +148,7 @@ export function SheetHead({ onClose }: { onClose: () => void }) {
       >
         New
       </AppButton>
-    </div>
+    </>
   );
 }
 

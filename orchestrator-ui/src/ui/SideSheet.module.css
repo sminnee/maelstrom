@@ -1,0 +1,25 @@
+/* The head row: the ×, then the sheet's own content. */
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--u);
+  padding-bottom: var(--u-2);
+  border-bottom: 1px solid var(--border);
+}
+/* Bare, as the screen strip's Back is: a close needs no caption. */
+.close {
+  flex: none;
+  min-width: var(--control);
+  height: var(--control);
+  padding: 0;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--fg-muted);
+}
