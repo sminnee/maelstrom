@@ -874,6 +874,7 @@ mael env status -w myproject._main
 | Command | Description |
 |---|---|
 | `mael gh create-pr` | Create a PR for the current worktree, or push if one exists. |
+| `mael gh link-pr REF` | Register an existing PR on a task. |
 | `mael gh read-pr [TARGET]` | Read PR status, comments and check results. |
 | `mael gh show-code [TARGET]` | Show commits and uncommitted changes for a worktree. |
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
@@ -890,7 +891,8 @@ mael gh check-log 12345678 --failed-only
 
 **`mael gh create-pr`**
 
-When `MAEL_TASK_ID` is set, appends `[<task-id>]` to a new PR title.
+When `MAEL_TASK_ID` is set, appends `[<task-id>]` to a new PR title, and registers the PR on
+that task as its Registered PR. The task card then shows the PR.
 
 The PR body comes from the PR draft — see [the pull requests guide](../guide/pull-requests.md).
 
@@ -908,6 +910,21 @@ after its last rebase, then pushes once. A failed check pushes nothing and opens
 | `--autorepair` | On a conflict in the rebase before the push, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. |
 | `--skip-pre-push` | Push without running the project's `pre_push_cmd`. For an emergency only. |
 | `--target TEXT` | Project/worktree target for directory resolution. |
+
+**`mael gh link-pr`**
+
+Registers a PR on a task, so the task card shows it. Use it for a PR that `create-pr` did not
+make. `REF` is a PR number, `#number`, or a GitHub PR URL. A bare number takes its URL from the
+repository's `origin` remote. A later registration replaces the earlier one.
+
+```bash
+mael gh link-pr 118
+mael gh link-pr https://github.com/acme/northwind/pull/118 --task NORT-7
+```
+
+| Option | Description |
+|---|---|
+| `--task TEXT` | Task to register the PR on, in the current project. Default: `$MAEL_TASK_ID`. With neither, the command fails. |
 
 **`mael gh read-pr`**
 

@@ -19,6 +19,10 @@ them:
 7. **Close the task:** `mael task status done`.
 8. Run `/watch-pr` to take CI (continuous integration) to green.
 
+A task card shows a PR only when the PR is the task's **Registered PR**. Step 6 registers it for
+you. For a PR you made another way, run `mael gh link-pr <number>` — see
+[the CLI reference](../reference/cli.md).
+
 The gates run on the current base and on a clean tree, so a project can record that they passed
 on that commit. The project's pre-push check can then reuse that record.
 

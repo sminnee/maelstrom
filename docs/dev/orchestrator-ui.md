@@ -187,34 +187,30 @@ text controls, and Worktrees has "show closed".
 
 ### Which PR a task shows
 
-A pull request belongs to a branch, and a branch outlives the session that made its PR. After a
-merge, every later task on the branch resolves to the merged PR, including tasks not started. So
-the node, the deck row and the expanded card show a PR only where the task's own session could
-have made it. `selectors/cardPr.ts` holds the rule:
+A pull request belongs to a branch, and a branch outlives the task that made its PR. A later task
+on a recycled branch would resolve to the earlier task's PR. So the node, the deck row and the
+expanded card show only a task's **Registered PR**, never the branch's PR.
 
 | The task | Shows |
 |---|---|
-| In the not-started zone | No PR |
-| It started after the PR merged | No PR |
-| It started before the PR merged | The merged PR |
-| Its branch has an open PR, and the task has started | The open PR |
-| Finished, with no start time | The merged PR |
+| It has a Registered PR | Its own PR |
+| A task in its chain has one | The highest-numbered PR in the chain |
+| Nothing in its chain has one | No PR |
+| It is a free agent's card | No PR |
 
-An open PR is never wrong: a branch has at most one. The rule compares the worktree's
-`prMergedAt` with the task's `startedAt`, else the card's agent's `startedAt`.
+A task's **Chain** here also holds the task its `parent` names, so a root task's PR reaches its
+children and back.
 
-A task's `startedAt` is when its first agent started. The task source reads it from the Agent
-records, ended ones included, matched to the task by task session id. So a finished card, whose
-agent has left the world, keeps it, and a task run again after its PR merged still shows that PR.
-The source folds in only the records written since its last read, and sends a task again when its
-first start appears. The agent's start stands in only until that read.
+`deriveGraph` resolves the registration once per node, onto `GraphNode.registeredPr`, because the
+chain needs every task and a node holds only its own. `selectors/cardPr.ts` then reads the state:
 
-Both times come from Agent records, not the daemon, because a resume resets the daemon's start
-time. That reset would hide the agent's own PR. The worktree table does not use the rule: it is
-about the branch, not a session.
+- When the worktree's `prNumber` equals the registered number, the chip takes the worktree's
+  state, draft flag and colour.
+- When the numbers differ, the chip draws the number and link with no state. The branch now has
+  a newer PR, and the registered one has no reading. No per-number GitHub query is made.
 
-The rule has one known gap. An agent the orchestrator adopted rather than started has the
-adoption time as its start, so a PR that merged before the adoption is hidden.
+`PrChip` draws a `PrReading`, not a `Worktree`. The worktree table and the **Worktree box** pass
+`worktreePr(worktree)`, the branch's own PR: those views are about the branch, not a task.
 
 ### The worktree table
 
