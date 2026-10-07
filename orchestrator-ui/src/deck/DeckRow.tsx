@@ -60,7 +60,7 @@ export function DeckRow({
           {showProject && node.task && <span className={styles.project}>{node.task.project}</span>}
           <span className={styles.id}>{nodeIdLine(node)}</span>
           {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
-          <PrChip worktree={cardPr(node)} link={false} className={styles.pr} />
+          <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
       </button>

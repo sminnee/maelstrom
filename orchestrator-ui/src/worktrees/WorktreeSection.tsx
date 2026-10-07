@@ -1,5 +1,6 @@
 import { useWorld } from '../api/useWorld';
 import type { Worktree } from '../protocol/entities';
+import { worktreePr, type PrReading } from '../selectors/cardPr';
 import { branchLabel, trackedAgents } from '../selectors/worktrees';
 import { CloseControl } from './CloseControl';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
@@ -10,17 +11,17 @@ import styles from './WorktreeSection.module.css';
  * and branch, the links out of it, then the commands on it.
  *
  * The node card and the **Worktree card** both draw this, so the two cannot
- * drift. `pr` is the worktree whose PR to show, as `WorktreeLinks` reads it.
+ * drift. `pr` is the PR to show, as `WorktreeLinks` reads it.
  *
  * The close shows only while no agent runs in the worktree — see
  * `docs/dev/orchestrator-ui.md`, "The worktree area".
  */
 export function WorktreeSection({
   worktree,
-  pr = worktree,
+  pr = worktreePr(worktree),
 }: {
   worktree: Worktree;
-  pr?: Worktree | null;
+  pr?: PrReading | null;
 }) {
   const { world } = useWorld();
   const idle = trackedAgents(world, worktree.id).length === 0;

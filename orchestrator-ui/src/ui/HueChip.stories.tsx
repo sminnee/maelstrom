@@ -1,5 +1,6 @@
 import type { Story } from '@ladle/react';
 import { HueChip } from './HueChip';
+import { worktreePr } from '../selectors/cardPr';
 import { PrChip } from '../shell/PrChip';
 import { GitHubIcon } from '../shell/GitHubIcon';
 import { actionIcon } from './actionIcons';
@@ -97,18 +98,18 @@ export const PrStates: Story = () => (
   <Board>
     <Row label="large — opens on hover and focus">
       {STATES.map((s) => (
-        <PrChip key={s} worktree={worktree(s)} size="large" />
+        <PrChip key={s} pr={worktreePr(worktree(s))} size="large" />
       ))}
-      <PrChip worktree={worktree('ci-failed', true)} size="large" />
+      <PrChip pr={worktreePr(worktree('ci-failed', true))} size="large" />
     </Row>
     <Row label="small — a dense meta line has no room to open into">
       {STATES.map((s) => (
-        <PrChip key={s} worktree={worktree(s)} />
+        <PrChip key={s} pr={worktreePr(worktree(s))} />
       ))}
-      <PrChip worktree={worktree('ci-failed', true)} />
+      <PrChip pr={worktreePr(worktree('ci-failed', true))} />
     </Row>
     <Row label="a PR number with no browse URL: text, not a dead link">
-      <PrChip worktree={{ ...worktree('ready'), prUrl: '' }} size="large" />
+      <PrChip pr={worktreePr({ ...worktree('ready'), prUrl: '' })} size="large" />
     </Row>
   </Board>
 );
@@ -168,7 +169,7 @@ export const InAMetaRow: Story = () => (
         >
           <span style={{ fontFamily: 'var(--mono)' }}>NORT-12</span>
           <span style={{ fontFamily: 'var(--mono)' }}>delta</span>
-          <PrChip worktree={worktree('ci-running')} />
+          <PrChip pr={worktreePr(worktree('ci-running'))} />
           <span style={{ marginLeft: 'auto', color: 'var(--phase-build)' }}>BUILD</span>
         </div>
       </div>

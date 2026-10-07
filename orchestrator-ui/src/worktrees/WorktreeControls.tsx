@@ -1,4 +1,5 @@
 import type { Worktree } from '../protocol/entities';
+import { worktreePr, type PrReading } from '../selectors/cardPr';
 import { changesTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
@@ -15,17 +16,17 @@ import { SyncControl } from './SyncControl';
  */
 
 /**
- * The changes, the PR, the dev env and the cmux pane. `pr` is the worktree
- * whose PR to show, `null` for none, and defaults to `worktree`; a card passes
+ * The changes, the PR, the dev env and the cmux pane. `pr` is the PR to show,
+ * `null` for none, and defaults to the worktree's own; a card passes
  * `cardPr`'s pick.
  */
 export function WorktreeLinks({
   worktree,
-  pr = worktree,
+  pr = worktreePr(worktree),
   chipClassName,
 }: {
   worktree: Worktree | undefined;
-  pr?: Worktree | null;
+  pr?: PrReading | null;
   /** For the PR chip: the narrow detail screen gives it a row. */
   chipClassName?: string;
 }) {
@@ -34,7 +35,7 @@ export function WorktreeLinks({
       {worktree && !worktree.isClosed && (
         <PanelLink tab={changesTab(worktree.id)}>Changes</PanelLink>
       )}
-      <PrChip worktree={pr ?? undefined} size="large" className={chipClassName} />
+      <PrChip pr={pr ?? undefined} size="large" className={chipClassName} />
       <DevEnvLinks worktree={worktree} />
       <CmuxControl worktree={worktree} />
     </>

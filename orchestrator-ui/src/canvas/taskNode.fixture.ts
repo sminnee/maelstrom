@@ -34,6 +34,8 @@ function task(over: Partial<Task> = {}): Task {
     model: '',
     base: '',
     executeModel: '',
+    prNumber: 0,
+    prUrl: '',
     content: '',
     log: [],
     created: '2026-09-07T09:00:00Z',
@@ -116,6 +118,7 @@ function node(over: {
     task: t,
     agent: a,
     worktree: over.worktree ?? worktree(),
+    registeredPr: undefined,
     progress: progressOf(t, a, []),
     // Read from the task, never set by hand: a free agent has no task and so
     // no phase, exactly as `deriveGraph` has it.

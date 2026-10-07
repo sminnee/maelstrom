@@ -3,6 +3,7 @@ import { useWorld } from '../api/useWorld';
 import { useRefreshWorktrees, useRemoveWorktree } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
+import { worktreePr } from '../selectors/cardPr';
 import { listWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
 import { useAppStore } from '../store/store';
@@ -103,7 +104,7 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
       <td data-label="local">{worktree.localCommits || ''}</td>
       <td data-label="remote">{remoteCell(worktree)}</td>
       <td>
-        <PrChip worktree={worktree} />
+        <PrChip pr={worktreePr(worktree)} />
       </td>
       <td>
         <DevEnvLinks worktree={worktree} />

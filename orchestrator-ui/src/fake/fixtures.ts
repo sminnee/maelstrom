@@ -51,6 +51,8 @@ export function makeTask(over: Partial<Task> = {}): Task {
     model: '',
     base: '',
     executeModel: '',
+    prNumber: 0,
+    prUrl: '',
     content: '',
     log: [],
     created: '2026-09-01T00:00:00Z',

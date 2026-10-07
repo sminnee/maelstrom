@@ -243,6 +243,8 @@ function detail(): Seed {
     created: T(300),
     updated: T(20),
     startedAt: T(290),
+    prNumber: 412,
+    prUrl: 'https://github.com/acme/maelstrom/pull/412',
   });
   world.tasks[task.id] = task;
   world.desk[deskIdForTask(task.id)] = { id: deskIdForTask(task.id), addedAt: T(300) };

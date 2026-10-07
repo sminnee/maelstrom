@@ -355,6 +355,19 @@ describe('App', () => {
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toHaveTextContent('#118');
   });
 
+  it('draws no PR its task did not register, though its branch has one', async () => {
+    const { server } = await renderApp();
+    act(() => {
+      server.change({ kind: 'task', ids: ['NORT-12'] }, (w) => {
+        w.tasks['NORT-12'] = { ...w.tasks['NORT-12']!, prNumber: 0, prUrl: '' };
+      });
+    });
+    await waitFor(() => {
+      const node = document.querySelector('[data-task-id="NORT-12"]') as HTMLElement;
+      expect(node).not.toHaveTextContent('#118');
+    });
+  });
+
   it('reads a draft PR as a draft on the chip, whatever its checks say', async () => {
     const { server } = await renderApp();
     act(() => {
