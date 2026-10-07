@@ -29,6 +29,66 @@ describe('the dialog shell', () => {
     expect(open(vi.fn())).toHaveAttribute('closedby', 'any');
   });
 
+  // jsdom has no `closedBy`, so the fallback runs here.
+  describe('without light dismiss', () => {
+    function boxed(onClose: () => void) {
+      const box = open(onClose);
+      vi.spyOn(box, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 100, y: 0, width: 200, height: 400 }),
+      );
+      return box;
+    }
+
+    /** A press and a release, as the browser targets them, then the click. */
+    function click(
+      box: HTMLElement,
+      pressOn: HTMLElement,
+      at: { clientX: number; clientY: number },
+    ) {
+      fireEvent.pointerDown(pressOn, at);
+      fireEvent.click(box, at);
+    }
+
+    it('closes on a click on the backdrop', () => {
+      const onClose = vi.fn();
+      // A backdrop click targets the dialog itself, at a point outside its box.
+      const box = boxed(onClose);
+      click(box, box, { clientX: 20, clientY: 20 });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('holds open on a click in the box’s own padding', () => {
+      const onClose = vi.fn();
+      const box = boxed(onClose);
+      click(box, box, { clientX: 150, clientY: 20 });
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('holds open on a drag from inside the box to the backdrop', () => {
+      const onClose = vi.fn();
+      const box = boxed(onClose);
+      fireEvent.pointerDown(screen.getByText('Content'), { clientX: 150, clientY: 20 });
+      fireEvent.click(box, { clientX: 20, clientY: 20 });
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  it('leaves a backdrop click to the browser where it has light dismiss', () => {
+    Object.defineProperty(HTMLDialogElement.prototype, 'closedBy', {
+      value: 'any',
+      configurable: true,
+    });
+    try {
+      const onClose = vi.fn();
+      const box = open(onClose);
+      fireEvent.pointerDown(box, { clientX: 20, clientY: 20 });
+      fireEvent.click(box, { clientX: 20, clientY: 20 });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      delete (HTMLDialogElement.prototype as { closedBy?: string }).closedBy;
+    }
+  });
+
   it('closes on cancel, which Escape and a backdrop click both raise', () => {
     const onClose = vi.fn();
     const box = open(onClose);
