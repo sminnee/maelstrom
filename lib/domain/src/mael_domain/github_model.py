@@ -212,7 +212,7 @@ PrState = Literal[
 ]
 
 
-def _is_rate_limit(errors: list[dict]) -> bool:
+def is_rate_limit(errors: list[dict]) -> bool:
     """Whether a GraphQL error list says the budget is spent.
 
     Matches on ``type``/``code`` rather than the message, which carries a user
@@ -629,7 +629,7 @@ def parse_open_prs(
         # No data at all. gh exits 0 on a rate limit or a missing scope, so the
         # payload is the only signal that the read failed.
         errors = data.get("errors") or []
-        if _is_rate_limit(errors):
+        if is_rate_limit(errors):
             raise RateLimited(f"GraphQL rate limit: {errors}")
         raise ValueError(f"GraphQL query failed: {errors}")
     # Errors beside data are per-field, and the answer is still worth having: a
