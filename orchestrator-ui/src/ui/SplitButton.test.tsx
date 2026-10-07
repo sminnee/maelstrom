@@ -37,6 +37,28 @@ describe('SplitButton', () => {
     expect(options[0]!.run).toHaveBeenCalledOnce();
     expect(options[1]!.run).not.toHaveBeenCalled();
     expect(options[2]!.run).not.toHaveBeenCalled();
+
+    // With none marked, the first is the default, and its item says so.
+    await user.click(chevron());
+    expect(screen.getByRole('menuitem', { name: 'Terminate' })).toHaveAttribute('data-default');
+    expect(screen.getByRole('menuitem', { name: 'Terminate & take off desk' })).not.toHaveAttribute(
+      'data-default',
+    );
+  });
+
+  it('runs the default option on a main click, under its button label, and marks its item', async () => {
+    const user = userEvent.setup();
+    const options = three({ 2: { isDefault: true, buttonLabel: 'Dismiss' } });
+    render(<SplitButton options={options} />);
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(options[2]!.run).toHaveBeenCalledOnce();
+    expect(options[0]!.run).not.toHaveBeenCalled();
+
+    await user.click(chevron());
+    expect(
+      screen.getByRole('menuitem', { name: 'Terminate, take off desk & close alpha' }),
+    ).toHaveAttribute('data-default');
+    expect(screen.getByRole('menuitem', { name: 'Terminate' })).not.toHaveAttribute('data-default');
   });
 
   it('opens a menu from the chevron, and a chosen item runs that item and closes it', async () => {
