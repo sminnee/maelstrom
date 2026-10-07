@@ -13,6 +13,7 @@ dependency).
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -686,3 +687,42 @@ def _pick_pr(nodes: list[dict]) -> dict | None:
     if not nodes:
         return None
     return next((n for n in nodes if n.get("state") == "OPEN"), nodes[0])
+
+
+def pr_url(repo_url: str | None, pr_number: int | None) -> str | None:
+    """The browse URL for PR ``pr_number`` in ``repo_url``, or ``None``.
+
+    Built here rather than by the reader: the row carries a URL, not two halves
+    to join.
+    """
+    if not repo_url or not pr_number:
+        return None
+    return f"{repo_url}/pull/{pr_number}"
+
+
+#: A GitHub PR URL. Anything after the number (``/files``, a fragment) is cut.
+_PR_URL = re.compile(r"^(https?://[^/\s]+/[^/\s]+/[^/\s]+/pull/(\d+))(?:[/?#].*)?$")
+
+
+def parse_pr_ref(ref: str, repo_url: str | None) -> tuple[int, str]:
+    """``123``, ``#123`` or a GitHub PR URL, as ``(number, url)``.
+
+    A URL gives its own number. A bare number builds the URL from
+    ``repo_url``; with no repo URL the URL is ``""``.
+
+    Raises:
+        ValueError: If ``ref`` is none of the three shapes.
+    """
+    text = ref.strip()
+    if match := _PR_URL.match(text):
+        number = int(match.group(2))
+        url = match.group(1)
+    elif re.fullmatch(r"#?\d+", text):
+        number = int(text.lstrip("#"))
+        url = pr_url(repo_url, number) or ""
+    else:
+        raise ValueError(f"Not a PR number or URL: {ref!r}")
+    if number <= 0:
+        raise ValueError(f"Not a PR number or URL: {ref!r}")
+    return number, url
+
