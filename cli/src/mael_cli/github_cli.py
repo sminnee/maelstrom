@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from mael_common.cli_async import AsyncGroup
 from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import resolve_context
 from mael_domain.github import (
@@ -20,13 +21,20 @@ from mael_domain.github import (
     wait_for_checks,
     wait_for_review,
 )
-from mael_domain.github_model import GitHubError, NoPullRequest, SyncFailed
+from mael_domain.github_model import (
+    GitHubError,
+    NoPullRequest,
+    SyncFailed,
+    parse_pr_ref,
+)
+from mael_domain.list_all import project_repo_url
 from mael_domain.worktree_model import PrePushFailed
 
+from . import task_cli
 from .orchestrator_notify import tell_orchestrator
 
 
-@click.group("gh")
+@click.group("gh", cls=AsyncGroup)
 def gh():
     """GitHub-related commands."""
     pass
@@ -100,7 +108,7 @@ REFRESH_PATH = "/api/worktrees/refresh"
 @click.option(
     "--target", default=None, help="Project/worktree target for directory resolution"
 )
-def gh_create_pr(
+async def gh_create_pr(
     draft, wait, wait_for_review_flag, squash, autorepair, skip_pre_push, target
 ):
     """Create a PR for the current worktree (or push if PR exists).
@@ -123,20 +131,24 @@ def gh_create_pr(
     else:
         cwd = Path.cwd()
 
+    task_id = os.environ.get("MAEL_TASK_ID")
     try:
-        url, created = create_pr(
+        pushed = create_pr(
             cwd=cwd,
             draft=draft,
-            task_id=os.environ.get("MAEL_TASK_ID"),
+            task_id=task_id,
             squash=squash,
             autorepair=autorepair,
             pre_push=not skip_pre_push,
             announce=click.echo,
         )
-        if created:
+        url = pushed.url
+        if pushed.created:
             click.echo(f"PR created: {url}")
         else:
             click.echo(f"Pushed to existing PR: {url}")
+        if task_id and pushed.number:
+            await _register_pushed_pr(task_id, pushed.number, url, ctx.project)
         _open_pr_in_cmux(url)
         # The PR is in no world until something looks it up, and the next
         # worktree poll is up to a minute away — landing on exactly the moment
@@ -173,6 +185,43 @@ def gh_create_pr(
 
     if wait_for_review_flag:
         _handle_wait_for_review(cwd)
+
+
+async def _register_pushed_pr(
+    task_id: str, number: int, url: str, project: str | None
+) -> None:
+    """Register the PR ``create-pr`` pushed to, warning rather than failing.
+
+    The PR is on GitHub already, so a failed registration must not read as a
+    failed push: an agent would push again.
+    """
+    try:
+        await task_cli.register_pr(task_id, number, url, project)
+    except click.ClickException as e:
+        click.echo(
+            f"Warning: PR #{number} is not registered on a task: {e.message}", err=True
+        )
+
+
+@gh.command("link-pr")
+@click.argument("ref")
+@click.option(
+    "--task",
+    "task_id",
+    default=None,
+    help="Task to register the PR on. Default: $MAEL_TASK_ID",
+)
+async def gh_link_pr(ref, task_id):
+    """Register an existing PR on a task, so its card shows it.
+
+    REF is a PR number, #number, or a GitHub PR URL.
+    """
+    try:
+        number, url = parse_pr_ref(ref, await project_repo_url(Path.cwd()))
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    task_id = await task_cli.register_pr(task_id, number, url)
+    click.echo(f"Registered PR #{number} on {task_id}")
 
 
 @gh.command("wait-for-pr")

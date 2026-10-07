@@ -404,6 +404,28 @@ def _resolve_task_id(id: str | None) -> str:
     return task_id
 
 
+async def register_pr(
+    task_id: str | None, number: int, url: str, project: str | None = None
+) -> str:
+    """Record a Registered PR on a task, and return the task's id.
+
+    ``task_id`` falls back to ``MAEL_TASK_ID``, and ``project`` to the cwd's.
+    The one CLI path to :func:`~mael_domain.task.register_pr`, shared by
+    ``mael gh create-pr`` and ``mael gh link-pr``.
+    """
+    task_id = _resolve_task_id(task_id)
+    table = await _table()
+    try:
+        proj = resolve_project(project)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        await model.register_pr(table, proj, task_id, number, url)
+    except KeyError as exc:
+        raise click.ClickException(f"Task not found: {task_id}") from exc
+    return task_id
+
+
 def _default_parent(parent: str) -> str:
     """Default an unset ``--parent`` to the launching session's parent.
 
