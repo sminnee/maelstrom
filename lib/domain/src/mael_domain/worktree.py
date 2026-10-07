@@ -394,6 +394,18 @@ async def get_local_only_commits_async(worktree_path: Path, branch: str | None) 
     return await get_commits_ahead_async(worktree_path)
 
 
+async def get_head_sha_async(worktree_path: Path) -> str | None:
+    """The sha of ``HEAD`` in ``worktree_path``, or ``None`` when git cannot say."""
+    if not worktree_path.is_dir():
+        return None
+    result = await run_cmd_async(
+        ["git", "rev-parse", "HEAD"], cwd=worktree_path, quiet=True, check=False
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def get_pushed_commit_count(worktree_path: Path, branch: str) -> int | None:
     """Get the number of commits on the remote branch (ahead of main).
 

@@ -47,6 +47,7 @@ from .worktree import (
     WorktreeInfo,
     closed_worktrees_async,
     find_all_projects,
+    get_head_sha_async,
     get_local_only_commits_async,
     get_pushed_commit_count_async,
     get_worktree_dirty_files_async,
@@ -420,6 +421,7 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             "pr_draft": None,
             "pr_merged_at": None,
             "pr_head_oid": None,
+            "head_oid": None,
             "pushed_commits": None,
             "app_url": None,
             "app_running": False,
@@ -428,12 +430,13 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
         }
 
     base = ctx.bases.get(wt.branch or "")
-    # The three subprocess reads below are what the cap is for. Held together
+    # The subprocess reads below are what the cap is for. Held together
     # rather than one permit each, so a row that takes a permit finishes and
     # gives it back, instead of queueing again between its own reads.
     async with ctx.limit:
         dirty_count = len(await get_worktree_dirty_files_async(wt.path))
         local_commits = await get_local_only_commits_async(wt.path, wt.branch)
+        head_oid = await get_head_sha_async(wt.path)
 
         pr = await resolve_pr(
             ctx.open_prs,
@@ -473,6 +476,7 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
         "pr_draft": pr.is_draft if pr else None,
         "pr_merged_at": pr.merged_at if pr else None,
         "pr_head_oid": pr.head_oid if pr else None,
+        "head_oid": head_oid,
         "pushed_commits": pushed_commits,
         "app_url": app_url,
         "app_running": app_running,
