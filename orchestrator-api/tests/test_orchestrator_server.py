@@ -5345,6 +5345,33 @@ def test_an_event_waits_out_a_read_that_started_before_it(harness_factory):
     assert asyncio.run(scenario()) == 2
 
 
+def test_a_read_for_a_moved_branch_waits_out_a_read_already_running(
+    harness_factory,
+):
+    """The read in flight chose its branches before the sync moved this one.
+    Returning there would keep the old PR head off the desk for good."""
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        gate = asyncio.Event()
+        harness.worktrees.blocked_on = gate
+        _use_slow_read(harness)
+        in_flight = asyncio.create_task(harness.orch.refresh_worktrees())
+        await asyncio.sleep(0)
+        moved = asyncio.create_task(
+            harness.orch.refresh_worktrees(extra_branches={"feat/orders"})
+        )
+        await asyncio.sleep(0)
+        gate.set()
+        await in_flight
+        await moved
+        await harness.orch.stop()
+        return harness.worktrees.asked
+
+    assert asyncio.run(scenario()) == {"feat/orders"}
+
+
 def test_a_second_event_does_not_orphan_the_first_read(harness_factory):
     """Replacing the task would drop the reference to the first, leaving a
     coroutine `stop` cannot cancel. Two agents finishing a PR together is the
@@ -6014,6 +6041,8 @@ def test_syncing_a_worktree_passes_the_mode_and_refreshes_the_world(harness):
     assert reply.status == 200
     assert synced == [("alpha", "squash")]
     assert reread
+    # The desk is empty, so only the sync puts the branch in the read.
+    assert harness.worktrees.asked == {"feat/orders"}
 
 
 def test_a_sync_with_no_mode_autorepairs(harness):

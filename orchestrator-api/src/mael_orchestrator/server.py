@@ -672,27 +672,29 @@ class Orchestrator:
             await self._prune_desk()
         return True
 
-    async def refresh_worktrees(self) -> None:
+    async def refresh_worktrees(self, extra_branches: set[str] | None = None) -> None:
         """Re-read ``list-all``, one read in flight at a time.
 
         The read asks GitHub only about the branches on the desk. GraphQL is
         charged by node count and the budget refills hourly, so asking about
         every branch in every project is what spends it. A branch left out
         keeps the pull request the last read saw; see
-        :func:`mael_domain.list_all.resolve_pr`.
+        :func:`mael_domain.list_all.resolve_pr`. ``extra_branches`` are asked
+        about beyond the desk. A read that names some waits out one in flight,
+        which chose its branches without them.
         """
-        if self._worktree_read.locked():
+        if self._worktree_read.locked() and not extra_branches:
             return
-        # Read before the await; the world below is re-read after it, because
-        # the read yields and the world can move while it runs.
-        before = self.world
-        active = desk_model.active_branches(
-            before["desk"],
-            agents=before["agents"],
-            worktrees=before["worktrees"],
-            tasks=before["tasks"],
-        )
         async with self._worktree_read:
+            # Read before the await; the world below is re-read after it,
+            # because the read yields and the world can move while it runs.
+            before = self.world
+            active = desk_model.active_branches(
+                before["desk"],
+                agents=before["agents"],
+                worktrees=before["worktrees"],
+                tasks=before["tasks"],
+            ) | (extra_branches or set())
             projects, worktrees = await self._run(self.worktrees.read, active)
         if getattr(self.worktrees, "rate_limited", False):
             self._stand_off_until = (
@@ -2227,7 +2229,7 @@ class Orchestrator:
         finally:
             # A sync that fails partway has still moved the branch, so the
             # world is stale whichever way this ends.
-            await self.refresh_worktrees()
+            await self.refresh_worktrees(extra_branches={row["branch"]})
         return {"ok": True, "result": {}}
 
     async def _merge_worktree_pr(self, command: dict[str, Any]) -> dict[str, Any]:

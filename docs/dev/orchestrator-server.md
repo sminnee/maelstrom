@@ -834,6 +834,9 @@ sequence and takes no worktree scope, because it does not touch the checkout.
 - The `list-all` row carries the head commit as `pr_head_oid`, because the cache refills from
   those rows. It also carries the local `HEAD` as `head_oid`. `world_build.py` compares the two
   into `prMatch`, and does not copy either sha to the wire.
+- A sync re-reads with the synced branch added to the active branches, so GitHub is asked for
+  its new head even when the branch is not on the desk. That re-read waits out a read already in
+  flight, because the read in flight chose its branches without the synced one.
 - The merge token, when set, reaches that one call as `GH_TOKEN` — see
   [configuration.md](../reference/configuration.md#api-keys).
 - The handler re-reads the worktrees whichever way the merge ends.
