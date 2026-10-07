@@ -17,6 +17,7 @@ import { useCard } from '../nav/useCard';
 import { useBack, useLoc } from '../nav/useNav';
 import { SideSheet } from '../ui/SideSheet';
 import { ConnectionBanner } from './ConnectionBanner';
+import { FilterBar } from './FilterBar';
 import { HostBanner } from './HostBanner';
 import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
 import { SheetHead, TopBar } from './TopBar';
@@ -43,11 +44,13 @@ export function MobileShell() {
   const top = panel && panel.kind !== 'devenv' ? panel : detail;
   const title = useScreenTitle(top);
   const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   return (
     <ScreenChromeContext.Provider value={chrome}>
       <div className={styles.shell}>
         <TopBar
           actionsTarget={setActionsTarget}
+          filters={{ open: filtersOpen, onOpen: () => setFiltersOpen(true) }}
           back={
             top && chrome
               ? {
@@ -79,6 +82,11 @@ export function MobileShell() {
             head={<SheetHead onClose={chrome.closeSheet} />}
           >
             <div className={styles.sheetBody} data-sheet ref={setSheetTarget} />
+          </SideSheet>
+        )}
+        {filtersOpen && !top && (
+          <SideSheet label="Filters" onClose={() => setFiltersOpen(false)}>
+            <FilterBar layout="stack" />
           </SideSheet>
         )}
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}

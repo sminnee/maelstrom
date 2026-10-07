@@ -1,9 +1,10 @@
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
+import { activeFilterCount } from '../selectors/filterCount';
 import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { Link } from 'react-router';
-import { useLinkState, useGo, useHrefFor } from '../nav/useNav';
+import { useLinkState, useGo, useHrefFor, useLoc } from '../nav/useNav';
 import { useNewWork } from '../nav/useOverlays';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
@@ -38,10 +39,13 @@ export interface StripState {
 export function TopBar({
   back,
   actionsTarget,
+  filters,
 }: {
   back?: StripState;
   /** Receives the element the screen's actions portal into. */
   actionsTarget?: (el: HTMLElement | null) => void;
+  /** The Filters side sheet of a narrow main view. */
+  filters?: { open: boolean; onOpen: () => void };
 }) {
   const newWork = useNewWork();
   const mode = useLayoutMode();
@@ -85,6 +89,7 @@ export function TopBar({
           <Readings />
           <div className={styles.spacer} />
           <AttentionChip />
+          {filters && <FiltersButton {...filters} />}
           <AppButton variant="primary" icon={actionIcon('new')} onClick={() => newWork.open()}>
             New
           </AppButton>
@@ -125,6 +130,23 @@ function Readings() {
       <UsageChips />
       <AgentsChip />
     </div>
+  );
+}
+
+/** The narrow layout's way to the filters, with a count of those in force. */
+function FiltersButton({ open, onOpen }: { open: boolean; onOpen: () => void }) {
+  const { view, filters, listFilters, worktreeFilters } = useLoc();
+  const count = activeFilterCount(view, filters, listFilters, worktreeFilters);
+  return (
+    <AppButton
+      variant="quiet"
+      icon={actionIcon('filter')}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      onClick={onOpen}
+    >
+      {count ? `Filters · ${count}` : 'Filters'}
+    </AppButton>
   );
 }
 
