@@ -27,6 +27,7 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     prState: '',
     prDraft: false,
     prMergedAt: '',
+    prMatch: '',
     env: { state: 'stopped', services: [] },
     sessionCount: 0,
     shellUrl: '',

@@ -18,6 +18,7 @@ from mael_domain.protocol import (
     Agent,
     Document,
     HostUsage,
+    PrMatch,
     Project,
     ServerEvent,
     Task,
@@ -106,6 +107,20 @@ def task_entity(task: model.Task, *, actionable: bool, started_at: str = "") -> 
     }
 
 
+def _pr_match(row: dict[str, Any]) -> PrMatch:
+    """``match`` when the local ``HEAD`` is the PR head, ``differ`` when not.
+
+    ``""`` with no open PR, or when either sha is unknown. A merged PR is no
+    merge target, so it gets no verdict.
+    """
+    pr_head = row.get("pr_head_oid")
+    head = row.get("head_oid")
+    open_pr = row.get("pr_number") is not None and row.get("pr_state") != "merged"
+    if not open_pr or not pr_head or not head:
+        return ""
+    return "match" if head == pr_head else "differ"
+
+
 def worktree_entity(
     project: str, row: dict[str, Any], *, shell_url: str = ""
 ) -> Worktree:
@@ -131,6 +146,7 @@ def worktree_entity(
         "prState": row.get("pr_state") or "",
         "prDraft": bool(row.get("pr_draft")),
         "prMergedAt": row.get("pr_merged_at") or "",
+        "prMatch": _pr_match(row),
         "env": row.get("env") or {"state": "stopped", "services": []},
         "sessionCount": int(row.get("session_count") or 0),
         "shellUrl": shell_url,

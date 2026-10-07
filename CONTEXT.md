@@ -122,6 +122,13 @@ is work that would be lost with the disk. A branch that is pushed has no local c
 far ahead of main it is.
 _Avoid_: Unpushed commit, commit ahead
 
+**PR match**:
+Whether the worktree's local `HEAD` is the head commit of its open PR: `match` or `differ`.
+The PR head is the one GitHub last reported. A branch off the desk keeps the head of the last
+read that asked about it, so its verdict can be old. **Dirty files** do not count. A merge is refused while the worktree differs, because the merge would land something
+other than the local work.
+_Avoid_: In sync, up to date
+
 ## Task notebook
 
 **Task**:

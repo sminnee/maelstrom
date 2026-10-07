@@ -49,6 +49,7 @@ function worktree(
     prState: '',
     prDraft: false,
     prMergedAt: '',
+    prMatch: '',
     env: { state: 'stopped', services: [] },
     sessionCount: 0,
     shellUrl: '',
@@ -244,6 +245,7 @@ export function seedWorld(): Seed {
       prCommits: 4,
       prUrl: 'https://github.com/acme/northwind/pull/118',
       prState: 'ci-running',
+      prMatch: 'match',
       env: {
         state: 'running',
         services: [
