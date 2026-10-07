@@ -12,7 +12,7 @@
 .table th,
 .table td {
   text-align: left;
-  padding: var(--u-half) var(--u-2);
+  padding: var(--u);
   border-top: 1px solid var(--border);
 }
 .table th {
@@ -33,6 +33,14 @@
   border: 0;
   padding: 0;
   cursor: pointer;
+}
+/* A narrow column wraps the commands rather than squeezing the other cells. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--u);
 }
 .mono {
   font-family: var(--mono);
@@ -100,9 +108,6 @@
   .table td:nth-child(8) {
     order: 5;
     flex: 1 1 100%;
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--u);
     padding-top: var(--u);
   }
   /* The checkbox is small. Its cell is the target the thumb gets. */

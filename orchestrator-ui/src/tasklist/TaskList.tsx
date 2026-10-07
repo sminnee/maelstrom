@@ -148,24 +148,26 @@ export function TaskList() {
               </td>
               <td>{stateCell(task, agent, attention)}</td>
               <td>
-                <DeskToggle taskId={task.id} onDesk={onDesk} />
-                {/* One question open at a time: two rows asking at once is two
+                <div className={styles.actions}>
+                  <DeskToggle taskId={task.id} onDesk={onDesk} />
+                  {/* One question open at a time: two rows asking at once is two
                     destructive actions one click apart. */}
-                <ConfirmButton
-                  question="Delete this task?"
-                  confirm="Delete it"
-                  asking={deleting === task.id}
-                  onAsk={() => setDeleting(task.id)}
-                  onDismiss={() => setDeleting(null)}
-                  onConfirm={async () => {
-                    await deleteTask.mutateAsync({ taskId: task.id });
-                    // The dialog mounts from the store, so a delete that
-                    // leaves it open refetches a task that is gone.
-                    if (editingTaskId === task.id) editTask(null);
-                  }}
-                >
-                  Delete
-                </ConfirmButton>
+                  <ConfirmButton
+                    question="Delete this task?"
+                    confirm="Delete it"
+                    asking={deleting === task.id}
+                    onAsk={() => setDeleting(task.id)}
+                    onDismiss={() => setDeleting(null)}
+                    onConfirm={async () => {
+                      await deleteTask.mutateAsync({ taskId: task.id });
+                      // The dialog mounts from the store, so a delete that
+                      // leaves it open refetches a task that is gone.
+                      if (editingTaskId === task.id) editTask(null);
+                    }}
+                  >
+                    Delete
+                  </ConfirmButton>
+                </div>
               </td>
             </tr>
           ))}
