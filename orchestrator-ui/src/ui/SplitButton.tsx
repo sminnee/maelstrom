@@ -11,8 +11,12 @@ import menuStyles from './popoverMenu.module.css';
 import styles from './SplitButton.module.css';
 
 export interface SplitOption {
-  /** The item's whole text, and the main segment's when it is the first option. */
+  /** The item's whole text. */
   label: string;
+  /** The main segment runs this option. With none marked, the first option is the default. */
+  isDefault?: boolean;
+  /** The main segment's text when this option is the default. Defaults to `label`. */
+  buttonLabel?: string;
   /** Drawn before the label, on the main segment and the item. Decorative. */
   icon?: ReactNode;
   /** Shown on the main segment while this option runs. Defaults to `label`. */
@@ -28,9 +32,12 @@ export interface SplitOption {
 /**
  * A button with a menu of longer ways to do the same thing.
  *
- * A click on the main segment runs `options[0]`. The chevron opens a menu of
- * every option, the first included, so the menu reads as the full list. One
- * option draws a plain button with no chevron.
+ * A click on the main segment runs the default option: the one marked
+ * `isDefault`, else `options[0]`. The segment shows its `buttonLabel`, so a
+ * long chain can sit behind a short word. The chevron opens a menu of every
+ * option in the given order, the default included, so the menu reads as the
+ * full list. The default's item is bold, so the menu says what the button
+ * does. One option draws a plain button with no chevron.
  *
  * The whole control has one click lifecycle, as `AppButton` does: whichever
  * option runs, its progress and its failure show on the main segment. No click
@@ -60,7 +67,7 @@ export function SplitButton({
   const [asking, setAsking] = useState<SplitOption | null>(null);
   const { anchorStyle } = useAnchorName();
   const menu = usePopoverMenu();
-  const main = options[0]!;
+  const main = options.find((o) => o.isDefault) ?? options[0]!;
   const processing = state.kind === 'processing';
   const split = options.length > 1;
 
@@ -84,7 +91,7 @@ export function SplitButton({
     el?.showPopover();
   }, []);
 
-  const shown = processing ? (running?.processing ?? running?.label) : main.label;
+  const shown = running?.processing ?? running?.label;
   const segment = [buttonStyles.button, buttonStyles[variant]].join(' ');
 
   return (
@@ -113,7 +120,7 @@ export function SplitButton({
         ) : (
           <>
             {main.icon}
-            {main.label}
+            {main.buttonLabel ?? main.label}
           </>
         )}
       </button>
@@ -138,6 +145,7 @@ export function SplitButton({
                   type="button"
                   role="menuitem"
                   className={styles.item}
+                  data-default={option === main || undefined}
                   aria-label={option.label}
                   aria-describedby={option.detail ? detailId : undefined}
                   aria-disabled={option.disabled || undefined}

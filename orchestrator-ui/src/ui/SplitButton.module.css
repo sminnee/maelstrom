@@ -52,6 +52,10 @@
 .item[aria-disabled='true']:hover {
   background: none;
 }
+/* The item the main segment runs. */
+.item[data-default] .label {
+  font-weight: var(--weight-semibold);
+}
 /* An icon sits before the label, spaced as on `AppButton`. */
 .label {
   display: inline-flex;
