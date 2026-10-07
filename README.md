@@ -108,7 +108,7 @@ deliberate local-shell escape hatch.
 | [Planning](docs/guide/planning.md) | Linear plan → plan-task → chain → PR |
 | [Pull requests](docs/guide/pull-requests.md) | The finishing sequence, code review, watching CI |
 | [Integrations](docs/guide/integrations.md) | Linear, Sentry, Slack, UptimeRobot, GitHub |
-| [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, launchd |
+| [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, build triggers, launchd |
 | [Troubleshooting](docs/guide/troubleshooting.md) | `doctor`, `reconcile`, `session list`, common failures |
 
 ### Reference

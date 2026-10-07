@@ -270,5 +270,5 @@ duplicate-launch guard uses, so the two always agree. Reconcile corrects three m
 ## See also
 
 - [Planning](planning.md) — how drafts become chains.
-- [Scheduled work](scheduled-work.md) — templates and cron.
+- [Scheduled work](scheduled-work.md) — templates, cron and build triggers.
 - [The task domain model](../dev/tasks.md) — the developer-level view.

@@ -1,10 +1,16 @@
 # Scheduled (template) tasks
 
 A *template* task is parked in `template/` status carrying a `schedule` cron
-expression. Hourly, a launchd LaunchAgent runs `mael task add-scheduled
---all-projects --run`, which consults `schedule.due_templates` and launches any
-template whose most recent fire boundary is newer than its `last_run`
-watermark.
+expression, a `trigger`, or both. Hourly, a launchd LaunchAgent runs `mael task
+add-scheduled --all-projects --run`, which consults `schedule.due_firings` and
+launches any template that is due. A cron template is due when its most recent
+fire boundary is newer than its `last_run` watermark. A trigger-only template is
+due when a newer run of its workflow has a listed conclusion.
+
+A template with a `trigger` adds one `gh api` read per tick, from
+`schedule.due_firings` through `build_runs_github.GhBuildRuns`. A project with no
+triggered template makes no `gh` call. For a failed read, see
+[the rules](../guide/scheduled-work.md#rules).
 
 Each run starts on the agent daemon with no cmux pane (`attach=False`). The
 orchestrator's next `list` adopts the agent, so the UI shows it. Unlike `task

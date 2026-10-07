@@ -321,6 +321,9 @@ Common causes:
   boundary.
 - **Nothing was due.** Every run writes a dated header to the log first, so a header with no
   runs means the agent fired and found nothing due.
+- **The build run did not fire.** With a `trigger`, only the newest completed run counts, and
+  only a listed conclusion fires. A `cancelled` run does not fire by default. A `warning:` line
+  in the log means `gh` could not read the runs, or the trigger does not parse.
 
 ---
 
