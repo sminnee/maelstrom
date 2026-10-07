@@ -35,7 +35,7 @@ from .env import (
 )
 from .env_store import JsonEnvStore
 from .github import get_open_prs, get_pr_for_branch
-from .github_model import PrStatus, RateLimited, is_open_pr
+from .github_model import PrStatus, RateLimited, is_open_pr, pr_url
 from .ports import (
     get_app_url,
     get_dev_origin,
@@ -113,17 +113,6 @@ def repo_url_from_remote(remote: str) -> str | None:
     else:
         return None
     return f"https://{host}/{path}" if path else None
-
-
-def pr_url(repo_url: str | None, pr_number: int | None) -> str | None:
-    """The browse URL for a worktree's pull request, or ``None``.
-
-    Built here rather than by the reader: the row carries a URL, not two halves
-    to join.
-    """
-    if not repo_url or not pr_number:
-        return None
-    return f"{repo_url}/pull/{pr_number}"
 
 
 async def project_repo_url(project_path: Path) -> str | None:

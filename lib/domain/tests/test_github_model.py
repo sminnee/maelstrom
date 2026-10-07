@@ -28,6 +28,7 @@ from mael_domain.github_model import (
     parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
+    parse_pr_ref,
     parse_run_states,
     pr_from_row,
     run_id_from_link,
@@ -969,3 +970,32 @@ def test_a_pr_read_back_from_a_list_all_row_keeps_every_field():
         merged_at="2026-09-01T10:00:00Z",
         head_oid="deadbee",
     )
+
+
+class TestParsePrRef:
+    """``123``, ``#123`` or a GitHub PR URL, as a number and a URL."""
+
+    REPO = "https://github.com/o/r"
+
+    @pytest.mark.parametrize("ref", ["123", "#123", " 123 "])
+    def test_a_number_builds_the_url_from_the_repo(self, ref):
+        assert parse_pr_ref(ref, self.REPO) == (
+            123,
+            "https://github.com/o/r/pull/123",
+        )
+
+    def test_a_url_gives_its_own_number(self):
+        url = "https://github.com/other/repo/pull/77"
+        assert parse_pr_ref(url, self.REPO) == (77, url)
+
+    def test_a_url_needs_no_repo(self):
+        url = "https://github.com/o/r/pull/9/files"
+        assert parse_pr_ref(url, None) == (9, "https://github.com/o/r/pull/9")
+
+    def test_a_number_with_no_repo_has_no_url(self):
+        assert parse_pr_ref("5", None) == (5, "")
+
+    @pytest.mark.parametrize("ref", ["", "abc", "#", "0", "https://github.com/o/r"])
+    def test_nonsense_is_refused(self, ref):
+        with pytest.raises(ValueError):
+            parse_pr_ref(ref, self.REPO)
