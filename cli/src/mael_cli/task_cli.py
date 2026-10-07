@@ -33,6 +33,7 @@ from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from mael_domain import task as task_model
+from mael_domain.build_runs import parse_trigger
 from mael_domain.cmux.client import ensure_cmux_running
 from mael_domain.context import resolve_context, resolve_project
 from mael_domain.state_db.db import StateDb
@@ -194,6 +195,17 @@ def _read_content_file(content_file: str | None) -> str:
         return read_content_file(content_file)
     except FileNotFoundError:
         raise click.ClickException(f"Content file not found: {content_file}")
+
+
+def _check_trigger(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    """Refuse a ``--trigger`` that does not parse, so a typo does not park silently."""
+    if value and parse_trigger(value) is None:
+        raise click.BadParameter(
+            f"{value!r} is not 'gh-action/<workflow>[@<branch>] [<conclusion>,...]'."
+        )
+    return value
 
 
 async def _run_task(
@@ -680,6 +692,13 @@ def task() -> None:
     help="Cron expression (acted on only for template tasks); e.g. '0 9 * * 1-5'.",
 )
 @click.option(
+    "--trigger",
+    default=None,
+    callback=_check_trigger,
+    help="Fire on a finished build (template tasks only); e.g. "
+    "'gh-action/nightly.yml', 'gh-action/<workflow>[@<branch>] [<conclusion>,...]'.",
+)
+@click.option(
     "-e",
     "--edit",
     "edit",
@@ -715,6 +734,7 @@ async def task_add(
     from_id: str | None,
     is_template: bool,
     schedule: str | None,
+    trigger: str | None,
     edit: bool,
     run: bool,
     here: bool,
@@ -740,6 +760,7 @@ async def task_add(
         from_id=from_id,
         is_template=is_template,
         schedule=schedule,
+        trigger=trigger,
         edit=edit,
         run=run,
         here=here,
@@ -771,6 +792,7 @@ async def add_task(
     from_id: str | None = None,
     is_template: bool = False,
     schedule: str | None = None,
+    trigger: str | None = None,
     edit: bool = False,
     run: bool = False,
     here: bool = False,
@@ -823,6 +845,7 @@ async def add_task(
                 parent=parent,
                 follows=deduped,
                 schedule=schedule or "",
+                trigger=trigger or "",
                 status=status,
             )
         except KeyError:
@@ -845,6 +868,7 @@ async def add_task(
             follows=deduped,
             content=content or "",
             schedule=schedule or "",
+            trigger=trigger or "",
             status=status,
         )
     click.echo(new.id)
@@ -1304,7 +1328,8 @@ async def task_list(
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
         if show_all_in_folder:
-            row["SCHEDULE"] = t.schedule or ""
+            # The trigger fills the column for a template with no cron.
+            row["SCHEDULE"] = t.schedule or t.trigger
             row["NEXT-FIRE"] = _next_fire_display(t)
         row["BRANCH"] = t.branch or model.default_branch(t.id, t.parent)
         row["TITLE"] = t.title
@@ -1611,6 +1636,8 @@ async def task_show(id: str, project: str | None) -> None:
         click.echo(f"follows: {', '.join(t.follows)}")
     if t.schedule:
         click.echo(f"schedule: {t.schedule}")
+    if t.trigger:
+        click.echo(f"trigger: {t.trigger}")
     if t.last_run:
         click.echo(f"last-run: {t.last_run}")
     click.echo(f"created: {t.created}")
@@ -1730,6 +1757,13 @@ async def task_log(id: str, msg: str, project: str | None) -> None:
     help="Set the cron schedule (acted on only for template tasks; '' clears).",
 )
 @click.option(
+    "--trigger",
+    default=None,
+    callback=_check_trigger,
+    help="Set the build trigger, e.g. 'gh-action/nightly.yml' "
+    "(acted on only for template tasks; '' clears).",
+)
+@click.option(
     "--content-file",
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
@@ -1751,9 +1785,10 @@ async def task_update(
     pre_action: str | None,
     post_action: str | None,
     schedule: str | None,
+    trigger: str | None,
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, content).
+    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1813,6 +1848,7 @@ async def task_update(
             pre_action=pre_action,
             post_action=post_action,
             schedule=schedule,
+            trigger=trigger,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")

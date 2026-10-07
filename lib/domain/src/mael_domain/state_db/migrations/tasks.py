@@ -112,4 +112,6 @@ TASKS: tuple[Rung, ...] = (
             "ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''",
         )
     ),
+    # What fires a template. See CONTEXT.md, "Trigger".
+    Migration(("ALTER TABLE tasks ADD COLUMN trigger TEXT NOT NULL DEFAULT ''",)),
 )

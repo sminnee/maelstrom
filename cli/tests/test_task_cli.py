@@ -2584,6 +2584,13 @@ class TestTemplates:
         t = await model.load(store, "p", result.output.strip())
         assert t.status == model.STATUS_TEMPLATE
         assert t.schedule == "0 9 * * *"
+        result = runner.invoke(
+            task_cli.task,
+            ["add", "Nightly", "--template", "--trigger", "gh-action/nightly.yml"],
+        )
+        assert result.exit_code == 0, result.output
+        t = await model.load(store, "p", result.output.strip())
+        assert t.trigger == "gh-action/nightly.yml"
 
     def test_template_invisible_to_next(self, runner, store):
         runner.invoke(task_cli.task, ["add", "Tmpl", "--template"])
@@ -2604,6 +2611,20 @@ class TestTemplates:
         tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
         runner.invoke(task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"])
         assert (await model.load(store, "p", tid)).schedule == "0 9 * * 1-5"
+        result = runner.invoke(
+            task_cli.task, ["update", tid, "--trigger", "gh-action/nightly.yml"]
+        )
+        assert result.exit_code == 0, result.output
+        assert (await model.load(store, "p", tid)).trigger == "gh-action/nightly.yml"
+        shown = runner.invoke(task_cli.task, ["show", tid]).output
+        assert "trigger: gh-action/nightly.yml" in shown
+        refused = runner.invoke(
+            task_cli.task, ["update", tid, "--trigger", "nightly.yml"]
+        )
+        assert refused.exit_code != 0
+        assert (await model.load(store, "p", tid)).trigger == "gh-action/nightly.yml"
+        runner.invoke(task_cli.task, ["update", tid, "--trigger", ""])
+        assert (await model.load(store, "p", tid)).trigger == ""
 
     async def test_status_template_parks_existing_task(self, runner, store):
         tid = runner.invoke(task_cli.task, ["add", "Existing"]).output.strip()

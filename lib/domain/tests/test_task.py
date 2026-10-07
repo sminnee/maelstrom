@@ -103,7 +103,12 @@ class TestRoundTrip:
 
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-3:] == ("execute-model", "pr", "pr-url")
+        assert model.FRONTMATTER_KEYS[-4:] == (
+            "execute-model",
+            "pr",
+            "pr-url",
+            "trigger",
+        )
 
     def test_execute_model_round_trips(self):
         # The model the session switches to when its plan is approved. Free-form
