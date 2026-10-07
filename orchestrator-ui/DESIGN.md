@@ -145,7 +145,7 @@ so a task's position in its life is readable from hue alone.
 ### Primary
 
 - **Signal Blue** (`--accent`): interactive affordance and nothing else. Links, panel links,
-  the focus ring, the running-command line, the text selection wash, the On desk arrow.
+  the focus ring, the running-command line, the text selection wash, the On desk arrow, the ticked On desk box.
   If it is blue, it can be clicked or it has the operator's focus.
 
 ### Secondary
@@ -210,9 +210,9 @@ have adds it to the semantic layer.
 
 **The Reporting Rule.** Every hue on screen reports state. Nothing is coloured because it looks
 better coloured. When a new element needs emphasis, the answer is weight, size or space —
-not a colour promoted out of the state channel. One exception: the arrow of a desk icon reports
-the direction of the act, not state. It is `--accent` onto the desk and `--tone-archival` off it,
-and both sit only in a control the user can click.
+not a colour promoted out of the state channel. Two exceptions, both only in a control the user can click. The arrow of a desk icon reports
+the direction of the act, not state: `--accent` onto the desk and `--tone-archival` off it. The
+ticked box of the On desk toggle is `--accent`, and reports that the task is on the desk.
 
 **The Two Calls Rule.** Alert Amber and Reply Yellow are the only channels allowed to escalate
 themselves with a glow. Both call the operator: one holds an ask, the other waits on a reply.
@@ -793,7 +793,9 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   `--text-control` (14px; narrow: 22px). No component sets a button's padding or its font size.
   A button with an icon shows a caption on the narrow layout: see § The narrow caption.
 - **Filled, not outlined:** a button is filled and a chip is outlined. The two never share a
-  look, so the eye can tell what to press from what to read.
+  look, so the eye can tell what to press from what to read. One exception: the On desk toggle
+  drops its fill off the desk, so the off state reads quieter than the on state. Hover brings the
+  fill back.
 - **Hover:** the fill steps to `--bg-control-hover`. Nothing moves.
 - **Primary:** a Signal Blue fill with `--fg-on-hue` text at 600 weight.
 - **Quiet:** muted text on the same fill.
@@ -808,7 +810,8 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 #### Icons
 
 An action has one icon, and `ui/actionIcons.ts` holds the whole set. A call site names a verb,
-such as `actionIcon('start')`, and never imports from lucide itself. So two buttons that do the
+such as `actionIcon('start')`, and never imports from lucide itself. Two entries are states, not
+acts: `checked` and `unchecked` draw the On desk toggle's box. So two buttons that do the
 same thing cannot draw it two ways. The icons are lucide's, at its 2px stroke on a 24px box. At
 `--icon` (16px) that draws at about 1.3px.
 

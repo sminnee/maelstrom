@@ -1060,12 +1060,14 @@ describe('follows relations on the expanded node', () => {
     await renderApp();
     expect(document.querySelector('[data-task-id="MAEL-40"]')).toBeNull();
     clickNode('MAEL-40.1');
-    await user.click(within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'On desk' }));
+    await user.click(
+      within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'On desk', pressed: false }),
+    );
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="MAEL-40"]')).toBeInTheDocument(),
     );
     expect(
-      within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'Off desk' }),
+      within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'On desk', pressed: true }),
     ).toBeInTheDocument();
   });
 
@@ -1074,7 +1076,10 @@ describe('follows relations on the expanded node', () => {
     await renderApp();
     clickNode('MAEL-40.1');
     await user.click(
-      within(row('Followed by', 'MAEL-40.2')).getByRole('button', { name: 'Off desk' }),
+      within(row('Followed by', 'MAEL-40.2')).getByRole('button', {
+        name: 'On desk',
+        pressed: true,
+      }),
     );
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="MAEL-40.2"]')).not.toBeInTheDocument(),

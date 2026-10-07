@@ -61,6 +61,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The On desk control in a task list row is a toggle.** A task list row and a node card's
+  Follows row show one On desk button with a box icon. The box is ticked when the task is on the
+  desk, and the button has no fill when it is off. A click puts the task on the desk or takes it
+  off. The bulk bar and the node card's end-of-work control keep On desk and Off desk.
+
 - **The narrow layout is easier to press.** Each button, link and field is 48px high. On the
   deck the top bar is two rows. A pushed screen has one row, the screen strip: Back, the title,
   up to two actions and More. More opens a side sheet with the rest of the screen's chrome, the
@@ -93,7 +98,7 @@ release while that section is empty, and retitles it to the version it is releas
   dialog or panel around them scrolls. The deny reason and the summary now take line breaks. The
   conversation input grows to half the screen, then scrolls. The resize handles are gone.
 
-- **The desk buttons say On desk and Off desk.** The node card's "Dismiss" and the task list's
+- **The desk buttons say On desk and Off desk.** The node card's "Dismiss" and the bulk bar's
   "Add to desk" and "Remove from desk" are now one pair, each with a desk icon. The arrow of
   the icon is blue for On desk and violet for Off desk. A menu item that joins the desk act to
   another uses the verb: "Terminate & take off desk".
@@ -141,8 +146,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **A task node's card lists what its task follows and what follows it.** The expanded card has
   a Follows group and a Followed by group, direct and indirect, nearest first. Each row has the
-  task list's On desk or Off desk button, so a related task joins the desk without a
-  trip to the task list.
+  task list's On desk toggle, so a related task joins the desk without a trip to the task list.
 
 - **Resume a terminated or crashed agent from its node card.** Once an agent has exited, its node
   card offers Resume in place of Terminate. Resume starts the agent again under its own id, with

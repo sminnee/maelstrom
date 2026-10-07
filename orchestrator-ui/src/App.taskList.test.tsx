@@ -119,7 +119,10 @@ describe('the task list', () => {
     expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'false');
 
     await user.click(
-      within(listRow('NORT-3') as HTMLElement).getByRole('button', { name: 'On desk' }),
+      within(listRow('NORT-3') as HTMLElement).getByRole('button', {
+        name: 'On desk',
+        pressed: false,
+      }),
     );
     await waitFor(() => expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true'));
 
@@ -134,7 +137,10 @@ describe('the task list', () => {
 
     await goToList(user);
     await user.click(
-      within(listRow('NORT-9.1') as HTMLElement).getByRole('button', { name: 'Off desk' }),
+      within(listRow('NORT-9.1') as HTMLElement).getByRole('button', {
+        name: 'On desk',
+        pressed: true,
+      }),
     );
     await waitFor(() => expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false'));
 
@@ -148,7 +154,10 @@ describe('the task list', () => {
 
     await goToList(user);
     await user.click(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'Off desk' }),
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', {
+        name: 'On desk',
+        pressed: true,
+      }),
     );
     await waitFor(() => expect(listRow('NORT-9')).toHaveAttribute('data-on-desk', 'false'));
     // The toggle is the row's control, not a way into the task.
@@ -841,7 +850,9 @@ describe('the task list', () => {
     for (const r of Array.from(
       document.querySelectorAll('[data-testid="task-list"] [data-on-desk="true"]'),
     )) {
-      await user.click(within(r as HTMLElement).getByRole('button', { name: 'Off desk' }));
+      await user.click(
+        within(r as HTMLElement).getByRole('button', { name: 'On desk', pressed: true }),
+      );
     }
     await waitFor(() => expect(document.querySelectorAll('[data-on-desk="true"]')).toHaveLength(0));
     // The two live agents still draw their nodes; NORT-7 has none.

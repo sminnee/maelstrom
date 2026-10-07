@@ -32,6 +32,7 @@ import {
   SendHorizontal,
   Sparkles,
   Square,
+  SquareCheck,
   SquareTerminal,
   Trash2,
   X,
@@ -39,13 +40,14 @@ import {
 } from 'lucide-react';
 
 /**
- * The app's icon vocabulary: one verb, one icon. A call site names the verb
- * and never imports lucide. See DESIGN.md § Icons for the hand-drawn exceptions.
+ * The app's icon vocabulary: one verb, one icon, plus the `checked` and
+ * `unchecked` states. A call site names the entry and never imports lucide. See DESIGN.md § Icons for the hand-drawn exceptions.
  */
 const ICONS = {
   approve: Check,
   archive: Archive,
   back: ArrowLeft,
+  checked: SquareCheck,
   close: X,
   closeWorktree: FolderX,
   comment: MessageSquarePlus,
@@ -82,6 +84,7 @@ const ICONS = {
   sync: RefreshCw,
   terminal: SquareTerminal,
   terminate: OctagonX,
+  unchecked: Square,
 } satisfies Record<string, LucideIcon>;
 
 export type ActionVerb = keyof typeof ICONS;
