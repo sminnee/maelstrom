@@ -8,6 +8,7 @@ import { deriveGraph } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
+import { VIEW_MOVE_MS } from '../canvas/viewport';
 import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
 
@@ -87,7 +88,7 @@ function WideChip() {
     if (!canvasShowing) showPane('canvas');
     expandNode(next, false);
     requestAnimationFrame(() => {
-      void fitView({ nodes: [{ id: next }], duration: 300, maxZoom: 1.2 });
+      void fitView({ nodes: [{ id: next }], duration: VIEW_MOVE_MS, maxZoom: 1.2 });
     });
   };
 

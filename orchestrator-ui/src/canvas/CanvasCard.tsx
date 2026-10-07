@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { useAppStore } from '../store/store';
 import styles from './CanvasCard.module.css';
+import { VIEW_MOVE_MS } from './viewport';
 
 const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 const GROW_MS = 260;
@@ -65,7 +66,7 @@ export function CanvasCard({
       const dy = Math.min(0, edge.bottom - margin - box.bottom);
       if (dx === 0 && dy === 0) return;
       const { x, y, zoom } = getViewport();
-      void setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 300 });
+      void setViewport({ x: x + dx, y: y + dy, zoom }, { duration: VIEW_MOVE_MS });
     };
     intoView();
     if (typeof ResizeObserver !== 'function') return;
