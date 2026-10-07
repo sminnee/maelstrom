@@ -612,3 +612,32 @@ class TestLinearTeamId:
         (good / ".maelstrom.yaml").write_text("linear:\n  team_id: t-3\n")
 
         assert linear_team_id(project, [broken, good]) == "t-3"
+
+
+class TestDeployEnvironments:
+    """``deploy.environments`` maps a landing step to a GitHub environment."""
+
+    def test_a_step_maps_to_its_github_environment(self):
+        config = MaelstromConfig.from_dict(
+            {"deploy": {"environments": {"uat": "uat", "live": "production"}}}
+        )
+        assert config.deploy_environments == {"uat": "uat", "live": "production"}
+
+    def test_no_block_maps_nothing(self):
+        assert MaelstromConfig.from_dict({}).deploy_environments == {}
+
+    @pytest.mark.parametrize(
+        "deploy",
+        [
+            {"environments": {"staging": "s", "live": "production"}},
+            {"environments": {"uat": 3, "live": "production"}},
+        ],
+    )
+    def test_a_key_that_is_not_a_step_or_a_bad_value_is_dropped(self, deploy):
+        config = MaelstromConfig.from_dict({"deploy": deploy})
+        assert config.deploy_environments == {"live": "production"}
+
+    @pytest.mark.parametrize("deploy", ["production", {"environments": ["uat"]}])
+    def test_a_block_of_the_wrong_shape_maps_nothing(self, deploy):
+        config = MaelstromConfig.from_dict({"deploy": deploy})
+        assert config.deploy_environments == {}

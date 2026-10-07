@@ -34,6 +34,7 @@ Put this file in your repository root.
 | `linear` | map | — | Linear settings. See below. |
 | `sentry` | map | — | Sentry settings. See below. |
 | `uptimerobot` | map | — | UptimeRobot settings. See below. |
+| `deploy` | map | — | The GitHub environments that signal each **Landing** step. See below. |
 
 When `services:` is present it supersedes `port_names`, `shared_port_names`, the Procfile
 and `start_cmd`. Precedence is **`services:` → Procfile → `start_cmd`**.
@@ -185,6 +186,28 @@ services:
 | `monitors` | list of string | Monitor ids this project cares about. With none set, the commands fall back to every monitor on the account. |
 
 Run `mael uptimerobot monitors` once to discover the ids.
+
+### `deploy:`
+
+`deploy.environments` maps a **Landing** step to the GitHub environment whose deploys signal it.
+The orchestrator server reads the deploys on its worktree poll.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `environments.uat` | string | The GitHub environment that is UAT. |
+| `environments.live` | string | The GitHub environment that is production. |
+
+```yaml
+deploy:
+  environments:
+    live: production   # no UAT: the landing goes merged → live
+```
+
+- Any key other than `uat` or `live` is dropped, and so is a value that is not a string.
+- A step with no environment is passed over. With no `deploy:` block, a task's landing stops at
+  `merged`.
+- The server's `gh` login needs `deployments: read` on the repository. Without it, every
+  environment reads `unknown`.
 
 ### Full example
 
