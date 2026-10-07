@@ -17,9 +17,8 @@ export function projectsInView(world: WorldView, filters: Filters): string[] {
   const graph = deriveGraph(world, { filters });
   const names = new Set<string>();
   for (const node of graph.nodes) {
-    // A task names its project; a free agent's comes from the agent, else the
-    // worktree it runs in, exactly as the filters read it.
-    const project = node.task?.project ?? node.agent?.project ?? node.worktree?.project ?? '';
+    // The node's lane is its project, read as the filters read it.
+    const project = node.groupId;
     if (project) names.add(project);
   }
   return [...names].sort();
