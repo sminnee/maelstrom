@@ -57,6 +57,8 @@ _SCALARS = (
     "model",
     "base",
     "execute_model",
+    "pr_number",
+    "pr_url",
     "content",
     "log",
 )

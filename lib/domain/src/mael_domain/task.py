@@ -138,11 +138,13 @@ class _FieldSpec:
 
     key: str  # frontmatter/block key (kebab-case)
     block: bool = False  # settable from a ``---CREATE TASK---`` block
+    # The attribute, when it is not the key in snake case.
+    attr_name: str = ""
 
     @property
     def attr(self) -> str:
         """The :class:`Task` attribute this key maps to (kebab → snake)."""
-        return self.key.replace("-", "_")
+        return self.attr_name or self.key.replace("-", "_")
 
 
 # The single declaration of the task fields. ``FRONTMATTER_KEYS`` (below) emits
@@ -188,6 +190,10 @@ TASK_FIELDS = (
     # The execute model. Appended at the end so existing files keep a stable
     # diff. See CONTEXT.md, "Execute model".
     _FieldSpec("execute-model", block=True),
+    # The Registered PR. Written by ``register_pr``, never by a block. See
+    # CONTEXT.md, "Registered PR".
+    _FieldSpec("pr", attr_name="pr_number"),
+    _FieldSpec("pr-url"),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -273,6 +279,9 @@ class Task:
     base: str = ""
     # The execute model; empty means no switch. See CONTEXT.md.
     execute_model: str = ""
+    # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
+    pr_number: int = 0
+    pr_url: str = ""
     content: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
@@ -331,6 +340,8 @@ class Task:
             model=str(frontmatter.get("model", "")),
             base=str(frontmatter.get("base", "")),
             execute_model=str(frontmatter.get("execute-model", "")),
+            pr_number=_coerce_pr_number(frontmatter.get("pr")),
+            pr_url=str(frontmatter.get("pr-url", "")),
             content=sections.get("content", ""),
             log=sections.get("log", ""),
             status=status,
@@ -338,6 +349,14 @@ class Task:
 
 
 # --- (de)serialization helpers ---
+
+
+def _coerce_pr_number(value: object) -> int:
+    """A frontmatter ``pr:`` as a number; 0 for absent or unreadable."""
+    try:
+        return int(str(value or 0))
+    except ValueError:
+        return 0
 
 
 def _dump_scalar(value: str) -> str:
@@ -1260,6 +1279,27 @@ async def update(
         task.priority = priority
     if follows is not None:
         task.follows = follows
+    task.updated = now if now is not None else now_iso()
+    await table.save(task)
+    return task
+
+
+async def register_pr(
+    table: "TaskTable",
+    project: str,
+    id: str,
+    number: int,
+    url: str,
+    *,
+    now: str | None = None,
+) -> Task:
+    """Record ``number`` as the task's Registered PR, replacing any earlier one.
+
+    The one write path for the registry; see CONTEXT.md, "Registered PR".
+    """
+    task = await load(table, project, id)
+    task.pr_number = number
+    task.pr_url = url
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
