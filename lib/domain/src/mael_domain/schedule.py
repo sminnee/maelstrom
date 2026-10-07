@@ -2,10 +2,12 @@
 
 A *template* is an ordinary task parked in ``template/`` status (see
 :data:`mael_domain.task.STATUS_TEMPLATE`) carrying an optional ``schedule`` cron
-expression and a ``last_run`` watermark. This module owns the cron math and the
-"what's due" computation; it never touches git or launches anything — it only
-reads the injected table and returns plain data, so it is unit-testable against
-an :class:`~mael_domain.task_table.InMemoryTaskTable` with a frozen ``now``.
+expression, an optional ``trigger`` and a ``last_run`` watermark. This module owns
+the cron math and the "what's due" computation. It never touches git or launches
+anything: it reads the injected table and
+:class:`~mael_domain.build_runs.BuildRuns` and returns plain data, so it is
+unit-testable against an :class:`~mael_domain.task_table.InMemoryTaskTable` with
+a frozen ``now``.
 
 The cron parser supports the needed 5-field subset (``m h dom mon dow``): ``*``,
 single integers, comma lists, and ``a-b`` ranges (and combinations like
@@ -15,8 +17,16 @@ schedules ("every weekday at 9", "hourly") never set both, so the distinction
 from cron's OR-semantics does not bite.
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from .build_runs import (
+    BuildRun,
+    BuildRuns,
+    BuildTrigger,
+    parse_trigger,
+    run_section,
+)
 from .task import STATUS_TEMPLATE, Task, list_tasks
 from .task_table import TaskTable
 
@@ -164,24 +174,123 @@ def date_of(dt: datetime) -> str:
     return dt.date().isoformat()
 
 
+def _due_boundary(tmpl: Task, now: datetime) -> datetime | None:
+    """The cron boundary ``tmpl`` is due at, or ``None`` when it is not due.
+
+    It is due when the most recent boundary at/before ``now`` is *after* its
+    watermark (``last_run``, or ``created`` if never run). Only the single
+    nearest boundary is considered, so a week offline on a daily template yields
+    exactly one run — never a backfill.
+    """
+    last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)
+    prev = previous_fire(tmpl.schedule, now)
+    if prev is None or (last is not None and last >= prev):
+        return None
+    return prev
+
+
 async def due_templates(
     table: TaskTable, project: str, *, now: datetime
 ) -> list[tuple[Task, str]]:
-    """Return ``(template, boundary_date)`` for every template due at ``now``.
-
-    A template is due when it has a ``schedule`` and the most recent fire
-    boundary at/before ``now`` is *after* its watermark (``last_run``, or
-    ``created`` if never run). Only the single nearest boundary is considered, so
-    a week offline on a daily template yields exactly one run — never a backfill.
-    """
+    """Return ``(template, boundary_date)`` for every cron template due at ``now``."""
     out: list[tuple[Task, str]] = []
     for tmpl in await list_tasks(table, project=project, status=STATUS_TEMPLATE):
-        if not tmpl.schedule:
-            continue
-        last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)
-        prev = previous_fire(tmpl.schedule, now)
-        if prev is None:
-            continue
-        if last is None or last < prev:
-            out.append((tmpl, date_of(prev)))
+        boundary = _due_boundary(tmpl, now) if tmpl.schedule else None
+        if boundary is not None:
+            out.append((tmpl, date_of(boundary)))
     return out
+
+
+@dataclass(frozen=True)
+class Firing:
+    """What one tick does to one template: move its watermark, and maybe fire.
+
+    A ``date`` makes a run keyed by it, and ``section`` is added to the run's
+    content. With no ``date``, only the watermark moves.
+    """
+
+    tmpl: Task
+    watermark: datetime
+    date: str = ""
+    section: str = ""
+
+
+def run_to_fire(
+    trigger: BuildTrigger, runs: list[BuildRun], since: datetime | None
+) -> tuple[BuildRun | None, datetime | None]:
+    """The run that fires a template with no cron, and its next watermark.
+
+    Only the newest run after ``since`` counts, so a green run that already
+    fixed the build stops an older failure from firing. The watermark moves to
+    that run whether or not it fires. ``(None, None)`` means no new run.
+    """
+    newer = [run for run in runs if since is None or run.completed_at > since]
+    if not newer:
+        return None, None
+    newest = max(newer, key=lambda run: run.completed_at)
+    fires = newest.conclusion in trigger.conclusions
+    return (newest if fires else None), newest.completed_at
+
+
+async def due_firings(
+    table: TaskTable, project: str, build_runs: BuildRuns, *, now: datetime
+) -> tuple[list[Firing], list[str]]:
+    """One firing per template that fires at ``now`` or moves its watermark.
+
+    A template with a cron fires at its due boundary. With a trigger as well,
+    the boundary fires only when the newest completed run has a listed
+    conclusion, and is skipped otherwise. A template with a trigger and no cron
+    fires on :func:`run_to_fire`. Runs are read once per triggered template that
+    is due, and only for those.
+
+    The second list holds one warning per template the tick could not decide: a
+    trigger that does not parse, or a failed read. Its watermark does not move.
+    """
+    firings: list[Firing] = []
+    warnings: list[str] = []
+    for tmpl in await list_tasks(table, project=project, status=STATUS_TEMPLATE):
+        boundary = None
+        if tmpl.schedule:
+            boundary = _due_boundary(tmpl, now)
+            if boundary is None:
+                continue
+        if not tmpl.trigger:
+            if boundary is not None:
+                firings.append(Firing(tmpl, boundary, date_of(boundary)))
+            continue
+        trigger = parse_trigger(tmpl.trigger)
+        if trigger is None:
+            warnings.append(f"{tmpl.id}: unknown trigger {tmpl.trigger!r}")
+            continue
+        runs = await build_runs.completed(project, trigger)
+        if runs is None:
+            warnings.append(f"{tmpl.id}: could not read the {trigger.workflow} runs")
+            continue
+        firing = _triggered(tmpl, trigger, runs, boundary, now)
+        if firing is not None:
+            firings.append(firing)
+    return firings, warnings
+
+
+def _triggered(
+    tmpl: Task,
+    trigger: BuildTrigger,
+    runs: list[BuildRun],
+    boundary: datetime | None,
+    now: datetime,
+) -> Firing | None:
+    """The firing of a template with a trigger; ``boundary`` is its due cron boundary."""
+    if boundary is not None:
+        newest = runs[0] if runs else None
+        if newest is None or newest.conclusion not in trigger.conclusions:
+            return Firing(tmpl, boundary)
+        return Firing(tmpl, boundary, date_of(boundary), run_section(trigger, newest))
+    since = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)
+    run, watermark = run_to_fire(trigger, runs, since)
+    if watermark is None:
+        return None
+    if run is None:
+        return Firing(tmpl, watermark)
+    # Keyed by the date in ``now``'s zone, as a cron boundary is.
+    date = date_of(run.completed_at.astimezone(now.tzinfo))
+    return Firing(tmpl, watermark, date, run_section(trigger, run))

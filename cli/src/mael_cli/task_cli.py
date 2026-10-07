@@ -33,9 +33,10 @@ from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 # *parameter* (the `--model` flag / task field) and would otherwise shadow the
 # alias above. Same module object — not a re-export.
 from mael_domain import task as task_model
-from mael_domain.build_runs import parse_trigger
+from mael_domain.build_runs import BuildRuns, parse_trigger
+from mael_domain.build_runs_github import GhBuildRuns
 from mael_domain.cmux.client import ensure_cmux_running
-from mael_domain.context import resolve_context, resolve_project
+from mael_domain.context import load_global_config, resolve_context, resolve_project
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -1122,7 +1123,6 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
     entry point); otherwise it's the single ``-p`` project or the cwd's.
     """
     if all_projects:
-        from mael_domain.context import load_global_config
         from mael_domain.worktree import find_all_projects
 
         projects = find_all_projects(load_global_config().projects_dir)
@@ -1130,11 +1130,17 @@ def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
     return [resolve_project(project)]
 
 
+def _build_runs() -> BuildRuns:
+    """Where ``add-scheduled`` reads a trigger's runs. Tests replace it."""
+    return GhBuildRuns(load_global_config().projects_dir)
+
+
 async def _fire_due_templates(
     table: SqliteTaskTable,
     project: str,
     *,
     now: datetime,
+    build_runs: BuildRuns,
     run: bool,
     here: bool,
     harness: str = TRANSPORT_DAEMON,
@@ -1143,8 +1149,10 @@ async def _fire_due_templates(
 
     Each fired template, in its own transaction: duplicate it into a date-keyed
     run (skipped if that id already exists → idempotent across RunAtLoad+interval
-    double-fires) and advance its ``last-run`` watermark to the boundary. Returns
-    the run tasks that were created this call.
+    double-fires) and advance its ``last-run`` watermark. A firing that comes
+    from a build run adds a ``## Build run`` section to the run's content. A
+    skipped boundary, or a run whose conclusion is not listed, moves only the
+    watermark. Returns the run tasks that were created this call.
 
     The run's id (``<tmpl>.<date>``) names it as a dot-child of the template, but
     its ``parent`` is deliberately left **empty** so it roots its own chain: the
@@ -1155,12 +1163,24 @@ async def _fire_due_templates(
     from mael_domain import schedule as sched
 
     created: list[model.Task] = []
-    for tmpl, date in await sched.due_templates(table, project, now=now):
-        run_id = model.allocate_run_id(tmpl.id, date)
+    firings, warnings = await sched.due_firings(table, project, build_runs, now=now)
+    for warning in warnings:
+        click.echo(f"warning: {project}/{warning}", err=True)
+    for firing in firings:
+        tmpl = firing.tmpl
+        last_run = firing.watermark.isoformat()
+        if not firing.date:
+            await model.update(table, project, tmpl.id, last_run=last_run)
+            continue
+        run_id = model.allocate_run_id(tmpl.id, firing.date)
+        # A run already made under this id (a double fire, or a second build run
+        # on the same day) fires nothing, but the watermark still moves past it.
         if await table.load(project, run_id) is not None:
-            continue  # already fired this boundary
-        prev = sched.previous_fire(tmpl.schedule, now)
-        assert prev is not None  # due_templates only yields when a boundary exists
+            await model.update(table, project, tmpl.id, last_run=last_run)
+            continue
+        content = None
+        if firing.section:
+            content = f"{tmpl.content.strip()}\n\n{firing.section}".strip()
         # One transaction: the duplicate and the template's watermark move
         # together, so a rollback leaves the boundary unfired rather than
         # half-fired.
@@ -1171,9 +1191,10 @@ async def _fire_due_templates(
                 tmpl.id,
                 parent="",  # parentless → run roots its own chain (see docstring)
                 branch=tmpl.branch,
+                content=content,
                 id=run_id,
             )
-            await model.update(table, project, tmpl.id, last_run=prev.isoformat())
+            await model.update(table, project, tmpl.id, last_run=last_run)
         created.append(new)
     if run and created and harness == TRANSPORT_CLI and not here:
         # Start the cmux app once for the whole batch (N due runs share one app
@@ -1250,10 +1271,17 @@ async def task_add_scheduled(
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
     click.echo(f"[{now.isoformat(timespec='seconds')}] add-scheduled")
     table = await _table()
+    build_runs = _build_runs()
     total = 0
     for proj in _scheduled_projects(project, all_projects):
         fired = await _fire_due_templates(
-            table, proj, now=now, run=run, here=here, harness=harness
+            table,
+            proj,
+            now=now,
+            build_runs=build_runs,
+            run=run,
+            here=here,
+            harness=harness,
         )
         for t in fired:
             click.echo(f"{proj}/{t.id}\t{t.title}")

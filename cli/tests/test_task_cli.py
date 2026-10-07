@@ -6,6 +6,7 @@ project, so no git or cwd resolution happens.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -20,6 +21,7 @@ from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
+from mael_domain.build_runs import BuildRun, BuildRuns
 from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
@@ -2989,3 +2991,203 @@ class TestAddScheduled:
         launch.exec.assert_called_once()
         # exec_cmd replaces the current shell — no flag to check, the
         # call itself is the exec.
+
+
+# --- add-scheduled on a build trigger ---
+
+
+class _FakeBuildRuns(BuildRuns):
+    """Completed runs from a fixed answer; ``None`` is a failed read."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.reads = []
+
+    async def completed(self, project, trigger):
+        self.reads.append((project, trigger.workflow))
+        return self.answer
+
+
+@pytest.fixture(autouse=True)
+def no_build_runs(monkeypatch):
+    """No test reads real workflow runs: the read is unknown unless a test says."""
+    monkeypatch.setattr(task_cli, "_build_runs", lambda: _FakeBuildRuns(None))
+
+
+def _local(day, hour):
+    """A local wall-clock time on 2026-10-``day``, so the run's date is ``day``."""
+    return datetime(2026, 10, day, hour, 0).astimezone()
+
+
+def _build_run(id, conclusion, completed_at):
+    return BuildRun(
+        id=id,
+        conclusion=conclusion,
+        completed_at=completed_at,
+        url=f"https://github.com/o/r/actions/runs/{id}",
+        head_sha=f"abcdef{id}0000",
+    )
+
+
+class TestAddScheduledOnTrigger:
+    @pytest.fixture
+    def tick(self, runner, monkeypatch):
+        """Run one scheduler tick at 2026-10-08 10:00 local against ``runs``."""
+        frozen = _local(8, 10)
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen
+
+        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+
+        def tick(runs):
+            monkeypatch.setattr(task_cli, "_build_runs", lambda: runs)
+            result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+            assert result.exit_code == 0, result.output
+            return result
+
+        return tick
+
+    async def _template(self, store, trigger, *, schedule="", last_run=""):
+        return await model.create(
+            store,
+            project="p",
+            title="Fix the nightly build",
+            content="Fix it.",
+            schedule=schedule,
+            trigger=trigger,
+            last_run=last_run,
+            status=model.STATUS_TEMPLATE,
+            id="nightly",
+            now="2026-10-01T00:00:00+00:00",
+        )
+
+    async def _runs(self, store):
+        return [
+            t.id
+            for t in await model.list_tasks(store, project="p")
+            if t.id.startswith("nightly.")
+        ]
+
+    async def _watermark(self, store):
+        return datetime.fromisoformat(
+            (await model.load(store, "p", "nightly")).last_run
+        )
+
+    async def test_a_failed_run_fires_once(self, store, tick):
+        await self._template(store, "gh-action/nightly.yml")
+        runs = _FakeBuildRuns([_build_run(2, "failure", _local(7, 3))])
+        tick(runs)
+        run = await model.load(store, "p", "nightly.2026-10-07")
+        assert run.content == (
+            "Fix it.\n\n## Build run\n\n"
+            "nightly.yml on main: failure. "
+            "https://github.com/o/r/actions/runs/2 — commit abcdef2.\n"
+            "Read the log: `mael gh check-log 2 --failed-only`."
+        )
+        assert run.trigger == ""
+        assert await self._watermark(store) == _local(7, 3)
+        assert "No scheduled tasks due." in tick(runs).output
+        assert await self._runs(store) == ["nightly.2026-10-07"]
+
+    async def test_a_second_failure_that_day_moves_the_watermark(self, store, tick):
+        await self._template(store, "gh-action/nightly.yml")
+        first = _build_run(2, "failure", _local(7, 3))
+        tick(_FakeBuildRuns([first]))
+        tick(_FakeBuildRuns([_build_run(3, "failure", _local(7, 5)), first]))
+        assert await self._runs(store) == ["nightly.2026-10-07"]
+        assert await self._watermark(store) == _local(7, 5)
+
+    async def test_a_newer_green_run_moves_the_watermark_only(self, store, tick):
+        await self._template(store, "gh-action/nightly.yml")
+        tick(
+            _FakeBuildRuns(
+                [
+                    _build_run(3, "success", _local(7, 4)),
+                    _build_run(2, "failure", _local(7, 3)),
+                ]
+            )
+        )
+        assert await self._runs(store) == []
+        assert await self._watermark(store) == _local(7, 4)
+
+    @pytest.mark.parametrize(
+        ("trigger", "conclusion", "fires"),
+        [
+            ("gh-action/nightly.yml", "cancelled", False),
+            ("gh-action/nightly.yml", "timed_out", True),
+            ("gh-action/nightly.yml success", "success", True),
+        ],
+    )
+    async def test_only_a_listed_conclusion_fires(
+        self, store, tick, trigger, conclusion, fires
+    ):
+        await self._template(store, trigger)
+        tick(_FakeBuildRuns([_build_run(2, conclusion, _local(7, 3))]))
+        assert await self._runs(store) == (["nightly.2026-10-07"] if fires else [])
+
+    async def test_a_green_run_section_has_no_log_command(self, store, tick):
+        await self._template(store, "gh-action/nightly.yml success")
+        tick(_FakeBuildRuns([_build_run(2, "success", _local(7, 3))]))
+        run = await model.load(store, "p", "nightly.2026-10-07")
+        assert run.content.endswith(
+            "nightly.yml on main: success. "
+            "https://github.com/o/r/actions/runs/2 — commit abcdef2."
+        )
+
+    @pytest.mark.parametrize(
+        ("trigger", "schedule", "warning"),
+        [
+            ("gh-action/nightly.yml", "", "could not read the nightly.yml runs"),
+            (
+                "gh-action/nightly.yml",
+                "0 9 * * *",
+                "could not read the nightly.yml runs",
+            ),
+            ("nightly.yml", "", "unknown trigger 'nightly.yml'"),
+        ],
+        ids=["read-fails", "read-fails-with-cron", "bad-trigger"],
+    )
+    async def test_an_undecided_template_warns_and_keeps_its_watermark(
+        self, store, tick, trigger, schedule, warning
+    ):
+        last_run = _local(7, 9).isoformat()
+        await self._template(store, trigger, schedule=schedule, last_run=last_run)
+        result = tick(_FakeBuildRuns(None))
+        assert f"warning: p/nightly: {warning}" in result.output
+        assert await self._runs(store) == []
+        assert (await model.load(store, "p", "nightly")).last_run == last_run
+
+    async def test_a_cron_boundary_with_a_green_build_is_skipped(self, store, tick):
+        await self._template(
+            store,
+            "gh-action/nightly.yml",
+            schedule="0 9 * * *",
+            last_run=_local(7, 9).isoformat(),
+        )
+        tick(_FakeBuildRuns([_build_run(3, "success", _local(7, 20))]))
+        assert await self._runs(store) == []
+        assert await self._watermark(store) == _local(8, 9)
+
+    async def test_a_cron_boundary_with_a_failed_build_fires(self, store, tick):
+        await self._template(
+            store,
+            "gh-action/nightly.yml",
+            schedule="0 9 * * *",
+            last_run=_local(7, 9).isoformat(),
+        )
+        tick(_FakeBuildRuns([_build_run(3, "failure", _local(6, 20))]))
+        run = await model.load(store, "p", "nightly.2026-10-08")
+        assert "https://github.com/o/r/actions/runs/3" in run.content
+        assert await self._watermark(store) == _local(8, 9)
+
+    async def test_a_template_without_a_trigger_reads_no_runs(self, store, tick):
+        await self._template(
+            store, "", schedule="0 9 * * *", last_run=_local(7, 9).isoformat()
+        )
+        runs = _FakeBuildRuns(None)
+        tick(runs)
+        assert runs.reads == []
+        assert await self._runs(store) == ["nightly.2026-10-08"]
