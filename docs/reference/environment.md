@@ -102,7 +102,7 @@ A **task-backed** launch — `mael task run` or `mael task next --run` — expor
 
 | Variable | Meaning |
 |---|---|
-| `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael task current` reports it as `ID:STATUS`. |
+| `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael gh create-pr` registers its PR on it, and `mael gh link-pr` defaults to it. `mael task current` reports it as `ID:STATUS`. |
 | `MAEL_TASK_PARENT` | The launching task's `parent`, or its own id when it has none. New tasks default their `--parent` to it, so a session's follow-ups continue the same chain and land in the same PR. |
 | `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. Exported so a session can name the key it was launched under; nothing in maelstrom reads it back. |
 

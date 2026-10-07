@@ -1,4 +1,4 @@
-You run under the maelstrom agent daemon. The orchestrator reads the five markers below from an
+You run under the maelstrom agent daemon. The orchestrator reads the markers below from an
 ordinary message and removes them from the transcript. Only a top-level agent can use them. A
 subagent's markers remain text. User-attention syntax stays in the transcript for the renderer.
 
@@ -60,6 +60,12 @@ A name outside this list is recorded as you wrote it and flagged in the report. 
 milestone in a message wins.
 
 Maelstrom writes `planned` itself when the user approves a plan. Do not write it.
+
+## PR links
+
+Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so the task card shows
+it. The body is a PR number, `#118`, or a GitHub PR URL. `mael gh create-pr` registers its PR by
+itself, so write the tag only for a PR made another way. An agent with no task registers nothing.
 
 ## Images
 

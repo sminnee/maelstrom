@@ -186,6 +186,14 @@ A `schedule` on a template drives the scheduler.
 **Chain**:
 The sibling tasks that share one parent, ordered by follows, merging as a single pull request.
 
+**Registered PR**:
+The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
+`mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
+earlier one. A task card shows its task's Registered PR, else the highest-numbered one in its
+**Chain** or on the Chain's parent. A card with none shows no PR, even when its branch has one: a
+recycled branch carries PRs that earlier tasks made. The worktree table shows the branch's PR.
+_Avoid_: Linked PR, task PR
+
 **Draft**:
 A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
 directory.
@@ -792,7 +800,8 @@ directory and nothing outside it. Each file becomes one document, and the files 
 **Review group** the tag's `title` names. The tag is cut out of the message the transcript shows.
 A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
 what raises an attention item.
-One of five markers, with the **Image tag**, the **Note** and the **Milestone**. The names carry
+One of the markers, with the **Image tag**, the **Note**, the **Milestone** and the **PR link
+tag**. The names carry
 nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
 
@@ -809,8 +818,8 @@ ordinary message. A field rather than a document: it is cut from the message, an
 replaces the one before it. The expanded card shows it in place of the agent's last message, which
 is whatever prose happened to end a turn. A message carrying no note leaves the standing one
 alone, and a subagent writes none. The card still dates its block from the last message, because
-silence means the agent said nothing, and a note is not speech. One of five markers, with the
-**Document tag**, the **Image tag** and the **Milestone**.
+silence means the agent said nothing, and a note is not speech. One of the markers, with the
+**Document tag**, the **Image tag**, the **Milestone** and the **PR link tag**.
 _Avoid_: Status, Progress (that is a node's state), Activity
 
 **Milestone**:
@@ -820,8 +829,8 @@ text of an ordinary message. The vocabulary is the task-completion flow: `planne
 and flagged, never dropped. The marker is cut from the message and writes a **milestone
 snapshot**; the latest one in a message wins, as a note does. `planned` is Maelstrom's own: it is
 written when the user approves a plan, because the approval clears the agent before it could
-write one. One of five markers, with the
-**Document tag**, the **Image tag** and the **Note**. A subagent writes none.
+write one. One of the markers, with the
+**Document tag**, the **Image tag**, the **Note** and the **PR link tag**. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
 
@@ -848,15 +857,23 @@ The marker an agent writes in the text of an ordinary message to show the user a
 `<image src="docs/shot.png" alt="The failing dialog">`. The tag becomes a picture where it was
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
-may not show, or one that is not there, leaves prose saying so, never a broken picture. One of five
-markers, with the **Document tag**, the **Note** and the **Milestone**.
+may not show, or one that is not there, leaves prose saying so, never a broken picture. One of the
+markers, with the **Document tag**, the **Note**, the **Milestone** and the **PR link tag**.
 _Avoid_: Screenshot tag, figure, embed
+
+**PR link tag**:
+The marker an agent writes in the text of an ordinary message to register a PR on its task:
+`<link rel="gh-pr">118</link>`, with a PR number, `#118` or a GitHub PR URL. The server cuts it
+from the message and makes the PR the task's **Registered PR**. A **Free agent** registers
+nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
+markers, with the **Document tag**, the **Image tag**, the **Note** and the **Milestone**.
+_Avoid_: PR tag, link tag
 
 **User attention**:
 The rank an agent sets with `<user-attention high>` or `<user-attention low>` in an ordinary
 message. High prose is for the user to read. Low prose is working detail. The renderer draws low
 prose at the low rank. The tag stays in the message until the renderer reads it, so it is not
-one of the five markers. Low prose holds markdown, including a literal or a link. Nothing on the
+one of the markers. Low prose holds markdown, including a literal or a link. Nothing on the
 server parses it, except that node summaries remove the tag.
 _Avoid_: Callout, Highlight, Summary, Important, Attention tag
 

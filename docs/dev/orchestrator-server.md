@@ -210,6 +210,17 @@ computed, so the panel and `mael agent cost` cannot disagree.
 The bar lands on the `result` for the same reason the snapshot does: the item is minted where the
 figures are. A bar drawn where the marker was read would sit above the turn it is pricing.
 
+A PR link rides out the same way, on `Normalised.pr_link`:
+
+```
+<link rel="gh-pr">118</link>
+```
+
+`server._register_pr` writes it to the agent's task through `TaskSource.register_pr`. A bare
+number takes its URL from the `origin` remote of the agent's worktree. A live tag always
+registers. A replayed tag registers only on a task with no Registered PR: a tag the agent wrote
+while the server was down must still land, but an older tag must not undo a later `link-pr`.
+
 One milestone does not wait, and the asymmetry is deliberate rather than an oversight. `planned`
 is Maelstrom's own marker, not an agent's: the normaliser mints it when a plan approval is
 allowed, and `_normalise` records it the moment it reads it. Approving a plan interrupts the
@@ -1022,9 +1033,9 @@ Six rules hold it:
    with no chunks. The closing update carries `ts`, so the item ends equal to the appended one.
 
 6. **A tag has no effect before the message is complete.** `document_tags.partial_text` cuts each
-   complete marker and holds back a half-written one, with everything after it. A `<note>` or a
-   `<milestone>` shows nothing until it closes. A chunk emits transcript events only: documents,
-   the note and the milestone come from the `assistant` event. A marker in a code span or a fence
+   complete marker and holds back a half-written one, with everything after it. A `<note>`, a
+   `<milestone>` or a `<link>` shows nothing until it closes. A chunk emits transcript events only: documents,
+   the note, the milestone and the PR link come from the `assistant` event. A marker in a code span or a fence
    is not held back, so a message that quotes `<note>` keeps growing.
 
 A turn that ends with no whole message closes the item with `partial: false` and keeps its text.
