@@ -28,6 +28,8 @@ def make_task(**over):
         "model": "",
         "base": "",
         "executeModel": "",
+        "prNumber": 0,
+        "prUrl": "",
         "content": "",
         "log": [],
         "created": NOW,

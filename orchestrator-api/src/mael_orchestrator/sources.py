@@ -232,6 +232,14 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def register_pr(self, task_id: str, number: int, url: str) -> None:
+        """Record a task's Registered PR.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+        """
+        ...
+
     async def delete(self, task_id: str) -> None:
         """Remove a task, and strip it from every dependent's ``follows``.
 
@@ -521,6 +529,10 @@ class NotebookTaskSource:
         if "follows" in wanted:
             wanted["follows"] = [split_task_key(f)[1] for f in wanted["follows"]]
         await model.update(self.table, project, notebook_id, **wanted)
+
+    async def register_pr(self, task_id: str, number: int, url: str) -> None:
+        project, notebook_id = split_task_key(task_id)
+        await model.register_pr(self.table, project, notebook_id, number, url)
 
     async def delete(self, task_id: str) -> None:
         """Remove a task from the notebook.
