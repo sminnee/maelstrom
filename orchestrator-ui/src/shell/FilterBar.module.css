@@ -6,6 +6,12 @@
   flex-wrap: wrap;
   min-width: 0;
 }
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--u-2);
+}
 .field {
   display: inline-flex;
   align-items: center;
@@ -27,4 +33,12 @@
   background: var(--bg);
   border: 1px solid var(--border);
   max-width: 180px;
+}
+.stack .field {
+  flex-direction: column;
+  align-items: stretch;
+}
+.stack .field select,
+.stack .field input {
+  max-width: none;
 }

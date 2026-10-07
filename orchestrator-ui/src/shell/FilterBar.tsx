@@ -17,8 +17,11 @@ const AGENT_STATUS_OPTIONS = Object.entries(AGENT_STATUS_LABELS).map(([value, la
   label,
 }));
 
-/** The shared filters, plus the controls of each main view on screen. */
-export function FilterBar() {
+/**
+ * The shared filters, plus the controls of each main view on screen. `stack`
+ * draws them as a column, for the narrow layout's Filters side sheet.
+ */
+export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
   const { world, status } = useWorld();
   const showing = useShowing();
   const { filters, listFilters, worktreeFilters } = useLoc();
@@ -44,7 +47,7 @@ export function FilterBar() {
   }, [stale, go]);
 
   return (
-    <div className={styles.bar}>
+    <div className={layout === 'stack' ? styles.stack : styles.bar}>
       <label className={styles.field}>
         <span>Project</span>
         <select

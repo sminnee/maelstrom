@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { nodeState, openSheet, screenStrip, paneItem } from './test/appHelpers';
@@ -258,13 +258,77 @@ describe('the narrow layout', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Agent host unreachable since');
   });
 
-  it('keeps Tasks reachable while hiding desktop filters', async () => {
-    await renderApp({ viewport: 'narrow' });
-    await userEvent.click(paneItem('Tasks'));
-    expect(screen.getByTestId('task-list')).toBeInTheDocument();
-    expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Project')).toBeNull();
-    expect(screen.queryByLabelText('Branch')).toBeNull();
+  describe('the Filters side sheet', () => {
+    const filtersButton = () => screen.getByRole('button', { name: /^Filters/ });
+    const sheet = () => within(screen.getByRole('dialog', { name: 'Filters' }));
+    const sheetOpen = () => screen.queryByRole('dialog', { name: 'Filters' }) !== null;
+
+    it('holds the Desk filters, which filter the deck behind it', async () => {
+      const user = userEvent.setup();
+      await renderApp({ viewport: 'narrow' });
+      expect(screen.queryByLabelText('Project')).toBeNull();
+      expect(filtersButton()).toHaveAttribute('aria-expanded', 'false');
+
+      await user.click(filtersButton());
+      expect(filtersButton()).toHaveAttribute('aria-expanded', 'true');
+      for (const label of ['Project', 'Branch', 'Agent status', 'Search'])
+        expect(sheet().getByLabelText(label)).toBeInTheDocument();
+      expect(sheet().queryByRole('button', { name: /^Status/ })).toBeNull();
+
+      await user.type(sheet().getByLabelText('Search'), 'order export');
+      await waitFor(() => expect(deckRows()).toEqual(['NORT-7']));
+      expect(sheetOpen()).toBe(true);
+    });
+
+    it('counts the filters that narrow the view, so none is hidden', async () => {
+      const user = userEvent.setup();
+      await renderApp({ viewport: 'narrow' });
+      expect(filtersButton()).toHaveAccessibleName('Filters');
+      await user.click(filtersButton());
+      await user.selectOptions(sheet().getByLabelText('Project'), 'northwind');
+      await user.selectOptions(sheet().getByLabelText('Agent status'), 'planned');
+      expect(filtersButton()).toHaveAccessibleName('Filters · 2');
+    });
+
+    it('closes on its Close button, and on a tap on the backdrop', async () => {
+      const user = userEvent.setup();
+      await renderApp({ viewport: 'narrow' });
+      await user.click(filtersButton());
+      // The bare cross leads the head row, where a sheet's close sits.
+      const [first] = sheet().getAllByRole('button');
+      expect(first).toHaveAccessibleName('Close');
+      expect(first).toHaveTextContent('');
+      await user.click(first!);
+      expect(sheetOpen()).toBe(false);
+
+      await user.click(filtersButton());
+      // jsdom draws the box at 0×0, so any point is on the backdrop.
+      const box = screen.getByRole('dialog', { name: 'Filters' });
+      fireEvent.pointerDown(box, { clientX: 20, clientY: 20 });
+      fireEvent.click(box, { clientX: 20, clientY: 20 });
+      expect(sheetOpen()).toBe(false);
+    });
+
+    it('keeps a search typed just before the sheet closes', async () => {
+      const user = userEvent.setup();
+      await renderApp({ viewport: 'narrow' });
+      await user.click(filtersButton());
+      await user.type(sheet().getByLabelText('Search'), 'order export');
+      await user.click(sheet().getByRole('button', { name: 'Close' }));
+      expect(deckRows()).toEqual(['NORT-7']);
+    });
+
+    it('holds the Tasks filters on Tasks', async () => {
+      const user = userEvent.setup();
+      await renderApp({ viewport: 'narrow' });
+      await user.click(paneItem('Tasks'));
+      expect(screen.getByTestId('task-list')).toBeInTheDocument();
+      expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
+      await user.click(filtersButton());
+      expect(sheet().getByRole('button', { name: /^Status/ })).toBeInTheDocument();
+      expect(sheet().getByLabelText('Search')).toBeInTheDocument();
+      expect(sheet().queryByLabelText('Agent status')).toBeNull();
+    });
   });
 
   it("pushes the agent's session from a task's state link, with no editor", async () => {
