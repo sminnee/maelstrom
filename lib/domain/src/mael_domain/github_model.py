@@ -726,3 +726,14 @@ def parse_pr_ref(ref: str, repo_url: str | None) -> tuple[int, str]:
         raise ValueError(f"Not a PR number or URL: {ref!r}")
     return number, url
 
+
+@dataclass(frozen=True)
+class PushedPr:
+    """What ``create_pr`` pushed to: the PR's URL and number, and whether it is new.
+
+    ``number`` is 0 when the URL ``gh`` printed is not a PR URL.
+    """
+
+    url: str
+    number: int
+    created: bool

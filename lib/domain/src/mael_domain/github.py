@@ -46,6 +46,7 @@ from .github_model import (
     PrState,
     PrStatus,
     PullRequestNotMergeable,
+    PushedPr,
     RateLimited,
     SyncFailed,
     is_missing_pr_error,
@@ -54,6 +55,7 @@ from .github_model import (
     parse_open_prs,
     parse_pr_comments,
     parse_pr_info,
+    parse_pr_ref,
     parse_run_states,
     rollup_refused,
     stack_chain,
@@ -536,7 +538,7 @@ def create_pr(
     autorepair: bool = False,
     pre_push: bool = True,
     announce: Callable[[str], None] = print_flushed,
-) -> tuple[str, bool]:
+) -> PushedPr:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
     Rebases onto this branch's base, runs the project's ``pre_push_cmd``, then
@@ -557,7 +559,7 @@ def create_pr(
             flushed ``print``; the CLI passes ``click.echo``.
 
     Returns:
-        Tuple of (PR URL, created) where created is True if new PR was created.
+        The PR's URL and number, and whether this call created it.
 
     Raises:
         SyncFailed: If the pre-push rebase fails.
@@ -662,7 +664,7 @@ def create_pr(
         if has_draft and _write_pr_body(cwd, existing_number, announce=announce):
             discard_pr_draft(cwd)
         _register_stack(cwd, branch_name, announce=announce)
-        return existing_url, False
+        return PushedPr(existing_url, int(existing_number), False)
 
     # Try to get the first commit message for title
     try:
@@ -700,7 +702,14 @@ def create_pr(
     if has_draft:
         discard_pr_draft(cwd)
     _register_stack(cwd, branch_name, announce=announce)
-    return new_url, True
+    try:
+        number, _ = parse_pr_ref(new_url, None)
+    except ValueError:
+        announce(
+            f"Warning: gh printed no PR URL, so the PR is not registered: {new_url!r}"
+        )
+        number = 0
+    return PushedPr(new_url, number, True)
 
 
 def _rebase_before_push(

@@ -423,7 +423,9 @@ class TestCreatePrRunsThePrePushCheck:
             if cmd[:3] == ["gh", "pr", "view"]:
                 return subprocess.CompletedProcess(cmd, 1, "", "no pull requests")
             if cmd[:3] == ["gh", "pr", "create"]:
-                return subprocess.CompletedProcess(cmd, 0, "https://example/pr", "")
+                return subprocess.CompletedProcess(
+                    cmd, 0, "https://github.com/o/r/pull/1", ""
+                )
             return real_run_cmd(cmd, *args, **kwargs)
 
         error = None
@@ -1073,8 +1075,8 @@ class TestCreatePrRegistersTheStack:
             patch("mael_domain.github.run_git", side_effect=fake_run_git),
             patch("mael_domain.github.update_local_main"),
         ):
-            url, created = create_pr(cwd=tmp_path)
-        return url, created, calls
+            pushed = create_pr(cwd=tmp_path)
+        return pushed.url, pushed.created, calls
 
     def _links(self, calls):
         return [c for c in calls if c[:3] == ["gh", "stack", "link"]]
@@ -1157,7 +1159,7 @@ class TestCreatePrRegistersTheStack:
             patch("mael_domain.github.run_git"),
             patch("mael_domain.github.update_local_main"),
         ):
-            url, _ = create_pr(cwd=tmp_path)
+            url = create_pr(cwd=tmp_path).url
 
         assert url == "https://example/pr"
         assert "gh extension install github/gh-stack" in capsys.readouterr().out
@@ -1361,7 +1363,10 @@ class TestCreatePrUsesThePrDraft:
                         tmp_path / cmd[cmd.index("--body-file") + 1]
                     ).read_text()
                 return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout="https://example/new-pr", stderr=""
+                    args=cmd,
+                    returncode=0,
+                    stdout="https://github.com/o/r/pull/8",
+                    stderr="",
                 )
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="", stderr=""
@@ -1384,8 +1389,8 @@ class TestCreatePrUsesThePrDraft:
             patch("mael_domain.github.run_git", side_effect=fake_run_git),
             patch("mael_domain.github.update_local_main"),
         ):
-            url, created = create_pr(cwd=tmp_path, task_id=task_id)
-        return url, created, calls, bodies
+            pushed = create_pr(cwd=tmp_path, task_id=task_id)
+        return pushed, calls, bodies
 
     def _creates(self, calls):
         return [c for c in calls if c[:3] == ["gh", "pr", "create"]]
@@ -1401,7 +1406,7 @@ class TestCreatePrUsesThePrDraft:
         """
         self._write_draft(tmp_path, "## Overview\n\nWidened the port range.\n")
 
-        _, _, calls, bodies = self._run(tmp_path, pr_open=False)
+        _, calls, bodies = self._run(tmp_path, pr_open=False)
 
         create = self._creates(calls)[0]
         assert "--body" not in create
@@ -1409,13 +1414,13 @@ class TestCreatePrUsesThePrDraft:
         assert bodies["create"] == "## Overview\n\nWidened the port range.\n"
 
     def test_a_new_pr_without_a_draft_passes_an_empty_body(self, tmp_path):
-        _, _, calls, _ = self._run(tmp_path, pr_open=False)
+        _, calls, _ = self._run(tmp_path, pr_open=False)
 
         create = self._creates(calls)[0]
         assert create[create.index("--body") + 1] == ""
 
     def test_a_new_pr_appends_its_task_id_to_the_title(self, tmp_path):
-        _, _, calls, _ = self._run(
+        _, calls, _ = self._run(
             tmp_path, pr_open=False, task_id="maintenance.2026-09-17"
         )
 
@@ -1425,7 +1430,7 @@ class TestCreatePrUsesThePrDraft:
         )
 
     def test_a_new_pr_without_a_task_id_keeps_its_title(self, tmp_path):
-        _, _, calls, _ = self._run(tmp_path, pr_open=False)
+        _, calls, _ = self._run(tmp_path, pr_open=False)
 
         create = self._creates(calls)[0]
         assert create[create.index("--title") + 1] == "feat/solo"
@@ -1433,7 +1438,7 @@ class TestCreatePrUsesThePrDraft:
     def test_an_existing_pr_gets_the_draft_written_to_its_body(self, tmp_path):
         self._write_draft(tmp_path, "## Overview\n\nRound two.\n")
 
-        _, _, calls, bodies = self._run(tmp_path, pr_open=True)
+        _, calls, bodies = self._run(tmp_path, pr_open=True)
 
         assert self._edits(calls) == [
             ["gh", "pr", "edit", "7", "--body-file", str(PR_DRAFT_PATH)]
@@ -1442,14 +1447,14 @@ class TestCreatePrUsesThePrDraft:
 
     def test_an_existing_pr_without_a_draft_is_left_alone(self, tmp_path):
         """No draft, no edit — the body on GitHub is the author's, not ours."""
-        _, _, calls, _ = self._run(tmp_path, pr_open=True)
+        _, calls, _ = self._run(tmp_path, pr_open=True)
 
         assert self._edits(calls) == []
 
     def test_an_existing_pr_never_has_its_title_touched(self, tmp_path):
         self._write_draft(tmp_path)
 
-        _, _, calls, _ = self._run(tmp_path, pr_open=True)
+        _, calls, _ = self._run(tmp_path, pr_open=True)
 
         assert all("--title" not in c for c in self._edits(calls))
 
@@ -1466,9 +1471,22 @@ class TestCreatePrUsesThePrDraft:
         """Same non-fatal contract as the stack registration: the PR is pushed."""
         draft = self._write_draft(tmp_path)
 
-        url, _, calls, _ = self._run(tmp_path, pr_open=True, edit_fails=True)
+        pushed, calls, _ = self._run(tmp_path, pr_open=True, edit_fails=True)
 
-        assert url == "https://example/pr/7"
+        assert pushed.url == "https://example/pr/7"
         assert self._edits(calls), "the edit was still attempted"
         assert "body" in capsys.readouterr().out.lower()
         assert draft.exists()
+
+    def test_a_new_pr_reports_the_number_from_its_url(self, tmp_path):
+        """The number is what a task registers, so the push must say it."""
+        pushed, _, _ = self._run(tmp_path, pr_open=False)
+        assert (pushed.url, pushed.number, pushed.created) == (
+            "https://github.com/o/r/pull/8",
+            8,
+            True,
+        )
+
+    def test_an_existing_pr_reports_its_own_number(self, tmp_path):
+        pushed, _, _ = self._run(tmp_path, pr_open=True)
+        assert (pushed.number, pushed.created) == (7, False)
