@@ -10,6 +10,7 @@ from pathlib import Path
 from .db import StateDb
 from .migrations.agents import AGENTS
 from .migrations.desk import DESK
+from .migrations.landings import LANDINGS
 from .migrations.spine import SPINE
 from .migrations.task_attachments import TASK_ATTACHMENTS
 from .migrations.task_export import TASK_EXPORT
@@ -24,6 +25,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "task_export": TASK_EXPORT,
     "agents": AGENTS,
     "task_attachments": TASK_ATTACHMENTS,
+    "landings": LANDINGS,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
@@ -42,6 +44,11 @@ TABLES: dict[str, TableSpec] = {
     # The server seeds the world from these rows at start and upserts the
     # document itself when it attaches one, so a write is not news for a client.
     "task_attachments": TableSpec("task_attachments", notifies=False),
+    # GitHub's data about a pull request, read on the worktree poll. No client
+    # draws it, so a write is not news.
+    "pull_requests": TableSpec("pull_requests", cached=True, notifies=False),
+    # The steps each task has reached. Canonical: see docs/dev/data-architecture.md.
+    "task_steps": TableSpec("task_steps", notifies=False),
 }
 
 
