@@ -77,9 +77,9 @@ export function AgentControls({
 }
 
 /**
- * The end-of-work control's options, the usual one first: Terminate while the
- * agent is live, Off desk once it is not. A close or a trash runs first in its
- * chain and sends no stop — see `docs/dev/orchestrator-ui.md`.
+ * The end-of-work control's options. The default is the Dismiss chain — see
+ * `CONTEXT.md`, "Dismiss". A close or a trash runs first in its chain and
+ * sends no stop — see `docs/dev/orchestrator-ui.md`.
  */
 function endOfWorkOptions({
   live,
@@ -117,7 +117,16 @@ function endOfWorkOptions({
           },
         },
       ]
-    : [{ label: 'Off desk', icon: <OffDeskIcon />, run: takeOffDesk }];
+    : [
+        {
+          label: 'Off desk',
+          icon: <OffDeskIcon />,
+          processing: 'Taking off desk…',
+          run: takeOffDesk,
+        },
+      ];
+  // Dismiss runs the close chain when it can, else the widest chain that keeps the worktree.
+  let dismiss = options.at(-1)!;
   if (where && canClose(where)) {
     const lead = live ? 'Terminate, take off desk' : 'Take off desk';
     const held = {
@@ -128,27 +137,28 @@ function endOfWorkOptions({
           ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
           : undefined,
     };
-    options.push(
-      {
-        label: `${lead} & close ${where.nato}`,
-        processing: 'Closing…',
-        ...held,
-        run: async () => {
-          await close();
-          await takeOffDesk();
-        },
+    const closeChain: SplitOption = {
+      label: `${lead} & close ${where.nato}`,
+      processing: 'Closing…',
+      ...held,
+      run: async () => {
+        await close();
+        await takeOffDesk();
       },
-      {
-        label: `${lead} & trash ${where.nato}`,
-        processing: 'Trashing…',
-        ...held,
-        confirm: trashConfirm(where),
-        run: async () => {
-          await trash();
-          await takeOffDesk();
-        },
+    };
+    if (!closeChain.disabled) dismiss = closeChain;
+    options.push(closeChain, {
+      label: `${lead} & trash ${where.nato}`,
+      processing: 'Trashing…',
+      ...held,
+      confirm: trashConfirm(where),
+      run: async () => {
+        await trash();
+        await takeOffDesk();
       },
-    );
+    });
   }
-  return options;
+  return options.map((o) =>
+    o === dismiss ? { ...o, isDefault: true, buttonLabel: 'Dismiss' } : o,
+  );
 }

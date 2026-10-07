@@ -164,7 +164,7 @@ describe('the narrow layout', () => {
     expect(sheet.getByRole('button', { name: 'Compact' })).toBeInTheDocument();
     expect(sheet.getByTitle(/^Permission mode/)).toBeInTheDocument();
     // The node detail under it carries the end-of-work control, so the session does not.
-    expect(sheet.queryByRole('button', { name: 'Terminate' })).toBeNull();
+    expect(sheet.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   });
 
   it('answers a waiting agent from the deck, so a checkpoint is clearable on a phone', async () => {

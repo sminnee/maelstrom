@@ -349,13 +349,25 @@ the user must find each related task in the task list. The list reads `world.tas
 holds every task, so it needs no route of its own.
 
 The task list lists tasks only. Every node card ends its commands with one end-of-work control,
-`ui/SplitButton.tsx`. A click on its label runs the usual act, and its chevron opens the longer
-chains:
+`ui/SplitButton.tsx`. Its button is **Dismiss**, and its chevron opens every chain:
 
-| Node state | Click | Menu |
+| Node state | Menu |
+|---|---|
+| Live agent | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` · Terminate, take off desk & trash `<nato>` |
+| No live agent | Off desk · Take off desk & close `<nato>` · Take off desk & trash `<nato>` |
+
+Dismiss runs one item of the menu. It closes the worktree only when the worktree can close and no
+other top-level agent runs in it:
+
+| Node state | Worktree closes | Dismiss runs |
 |---|---|---|
-| Live agent | Terminate | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` · Terminate, take off desk & trash `<nato>` |
-| No live agent | Off desk | Off desk · Take off desk & close `<nato>` · Take off desk & trash `<nato>` |
+| Live agent | yes | Terminate, take off desk & close `<nato>` |
+| Live agent | no, or no worktree | Terminate & take off desk |
+| No live agent | yes | Take off desk & close `<nato>` |
+| No live agent | no, or no worktree | Off desk |
+
+The menu draws that item bold. In every split button, the bold item is the one the button runs
+(`ui/SplitButton.tsx`).
 
 Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
 `shell/OffDeskIcon.tsx`):
@@ -431,7 +443,7 @@ agent's button is disabled, and its title sends the user to the ask, because an 
 deny that ask and the route's reply would not say so. A question prompt offers that interrupt
 itself, as **Decline & stop**, where the label says what it does to the ask. An exited agent's title says it has gone.
 The node card's Terminate is the other act: it sends `agent.stop`.
-Once the agent has exited, the node card offers Resume beside its Off desk. Resume sends
+Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
 one.
 
