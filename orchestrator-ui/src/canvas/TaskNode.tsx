@@ -80,7 +80,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       </div>
       <div className={styles.meta}>
         <span className={styles.id}>{nodeIdLine(node)}</span>
-        <PrChip worktree={cardPr(node)} className={styles.pr} />
+        <PrChip pr={cardPr(node)} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       <Handle type="source" position={Position.Right} className={styles.handle} />

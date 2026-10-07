@@ -1,99 +1,103 @@
 import { describe, expect, it } from 'vitest';
 
-import type { NodeState } from '../protocol/progress';
-import { makeAgent, makeTask, makeWorktree } from '../fake/fixtures';
-import { cardPr, type CardPrFacts } from './cardPr';
+import { makeTask, makeWorktree } from '../fake/fixtures';
+import type { TaskRow } from '../api/types';
+import { cardPr, chainRegistrations, registeredPr as resolve, type CardPrFacts } from './cardPr';
 
-const STARTED = '2026-09-21T10:00:00+00:00';
+/** `task`'s registration, among `tasks`. */
+const registeredPr = (task: TaskRow, tasks: TaskRow[]) => resolve(task, chainRegistrations(tasks));
 
-function node(state: NodeState, over: Partial<CardPrFacts> = {}): CardPrFacts {
+const URL_42 = 'https://github.com/o/r/pull/42';
+
+function node(over: Partial<CardPrFacts> = {}): CardPrFacts {
   return {
-    kind: 'task',
-    task: makeTask(),
-    agent: undefined,
-    worktree: makeWorktree({ prNumber: 42, prState: 'ready' }),
-    progress: { state, words: '', drift: null, fixStatus: null, echoesStatus: false },
+    registeredPr: { number: 42, url: URL_42 },
+    worktree: makeWorktree({ prNumber: 42, prState: 'ready', prUrl: URL_42 }),
     ...over,
   };
 }
 
-const merged = (prMergedAt: string) =>
-  makeWorktree({ prNumber: 42, prState: 'merged', prMergedAt });
+describe('registeredPr', () => {
+  const parent = 'NORT-1';
+
+  it('is the task’s own registration', () => {
+    const own = makeTask({ prNumber: 42, prUrl: URL_42 });
+    expect(registeredPr(own, [own])).toEqual({ number: 42, url: URL_42 });
+  });
+
+  it('falls back to a chain sibling’s registration', () => {
+    const sibling = makeTask({ id: 'NORT-1.1', parent, prNumber: 42, prUrl: URL_42 });
+    const next = makeTask({ id: 'NORT-1.2', parent });
+    expect(registeredPr(next, [sibling, next])).toEqual({ number: 42, url: URL_42 });
+  });
+
+  it('counts the chain’s root task as part of the chain', () => {
+    const root = makeTask({ id: 'NORT-1', notebookId: parent, prNumber: 42, prUrl: URL_42 });
+    const child = makeTask({ id: 'NORT-1.1', parent });
+    expect(registeredPr(child, [root, child])?.number).toBe(42);
+  });
+
+  it('takes the latest PR of the chain, by number', () => {
+    const old = makeTask({ id: 'NORT-1.1', parent, prNumber: 41, prUrl: 'u41' });
+    const newer = makeTask({ id: 'NORT-1.2', parent, prNumber: 42, prUrl: URL_42 });
+    const next = makeTask({ id: 'NORT-1.3', parent });
+    expect(registeredPr(next, [newer, old, next])?.number).toBe(42);
+    expect(registeredPr(next, [old, newer, next])?.number).toBe(42);
+  });
+
+  it('prefers the task’s own registration over a later one in the chain', () => {
+    const own = makeTask({ id: 'NORT-1.1', parent, prNumber: 41, prUrl: 'u41' });
+    const sibling = makeTask({ id: 'NORT-1.2', parent, prNumber: 42, prUrl: URL_42 });
+    expect(registeredPr(own, [own, sibling])?.number).toBe(41);
+  });
+
+  it('is none when nothing in the chain registered a PR', () => {
+    const task = makeTask({ parent });
+    expect(registeredPr(task, [task, makeTask({ id: 'other', prNumber: 9 })])).toBeUndefined();
+  });
+
+  it('does not cross projects that share a parent name', () => {
+    const elsewhere = makeTask({ id: 'p2/NORT-1.1', project: 'p2', parent, prNumber: 42 });
+    const task = makeTask({ id: 'NORT-1.2', parent });
+    expect(registeredPr(task, [elsewhere, task])).toBeUndefined();
+  });
+});
 
 describe('cardPr', () => {
-  it('shows no PR on a card that has not started, though its branch has an open one', () => {
-    expect(cardPr(node('ready'))).toBeUndefined();
-    expect(cardPr(node('queued'))).toBeUndefined();
+  it('reads the worktree’s state when it holds the registered PR', () => {
+    expect(cardPr(node())).toEqual({ number: 42, url: URL_42, state: 'ready', draft: false });
   });
 
-  it('hides a PR that merged before the card’s agent started', () => {
-    const card = node('working', {
-      agent: makeAgent({ startedAt: STARTED }),
-      worktree: merged('2026-09-20T10:00:00Z'),
+  it('shows no PR when nothing registered one, though the branch has one', () => {
+    expect(cardPr(node({ registeredPr: undefined }))).toBeUndefined();
+  });
+
+  it('draws a registered PR the worktree does not hold with no state', () => {
+    const worktree = makeWorktree({ prNumber: 50, prState: 'merged' });
+    expect(cardPr(node({ worktree }))).toEqual({
+      number: 42,
+      url: URL_42,
+      state: '',
+      draft: false,
     });
-    expect(cardPr(card)).toBeUndefined();
   });
 
-  it('shows a PR that merged after the card’s agent started', () => {
-    const worktree = merged('2026-09-22T10:00:00Z');
-    const card = node('finalising', { agent: makeAgent({ startedAt: STARTED }), worktree });
-    expect(cardPr(card)).toBe(worktree);
+  it('draws a registered PR with no worktree with no state', () => {
+    expect(cardPr(node({ worktree: undefined }))?.state).toBe('');
   });
 
-  it('shows an open PR to a card with an agent: a branch has at most one', () => {
-    const card = node('working', { agent: makeAgent({ startedAt: STARTED }) });
-    expect(cardPr(card)).toBe(card.worktree);
+  it('reads the state off the worktree the caller passes', () => {
+    const passed = makeWorktree({ prNumber: 42, prState: 'merged' });
+    expect(cardPr(node({ worktree: undefined }), passed)?.state).toBe('merged');
   });
 
-  it('shows the merged PR on a finished card with no start time', () => {
-    const card = node('done', { worktree: merged('2026-09-20T10:00:00Z') });
-    expect(cardPr(card)).toBe(card.worktree);
+  it('takes the worktree’s URL when the registration has none', () => {
+    // A bare number registered with no repo URL to build one from.
+    expect(cardPr(node({ registeredPr: { number: 42, url: '' } }))?.url).toBe(URL_42);
   });
 
-  it('hides a PR that merged before the task started, once its agent has gone', () => {
-    const card = node('done', {
-      task: makeTask({ startedAt: STARTED }),
-      worktree: merged('2026-09-20T10:00:00Z'),
-    });
-    expect(cardPr(card)).toBeUndefined();
-  });
-
-  it('keeps the PR a re-run task’s first agent made', () => {
-    const worktree = merged('2026-09-22T10:00:00Z');
-    const card = node('working', {
-      task: makeTask({ startedAt: STARTED }),
-      agent: makeAgent({ startedAt: '2026-09-23T10:00:00+00:00' }),
-      worktree,
-    });
-    expect(cardPr(card)).toBe(worktree);
-  });
-
-  it('shows the merged PR when either time is unknown', () => {
-    const unknownStart = node('working', {
-      agent: makeAgent({ startedAt: '' }),
-      worktree: merged('2026-09-20T10:00:00Z'),
-    });
-    expect(cardPr(unknownStart)).toBe(unknownStart.worktree);
-    const unknownMerge = node('working', {
-      agent: makeAgent({ startedAt: STARTED }),
-      worktree: merged(''),
-    });
-    expect(cardPr(unknownMerge)).toBe(unknownMerge.worktree);
-  });
-
-  it('shows a PR that merged the moment the agent started', () => {
-    const worktree = merged(STARTED);
-    const card = node('working', { agent: makeAgent({ startedAt: STARTED }), worktree });
-    expect(cardPr(card)).toBe(worktree);
-  });
-
-  it('applies the rule to the worktree the caller passes', () => {
-    const card = node('working', { agent: makeAgent({ startedAt: STARTED }), worktree: undefined });
-    expect(cardPr(card, merged('2026-09-20T10:00:00Z'))).toBeUndefined();
-  });
-
-  it('leaves a free agent’s PR alone', () => {
-    const card = node('working', { kind: 'freeAgent', worktree: merged('2026-09-20T10:00:00Z') });
-    expect(cardPr({ ...card, agent: makeAgent({ startedAt: STARTED }) })).toBe(card.worktree);
+  it('draws a same-numbered PR of another repo with no state', () => {
+    const elsewhere = { number: 42, url: 'https://github.com/other/repo/pull/42' };
+    expect(cardPr(node({ registeredPr: elsewhere }))?.state).toBe('');
   });
 });

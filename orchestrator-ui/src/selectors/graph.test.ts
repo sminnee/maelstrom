@@ -313,6 +313,16 @@ describe('deriveGraph', () => {
     expect(graph.nodes.map((n) => n.id)).toEqual(['T2']);
     expect(graph.groups.map((g) => g.id)).toEqual(['maelstrom']);
   });
+
+  it('a node takes its chain’s Registered PR from a sibling that is not drawn', () => {
+    const url = 'https://github.com/acme/northwind/pull/42';
+    const registered = makeTask({ id: 'P.1', parent: 'P', prNumber: 42, prUrl: url });
+    const next = makeTask({ id: 'P.2', parent: 'P' });
+    const world = worldWith({ tasks: [registered, next], desk: onDesk([next]) });
+    const [node] = deriveGraph(world, unfiltered).nodes;
+    expect(node?.id).toBe('P.2');
+    expect(node?.registeredPr).toEqual({ number: 42, url });
+  });
 });
 
 describe('free agents', () => {
@@ -337,6 +347,7 @@ describe('free agents', () => {
       id: 'free1',
       kind: 'freeAgent',
       task: undefined,
+      registeredPr: undefined,
       progress: expect.objectContaining({ state: 'working' }),
     });
     expect(graph.nodes[0]?.worktree?.nato).toBe('alpha');

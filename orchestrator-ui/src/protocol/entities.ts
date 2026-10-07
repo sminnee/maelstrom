@@ -193,6 +193,9 @@ export interface Task {
   base: string;
   /** The model the session switches to when its plan is approved; '' = no switch. */
   executeModel: string;
+  /** The Registered PR: its number, 0 for none, and its URL. */
+  prNumber: number;
+  prUrl: string;
   content: string;
   log: TaskLogEntry[];
   created: string;

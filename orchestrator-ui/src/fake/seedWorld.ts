@@ -68,6 +68,8 @@ interface TaskSpec {
   follows?: string[];
   createdMinutesAgo?: number;
   content?: string;
+  /** The Registered PR's number; its URL is built from the project. */
+  prNumber?: number;
 }
 
 function task(spec: TaskSpec): Task {
@@ -90,6 +92,8 @@ function task(spec: TaskSpec): Task {
     model: '',
     base: '',
     executeModel: '',
+    prNumber: spec.prNumber ?? 0,
+    prUrl: spec.prNumber ? `https://github.com/acme/${spec.project}/pull/${spec.prNumber}` : '',
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
     log: [],
     created,
@@ -377,6 +381,7 @@ body rather than the query builder.
       branch: 'feat/rotate-auth-tokens-for-every-service',
       parent: 'linear.NORT-12',
       createdMinutesAgo: 300,
+      prNumber: 118,
     }),
     task({
       id: 'NORT-3',

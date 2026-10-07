@@ -8,6 +8,7 @@ import chipStyles from '../shell/AttentionChip.module.css';
 import { ExternalLink } from '../shell/ExternalLink';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { PanelLink } from '../shell/PanelLink';
+import { worktreePr } from '../selectors/cardPr';
 import { PrChip } from '../shell/PrChip';
 import barStyles from '../shell/TopBar.module.css';
 import { actionIcon } from './actionIcons';
@@ -162,8 +163,8 @@ function Board({ control, heading }: { control: string; heading: string }) {
         <PanelLink tab={{ key: 'session:a', kind: 'session', agentId: 'a' }}>Session</PanelLink>
         <PanelLink tab={{ key: 'changes:w', kind: 'changes', worktreeId: 'w' }}>Changes</PanelLink>
         <ExternalLink href="https://example.org">cmux</ExternalLink>
-        <PrChip worktree={worktree} size="large" />
-        <PrChip worktree={worktree} />
+        <PrChip pr={worktreePr(worktree)} size="large" />
+        <PrChip pr={worktreePr(worktree)} />
         <SplitChip label="agents" title="4 of 8 agents are working">
           4/8
         </SplitChip>

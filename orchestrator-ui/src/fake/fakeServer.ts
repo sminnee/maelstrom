@@ -1305,6 +1305,8 @@ function makeNewTask(
     priority: str('priority') || 'medium',
     model: str('model'),
     executeModel: str('executeModel'),
+    prNumber: 0,
+    prUrl: '',
     parent: '',
     follows: [],
     base: '',

@@ -1,4 +1,4 @@
-import type { Worktree } from '../protocol/entities';
+import type { PrReading } from '../selectors/cardPr';
 import { describePrState, prTone } from '../selectors/status';
 import { GitHubIcon } from './GitHubIcon';
 import { HueChip } from '../ui/HueChip';
@@ -9,15 +9,16 @@ import { HueChip } from '../ui/HueChip';
  * The one place a pull request is drawn, on a collapsed node, a deck row and
  * the card's footer alike, so the same PR reads the same everywhere. It is the
  * PR-shaped adapter over `HueChip`: it decides which reading a state is and
- * which mark it draws, and the chip knows none of it.
+ * which mark it draws, and the chip knows none of it. A reading with no state
+ * draws the number and link alone.
  */
 export function PrChip({
-  worktree,
+  pr,
   size,
   link = true,
   className,
 }: {
-  worktree?: Worktree;
+  pr?: PrReading;
   size?: 'small' | 'large';
   /**
    * Set false where the chip sits inside a button. An anchor may not nest in
@@ -27,19 +28,19 @@ export function PrChip({
   link?: boolean;
   className?: string;
 }) {
-  if (!worktree?.prNumber) return null;
-  const words = describePrState(worktree.prState, worktree.prDraft);
+  if (!pr?.number) return null;
+  const words = describePrState(pr.state, pr.draft);
   return (
     <HueChip
-      href={(link && worktree.prUrl) || undefined}
+      href={(link && pr.url) || undefined}
       brand={GitHubIcon}
       word={words}
-      tone={prTone(worktree.prState, worktree.prDraft)}
-      label={words ? `PR #${worktree.prNumber}, ${words}` : `PR #${worktree.prNumber}`}
+      tone={prTone(pr.state, pr.draft)}
+      label={words ? `PR #${pr.number}, ${words}` : `PR #${pr.number}`}
       size={size}
       className={className}
     >
-      #{worktree.prNumber}
+      #{pr.number}
     </HueChip>
   );
 }
