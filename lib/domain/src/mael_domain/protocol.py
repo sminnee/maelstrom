@@ -34,6 +34,7 @@ class Project(TypedDict):
 
 #: The **Env state** in ``CONTEXT.md``.
 EnvStateName = Literal["running", "partial", "stopped"]
+PrMatch = Literal["", "match", "differ"]
 
 
 class WorktreeServiceRow(TypedDict):
@@ -81,6 +82,9 @@ class Worktree(TypedDict):
     prDraft: bool
     #: When the PR merged, ISO 8601; ``""`` with no PR or one still open.
     prMergedAt: str
+    #: The **PR match**: ``"match"`` when the local ``HEAD`` is the PR head,
+    #: ``"differ"`` when not, ``""`` with no open PR or an unknown head.
+    prMatch: PrMatch
     env: WorktreeEnv
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.

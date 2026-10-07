@@ -80,6 +80,11 @@ export interface Worktree {
   prDraft: boolean;
   /** When the PR merged, ISO 8601, or `''` when there is no PR or it is open. */
   prMergedAt: string;
+  /**
+   * The **PR match**: `'match'` when the local `HEAD` is the PR head, `'differ'`
+   * when not, `''` with no open PR or an unknown head.
+   */
+  prMatch: '' | 'match' | 'differ';
   /** Absent from a server older than the UI; read it as stopped with no services. */
   env?: WorktreeEnv;
   sessionCount: number;

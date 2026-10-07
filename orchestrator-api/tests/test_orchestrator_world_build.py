@@ -125,6 +125,8 @@ LIST_ALL_ROW = {
     "pr_state": "ready",
     "pr_draft": False,
     "pr_merged_at": "2026-09-01T10:00:00Z",
+    "pr_head_oid": "a1b2c3d",
+    "head_oid": "a1b2c3d",
 }
 
 
@@ -147,6 +149,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "prState": "ready",
         "prDraft": False,
         "prMergedAt": "2026-09-01T10:00:00Z",
+        "prMatch": "match",
         "env": {
             "state": "running",
             "services": [
@@ -217,6 +220,32 @@ def test_worktree_entity_without_a_pr_carries_no_state():
         False,
         "",
     )
+
+
+@pytest.mark.parametrize(
+    "pr_number,pr_state,pr_head_oid,head_oid,expected",
+    [
+        (42, "ready", "a1b2c3d", "a1b2c3d", "match"),
+        (42, "ready", "a1b2c3d", "e4f5a6b", "differ"),
+        (None, None, None, "a1b2c3d", ""),
+        (42, "ready", "", "a1b2c3d", ""),
+        (42, "ready", "a1b2c3d", None, ""),
+        # The branch needs a new PR; the merged one is no merge target.
+        (42, "merged", "a1b2c3d", "e4f5a6b", ""),
+    ],
+)
+def test_worktree_entity_compares_the_local_head_with_the_pr_head(
+    pr_number, pr_state, pr_head_oid, head_oid, expected
+):
+    """The shas stay off the wire; only the verdict travels."""
+    row = {
+        **LIST_ALL_ROW,
+        "pr_number": pr_number,
+        "pr_state": pr_state,
+        "pr_head_oid": pr_head_oid,
+        "head_oid": head_oid,
+    }
+    assert worktree_entity("northwind", row)["prMatch"] == expected
 
 
 def test_worktree_entity_without_a_pr_url_carries_an_empty_string():
