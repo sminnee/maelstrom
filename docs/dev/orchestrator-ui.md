@@ -174,13 +174,16 @@ task with filters for status, project, branch and text, and each row toggles tha
 the desk. The top bar shows Desk, Tasks, Worktrees and Tabs; see "The three layouts". There is one
 filter bar, and it draws the controls of each main view on screen. Project applies to all three
 main views and is always drawn.
-Branch applies to Desk and Tasks only: its options are built from tasks, so a worktree on a branch
-no task names would silently vanish from a table meant to show every one of them. Desk has an
+Branch applies to Desk and Tasks only: a worktree on a branch no work names would silently vanish
+from a table meant to show every one of them. The Project and Branch options are what the views on
+screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
+`deriveGraph`, so no Desk option filters the canvas to nothing. A selected value stays offered
+across a view switch. A selected branch drops out once no view in the world names it. Desk has an
 Agent status control, which the top bar's agents chip also steps through; Tasks has status and
 text controls, and Worktrees has "show closed".
 
-`View` is a union nothing switches on exhaustively; its docstring in `store/uiSlice.ts` lists the
-sites to edit by hand when it widens.
+`View` has one exhaustive switch, in `selectors/filterOptions.ts`. Its docstring in
+`store/uiSlice.ts` lists the other sites to edit by hand when it widens.
 
 ### Which PR a task shows
 

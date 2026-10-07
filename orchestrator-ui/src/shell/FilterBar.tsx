@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { AgentStatusFilter } from '../selectors/filters';
-import { AGENT_STATUS_LABELS, filterOptions } from '../selectors/filters';
+import { AGENT_STATUS_LABELS } from '../selectors/filters';
+import { filterOptions } from '../selectors/filterOptions';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES } from '../protocol/entities';
 import { MultiSelect } from '../ui/MultiSelect';
 import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
+import type { View } from '../store/uiSlice';
 import styles from './FilterBar.module.css';
 
 const TASK_STATUS_OPTIONS = TASK_STATUSES.map((status) => ({ value: status, label: status }));
@@ -25,7 +27,13 @@ export function FilterBar() {
   const setFilters = useAppStore((s) => s.setFilters);
   const setListFilters = useAppStore((s) => s.setListFilters);
   const setWorktreeFilters = useAppStore((s) => s.setWorktreeFilters);
-  const options = filterOptions(world, filters);
+  const views = useMemo(() => showing.filter((p): p is View => p !== 'tabs'), [showing]);
+  const { project, branch } = filters;
+  // The canvas options run the graph over every task, so build them only on a change.
+  const options = useMemo(
+    () => filterOptions(world, { project, branch }, views, worktreeFilters),
+    [world, project, branch, views, worktreeFilters],
+  );
   const stale = filters.branch !== null && !options.branches.some((b) => b.key === filters.branch);
   useEffect(() => {
     // A branch that left the world would filter to an empty canvas while the
@@ -49,9 +57,9 @@ export function FilterBar() {
           ))}
         </select>
       </label>
-      {/* Only for the views that draw tasks: the branch options are built from
-          tasks, so a worktree on a branch no task names would vanish from a
-          table that is meant to show every one of them. */}
+      {/* Only for the Desk and Tasks, which name branches through their work: a
+          worktree on a branch no work names would vanish from a table that is
+          meant to show every one of them. */}
       {(showing.includes('canvas') || showing.includes('list')) && (
         <label className={styles.field}>
           <span>Branch</span>

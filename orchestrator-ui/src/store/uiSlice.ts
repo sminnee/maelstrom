@@ -27,9 +27,10 @@ export type Side = 'left' | 'right';
 /**
  * A main view: the desk, every task, or every worktree.
  *
- * Nothing switches on this exhaustively, so widening it compiles clean —
- * every branch site must be edited by hand. They are AppShell, MobileShell
- * and FilterBar.
+ * Only `originsOf` in `selectors/filterOptions.ts` switches on this
+ * exhaustively. Every other site must be edited by hand when it widens:
+ * AppShell, MobileShell, FilterBar, and the branch-naming views in
+ * `filterOptions`.
  */
 export type View = Exclude<Pane, 'tabs'>;
 
