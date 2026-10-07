@@ -126,6 +126,10 @@ An **Attached document** is canonical too. Its row in `task_attachments` carries
 source can rebuild it once the worktree that held the file is closed. Its media are files in the
 task's **Bucket**, which the notebook's git tree holds.
 
+The `task_steps` table is canonical too. It holds each **Landing** step a task reached, and when
+the server recorded it. GitHub could rebuild the steps, but not the record times. A comms flush
+compares against those times, so a restore that lost them would send each update again.
+
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
 prose queries the table.
@@ -150,6 +154,10 @@ Each row carries `fetched_at`, so "as of four minutes ago" is answerable without
 refresher. Losing the whole table costs one slow read, never data.
 
 Worktrees and pull requests are cached. Git and GitHub own them.
+
+`pull_requests` is declared `cached=True`. It holds GitHub's answer about each
+tracked task's PR: its merge commit, and how far that commit got in each deploy environment. The
+worktree poll refreshes it, and stamps `fetched_at` on each row it read.
 
 ### Pass-through
 
