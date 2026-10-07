@@ -18,6 +18,12 @@ release while that section is empty, and retitles it to the version it is releas
   `## Build run` section with the run URL and the `mael gh check-log` command. See
   [Fire on a finished build](docs/guide/scheduled-work.md#fire-on-a-finished-build).
 
+- **Filter on a phone.** The narrow top bar has a Filters button. It opens a side sheet with the
+  filters of the view on screen, and it counts the filters in force, as "Filters · 2".
+
+- **Search the Desk.** One Search box filters the Desk and Tasks. A task matches by its id or
+  title; a free agent by its id or its title.
+
 - **Follow a task past done with `mael comms list`.** The orchestrator server reads each
   tracked task's **Landing** from GitHub on its worktree poll: merged, then each deploy named
   in the new `deploy:` block. See [`deploy:`](docs/reference/configuration.md#deploy). The
@@ -148,6 +154,9 @@ release while that section is empty, and retitles it to the version it is releas
   ```
 
 ### Fixed
+
+- **A side sheet closes on a phone.** Every side sheet has a Close button. A tap on the
+  backdrop closes a dialog on iOS Safari.
 
 - **A plan-mode build task draws as Plan until its plan is approved.** Its card, tabs and
   document drew Build while the agent wrote the plan. They now switch to Build when you approve

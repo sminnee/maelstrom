@@ -179,9 +179,20 @@ from a table meant to show every one of them. The Project and Branch options are
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
 `deriveGraph`, so no Desk option filters the canvas to nothing. A selected value stays offered
 across a view switch. A selected branch drops out once no view in the world names it. Desk has an
-Agent status control, which the top bar's agents chip also steps through; Tasks has status and
-text controls, and Worktrees has "show closed". A change to any Desk filter fits the canvas to the
-whole desk again. A world update never moves the viewport.
+Agent status control, which the top bar's agents chip also steps through; Tasks has a status
+control, and Worktrees has "show closed". Desk and Tasks share one Search text, `filters.text`
+(`?q=`).
+A task matches by its id, notebook id or title; a free agent by its id or its drawn title. Every
+`deriveGraph` reader follows it, so the attention chip and the New work project radios narrow
+too. The field commits the text after a 200ms pause, so a keystroke does not re-derive every view.
+The field takes a text the URL changes under it, such as one Back returns to.
+A change to any Desk filter fits the canvas to the whole desk again. A world update never moves
+the viewport.
+
+The narrow layout has no room for the bar. A Filters button on the top bar opens it in a side
+sheet, as `<FilterBar layout="stack" />`: one control a row. `useShowing()` is the one main view
+there, so the sheet holds only that view's controls. The button counts the filters off their
+default (`selectors/filterCount.ts`).
 
 `View` has one exhaustive switch, in `selectors/filterOptions.ts`. Its docstring in
 `store/uiSlice.ts` lists the other sites to edit by hand when it widens.
@@ -1034,9 +1045,13 @@ closes the dialog.
 A click on the backdrop closes the dialog by the browser's light dismiss (`closedby="any"`). It
 arrives as `cancel`, the same as Escape, so a caller's unsaved-work guard sees one path. A click
 needs its press and its release outside the box. A descendant, such as a combo box offer that
-draws past the box, is inside by the DOM tree. The box's own padding is inside by its rect. A
-browser without `closedby` (Safari) ignores it: the backdrop does nothing, and Escape and × still
-close.
+draws past the box, is inside by the DOM tree. The box's own padding is inside by its rect.
+
+iOS Safari has no `closedby`, so `Dialog` adds a fallback where `HTMLDialogElement.prototype` has
+no `closedBy`. A click whose target is the dialog itself, at a point outside its rect, calls
+`onClose`. The press must be on the backdrop too, so a drag out of a field does not close. A
+browser with `closedby` gets no fallback, so it does not close twice. jsdom has no
+`closedBy`, so the suite runs the fallback.
 
 A caller that fills the viewport has no outside, so it needs a close control of its own: below
 839px the box is the full screen. `ui/ImageLightbox.tsx` is the one such caller and carries a
@@ -1230,7 +1245,8 @@ so a panel tab draws its own head. The screen decides in TypeScript, not CSS, be
 runs with no CSS. The open state holds the screen it was opened for, so a screen change closes the
 sheet. The two target setters stay out of the context value: the React compiler lint reads an
 object that holds a callback ref as a ref. `orchestrator-ui/DESIGN.md`, "The One Strip Rule", says
-what each screen puts where.
+what each screen puts where. `ui/SideSheet.tsx` draws every side sheet: the dialog at the right
+edge, and a head row that starts with a bare × named Close. The More sheet and the Filters sheet both use it.
 
 The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also renders. Only the
 shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
@@ -1284,7 +1300,7 @@ moves — fit, pan, zoom — never touch the URL.
 **Push, replace or go back.** A move pushes a history entry, so Back undoes it. Each pushed
 entry records the href it was pushed from. These moves replace the entry instead:
 
-- A search keystroke, so Back leaves the search and not one letter.
+- A search, committed after a 200ms pause, so Back leaves the search and not one word.
 - Prev and Next in the editor, so Back closes the editor.
 - Collapsing a card whose node a filter hid: Back must not return to what is gone.
 - Dropping a branch filter that left the world: the user did not pick it.

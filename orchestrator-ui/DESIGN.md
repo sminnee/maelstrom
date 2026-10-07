@@ -566,7 +566,9 @@ side sheet that More opens from the right edge:
 | Session  | the agent; Stop               | the state, the mode, the meta line, Compact, the subagents |
 | Document | the title                     | the task, phase, version, status, Session link, siblings   |
 
-The readings and New are at the top of every sheet. A pick in the sheet that navigates closes it.
+The readings and New are at the top of the More sheet. A pick in the sheet that navigates closes
+it. Every side sheet starts its head row with a bare × named Close. It has no caption, as Back
+and More have none. A tap on the backdrop closes the sheet too, but a phone user cannot see that.
 The review dock stays on the Document screen, because it is the terminal act (§ Review Dock).
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
@@ -592,7 +594,9 @@ stale figure is read: `SplitChip` greys it and its title gives its age. The narr
 quiet row at that cost.
 
 The chrome is two rows on the deck. The first row holds the brand, the readings, the attention
-chip and New. The second row holds Desk, Tasks and Worktrees at equal thirds. That row is
+chip, Filters and New. Filters opens the side sheet with the filters of the view on screen, one
+control a row. Its caption counts the filters in force, as "Filters · 2", so a filtered view
+never looks like the whole: the Nothing Hidden Rule. The sheet stays open while a filter changes. The second row holds Desk, Tasks and Worktrees at equal thirds. That row is
 navigation, not chrome, so the deck keeps it. A pushed screen replaces both rows with the screen
 strip (The One Strip Rule).
 
