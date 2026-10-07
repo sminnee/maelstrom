@@ -118,7 +118,6 @@ function node(over: {
     task: t,
     agent: a,
     worktree: over.worktree ?? worktree(),
-    registeredPr: undefined,
     progress: progressOf(t, a, []),
     // Read from the task, never set by hand: a free agent has no task and so
     // no phase, exactly as `deriveGraph` has it.

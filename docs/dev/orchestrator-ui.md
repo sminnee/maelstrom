@@ -190,20 +190,10 @@ whole desk again. A world update never moves the viewport.
 
 A pull request belongs to a branch, and a branch outlives the task that made its PR. A later task
 on a recycled branch would resolve to the earlier task's PR. So the node, the deck row and the
-expanded card show only a task's **Registered PR**, never the branch's PR.
+expanded card show only the task's own **Registered PR**: never the branch's PR, and never another
+PR in its **Chain**. A free agent's card shows no PR.
 
-| The task | Shows |
-|---|---|
-| It has a Registered PR | Its own PR |
-| A task in its chain has one | The highest-numbered PR in the chain |
-| Nothing in its chain has one | No PR |
-| It is a free agent's card | No PR |
-
-A task's **Chain** here also holds the task its `parent` names, so a root task's PR reaches its
-children and back.
-
-`deriveGraph` resolves the registration once per node, onto `GraphNode.registeredPr`, because the
-chain needs every task and a node holds only its own. `selectors/cardPr.ts` then reads the state:
+`selectors/cardPr.ts` reads the task's registration, then its state:
 
 - When the worktree's `prNumber` equals the registered number, the chip takes the worktree's
   state, draft flag and colour.

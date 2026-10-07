@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveGraph } from './graph';
+import { cardPr } from './cardPr';
 import { noFilters } from './filters';
 import { deskIdForAgent } from '../protocol/deskId';
 import {
@@ -314,14 +315,14 @@ describe('deriveGraph', () => {
     expect(graph.groups.map((g) => g.id)).toEqual(['maelstrom']);
   });
 
-  it('a node takes its chain’s Registered PR from a sibling that is not drawn', () => {
+  it('a node shows its own Registered PR, not one its chain registered', () => {
     const url = 'https://github.com/acme/northwind/pull/42';
-    const registered = makeTask({ id: 'P.1', parent: 'P', prNumber: 42, prUrl: url });
-    const next = makeTask({ id: 'P.2', parent: 'P' });
-    const world = worldWith({ tasks: [registered, next], desk: onDesk([next]) });
-    const [node] = deriveGraph(world, unfiltered).nodes;
-    expect(node?.id).toBe('P.2');
-    expect(node?.registeredPr).toEqual({ number: 42, url });
+    const root = makeTask({ id: 'P', notebookId: 'P', prNumber: 42, prUrl: url });
+    const child = makeTask({ id: 'P.1', parent: 'P' });
+    const world = worldWith({ tasks: [root, child], desk: onDesk([root, child]) });
+    const byId = new Map(deriveGraph(world, unfiltered).nodes.map((n) => [n.id, n]));
+    expect(cardPr(byId.get('P')!)?.number).toBe(42);
+    expect(cardPr(byId.get('P.1')!)).toBeUndefined();
   });
 });
 
@@ -347,7 +348,6 @@ describe('free agents', () => {
       id: 'free1',
       kind: 'freeAgent',
       task: undefined,
-      registeredPr: undefined,
       progress: expect.objectContaining({ state: 'working' }),
     });
     expect(graph.nodes[0]?.worktree?.nato).toBe('alpha');
