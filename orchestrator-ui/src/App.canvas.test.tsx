@@ -23,6 +23,20 @@ function menuLabels(card: HTMLElement): (string | null)[] {
     .map((i) => i.getAttribute('aria-label'));
 }
 
+/** The label of the end-of-work item that Dismiss runs, read from its menu. */
+async function dismissRuns(
+  user: ReturnType<typeof userEvent.setup>,
+  card: HTMLElement,
+): Promise<string | null> {
+  // The env control in the worktree area has a menu of the same name.
+  await user.click(commands(card).getByRole('button', { name: 'More actions' }));
+  const item = within(card)
+    .getAllByRole('menuitem')
+    .find((i) => i.hasAttribute('data-default'));
+  await user.keyboard('{Escape}');
+  return item?.getAttribute('aria-label') ?? null;
+}
+
 describe('App', () => {
   it('renders the app title beside the mark', async () => {
     await renderApp();
@@ -58,28 +72,49 @@ describe('App', () => {
     expect(handles[0]).toHaveClass('connectable');
   });
 
-  it('offers Terminate while the agent is live, and Off desk once it has stopped', async () => {
+  it('dismisses a live agent that shares its worktree with a stop, and sends no close', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
-    // Live, the card's end-of-work control terminates.
-    expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
+    // c3e8f1b5 still runs in maelstrom-bravo, so Dismiss does not close it.
+    expect(await dismissRuns(user, card)).toBe('Terminate & take off desk');
+    const before = server.requests.length;
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument(),
+    );
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/agents/f2c6a9d4/stop',
+      'DELETE /api/desk/agent:f2c6a9d4',
+    ]);
+    expect(
+      screen.queryByRole('dialog', { name: 'bravo · feat/task-index' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('dismisses a stopped agent that shares its worktree with Off desk alone', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('f2c6a9d4');
+    const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
     server.change({ kind: 'agent', ids: ['f2c6a9d4'] }, (w) => {
       w.agents['f2c6a9d4'] = { ...w.agents['f2c6a9d4']!, state: 'exited', exitCode: 0 };
     });
     await waitFor(() =>
-      expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument(),
+      expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument(),
     );
-    expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Off desk',
       'Take off desk & close bravo',
       'Take off desk & trash bravo',
     ]);
+    expect(within(card).getByRole('menuitem', { name: 'Off desk' })).toHaveAttribute(
+      'data-default',
+    );
     // c3e8f1b5 still runs in maelstrom-bravo.
     expect(
       within(card).getByRole('menuitem', { name: 'Take off desk & close bravo' }),
@@ -90,10 +125,12 @@ describe('App', () => {
     await user.keyboard('{Escape}');
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
-    await user.click(commands(card).getByRole('button', { name: 'Off desk' }));
+    const before = server.requests.length;
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument(),
     );
+    expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/agent:f2c6a9d4']);
   });
 
   it('takes a task with no agent off the desk from its own card', async () => {
@@ -103,14 +140,14 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'Watch the migration PR' });
 
     const before = server.requests.length;
-    await user.click(commands(card).getByRole('button', { name: 'Off desk' }));
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument(),
     );
     expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/task:NORT-9.1']);
   });
 
-  it('closes the worktree of a stopped agent, then takes it off the desk', async () => {
+  it('dismisses a stopped agent alone in its worktree with a close, then takes it off the desk', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
@@ -124,10 +161,10 @@ describe('App', () => {
     clickNode('NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
 
-    await commands(card).findByRole('button', { name: 'Off desk' });
-    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    await within(card).findByRole('button', { name: 'Resume' });
+    expect(await dismissRuns(user, card)).toBe('Take off desk & close alpha');
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & close alpha' }));
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
     );
@@ -150,7 +187,7 @@ describe('App', () => {
     });
     clickNode('NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
-    await commands(card).findByRole('button', { name: 'Off desk' });
+    await within(card).findByRole('button', { name: 'Resume' });
     const before = server.requests.length;
 
     // Picking it asks, and sends nothing.
@@ -174,16 +211,16 @@ describe('App', () => {
     ]);
   });
 
-  it('draws a plain Off desk, with no menu, on a task with no worktree to close', async () => {
+  it('draws a plain Dismiss, with no menu, on a task with no worktree to close', async () => {
     await renderApp();
     clickNode('NORT-15');
     const card = screen.getByRole('dialog', { name: 'Shape the reporting module' });
 
-    expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument();
+    expect(commands(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
   });
 
-  it('draws a plain Off desk, with no menu, when the worktree is closed already', async () => {
+  it('draws a plain Dismiss, with no menu, when the worktree is closed already', async () => {
     const { server } = await renderApp();
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
@@ -195,9 +232,9 @@ describe('App', () => {
     });
 
     await waitFor(() =>
-      expect(commands(card).getByRole('button', { name: 'Off desk' })).toBeInTheDocument(),
+      expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument(),
     );
-    expect(within(card).queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument();
+    expect(commands(card).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
   });
 
   it('resumes a terminated agent from the card that terminated it, and terminate sends only a stop', async () => {
@@ -206,27 +243,19 @@ describe('App', () => {
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('button', { name: 'Terminate' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Terminate' }));
     await waitFor(() =>
       expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument(),
     );
     expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
-    expect(within(card).queryByRole('button', { name: 'Terminate' })).not.toBeInTheDocument();
 
     await user.click(within(card).getByRole('button', { name: 'Resume' }));
     await waitFor(() =>
-      expect(within(card).getByRole('button', { name: 'Terminate' })).toBeInTheDocument(),
+      expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument(),
     );
-    expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
-  });
-
-  it('terminates a live agent and takes it off the desk in one choice', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    clickNode('NORT-9');
-    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
-
+    // Live again, the control offers the live chains.
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Terminate',
@@ -234,32 +263,17 @@ describe('App', () => {
       'Terminate, take off desk & close bravo',
       'Terminate, take off desk & trash bravo',
     ]);
-    const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
-    );
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/agents/d9a4c7f1/stop',
-      'DELETE /api/desk/task:NORT-9',
-    ]);
-    expect(
-      screen.queryByRole('dialog', { name: 'Migrate to Postgres 16' }),
-    ).not.toBeInTheDocument();
   });
 
-  it('closes the worktree, then takes the node off the desk, with no stop of its own', async () => {
+  it('dismisses a live agent alone in its worktree with a close, then takes it off the desk', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-12');
     const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
 
-    // The env control in the worktree area has a menu of the same name.
-    await user.click(commands(card).getByRole('button', { name: 'More actions' }));
+    expect(await dismissRuns(user, card)).toBe('Terminate, take off desk & close delta');
     const before = server.requests.length;
-    await user.click(
-      within(card).getByRole('menuitem', { name: 'Terminate, take off desk & close delta' }),
-    );
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-12"]')).not.toBeInTheDocument(),
     );
@@ -270,20 +284,16 @@ describe('App', () => {
     ]);
   });
 
-  it('leaves the node on the desk when the close refuses, and says why', async () => {
+  it('leaves the node on the desk when the close of a Dismiss refuses, and says why', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
-    await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    const close = within(card).getByRole('menuitem', {
-      name: 'Terminate, take off desk & close bravo',
-    });
     // The subagent d9a4c7f1.1 is live in the same worktree, and does not hold the close.
-    expect(close).not.toHaveAttribute('aria-disabled');
+    expect(await dismissRuns(user, card)).toBe('Terminate, take off desk & close bravo');
     const before = server.requests.length;
-    await user.click(close);
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     const alert = await within(card).findByRole('alert');
     expect(alert.closest('button')).toHaveAttribute('title', 'Worktree has uncommitted changes');
     expect(commandsSince(server, before)).toEqual(['POST /api/worktrees/northwind-bravo/close']);

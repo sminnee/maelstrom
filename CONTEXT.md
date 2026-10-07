@@ -480,7 +480,7 @@ Abandoning the turn an agent is running, and leaving the agent alive to take the
 Four surfaces offer it to the user: `mael agent interrupt`, Esc in teleport, the session tab's
 **Stop** button, and a question prompt's **Decline & stop**. An interrupt of a waiting agent denies the open ask first, with the
 reason `Interrupted by user`; answer or deny the ask instead. This is not **stop**, which ends
-the agent's process group and is terminal — the node card labels that button **Terminate**. The
+the agent's process group and is terminal — the node card labels that act **Terminate**. The
 wire says what the daemon says; the UI says what the user means.
 _Avoid_: Cancel, abort, kill
 
@@ -947,10 +947,17 @@ _Avoid_: Add to desk, pin
 
 **Off desk**:
 Taking a node off the desk. Off desk never stops an agent; **stop** does, and the node card
-offers both in one control — see `docs/dev/orchestrator-ui.md`. A button says "Off desk"; a
-label that joins it to another act uses the verb form, "take off desk", as in "Terminate & take
-off desk".
-_Avoid_: Dismiss, Remove from desk, Hide, archive
+offers both in one control, behind its **Dismiss** button — see `docs/dev/orchestrator-ui.md`. A
+menu item or a list button says "Off desk"; a label that joins it to another act uses the verb
+form, "take off desk", as in "Terminate & take off desk".
+_Avoid_: Remove from desk, Hide, archive
+
+**Dismiss**:
+The usual end of work on a node: **stop** its agent, take it **off desk**, and close its
+worktree when it can close and no other top-level agent runs there. It is the button of the
+node card's end-of-work control. A close refuses a dirty tree or unmerged commits, so Dismiss
+fails on a branch whose PR is not merged yet, and the node stays on the desk.
+_Avoid_: Done, Finish, Remove
 
 **Active branch**:
 A branch with a desk entry at it — a task through the notebook, an agent through its worktree.

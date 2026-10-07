@@ -187,7 +187,12 @@ function Board({ control, heading }: { control: string; heading: string }) {
             variant="quiet"
             options={[
               { label: 'Terminate', icon: actionIcon('terminate'), run: later },
-              { label: 'Terminate & take off desk', run: later },
+              {
+                label: 'Terminate & take off desk',
+                isDefault: true,
+                buttonLabel: 'Dismiss',
+                run: later,
+              },
             ]}
           />
           <SplitButton
@@ -274,7 +279,13 @@ const terminateAt = (corner: CSSProperties) => (
     <SplitButton
       options={[
         { label: 'Terminate', icon: actionIcon('terminate'), run: later },
-        { label: 'Terminate & take off desk', icon: <OffDeskIcon />, run: later },
+        {
+          label: 'Terminate & take off desk',
+          icon: <OffDeskIcon />,
+          isDefault: true,
+          buttonLabel: 'Dismiss',
+          run: later,
+        },
         {
           label: 'Terminate, take off desk & close charlie',
           icon: <OffDeskIcon />,
@@ -296,7 +307,7 @@ const terminateAt = (corner: CSSProperties) => (
 
 /**
  * A split button in each corner of the screen, as the detail screen's command
- * bar draws Terminate. What to look at, at 390px: each menu opens toward the
+ * bar draws Dismiss. What to look at, at 390px: each menu opens toward the
  * free space and stays on the screen.
  */
 export const MenuAtTheEdges: Story = () => (
