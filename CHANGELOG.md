@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Follow a task past done with `mael comms list`.** The orchestrator server reads each
+  tracked task's **Landing** from GitHub on its worktree poll: merged, then each deploy named
+  in the new `deploy:` block. See [`deploy:`](docs/reference/configuration.md#deploy). The
+  deploy reads need `deployments: read` on the server's token.
+
 - **Restart only the services an update changed.** In a project with a `pipeline.toml`, each
   service records its service version when it starts: the hash of the tangier SHA bucket named
   after it. `mael env restart --changed` restarts only the running services whose service
