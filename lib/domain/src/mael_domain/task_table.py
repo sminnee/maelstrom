@@ -59,6 +59,7 @@ _SCALARS = (
     "execute_model",
     "pr_number",
     "pr_url",
+    "trigger",
     "content",
     "log",
 )

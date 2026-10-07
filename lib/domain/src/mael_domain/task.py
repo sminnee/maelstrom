@@ -153,8 +153,8 @@ class _FieldSpec:
 #
 # ``block=True`` marks a field a ``load-many`` block may set. Deliberately *not*
 # block-settable: ``id``/``project``/``created``/``updated``/``follows`` are
-# derived or allocated, never user-set; ``schedule``/``last-run`` only mean
-# anything on a ``template/`` task and a block cannot create one (there is no
+# derived or allocated, never user-set; ``schedule``/``last-run``/``trigger`` only
+# mean anything on a ``template/`` task and a block cannot create one (there is no
 # ``status`` block key), so accepting them would be inert.
 TASK_FIELDS = (
     _FieldSpec("id"),
@@ -194,6 +194,8 @@ TASK_FIELDS = (
     # CONTEXT.md, "Registered PR".
     _FieldSpec("pr", attr_name="pr_number"),
     _FieldSpec("pr-url"),
+    # What fires a template. See CONTEXT.md, "Trigger".
+    _FieldSpec("trigger"),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -282,6 +284,8 @@ class Task:
     # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
     pr_number: int = 0
     pr_url: str = ""
+    # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
+    trigger: str = ""
     content: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
@@ -342,6 +346,7 @@ class Task:
             execute_model=str(frontmatter.get("execute-model", "")),
             pr_number=_coerce_pr_number(frontmatter.get("pr")),
             pr_url=str(frontmatter.get("pr-url", "")),
+            trigger=str(frontmatter.get("trigger", "")),
             content=sections.get("content", ""),
             log=sections.get("log", ""),
             status=status,
@@ -666,6 +671,7 @@ async def create(
     content: str = "",
     schedule: str = "",
     last_run: str = "",
+    trigger: str = "",
     priority: str = "",
     id: str | None = None,
     status: str = DEFAULT_STATUS,
@@ -725,6 +731,7 @@ async def create(
         updated=timestamp,
         schedule=schedule,
         last_run=last_run,
+        trigger=trigger,
         priority=resolved_priority,
         model=model,
         execute_model=execute_model,
@@ -753,6 +760,7 @@ async def duplicate(
     parent: str = "",
     follows: list[str] | None = None,
     schedule: str = "",
+    trigger: str = "",
     priority: str | None = None,
     status: str = DEFAULT_STATUS,
     id: str | None = None,
@@ -764,8 +772,9 @@ async def duplicate(
     title/command/mode/model/content/pre_action/post_action; any non-``None`` override
     wins over the copied default. Source-agnostic — works from any status,
     including ``template/`` — and never mutates the source. ``schedule``/
-    ``last_run`` are intentionally *not* copied: ``schedule`` is set only from the
-    explicit override (so a run never inherits its template's cron).
+    ``trigger``/``last_run`` are intentionally *not* copied: ``schedule`` and
+    ``trigger`` are set only from the explicit override (so a run never inherits
+    its template's cron or trigger).
 
     ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
     duplicate. For a scheduled run pass ``parent=""`` and
@@ -792,6 +801,7 @@ async def duplicate(
         parent=parent,
         follows=follows,
         schedule=schedule,
+        trigger=trigger,
         priority=priority if priority is not None else src.priority,
         status=status,
         id=id,
@@ -1239,6 +1249,7 @@ async def update(
     post_action: str | None = None,
     schedule: str | None = None,
     last_run: str | None = None,
+    trigger: str | None = None,
     priority: str | None = None,
     follows: list[str] | None = None,
     now: str | None = None,
@@ -1274,6 +1285,8 @@ async def update(
         task.schedule = schedule
     if last_run is not None:
         task.last_run = last_run
+    if trigger is not None:
+        task.trigger = trigger
     if priority is not None:
         validate_priority(priority)
         task.priority = priority
