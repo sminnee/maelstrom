@@ -179,6 +179,9 @@ describe('the wide layout: two slots', () => {
     expect(screen.queryByLabelText('Branch')).toBeNull();
     expect(screen.queryByLabelText('Agent status')).toBeNull();
     expect(screen.queryByLabelText('Search')).toBeNull();
+    // The Desk alone shows Search too: it shares the one text with Tasks.
+    await user.click(item('Desk'));
+    expect(screen.getAllByLabelText('Search')).toHaveLength(1);
   });
 
   it('draws Branch for the desk beside the worktree table, but not for the table alone', async () => {

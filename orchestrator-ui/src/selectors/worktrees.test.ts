@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { makeAgent, makeWorktree, worldWith } from '../fake/fixtures';
+import { noFilters } from './filters';
 import { listWorktrees, noWorktreeFilters } from './worktrees';
 
-const filters = { project: null, branch: null };
+const filters = noFilters();
 
 describe('listWorktrees', () => {
   it('groups worktrees by project, projects in name order', () => {

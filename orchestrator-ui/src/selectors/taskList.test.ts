@@ -65,14 +65,14 @@ describe('listTasks', () => {
     expect(rows({ statuses: ['done'] })).toEqual(['northwind/NORT-9']);
   });
 
-  it('matches text against the id, the notebook id and the title', () => {
-    expect(anyStatus({ text: 'NORT-9' })).toEqual(['northwind/NORT-9']);
-    expect(anyStatus({ text: 'order export' })).toEqual(['northwind/NORT-7']);
-    expect(anyStatus({ text: 'maelstrom/' })).toEqual(['maelstrom/MAEL-1']);
+  it('matches the shared text against the id, the notebook id and the title', () => {
+    expect(anyStatus({}, { text: 'NORT-9' })).toEqual(['northwind/NORT-9']);
+    expect(anyStatus({}, { text: 'order export' })).toEqual(['northwind/NORT-7']);
+    expect(anyStatus({}, { text: 'maelstrom/' })).toEqual(['maelstrom/MAEL-1']);
   });
 
   it('matches text whatever its case', () => {
-    expect(anyStatus({ text: 'ORDER' })).toEqual(['northwind/NORT-7']);
+    expect(anyStatus({}, { text: 'ORDER' })).toEqual(['northwind/NORT-7']);
   });
 
   it('narrows by project and by branch', () => {

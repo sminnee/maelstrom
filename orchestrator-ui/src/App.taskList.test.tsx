@@ -116,7 +116,7 @@ describe('the task list', () => {
     const { router } = await renderApp({ url: '/tasks?status=all' });
     expect(listedIds()).toEqual(Object.keys(seedWorld().world.tasks).sort());
     await user.type(screen.getByLabelText('Search'), 'NORT');
-    expect(router.state.location.search).toBe('?status=all&q=NORT');
+    await waitFor(() => expect(router.state.location.search).toBe('?status=all&q=NORT'));
     expect(router.state.historyAction).toBe('REPLACE');
   });
 

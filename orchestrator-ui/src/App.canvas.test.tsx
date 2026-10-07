@@ -542,6 +542,36 @@ describe('grouping and filters', () => {
     expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument();
   });
 
+  it('one Search filters the Desk nodes and the Tasks rows', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const deskIds = () =>
+      screen.getAllByTestId('task-node').map((node) => node.getAttribute('data-task-id'));
+
+    await user.type(screen.getByLabelText('Search'), 'ORDER EXPORT');
+    await waitFor(() => expect(deskIds().sort()).toEqual(['NORT-7', 'NORT-7.1']));
+
+    await user.click(paneItem('Tasks'));
+    expect(screen.getByLabelText('Search')).toHaveValue('ORDER EXPORT');
+    const rowIds = [...screen.getByTestId('task-list').querySelectorAll('[data-task-id]')].map(
+      (row) => row.getAttribute('data-task-id'),
+    );
+    expect(rowIds.sort()).toEqual(['NORT-7', 'NORT-7.1']);
+  });
+
+  it('shows the Search a Back returns to', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    const search = () => screen.getByLabelText('Search');
+    await user.type(search(), 'order');
+    await waitFor(() => expect(router.state.location.search).toBe('?q=order'));
+    await user.selectOptions(screen.getByLabelText('Project'), 'northwind');
+    await user.clear(search());
+    await waitFor(() => expect(router.state.location.search).toBe('?project=northwind'));
+    await act(() => router.navigate(-1));
+    expect(search()).toHaveValue('order');
+  });
+
   it('filtering by branch removes the nodes of other branches', async () => {
     const user = userEvent.setup();
     await renderApp();
