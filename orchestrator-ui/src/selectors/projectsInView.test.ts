@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { projectsInView } from './projectsInView';
 import { noFilters } from './filters';
-import { makeAgent, makeProject, makeTask, onDesk, worldWith } from '../fake/fixtures';
+import {
+  makeAgent,
+  makeProject,
+  makeTask,
+  makeWorktree,
+  onDesk,
+  worldWith,
+} from '../fake/fixtures';
 
 describe('projectsInView', () => {
   /** A world whose every task is drawn, which is what the canvas shows. */
@@ -38,6 +45,14 @@ describe('projectsInView', () => {
       agents: [makeAgent({ id: 'free-1', taskId: '', project: 'riverbend' })],
     });
     expect(projectsInView(withAgent, noFilters())).toEqual(['riverbend']);
+  });
+
+  it("reads a free agent's project off its worktree when the agent names none", () => {
+    const inWorktree = worldWith({
+      worktrees: [makeWorktree({ id: 'riverbend-alpha', project: 'riverbend' })],
+      agents: [makeAgent({ id: 'free-1', taskId: '', project: '', worktreeId: 'riverbend-alpha' })],
+    });
+    expect(projectsInView(inWorktree, noFilters())).toEqual(['riverbend']);
   });
 
   it('names nothing when the canvas draws nothing', () => {
