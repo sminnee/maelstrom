@@ -262,6 +262,18 @@ describe('the expanded node', () => {
       expect(within(expanded()).queryByRole('button', { name: 'Merge' })).toBeNull();
     });
 
+    it('offers Merge disabled while the local branch differs from the PR', async () => {
+      const { server } = await renderApp();
+      clickNode('NORT-12');
+      makeDeltaReady(server, { prMatch: 'differ' });
+      const merge = await within(expanded()).findByRole('button', { name: 'Merge' });
+      expect(merge).toBeDisabled();
+      expect(merge).toHaveAttribute(
+        'title',
+        'The local branch differs from the PR. Sync it first.',
+      );
+    });
+
     it('a refused merge says what GitHub said, and keeps the question open', async () => {
       const user = userEvent.setup();
       const { server } = await renderApp();
