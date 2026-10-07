@@ -27,7 +27,9 @@ from mael_daemon.agent_model import (
     build_agent_row,
 )
 from mael_domain import task as model
+from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
+from mael_domain.landing import Landings, Merge, NoLandingSignals, TrackedTask
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
@@ -5231,6 +5233,71 @@ def test_a_rate_limited_read_stands_the_poll_off(harness_factory):
 
     # 0.15s of a 0.02s interval is roughly 7 ticks, and a subscriber arriving
     # would normally read too. The stand-off must collapse every one of them.
+    assert asyncio.run(scenario()) == 0
+
+
+class _MergedSignals(NoLandingSignals):
+    """GitHub says PR 7 merged, and knows nothing about any deploy."""
+
+    async def merges(self, project, numbers):
+        return {7: Merge(url="u/7", title="Add x", merged_at="T0", merge_sha="m7")}
+
+
+class _SpentSignals(NoLandingSignals):
+    async def merges(self, project, numbers):
+        raise RateLimited("spent")
+
+
+async def _one_done_task():
+    return [TrackedTask(PROJECT, "t1", "done", 7)]
+
+
+def test_the_worktree_read_records_each_landing_step(harness_factory):
+    landings = Landings(signals=_MergedSignals(), tracked=_one_done_task)
+    harness = harness_factory(landings=landings)
+
+    async def scenario():
+        await harness.orch.refresh_worktrees()
+        return [(e.step, e.at) for e in await landings.steps.list()]
+
+    assert asyncio.run(scenario()) == [("done", NOW), ("merged", "T0")]
+
+
+class _BrokenSignals(NoLandingSignals):
+    async def merges(self, project, numbers):
+        raise RuntimeError("gh is broken")
+
+
+def test_a_failed_landing_sync_still_applies_the_worktree_read(harness_factory):
+    landings = Landings(signals=_BrokenSignals(), tracked=_one_done_task)
+    harness = harness_factory(rate_limit_cooldown=30.0, landings=landings)
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        with harness.orch.notices.subscribe():
+            await asyncio.sleep(0.15)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled, set(harness.orch.world["worktrees"])
+
+    reads, worktrees = asyncio.run(scenario())
+    assert reads > 0, "a landing failure must not stand the poll off"
+    assert worktrees == {"northwind-alpha"}
+
+
+def test_a_rate_limited_landing_read_stands_the_poll_off(harness_factory):
+    """The merge read spends the same GraphQL budget as the worktree read."""
+    landings = Landings(signals=_SpentSignals(), tracked=_one_done_task)
+    harness = harness_factory(rate_limit_cooldown=30.0, landings=landings)
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        with harness.orch.notices.subscribe():
+            await asyncio.sleep(0.15)
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
     assert asyncio.run(scenario()) == 0
 
 

@@ -26,6 +26,9 @@ from mael_domain.desk_store import SqliteDeskStore
 from mael_domain.env import refresh_env
 from mael_domain.env_store import JsonEnvStore
 from mael_domain.github_model import GitHubError
+from mael_domain.landing import Landings, project_config, tracked_tasks
+from mael_domain.landing_github import GhLandingSignals
+from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
@@ -257,9 +260,13 @@ def build_orchestrator(
         return cmux.terminal_urls(worktrees) if cmux else {}
 
     agent_store = SqliteAgentStore(state_db)
+
+    def list_projects() -> list[str]:
+        return [path.name for path in find_all_projects(projects_dir)]
+
     tasks = NotebookTaskSource(
         table,
-        lambda: [path.name for path in find_all_projects(projects_dir)],
+        list_projects,
         open_worktree=open_worktree,
         agents=agent_store,
     )
@@ -287,6 +294,13 @@ def build_orchestrator(
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
         task_attachments=SqliteTaskAttachmentTable(state_db),
+        landings=Landings(
+            prs=SqlitePullRequestStore(state_db),
+            steps=SqliteTaskStepStore(state_db),
+            signals=GhLandingSignals(projects_dir),
+            tracked=lambda: tracked_tasks(table, list_projects()),
+            config_for=lambda project: project_config(projects_dir, project),
+        ),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.
