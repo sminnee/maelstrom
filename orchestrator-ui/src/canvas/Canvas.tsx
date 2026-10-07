@@ -27,6 +27,7 @@ import { WORKTREE_CARD_WIDTH, WorktreeCard } from './WorktreeCard';
 import { TaskNode, type TaskFlowNode } from './TaskNode';
 import { WorktreeBoxNode, type WorktreeBoxFlowNode } from './WorktreeBoxNode';
 import { ZonesNode, type ZonesFlowNode } from './ZonesNode';
+import { VIEW_MOVE_MS } from './viewport';
 import styles from './Canvas.module.css';
 
 const nodeTypes = {
@@ -188,7 +189,7 @@ export function Canvas() {
         : undefined;
     if (!at || getZoom() >= LEGIBLE_ZOOM) return;
     const width = expandedNodeId ? CARD_WIDTH : WORKTREE_CARD_WIDTH;
-    void setCenter(at.x + width / 2, at.y + CARD_CENTRE_Y, { zoom: 1, duration: 300 });
+    void setCenter(at.x + width / 2, at.y + CARD_CENTRE_Y, { zoom: 1, duration: VIEW_MOVE_MS });
     // Only on expand: a later relayout must not move the viewport.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedNodeId, expandedWorktreeId]);
