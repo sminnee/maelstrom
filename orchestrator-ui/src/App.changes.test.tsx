@@ -556,6 +556,14 @@ describe('the Changes tab', () => {
     expect(await screen.findByText('new tokens')).toBeInTheDocument();
   });
 
+  it('closes the side sheet on its Close button', async () => {
+    const user = userEvent.setup();
+    await pushChanges(user);
+    const sheet = await openSheet(user);
+    await user.click(sheet.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
+  });
+
   it('picks a file from the sheet, which closes it and scrolls to the file', async () => {
     const user = userEvent.setup();
     await pushChanges(user);

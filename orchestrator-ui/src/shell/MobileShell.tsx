@@ -15,7 +15,7 @@ import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useCard } from '../nav/useCard';
 import { useBack, useLoc } from '../nav/useNav';
-import { Dialog } from '../ui/Dialog';
+import { SideSheet } from '../ui/SideSheet';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
@@ -73,10 +73,13 @@ export function MobileShell() {
           )}
         </main>
         {chrome?.sheetOpen && (
-          <Dialog label="More" placement="side" onClose={chrome.closeSheet}>
-            <SheetHead onClose={chrome.closeSheet} />
+          <SideSheet
+            label="More"
+            onClose={chrome.closeSheet}
+            head={<SheetHead onClose={chrome.closeSheet} />}
+          >
             <div className={styles.sheetBody} data-sheet ref={setSheetTarget} />
-          </Dialog>
+          </SideSheet>
         )}
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
