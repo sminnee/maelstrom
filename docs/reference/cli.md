@@ -1126,6 +1126,29 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 
 ---
 
+## Comms
+
+| Command | Description |
+|---|---|
+| `mael comms list` | Print each tracked task's **Landing**: its PR, its status, and each environment's state. |
+
+```bash
+mael comms list                                # one row per tracked task
+mael comms list --since 2026-10-07T00:00:00Z   # the steps recorded after this time
+```
+
+A tracked task is a task with a registered PR. The orchestrator server writes the rows on its
+worktree poll, so the command shows what the last poll saw. An environment the server could
+not read shows `unknown`.
+
+**`mael comms list`**
+
+| Option | Description |
+|---|---|
+| `--since TEXT` | List the landing steps recorded after this ISO time, one row per step, instead of one row per task. |
+
+---
+
 ## Sentry
 
 | Command | Description |

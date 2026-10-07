@@ -79,6 +79,7 @@ from mael_domain.worktree_trash import trash_worktree_fully
 
 from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
+from .comms_cli import comms
 from .env_cli import (
     env as env_cli,
 )
@@ -1781,6 +1782,7 @@ def cmd_cmux_status() -> None:
 
 
 cli.add_command(cmux_cli)
+cli.add_command(comms)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(gh_cli)
