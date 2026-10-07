@@ -247,7 +247,8 @@ so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds
 split buttons' "More actions", so a row with two menus stays readable to a screen reader.
 
 The merge control is `worktrees/MergeControl.tsx`. It draws "Merge" only when the worktree's
-**PR state** is `ready` and the pull request is not a draft. It is a `ConfirmButton`, because a
+**PR state** is `ready` and the pull request is not a draft. While the **PR match** is `differ`
+it draws disabled, with a title that says to sync first. It is a `ConfirmButton`, because a
 merge cannot be undone. `WorktreeCommands` draws it first, so the expanded node, the narrow
 layout's pushed screen and the panel's worktree bar all carry it. The Worktrees table does not.
 GitHub's refusal shows as the confirming button's title, and the question stays open.
@@ -699,6 +700,10 @@ with a dev env tab and draws an external link there.
 while the worktree is open. The tab chip names the
 worktree by its id, `<project>-<nato> changes`, because every project has a `delta`. It draws
 no phase, because a worktree has no task of its own.
+
+The header shows the **PR match** when the worktree has an open pull request: "PR #n matches" or
+"PR #n differs". While it differs, a quiet Sync sits beside the label. It sends a `plain` sync.
+The sync's worktree notice reads the Changes again.
 
 A strip beside the diff chooses the rev. It lists one entry per commit, oldest first, then "All
 commits" and "Uncommitted". The server sends the commits in that order, and the tab does not sort

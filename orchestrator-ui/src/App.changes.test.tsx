@@ -380,6 +380,54 @@ describe('the Changes tab', () => {
     await waitFor(() => expect(rowTexts(panel, 'auth/tokens.py')[2]).toContain('new refreshed'));
   });
 
+  it('says the PR matches when the local branch is the PR head', async () => {
+    const { panel } = await openChanges();
+    const match = within(panel).getByRole('group', { name: 'PR match' });
+    expect(match).toHaveTextContent('PR #118 matches');
+    expect(within(match).queryByRole('button', { name: 'Sync' })).toBeNull();
+  });
+
+  it('says the PR differs from the local branch, and syncs it from the header', async () => {
+    const { server, panel } = await openChanges();
+    act(() => {
+      server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
+        w.worktrees[DELTA] = { ...w.worktrees[DELTA]!, prMatch: 'differ' };
+      });
+    });
+    const match = within(panel).getByRole('group', { name: 'PR match' });
+    await waitFor(() => expect(match).toHaveTextContent('PR #118 differs'));
+
+    const reads = () =>
+      server.requests.filter((r) => r.path === `/api/worktrees/${DELTA}/changes`).length;
+    const before = reads();
+    await userEvent.click(within(match).getByRole('button', { name: 'Sync' }));
+    await waitFor(() =>
+      expect(server.requests).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path: `/api/worktrees/${DELTA}/sync`,
+          body: { mode: 'plain' },
+        }),
+      ),
+    );
+    await waitFor(() => expect(match).toHaveTextContent('PR #118 matches'));
+    expect(within(match).queryByRole('button', { name: 'Sync' })).toBeNull();
+    // The sync moved the branch, so the Changes are read again.
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  it('draws no PR match when the PR has no verdict', async () => {
+    const { server, panel } = await openChanges();
+    act(() => {
+      server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
+        w.worktrees[DELTA] = { ...w.worktrees[DELTA]!, prMatch: '' };
+      });
+    });
+    await waitFor(() =>
+      expect(within(panel).queryByRole('group', { name: 'PR match' })).toBeNull(),
+    );
+  });
+
   it('says a binary or a cut file is not shown whole, and names both paths of a rename', async () => {
     const { panel } = await openChanges((c) => {
       c.diffs.uncommitted = [

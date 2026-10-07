@@ -1165,8 +1165,11 @@ function command(
     if (!SYNC_MODES.includes(mode)) {
       return error(400, 'invalid', `Unknown sync mode: ${mode}`);
     }
-    // A sync moves counts the fake does not model. The change still goes out,
-    // so a test can see the call landed.
+    // A sync moves counts the fake does not model, but it makes the PR head the
+    // local head. The change still goes out, so a test can see the call landed.
+    if (worktree.prNumber != null && worktree.prMatch) {
+      world.worktrees[id] = { ...worktree, prMatch: 'match' };
+    }
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});
   }
@@ -1176,7 +1179,14 @@ function command(
     const id = decodeURIComponent(m[1]!);
     const worktree = world.worktrees[id];
     if (!worktree) return notFound(`worktree ${id}`);
-    // The button draws only on a ready pull request, so the fake refuses none.
+    // Refuses as `validate.py` does.
+    if (worktree.prMatch === 'differ') {
+      return error(
+        400,
+        'invalid',
+        `The local branch differs from PR #${worktree.prNumber}. Sync it first.`,
+      );
+    }
     world.worktrees[id] = { ...worktree, prState: 'merged', prMergedAt: new Date().toISOString() };
     server.change({ kind: 'worktree', ids: [id] });
     return ok({});

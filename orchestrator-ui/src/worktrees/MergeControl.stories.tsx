@@ -60,11 +60,18 @@ function Board({ children }: { children: ReactNode }) {
   );
 }
 
-/** A ready PR draws the button. Every other state draws nothing. */
+/**
+ * A ready PR draws the button, disabled while the local branch differs. Every
+ * other state draws nothing.
+ */
 export const States: Story = () => (
   <Board>
     <Row label="ready" worktree={ready} />
     <Row label="ready, GitHub refuses" worktree={refused} />
+    <Row
+      label="ready, local differs"
+      worktree={makeWorktree({ prNumber: 122, prState: 'ready', prMatch: 'differ' })}
+    />
     <Row label="CI running" worktree={makeWorktree({ prNumber: 119, prState: 'ci-running' })} />
     <Row
       label="draft"

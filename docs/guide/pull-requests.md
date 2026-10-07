@@ -339,6 +339,14 @@ is not a draft, shows a **Merge** button. The button asks first, then rebase-mer
 The question names the branch the pull request merges into: a stacked pull request merges into
 its base, not into `main`.
 
+The Changes tab header compares the worktree's local `HEAD` with the pull request's head commit.
+It shows **PR #n matches** or **PR #n differs**. When it differs, the local branch has commits
+that are not pushed, or the pull request was pushed from somewhere else. The **Merge** button is
+then disabled, and the server refuses the merge, because the merge would land something other
+than the local work. Changes that are not committed do not count.
+
+Click the small **Sync** button beside the label to sync the branch.
+
 GitHub refuses the merge when a push landed after the orchestrator last read the pull request.
 Wait for the new commit's checks, then merge again. The merge closes no worktree and moves no
 task. GitHub deletes the branch when the repository has "Automatically delete head branches" on.

@@ -651,6 +651,14 @@ function usage(): Seed {
   return seed;
 }
 
+/** The changes scenario, with a ready PR whose head is not the local branch. */
+function prDiffers(): Seed {
+  const seed = changes();
+  const delta = seed.world.worktrees['northwind-delta']!;
+  seed.world.worktrees['northwind-delta'] = { ...delta, prState: 'ready', prMatch: 'differ' };
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -672,6 +680,11 @@ export const SCENARIOS = {
     about: 'A worktree with dirty files and commits, and a diff of each status.',
     build: changes,
     screen: 'changes=northwind-delta',
+  },
+  'pr-differs': {
+    about: 'A ready PR whose head is not the local branch: Merge waits for a sync.',
+    build: prDiffers,
+    screen: 'changes=northwind-delta&task=NORT-12',
   },
   asks: {
     about: 'Each ask: permission, question, plan review, and the three server items.',

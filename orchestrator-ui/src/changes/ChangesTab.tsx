@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 import { ApiError } from '../api/http';
+import { useSyncWorktree } from '../api/worktrees';
 import { keys } from '../api/keys';
 import { useWorld } from '../api/useWorld';
 import {
@@ -20,7 +21,13 @@ import {
   useWorktreeDiff,
 } from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
-import type { BranchCommit, ChangeComment, FileDiff, WorktreeChanges } from '../protocol/entities';
+import type {
+  BranchCommit,
+  ChangeComment,
+  FileDiff,
+  Worktree,
+  WorktreeChanges,
+} from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { clockTime } from '../protocol/time';
 import { actionIcon } from '../ui/actionIcons';
@@ -178,6 +185,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
         <span className={styles.branch}>{worktree?.branch || worktreeId}</span>
         <span className={styles.base}>on {base}</span>
       </span>
+      {worktree?.prNumber != null && worktree.prMatch && <PrMatch worktree={worktree} />}
       <AppButton
         icon={actionIcon('refresh')}
         variant="quiet"
@@ -273,6 +281,34 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** The **PR match**, with a Sync beside it while it differs. */
+function PrMatch({ worktree }: { worktree: Worktree }) {
+  const sync = useSyncWorktree();
+  const differs = worktree.prMatch === 'differ';
+  return (
+    <span
+      role="group"
+      aria-label="PR match"
+      className={styles.prMatch}
+      data-differs={differs || undefined}
+    >
+      <span>
+        PR #{worktree.prNumber} {differs ? 'differs' : 'matches'}
+      </span>
+      {differs && (
+        <AppButton
+          icon={actionIcon('sync')}
+          variant="quiet"
+          processingChildren="Syncing…"
+          onClick={() => sync.mutateAsync({ worktreeId: worktree.id, mode: 'plain' })}
+        >
+          Sync
+        </AppButton>
+      )}
+    </span>
   );
 }
 
