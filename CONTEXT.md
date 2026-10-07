@@ -189,9 +189,8 @@ The sibling tasks that share one parent, ordered by follows, merging as a single
 **Registered PR**:
 The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
 `mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
-earlier one. A task card shows its task's Registered PR, else the highest-numbered one in its
-**Chain** or on the Chain's parent. A card with none shows no PR, even when its branch has one: a
-recycled branch carries PRs that earlier tasks made. The worktree table shows the branch's PR.
+earlier one. A task card shows its task's Registered PR only, never one its **Chain** or its
+branch has. The worktree table shows the branch's PR.
 _Avoid_: Linked PR, task PR
 
 **Landing**:

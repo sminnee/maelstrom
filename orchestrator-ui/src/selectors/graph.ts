@@ -11,7 +11,6 @@ import { isWorking, progressOf } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey } from './filters';
 import { byName } from './worktrees';
-import { chainRegistrations, registeredPr, type RegisteredPr } from './cardPr';
 
 /** What a node stands for: a notebook task, or an agent with no task. */
 export type NodeKind = 'task' | 'freeAgent';
@@ -25,8 +24,6 @@ export interface GraphNode {
   agent: Agent | undefined;
   /** Where a freeAgent gets its lane, branch and name. */
   worktree: Worktree | undefined;
-  /** The task's Registered PR, its own or its chain's. None on a freeAgent. */
-  registeredPr: RegisteredPr | undefined;
   /** The one reading of the node's state: how it draws, its words, its drift. */
   progress: Progress;
   /** Null on a freeAgent: with no task there is no command to read a phase from. */
@@ -179,9 +176,6 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     return lane;
   };
 
-  // Every task, not the filtered ones: a chain's PR is its chain's whether or
-  // not the task that registered it is drawn.
-  const chains = chainRegistrations(Object.values(world.tasks));
   const nodes: GraphNode[] = [];
   for (const task of tasks) {
     const agent = agents.get(task.id);
@@ -199,7 +193,6 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       worktree:
         (agent ? world.worktrees[agent.worktreeId] : undefined) ??
         worktreeByBranch.get(branchKey(task.project, task.branch)),
-      registeredPr: registeredPr(task, chains),
       progress: progressOf(task, agent, attention),
       phase: phaseForTask(task, agent),
       groupId,
@@ -226,7 +219,6 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       task: undefined,
       agent,
       worktree,
-      registeredPr: undefined,
       progress: progressOf(undefined, agent, attention),
       phase: null,
       groupId,
