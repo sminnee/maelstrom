@@ -462,6 +462,34 @@ describe('grouping and filters', () => {
     expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
   });
 
+  it('keeps a branch picked on Tasks on the Desk, and otherwise offers only the desk work', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const values = (label: string) =>
+      [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((o) => o.value);
+
+    // spike/graphql has no desk work, so only Tasks offers it.
+    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/spike/graphql');
+    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    expect(screen.getByLabelText('Branch')).toHaveValue('northwind/spike/graphql');
+
+    // Choosing a project, even "all", clears the branch, so nothing is kept.
+    await user.selectOptions(screen.getByLabelText('Project'), '');
+    expect(screen.getByLabelText('Branch')).toHaveValue('');
+    // riverbend has no work at all.
+    expect(values('Project')).toEqual(['', 'maelstrom', 'northwind']);
+    expect(values('Branch')).toEqual([
+      '',
+      'maelstrom/feat/orchestrator-ui',
+      'maelstrom/feat/task-index',
+      'northwind/feat/db-migrate',
+      'northwind/feat/orders',
+      'northwind/feat/reporting',
+      'northwind/feat/rotate-auth-tokens-for-every-service',
+    ]);
+  });
+
   it('filters Desk nodes by agent status', async () => {
     const user = userEvent.setup();
     await renderApp();

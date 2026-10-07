@@ -646,10 +646,10 @@ describe('new work', () => {
     it('offers every project when the canvas draws none', async () => {
       const user = userEvent.setup();
       await renderApp();
-      // `riverbend` has no work on the desk, so filtering to it draws nothing.
+      // The seed's desk holds no terminated agent, so this filter draws nothing.
       // With no view to read a project off, every project is offered rather
       // than an empty fieldset.
-      await user.selectOptions(screen.getByLabelText('Project'), 'riverbend');
+      await user.selectOptions(screen.getByLabelText('Agent status'), 'terminated');
       const form = await openNewWork(user);
       for (const name of ['maelstrom', 'northwind', 'riverbend']) {
         expect(within(form).getByRole('radio', { name })).toBeInTheDocument();
