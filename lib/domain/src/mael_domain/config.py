@@ -21,6 +21,11 @@ CONFIG_FILENAME = ".maelstrom.yaml"
 # is what makes a service a container (vs a shell ``command`` service).
 CONTAINER_ENGINES = ("docker", "apple-container")
 
+#: The landing steps a deploy reaches, in order. ``deploy.environments`` maps
+#: each to the GitHub environment that signals it — see ``CONTEXT.md``,
+#: "Landing".
+DEPLOY_STEPS = ("uat", "live")
+
 
 @dataclass
 class PortSpec:
@@ -170,6 +175,22 @@ def _parse_main_port_base(value: object) -> int | None:
     return value
 
 
+def _parse_deploy_environments(value: object) -> dict[str, str]:
+    """``deploy.environments`` as step -> GitHub environment.
+
+    A key that is not a deploy step, or a value that is not a string, is
+    dropped: the block is read on every worktree poll, so it must not raise.
+    """
+    environments = value.get("environments") if isinstance(value, dict) else None
+    if not isinstance(environments, dict):
+        return {}
+    return {
+        step: env
+        for step, env in environments.items()
+        if step in DEPLOY_STEPS and isinstance(env, str) and env
+    }
+
+
 @dataclass
 class MaelstromConfig:
     """Configuration for a maelstrom-managed project."""
@@ -195,6 +216,8 @@ class MaelstromConfig:
     sentry_project: str | None = None
     # UptimeRobot integration
     uptimerobot_monitors: list[str] | None = None
+    # Landing step -> the GitHub environment whose deploys signal it.
+    deploy_environments: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
@@ -236,6 +259,7 @@ class MaelstromConfig:
             sentry_org=sentry_config.get("org"),
             sentry_project=sentry_config.get("project_id"),
             uptimerobot_monitors=ur_config.get("monitors"),
+            deploy_environments=_parse_deploy_environments(data.get("deploy")),
         )
 
 
