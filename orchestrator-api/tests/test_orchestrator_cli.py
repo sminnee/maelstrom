@@ -286,8 +286,14 @@ def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
         _force_close(worktrees, had_unmerged_work=True)
 
 
-async def _read_a_ready_pr(worktrees: ListAllWorktreeSource) -> None:
-    """Give the wired source a reading that holds PR #118, ready, on feat/x."""
+async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> None:
+    """Give the wired source a reading that holds PR #118, ready, on feat/x,
+    in a worktree whose local ``HEAD`` is the PR head."""
+
+    async def head_sha(_path):
+        return "deadbee"
+
+    monkeypatch.setattr("mael_orchestrator.sources.get_head_sha_async", head_sha)
     row = {
         "name": "alpha",
         "path": "/p/alpha",
@@ -313,7 +319,7 @@ async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch)
     login the agents share."""
     monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_merge")
     worktrees = _worktree_source(tmp_path, monkeypatch)
-    await _read_a_ready_pr(worktrees)
+    await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
     with patch("mael_orchestrator.cli.github.merge_pr") as merge_pr:
         await worktrees.merge("northwind", "feat/x", "/p/alpha")
@@ -324,7 +330,7 @@ async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch)
 
 async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch):
     worktrees = _worktree_source(tmp_path, monkeypatch)
-    await _read_a_ready_pr(worktrees)
+    await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
     refused = GitHubCommandFailed("merge the pull request", "Head branch was modified")
     with patch("mael_orchestrator.cli.github.merge_pr", side_effect=refused):

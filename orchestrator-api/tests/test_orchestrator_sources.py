@@ -672,13 +672,18 @@ def _pr_row(**over) -> dict:
     }
 
 
-async def _source_that_read(monkeypatch, rows: list[dict], merge_pr):
+async def _source_that_read(monkeypatch, rows: list[dict], merge_pr, head="deadbee"):
+    """A source that read ``rows``, in a worktree whose local ``HEAD`` is ``head``."""
     from mael_orchestrator import sources
 
     async def list_all(*_args, **_kwargs):
         return {"projects": [{"name": PROJECT, "worktrees": rows}]}
 
+    async def head_sha(_path):
+        return head
+
     monkeypatch.setattr(sources, "build_list_all_data", list_all)
+    monkeypatch.setattr(sources, "get_head_sha_async", head_sha)
     source = sources.ListAllWorktreeSource(Path("/p"), merge_pr=merge_pr)
     await source.read()
     return source
@@ -696,23 +701,43 @@ async def test_a_merge_names_the_pr_and_head_commit_the_last_read_saw(monkeypatc
 
 
 @pytest.mark.parametrize(
-    ("row", "said"),
+    ("row", "head", "said"),
     [
-        (_pr_row(pr_number=None), "No pull request is known for feat/orders"),
+        (
+            _pr_row(pr_number=None),
+            "deadbee",
+            "No pull request is known for feat/orders",
+        ),
         # A read that landed after the server validated the command.
-        (_pr_row(pr_state="ci-running"), "PR #118 is not ready to merge (ci-running)"),
-        (_pr_row(pr_draft=True), "PR #118 is not ready to merge (draft)"),
-        (_pr_row(pr_head_oid=None), "The head commit of PR #118 is not known yet"),
+        (
+            _pr_row(pr_state="ci-running"),
+            "deadbee",
+            "PR #118 is not ready to merge (ci-running)",
+        ),
+        (_pr_row(pr_draft=True), "deadbee", "PR #118 is not ready to merge (draft)"),
+        (
+            _pr_row(pr_head_oid=None),
+            "deadbee",
+            "The head commit of PR #118 is not known yet",
+        ),
+        # A local commit made after the last read.
+        (
+            _pr_row(),
+            "c0ffee1",
+            "The local branch differs from PR #118. Sync it first.",
+        ),
+        # A worktree git cannot read; a sync would not help.
+        (_pr_row(), None, "The local head of PR #118's branch cannot be read"),
     ],
 )
 async def test_a_merge_the_last_read_does_not_support_is_refused(
-    monkeypatch, row, said
+    monkeypatch, row, head, said
 ):
     from mael_orchestrator.sources import CloseBlocked
 
     merged: list[tuple] = []
     source = await _source_that_read(
-        monkeypatch, [row], lambda *args: merged.append(args)
+        monkeypatch, [row], lambda *args: merged.append(args), head=head
     )
     assert source.merge is not None
     with pytest.raises(CloseBlocked) as refused:
