@@ -1059,7 +1059,7 @@ _Avoid_: Touch size, button size
 
 **Task list**:
 The view that lists every task the server knows, with filters for status, project, branch and
-text. The task list is where a task joins the desk, and one of the places it leaves it. A task
+text. The canvas shares the project, branch and text filters. The task list is where a task joins the desk, and one of the places it leaves it. A task
 node's expanded card offers the same toggle for every task its task follows or is followed by.
 The task list lists tasks only: a free agent has no row, and is taken **Off desk** from its node on the canvas.
 _Avoid_: Table view, index
@@ -1142,8 +1142,9 @@ One Strip Rule".
 _Avoid_: Header, title bar, back row
 
 **Side sheet**:
-The narrow layout's overlay for a pushed screen's secondary content, opened from the right edge
-by More.
+The narrow layout's overlay from the right edge. More opens it on a pushed screen, for that
+screen's secondary content. Filters opens it on a main view, for that view's filters. Its head
+row starts with a bare × that closes it.
 _Avoid_: Drawer, panel
 
 **Worktree group**:
