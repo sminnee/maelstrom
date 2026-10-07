@@ -34,6 +34,7 @@ from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
+from mael_domain.landing import Landings
 from mael_domain.list_all import project_repo_url
 from mael_domain.normalise import (
     DRAFT_KIND,
@@ -208,6 +209,7 @@ class Orchestrator:
         desk: DeskStore | None = None,
         milestones: MilestoneStore | None = None,
         task_attachments: TaskAttachmentTable | None = None,
+        landings: Landings | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -240,6 +242,9 @@ class Orchestrator:
             if task_attachments is not None
             else InMemoryTaskAttachmentTable()
         )
+        #: Each task's landing — see ``CONTEXT.md``, "Landing". Synced in the
+        #: worktree read.
+        self.landings = landings if landings is not None else Landings()
         #: Writes the markdown export, or ``None`` when this server keeps none.
         #: A task write queues its export whatever runs; the server is what
         #: drains the queue, so a build without one simply lets it grow.
@@ -697,7 +702,25 @@ class Orchestrator:
                 tasks=before["tasks"],
             ) | (extra_branches or set())
             projects, worktrees = await self._run(self.worktrees.read, active)
-        if getattr(self.worktrees, "rate_limited", False):
+            world = self.world
+            events = diff_kind(
+                "project", world["projects"], {p["id"]: p for p in projects}
+            )
+            events += diff_kind(
+                "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
+            )
+            # Applied before the landing sync, so its reads do not delay the rows.
+            self._apply(events)
+            rate_limited = getattr(self.worktrees, "rate_limited", False)
+            if not rate_limited:
+                try:
+                    await self.landings.sync(self.clock())
+                except RateLimited:
+                    rate_limited = True
+                except Exception:
+                    # A landing is not worth failing the worktree read over.
+                    log.exception("the landing sync failed")
+        if rate_limited:
             self._stand_off_until = (
                 asyncio.get_running_loop().time() + self._rate_limit_cooldown
             )
@@ -705,12 +728,6 @@ class Orchestrator:
                 "GitHub rate limit reached; the worktree poll stands off for %ss",
                 self._rate_limit_cooldown,
             )
-        world = self.world
-        events = diff_kind("project", world["projects"], {p["id"]: p for p in projects})
-        events += diff_kind(
-            "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
-        )
-        self._apply(events)
 
     # -- the desk --
 

@@ -484,6 +484,7 @@ snapshot and its first live one.
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
+| Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached | with the worktree read |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
 
@@ -596,6 +597,28 @@ a commit whose build has fallen off the end of the page, a commit nothing has ru
 whose runs all reached no verdict, and a repository that grants neither permission. All four are
 the same honest answer — nothing looked these checks up — and `mael doctor` names the last, which
 is the one a user can fix.
+
+### What a landing read costs
+
+The landing sync runs at the end of each worktree read, after its rows are applied and before
+the lock is released. So it shares that read's cadence, its catch-up on arrival, `refresh_now`
+and the stand-off. A worktree read that was rate-limited skips the sync. A `RateLimited` from the
+sync's merge read sets the stand-off, as the worktree read's own does. Any other failure is
+logged.
+
+The sync reads only the pull requests that can still move. A PR is settled when it was closed
+unmerged, or when it is merged and `landed` in every environment the project's `deploy:` block
+names. `landed` is final. For each
+project with an unsettled PR, one tick costs:
+
+| Read | Calls | When |
+|---|---|---|
+| Merge: `gh api graphql`, one alias per PR | 1 | Some PR is not merged |
+| Deploy: `deployments?environment=<env>&ref=main`, then each deployment's newest status until one is `success` | 2 per environment, usually; at most 6 | Some merged PR is not `landed` there |
+| Ancestry: `compare/<merge sha>...<deploy sha>` | 1 per PR and environment | The deploy sha is new, or the last state was `unknown` |
+
+A `not_yet` on an unchanged deploy sha is kept without a compare. For the token the deploy reads
+need, see `deploy:` in `docs/reference/configuration.md`.
 
 ### Agents
 
