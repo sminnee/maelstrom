@@ -19,6 +19,7 @@ are pure and stay put when the transport changes.
 """
 
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -75,9 +76,31 @@ from .worktree import (
 from .worktree_changes import base_refs_for_diff
 from .worktree_model import REPAIRED_MESSAGE, print_flushed
 
+log = logging.getLogger(__name__)
+
 #: How many times ``create_pr`` runs the pre-push check when the base keeps
 #: moving under it. After the last one it pushes anyway.
 PRE_PUSH_ATTEMPTS = 3
+
+
+async def gh_api(cwd: Path, *args: str, payload_decides: bool = False) -> str | None:
+    """``gh api`` output, run in ``cwd``, or ``None`` when the read failed.
+
+    ``cwd`` is a checkout of the repo, so ``gh`` fills ``:owner/:repo``.
+    ``payload_decides`` keeps the output of a non-zero exit: gh exits 1 on a
+    GraphQL payload that is complete apart from one refused field.
+    """
+    try:
+        result = await run_cmd_async(
+            ["gh", "api", *args], cwd=cwd, quiet=True, check=False
+        )
+    except OSError as exc:
+        log.warning("gh api %s failed in %s: %s", args[0], cwd, exc)
+        return None
+    if result.returncode != 0 and not payload_decides:
+        log.info("gh api %s refused in %s: %s", args[0], cwd, result.stdout)
+        return None
+    return result.stdout
 
 
 def get_repo_info(cwd: Path) -> tuple[str, str]:

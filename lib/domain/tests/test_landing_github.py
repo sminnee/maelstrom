@@ -34,7 +34,7 @@ def _answer(returncode, stdout):
 async def _merges(*answers, numbers=(7,)):
     """What the merge read gives for ``numbers`` when gh answers ``answers``."""
     signals = GhLandingSignals(Path("/projects"))
-    with patch("mael_domain.landing_github.run_cmd_async", side_effect=answers):
+    with patch("mael_domain.github.run_cmd_async", side_effect=answers):
         return await signals.merges("p", list(numbers))
 
 
@@ -95,9 +95,7 @@ class TestTransport:
     async def test_a_refused_deployments_read_is_unknown(self):
         refused = _answer(1, '{"message": "Resource not accessible", "status": "403"}')
         signals = GhLandingSignals(Path("/projects"))
-        with patch(
-            "mael_domain.landing_github.run_cmd_async", return_value=refused
-        ) as run:
+        with patch("mael_domain.github.run_cmd_async", return_value=refused) as run:
             assert await signals.deploy("p", "uat") is None
         assert run.call_args.kwargs["cwd"] == Path("/projects/p/_main")
 
@@ -108,5 +106,5 @@ class TestTransport:
             _answer(0, json.dumps([{"state": "success", "created_at": "T2"}])),
         ]
         signals = GhLandingSignals(Path("/projects"))
-        with patch("mael_domain.landing_github.run_cmd_async", side_effect=answers):
+        with patch("mael_domain.github.run_cmd_async", side_effect=answers):
             assert await signals.deploy("p", "uat") == Deploy(sha="d2", created_at="T2")

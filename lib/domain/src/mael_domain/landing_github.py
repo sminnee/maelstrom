@@ -13,8 +13,7 @@ import logging
 from pathlib import Path
 from urllib.parse import quote
 
-from mael_common.shell import run_cmd_async
-
+from .github import gh_api
 from .github_model import RateLimited, is_rate_limit
 from .landing import Deploy, LandingSignals, Merge
 
@@ -114,25 +113,11 @@ class GhLandingSignals(LandingSignals):
     async def _gh(
         self, project: str, *args: str, payload_decides: bool = False
     ) -> str | None:
-        """``gh api`` output, or ``None`` when the read failed.
-
-        ``payload_decides`` keeps the output of a non-zero exit: gh exits 1 on a
-        GraphQL payload that is complete apart from one refused field.
-        """
-        try:
-            result = await run_cmd_async(
-                ["gh", "api", *args],
-                cwd=self._projects_dir / project / "_main",
-                quiet=True,
-                check=False,
-            )
-        except OSError as exc:
-            log.warning("gh api %s failed in %s: %s", args[0], project, exc)
-            return None
-        if result.returncode != 0 and not payload_decides:
-            log.info("gh api %s refused in %s: %s", args[0], project, result.stdout)
-            return None
-        return result.stdout
+        return await gh_api(
+            self._projects_dir / project / "_main",
+            *args,
+            payload_decides=payload_decides,
+        )
 
     async def merges(self, project: str, numbers: list[int]) -> dict[int, Merge]:
         query, aliases = merges_query(numbers)
