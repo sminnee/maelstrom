@@ -309,6 +309,12 @@ def _worktree_error(
         state = "draft" if worktree.get("prDraft") else worktree.get("prState")
         if state != "ready":
             return _err("invalid", f"The pull request is not ready to merge ({state})")
+        if worktree.get("prMatch") == "differ":
+            return _err(
+                "invalid",
+                f"The local branch differs from PR #{worktree['prNumber']}. "
+                "Sync it first.",
+            )
 
     if kind == "worktree.comment":
         comments = cmd.get("comments")

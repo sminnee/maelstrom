@@ -6109,6 +6109,7 @@ def test_merging_a_ready_pr_asks_the_source_and_refreshes_the_world(harness):
         ({"prState": "ci-running"}, "not ready to merge (ci-running)"),
         ({"prDraft": True}, "not ready to merge (draft)"),
         ({"prNumber": None}, "no pull request"),
+        ({"prMatch": "differ"}, "The local branch differs from PR #118. Sync it"),
     ],
 )
 def test_a_pr_that_is_not_ready_is_refused_before_the_model_runs(harness, pr, said):

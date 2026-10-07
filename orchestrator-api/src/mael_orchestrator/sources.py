@@ -40,7 +40,7 @@ from mael_domain.task_launch import (
 )
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
 from mael_domain.task_table import TaskTable
-from mael_domain.worktree import WorktreeSetup
+from mael_domain.worktree import WorktreeSetup, get_head_sha_async
 
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
@@ -721,6 +721,16 @@ class ListAllWorktreeSource:
             raise CloseBlocked(f"PR #{pr.number} is not ready to merge ({state})")
         if not pr.head_oid:
             raise CloseBlocked(f"The head commit of PR #{pr.number} is not known yet")
+        # A local commit can land after the last read.
+        head = await get_head_sha_async(Path(path))
+        if head is None:
+            raise CloseBlocked(
+                f"The local head of PR #{pr.number}'s branch cannot be read"
+            )
+        if head != pr.head_oid:
+            raise CloseBlocked(
+                f"The local branch differs from PR #{pr.number}. Sync it first."
+            )
         await asyncio.to_thread(self._merge_pr, path, pr.number, pr.head_oid)
 
     async def read(

@@ -823,13 +823,17 @@ the operation ends: a close that fails partway has still stopped agents and free
 `worktree.mergePr` is a seventh optional callable, `WorktreeSource.merge`. It is not a step
 sequence and takes no worktree scope, because it does not touch the checkout.
 
-- `validate.py` refuses a pull request whose **PR state** is not `ready`, and a draft.
+- `validate.py` refuses a pull request whose **PR state** is not `ready`, a draft, and a
+  worktree whose **PR match** is `differ`.
 - The source takes the number and the head commit from its PR cache, not from the command. It
-  checks the state again there, because a read can land after the validation.
+  checks the state again there, because a read can land after the validation. It also reads the
+  local `HEAD` again and refuses when it is not the PR head, or cannot be read: a local commit
+  can land after the last read.
 - It runs `gh pr merge <n> --rebase --match-head-commit <oid>`. The world can be 60 s old, so
   GitHub refuses a head that moved.
 - The `list-all` row carries the head commit as `pr_head_oid`, because the cache refills from
-  those rows. `world_build.py` does not copy it to the wire.
+  those rows. It also carries the local `HEAD` as `head_oid`. `world_build.py` compares the two
+  into `prMatch`, and does not copy either sha to the wire.
 - The merge token, when set, reaches that one call as `GH_TOKEN` — see
   [configuration.md](../reference/configuration.md#api-keys).
 - The handler re-reads the worktrees whichever way the merge ends.
