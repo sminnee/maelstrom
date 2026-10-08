@@ -1277,21 +1277,27 @@ does, keeping those tabs. `nav/useLocSync.ts` keeps the store in step with the l
 a view shows its pane, and a move to a tab opens it in the set and shows the panel. Viewport
 moves — fit, pan, zoom — never touch the URL.
 
-**Push or replace.** A move pushes a history entry, so Back undoes it. Four moves replace the
-entry instead:
+**Push, replace or go back.** A move pushes a history entry, so Back undoes it. Each pushed
+entry records the href it was pushed from. These moves replace the entry instead:
 
 - A search keystroke, so Back leaves the search and not one letter.
 - Prev and Next in the editor, so Back closes the editor.
-- Closing the active tab, and collapsing a card whose node a filter hid: Back must not return to
-  what is gone.
+- Collapsing a card whose node a filter hid: Back must not return to what is gone.
+- Dropping a branch filter that left the world: the user did not pick it.
+- The attention chip's zone move, on the entry under the detail, so Back lands on a list that
+  holds the node.
 - A redirect, such as `/` to `/desk`.
+
+A close goes back: closing the editor, the new-work form, a card or the active tab. When the
+entry was pushed from the location the close leads to, the close is the browser's Back, so a
+later Back does not reopen what was closed. Otherwise, as on a copied link, it replaces.
 
 **Reading the location.** `useLoc` reads it for rendering. A move goes through `useGo`, which reads
 the router's location when it runs, not the one the component rendered with. Two moves built from
 one rendered copy would undo each other: a tab close followed by an effect that collapses a card.
 
-**Back on a phone.** The narrow layout's Back button calls `useBack`. An entry the app pushed
-carries `IN_APP` as its history state, and from there Back is the browser's Back. The first entry
+**Back on a phone.** The narrow layout's Back button calls `useBack`. From an entry the app
+pushed, Back is the browser's Back. The first entry
 of a copied link has nothing of the app behind it, so Back replaces it with its parent: the panel
 tab goes first, then the card.
 

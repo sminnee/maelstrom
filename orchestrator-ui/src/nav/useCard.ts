@@ -20,12 +20,13 @@ export function useCard() {
   const go = useGo();
   /** Open a card. With `toggle`, opening the open one closes it. */
   const open = useCallback(
-    (next: Card, toggle = true) => go({ card: toggle && sameCard(card, next) ? null : next }),
+    (next: Card, toggle = true) =>
+      toggle && sameCard(card, next) ? go({ card: null }, { close: true }) : go({ card: next }),
     [card, go],
   );
-  /** Close the open card, if there is one. */
+  /** Close the open card, if there is one. Closing goes back to where it was opened from. */
   const collapse = useCallback(
-    (opts?: GoOptions) => {
+    (opts: GoOptions = { close: true }) => {
       if (card) go({ card: null }, opts);
     },
     [card, go],

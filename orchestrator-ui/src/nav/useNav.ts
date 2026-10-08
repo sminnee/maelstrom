@@ -38,16 +38,32 @@ export function useLoc(): Loc {
 }
 
 /**
- * The history state of an entry this app pushed. Back from such an entry stays in the app; the
- * first entry, a copied link, has none. A link passes it as its `state`.
+ * The history state of an entry this app pushed: the href it was pushed from. The first entry,
+ * a copied link, has none. See `useBack` and `GoOptions.close`.
  */
-export const IN_APP = { inApp: true } as const;
+interface PushedState {
+  from: string;
+}
 
-const isInApp = (state: unknown) => (state as { inApp?: unknown } | null)?.inApp === true;
+const pushedFrom = (state: unknown): string | null => {
+  const from = (state as Partial<PushedState> | null)?.from;
+  return typeof from === 'string' ? from : null;
+};
 
-/** Options for one move. `replace` swaps the current history entry rather than pushing one. */
+/** The history state for a link: it is pushed from the location it is drawn at. */
+export function useLinkState(): PushedState {
+  return { from: toHref(useLoc()) };
+}
+
+/** Options for one move. */
 export interface GoOptions {
+  /** Swap the current history entry rather than push one. */
   replace?: boolean;
+  /**
+   * Close what the current entry opened. When the entry was pushed from the target, this goes
+   * back to it, so a later Back does not reopen what was closed. Otherwise it replaces.
+   */
+  close?: boolean;
 }
 
 /**
@@ -58,12 +74,16 @@ export function useGo(): (patch: LocPatch, opts?: GoOptions) => void {
   const router = useRouter();
   return useCallback(
     (patch, opts) => {
+      const here = currentLoc(router);
+      const to = toHref(withLoc(here, patch));
+      const { state } = router.state.location;
+      if (opts?.close && pushedFrom(state) === to) {
+        void router.navigate(-1);
+        return;
+      }
+      const replace = opts?.replace || opts?.close;
       // A replace keeps the entry what it was: the first entry stays the first.
-      const state = opts?.replace ? router.state.location.state : IN_APP;
-      void router.navigate(toHref(withLoc(currentLoc(router), patch)), {
-        replace: opts?.replace,
-        state,
-      });
+      void router.navigate(to, { replace, state: replace ? state : { from: toHref(here) } });
     },
     [router],
   );
@@ -93,7 +113,7 @@ export function parentOf(loc: Loc): LocPatch | null {
 export function useBack(): () => void {
   const router = useRouter();
   return useCallback(() => {
-    if (isInApp(router.state.location.state)) {
+    if (pushedFrom(router.state.location.state) !== null) {
       void router.navigate(-1);
       return;
     }

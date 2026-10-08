@@ -3,7 +3,7 @@ import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { Link } from 'react-router';
-import { IN_APP, useGo, useHrefFor } from '../nav/useNav';
+import { useLinkState, useGo, useHrefFor } from '../nav/useNav';
 import { useNewWork } from '../nav/useOverlays';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
@@ -213,10 +213,11 @@ function ViewItem({ view, label, side, on, title }: ItemProps & { view: View }) 
   // Narrow: the card and the panel tab draw over the view, so a switch that kept them
   // would draw the old screen over the new view.
   const to = useHrefFor(narrow ? { view, card: null, panel: null } : { view });
+  const linkState = useLinkState();
   return (
     <Link
       to={to}
-      state={IN_APP}
+      state={linkState}
       className={styles.view}
       aria-current={on ? 'true' : undefined}
       title={title}

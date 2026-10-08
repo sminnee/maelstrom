@@ -134,6 +134,7 @@ describe('the narrow layout', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     await userEvent.click(screenStrip().getByRole('button', { name: 'Back' }));
     expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.historyAction).toBe('REPLACE');
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
   });
 
@@ -158,7 +159,7 @@ describe('the narrow layout', () => {
   });
 
   it('pushes the session over the detail, and back pops one screen at a time', async () => {
-    await renderApp({ viewport: 'narrow' });
+    const { router } = await renderApp({ viewport: 'narrow' });
     await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     await userEvent.click(screen.getByRole('link', { name: /Session/ }));
     expect(screen.getByTestId('session-tab')).toBeInTheDocument();
@@ -166,9 +167,12 @@ describe('the narrow layout', () => {
     expect(screen.queryAllByRole('tab', { name: /session/i })).toHaveLength(0);
 
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
+    // The browser's Back: the closed screen is ahead in history, not behind.
+    expect(router.state.historyAction).toBe('POP');
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(screen.getByTestId('deck-list')).toBeInTheDocument();
+    expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
+    expect(router.state.historyAction).toBe('POP');
   });
 
   it('puts Stop in the session strip, and the head in the side sheet', async () => {
