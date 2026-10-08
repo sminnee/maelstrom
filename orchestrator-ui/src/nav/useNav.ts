@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation, useMatches } from 'react-router';
 import { currentLoc, useRouter } from './router';
-import { defaultLoc, parseLocation, toHref, withLoc, type Loc, type LocPatch } from './location';
+import { defaultLoc, isScreen, locAt, toHref, withLoc, type Loc, type LocPatch } from './location';
 
 /** Parts of locations read so far, by value, least recently read first. */
 const interned = new Map<string, unknown>();
@@ -30,11 +30,15 @@ function share(loc: Loc): Loc {
   return out;
 }
 
-/** Where the user is, read from the URL. */
+/** Where the user is: the screen the routes matched, its params, and the search. */
 export function useLoc(): Loc {
-  const { pathname, search } = useLocation();
-  // The routes redirect a path with no screen, so the default is never drawn for long.
-  return useMemo(() => share(parseLocation(pathname, search) ?? defaultLoc()), [pathname, search]);
+  const match = useMatches().at(-1);
+  const { search } = useLocation();
+  return useMemo(() => {
+    const handle: unknown = match?.handle;
+    // The routes redirect a path with no screen, so the default is never drawn.
+    return share(match && isScreen(handle) ? locAt(handle, match.params, search) : defaultLoc());
+  }, [match, search]);
 }
 
 /**

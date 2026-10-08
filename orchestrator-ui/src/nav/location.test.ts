@@ -62,6 +62,10 @@ describe('the URL of a location', () => {
     expect(parse('/desk/agent/a/b')).toBeNull();
   });
 
+  it('reads a task path with no id as the desk', () => {
+    expect(parse('/desk/task')).toEqual(defaultLoc());
+  });
+
   it('reads a value it does not know as the default', () => {
     expect(parse('/desk?zone=sideways&agents=asleep&panel=nothing/x&status=bogus')).toEqual(
       defaultLoc(),
