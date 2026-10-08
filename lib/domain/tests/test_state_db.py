@@ -6,8 +6,12 @@ import threading
 
 import pytest
 
+from mael_domain.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE
+from mael_domain.state_db import migrate as state_db_migrate
 from mael_domain.state_db.db import StateDb
+from mael_domain.state_db.migrate import main as migrate_main
 from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.migrations.desk import DESK
 from mael_domain.state_db.types import (
     Migration,
     PythonMigration,
@@ -270,7 +274,9 @@ class TestPythonRung:
         db.ladders["fake"] = (
             Migration(("CREATE TABLE fake (id TEXT PRIMARY KEY)",)),
             PythonMigration(
-                run=lambda conn, root: conn.execute("INSERT INTO fake (id) VALUES ('a')")
+                run=lambda conn, root: conn.execute(
+                    "INSERT INTO fake (id) VALUES ('a')"
+                )
             ),
         )
         await db.migrate()
@@ -766,3 +772,178 @@ class TestATableDeclaredButNotMigrated:
         with pytest.raises(UnknownColumnError) as exc:
             await db.upsert("ghost", "a", body="one")
         assert "ghost" in str(exc.value)
+
+
+@pytest.fixture
+def clone(tmp_path, monkeypatch):
+    """A checkout with no ``_main`` beside it, as the current directory.
+
+    The notebook root comes from the environment, as it does for a plain clone.
+    Returns the root.
+    """
+    checkout = tmp_path / "clone"
+    checkout.mkdir()
+    monkeypatch.chdir(checkout)
+    root = tmp_path / "notebook"
+    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(root))
+    return root
+
+
+class TestMigrateEntry:
+    """`python -m mael_domain.state_db.migrate`, which the install script runs."""
+
+    def test_it_creates_the_state_database(self, clone, capsys):
+        assert migrate_main() == 0
+        assert (clone / "state.db").is_file()
+        assert str(clone / "state.db") in capsys.readouterr().out
+
+    def test_a_second_run_is_a_no_op(self, clone):
+        _write_desk_json(clone, "task:a/1")
+        assert migrate_main() == 0
+        assert migrate_main() == 0
+        assert _desk_ids(clone / "state.db") == ["task:a/1"]
+
+    def test_it_imports_an_existing_desk(self, clone):
+        """A user's canvas survives the move to the state database."""
+        clone.mkdir()
+        (clone / "desk.json").write_text(
+            '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
+        )
+        assert migrate_main() == 0
+        assert (clone / "desk.json").is_file(), "left as a fallback"
+
+        db = open_state_db(clone / "state.db")
+        try:
+            rows = asyncio.run(db.read_all("desk"))
+        finally:
+            db.close()
+        assert [row["id"] for row in rows] == ["task:a/1"]
+
+    def test_it_upgrades_a_database_in_place(self, clone, monkeypatch):
+        """The branch the migration exists for: rows survive a ladder step.
+
+        The ladder gains a step the way a real schema change does — appended —
+        so the second run takes it and the desk row written under version 1 is
+        still there afterwards.
+        """
+        assert migrate_main() == 0
+
+        db = open_state_db(clone / "state.db")
+        try:
+            asyncio.run(db.upsert("desk", "task:a/1", body='{"id": "x"}'))
+        finally:
+            db.close()
+
+        monkeypatch.setitem(
+            state_db_migrate.LADDERS,
+            "desk",
+            (
+                *DESK,
+                Migration(("ALTER TABLE desk ADD COLUMN note TEXT DEFAULT ''",)),
+            ),
+        )
+        assert migrate_main() == 0
+
+        db = open_state_db(clone / "state.db")
+        try:
+            # Two rungs ship — the table, then the `desk.json` import — so the
+            # appended one is the third.
+            assert asyncio.run(db.schema_version("desk")) == 3
+            assert asyncio.run(db.read("desk", "task:a/1")) is not None
+        finally:
+            db.close()
+
+    def test_a_database_from_a_newer_build_fails(self, clone, monkeypatch, capsys):
+        """The one failure `self-update` reports, so the exit is non-zero."""
+        assert migrate_main() == 0
+        monkeypatch.setitem(state_db_migrate.LADDERS, "desk", DESK[:1])
+
+        assert migrate_main() == 1
+        assert "Run the newer build" in capsys.readouterr().err
+
+    def test_no_root_at_all_skips(self, clone, monkeypatch, capsys):
+        """A fresh install still completes before the user has named a root."""
+        monkeypatch.delenv("MAEL_NOTEBOOK_ROOT")
+
+        assert migrate_main() == 0
+        assert NOTEBOOK_ROOT_UNSET_MESSAGE in capsys.readouterr().out
+
+
+def _write_desk_json(root, task):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "desk.json").write_text(f'{{"{task}": {{"id": "{task}", "addedAt": "t"}}}}')
+
+
+def _desk_ids(path):
+    db = open_state_db(path)
+    try:
+        return [row["id"] for row in asyncio.run(db.read_all("desk"))]
+    finally:
+        db.close()
+
+
+class TestMigrateEntryPicksTheWorktreesRoot:
+    """The install script inherits its caller's root, which may be the real one.
+
+    The bare ``mael`` shim names ``~/.maelstrom``, so a worktree opened with it
+    would otherwise migrate the real notebook with the branch's code.
+    """
+
+    @pytest.fixture
+    def inherited(self, tmp_path, monkeypatch):
+        root = tmp_path / "inherited"
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(root))
+        return root
+
+    @pytest.fixture
+    def project(self, tmp_path):
+        project = tmp_path / "project"
+        (project / "_main").mkdir(parents=True)
+        (project / "hotel").mkdir()
+        return project
+
+    def test_the_env_files_root_beats_the_inherited_one(
+        self, tmp_path, project, inherited, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (project / "hotel" / ".env").write_text(
+            "WORKTREE=hotel\n"
+            "MAEL_NOTEBOOK_ROOT=~/playpen/hotel  # source: [~/playpen/${WORKTREE}]\n"
+        )
+        monkeypatch.chdir(project / "hotel")
+        playpen = tmp_path / "playpen" / "hotel"
+        _write_desk_json(inherited, "task:real/1")
+        _write_desk_json(playpen, "task:own/1")
+
+        assert migrate_main() == 0
+        assert not (inherited / "state.db").exists()
+        # The import rungs read the picked root too, not the inherited one.
+        assert _desk_ids(playpen / "state.db") == ["task:own/1"]
+
+    def test_a_worktree_whose_env_names_no_root_skips(
+        self, project, inherited, monkeypatch, capsys
+    ):
+        (project / "hotel" / ".env").write_text("WORKTREE=hotel\n")
+        monkeypatch.chdir(project / "hotel")
+
+        assert migrate_main() == 0
+        assert not inherited.exists()
+        assert "mael env reset" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("env_text", [None, "MAEL_NOTEBOOK_ROOT=\n"])
+    def test_a_worktree_with_no_env_root_at_all_skips(
+        self, project, inherited, monkeypatch, env_text
+    ):
+        """Before `mael env reset` there may be no `.env`, or an empty root."""
+        if env_text is not None:
+            (project / "hotel" / ".env").write_text(env_text)
+        monkeypatch.chdir(project / "hotel")
+
+        assert migrate_main() == 0
+        assert not inherited.exists()
+
+    def test_main_uses_the_inherited_root(self, project, inherited, monkeypatch):
+        monkeypatch.chdir(project / "_main")
+
+        assert migrate_main() == 0
+        assert (inherited / "state.db").is_file()
