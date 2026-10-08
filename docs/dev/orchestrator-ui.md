@@ -1260,8 +1260,11 @@ as its detail screen and the panel tab as a screen over it.
 | `?zone=done` | The narrow deck's zone |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
 
-`nav/location.ts` parses a URL into a `Loc` and builds one back, from one table, and leaves every
-default out. `nav/location.test.ts` round-trips each row above.
+`SCREENS` in `nav/location.ts` holds the path patterns, one route each. `nav/routes.tsx` declares
+them under one layout route that draws the shell, so a move between screens keeps the shell
+mounted. A catch-all route's loader redirects any other path. `useLoc` reads the matched screen,
+its params and the search into a `Loc`. `toHref` fills the same patterns with `generatePath` and
+leaves every default out. `nav/location.test.ts` round-trips each row above.
 
 **What lives where.**
 

@@ -1,3 +1,4 @@
+import { generatePath, matchRoutes, type Params } from 'react-router';
 import type { TaskId } from '../protocol/ids';
 import type { Zone } from '../protocol/progress';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
@@ -46,7 +47,25 @@ const ZONES: readonly Zone[] = ['done', 'running', 'notStarted'];
 /** The `status` value for every status: an empty selection. */
 const EVERY_STATUS = 'all';
 
-const VIEW_PATHS: Record<View, string> = { canvas: 'desk', list: 'tasks', worktrees: 'worktrees' };
+/** A screen: the view a path draws, and the kind of card it opens. */
+export interface Screen {
+  path: string;
+  view: View;
+  card: Card['kind'] | null;
+}
+
+/**
+ * The screens, one route each: `routes.tsx` declares them, React Router matches them, and
+ * `toHref` fills them. A task id can hold `/`, so the task path ends in a splat.
+ */
+export const SCREENS: readonly Screen[] = [
+  { path: '/desk', view: 'canvas', card: null },
+  { path: '/desk/task/*', view: 'canvas', card: 'task' },
+  { path: '/desk/agent/:id', view: 'canvas', card: 'agent' },
+  { path: '/desk/worktree/:id', view: 'canvas', card: 'worktree' },
+  { path: '/tasks', view: 'list', card: null },
+  { path: '/worktrees', view: 'worktrees', card: null },
+];
 
 /** The location the app opens on: the desk, with nothing open and no filter. */
 export function defaultLoc(): Loc {
@@ -137,32 +156,23 @@ function statusValue(statuses: TaskStatus[]): string | null {
   return statuses.length === 0 ? EVERY_STATUS : statuses.join(',');
 }
 
-/** The view and the card a path names, or `null` for a path the app has no screen for. */
-function parsePath(pathname: string): Pick<Loc, 'view' | 'card'> | null {
-  const parts = pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  const [head, kind, ...rest] = parts;
-  if (head === VIEW_PATHS.list && !kind) return { view: 'list', card: null };
-  if (head === VIEW_PATHS.worktrees && !kind) return { view: 'worktrees', card: null };
-  if (head !== VIEW_PATHS.canvas) return null;
-  if (!kind) return { view: 'canvas', card: null };
-  // A task id can hold `/`, so the task takes every segment left; the others take one.
-  if (kind === 'task' && rest.length > 0)
-    return { view: 'canvas', card: { kind, id: rest.join('/') } };
-  const [id, ...extra] = rest;
-  if ((kind === 'agent' || kind === 'worktree') && id && extra.length === 0)
-    return { view: 'canvas', card: { kind, id } };
-  return null;
-}
+/** The routes of the screens, each with its screen as its handle. */
+export const screenRoutes = () => SCREENS.map((screen) => ({ path: screen.path, handle: screen }));
 
-/** The location a URL names, or `null` for a path the app has no screen for. */
-export function parseLocation(pathname: string, search: string): Loc | null {
-  const path = parsePath(pathname);
-  if (!path) return null;
+/** Whether a route handle is a screen: the route matched is one of the app's screens. */
+export const isScreen = (handle: unknown): handle is Screen =>
+  typeof handle === 'object' && handle !== null && 'view' in handle && 'path' in handle;
+
+/** The location of a matched screen, its route params and the search. */
+export function locAt(screen: Screen, params: Params, search: string): Loc {
+  const id = screen.card === 'task' ? params['*'] : params.id;
   const q = new URLSearchParams(search);
   const agents = q.get('agents');
   const zone = q.get('zone') as Zone | null;
   return {
-    ...path,
+    view: screen.view,
+    // `/desk/task` matches the splat with nothing in it: the desk, with no card.
+    card: screen.card && id ? { kind: screen.card, id } : null,
     panel: parsePanel(q.get('panel')),
     filters: {
       project: q.get('project') || null,
@@ -178,16 +188,21 @@ export function parseLocation(pathname: string, search: string): Loc | null {
   };
 }
 
+/** The location a URL names, or `null` for a path the app has no screen for. */
+export function parseLocation(pathname: string, search: string): Loc | null {
+  const match = matchRoutes(screenRoutes(), pathname)?.at(-1);
+  return match ? locAt(match.route.handle, match.params, search) : null;
+}
+
 /** The URL of a location: its path and search, every default left out. */
 export function toHref(loc: Loc): string {
-  let path = `/${VIEW_PATHS[loc.view]}`;
-  if (loc.view === 'canvas' && loc.card) {
-    const id =
-      loc.card.kind === 'task'
-        ? loc.card.id.split('/').map(encodeURIComponent).join('/')
-        : encodeURIComponent(loc.card.id);
-    path += `/${loc.card.kind}/${id}`;
-  }
+  const card = loc.view === 'canvas' ? loc.card : null;
+  const screen = SCREENS.find((s) => s.view === loc.view && s.card === (card?.kind ?? null))!;
+  // `generatePath` encodes a param but not the splat, so the task id's segments are encoded here.
+  const path = generatePath(screen.path, {
+    id: card?.id,
+    '*': card?.id.split('/').map(encodeURIComponent).join('/'),
+  });
   const params: [string, string | null][] = [
     ['panel', loc.panel && panelValue(loc.panel)],
     ['project', loc.filters.project],

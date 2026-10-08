@@ -1,8 +1,25 @@
-import type { RouteObject } from 'react-router';
-import { Located } from './Located';
+import type { ReactNode } from 'react';
+import { replace, type RouteObject } from 'react-router';
+import { AppShell } from '../shell/AppShell';
+import { screenRoutes } from './location';
 
 /**
- * The app's one route. `location.ts` matches the path, so the hrefs the app builds and the
- * paths it reads come from one table.
+ * One route per screen, under a layout route that draws `layout`. The screens share that
+ * route, so a move between them keeps the layout mounted: `useLoc` reads which one matched.
+ * Any other path, `/` among them, redirects to the desk in place of its entry, and keeps its
+ * search: Back must not land on a path that redirects again.
  */
-export const routes: RouteObject[] = [{ path: '*', element: <Located /> }];
+export function routesFor(layout: ReactNode): RouteObject[] {
+  return [
+    { element: layout, children: screenRoutes() },
+    {
+      path: '*',
+      loader: ({ request }) => replace(`/desk${new URL(request.url).search}`),
+      // The loader runs before the first render: nothing is drawn while it redirects.
+      HydrateFallback: () => null,
+    },
+  ];
+}
+
+/** The app's routes: the shell on every screen. */
+export const routes = routesFor(<AppShell />);

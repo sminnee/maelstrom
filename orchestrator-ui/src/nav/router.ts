@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { createBrowserRouter } from 'react-router';
-import { defaultLoc, parseLocation, type Loc } from './location';
+import { defaultLoc, isScreen, locAt, type Loc } from './location';
 
 /** The router the app runs on. A test passes a memory router, to read and move its history. */
 export type AppRouter = ReturnType<typeof createBrowserRouter>;
@@ -14,10 +14,11 @@ export function useRouter(): AppRouter {
   return router;
 }
 
-/** Where the user is now, as `router` holds it: its own path, less the base it is served under. */
+/** Where the user is now, as `router` holds it: the screen its routes matched, and the search. */
 export function currentLoc(router: AppRouter): Loc {
-  const { pathname, search } = router.state.location;
-  const base = router.basename && router.basename !== '/' ? router.basename : '';
-  const path = base && pathname.startsWith(base) ? pathname.slice(base.length) || '/' : pathname;
-  return parseLocation(path, search) ?? defaultLoc();
+  const match = router.state.matches.at(-1);
+  const handle: unknown = match?.route.handle;
+  return match && isScreen(handle)
+    ? locAt(handle, match.params, router.state.location.search)
+    : defaultLoc();
 }
