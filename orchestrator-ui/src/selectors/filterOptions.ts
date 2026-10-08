@@ -42,6 +42,9 @@ function originsOf(world: WorldView, view: View, worktreeFilters: WorktreeFilter
         project: group.project,
         branch: '',
       }));
+    case 'comms':
+      // A comm belongs to no project.
+      return [];
   }
 }
 

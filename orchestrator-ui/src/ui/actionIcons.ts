@@ -17,6 +17,8 @@ import {
   FolderX,
   GitMerge,
   ListFilter,
+  Link2,
+  Link2Off,
   MessageSquarePlus,
   OctagonX,
   PanelRight,
@@ -35,6 +37,7 @@ import {
   Square,
   SquareTerminal,
   Trash2,
+  Undo2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -66,6 +69,7 @@ const ICONS = {
   folderOpen: FolderOpen,
   freeAgent: Bot,
   launch: Rocket,
+  link: Link2,
   merge: GitMerge,
   new: Plus,
   next: ArrowRight,
@@ -73,6 +77,7 @@ const ICONS = {
   pageNext: ChevronRight,
   pagePrevious: ChevronLeft,
   refresh: RotateCw,
+  reopen: Undo2,
   resolve: CheckCheck,
   resume: CirclePlay,
   retry: RotateCcw,
@@ -84,6 +89,7 @@ const ICONS = {
   sync: RefreshCw,
   terminal: SquareTerminal,
   terminate: OctagonX,
+  unlink: Link2Off,
 } satisfies Record<string, LucideIcon>;
 
 export type ActionVerb = keyof typeof ICONS;

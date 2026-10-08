@@ -67,14 +67,23 @@ export function useSetStatus() {
   });
 }
 
-/** Write the given fields of a task; an omitted field is left as-is. */
+/**
+ * Write the given fields of a task; an omitted field is left as-is.
+ *
+ * `comms` is here and not on `TaskEdit`: a task's comms are linked from the
+ * comm, never drafted with the task's other fields. Every list replaces the
+ * task's own, and the comms on both sides re-derive their tasks.
+ */
 export function useUpdateTask() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { taskId: TaskId; fields: TaskEdit }) =>
+    mutationFn: (vars: { taskId: TaskId; fields: TaskEdit & { comms?: string[] } }) =>
       api.patch(`/api/tasks/${vars.taskId}`, vars.fields),
-    onSuccess: (_result, vars) => invalidateTask(queryClient, vars.taskId),
+    onSuccess: (_result, vars) => {
+      invalidateTask(queryClient, vars.taskId);
+      if (vars.fields.comms) void queryClient.invalidateQueries({ queryKey: keys.comms.all() });
+    },
   });
 }
 

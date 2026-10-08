@@ -14,6 +14,7 @@ import type { Document } from '../protocol/documents';
 import type {
   Agent,
   ChangeComment,
+  Comm,
   DeskEntry,
   FileDiff,
   Host,
@@ -31,7 +32,7 @@ import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
 
 /**
- * The world the fake serves: the seven tables, keyed by id, with tasks and
+ * The world the fake serves: the eight tables, keyed by id, with tasks and
  * documents whole so the detail routes have their prose.
  */
 export interface FakeWorld {
@@ -42,6 +43,8 @@ export interface FakeWorld {
   documents: Record<string, Document>;
   attention: Record<string, Attention>;
   desk: Record<string, DeskEntry>;
+  /** Each comm's `taskIds` is derived from the tasks' `comms`; see `linkComms`. */
+  comms: Record<string, Comm>;
   /** The agent host's reachability; `null` before the server's first poll settles. */
   host: Host | null;
   /**
@@ -77,6 +80,7 @@ export function emptyFakeWorld(): FakeWorld {
     documents: {},
     attention: {},
     desk: {},
+    comms: {},
     host: {
       id: 'agent-host',
       reachable: true,
@@ -209,8 +213,11 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     for (const socket of openSockets(event.agentId)) socket.receive({ seq, event });
   };
 
+  const world = opts.world ?? emptyFakeWorld();
+  // A seed names a link on the task alone, as the notebook stores it.
+  linkComms(world);
   const server: FakeServer = {
-    world: opts.world ?? emptyFakeWorld(),
+    world,
     transcripts: opts.transcripts ?? {},
     requests,
     hostRefuses: {},
@@ -373,6 +380,25 @@ function json(status: number, body: unknown): Response {
 }
 
 /**
+ * Re-derive every comm's `taskIds` from the tasks' `comms`, sorted, as the
+ * server does on each apply. Returns the ids of the comms whose list moved.
+ */
+function linkComms(world: FakeWorld): string[] {
+  const linked: Record<string, TaskId[]> = {};
+  for (const task of Object.values(world.tasks)) {
+    for (const id of task.comms) (linked[id] ??= []).push(task.id);
+  }
+  const moved: string[] = [];
+  for (const comm of Object.values(world.comms)) {
+    const taskIds = (linked[comm.id] ?? []).sort();
+    if (taskIds.join('\n') === comm.taskIds.join('\n')) continue;
+    world.comms[comm.id] = { ...comm, taskIds };
+    moved.push(comm.id);
+  }
+  return moved;
+}
+
+/**
  * Whether `goal` is reachable by walking `follows` from `starts`. Mirrors
  * `_reaches` in `validate.py`, so the fake refuses a cycle the same way.
  */
@@ -506,6 +532,12 @@ function read(path: string, server: FakeServer): Reply {
     return doc ? ok(doc) : notFound(`document ${m[1]}`);
   }
   if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
+  if (pathname === '/api/comms') return ok({ comms: Object.values(world.comms) });
+  m = pathname.match(/^\/api\/comms\/([^/]+)$/);
+  if (m) {
+    const comm = world.comms[m[1]!];
+    return comm ? ok(comm) : notFound(`comm ${m[1]}`);
+  }
   if (pathname === '/api/host') return ok({ host: world.host });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }
@@ -907,8 +939,19 @@ function command(
         return error(400, 'invalid', 'That would make a cycle');
       }
     }
-    world.tasks[task.id] = { ...task, ...(b as TaskEdit) };
+    // The link is the task's field, so the server re-derives both sides.
+    // An id the task already holds passes, as the server's `_check_comm_ids` lets it.
+    if (b.comms !== undefined) {
+      if (!isStrings(b.comms)) return error(400, 'invalid', 'comms is a list of comm ids');
+      for (const id of b.comms) {
+        if (!world.comms[id] && !task.comms.includes(id)) return notFound(`comm ${id}`);
+      }
+      b.comms = [...new Set(b.comms)];
+    }
+    world.tasks[task.id] = { ...task, ...(b as TaskEdit & { comms?: string[] }) };
     server.change({ kind: 'task', ids: [task.id] });
+    const relinked = linkComms(world);
+    if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     return ok({});
   }
 
@@ -940,6 +983,8 @@ function command(
     }
     server.change({ kind: 'task', ids: [task.id, ...rewired] });
     if (hadDeskEntry) server.change({ kind: 'desk', ids: [deskId] });
+    const relinked = linkComms(world);
+    if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     return ok({});
   }
 
@@ -1281,7 +1326,70 @@ function command(
     server.change({ kind: 'desk', ids: [id] });
     return ok({});
   }
+  if (pathname === '/api/comms' && method === 'POST') {
+    const title = str('title')?.trim() ?? '';
+    if (!title) return error(400, 'invalid', 'A title is required');
+    const refused = commFieldsError(b);
+    if (refused) return refused;
+    const id = `new${mint()}`;
+    world.comms[id] = {
+      id,
+      title,
+      content: str('content') ?? '',
+      recipients: Array.isArray(b.recipients) ? (b.recipients as string[]) : [],
+      createdAt: now(),
+      closedAt: '',
+      taskIds: [],
+    };
+    server.change({ kind: 'comm', ids: [id] });
+    return ok({ id });
+  }
+
+  m = pathname.match(/^\/api\/comms\/([^/]+)$/);
+  if (m && method === 'PATCH') {
+    const comm = world.comms[m[1]!];
+    if (!comm) return notFound(`comm ${m[1]}`);
+    if (!COMM_EDITABLE.some((k) => b[k] !== undefined && b[k] !== null)) {
+      return error(400, 'invalid', 'Nothing to change');
+    }
+    if (b.title !== undefined && !String(b.title).trim()) {
+      return error(400, 'invalid', 'A title is required');
+    }
+    if (b.closed !== undefined && typeof b.closed !== 'boolean') {
+      return error(400, 'invalid', 'closed is true or false');
+    }
+    const refused = commFieldsError(b);
+    if (refused) return refused;
+    const next = { ...comm };
+    if (b.title !== undefined) next.title = String(b.title).trim();
+    if (b.content !== undefined) next.content = String(b.content);
+    if (Array.isArray(b.recipients)) next.recipients = b.recipients as string[];
+    // Closing again keeps the first stamp, as `comms.close` does.
+    if (b.closed === true && !comm.closedAt) next.closedAt = now();
+    if (b.closed === false) next.closedAt = '';
+    world.comms[comm.id] = next;
+    server.change({ kind: 'comm', ids: [comm.id] });
+    return ok({});
+  }
+
   return error(404, 'unknown_id', `No route ${key}`);
+}
+
+/** The comm fields `comm.update` takes, as `COMM_EDITABLE` in `orchestrator/validate.py`. */
+const COMM_EDITABLE = ['title', 'content', 'recipients', 'closed'] as const;
+
+const isStrings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+/** The shape of a comm's `content` and `recipients`, as `_check_comm_fields`. */
+function commFieldsError(b: Record<string, unknown>) {
+  if (b.content !== undefined && typeof b.content !== 'string') {
+    return error(400, 'invalid', 'content is text');
+  }
+  if (b.recipients !== undefined && !isStrings(b.recipients)) {
+    return error(400, 'invalid', 'recipients is a list of text');
+  }
+  return null;
 }
 
 /** A task as the fake notebook writes a new one: the fields sent, the rest defaulted. */
@@ -1312,6 +1420,8 @@ function makeNewTask(
     base: '',
     actionable: true,
     startedAt: '',
+    landing: null,
+    comms: [],
     log: [],
     created: new Date().toISOString(),
     updated: new Date().toISOString(),

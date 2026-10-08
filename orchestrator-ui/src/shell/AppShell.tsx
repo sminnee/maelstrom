@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
 import { Canvas } from '../canvas/Canvas';
+import { CommList } from '../comms/CommList';
 import { Panel } from '../panel/Panel';
 import { NewWork } from '../newwork/NewWork';
 import { TaskEditor } from '../tasklist/TaskEditor';
@@ -26,7 +27,7 @@ const MIN_MAIN_STRIP = 48;
 const clamp = (width: number) =>
   Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_MAIN_STRIP, width));
 
-const MAIN_VIEWS: View[] = ['canvas', 'list', 'worktrees'];
+const MAIN_VIEWS: View[] = ['canvas', 'list', 'worktrees', 'comms'];
 
 /**
  * The app under the top bar, in one of the three layouts of `LayoutMode`.
@@ -84,6 +85,8 @@ function SlotShell() {
                 <Canvas />
               ) : view === 'worktrees' ? (
                 <WorktreeTable />
+              ) : view === 'comms' ? (
+                <CommList />
               ) : (
                 <TaskList />
               )}

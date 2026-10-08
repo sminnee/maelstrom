@@ -11,18 +11,18 @@ export type PanelTab =
   | { key: string; kind: 'devenv'; worktreeId: WorktreeId; service: string };
 
 /** One item of the top bar's menu: a main view, or the panel, labelled `Tabs`. */
-export type Pane = 'canvas' | 'list' | 'worktrees' | 'tabs';
+export type Pane = 'canvas' | 'list' | 'worktrees' | 'comms' | 'tabs';
 
 /** One of the two slots the body draws a pane in. */
 export type Side = 'left' | 'right';
 
 /**
- * A main view: the desk, every task, or every worktree.
+ * A main view: the desk, every task, every worktree, or every comm.
  *
  * Only `originsOf` in `selectors/filterOptions.ts` switches on this
  * exhaustively. Every other site must be edited by hand when it widens:
- * AppShell, MobileShell, FilterBar, and the branch-naming views in
- * `filterOptions`.
+ * AppShell, MobileShell, FilterBar, `SCREENS` in `nav/location.ts`, and
+ * the branch-naming views in `filterOptions`.
  */
 export type View = Exclude<Pane, 'tabs'>;
 
@@ -77,10 +77,10 @@ const openingWidth = () =>
 
 export function initialUiState(): UiState {
   return {
-    anchors: { canvas: 'left', list: 'left', worktrees: 'left', tabs: 'right' },
+    anchors: { canvas: 'left', list: 'left', worktrees: 'left', comms: 'left', tabs: 'right' },
     slots: { left: 'canvas', right: 'tabs' },
     // Every pane, so the left slot can reopen on one that was never selected.
-    paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
+    paneRecency: ['canvas', 'tabs', 'list', 'worktrees', 'comms'],
     tabs: [],
     tabRecency: [],
     splitTabs: {},

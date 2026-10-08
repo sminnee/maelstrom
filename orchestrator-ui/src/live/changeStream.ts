@@ -60,6 +60,8 @@ export function invalidationsFor(notice: ChangeNotice): QueryKey[] {
       return perId(keys.agents, notice.ids);
     case 'document':
       return perId(keys.documents, notice.ids);
+    case 'comm':
+      return perId(keys.comms, notice.ids);
   }
 }
 
