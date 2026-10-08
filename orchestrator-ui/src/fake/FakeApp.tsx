@@ -3,7 +3,7 @@ import { createMemoryRouter } from 'react-router';
 import { App, type AppDeps } from '../App';
 import type { AppRouter } from '../nav/router';
 import { routes } from '../nav/routes';
-import { useAppStore } from '../store/store';
+import { resetToPageLoad, useAppStore } from '../store/store';
 import type { UiState } from '../store/uiSlice';
 import { fakeDeps } from './fakeDeps';
 import { SCENARIOS, type ScenarioName } from './scenarios';
@@ -39,6 +39,11 @@ export interface FakeAppProps {
    * runs on a page whose URL Ladle owns.
    */
   router?: AppRouter;
+  /**
+   * Keep the tabs a refresh left, as the app's page load does. Off for a story, which must
+   * not open on the last story's tabs.
+   */
+  keepTabs?: boolean;
 }
 
 /**
@@ -55,12 +60,16 @@ export function FakeApp({
   hold,
   refuse,
   router,
+  keepTabs = false,
 }: FakeAppProps) {
   const [deps] = useState((): AppDeps => {
     // The store is a module singleton. Without the reset, a scenario inherits
-    // the view, the filters and the tabs of the one shown before it.
-    useAppStore.getState().reset();
-    if (ui) useAppStore.setState((s) => ({ ui: { ...s.ui, ...ui } }));
+    // the view, the filters and the tabs of the one shown before it. A refresh
+    // keeps the tabs it had, and lays the scenario's own only on a first load.
+    let kept = false;
+    if (keepTabs) kept = resetToPageLoad();
+    else useAppStore.getState().reset();
+    if (ui && !kept) useAppStore.setState((s) => ({ ui: { ...s.ui, ...ui } }));
     const seed = SCENARIOS[scenario].build();
     amend?.(seed);
     const { server, deps } = fakeDeps(seed);

@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { expanded, isShowing, openSession, paneItem, tabStrip } from '../test/appHelpers';
+import {
+  expanded,
+  isShowing,
+  openSession,
+  paneItem,
+  stripKeys,
+  tabStrip,
+  worktreeRow,
+} from '../test/appHelpers';
 import { clickNode, renderApp } from '../test/renderApp';
 
 describe('the panel beside each view', () => {
@@ -91,5 +99,20 @@ describe('the panel tab in the URL', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     await user.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
+  });
+});
+
+describe('the open tabs across a refresh', () => {
+  it('keeps every open tab, and shows the one the URL names', async () => {
+    const user = userEvent.setup();
+    const { unmount } = await renderApp();
+    await openSession(user, 'NORT-9');
+    await openSession(user, 'NORT-7');
+    unmount();
+    await renderApp({ url: '/desk?panel=session/d9a4c7f1' });
+    // One tab in each worktree: both rows are back, and the strip shows the named one.
+    expect(worktreeRow('northwind alpha')).toBeInTheDocument();
+    expect(stripKeys()).toEqual(['session:d9a4c7f1']);
+    expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-9/);
   });
 });
