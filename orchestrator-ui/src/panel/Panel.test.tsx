@@ -81,14 +81,14 @@ describe('the panel tab in the URL', () => {
     expect(router.state.location.search).toBe('?panel=session/a1f3c9e2');
   });
 
-  it('replaces the location with the tab that takes over from a closed one', async () => {
+  it('goes back to the tab that takes over from a closed one, when it is the entry before', async () => {
     const user = userEvent.setup();
     const { router } = await renderApp();
     await openSession(user, 'NORT-9');
     await openSession(user, 'NORT-7');
     await user.click(screen.getByRole('button', { name: 'Close NORT-7' }));
     await waitFor(() => expect(router.state.location.search).toBe('?panel=session/d9a4c7f1'));
-    expect(router.state.historyAction).toBe('REPLACE');
+    expect(router.state.historyAction).toBe('POP');
   });
 
   it('draws the tab as a screen over the card on the narrow layout, and Back pops each', async () => {

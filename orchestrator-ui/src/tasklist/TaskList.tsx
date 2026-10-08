@@ -11,7 +11,7 @@ import { listTasks } from '../selectors/taskList';
 import { PanelLink } from '../shell/PanelLink';
 import { Link } from 'react-router';
 import { toHref, withLoc } from '../nav/location';
-import { IN_APP, useLoc } from '../nav/useNav';
+import { useLinkState, useLoc } from '../nav/useNav';
 import { useEditor } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -25,8 +25,9 @@ import styles from './TaskList.module.css';
 export function TaskList() {
   const { world, status, errors, retry } = useWorld();
   const { filters, listFilters } = useLoc();
-  const { editingTaskId, open: editTask, close: closeEditor } = useEditor();
+  const { open: editTask, closeIf: closeEditorIf } = useEditor();
   const loc = useLoc();
+  const linkState = useLinkState();
   const setStatus = useSetStatus();
   const deleteTask = useDeleteTask();
   // Which row's status is being picked.
@@ -132,7 +133,7 @@ export function TaskList() {
                 {onDesk ? (
                   <Link
                     to={toHref(withLoc(loc, { card: { kind: 'task', id: task.id } }))}
-                    state={IN_APP}
+                    state={linkState}
                     className={styles.idLink}
                   >
                     {task.id}
@@ -175,9 +176,8 @@ export function TaskList() {
                     onDismiss={() => setDeleting(null)}
                     onConfirm={async () => {
                       await deleteTask.mutateAsync({ taskId: task.id });
-                      // The dialog mounts from the store, so a delete that
-                      // leaves it open refetches a task that is gone.
-                      if (editingTaskId === task.id) closeEditor();
+                      // An editor left open on the task refetches a task that is gone.
+                      closeEditorIf(task.id);
                     }}
                   >
                     Delete

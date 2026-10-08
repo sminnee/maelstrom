@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useLayoutMode } from '../layout/useLayoutMode';
-import { IN_APP, useHrefFor } from '../nav/useNav';
+import { useLinkState, useHrefFor } from '../nav/useNav';
 import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
 import type { TabOf } from '../selectors/tabs';
@@ -46,6 +46,7 @@ export function PanelLink({
   const openTab = useAppStore((s) => s.openTab);
   const narrow = useLayoutMode() === 'narrow';
   const to = useHrefFor({ panel: tab });
+  const linkState = useLinkState();
   if (narrow && tab.kind === 'devenv')
     return (
       <ExternalLink href={external!} className={className} aria-label={ariaLabel}>
@@ -55,7 +56,7 @@ export function PanelLink({
   return (
     <Link
       to={to}
-      state={IN_APP}
+      state={linkState}
       className={[styles.link, className].filter(Boolean).join(' ')}
       aria-label={ariaLabel}
       onClick={(e) => {

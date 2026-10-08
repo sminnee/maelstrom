@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { IN_APP } from '../nav/useNav';
+import { useLinkState } from '../nav/useNav';
 import { useDocuments } from '../api/documents';
 import { driftLabel } from '../protocol/progress';
 import { phaseLabel } from '../protocol/phase';
@@ -32,6 +32,7 @@ export function DeckRow({
 }) {
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   const documents = useDocuments();
+  const linkState = useLinkState();
   const documentTitle = documentId
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
@@ -43,7 +44,7 @@ export function DeckRow({
       data-phase={node.phase ?? undefined}
       data-state={node.progress.state}
     >
-      <Link to={to} state={IN_APP} className={styles.open}>
+      <Link to={to} state={linkState} className={styles.open}>
         <span className={styles.title}>{nodeTitle(node)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />

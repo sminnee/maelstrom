@@ -576,6 +576,24 @@ describe('the task list', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('closes the editor by going back, so Back does not reopen it', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/tasks' });
+    const editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+    await user.click(within(editor).getAllByRole('button', { name: 'Close' })[0]!);
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    expect(router.state.historyAction).toBe('POP');
+  });
+
+  it('closes an editor a copied link opened by replacing its entry', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/tasks?edit=NORT-9' });
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await user.click(within(editor).getAllByRole('button', { name: 'Close' })[0]!);
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
   it("links a desk task's id to its card", async () => {
     await renderApp({ url: '/tasks' });
     expect(

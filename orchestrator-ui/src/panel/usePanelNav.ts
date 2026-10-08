@@ -35,9 +35,9 @@ export function usePanelNav() {
     selectGroup: (tabKeys: string[]) =>
       show(selectGroupIn({ ...ui, activeTabKey }, tabKeys).activeTabKey),
     /**
-     * Close tabs; the active one hands over within its own group first. A replace: Back
-     * must not return to a tab that is gone.
+     * Close tabs; the active one hands over within its own group first. The move closes: it
+     * goes back when the tab that takes over is the entry before, and replaces otherwise.
      */
-    close: (keys: string[]) => show(closeTabs(keys, groupOf, activeTabKey), { replace: true }),
+    close: (keys: string[]) => show(closeTabs(keys, groupOf, activeTabKey), { close: true }),
   };
 }
