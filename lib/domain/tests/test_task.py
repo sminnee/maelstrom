@@ -103,12 +103,12 @@ class TestRoundTrip:
 
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-4:] == (
-            "execute-model",
-            "pr",
-            "pr-url",
-            "trigger",
-        )
+        assert model.FRONTMATTER_KEYS[-4:] == ("pr", "pr-url", "trigger", "comms")
+
+    def test_comms_round_trip(self):
+        # The comms a task feeds, an inline list like ``follows``.
+        t = Task(id="x", title="t", project="p", comms=["c3", "c7"])
+        assert Task.from_markdown(t.to_markdown()).comms == ["c3", "c7"]
 
     def test_execute_model_round_trips(self):
         # The model the session switches to when its plan is approved. Free-form
@@ -1159,6 +1159,64 @@ class TestBranchDefault:
         assert model.default_branch("x") == "task/x"
 
 
+class TestCommInheritance:
+    # A child feeds the comms its parent task feeds, as it shares its branch.
+    async def _parent(self, store):
+        return await model.create(
+            store, project="p", title="par", id="par", comms=["c1", "c2"], now=NOW
+        )
+
+    async def test_a_child_inherits_the_parent_task_comms(self):
+        store = InMemoryTaskTable()
+        parent = await self._parent(store)
+        child = await model.create(
+            store, project="p", title="c", parent=parent.id, now=NOW
+        )
+        assert (await model.load(store, "p", child.id)).comms == ["c1", "c2"]
+
+    async def test_an_explicit_list_wins(self):
+        store = InMemoryTaskTable()
+        parent = await self._parent(store)
+        child = await model.create(
+            store, project="p", title="c", parent=parent.id, comms=["c9"], now=NOW
+        )
+        assert child.comms == ["c9"]
+
+    async def test_an_empty_list_opts_out(self):
+        store = InMemoryTaskTable()
+        parent = await self._parent(store)
+        child = await model.create(
+            store, project="p", title="c", parent=parent.id, comms=[], now=NOW
+        )
+        assert child.comms == []
+
+    async def test_a_virtual_parent_gives_no_comms(self):
+        store = InMemoryTaskTable()
+        t = await model.create(
+            store, project="p", title="c", parent="linear.NORT-1", now=NOW
+        )
+        assert t.comms == []
+
+    async def test_a_load_many_block_inherits_via_the_default_parent(self):
+        store = InMemoryTaskTable()
+        await self._parent(store)
+        blocks = [
+            {"name": "a", "args": {"title": "A"}, "content": ""},
+            {"name": "b", "args": {"title": "B", "comms": ["c5"]}, "content": ""},
+        ]
+        a, b = await model.load_many(
+            store, project="p", blocks=blocks, default_parent="par", now=NOW
+        )
+        assert a.comms == ["c1", "c2"]
+        assert b.comms == ["c5"]
+
+    async def test_update_replaces_the_list(self):
+        store = InMemoryTaskTable()
+        parent = await self._parent(store)
+        await model.update(store, "p", parent.id, comms=["c4"], now=NOW2)
+        assert (await model.load(store, "p", parent.id)).comms == ["c4"]
+
+
 # --- build_prompt ---
 
 
@@ -1980,6 +2038,20 @@ class TestEditInEditor:
 
 
 class TestDuplicate:
+    async def test_a_run_with_no_parent_feeds_its_template_comms(self, store):
+        # A scheduled run duplicates its template with parent="".
+        await model.create(
+            store, project="p", title="T", id="tmpl", comms=["c2"], now=NOW
+        )
+        run = await model.duplicate(store, "p", "tmpl", parent="", id="tmpl.1")
+        assert run.comms == ["c2"]
+
+    async def test_a_duplicate_under_a_parent_takes_the_parent_comms(self, store):
+        await model.create(store, project="p", title="T", id="tmpl", comms=["c2"])
+        await model.create(store, project="p", title="P", id="par", comms=["c5"])
+        dup = await model.duplicate(store, "p", "tmpl", parent="par")
+        assert dup.comms == ["c5"]
+
     async def test_copies_recipe_into_todo(self, store):
         src = await model.create(
             store,

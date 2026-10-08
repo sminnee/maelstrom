@@ -112,4 +112,6 @@ TASKS: tuple[Rung, ...] = (
     ),
     # What fires a template. See CONTEXT.md, "Trigger".
     Migration(("ALTER TABLE tasks ADD COLUMN trigger TEXT NOT NULL DEFAULT ''",)),
+    # The comms a task feeds: a JSON list, like ``follows``. See CONTEXT.md, "Comm".
+    Migration(("ALTER TABLE tasks ADD COLUMN comms TEXT NOT NULL DEFAULT '[]'",)),
 )
