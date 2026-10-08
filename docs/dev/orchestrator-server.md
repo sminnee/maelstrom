@@ -484,7 +484,8 @@ snapshot and its first live one.
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
-| Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached | with the worktree read |
+| Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached. Each done tracked task is then read again, and the ones whose landing moved are pushed | with the worktree read |
+| Comms | Read the `comms` rows written since the last read. A comm's `taskIds` are derived from the world's tasks | 2 s, on the task tick |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
 
@@ -619,6 +620,39 @@ project with an unsettled PR, one tick costs:
 
 A `not_yet` on an unchanged deploy sha is kept without a compare. For the token the deploy reads
 need, see `deploy:` in `docs/reference/configuration.md`.
+
+### The landing on a task
+
+A wire task carries `landing`: `None` until the task is `done`, then `{status, envs}`.
+`Landings.landing_of` builds it from the cached `pull_requests` row, and reads nothing from
+GitHub. `status` is the highest step reached, through the same rule as `mael comms landings`.
+`envs` names each deploy step the project deploys to, with its state. A task with no
+Registered PR has empty `envs`, because it has nothing to land.
+
+A landing change writes no task row, so the task poll would never see it. So after each sync
+`refresh_worktrees` reads every done tracked task again through `TaskSource.read_some`, and
+pushes the ones whose entity moved. That covers an env state that changes with no new step, such
+as `unknown` to `not_yet`. The read is the table and the cached PR rows; it asks GitHub nothing.
+
+`landing_of` asks each project's config once per done task. The composition root caches that
+read for one worktree poll, so a whole task read parses each `.maelstrom.yaml` once. The sync
+shares the cache, so an edit to `deploy:` reaches it within one poll.
+
+### Comms
+
+The server holds a `CommStore` over the canonical `comms` table, and polls it on the task tick
+with `changed_since`. A comm written by `mael comms` in another process reaches the world on the
+next tick, and a comm command reads it at once.
+
+A comm's `taskIds` are not stored: each task names its comms in its own `comms` field. So
+`_apply` checks every task event before it applies. When a task's `comms` change, the comms on
+both sides — the old list and the new — are derived again from the world's tasks, and their
+upserts join the same batch. A link change is therefore one task write that sends a task notice
+and a comm notice together.
+
+A link is `PATCH /api/tasks/{project}/{id}` with `comms`. The list replaces the task's own, and
+each id must name a comm the world holds. `task.create` does not take `comms`: a new task
+inherits its parent task's comms, and a link is a later edit.
 
 ### Agents
 
@@ -918,6 +952,8 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
+| `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, taskIds}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
+| `GET /api/comms/{id}` | The `Comm` |
 | `GET /api/agents` | `{agents: [Agent]}` |
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
 | `GET /api/agents/{id}/milestones` | The agent's `AgentCost`: its totals, and a `stages` list saying what each stage cost. Served through `agent_cost.build_cost_report`, the report `mael agent cost` prints. An agent that reached no stage gets that report with `stages: []`, not a 404 |
@@ -978,7 +1014,8 @@ event: change
 data: {"kind": "task", "ids": ["northwind/NORT-7"]}
 ```
 
-The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document` and `desk`. A
+The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document`, `desk`, `host`
+and `comm`. A
 worktree's changes have no kind of their own; see orchestrator-ui.md, "The Changes tab". A
 notice names what changed and nothing else: no entity travels on it. A remove and an upsert both
 put the id in `ids`, and the client refetches and finds the entity present or gone. Transcript
@@ -1095,6 +1132,8 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
+| `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
+| `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |

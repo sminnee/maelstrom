@@ -130,6 +130,15 @@ The `task_steps` table is canonical too. It holds each **Landing** step a task r
 the server recorded it. GitHub could rebuild the steps, but not the record times. A comms flush
 compares against those times, so a restore that lost them would send each update again.
 
+The `comms` table is canonical too: maelstrom alone authors a **Comm**. A comm row holds the
+title, the content, the recipients as a JSON list, and when it was created and closed. A
+write by `mael comms` reaches the Comms view on the server's next task tick.
+
+The link from a task to its comms is not a table. It is the task row's `comms` column, a JSON
+list like `follows`. So a link change is a task write, and it sends a task notice. A join table
+was the other choice. The column won because `task.create` already copies a parent's fields; see
+tasks.md, "What a child inherits".
+
 Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
 prose queries the table.

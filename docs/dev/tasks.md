@@ -33,6 +33,23 @@ The parent is often a *virtual* root rather than another real task:
   `mael task add … --run` session self-parents and its emitted chain hangs off
   that.
 
+### What a child inherits
+
+`task.create` gives a new child two things from its parent task: the branch, and
+the comms the parent feeds. Every create path goes through `create`, so
+`task add`, `load-many`, promote, the server and worktree close all inherit the
+same way. Two paths differ:
+
+- `duplicate` with no parent takes its source's comms, so a scheduled run feeds
+  the comms its template feeds.
+- A promoted draft that names comms keeps them. A draft cannot opt out with
+  `[]`: every draft file writes `comms: []`, so `[]` there means "inherit".
+
+| Field | An explicit value | Left unset |
+|---|---|---|
+| `branch` | Wins | An existing sibling's branch, then the parent task's, then a generated name |
+| `comms` | Wins; `[]` opts out | The parent task's `comms`, or `[]` when the parent is virtual |
+
 ## `parent` vs `base` — near-identical names, near-opposite meanings
 
 A task's `base` frontmatter names **the branch this task's branch is stacked on**. It is
