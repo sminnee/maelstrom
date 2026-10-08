@@ -366,7 +366,8 @@ Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
   Terminate draws none.
 - Exception: the On desk toggle in a task list row or a follows row shows a state. It draws the
   desk with no arrow, and a square on the desk when the task is on the desk
-  (`shell/DeskStateIcon.tsx`). See the Reporting Rule in `orchestrator-ui/DESIGN.md`.
+  (`shell/DeskStateIcon.tsx`). On hover it draws the On desk or Off desk icon instead: the act
+  a click takes. See the Reporting Rule in `orchestrator-ui/DESIGN.md`.
 
 The close and trash items are left out when the worktree is `_main`, is closed, or does not exist.
 With one item left, the control is a plain button. The close and trash items are disabled while
