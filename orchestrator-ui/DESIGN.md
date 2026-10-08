@@ -812,8 +812,7 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 #### Icons
 
 An action has one icon, and `ui/actionIcons.ts` holds the whole set. A call site names a verb,
-such as `actionIcon('start')`, and never imports from lucide itself. Two entries are states, not
-acts: `checked` and `unchecked` draw the On desk toggle's box. So two buttons that do the
+such as `actionIcon('start')`, and never imports from lucide itself. So two buttons that do the
 same thing cannot draw it two ways. The icons are lucide's, at its 2px stroke on a 24px box. At
 `--icon` (16px) that draws at about 1.3px.
 
