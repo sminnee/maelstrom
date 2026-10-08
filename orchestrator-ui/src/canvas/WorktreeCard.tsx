@@ -1,5 +1,6 @@
 import type { Worktree } from '../protocol/entities';
 import { useAppStore } from '../store/store';
+import { useCard } from '../nav/useCard';
 import { AppButton } from '../ui/AppButton';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { CanvasCard } from './CanvasCard';
@@ -27,7 +28,7 @@ export function WorktreeCard({
   open: boolean;
   onClosed: () => void;
 }) {
-  const collapse = useAppStore((s) => s.collapseCard);
+  const { collapse } = useCard();
   const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
   return (
     <CanvasCard
@@ -43,7 +44,12 @@ export function WorktreeCard({
           <h2 className={styles.title}>{worktree.nato}</h2>
           <span className={styles.project}>{worktree.project}</span>
         </div>
-        <button type="button" className={styles.close} aria-label="Collapse" onClick={collapse}>
+        <button
+          type="button"
+          className={styles.close}
+          aria-label="Collapse"
+          onClick={() => collapse()}
+        >
           {actionIcon('close')}
         </button>
       </header>

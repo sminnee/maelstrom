@@ -20,6 +20,7 @@
   font: inherit;
   color: inherit;
   text-align: left;
+  text-decoration: none;
   background: none;
   border: none;
   cursor: pointer;
@@ -29,8 +30,7 @@
   font-weight: 500;
   color: var(--fg);
   /* Two lines, then the ellipsis: a phone's width makes one line too little to
-     tell two tasks apart, and the row has the height to spare. The row is a
-     button, and a button does not wrap its label, so the title wraps itself. */
+     tell two tasks apart, and the row has the height to spare. */
   white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;

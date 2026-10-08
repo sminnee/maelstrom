@@ -17,6 +17,7 @@ import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
+import { cardOf, useCard } from '../nav/useCard';
 import { layoutSwimlanes, type WorktreeBox } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
 import { canConnect, followsAfterConnect } from './connect';
@@ -65,10 +66,7 @@ export function Canvas() {
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
-  const expandedWorktreeId = useAppStore((s) => s.ui.expandedWorktreeId);
-  const expandNode = useAppStore((s) => s.expandNode);
-  const collapseCard = useAppStore((s) => s.collapseCard);
+  const { expandedNodeId, expandedWorktreeId, open, collapse } = useCard();
   const { fitView, getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();
   const panelShowing = useShowing().includes('tabs');
@@ -215,14 +213,15 @@ export function Canvas() {
       (expandedNodeId && !byId[expandedNodeId]) ||
       (expandedWorktreeId && !boxes[expandedWorktreeId]);
     if (!gone) return;
-    collapseCard();
-  }, [status, expandedNodeId, expandedWorktreeId, byId, boxes, collapseCard]);
+    // Replace, not push: Back must not return to a card that cannot draw.
+    collapse({ replace: true });
+  }, [status, expandedNodeId, expandedWorktreeId, byId, boxes, collapse]);
 
   const onNodeClick = useCallback(
     (_: unknown, node: Node) => {
-      if (node.type === 'task') expandNode(node.id);
+      if (node.type === 'task') open(cardOf((node as TaskFlowNode).data.node));
     },
-    [expandNode],
+    [open],
   );
 
   // Direction is followed -> follower, the way `deriveGraph` builds an edge,
@@ -293,7 +292,7 @@ export function Canvas() {
         onConnect={onConnect}
         isValidConnection={canConnect}
         onNodeClick={onNodeClick}
-        onPaneClick={collapseCard}
+        onPaneClick={() => collapse()}
         elementsSelectable
       >
         <Background gap={24} color="var(--border)" />

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
-import { useAppStore } from '../store/store';
+import { useCard } from '../nav/useCard';
 import styles from './CanvasCard.module.css';
 import { VIEW_MOVE_MS } from './viewport';
 
@@ -43,7 +43,7 @@ export function CanvasCard({
   state?: string;
   children: ReactNode;
 }) {
-  const collapse = useAppStore((s) => s.collapseCard);
+  const { collapse } = useCard();
   const { getViewport, setViewport } = useReactFlow();
   const card = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);

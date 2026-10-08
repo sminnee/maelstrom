@@ -89,7 +89,7 @@ describe('a dev env tab', () => {
   it('stays a link out of the app on the narrow layout', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await user.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
+    await user.click(screen.getByRole('link', { name: /Rotate auth tokens/ }));
     const link = within(screen.getByRole('dialog')).getByRole('link', { name: 'Dev env' });
     expect(link).toHaveAttribute('href', 'http://localhost:4210');
     expect(link).toHaveAttribute('target', '_blank');

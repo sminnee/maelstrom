@@ -25,10 +25,11 @@ describe('the narrow layout', () => {
     const row = screen.getByTestId('deck-list').querySelector('[data-task-id="NORT-12"]');
     expect(row).toHaveTextContent('#118');
     // The chip carries its state in words here too, but not as a link: the
-    // whole row is a button, and an anchor may not nest inside one.
+    // whole row is a link, and an anchor may not nest inside one.
     const chip = within(row as HTMLElement).getByLabelText('PR #118, CI running');
     expect(chip).toHaveAttribute('data-tone', 'busy');
-    expect(within(row as HTMLElement).queryByRole('link', { name: /PR #118/ })).toBeNull();
+    expect(chip.tagName).not.toBe('A');
+    expect(chip.closest('a')).toBe(row?.querySelector('a'));
   });
 
   it('opens on the running zone, and a task that finishes moves to the done tab', async () => {
@@ -73,7 +74,7 @@ describe('the narrow layout', () => {
     const bar = () => within(screen.getByTestId('top-bar'));
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
     // One strip: the way back, what the screen is, and More. The readings and
@@ -91,7 +92,7 @@ describe('the narrow layout', () => {
   it('opens the side sheet from More, with New in it, which closes it', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await user.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     const more = screenStrip().getByRole('button', { name: 'More' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
 
@@ -105,7 +106,7 @@ describe('the narrow layout', () => {
 
   it('draws the attention chip on a pushed screen only while something waits, and on the deck always', async () => {
     const { server } = await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     const bar = screenStrip();
     expect(bar.getByTestId('attention-chip')).toBeInTheDocument();
     act(() => {
@@ -120,11 +121,27 @@ describe('the narrow layout', () => {
     expect(screenStrip().getByTestId('attention-chip')).toHaveAttribute('data-count', '0');
   });
 
+  it('opens on the detail the URL names, and Back with nothing behind it goes to the deck', async () => {
+    const { router } = await renderApp({ viewport: 'narrow', url: '/desk/task/NORT-9' });
+    expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
+    await userEvent.click(screenStrip().getByRole('button', { name: 'Back' }));
+    expect(router.state.location.pathname).toBe('/desk');
+    expect(screen.getByTestId('deck-list')).toBeInTheDocument();
+  });
+
+  it('links each row to its card', async () => {
+    await renderApp({ viewport: 'narrow' });
+    expect(screen.getByRole('link', { name: /Migrate to Postgres 16/ })).toHaveAttribute(
+      'href',
+      '/desk/task/NORT-9',
+    );
+  });
+
   it('puts the status control on the id line of the detail', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
     await user.click(zoneTab(/not started/i));
-    await user.click(screen.getByRole('button', { name: /Watch the migration PR/ }));
+    await user.click(screen.getByRole('link', { name: /Watch the migration PR/ }));
     expect(
       within(screen.getByTestId('node-id-line')).getByRole('button', {
         name: 'Status of Watch the migration PR, todo',
@@ -134,7 +151,7 @@ describe('the narrow layout', () => {
 
   it('pushes the session over the detail, and back pops one screen at a time', async () => {
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     await userEvent.click(screen.getByRole('link', { name: /Session/ }));
     expect(screen.getByTestId('session-tab')).toBeInTheDocument();
     // No tab strip in the narrow layout: one thing owns the screen.
@@ -149,7 +166,7 @@ describe('the narrow layout', () => {
   it('puts Stop in the session strip, and the head in the side sheet', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await user.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     await user.click(screen.getByRole('link', { name: /Session/ }));
     const tab = await screen.findByTestId('session-tab');
     const bar = screenStrip();
@@ -171,7 +188,7 @@ describe('the narrow layout', () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
     // MAEL-52 waits on a question in the seed.
-    await user.click(screen.getByRole('button', { name: /Shape the orchestrator UI/ }));
+    await user.click(screen.getByRole('link', { name: /Shape the orchestrator UI/ }));
     const card = screen.getByRole('dialog');
     const prompt = await within(card).findByTestId('question-prompt');
     expect(card).toHaveTextContent('Before this');
@@ -255,7 +272,7 @@ describe('the narrow layout', () => {
 
   it('gives the document the full width, with no comment margin beside it', async () => {
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: /Plan the order export/ }));
+    await userEvent.click(screen.getByRole('link', { name: /Plan the order export/ }));
     await userEvent.click(screen.getByRole('link', { name: /Plan/ }));
     expect(await screen.findByTestId('document-tab')).toBeInTheDocument();
     expect(screen.queryByTestId('comment-margin')).not.toBeInTheDocument();
@@ -319,7 +336,7 @@ describe('the narrow layout', () => {
   it('leaves Enter as a newline and sends from the button, as a soft keyboard needs', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await user.click(screen.getByRole('button', { name: /Migrate to Postgres 16/ }));
+    await user.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     await user.click(screen.getByRole('link', { name: /Session/ }));
     const input = await screen.findByRole('textbox', { name: 'Message to agent' });
     // Enter makes a newline: it does not send, and it does not clear the box.

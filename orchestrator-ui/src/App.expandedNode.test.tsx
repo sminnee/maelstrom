@@ -13,8 +13,9 @@ import { T } from './fake/seedWorld';
 
 describe('the expanded node', () => {
   it('clicking a node expands it in place with its state in words; a second click or Esc collapses it', async () => {
-    await renderApp();
+    const { router } = await renderApp();
     clickNode('NORT-7');
+    expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
     expect(card).toHaveTextContent('Needs you · plan review');
     expect(card).not.toHaveTextContent('awaiting-plan-review');
@@ -22,9 +23,31 @@ describe('the expanded node', () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     clickNode('NORT-7');
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(router.state.location.pathname).toBe('/desk');
     clickNode('NORT-7');
     pressKey('Escape');
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(router.state.location.pathname).toBe('/desk');
+  });
+
+  it('opens on the card the URL names, and Back collapses a card the click opened', async () => {
+    const { router } = await renderApp({ url: '/desk/task/NORT-7' });
+    expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument();
+    clickNode('NORT-9');
+    expect(router.state.location.pathname).toBe('/desk/task/NORT-9');
+    await act(() => router.navigate(-1));
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument(),
+    );
+  });
+
+  it('replaces the location of a card whose node a filter hides', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/desk/task/NORT-7' });
+    await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/desk'));
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(screen.queryByRole('dialog', { name: 'Plan the order export' })).toBeNull();
   });
 
   describe('external links', () => {

@@ -9,12 +9,13 @@ import { NewWork } from '../newwork/NewWork';
 import { useDeck } from '../deck/useDeck';
 import { nodeTitle } from '../selectors/graph';
 import type { MobileScreen } from '../selectors/navStack';
-import { useLoc } from '../nav/useNav';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useAppStore } from '../store/store';
+import { useCard } from '../nav/useCard';
+import { useBack, useLoc } from '../nav/useNav';
 import { Dialog } from '../ui/Dialog';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
@@ -32,11 +33,20 @@ import styles from './MobileShell.module.css';
 export function MobileShell() {
   const { view } = useLoc();
   const stack = useAppStore((s) => s.ui.mobileStack);
+  const { expandedNodeId } = useCard();
+  const back = useBack();
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
   const { status } = useWorld();
   const popScreen = useAppStore((s) => s.popScreen);
-  const top = stack[stack.length - 1];
+  // The card's detail is the ground of the stack. A worktree's card has no narrow screen.
+  const detail = useMemo(
+    (): MobileScreen | undefined =>
+      expandedNodeId ? { kind: 'detail', nodeId: expandedNodeId } : undefined,
+    [expandedNodeId],
+  );
+  const top = stack[stack.length - 1] ?? detail;
+  const onBack = stack.length > 0 ? popScreen : back;
   const title = useScreenTitle(top);
   const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
   return (
@@ -48,7 +58,7 @@ export function MobileShell() {
             top && chrome
               ? {
                   title: chrome.title ?? title,
-                  onBack: popScreen,
+                  onBack,
                   sheetOpen: chrome.sheetOpen,
                   onMore: chrome.openSheet,
                 }
@@ -59,7 +69,7 @@ export function MobileShell() {
         <HostBanner />
         <main className={styles.body}>
           {top ? (
-            <Screen screen={top} />
+            <Screen screen={top} onBack={onBack} />
           ) : view === 'canvas' ? (
             <DeckList />
           ) : view === 'worktrees' ? (
@@ -134,13 +144,12 @@ function useScreenTitle(screen: MobileScreen | undefined): string {
 }
 
 /** One pushed screen. The top bar carries what it is and the way back. */
-function Screen({ screen }: { screen: MobileScreen }) {
-  const popScreen = useAppStore((s) => s.popScreen);
+function Screen({ screen, onBack }: { screen: MobileScreen; onBack: () => void }) {
   return (
     <div className={styles.screen}>
       <div className={styles.screenBody}>
         {screen.kind === 'detail' ? (
-          <Detail nodeId={screen.nodeId} onDone={popScreen} />
+          <Detail nodeId={screen.nodeId} onDone={onBack} />
         ) : screen.kind === 'session' ? (
           <SessionTab key={screen.agentId} agentId={screen.agentId} />
         ) : screen.kind === 'changes' ? (

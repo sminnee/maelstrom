@@ -8,14 +8,14 @@ import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
-import { useAppStore } from '../store/store';
+import { cardOf, useCard } from '../nav/useCard';
 import styles from './TaskNode.module.css';
 
 export type TaskFlowNode = Node<{ node: GraphNode; focused: boolean; expanded: boolean }, 'task'>;
 
 export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
   const { node, focused, expanded } = data;
-  const expandNode = useAppStore((s) => s.expandNode);
+  const { open } = useCard();
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   // One query, not the whole world: a node draws for every task on the desk.
   const documents = useDocuments();
@@ -52,7 +52,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
               aria-label="needs attention: expand"
               onClick={(e) => {
                 e.stopPropagation();
-                expandNode(node.id, false);
+                open(cardOf(node), false);
               }}
             >
               !

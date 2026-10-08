@@ -100,8 +100,7 @@ describe('the worktree box label', () => {
 
   // Nothing draws while the world loads, so "its box is gone" means nothing yet.
   it('keeps a card that was opened before the world loaded', async () => {
-    const { server } = await renderApp({ ready: false });
-    act(() => useAppStore.getState().expandWorktree('northwind-alpha'));
+    const { server } = await renderApp({ ready: false, url: '/desk/worktree/northwind-alpha' });
     server.release();
     expect(
       await screen.findByRole('dialog', { name: 'Worktree northwind alpha' }),

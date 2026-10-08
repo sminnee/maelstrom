@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
-import type { AgentId, TaskId, WorktreeId } from '../protocol/ids';
+import type { AgentId, TaskId } from '../protocol/ids';
 import type { Filters } from '../selectors/filters';
 import type { ListFilters } from '../selectors/taskList';
 import type { WorktreeFilters } from '../selectors/worktrees';
@@ -55,12 +55,6 @@ export interface AppStore {
   closeTabs(keys: string[], groupOf: (tab: PanelTab) => string): void;
   /** Show a worktree group: activate the most recent of its tabs, past its split tab. */
   selectGroup(tabKeys: string[]): void;
-  /** Expand a node in place. With `toggle`, expanding the expanded node collapses it. */
-  expandNode(taskId: TaskId, toggle?: boolean): void;
-  /** Open a worktree's card. With `toggle`, opening the open one collapses it. */
-  expandWorktree(worktreeId: WorktreeId, toggle?: boolean): void;
-  /** Collapse the card the canvas shows, a node's or a worktree's. */
-  collapseCard(): void;
   /** Open the editor on a task, or close it with `null`. */
   setEditingTask(taskId: TaskId | null): void;
   /** Open or close the new-work form. A `seed` is what it opens on. */
@@ -117,29 +111,6 @@ export const useAppStore = create<AppStore>()((set) => ({
   closeTabs: (keys, groupOf) =>
     set((s) => ({ ui: { ...s.ui, ...closeTabsIn(s.ui, keys, groupOf) } })),
   selectGroup: (tabKeys) => set((s) => ({ ui: { ...s.ui, ...selectGroupIn(s.ui, tabKeys) } })),
-  // One card at a time: opening either kind closes the other.
-  expandNode: (nodeId, toggle = true) =>
-    set((s) => ({
-      ui: {
-        ...s.ui,
-        expandedNodeId: toggle && s.ui.expandedNodeId === nodeId ? null : nodeId,
-        expandedWorktreeId: null,
-      },
-    })),
-  expandWorktree: (worktreeId, toggle = true) =>
-    set((s) => ({
-      ui: {
-        ...s.ui,
-        expandedWorktreeId: toggle && s.ui.expandedWorktreeId === worktreeId ? null : worktreeId,
-        expandedNodeId: null,
-      },
-    })),
-  collapseCard: () =>
-    set((s) =>
-      s.ui.expandedNodeId || s.ui.expandedWorktreeId
-        ? { ui: { ...s.ui, expandedNodeId: null, expandedWorktreeId: null } }
-        : s,
-    ),
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setNewWorkOpen: (newWorkOpen, seed) =>
     set((s) => ({ ui: { ...s.ui, newWorkOpen, newWorkSeed: (newWorkOpen && seed) || null } })),
