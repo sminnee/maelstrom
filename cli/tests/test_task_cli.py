@@ -22,6 +22,7 @@ from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
 from mael_domain.build_runs import BuildRun, BuildRuns
+from mael_domain.comm_store import Comm, InMemoryCommStore
 from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
@@ -2575,6 +2576,55 @@ class TestPriority:
 
 
 # --- templates + schedule metadata ---
+
+
+class TestCommFlag:
+    @pytest.fixture
+    async def comms(self, monkeypatch):
+        comms = InMemoryCommStore()
+        for id in ("c1", "c2"):
+            await comms.save(Comm(id=id, title=id))
+
+        async def _comm_store():
+            return comms
+
+        monkeypatch.setattr(task_cli, "_comm_store", _comm_store)
+        return comms
+
+    async def test_add_links_each_named_comm(self, runner, store, comms):
+        result = runner.invoke(
+            task_cli.task, ["add", "T", "--comm", "c1", "--comm", "c2"]
+        )
+        assert result.exit_code == 0, result.output
+        assert (await model.load(store, "p", result.output.strip())).comms == [
+            "c1",
+            "c2",
+        ]
+
+    async def test_add_without_the_flag_inherits_the_parent_comms(
+        self, runner, store, comms
+    ):
+        par = runner.invoke(task_cli.task, ["add", "Par", "--comm", "c2"]).output
+        result = runner.invoke(task_cli.task, ["add", "Child", "-P", par.strip()])
+        assert result.exit_code == 0, result.output
+        assert (await model.load(store, "p", result.output.strip())).comms == ["c2"]
+
+    async def test_an_unknown_comm_is_refused(self, runner, store, comms):
+        result = runner.invoke(task_cli.task, ["add", "T", "--comm", "c9"])
+        assert result.exit_code != 0
+        assert "Comm not found: c9" in result.output
+        assert await store.list("p") == []
+
+    async def test_update_replaces_and_an_empty_value_clears(
+        self, runner, store, comms
+    ):
+        tid = runner.invoke(task_cli.task, ["add", "T", "--comm", "c1"]).output.strip()
+        runner.invoke(task_cli.task, ["update", tid, "--comm", "c2"])
+        assert (await model.load(store, "p", tid)).comms == ["c2"]
+        shown = runner.invoke(task_cli.task, ["show", tid]).output
+        assert "comms: c2" in shown
+        runner.invoke(task_cli.task, ["update", tid, "--comm", ""])
+        assert (await model.load(store, "p", tid)).comms == []
 
 
 class TestTemplates:

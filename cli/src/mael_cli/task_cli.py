@@ -36,6 +36,7 @@ from mael_domain import task as task_model
 from mael_domain.build_runs import BuildRuns, parse_trigger
 from mael_domain.build_runs_github import GhBuildRuns
 from mael_domain.cmux.client import ensure_cmux_running
+from mael_domain.comm_store import CommStore, SqliteCommStore
 from mael_domain.context import load_global_config, resolve_context, resolve_project
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
@@ -178,6 +179,30 @@ async def _table() -> SqliteTaskTable:
             raise click.ClickException(str(exc)) from exc
         _CHECKED = True
     return table
+
+
+async def _comm_store() -> CommStore:
+    """The comm store, in the same database as the task table.
+
+    ``_table`` opens and checks that database, and ``open_task_table`` keeps it.
+    """
+    await _table()
+    assert _DB is not None
+    return SqliteCommStore(_DB)
+
+
+async def _checked_comms(comms: tuple[str, ...]) -> list[str]:
+    """The ``--comm`` values, each checked to name a comm. ``''`` gives ``[]``.
+
+    The CLI checks and the model does not, so a typo shows at once rather than
+    as a task linked to nothing.
+    """
+    ids = [c for c in comms if c]
+    store = await _comm_store()
+    for id in ids:
+        if await store.read(id) is None:
+            raise click.ClickException(f"Comm not found: {id}")
+    return list(dict.fromkeys(ids))
 
 
 #: Whether this invocation has already checked the schema. One check per
@@ -532,8 +557,10 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
 }
 
 # Block-settable fields that are never CLI flags. ``title`` is the task's
-# positional argument, not an option.
-_NON_OPTION_BLOCK_KEYS = frozenset({"title"})
+# positional argument, not an option. ``comms`` is a list, so it is not a
+# string flag: ``task add`` and ``task update`` declare their own repeatable
+# ``--comm``, and the other creating commands inherit the parent task's comms.
+_NON_OPTION_BLOCK_KEYS = frozenset({"title", "comms"})
 
 
 def _option_specs():
@@ -699,6 +726,12 @@ def task() -> None:
     "'gh-action/nightly.yml', 'gh-action/<workflow>[@<branch>] [<conclusion>,...]'.",
 )
 @click.option(
+    "--comm",
+    "comms",
+    multiple=True,
+    help="Comm this task feeds (repeatable; default: the parent task's comms).",
+)
+@click.option(
     "-e",
     "--edit",
     "edit",
@@ -735,6 +768,7 @@ async def task_add(
     is_template: bool,
     schedule: str | None,
     trigger: str | None,
+    comms: tuple[str, ...],
     edit: bool,
     run: bool,
     here: bool,
@@ -761,6 +795,7 @@ async def task_add(
         is_template=is_template,
         schedule=schedule,
         trigger=trigger,
+        comms=await _checked_comms(comms) if comms else None,
         edit=edit,
         run=run,
         here=here,
@@ -793,6 +828,7 @@ async def add_task(
     is_template: bool = False,
     schedule: str | None = None,
     trigger: str | None = None,
+    comms: list[str] | None = None,
     edit: bool = False,
     run: bool = False,
     here: bool = False,
@@ -846,6 +882,7 @@ async def add_task(
                 follows=deduped,
                 schedule=schedule or "",
                 trigger=trigger or "",
+                comms=comms,
                 status=status,
             )
         except KeyError:
@@ -869,6 +906,7 @@ async def add_task(
             content=content or "",
             schedule=schedule or "",
             trigger=trigger or "",
+            comms=comms,
             status=status,
         )
     click.echo(new.id)
@@ -1665,6 +1703,8 @@ async def task_show(id: str, project: str | None) -> None:
         click.echo(f"schedule: {t.schedule}")
     if t.trigger:
         click.echo(f"trigger: {t.trigger}")
+    if t.comms:
+        click.echo(f"comms: {', '.join(t.comms)}")
     if t.last_run:
         click.echo(f"last-run: {t.last_run}")
     click.echo(f"created: {t.created}")
@@ -1791,6 +1831,12 @@ async def task_log(id: str, msg: str, project: str | None) -> None:
     "(acted on only for template tasks; '' clears).",
 )
 @click.option(
+    "--comm",
+    "comms",
+    multiple=True,
+    help="Set the comms this task feeds (repeatable; --comm '' clears).",
+)
+@click.option(
     "--content-file",
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
@@ -1813,9 +1859,10 @@ async def task_update(
     post_action: str | None,
     schedule: str | None,
     trigger: str | None,
+    comms: tuple[str, ...],
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, content).
+    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, comms, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1823,6 +1870,7 @@ async def task_update(
     proj = resolve_project(project)
     table = await _table()
     content = _read_content_file(content_file) if content_file is not None else None
+    comm_ids = await _checked_comms(comms) if comms else None
 
     target = id
     renamed = False
@@ -1876,6 +1924,7 @@ async def task_update(
             post_action=post_action,
             schedule=schedule,
             trigger=trigger,
+            comms=comm_ids,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")
