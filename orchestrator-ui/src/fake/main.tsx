@@ -23,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
         scenario={scenario}
         ui={(SCENARIOS[scenario] as Scenario).ui}
         router={createBrowserRouter(routes, { basename: `/scenario/${scenario}` })}
+        keepTabs
         hold={params.has('hold')}
         refuse={params.get('refuse') ?? undefined}
       />

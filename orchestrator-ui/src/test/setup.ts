@@ -261,7 +261,9 @@ afterEach(() => {
   viewportWidth = DEFAULT_VIEWPORT;
   mediaListeners.clear();
   // Storage is a singleton, so held text one test left would reach the next one
-  // and open a field already filled in. Here rather than in `renderApp`,
-  // because a component test never calls it.
+  // and open a field already filled in, and tabs it kept would open in the
+  // next one's panel. Here rather than in `renderApp`, because a component
+  // test never calls it.
   localStorage.clear();
+  sessionStorage.clear();
 });

@@ -6,7 +6,7 @@ import { App } from '../App';
 import type { AppRouter } from '../nav/router';
 import { routes } from '../nav/routes';
 import { keys } from '../api/keys';
-import { useAppStore } from '../store/store';
+import { resetToPageLoad } from '../store/store';
 import { fakeDeps } from '../fake/fakeDeps';
 import type { FakeServer, FakeServerOptions } from '../fake/fakeServer';
 import { SCENARIOS, type ScenarioName } from '../fake/scenarios';
@@ -59,8 +59,10 @@ export async function renderApp(
   // Before the render: the layout is read on the first pass, not in an effect.
   setViewportWidth(VIEWPORTS[opts.viewport ?? 'wide']);
   // The store is a module singleton: a test must not inherit the view, the
-  // filters or the tabs the one before it left.
-  useAppStore.getState().reset();
+  // filters or the tabs the one before it left. The tabs a refresh keeps are
+  // read back, as a page load reads them: `setup.ts` clears them between tests,
+  // so only a second mount in one test finds any.
+  resetToPageLoad();
   const seed = SCENARIOS[opts.scenario ?? 'desk'].build();
   const { server, queryClient, deps } = fakeDeps({
     world: seed.world,
