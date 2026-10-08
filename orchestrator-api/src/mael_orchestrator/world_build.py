@@ -13,15 +13,18 @@ from typing import Any, TypedDict
 
 from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
+from mael_domain.comm_store import Comm as DomainComm
 from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
     Agent,
+    Comm,
     Document,
     HostUsage,
     PrMatch,
     Project,
     ServerEvent,
     Task,
+    TaskLanding,
     TaskLogEntry,
     UsageWindow,
     Worktree,
@@ -74,10 +77,17 @@ def split_task_key(key: str) -> tuple[str, str]:
     return project, notebook_id
 
 
-def task_entity(task: model.Task, *, actionable: bool, started_at: str = "") -> Task:
+def task_entity(
+    task: model.Task,
+    *,
+    actionable: bool,
+    started_at: str = "",
+    landing: TaskLanding | None = None,
+) -> Task:
     """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule.
 
-    ``started_at`` comes from the Agent records; the notebook does not know it.
+    ``started_at`` comes from the Agent records and ``landing`` from the
+    landing tables; the notebook knows neither.
 
     ``follows`` is qualified with the task's own project: a task only ever
     follows a task beside it in the notebook. ``parent`` is left bare, because
@@ -106,6 +116,26 @@ def task_entity(task: model.Task, *, actionable: bool, started_at: str = "") -> 
         "updated": task.updated,
         "actionable": actionable,
         "startedAt": started_at,
+        "landing": landing,
+        "comms": list(task.comms),
+    }
+
+
+def comm_task_ids(tasks: dict[str, Task], comm_id: str) -> list[str]:
+    """The wire ids of the tasks that feed ``comm_id``, sorted."""
+    return sorted(t["id"] for t in tasks.values() if comm_id in t["comms"])
+
+
+def comm_entity(comm: DomainComm, task_ids: list[str]) -> Comm:
+    """The wire comm. ``task_ids`` comes from the tasks: each task names its comms."""
+    return {
+        "id": comm.id,
+        "title": comm.title,
+        "content": comm.content,
+        "recipients": list(comm.recipients),
+        "createdAt": comm.created_at,
+        "closedAt": comm.closed_at,
+        "taskIds": task_ids,
     }
 
 

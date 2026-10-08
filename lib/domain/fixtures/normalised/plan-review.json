@@ -80,7 +80,8 @@
       }
     },
     "desk": {},
-    "host": {}
+    "host": {},
+    "comms": {}
   },
   "transcripts": {
     "ag1": {

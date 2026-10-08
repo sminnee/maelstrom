@@ -178,6 +178,21 @@ class TaskLogEntry(TypedDict):
     text: str
 
 
+#: How far a merge has reached one deploy environment.
+EnvLandingState = Literal["landed", "not_yet", "unknown"]
+
+
+class TaskLanding(TypedDict):
+    """A done task's **Landing**: the highest step it reached, and each env's state.
+
+    ``envs`` names each deploy step the project deploys to. It is empty for a
+    task with no Registered PR, which has nothing to land.
+    """
+
+    status: str
+    envs: dict[str, EnvLandingState]
+
+
 class Task(TypedDict):
     """A task file's frontmatter plus the fields the server derives.
 
@@ -210,6 +225,10 @@ class Task(TypedDict):
     #: When the task's first agent started, ISO 8601; ``""`` when none has.
     #: Unlike an agent's, it outlives the agent.
     startedAt: str
+    #: ``None`` until the task is done.
+    landing: TaskLanding | None
+    #: The ids of the comms the task feeds, such as ``c3``. Global, so bare.
+    comms: list[str]
 
 
 class TaskRow(TypedDict):
@@ -239,6 +258,8 @@ class TaskRow(TypedDict):
     updated: str
     actionable: bool
     startedAt: str
+    landing: TaskLanding | None
+    comms: list[str]
 
 
 class TaskDetail(Task):
@@ -257,6 +278,22 @@ TASK_DETAIL_FIELDS = ("content", "log")
 
 def task_row(task: Task) -> TaskRow:
     return cast(TaskRow, {k: v for k, v in task.items() if k not in TASK_DETAIL_FIELDS})
+
+
+class Comm(TypedDict):
+    """One **Comm** on the wire. See ``CONTEXT.md``, "Comm".
+
+    ``taskIds`` are the wire ids of the tasks that name it in their ``comms``.
+    ``closedAt`` is ``""`` while the comm is open.
+    """
+
+    id: str
+    title: str
+    content: str
+    recipients: list[str]
+    createdAt: str
+    closedAt: str
+    taskIds: list[str]
 
 
 class BackgroundShell(TypedDict):
@@ -491,6 +528,7 @@ class World(TypedDict):
     attention: dict[str, Attention]
     desk: dict[str, DeskEntry]
     host: dict[str, Host]
+    comms: dict[str, Comm]
 
 
 class ClientState(TypedDict):
@@ -515,6 +553,7 @@ ENTITY_KINDS = (
     "attention",
     "desk",
     "host",
+    "comm",
 )
 
 #: Which ``World`` key each entity kind lives under.
@@ -528,6 +567,7 @@ WORLD_KEY = {
     "attention": "attention",
     "desk": "desk",
     "host": "host",
+    "comm": "comms",
 }
 
 
@@ -542,6 +582,7 @@ def empty_world() -> World:
         "attention": {},
         "desk": {},
         "host": {},
+        "comms": {},
     }
 
 

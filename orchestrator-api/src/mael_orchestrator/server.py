@@ -27,8 +27,10 @@ from mael_agent.agent_wire import (
     build_start_payload,
 )
 from mael_common.util import now_iso
+from mael_domain import comms as comms_model
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
 from mael_domain.attachments import attachment_urls
+from mael_domain.comm_store import CommStore, InMemoryCommStore
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.file_registry import FileRegistry
@@ -62,7 +64,7 @@ from mael_domain.protocol import (
     group_members,
 )
 from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
-from mael_domain.task import mode_for_command
+from mael_domain.task import STATUS_DONE, mode_for_command
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
@@ -101,12 +103,15 @@ from .world_build import (
     AgentLink,
     agent_entity,
     attached_document_entity,
+    comm_entity,
+    comm_task_ids,
     diff_kind,
     host_usage,
     link_agent,
     parse_agent_state,
     row_totals,
 )
+from .world_build import task_key as wire_task_key
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +215,7 @@ class Orchestrator:
         milestones: MilestoneStore | None = None,
         task_attachments: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
+        comms: CommStore | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -245,6 +251,13 @@ class Orchestrator:
         #: Each task's landing — see ``CONTEXT.md``, "Landing". Synced in the
         #: worktree read.
         self.landings = landings if landings is not None else Landings()
+        #: The comms — see ``CONTEXT.md``, "Comm". Polled on the task tick.
+        self.comms = comms if comms is not None else InMemoryCommStore()
+        #: The comm store revision the last comm read reached, or ``None``
+        #: before the first whole read.
+        self._comm_cursor: int | None = None
+        #: Bumped on every comm change published; the comm list's ETag.
+        self.comm_revision = 0
         #: Writes the markdown export, or ``None`` when this server keeps none.
         #: A task write queues its export whatever runs; the server is what
         #: drains the queue, so a build without one simply lets it grow.
@@ -324,6 +337,7 @@ class Orchestrator:
     async def start(self) -> None:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
+        await self.refresh_comms()
         await self._load_attached()
         await self._load_desk()
         try:
@@ -337,6 +351,7 @@ class Orchestrator:
         self._started.set()
         self._pollers = [
             asyncio.create_task(self._poll(self._task_poll, self.refresh_tasks)),
+            asyncio.create_task(self._poll(self._task_poll, self.refresh_comms)),
             asyncio.create_task(
                 self._poll(
                     self._worktree_poll,
@@ -556,12 +571,57 @@ class Orchestrator:
         """
         if not events:
             return
+        touched = self._comms_touched(events)
         self.state.apply(events)
+        relinked = self._relinked_comms(touched)
+        if relinked:
+            self.state.apply(relinked)
+            events = [*events, *relinked]
         self._record_transcripts(events)
         notices = notices_for(events)
         if "task" in notices:
             self.task_revision += 1
+        if "comm" in notices:
+            self.comm_revision += 1
         self.notices.notify(notices)
+
+    def _comms_touched(self, events: list[ServerEvent]) -> set[str]:
+        """The comms whose task links ``events`` change: old and new values both.
+
+        Read before the events apply, because a removed task's links are only
+        in the world as it was.
+        """
+        tasks = self.world["tasks"]
+        touched: set[str] = set()
+        for event in events:
+            if event.get("kind") != "task":
+                continue
+            if event["type"] == "upsert":
+                entity = event["entity"]
+                before = tasks.get(entity["id"])
+                old = before["comms"] if before is not None else []
+                if old != entity["comms"]:
+                    touched.update(old, entity["comms"])
+            elif event["type"] == "remove" and event["id"] in tasks:
+                touched.update(tasks[event["id"]]["comms"])
+        return touched
+
+    def _relinked_comms(self, touched: set[str]) -> list[ServerEvent]:
+        """An upsert for each touched comm whose ``taskIds`` moved.
+
+        A link is a task field, so the comm's own row did not change: its
+        ``taskIds`` are derived again from the tasks the world now holds.
+        """
+        events: list[ServerEvent] = []
+        for comm_id in sorted(touched):
+            comm = self.world["comms"].get(comm_id)
+            if comm is None:
+                continue
+            task_ids = comm_task_ids(self.world["tasks"], comm_id)
+            if task_ids != comm["taskIds"]:
+                entity = {**comm, "taskIds": task_ids}
+                events.append({"type": "upsert", "kind": "comm", "entity": entity})
+        return events
 
     def _record_transcripts(self, events: list[ServerEvent]) -> None:
         """Append each transcript event to its agent's log, and push the frame out.
@@ -678,6 +738,58 @@ class Orchestrator:
             await self._prune_desk()
         return True
 
+    async def refresh_comms(self, *, force: bool = False) -> None:
+        """Re-read the comms that moved, and publish them.
+
+        The first read, and a forced one, read every comm. After that the poll
+        reads only the rows written since the cursor, so a comm written by
+        ``mael comms`` reaches the tab on the next tick.
+        """
+        if force or self._comm_cursor is None:
+            comms = await self.comms.list()
+            revision = await self.comms.revision()
+            tasks = self.world["tasks"]
+            new = {c.id: comm_entity(c, comm_task_ids(tasks, c.id)) for c in comms}
+            self._comm_cursor = revision
+            self._apply(diff_kind("comm", self.world["comms"], new))
+            return
+        changes = await self.comms.changed_since(self._comm_cursor)
+        self._comm_cursor = changes.revision
+        known = self.world["comms"]
+        events: list[ServerEvent] = []
+        for comm in changes.comms:
+            entity = comm_entity(comm, comm_task_ids(self.world["tasks"], comm.id))
+            if known.get(comm.id) != entity:
+                events.append({"type": "upsert", "kind": "comm", "entity": entity})
+        self._apply(events)
+
+    async def _refresh_landings(self) -> None:
+        """Push each done tracked task whose landing moved in the sync.
+
+        A landing is no task write; see orchestrator-server.md, "The landing on
+        a task".
+        """
+        tracked = await self.landings.tracked()
+        await self._refresh_some_tasks(
+            {
+                wire_task_key(t.project, t.task_id)
+                for t in tracked
+                if t.status == STATUS_DONE
+            }
+        )
+
+    async def _refresh_some_tasks(self, task_ids: set[str]) -> None:
+        """Re-read the named tasks and publish the ones whose entity moved."""
+        entities = await self._run(self.tasks.read_some, sorted(task_ids))
+        known = self.world["tasks"]
+        self._apply(
+            [
+                {"type": "upsert", "kind": "task", "entity": entity}
+                for entity in entities
+                if known.get(entity["id"]) != entity
+            ]
+        )
+
     async def refresh_worktrees(self, extra_branches: set[str] | None = None) -> None:
         """Re-read ``list-all``, one read in flight at a time.
 
@@ -720,6 +832,8 @@ class Orchestrator:
                 except Exception:
                     # A landing is not worth failing the worktree read over.
                     log.exception("the landing sync failed")
+                else:
+                    await self._refresh_landings()
         if rate_limited:
             self._stand_off_until = (
                 asyncio.get_running_loop().time() + self._rate_limit_cooldown
@@ -1573,6 +1687,8 @@ class Orchestrator:
             "task.delete": self._delete_task,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
+            "comm.create": self._create_comm,
+            "comm.update": self._update_comm,
             "linear.plan": self._linear_plan,
             "agent.start": self._start_free_agent,
             "document.approve": self._approve_document,
@@ -2406,6 +2522,37 @@ class Orchestrator:
     async def _delete_task(self, command: dict[str, Any]) -> dict[str, Any]:
         """Remove a task. The forced refresh is also what prunes its desk entry."""
         return await self._write_task(self.tasks.delete, command["taskId"])
+
+    async def _create_comm(self, command: dict[str, Any]) -> dict[str, Any]:
+        comm = await comms_model.new(
+            self.comms,
+            str(command["title"]).strip(),
+            command.get("content") or "",
+            list(command.get("recipients") or []),
+            now=self.clock(),
+        )
+        await self.refresh_comms()
+        return {"ok": True, "result": {"id": comm.id}}
+
+    async def _update_comm(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Edit a comm's fields; ``closed`` closes or reopens it."""
+        comm_id = command["commId"]
+        fields = command["fields"]
+        title = fields.get("title")
+        await comms_model.edit(
+            self.comms,
+            comm_id,
+            title=str(title).strip() if title is not None else None,
+            content=fields.get("content"),
+            recipients=fields.get("recipients"),
+        )
+        closed = fields.get("closed")
+        if closed is True:
+            await comms_model.close(self.comms, comm_id, now=self.clock())
+        elif closed is False:
+            await comms_model.reopen(self.comms, comm_id)
+        await self.refresh_comms()
+        return {"ok": True, "result": {}}
 
     async def _write_task(
         self, write: Callable[..., Any], task_id: str, *args: Any

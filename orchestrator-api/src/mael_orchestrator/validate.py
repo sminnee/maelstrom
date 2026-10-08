@@ -31,14 +31,16 @@ EDITABLE = (
     "execute_model",
     "base",
     "follows",
+    "comms",
 )
 
 #: The keys ``task.create`` writes, which is :data:`EDITABLE` without
-#: ``follows``. A new task is wired by ``promote``, which resolves the chain
+#: ``follows`` and ``comms``. A new task is wired by ``promote``, which resolves the chain
 #: itself, or by a drag once it is on the board — never by the create body.
 #: The notebook stores a bare id, and only ``update`` unqualifies one, so a
-#: ``follows`` written here would be a wire pointing at nothing.
-CREATABLE = tuple(key for key in EDITABLE if key != "follows")
+#: ``follows`` written here would be a wire pointing at nothing. A new task
+#: inherits its parent task's comms; a link is a later edit.
+CREATABLE = tuple(key for key in EDITABLE if key not in ("follows", "comms"))
 
 #: Wire keys that spell a model field differently, mapped wire -> model. Every
 #: other ``EDITABLE``/``CREATABLE`` key is spelled identically in both, so a
@@ -206,6 +208,40 @@ def _wire_edited(fields: dict[str, Any], allowed: tuple[str, ...]) -> list[str]:
     wire name a key would take were it renamed.
     """
     return [key for key in fields if WIRE_RENAMES.get(key, key) in allowed]
+
+
+#: The comm fields ``comm.update`` takes. ``closed`` closes or reopens it.
+COMM_EDITABLE = ("title", "content", "recipients", "closed")
+
+
+def _is_str_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+def _check_comm_fields(fields: dict[str, Any]) -> dict[str, str] | None:
+    """The shape of a comm's ``content`` and ``recipients``, when sent."""
+    content = fields.get("content")
+    if content is not None and not isinstance(content, str):
+        return _err("invalid", "content is text")
+    recipients = fields.get("recipients")
+    if recipients is not None and not _is_str_list(recipients):
+        return _err("invalid", "recipients is a list of text")
+    return None
+
+
+def _check_comm_ids(world: World, task_id: str, comms: Any) -> dict[str, str] | None:
+    """A task's new ``comms``: a list of ids, each naming a comm the world holds.
+
+    An id the task already holds passes, so one unknown id written by a
+    load-many block does not lock the task's other links.
+    """
+    if not _is_str_list(comms):
+        return _err("invalid", "comms is a list of comm ids")
+    held = world["tasks"][task_id]["comms"]
+    for comm_id in comms:
+        if comm_id not in world["comms"] and comm_id not in held:
+            return _err("unknown_id", f"No comm {comm_id}")
+    return None
 
 
 def _reaches(world: World, starts: list[str], goal: str) -> bool:
@@ -546,10 +582,35 @@ def validate_command(
         priority = fields.get("priority")
         if priority is not None and priority not in PRIORITIES:
             return _err("invalid", f"No priority {priority}")
+        comms = fields.get("comms")
+        if comms is not None:
+            error = _check_comm_ids(world, task_id, comms)
+            if error:
+                return error
         follows = fields.get("follows")
         if follows is not None:
             return _check_follows(world, task_id, follows)
         return None
+
+    if kind == "comm.create":
+        if not str(cmd.get("title", "")).strip():
+            return _err("invalid", "A title is required")
+        return _check_comm_fields(cmd)
+
+    if kind == "comm.update":
+        comm_id = cmd.get("commId", "")
+        if comm_id not in world["comms"]:
+            return _err("unknown_id", f"No comm {comm_id}")
+        fields = cmd.get("fields") or {}
+        if not any(fields.get(key) is not None for key in COMM_EDITABLE):
+            return _err("invalid", "Nothing to change")
+        title = fields.get("title")
+        if title is not None and not str(title).strip():
+            return _err("invalid", "A title is required")
+        closed = fields.get("closed")
+        if closed is not None and not isinstance(closed, bool):
+            return _err("invalid", "closed is true or false")
+        return _check_comm_fields(fields)
 
     if kind == "task.delete":
         task_id = cmd.get("taskId", "")

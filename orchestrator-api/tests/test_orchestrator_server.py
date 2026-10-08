@@ -27,9 +27,18 @@ from mael_daemon.agent_model import (
     build_agent_row,
 )
 from mael_domain import task as model
+from mael_domain.comm_store import InMemoryCommStore
+from mael_domain.config import MaelstromConfig
 from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
-from mael_domain.landing import Landings, Merge, NoLandingSignals, TrackedTask
+from mael_domain.landing import (
+    Deploy,
+    Landings,
+    Merge,
+    NoLandingSignals,
+    TrackedTask,
+    tracked_tasks,
+)
 from mael_domain.protocol import HostUsage
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
@@ -61,8 +70,12 @@ class Harness:
         self.version = 0
         self.projects = list(projects)
         self.tasks = NotebookTaskSource(
-            store, lambda: list(self.projects), version=lambda: str(self.version)
+            store,
+            lambda: list(self.projects),
+            version=lambda: str(self.version),
+            landings=over.get("landings"),
         )
+        self.comms = InMemoryCommStore()
         self.worktrees = InMemoryWorktreeSource(
             projects=[
                 {
@@ -114,6 +127,7 @@ class Harness:
             self.daemon,
             clock=lambda: NOW,
             desk=desk,
+            comms=self.comms,
             **options,
         )
 
@@ -7439,3 +7453,220 @@ def test_the_server_answers_over_tls_with_a_certificate(harness, tls_server_cont
                     return response.status
 
     assert run(scenario()) == 200
+
+
+# --- landings and comms ------------------------------------------------------
+
+
+class _MergeLater(NoLandingSignals):
+    """GitHub knows nothing about PR 7 until a test says it merged."""
+
+    def __init__(self) -> None:
+        self.merged = False
+
+    async def merges(self, project, numbers):
+        if not self.merged:
+            return {}
+        return {7: Merge(url="u/7", title="Add x", merged_at="T0", merge_sha="m7")}
+
+
+def test_a_sync_that_writes_a_step_pushes_the_task_with_its_new_status(
+    harness_factory,
+):
+    signals = _MergeLater()
+    landings = Landings(signals=signals)
+    harness = harness_factory(landings=landings)
+    landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
+    harness.add_task("t1", status="done")
+    run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
+
+    async def scenario():
+        async with harness.client() as api:
+            before = await api.get_json("/api/tasks/northwind/t1")
+            async with api.events() as stream:
+                await stream.next("reset")
+                signals.merged = True
+                await harness.orch.refresh_worktrees()
+                ids = await stream.change("task", "northwind/t1")
+                return before, ids, await api.get_json("/api/tasks/northwind/t1")
+
+    before, ids, after = run(scenario())
+    assert before["landing"] == {"status": "done", "envs": {}}
+    assert "northwind/t1" in ids
+    assert after["landing"] == {"status": "merged", "envs": {}}
+
+
+class _UatLater(_MergeLater):
+    """PR 7 is merged; the UAT deploy read fails until a test says it answers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.merged = True
+        self.deploy_answers = False
+
+    async def deploy(self, project, environment):
+        return Deploy(sha="d1", created_at="T1") if self.deploy_answers else None
+
+    async def contains(self, project, merge_sha, deploy_sha):
+        return False
+
+
+def test_an_env_change_that_writes_no_step_still_reaches_the_task(harness_factory):
+    """``unknown`` to ``not_yet`` records no step, and must still go out."""
+    signals = _UatLater()
+    uat = MaelstromConfig(deploy_environments={"uat": "uat"})
+    landings = Landings(signals=signals, config_for=lambda project: uat)
+    harness = harness_factory(landings=landings)
+    landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
+    harness.add_task("t1", status="done")
+    run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
+
+    async def scenario():
+        async with harness.client() as api:
+            before = await api.get_json("/api/tasks/northwind/t1")
+            signals.deploy_answers = True
+            await harness.orch.refresh_worktrees()
+            return before, await api.get_json("/api/tasks/northwind/t1")
+
+    before, after = run(scenario())
+    assert before["landing"] == {"status": "merged", "envs": {"uat": "unknown"}}
+    assert after["landing"] == {"status": "merged", "envs": {"uat": "not_yet"}}
+
+
+def test_unlinking_or_deleting_a_task_leaves_the_comm_s_task_ids(harness):
+    """The old side of a link: both the edit and the delete re-derive ``taskIds``."""
+    harness.add_task("t1")
+    harness.add_task("t2")
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            await api.patch("/api/tasks/northwind/t1", {"comms": ["c1"]})
+            await api.patch("/api/tasks/northwind/t2", {"comms": ["c1"]})
+            linked = (await api.get_json("/api/comms/c1"))["taskIds"]
+            await api.patch("/api/tasks/northwind/t1", {"comms": []})
+            unlinked = (await api.get_json("/api/comms/c1"))["taskIds"]
+            await api.delete("/api/tasks/northwind/t2")
+            deleted = (await api.get_json("/api/comms/c1"))["taskIds"]
+            return linked, unlinked, deleted
+
+    linked, unlinked, deleted = run(scenario())
+    assert linked == ["northwind/t1", "northwind/t2"]
+    assert unlinked == ["northwind/t2"]
+    assert deleted == []
+
+
+def test_a_task_keeps_a_comm_id_it_already_holds_when_linking_another(harness):
+    """A dangling id written by a load-many block must not lock the task's links."""
+    harness.add_task("t1", comms=["c99"])
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            reply = await api.patch("/api/tasks/northwind/t1", {"comms": ["c99", "c1"]})
+            return reply, await api.get_json("/api/tasks/northwind/t1")
+
+    reply, task = run(scenario())
+    assert reply.status == 200, reply.body
+    assert task["comms"] == ["c99", "c1"]
+
+
+def test_a_comm_is_created_edited_linked_and_closed_over_the_routes(harness):
+    harness.add_task("t1")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                made = await api.post(
+                    "/api/comms", {"title": "Invoice export", "recipients": ["#cs"]}
+                )
+                created = await stream.change("comm", "c1")
+                edited = await api.patch("/api/comms/c1", {"recipients": ["#ops"]})
+                await stream.change("comm", "c1")
+                linked = await api.patch("/api/tasks/northwind/t1", {"comms": ["c1"]})
+                await stream.change("comm", "c1")
+                after_link = await api.get_json("/api/comms/c1")
+                task = await api.get_json("/api/tasks/northwind/t1")
+                closed = await api.patch("/api/comms/c1", {"closed": True})
+                await stream.change("comm", "c1")
+                listed = await api.get("/api/comms")
+                again = await api.get(
+                    "/api/comms", **{"If-None-Match": listed.headers["ETag"]}
+                )
+                return (
+                    made,
+                    created,
+                    edited,
+                    linked,
+                    after_link,
+                    task,
+                    closed,
+                    listed,
+                    again,
+                )
+
+    made, created, edited, linked, after_link, task, closed, listed, again = run(
+        scenario()
+    )
+    assert made.status == 200 and made.body == {"id": "c1"}
+    assert created == ["c1"]
+    assert edited.status == 200 and linked.status == 200, (edited.body, linked.body)
+    assert after_link["recipients"] == ["#ops"]
+    assert after_link["taskIds"] == ["northwind/t1"]
+    assert task["comms"] == ["c1"]
+    assert closed.status == 200
+    (comm,) = listed.body["comms"]
+    assert comm["closedAt"] == NOW
+    assert again.status == 304
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "code"),
+    [
+        ("post", "/api/comms", {"title": " "}, "invalid"),
+        ("post", "/api/comms", {"title": "x", "recipients": "#cs"}, "invalid"),
+        ("patch", "/api/comms/c9", {"title": "x"}, "unknown_id"),
+        ("patch", "/api/comms/c1", {}, "invalid"),
+        ("patch", "/api/comms/c1", {"closed": "yes"}, "invalid"),
+        ("patch", "/api/comms/c1", {"content": 3}, "invalid"),
+        ("patch", "/api/tasks/northwind/t1", {"comms": ["c9"]}, "unknown_id"),
+        ("patch", "/api/tasks/northwind/t1", {"comms": "c1"}, "invalid"),
+    ],
+)
+def test_the_comm_routes_refuse_what_they_cannot_do(harness, method, path, body, code):
+    harness.add_task("t1")
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            reply = await getattr(api, method)(path, body)
+            return reply, await api.get_json("/api/tasks/northwind/t1")
+
+    reply, task = run(scenario())
+    assert reply.body["error"]["code"] == code
+    assert task["comms"] == []
+
+
+def test_an_unknown_comm_is_a_404(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get("/api/comms/c9")
+
+    assert run(scenario()).status == 404
+
+
+def test_a_comm_written_elsewhere_reaches_the_world_on_the_poll(harness):
+    from mael_domain import comms as comms_model
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await comms_model.new(harness.comms, "From the CLI", now=NOW)
+                ids = await stream.change("comm", "c1")
+                return ids, await api.get_json("/api/comms")
+
+    ids, listed = run(scenario())
+    assert ids == ["c1"]
+    assert [c["title"] for c in listed["comms"]] == ["From the CLI"]
