@@ -21,6 +21,15 @@ describe('invalidationsFor', () => {
     [{ kind: 'task', ids: [] }, [keys.tasks.all()]],
     [{ kind: 'agent', ids: ['ag1'] }, [keys.agents.list(), keys.agents.detail('ag1')]],
     [{ kind: 'document', ids: ['d1'] }, [keys.documents.list(), keys.documents.detail('d1')]],
+    [
+      { kind: 'comm', ids: ['c1', 'c2'] },
+      [
+        ['comms', 'list'],
+        ['comms', 'detail', 'c1'],
+        ['comms', 'detail', 'c2'],
+      ],
+    ],
+    [{ kind: 'comm', ids: [] }, [['comms']]],
   ])('maps %j to the keys it invalidates', (notice, expected) => {
     expect(invalidationsFor(notice)).toEqual(expected);
   });

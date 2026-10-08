@@ -42,6 +42,8 @@ function task(over: Partial<Task> = {}): Task {
     updated: '2026-09-08T11:00:00Z',
     actionable: true,
     startedAt: '',
+    landing: null,
+    comms: [],
     ...over,
   };
 }

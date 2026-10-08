@@ -207,6 +207,38 @@ export interface Task {
    * Unlike an agent's, it outlives the agent.
    */
   startedAt: string;
+  /** The task's **Landing**: `null` until the task is `done`. */
+  landing: TaskLanding | null;
+  /** The ids of the comms the task feeds, e.g. `c3`. */
+  comms: string[];
+}
+
+/** One deploy environment's reading for a done task. `unknown` never counts as reached. */
+export type EnvLandingState = 'landed' | 'not_yet' | 'unknown';
+
+/**
+ * A done task's **Landing**: the highest step it reached — `done`, `merged`,
+ * then each deploy step — and each deploy step's state. `envs` is in step
+ * order, and empty for a task with no Registered PR.
+ */
+export interface TaskLanding {
+  status: string;
+  envs: Record<string, EnvLandingState>;
+}
+
+/**
+ * One **Comm**: something to tell people outside the team when work lands. `taskIds` are the
+ * wire ids of the tasks whose `comms` name it, derived by the server.
+ */
+export interface Comm {
+  id: string;
+  title: string;
+  content: string;
+  recipients: string[];
+  createdAt: string;
+  /** `''` while the comm is open. */
+  closedAt: string;
+  taskIds: TaskId[];
 }
 
 /** From `agent_model.py`: every state is observed from an event, never inferred. */

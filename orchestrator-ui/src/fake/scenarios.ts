@@ -13,7 +13,7 @@ import {
   onDesk,
   worldWith,
 } from './fixtures';
-import { seedWorld, T, type Seed } from './seedWorld';
+import { comm, seedWorld, T, task, type Seed } from './seedWorld';
 import { defaultLoc, toHref, withLoc, type LocPatch } from '../nav/location';
 import { changesTab, devEnvTab, sessionTab } from '../selectors/tabs';
 import type { UiState } from '../store/uiSlice';
@@ -669,6 +669,87 @@ function prDiffers(): Seed {
   return seed;
 }
 
+/**
+ * Three comms over the seed: two open and one closed, and a done task at each
+ * landing step. `c1` has reached live, `c2` only merged — one of its tasks is
+ * still in progress, and one has no Registered PR, so it has no env to read.
+ */
+function comms(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  const done = [
+    task({
+      id: 'NORT-20',
+      project: 'northwind',
+      title: 'Export orders as CSV',
+      status: 'done',
+      branch: 'feat/order-export-csv',
+      prNumber: 120,
+      landing: { status: 'live', envs: { uat: 'landed', live: 'landed' } },
+      comms: ['c1'],
+    }),
+    task({
+      id: 'NORT-21',
+      project: 'northwind',
+      title: 'Cap the export at 10,000 rows',
+      status: 'done',
+      branch: 'feat/order-export-cap',
+      prNumber: 121,
+      landing: { status: 'uat', envs: { uat: 'landed', live: 'not_yet' } },
+      comms: ['c1'],
+    }),
+    task({
+      id: 'NORT-22',
+      project: 'northwind',
+      title: 'Retry a failed refund webhook',
+      status: 'done',
+      branch: 'feat/refund-retry',
+      prNumber: 122,
+      landing: { status: 'merged', envs: { uat: 'not_yet', live: 'unknown' } },
+      comms: ['c2'],
+    }),
+    task({
+      id: 'NORT-23',
+      project: 'northwind',
+      title: 'Reword the refund email',
+      status: 'done',
+      branch: 'feat/refund-email',
+      landing: { status: 'done', envs: {} },
+      comms: ['c2'],
+    }),
+  ];
+  for (const t of done) world.tasks[t.id] = t;
+  world.tasks['NORT-12'] = { ...world.tasks['NORT-12']!, comms: ['c2'] };
+  world.tasks['NORT-3'] = {
+    ...world.tasks['NORT-3']!,
+    landing: { status: 'live', envs: { uat: 'landed', live: 'landed' } },
+    comms: ['c3'],
+  };
+  for (const c of [
+    comm({
+      id: 'c1',
+      title: 'Order export is live',
+      content: 'Sales asked to hear when customers can download their orders.',
+      recipients: ['#sales', 'ops@northwind.test'],
+    }),
+    comm({
+      id: 'c2',
+      title: 'Refunds retry on their own',
+      content: 'Support wants to stop retrying failed refunds by hand.',
+      recipients: ['#support'],
+    }),
+    comm({
+      id: 'c3',
+      title: 'Checkout test is stable',
+      recipients: ['#eng'],
+      closedMinutesAgo: 60,
+    }),
+  ]) {
+    world.comms[c.id] = c;
+  }
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -718,6 +799,11 @@ export const SCENARIOS = {
   },
   empty: { about: 'An empty desk, with no worktree.', build: empty },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
+  comms: {
+    about: 'Two open comms and a closed one, over tasks at each landing step.',
+    build: comms,
+    screen: at({ view: 'comms' }),
+  },
 } satisfies Record<string, Scenario>;
 
 /** The URL a scenario opens on: the desk, for one whose first screen is the point. */

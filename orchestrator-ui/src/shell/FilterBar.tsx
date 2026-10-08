@@ -46,22 +46,27 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
     if (stale) go({ filters: { branch: null } }, { replace: true });
   }, [stale, go]);
 
+  // A comm belongs to no project, so the Comms view alone has no use for it.
+  const projectApplies = !(views.length > 0 && views.every((v) => v === 'comms'));
+
   return (
     <div className={layout === 'stack' ? styles.stack : styles.bar}>
-      <label className={styles.field}>
-        <span>Project</span>
-        <select
-          value={filters.project ?? ''}
-          onChange={(e) => setFilters({ project: e.target.value || null, branch: null })}
-        >
-          <option value="">all</option>
-          {options.projects.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </label>
+      {projectApplies && (
+        <label className={styles.field}>
+          <span>Project</span>
+          <select
+            value={filters.project ?? ''}
+            onChange={(e) => setFilters({ project: e.target.value || null, branch: null })}
+          >
+            <option value="">all</option>
+            {options.projects.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {/* Only for the Desk and Tasks, which name branches through their work: a
           worktree on a branch no work names would vanish from a table that is
           meant to show every one of them. */}

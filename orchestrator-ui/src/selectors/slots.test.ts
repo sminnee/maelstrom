@@ -3,7 +3,7 @@ import { moveAnchor, showPane, togglePane, type SlotState } from './slots';
 
 /** The opening state: the desk on the left, the panel on the right. */
 const opening = (): SlotState => ({
-  anchors: { canvas: 'left', list: 'left', worktrees: 'left', tabs: 'right' },
+  anchors: { canvas: 'left', list: 'left', worktrees: 'left', comms: 'left', tabs: 'right' },
   slots: { left: 'canvas', right: 'tabs' },
   paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
 });
@@ -31,7 +31,13 @@ describe('togglePane', () => {
 
   it('does nothing when the last slot closes and no pane is anchored left', () => {
     const allRight: SlotState = {
-      anchors: { canvas: 'right', list: 'right', worktrees: 'right', tabs: 'right' },
+      anchors: {
+        canvas: 'right',
+        list: 'right',
+        worktrees: 'right',
+        comms: 'right',
+        tabs: 'right',
+      },
       slots: { left: null, right: 'tabs' },
       paneRecency: ['tabs', 'canvas'],
     };

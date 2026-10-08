@@ -17,9 +17,9 @@ const slotOf = (testId: string) =>
   screen.getByTestId(testId).closest('[data-slot]')?.getAttribute('data-slot');
 
 describe('the medium layout: one slot', () => {
-  it('draws one menu of four, with the desk in front', async () => {
+  it('draws one menu of five, with the desk in front', async () => {
     await renderApp({ viewport: 'medium' });
-    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Tabs']);
+    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Tabs']);
     expect(isShowing('Desk')).toBe(true);
     expect(isShowing('Tabs')).toBe(false);
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('the medium layout: one slot', () => {
     // A shift-click on a link opens a new window: this one keeps its view.
     expect(screen.queryByTestId('task-list')).toBeNull();
     resizeTo('wide');
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms']);
     expect(items('Right slot')).toEqual(['Tabs']);
   });
 
@@ -91,7 +91,7 @@ describe('the medium layout: one slot', () => {
 describe('the wide layout: two slots', () => {
   it('splits the menu by anchor: the main views left, Tabs right', async () => {
     await renderApp();
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms']);
     expect(items('Right slot')).toEqual(['Tabs']);
     expect(slotOf('canvas')).toBe('left');
     expect(slotOf('panel')).toBe('right');
@@ -133,7 +133,7 @@ describe('the wide layout: two slots', () => {
     await user.keyboard('{Shift>}');
     await user.click(item('Tasks'));
     await user.keyboard('{/Shift}');
-    expect(items('Left slot')).toEqual(['Desk', 'Worktrees']);
+    expect(items('Left slot')).toEqual(['Desk', 'Worktrees', 'Comms']);
     expect(items('Right slot')).toEqual(['Tasks', 'Tabs']);
     // Desk and Tasks now show together.
     expect(slotOf('canvas')).toBe('left');
@@ -148,7 +148,7 @@ describe('the wide layout: two slots', () => {
     await user.click(item('Tabs'));
     await user.keyboard('{/Shift}');
     expect(group('Right slot')).toBeNull();
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Tabs']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Tabs']);
   });
 
   it('keeps the panel mounted across an anchor move', async () => {

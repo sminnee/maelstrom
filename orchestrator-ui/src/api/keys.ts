@@ -38,4 +38,9 @@ export const keys = {
     list: () => ['documents', 'list'] as const,
     detail: (id: string) => ['documents', 'detail', id] as const,
   },
+  comms: {
+    all: () => ['comms'] as const,
+    list: () => ['comms', 'list'] as const,
+    detail: (id: string) => ['comms', 'detail', id] as const,
+  },
 };

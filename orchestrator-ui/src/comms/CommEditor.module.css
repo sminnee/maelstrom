@@ -1,0 +1,76 @@
+/* The recipients: the multi-pick field's chips, so one dialog has one chip. */
+.chips {
+  composes: chips from '../ui/MultiComboBox.module.css';
+}
+.chip {
+  composes: chip from '../ui/MultiComboBox.module.css';
+}
+.remove {
+  composes: remove from '../ui/MultiComboBox.module.css';
+}
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  font-size: var(--text-sm);
+}
+/* A field label's register: the section is one more field of the dialog. */
+.heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: inherit;
+  color: var(--fg-muted);
+}
+.none {
+  margin: 0;
+  color: var(--fg-faint);
+}
+.taskList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* One line per task: id, title, landing, then the one action at the end. */
+.task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--u);
+  padding: var(--u-half) 0;
+  border-top: 1px solid var(--border);
+}
+.task:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.taskId {
+  font-family: var(--mono);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.taskTitle {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--fg);
+}
+.strip {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+/* An env not reached yet reads a step back from one that has landed. */
+.strip [data-mark='○'],
+.strip [data-mark='?'] {
+  color: var(--fg-faint);
+}
+.linkRow {
+  display: flex;
+  justify-content: flex-end;
+}
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--attention);
+}

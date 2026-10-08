@@ -1,0 +1,119 @@
+/* The task list's chassis: one table on the page ground, hairline rows. */
+.view {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+}
+/* The view's own controls, over the table: the filter at the start, the one
+   action at the end, as the top bar ends with New. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--u);
+  min-height: var(--control);
+  padding: var(--u);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--u);
+  border-top: 1px solid var(--border);
+}
+.table th {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.table tbody tr:hover {
+  background: var(--bg-raised);
+}
+/* A closed comm is history: it reads one step back. */
+.table tbody tr[data-closed='true'] {
+  color: var(--fg-muted);
+}
+.title {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.closed {
+  color: var(--fg-faint);
+}
+.recipients {
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+.count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.faint {
+  color: var(--fg-faint);
+}
+
+/*
+ * The narrow layout: a row is a stack, as the task list's is. The title and
+ * the landing lead; the recipients and the count follow in the quiet register.
+ */
+@media (max-width: 839px) {
+  .toolbar {
+    padding: var(--u) var(--u-2);
+  }
+  .table,
+  .table tbody {
+    display: block;
+  }
+  .table thead {
+    display: none;
+  }
+  .table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--u);
+    padding: var(--u) var(--u-2);
+    border-top: 1px solid var(--border);
+  }
+  .table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .table td:empty {
+    display: none;
+  }
+  .table td:nth-child(1) {
+    order: 1;
+    flex: 1 1 calc(100% - 6rem);
+    font-size: var(--text-ui);
+    font-weight: var(--weight-medium);
+  }
+  .table td:nth-child(4) {
+    order: 2;
+  }
+  .table td:nth-child(2),
+  .table td:nth-child(3) {
+    order: 3;
+    color: var(--fg-muted);
+  }
+}

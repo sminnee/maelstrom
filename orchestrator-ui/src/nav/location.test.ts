@@ -12,6 +12,7 @@ describe('the URL of a location', () => {
     ['/desk', {}],
     ['/tasks', { view: 'list' }],
     ['/worktrees', { view: 'worktrees' }],
+    ['/comms', { view: 'comms' }],
     ['/desk/task/NORT-12', { card: { kind: 'task', id: 'NORT-12' } }],
     // A task id holds `/`: the task path takes every segment after it.
     ['/desk/task/maelstrom/2026-09-22.1', { card: { kind: 'task', id: 'maelstrom/2026-09-22.1' } }],

@@ -59,6 +59,8 @@ export function makeTask(over: Partial<Task> = {}): Task {
     updated: '2026-09-01T00:00:00Z',
     actionable: true,
     startedAt: '',
+    landing: null,
+    comms: [],
     ...over,
   };
 }

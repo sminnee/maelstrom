@@ -65,6 +65,7 @@ export const SCREENS: readonly Screen[] = [
   { path: '/desk/worktree/:id', view: 'canvas', card: 'worktree' },
   { path: '/tasks', view: 'list', card: null },
   { path: '/worktrees', view: 'worktrees', card: null },
+  { path: '/comms', view: 'comms', card: null },
 ];
 
 /** The location the app opens on: the desk, with nothing open and no filter. */

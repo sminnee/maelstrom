@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
 import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
+import { CommList } from '../comms/CommList';
 import { DocumentTab } from '../documents/DocumentTab';
 import { NodeCardBody } from '../canvas/NodeCardBody';
 import { showsProject } from '../selectors/filters';
@@ -71,6 +72,8 @@ export function MobileShell() {
             <DeckList />
           ) : view === 'worktrees' ? (
             <WorktreeTable />
+          ) : view === 'comms' ? (
+            <CommList />
           ) : (
             <TaskList />
           )}

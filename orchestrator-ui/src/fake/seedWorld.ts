@@ -1,7 +1,7 @@
 import type { Attention } from '../protocol/attention';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Document } from '../protocol/documents';
-import type { Agent, Project, Task, Worktree } from '../protocol/entities';
+import type { Agent, Comm, Project, Task, TaskLanding, Worktree } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
 import { isActionable } from '../protocol/phase';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
@@ -70,9 +70,12 @@ interface TaskSpec {
   content?: string;
   /** The Registered PR's number; its URL is built from the project. */
   prNumber?: number;
+  /** The task's landing; a done task with none given has reached `done` alone. */
+  landing?: TaskLanding | null;
+  comms?: string[];
 }
 
-function task(spec: TaskSpec): Task {
+export function task(spec: TaskSpec): Task {
   const command = spec.command ?? '';
   const created = T(spec.createdMinutesAgo ?? 120);
   return {
@@ -100,6 +103,39 @@ function task(spec: TaskSpec): Task {
     updated: created,
     actionable: false,
     startedAt: '',
+    landing:
+      spec.landing !== undefined
+        ? spec.landing
+        : spec.status === 'done'
+          ? { status: 'done', envs: {} }
+          : null,
+    comms: spec.comms ?? [],
+  };
+}
+
+interface CommSpec {
+  id: string;
+  title: string;
+  content?: string;
+  recipients?: string[];
+  createdMinutesAgo?: number;
+  /** Left out for an open comm. */
+  closedMinutesAgo?: number;
+}
+
+/**
+ * A comm with no linked tasks. The fake server derives `taskIds` from the
+ * tasks' `comms`, as the real one does, so a seed names a link on the task.
+ */
+export function comm(spec: CommSpec): Comm {
+  return {
+    id: spec.id,
+    title: spec.title,
+    content: spec.content ?? '',
+    recipients: spec.recipients ?? [],
+    createdAt: T(spec.createdMinutesAgo ?? 600),
+    closedAt: spec.closedMinutesAgo === undefined ? '' : T(spec.closedMinutesAgo),
+    taskIds: [],
   };
 }
 
@@ -632,6 +668,7 @@ body rather than the query builder.
     agents: keyed(agents),
     documents: keyed(documents),
     attention: keyed(attention),
+    comms: {},
     // The desk holds every task still in play, so the canvas opens with work
     // on it. Done and cancelled tasks live in the task list only. The free
     // agent is on the desk as the server's auto-join would put it there.
