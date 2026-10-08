@@ -116,9 +116,8 @@ def build_orchestrator(
     process table and must not queue behind a task read.
 
     ``db`` is the state database, which now holds the tasks as well as the
-    desk. It is never migrated here: an ordinary open refuses a database behind
-    this build and names ``mael admin migrate``, which is the point of the
-    refusal.
+    desk. It is never migrated here: an ordinary open refuses a database
+    behind this build.
     """
     projects_dir = load_global_config().projects_dir
     # Resolved once: the tasks and the desk share one database, so opening a

@@ -346,28 +346,6 @@ def cmd_admin() -> None:
     """Look after maelstrom's own state."""
 
 
-@cmd_admin.command("migrate")
-async def cmd_migrate() -> None:
-    """Bring the state database up to this build's schema.
-
-    The only thing that writes a schema, and the command every refusal names.
-    The desk ladder's second rung brings an existing ``desk.json`` in, so a
-    user's canvas survives the move; the file is left on disk as a fallback.
-    """
-    path = get_state_db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = open_state_db(path)
-    try:
-        await db.migrate()
-    except StateDbError as exc:
-        # A database from a newer build refuses here too, and the message
-        # already says what to do. A traceback would bury it.
-        raise click.ClickException(str(exc)) from exc
-    finally:
-        db.close()
-    click.echo(f"The state database at {path} is up to date.")
-
-
 @cmd_admin.command("export-queue")
 @click.option(
     "--rebuild",

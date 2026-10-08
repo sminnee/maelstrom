@@ -43,7 +43,9 @@ from .types import (
 T = TypeVar("T")
 
 #: What every ordinary open tells a user whose database is behind this build.
-_MIGRATE_COMMAND = "mael admin migrate"
+_MIGRATE_COMMAND = (
+    "`bin/install`, or `python -m mael_domain.state_db.migrate` for a PyPI install"
+)
 
 #: How long a nested write may wait for the transaction lock before it is
 #: called a deadlock. A transaction here is microseconds of SQLite, so a wait
@@ -820,5 +822,5 @@ def _too_new(name: str, found: int, build: int) -> str:
 def _too_old(name: str, found: int, build: int) -> str:
     return (
         f"the state database's {name} schema is at version {found}, and this "
-        f"build needs version {build}. Run `{_MIGRATE_COMMAND}`."
+        f"build needs version {build}. Run {_MIGRATE_COMMAND}."
     )

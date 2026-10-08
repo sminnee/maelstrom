@@ -1288,7 +1288,7 @@ _Avoid_: Async, background, deferred
 **State database**:
 The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
 file, so one transaction and one revision counter cover them all. It holds the desk and the tasks.
-`mael admin migrate` creates and upgrades it; every other open refuses a schema it cannot read.
+The install script creates and upgrades it; every other open refuses a schema it cannot read.
 _Avoid_: Cache, store, db
 
 **Revision**:

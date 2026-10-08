@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.migrate import migrate_state_db
 from mael_domain.state_db.paths import get_state_db_path
 
 
@@ -24,22 +24,12 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _migrate(path: Path) -> None:
-    # The server refuses a database behind its build, so the test stands in
-    # for `mael admin migrate`.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = open_state_db(path)
-    try:
-        asyncio.run(db.migrate())
-    finally:
-        db.close()
-
-
 @pytest.mark.binds_socket
 def test_the_console_script_serves_the_world(tmp_path):
     # The notebook and daemon roots are the autouse fixtures' temporary ones,
     # which the server inherits through os.environ.
-    _migrate(get_state_db_path())
+    # The server refuses a database behind its build.
+    asyncio.run(migrate_state_db(get_state_db_path()))
     # A home of its own, so the world is built from an empty projects
     # directory and not from the developer's real one.
     home = tmp_path / "home"

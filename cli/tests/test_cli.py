@@ -2070,17 +2070,13 @@ class TestMvProjectIntegration:
         config = MagicMock(projects_dir=projects, open_command="code")
 
         # The tasks live in the state database, so it has to exist before a
-        # command reads it — `mael admin migrate` is what does this for a real
+        # command reads it — the install script does this for a real
         # install, and an unmigrated database is its own (tested) refusal.
         import asyncio
 
-        from mael_domain.state_db.migrate import open_state_db
+        from mael_domain.state_db.migrate import migrate_state_db
 
-        db = open_state_db(mael_dir / "state.db")
-        try:
-            asyncio.run(db.migrate())
-        finally:
-            db.close()
+        asyncio.run(migrate_state_db(mael_dir / "state.db"))
 
         with (
             patch("mael_cli.mv_project_cli.load_global_config", return_value=config),

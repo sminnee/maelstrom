@@ -148,10 +148,9 @@ def open_task_table() -> SqliteTaskTable:
     daemon's listing — reach the same table rather than opening a second
     connection to it.
 
-    The database is *checked*, not migrated: upgrading is a command a person
-    runs (``mael admin migrate``), never a background rewrite. A database behind
-    this build refuses here with that instruction, which is the whole point of
-    the schema gate.
+    The database is *checked*, not migrated: only the install script
+    upgrades it. A database behind this build refuses here and names the
+    upgrade.
     """
     global _DB
     if _DB is None:

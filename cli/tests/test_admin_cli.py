@@ -13,16 +13,12 @@ from click.testing import CliRunner, Result
 
 from mael_cli.admin_cli import (
     cmd_export_queue,
-    cmd_migrate,
     cmd_self_update,
     resolve_install_root,
 )
 from mael_domain import task as task_model
 from mael_domain.env import EnvRefresh, EnvState, ServiceVersionError, VersionChange
-from mael_domain.state_db import migrate as state_db_migrate
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.state_db.migrations.desk import DESK
-from mael_domain.state_db.types import Migration
 from mael_domain.task_export import SqliteExportQueue
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree_model import CopyBackResult
@@ -533,21 +529,17 @@ class TestSelfUpdateWritesTheDaemonRootShim:
 class TestExportQueue:
     """`mael admin export-queue` reports what the markdown export still owes."""
 
-    def test_a_caught_up_export_says_so(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-
+    @pytest.mark.usefixtures("migrated_notebook")
+    def test_a_caught_up_export_says_so(self):
         result = CliRunner().invoke(cmd_export_queue, [])
 
         assert result.exit_code == 0, result.output
         assert "up to date" in result.output
 
-    def test_it_reports_the_depth_and_the_oldest_entry(self, tmp_path, monkeypatch):
+    def test_it_reports_the_depth_and_the_oldest_entry(self, migrated_notebook):
         """The two numbers that tell a stalled drain from a busy notebook."""
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
-        db = open_state_db(tmp_path / "state.db")
+        db = open_state_db(migrated_notebook / "state.db")
         try:
             table = SqliteTaskTable(db)
             asyncio.run(
@@ -564,16 +556,14 @@ class TestExportQueue:
         assert "owes 1 task(s)" in result.output
         assert "oldest has waited since" in result.output
 
-    def test_rebuild_queues_every_task(self, tmp_path, monkeypatch):
+    def test_rebuild_queues_every_task(self, migrated_notebook):
         """The recovery path: a file that went missing without its row moving.
 
         A drained queue is the starting state, because that is when a lost
         export file is unrecoverable — no later save re-queues it.
         """
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
 
-        db = open_state_db(tmp_path / "state.db")
+        db = open_state_db(migrated_notebook / "state.db")
         try:
             table = SqliteTaskTable(db)
             for id in ("NORT-7", "NORT-8"):
@@ -592,7 +582,7 @@ class TestExportQueue:
         assert result.exit_code == 0, result.output
         assert "Queued 2 task(s)" in result.output
 
-        db = open_state_db(tmp_path / "state.db")
+        db = open_state_db(migrated_notebook / "state.db")
         try:
             queued = asyncio.run(SqliteExportQueue(db).pending())
         finally:
@@ -606,10 +596,8 @@ class TestExportQueue:
             "northwind/todo/NORT-8.md",
         ]
 
-    def test_rebuild_on_an_empty_notebook_queues_nothing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-
+    @pytest.mark.usefixtures("migrated_notebook")
+    def test_rebuild_on_an_empty_notebook_queues_nothing(self):
         result = CliRunner().invoke(cmd_export_queue, ["--rebuild"])
 
         assert result.exit_code == 0, result.output
@@ -623,72 +611,4 @@ class TestExportQueue:
         result = CliRunner().invoke(cmd_export_queue, [])
 
         assert result.exit_code != 0
-        assert "mael admin migrate" in result.output
-
-
-class TestMigrate:
-    """Slice 22: `mael admin migrate` upgrades; an ordinary open refuses."""
-
-    def test_it_creates_the_state_database(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        result = CliRunner().invoke(cmd_migrate, [])
-        assert result.exit_code == 0, result.output
-        assert (tmp_path / "state.db").is_file()
-        assert str(tmp_path / "state.db") in result.output
-
-    def test_a_second_run_is_a_no_op(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-        result = CliRunner().invoke(cmd_migrate, [])
-        assert result.exit_code == 0, result.output
-
-    def test_it_imports_an_existing_desk(self, tmp_path, monkeypatch):
-        """A user's canvas survives the move to the state database."""
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        (tmp_path / "desk.json").write_text(
-            '{"task:a/1": {"id": "task:a/1", "addedAt": "t"}}'
-        )
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-        assert (tmp_path / "desk.json").is_file(), "left as a fallback"
-
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            rows = asyncio.run(db.read_all("desk"))
-        finally:
-            db.close()
-        assert [row["id"] for row in rows] == ["task:a/1"]
-
-    def test_it_upgrades_a_database_in_place(self, tmp_path, monkeypatch):
-        """The branch the command exists for: rows survive a ladder step.
-
-        The ladder gains a step the way a real schema change does — appended —
-        so the second run takes it and the desk row written under version 1 is
-        still there afterwards.
-        """
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            asyncio.run(db.upsert("desk", "task:a/1", body='{"id": "x"}'))
-        finally:
-            db.close()
-
-        monkeypatch.setitem(
-            state_db_migrate.LADDERS,
-            "desk",
-            (
-                *DESK,
-                Migration(("ALTER TABLE desk ADD COLUMN note TEXT DEFAULT ''",)),
-            ),
-        )
-        assert CliRunner().invoke(cmd_migrate, []).exit_code == 0
-
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            # Two rungs ship — the table, then the `desk.json` import — so the
-            # appended one is the third.
-            assert asyncio.run(db.schema_version("desk")) == 3
-            assert asyncio.run(db.read("desk", "task:a/1")) is not None
-        finally:
-            db.close()
+        assert "bin/install" in result.output

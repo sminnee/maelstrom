@@ -13,7 +13,6 @@ import pytest
 from click.testing import CliRunner
 
 from mael_domain.github_model import GitHubCommandFailed
-from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.types import SchemaTooOldError
 from mael_domain.task import list_tasks
 from mael_domain.task_table import InMemoryTaskTable
@@ -28,19 +27,6 @@ from mael_orchestrator.cli import (
     run_server,
 )
 from mael_orchestrator.sources import CloseBlocked, ListAllWorktreeSource
-
-
-@pytest.fixture
-def migrated_notebook(tmp_path, monkeypatch):
-    """A migrated state database under tmp_path, so no test touches the real one.
-
-    ``run_server`` opens one and checks it, which without this would read the
-    developer's live ``~/.maelstrom/state.db``.
-    """
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    db = open_state_db()
-    asyncio.run(db.migrate())
-    db.close()
 
 
 def test_serve_passes_its_flags_to_the_server():
@@ -439,7 +425,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
         pytest.raises(SchemaTooOldError) as exc,
     ):
         run_server(DEFAULT_HOST, DEFAULT_PORT)
-    assert "mael admin migrate" in str(exc.value)
+    assert "bin/install" in str(exc.value)
 
 
 def test_serve_reports_a_refused_state_database_as_an_error(tmp_path, monkeypatch):
@@ -447,11 +433,11 @@ def test_serve_reports_a_refused_state_database_as_an_error(tmp_path, monkeypatc
     monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
     with patch(
         "mael_orchestrator.cli.run_server",
-        side_effect=SchemaTooOldError("run `mael admin migrate`"),
+        side_effect=SchemaTooOldError("run `bin/install`"),
     ):
         result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 1
-    assert "mael admin migrate" in result.output
+    assert "bin/install" in result.output
 
 
 @pytest.mark.usefixtures("migrated_notebook")

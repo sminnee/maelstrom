@@ -128,6 +128,23 @@ async def state_db():
 
 
 @pytest.fixture()
+def migrated_notebook():
+    """The isolated notebook root, holding a migrated ``state.db``.
+
+    For a command that opens the database itself, and so refuses one that is
+    behind this build. Returns the root.
+    """
+    import asyncio
+
+    from mael_domain.state_db.migrate import migrate_state_db
+    from mael_domain.state_db.paths import get_state_db_path
+
+    path = get_state_db_path()
+    asyncio.run(migrate_state_db(path))
+    return path.parent
+
+
+@pytest.fixture()
 def store():
     """Shared task-table fixture for the model / CLI / actions test suites.
 

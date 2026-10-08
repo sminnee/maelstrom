@@ -1240,16 +1240,14 @@ None of these take options beyond `--help`.
 
 | Command | Description |
 |---|---|
-| `mael admin migrate` | Bring the state database at `~/.maelstrom/state.db` up to this build's schema, creating it if it is absent. A desk written before the database is brought in by the desk ladder's import rung, and the file is left on disk. |
 | `mael admin export-queue` | Report how many tasks the markdown export at `~/.maelstrom/tasks` still owes, and how long the oldest has waited. The orchestrator drains the queue, so a depth that does not fall means the server is not running. |
 | `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. After the pull it reinstalls the CLI only when its `cli` SHA bucket moved, runs `install_cmd` in `_main`, then restarts the `_main` services whose [service version](../../CONTEXT.md) moved. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
+| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. After the pull it reinstalls the CLI only when its `cli` SHA bucket moved, runs `install_cmd` in `_main`, which migrates the state database, then restarts the `_main` services whose [service version](../../CONTEXT.md) moved. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 
 ```bash
-mael admin migrate           # create or upgrade ~/.maelstrom/state.db
 mael admin export-queue      # what the markdown export still owes
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
@@ -1260,6 +1258,9 @@ mael self-env restart agent-daemon   # the everyday daemon picks up new code
 mael self-env stop
 ```
 
-`mael-orchestrator serve` refuses a state database written by a different build, and the refusal
-names `mael admin migrate`. The command is forward-only and has no undo. See
+`mael-orchestrator serve` refuses a state database written by a different build. The install
+script, `bin/install`, creates and upgrades the database. It runs as the project's `install_cmd`:
+on each worktree open, on `mael env start` and `mael env restart --install`, and in `_main` on
+`mael self-update`. A PyPI install runs `python -m mael_domain.state_db.migrate` instead. A migration is forward-only
+and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".
