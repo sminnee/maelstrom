@@ -4,22 +4,23 @@ Canonical, so no ``fetched_at``: nobody else authors a desk.
 """
 
 import sqlite3
+from pathlib import Path
 
-from ..paths import get_desk_json_path
+from ..paths import desk_json_path
 from ..types import Migration, PythonMigration, Rung
 from .desk_json import import_desk_json
 
 
-def _import_desk_json(conn: sqlite3.Connection) -> None:
+def _import_desk_json(conn: sqlite3.Connection, root: Path | None) -> None:
     """Bring an existing ``desk.json`` in, as the ladder's second rung.
 
-    The path is resolved here rather than captured, so a test that pins
-    ``MAEL_NOTEBOOK_ROOT`` is honoured.
+    An in-memory database has no ``root``, so nothing beside it to import.
 
     A ladder version guarantees a rung runs once, which is why no marker row is
     needed: a desk the user later emptied cannot spring back from the file.
     """
-    import_desk_json(conn, get_desk_json_path())
+    if root is not None:
+        import_desk_json(conn, desk_json_path(root))
 
 
 #: The desk's ladder. Append-only, so a rung's version is its index plus one.
@@ -37,6 +38,6 @@ DESK: tuple[Rung, ...] = (
     ),
     PythonMigration(
         run=_import_desk_json,
-        description="import ~/.maelstrom/desk.json, if there is one",
+        description="import desk.json beside the database, if there is one",
     ),
 )

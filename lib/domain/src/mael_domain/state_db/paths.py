@@ -23,29 +23,27 @@ def get_state_db_path() -> Path:
     return notebook_root() / "state.db"
 
 
-def get_desk_json_path() -> Path:
-    """Where a desk written before the state database is kept.
+def desk_json_path(root: Path) -> Path:
+    """Where a desk written before the state database is kept, under ``root``.
 
     Read by the desk ladder's import rung, and by nothing else. It stays here
     so one module knows every path the database machinery reaches.
-
-    Raises:
-        NotebookRootUnset: If the environment names no notebook root.
     """
-    return notebook_root() / "desk.json"
+    return root / "desk.json"
+
+
+def notebook_path(root: Path) -> Path:
+    """Where a markdown task notebook is kept, under ``root``."""
+    return root / "tasks"
 
 
 def get_notebook_path() -> Path:
-    """Where a task notebook written before the state database is kept.
+    """The markdown task notebook under the environment's notebook root.
 
-    Read by the tasks ladder's import rung, and by nothing else. It resolves the
-    same directory as :func:`mael_domain.task_store.tasks_root`, but through this
-    module rather than through it: a rung that reached the store's own accessor
-    would read the developer's real notebook in every test, because the suite
-    isolates the notebook by pinning the root this module reads and nothing
-    else. The two must therefore move together.
+    It resolves the same directory as :func:`mael_domain.task_store.tasks_root`,
+    so the two must move together.
 
     Raises:
         NotebookRootUnset: If the environment names no notebook root.
     """
-    return notebook_root() / "tasks"
+    return notebook_path(notebook_root())

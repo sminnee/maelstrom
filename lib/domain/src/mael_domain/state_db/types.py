@@ -6,6 +6,7 @@ The leaf layer: stdlib only, so it can never join an import cycle. Both
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 
@@ -89,9 +90,14 @@ class PythonMigration:
     ``changed_since`` treats them as the state it started from rather than as a
     change. The connection is already inside the migration's transaction, so a
     rung that raises rolls the whole run back with it.
+
+    ``run`` is also handed the notebook root: the directory the database file
+    is in, or ``None`` for an in-memory database. A rung that imports files
+    reads them from there, so it reads the notebook beside the database it
+    fills, whatever the environment names.
     """
 
-    run: Callable[[sqlite3.Connection], None]
+    run: Callable[[sqlite3.Connection, Path | None], None]
     description: str = ""
 
 
