@@ -267,7 +267,7 @@ describe('the narrow layout', () => {
     await renderApp({ viewport: 'narrow' });
     await userEvent.click(paneItem('Tasks'));
     const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
-    await userEvent.click(within(row as HTMLElement).getByRole('link'));
+    await userEvent.click(within(row as HTMLElement).getByRole('link', { name: /needs you/i }));
     expect(await screen.findByTestId('session-tab')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
   });

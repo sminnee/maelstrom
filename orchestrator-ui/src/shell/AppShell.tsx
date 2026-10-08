@@ -10,6 +10,7 @@ import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
 import { useLocSync } from '../nav/useLocSync';
+import { useLoc } from '../nav/useNav';
 import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -45,8 +46,7 @@ function SlotShell() {
   const anchors = useAppStore((s) => s.ui.anchors);
   const panelWidth = useAppStore((s) => s.ui.panelWidth);
   // Above the views, so the list's scrolling box cannot clip it.
-  const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
-  const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
+  const { edit: editingTaskId, newWork: newWorkOpen } = useLoc();
   const { status } = useWorld();
   // The clamp also holds after a window resize, not only during a drag.
   const [, resized] = useState(0);

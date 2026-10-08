@@ -1,5 +1,5 @@
 import type { Worktree } from '../protocol/entities';
-import { useAppStore } from '../store/store';
+import { useNewWork } from '../nav/useOverlays';
 import { useCard } from '../nav/useCard';
 import { AppButton } from '../ui/AppButton';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
@@ -29,7 +29,7 @@ export function WorktreeCard({
   onClosed: () => void;
 }) {
   const { collapse } = useCard();
-  const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
+  const newWork = useNewWork();
   return (
     <CanvasCard
       label={`Worktree ${worktree.project} ${worktree.nato}`}
@@ -62,9 +62,9 @@ export function WorktreeCard({
             disabled={!worktree.branch}
             title={worktree.branch ? undefined : 'A detached worktree has no branch to start on'}
             onClick={() => {
-              // The form is the one thing open: the card would sit behind it.
-              collapse();
-              setNewWorkOpen(true, {
+              // The form is the one thing open: the card would sit behind it, so
+              // opening on a seed closes it.
+              newWork.open({
                 kind: 'agent',
                 project: worktree.project,
                 branch: worktree.branch,

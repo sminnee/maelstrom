@@ -44,7 +44,7 @@ describe('the panel beside each view', () => {
     await user.click(paneItem('Tabs'));
     // NORT-7 has an agent, so its state cell links to the session.
     const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
-    await user.click(within(row as HTMLElement).getByRole('link'));
+    await user.click(within(row as HTMLElement).getByRole('link', { name: /needs you/i }));
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
   });

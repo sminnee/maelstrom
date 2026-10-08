@@ -9,8 +9,10 @@ import { driftLabel, progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
 import { listTasks } from '../selectors/taskList';
 import { PanelLink } from '../shell/PanelLink';
-import { useAppStore } from '../store/store';
-import { useLoc } from '../nav/useNav';
+import { Link } from 'react-router';
+import { toHref, withLoc } from '../nav/location';
+import { IN_APP, useLoc } from '../nav/useNav';
+import { useEditor } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -23,8 +25,8 @@ import styles from './TaskList.module.css';
 export function TaskList() {
   const { world, status, errors, retry } = useWorld();
   const { filters, listFilters } = useLoc();
-  const editTask = useAppStore((s) => s.setEditingTask);
-  const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
+  const { editingTaskId, open: editTask, close: closeEditor } = useEditor();
+  const loc = useLoc();
   const setStatus = useSetStatus();
   const deleteTask = useDeleteTask();
   // Which row's status is being picked.
@@ -125,7 +127,20 @@ export function TaskList() {
                   onChange={() => toggle(task.id)}
                 />
               </td>
-              <td className={styles.mono}>{task.id}</td>
+              <td className={styles.mono}>
+                {/* On the desk, the id opens the task's card. */}
+                {onDesk ? (
+                  <Link
+                    to={toHref(withLoc(loc, { card: { kind: 'task', id: task.id } }))}
+                    state={IN_APP}
+                    className={styles.idLink}
+                  >
+                    {task.id}
+                  </Link>
+                ) : (
+                  task.id
+                )}
+              </td>
               <td>
                 {/* A real button: a row reaches no keyboard. */}
                 <button type="button" className={styles.title} onClick={() => editTask(task.id)}>
@@ -162,7 +177,7 @@ export function TaskList() {
                       await deleteTask.mutateAsync({ taskId: task.id });
                       // The dialog mounts from the store, so a delete that
                       // leaves it open refetches a task that is gone.
-                      if (editingTaskId === task.id) editTask(null);
+                      if (editingTaskId === task.id) closeEditor();
                     }}
                   >
                     Delete

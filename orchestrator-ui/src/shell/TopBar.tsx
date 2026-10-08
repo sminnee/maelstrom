@@ -4,6 +4,7 @@ import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { Link } from 'react-router';
 import { IN_APP, useGo, useHrefFor } from '../nav/useNav';
+import { useNewWork } from '../nav/useOverlays';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
@@ -42,7 +43,7 @@ export function TopBar({
   /** Receives the element the screen's actions portal into. */
   actionsTarget?: (el: HTMLElement | null) => void;
 }) {
-  const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
+  const newWork = useNewWork();
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
   if (narrow && back) {
@@ -84,11 +85,7 @@ export function TopBar({
           <Readings />
           <div className={styles.spacer} />
           <AttentionChip />
-          <AppButton
-            variant="primary"
-            icon={actionIcon('new')}
-            onClick={() => setNewWorkOpen(true)}
-          >
+          <AppButton variant="primary" icon={actionIcon('new')} onClick={() => newWork.open()}>
             New
           </AppButton>
         </div>
@@ -111,7 +108,7 @@ export function TopBar({
       {/* Over the slot its items show in. */}
       {mode === 'wide' && <PaneMenu side="right" />}
       {/* The one action ends the bar, as it does on the narrow layout. */}
-      <AppButton variant="primary" icon={actionIcon('new')} onClick={() => setNewWorkOpen(true)}>
+      <AppButton variant="primary" icon={actionIcon('new')} onClick={() => newWork.open()}>
         New
       </AppButton>
     </header>
@@ -136,7 +133,7 @@ function Readings() {
  * no room for. New closes the sheet, as anything that navigates does.
  */
 export function SheetHead({ onClose }: { onClose: () => void }) {
-  const setNewWorkOpen = useAppStore((s) => s.setNewWorkOpen);
+  const newWork = useNewWork();
   return (
     <div className={styles.sheetHead}>
       <Readings />
@@ -146,7 +143,7 @@ export function SheetHead({ onClose }: { onClose: () => void }) {
         icon={actionIcon('new')}
         onClick={() => {
           onClose();
-          setNewWorkOpen(true);
+          newWork.open();
         }}
       >
         New

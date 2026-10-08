@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMilestones } from '../api/milestones';
 import { useLaunch, useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
-import { useAppStore } from '../store/store';
+import { useEditor } from '../nav/useOverlays';
 import { useAgentStream } from '../live/useAgentStream';
 import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
@@ -75,7 +75,7 @@ export function NodeCardBody({
   const milestones = useMilestones(node.agent?.id ?? null);
   const launch = useLaunch();
   const setStatus = useSetStatus();
-  const editTask = useAppStore((s) => s.setEditingTask);
+  const { open: editTask } = useEditor();
   const [picking, setPicking] = useState(false);
   const { task, agent, worktree } = node;
   // The list holds slim rows, so the brief comes from the task's detail.

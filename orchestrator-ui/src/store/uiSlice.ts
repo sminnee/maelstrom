@@ -1,4 +1,4 @@
-import type { AgentId, DocumentId, TaskId, WorktreeId } from '../protocol/ids';
+import type { AgentId, DocumentId, WorktreeId } from '../protocol/ids';
 
 /**
  * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
@@ -49,17 +49,11 @@ export interface UiState {
    * beside the active tab. Never the active tab itself. See CONTEXT.md, "Split tab".
    */
   splitTabs: Record<string, string>;
-  /** The task the editor is open on. */
-  editingTaskId: TaskId | null;
   /**
-   * Whether the new-work form is open. Only the flag lives here: the draft
-   * itself is component state, as the editor's is, so a keystroke does not
-   * publish to every subscriber of the store. It is also held text — closing
-   * the form does not lose it. See `ui/useRetained.ts`.
-   */
-  newWorkOpen: boolean;
-  /**
-   * What the form opens on, when a surface opened it for one piece of work.
+   * What the new-work form opens on, when a surface opened it for one piece of work. The
+   * location says whether the form is open; the draft itself is component state, as the
+   * editor's is, so a keystroke does not publish to every subscriber of the store. It is also
+   * held text — closing the form does not lose it. See `ui/useRetained.ts`.
    * The form lays it over its held draft, and keeps the rest of the draft.
    */
   newWorkSeed: NewWorkSeed | null;
@@ -90,8 +84,6 @@ export function initialUiState(): UiState {
     tabs: [],
     tabRecency: [],
     splitTabs: {},
-    editingTaskId: null,
-    newWorkOpen: false,
     newWorkSeed: null,
     panelWidth: openingWidth(),
   };
