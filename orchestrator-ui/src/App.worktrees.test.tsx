@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { exitAgent } from './test/appHelpers';
+import { exitAgent, paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the worktrees view', () => {
   const goToWorktrees = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole('button', { name: 'Worktrees' }));
+    await user.click(paneItem('Worktrees'));
     return screen.getByTestId('worktree-table');
   };
   const row = (id: string) =>

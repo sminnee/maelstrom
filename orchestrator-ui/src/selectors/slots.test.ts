@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mainView, moveAnchor, showPane, showing, togglePane, type SlotState } from './slots';
+import { moveAnchor, showPane, togglePane, type SlotState } from './slots';
 
 /** The opening state: the desk on the left, the panel on the right. */
 const opening = (): SlotState => ({
@@ -51,18 +51,5 @@ describe('moveAnchor', () => {
   it('shows a pane that was not showing, on its new side', () => {
     const s = moveAnchor(opening(), 'worktrees');
     expect(s.slots).toEqual({ left: 'canvas', right: 'worktrees' });
-  });
-});
-
-describe('showing', () => {
-  it('is the main view in the narrow layout, which has no panel', () => {
-    expect(showing(showPane(opening(), 'tabs'), 'narrow')).toEqual(['canvas']);
-  });
-});
-
-describe('mainView', () => {
-  it('is the most recent pane that is not the panel', () => {
-    const s = showPane(showPane(opening(), 'list'), 'tabs');
-    expect(mainView(s)).toBe('list');
   });
 });

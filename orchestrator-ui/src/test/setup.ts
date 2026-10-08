@@ -15,6 +15,15 @@ configure({ asyncUtilTimeout: 5_000 });
 // a test read the screen right after the cache moved, inside the same act.
 notifyManager.setScheduler((callback) => callback());
 
+// A data router gives each navigation's `Request` an `AbortSignal`, and Node's `Request`
+// refuses jsdom's. The app runs no loaders, so nothing waits on the signal: drop it.
+class RequestWithoutSignal extends Request {
+  constructor(input: RequestInfo | URL, init?: RequestInit) {
+    super(input, { ...init, signal: undefined });
+  }
+}
+Object.defineProperty(globalThis, 'Request', { writable: true, value: RequestWithoutSignal });
+
 // React Flow measures nodes with ResizeObserver and reads transforms with
 // DOMMatrixReadOnly. jsdom has neither, so both are stubbed for tests.
 class ResizeObserverStub {

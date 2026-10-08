@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { nodeState, openSheet, screenStrip } from './test/appHelpers';
+import { nodeState, openSheet, screenStrip, paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import type { FakeServer } from './fake/fakeServer';
 
@@ -231,7 +231,7 @@ describe('the narrow layout', () => {
 
   it('keeps Tasks reachable while hiding desktop filters', async () => {
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: 'Tasks' }));
+    await userEvent.click(paneItem('Tasks'));
     expect(screen.getByTestId('task-list')).toBeInTheDocument();
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Project')).toBeNull();
@@ -240,7 +240,7 @@ describe('the narrow layout', () => {
 
   it("pushes the agent's session from a task's state link, with no editor", async () => {
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: 'Tasks' }));
+    await userEvent.click(paneItem('Tasks'));
     const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
     await userEvent.click(within(row as HTMLElement).getByRole('link'));
     expect(await screen.findByTestId('session-tab')).toBeInTheDocument();

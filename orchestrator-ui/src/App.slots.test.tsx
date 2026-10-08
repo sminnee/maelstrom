@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { tabStrip } from './test/appHelpers';
+import { tabStrip, paneItem, isShowing } from './test/appHelpers';
 import { clickNode, renderApp, resizeTo, VIEWPORTS } from './test/renderApp';
 
-const item = (name: string) => screen.getByRole('button', { name });
+const item = paneItem;
 const group = (name: string) => screen.queryByRole('group', { name });
 /** The names of a top bar group's items, in the order they are drawn. */
 const items = (name: string) =>
-  within(screen.getByRole('group', { name }))
-    .getAllByRole('button')
-    .map((b) => b.textContent);
+  [...screen.getByRole('group', { name }).querySelectorAll('a, button')].map((b) => b.textContent);
 const expanded = () => screen.getByRole('dialog');
 const rightWidth = () => Number.parseFloat(screen.getByTestId('panel').style.width);
 /** Which slot an element is drawn in. */
@@ -22,8 +20,8 @@ describe('the medium layout: one slot', () => {
   it('draws one menu of four, with the desk in front', async () => {
     await renderApp({ viewport: 'medium' });
     expect(items('Views')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Tabs']);
-    expect(item('Desk')).toHaveAttribute('aria-pressed', 'true');
-    expect(item('Tabs')).toHaveAttribute('aria-pressed', 'false');
+    expect(isShowing('Desk')).toBe(true);
+    expect(isShowing('Tabs')).toBe(false);
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
     expect(screen.getByTestId('panel')).not.toBeVisible();
   });
@@ -32,8 +30,8 @@ describe('the medium layout: one slot', () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'medium' });
     await user.click(item('Tabs'));
-    expect(item('Tabs')).toHaveAttribute('aria-pressed', 'true');
-    expect(item('Desk')).toHaveAttribute('aria-pressed', 'false');
+    expect(isShowing('Tabs')).toBe(true);
+    expect(isShowing('Desk')).toBe(false);
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     // A second click does not close the one slot.
@@ -44,13 +42,14 @@ describe('the medium layout: one slot', () => {
     expect(screen.getByTestId('panel')).not.toBeVisible();
   });
 
-  it('has no side to move an item to, so a shift-click only shows the item', async () => {
+  it('has no side to move an item to, so a shift-click is the browser’s own', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'medium' });
     await user.keyboard('{Shift>}');
     await user.click(item('Tasks'));
     await user.keyboard('{/Shift}');
-    expect(screen.getByTestId('task-list')).toBeInTheDocument();
+    // A shift-click on a link opens a new window: this one keeps its view.
+    expect(screen.queryByTestId('task-list')).toBeNull();
     resizeTo('wide');
     expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees']);
     expect(items('Right slot')).toEqual(['Tabs']);
@@ -61,7 +60,7 @@ describe('the medium layout: one slot', () => {
     await renderApp({ viewport: 'medium' });
     await user.click(item('Tabs'));
     await user.click(screen.getByTestId('attention-chip'));
-    expect(item('Desk')).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Desk')).toBe(true);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
@@ -84,7 +83,7 @@ describe('the medium layout: one slot', () => {
     await user.click(within(row as HTMLElement).getByRole('link'));
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(screen.queryByTestId('task-list')).not.toBeInTheDocument();
-    expect(item('Tabs')).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Tabs')).toBe(true);
     expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
   });
 });
@@ -108,7 +107,7 @@ describe('the wide layout: two slots', () => {
     const user = userEvent.setup();
     await renderApp();
     await user.click(item('Desk'));
-    expect(item('Desk')).toHaveAttribute('aria-pressed', 'false');
+    expect(isShowing('Desk')).toBe(false);
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     expect(screen.getByTestId('panel')).toBeVisible();
     // Alone, the right slot takes the full width rather than the dragged one,
@@ -124,7 +123,7 @@ describe('the wide layout: two slots', () => {
     await user.click(item('Tasks'));
     await user.click(item('Tabs'));
     expect(screen.getByTestId('task-list')).toBeInTheDocument();
-    expect(item('Tasks')).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Tasks')).toBe(true);
     expect(screen.getByTestId('panel')).not.toBeVisible();
   });
 
@@ -205,7 +204,7 @@ describe('a resize across 1600px', () => {
     await user.click(item('Tabs'));
     await user.click(item('Tabs'));
     resizeTo('medium');
-    expect(item('Tabs')).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Tabs')).toBe(true);
     expect(screen.getByTestId('panel')).toBe(panel);
     expect(panel).toBeVisible();
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
@@ -221,6 +220,37 @@ describe('a resize across 1600px', () => {
     await user.click(item('Desk'));
     resizeTo('medium');
     expect(screen.getByTestId('panel')).toBeVisible();
-    expect(item('Tabs')).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Tabs')).toBe(true);
+  });
+});
+
+describe('the view in the URL', () => {
+  it('opens on the view the path names', async () => {
+    await renderApp({ url: '/tasks' });
+    expect(screen.getByTestId('task-list')).toBeInTheDocument();
+    expect(isShowing('Tasks')).toBe(true);
+  });
+
+  it('moves to the view a menu item links to, and Back returns', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ viewport: 'medium' });
+    expect(item('Worktrees')).toHaveAttribute('href', '/worktrees');
+    await user.click(item('Worktrees'));
+    expect(router.state.location.pathname).toBe('/worktrees');
+    expect(screen.getByTestId('worktree-table')).toBeInTheDocument();
+    await act(() => router.navigate(-1));
+    expect(router.state.location.pathname).toBe('/desk');
+    expect(screen.getByTestId('canvas')).toBeInTheDocument();
+  });
+
+  it('moves a path with no screen to the desk', async () => {
+    const { router } = await renderApp({ url: '/' });
+    expect(router.state.location.pathname).toBe('/desk');
+    expect(screen.getByTestId('canvas')).toBeInTheDocument();
+  });
+
+  it('draws the view the path names on the narrow layout', async () => {
+    await renderApp({ viewport: 'narrow', url: '/tasks' });
+    expect(screen.getByTestId('task-list')).toBeInTheDocument();
   });
 });

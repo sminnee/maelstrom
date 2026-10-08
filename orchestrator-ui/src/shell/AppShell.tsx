@@ -9,6 +9,7 @@ import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
+import { useLocSync } from '../nav/useLocSync';
 import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -33,6 +34,7 @@ const MAIN_VIEWS: View[] = ['canvas', 'list', 'worktrees'];
  * React Flow — and the narrow layout must not mount it at all.
  */
 export function AppShell() {
+  useLocSync();
   if (useLayoutMode() === 'narrow') return <MobileShell />;
   return <SlotShell />;
 }

@@ -6,7 +6,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { askQuestion } from './fake/moves';
-import { chipCount, commandsSince, nodeState } from './test/appHelpers';
+import { chipCount, commandsSince, nodeState, paneItem, isShowing } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
 
@@ -469,7 +469,7 @@ describe('grouping and filters', () => {
 
     await user.selectOptions(screen.getByLabelText('Project'), 'northwind');
     await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/feat/orders');
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
 
     expect(screen.getByLabelText('Project')).toHaveValue('northwind');
     expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
@@ -478,9 +478,9 @@ describe('grouping and filters', () => {
         .getAllByRole('row')
         .map((row) => row.textContent),
     ).toEqual(expect.arrayContaining([expect.stringContaining('NORT-7')]));
-    expect(screen.getByRole('button', { name: 'Tasks' })).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Tasks')).toBe(true);
 
-    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    await user.click(paneItem('Desk'));
     expect(screen.getByLabelText('Project')).toHaveValue('northwind');
     expect(screen.getByLabelText('Branch')).toHaveValue('northwind/feat/orders');
   });
@@ -492,9 +492,9 @@ describe('grouping and filters', () => {
       [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((o) => o.value);
 
     // spike/graphql has no desk work, so only Tasks offers it.
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
     await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/spike/graphql');
-    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    await user.click(paneItem('Desk'));
     expect(screen.getByLabelText('Branch')).toHaveValue('northwind/spike/graphql');
 
     // Choosing a project, even "all", clears the branch, so nothing is kept.

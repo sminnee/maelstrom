@@ -1,3 +1,4 @@
+import { paneItem } from './test/appHelpers';
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -29,7 +30,7 @@ describe('new work', () => {
     const user = userEvent.setup();
     await renderApp();
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
   });
 

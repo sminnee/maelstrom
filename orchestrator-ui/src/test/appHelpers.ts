@@ -10,6 +10,16 @@ import { clickNode } from './renderApp';
  * app, and these read the DOM it produced or push the world past it.
  */
 
+/** A top bar menu item: a link to a main view, or the `Tabs` button. */
+export const paneItem = (name: string) =>
+  screen.getByRole(name === 'Tabs' ? 'button' : 'link', { name });
+
+/** Whether a top bar item's pane is on screen. */
+export const isShowing = (name: string) => {
+  const item = paneItem(name);
+  return item.getAttribute(item.tagName === 'A' ? 'aria-current' : 'aria-pressed') === 'true';
+};
+
 /** The one expanded node, as the card it grew into. */
 export const expanded = () => screen.getByRole('dialog');
 

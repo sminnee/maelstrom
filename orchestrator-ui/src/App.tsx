@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createBrowserRouter, RouterProvider } from 'react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { ApiProvider } from './api/ApiProvider';
 import type { ApiClient } from './api/http';
@@ -6,7 +7,7 @@ import { createQueryClient } from './api/queryClient';
 import type { EventSourceLike } from './live/changeStream';
 import { LiveProvider } from './live/LiveProvider';
 import type { SocketLike } from './live/socketLike';
-import { AppShell } from './shell/AppShell';
+import { routes } from './nav/routes';
 import { eventsUrl } from './eventsUrl';
 
 /** What the app reaches the server through. A test injects fakes for each. */
@@ -18,7 +19,12 @@ export interface AppDeps {
   /** The first wait before a transcript socket reconnects. Tests shorten it. */
   streamReconnectMs?: number;
   queryClient?: QueryClient;
+  /** What reads and moves the location. A browser router on the window's URL when left out. */
+  router?: AppRouter;
 }
+
+/** The router `App` runs on. A test passes a memory router, to read and move its history. */
+export type AppRouter = ReturnType<typeof createBrowserRouter>;
 
 /** Where the change stream is — see `eventsUrl`. */
 export const EVENTS_URL = eventsUrl(window.location, import.meta.env.VITE_ORCHESTRATOR_PORT);
@@ -26,6 +32,7 @@ export const EVENTS_URL = eventsUrl(window.location, import.meta.env.VITE_ORCHES
 export function App({ deps }: { deps: AppDeps }) {
   // One client for the life of the app: useMemo may recompute, useState never does.
   const [queryClient] = useState(() => deps.queryClient ?? createQueryClient());
+  const [router] = useState(() => deps.router ?? createBrowserRouter(routes));
   return (
     <ApiProvider api={deps.api} queryClient={queryClient}>
       <LiveProvider
@@ -34,7 +41,7 @@ export function App({ deps }: { deps: AppDeps }) {
         socketFactory={deps.webSocketFactory}
         reconnectMs={deps.streamReconnectMs}
       >
-        <AppShell />
+        <RouterProvider router={router} />
       </LiveProvider>
     </ApiProvider>
   );

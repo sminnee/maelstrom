@@ -11,6 +11,7 @@ import {
   tabBody,
   tabStrip,
   worktreeRow,
+  paneItem,
 } from './test/appHelpers';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
@@ -66,9 +67,9 @@ describe('document tabs', () => {
     await user.click(worktreeRow('northwind alpha'));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
     // A panel off screen shows no tab, so no node is marked as its source.
-    await user.click(screen.getByRole('button', { name: 'Tabs' }));
+    await user.click(paneItem('Tabs'));
     expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-focused');
-    await user.click(screen.getByRole('button', { name: 'Tabs' }));
+    await user.click(paneItem('Tabs'));
     expect(document.querySelector('[data-task-id="NORT-7"]')).toHaveAttribute('data-focused');
   });
 

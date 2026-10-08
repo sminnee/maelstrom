@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { chipCount, nodeState, tabStrip } from './test/appHelpers';
+import { chipCount, nodeState, tabStrip, paneItem, isShowing } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
 
 describe('the task list', () => {
   const goToList = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
     return screen.getByTestId('task-list');
   };
   const listRow = (taskId: string) =>
@@ -126,7 +126,7 @@ describe('the task list', () => {
     );
     await waitFor(() => expect(listRow('NORT-3')).toHaveAttribute('data-on-desk', 'true'));
 
-    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    await user.click(paneItem('Desk'));
     expect(document.querySelector('[data-task-id="NORT-3"]')).toBeInTheDocument();
   });
 
@@ -144,7 +144,7 @@ describe('the task list', () => {
     );
     await waitFor(() => expect(listRow('NORT-9.1')).toHaveAttribute('data-on-desk', 'false'));
 
-    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    await user.click(paneItem('Desk'));
     expect(document.querySelector('[data-task-id="NORT-9.1"]')).not.toBeInTheDocument();
   });
 
@@ -163,7 +163,7 @@ describe('the task list', () => {
     // The toggle is the row's control, not a way into the task.
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: 'Desk' }));
+    await user.click(paneItem('Desk'));
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 
@@ -866,7 +866,7 @@ describe('the task list', () => {
     expect(screen.queryByTestId('task-node')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('attention-chip'));
-    expect(screen.getByRole('button', { name: 'Desk' })).toHaveAttribute('aria-pressed', 'true');
+    expect(isShowing('Desk')).toBe(true);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });
