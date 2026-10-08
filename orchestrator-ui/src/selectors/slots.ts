@@ -55,17 +55,13 @@ export function moveAnchor(s: SlotState, pane: Pane): SlotState {
   );
 }
 
-/** The main view the narrow layout draws: it has no panel to show. */
-export function mainView(s: SlotState): View {
-  return s.paneRecency.find((p): p is View => p !== 'tabs') ?? 'canvas';
-}
-
 /**
  * The panes on screen, left first. The wide layout draws both slots, the
- * medium layout the one pane in front, and the narrow layout its main view.
+ * medium layout the one pane in front, and the narrow layout the location's
+ * view: it has no panel to show.
  */
-export function showing(s: SlotState, mode: LayoutMode): Pane[] {
-  if (mode === 'narrow') return [mainView(s)];
+export function showing(s: SlotState, mode: LayoutMode, view: View): Pane[] {
+  if (mode === 'narrow') return [view];
   if (mode === 'medium') return s.paneRecency.slice(0, 1);
   return SIDES.map((side) => s.slots[side]).filter((p): p is Pane => p !== null);
 }

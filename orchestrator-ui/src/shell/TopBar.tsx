@@ -1,7 +1,9 @@
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
-import type { Pane, Side } from '../store/uiSlice';
+import type { Pane, Side, View } from '../store/uiSlice';
+import { Link } from 'react-router';
+import { useGo, useHrefFor } from '../nav/useNav';
 import { AgentsChip } from './AgentsChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
@@ -162,10 +164,6 @@ function PaneMenu({ side }: { side: Side | null }) {
   const mode = useLayoutMode();
   const showing = useShowing();
   const anchors = useAppStore((s) => s.ui.anchors);
-  const showPane = useAppStore((s) => s.showPane);
-  const togglePane = useAppStore((s) => s.togglePane);
-  const moveAnchor = useAppStore((s) => s.moveAnchor);
-  const clearStack = useAppStore((s) => s.clearStack);
   const panes = PANES.filter(({ pane }) =>
     // The narrow layout has no panel.
     side === null ? mode !== 'narrow' || pane !== 'tabs' : anchors[pane] === side,
@@ -178,29 +176,94 @@ function PaneMenu({ side }: { side: Side | null }) {
       role="group"
       aria-label={side === null ? 'Views' : side === 'left' ? 'Left slot' : 'Right slot'}
     >
-      {panes.map(({ pane, label }) => (
-        <button
-          key={pane}
-          type="button"
-          className={styles.view}
-          aria-pressed={showing.includes(pane)}
-          title={
-            side === null ? undefined : `Shift-click to move ${label} to the ${otherSide(side)}`
-          }
-          onClick={(e) => {
-            // One slot cannot close, and has no other side to move to.
-            if (side === null) showPane(pane);
-            else if (e.shiftKey) moveAnchor(pane);
-            else togglePane(pane);
-            // The stack sits over the view it was pushed from, so a switch
-            // that left it standing would draw the old screen under a new view.
-            clearStack();
-          }}
-        >
-          {label}
-        </button>
-      ))}
+      {panes.map(({ pane, label }) => {
+        const props = {
+          label,
+          side,
+          on: showing.includes(pane),
+          title:
+            side === null ? undefined : `Shift-click to move ${label} to the ${otherSide(side)}`,
+        };
+        return pane === 'tabs' ? (
+          <TabsItem key={pane} {...props} />
+        ) : (
+          <ViewItem key={pane} view={pane} {...props} />
+        );
+      })}
     </div>
+  );
+}
+
+interface ItemProps {
+  label: string;
+  side: Side | null;
+  /** Whether the item's pane is on screen. */
+  on: boolean;
+  title: string | undefined;
+}
+
+/**
+ * A main view's item: a link to the view, so it opens in a new window too. On the wide
+ * layout a click on a showing view closes its slot and leaves the location; a shift-click
+ * moves the view to the other side and makes it the location's view.
+ */
+function ViewItem({ view, label, side, on, title }: ItemProps & { view: View }) {
+  const narrow = useLayoutMode() === 'narrow';
+  const showPane = useAppStore((s) => s.showPane);
+  const togglePane = useAppStore((s) => s.togglePane);
+  const moveAnchor = useAppStore((s) => s.moveAnchor);
+  const go = useGo();
+  // Narrow: the card and the panel tab draw over the view, so a switch that kept them
+  // would draw the old screen over the new view.
+  const to = useHrefFor(narrow ? { view, card: null, panel: null } : { view });
+  return (
+    <Link
+      to={to}
+      className={styles.view}
+      aria-current={on ? 'true' : undefined}
+      title={title}
+      onClick={(e) => {
+        // A shift-click with no side to move to opens a new window, as on any link.
+        if (e.metaKey || e.ctrlKey || e.altKey || e.button !== 0) return;
+        if (side === null && e.shiftKey) return;
+        if (side !== null && e.shiftKey) {
+          e.preventDefault();
+          moveAnchor(view);
+          go({ view });
+        } else if (side !== null && on) {
+          e.preventDefault();
+          togglePane(view);
+        } else {
+          // The location may name the view already, while another pane is in front.
+          showPane(view);
+        }
+      }}
+    >
+      {label}
+    </Link>
+  );
+}
+
+/** The panel's item. The panel is not a location: it shows the tab the location names. */
+function TabsItem({ label, side, on, title }: ItemProps) {
+  const showPane = useAppStore((s) => s.showPane);
+  const togglePane = useAppStore((s) => s.togglePane);
+  const moveAnchor = useAppStore((s) => s.moveAnchor);
+  return (
+    <button
+      type="button"
+      className={styles.view}
+      aria-pressed={on}
+      title={title}
+      onClick={(e) => {
+        // One slot cannot close, and has no other side to move to.
+        if (side === null) showPane('tabs');
+        else if (e.shiftKey) moveAnchor('tabs');
+        else togglePane('tabs');
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

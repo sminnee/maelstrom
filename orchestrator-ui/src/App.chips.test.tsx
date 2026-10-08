@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { endTurn } from './fake/moves';
-import { chipCount, expanded, nodeState, unansweredCount } from './test/appHelpers';
+import { chipCount, expanded, nodeState, unansweredCount, paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import agentsChipStyles from './shell/AgentsChip.module.css';
 
@@ -120,7 +120,7 @@ describe('the agents chip as a filter', () => {
     await renderApp();
     await user.click(chip());
     await user.click(chip());
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
     expect(screen.queryByRole('button', { name: /agents working/ })).toBeNull();
     // The filter still holds `working`, but the chip neither greys nor names it.
     expect(faint()).toEqual([]);

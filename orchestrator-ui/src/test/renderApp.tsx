@@ -1,7 +1,9 @@
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { StrictMode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import { App } from '../App';
+import { createMemoryRouter } from 'react-router';
+import { App, type AppRouter } from '../App';
+import { routes } from '../nav/routes';
 import { keys } from '../api/keys';
 import { useAppStore } from '../store/store';
 import { fakeDeps } from '../fake/fakeDeps';
@@ -37,6 +39,8 @@ const LIST_KEYS = [
  * With `viewport: 'narrow'` the app draws the narrow layout: the deck list in
  * place of the canvas, and no panel. `'medium'` draws the medium layout. It
  * defaults to `wide`.
+ *
+ * `url` is the URL the app opens on; the returned `router` holds its history.
  */
 export async function renderApp(
   opts: {
@@ -47,8 +51,10 @@ export async function renderApp(
     scenario?: ScenarioName;
     /** In place of the seeded transcripts. `{}` gives every agent an empty one. */
     transcripts?: FakeServerOptions['transcripts'];
+    /** The URL to open on: a path and a search. The desk when left out. */
+    url?: string;
   } = {},
-): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient }> {
+): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient; router: AppRouter }> {
   // Before the render: the layout is read on the first pass, not in an effect.
   setViewportWidth(VIEWPORTS[opts.viewport ?? 'wide']);
   // The store is a module singleton: a test must not inherit the view, the
@@ -60,6 +66,9 @@ export async function renderApp(
     transcripts: opts.transcripts ?? seed.transcripts,
   });
   if (opts.ready === false) server.hold();
+  // A memory router, so a test reads `router.state.location` and moves with `router.navigate`.
+  const router = createMemoryRouter(routes, { initialEntries: [opts.url ?? '/desk'] });
+  deps.router = router;
   const tree = opts.strict ? (
     <StrictMode>
       <App deps={deps} />
@@ -68,13 +77,13 @@ export async function renderApp(
     <App deps={deps} />
   );
   const utils = render(tree);
-  if (opts.ready === false) return { server, queryClient, ...utils };
+  if (opts.ready === false) return { server, queryClient, router, ...utils };
   await waitFor(() => {
     for (const key of LIST_KEYS) {
       if (queryClient.getQueryState(key)?.status !== 'success') throw new Error('not loaded');
     }
   });
-  return { server, queryClient, ...utils };
+  return { server, queryClient, router, ...utils };
 }
 
 /** Resize the window of a mounted app, as a drag of its edge does. */

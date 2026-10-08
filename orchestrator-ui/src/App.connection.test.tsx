@@ -1,3 +1,4 @@
+import { paneItem } from './test/appHelpers';
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
@@ -9,7 +10,7 @@ describe('loading', () => {
     const user = userEvent.setup();
     await renderApp({ ready: false });
     expect(screen.getByTestId('canvas-loading')).toHaveTextContent('Loading the world…');
-    await user.click(screen.getByRole('button', { name: 'Tasks' }));
+    await user.click(paneItem('Tasks'));
     expect(screen.getByTestId('task-list')).toHaveTextContent('Loading…');
     expect(screen.getByTestId('task-list')).not.toHaveTextContent('No task matches');
   });

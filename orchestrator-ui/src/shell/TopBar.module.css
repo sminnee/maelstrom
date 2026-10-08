@@ -47,6 +47,14 @@
   background: var(--bg-control);
 }
 .view {
+  /* A view's item is a link and the panel's a button: one look for both. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: var(--text-control);
+  white-space: nowrap;
+  text-decoration: none;
   min-height: 0;
   padding: 0 var(--u);
   color: var(--fg-muted);
@@ -67,7 +75,8 @@
 .view:hover {
   color: var(--fg);
 }
-.view[aria-pressed='true'] {
+.view[aria-pressed='true'],
+.view[aria-current='true'] {
   color: var(--fg);
   background: var(--bg-control-hover);
 }
@@ -105,7 +114,8 @@
   }
   /* The raised fill does not show on a raised bar, so the view in front takes
      the rule the deck's zone tabs use. */
-  .view[aria-pressed='true'] {
+  .view[aria-pressed='true'],
+  .view[aria-current='true'] {
     background: transparent;
     box-shadow: inset 0 -2px 0 var(--accent);
   }
