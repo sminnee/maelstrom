@@ -1175,6 +1175,13 @@ A link that opens a session, a document, a worktree's changes or its dev env as 
 panel. It carries the open-in-panel icon.
 _Avoid_: Open button
 
+**Location**:
+Where the user is in the orchestrator UI, as its URL says: the main view, the open card, the
+active panel tab, the filters, the deck's zone, and whether the task editor or the new-work form
+is open. A copied URL opens the same location, and Back returns to the one before. The open tabs,
+the slots and the panel width are not part of it; the store keeps them.
+_Avoid_: Route, page, nav state
+
 **Offer**:
 The list a combobox shows under its field: the options that match what is typed, which the user
 may take or ignore. It narrows as the user types and closes when nothing matches, because the

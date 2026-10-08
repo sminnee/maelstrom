@@ -151,6 +151,8 @@ opens in a tab too. A shift-click on a tab shows it beside the tab you have open
 desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project and branch filters apply
 to both views. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
+The URL names the view, the open card, the active tab and the filters. Back and Forward move
+through the app, a refresh keeps the screen, and a copied link opens it in another window.
 The top bar's "New" control starts new work without leaving the page: a task, a free agent in
 a branch's worktree, or an investigation. An investigation is a free agent on the main branch
 that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start name an empty title or branch from the prose you type. They

@@ -16,7 +16,7 @@ unit that needs orders shows it on the canvas itself.
 |---|---|---|---|
 | Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
-| State | `store/`, `selectors/` | The query cache holds the fetched world; one zustand store holds UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
+| State | `store/`, `selectors/`, `nav/` | The query cache holds the fetched world; the URL holds the **Location**; one zustand store holds the rest of the UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
 | UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, `fake/` for the fake server and its scenarios, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
@@ -265,8 +265,8 @@ Save patches the changed fields, and a changed status goes out through the same 
 own picker uses rather than the batched PATCH, since status is folder-derived. The header also
 carries Prev/Next, which step to the adjacent task in the list's own filtered, sorted order,
 disabled at either end. Both go through the same unsaved-changes guard as the ×, Escape and the
-backdrop. The editor renders from `AppShell`, above both views, and its open task lives in the
-store, so the canvas can open the same editor later.
+backdrop. The editor renders from `AppShell`, above both views, and its open task is the location's
+`?edit=`, so the canvas card opens the same editor.
 
 Each row also has a checkbox, and the header has one that ticks every listed row. When a row is
 ticked, a bar above the table offers three bulk actions: set a status, On desk, and Off
@@ -675,9 +675,9 @@ stands for. A detached worktree has no branch to start on, so the button is disa
 why.
 
 `canvas/CanvasCard.tsx` is the shell both cards share: the viewport portal, the grow animation,
-the pan into view and the Esc handler. The canvas shows one card at a time. `ui.expandedNodeId`
-and `ui.expandedWorktreeId` clear each other, and Esc or a click on the pane clears both. A
-card whose node or box no longer draws collapses, once the world has loaded.
+the pan into view and the Esc handler. The canvas shows one card at a time: the location's card,
+`/desk/task/<id>` or `/desk/worktree/<id>`. Esc or a click on the pane moves to `/desk`. A card
+whose node or box no longer draws collapses with a replace, once the world has loaded.
 
 ### The Dev env tab
 
@@ -1185,9 +1185,12 @@ an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` hold
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-The wide layout calls `togglePane` on a click and `moveAnchor` on a shift-click. The medium layout
-has one slot that cannot close, so a click calls `showPane`. The medium layout draws the front of
-`paneRecency`, and the narrow layout draws its first main view.
+Desk, Tasks and Worktrees are links to their view's path; Tabs is a button, because the panel is
+not a location. A click on a view that is not showing moves to its path, and the shell calls
+`showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
+location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,
+so a click always shows the item. The medium layout draws the front of `paneRecency`, and the
+narrow layout draws the location's view.
 
 `SlotShell` in `shell/AppShell.tsx` draws the wide and the medium layout. It places each item with
 the CSS `order` property, not by JSX position, so an item that changes side moves and does not
@@ -1213,10 +1216,10 @@ derives it from `deriveGraph`, so the list and the canvas draw the same nodes in
 `deck/DeckRow.tsx` carries the canvas node's `data-state` and `data-phase`, so the state
 vocabulary is one.
 
-**One screen at a time.** `ui.mobileStack` holds what is pushed over the deck list; empty is the
-deck itself. A row pushes a node's detail, and the detail's links push a session or a document.
-Back pops one level. `selectors/navStack.ts` holds the transitions. `shell/PanelLink.tsx` is the
-only control that opens a session or a document, so branching it there carries every link at once.
+**One screen at a time.** The location gives the stack: its panel tab over its card's detail over
+its view. A row links to a node's card, and the detail's links add a session or a document as the
+panel tab. Back goes back one location; see "The URL". `shell/PanelLink.tsx` is the only control
+that opens a session or a document, so one href rule carries every link on every layout.
 
 **The screen strip and the side sheet.** A pushed screen has one row of chrome. `MobileShell` owns
 the open state and two DOM targets: the strip's action slot and the sheet's body. A screen renders
@@ -1236,6 +1239,69 @@ Three things differ below the 840px break beyond layout. The document tab draws 
 bottom-anchored at `--vvh`, as `#root` is, so a soft keyboard shrinks the box rather than covering
 the focused field. And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
+
+## The URL
+
+The URL holds the **Location**: where the user is. The store holds what is laid out around it.
+So Back and Forward move through the app, a copied link opens the same screen, and a refresh keeps
+it. The app runs on React Router; `nav/` holds the code.
+
+**The scheme.** The path holds the main view and the open card. The search holds the panel tab,
+the filters and the two dialogs. One URL works on every layout: the narrow layout draws the card
+as its detail screen and the panel tab as a screen over it.
+
+| URL | What it opens |
+| --- | --- |
+| `/desk`, `/tasks`, `/worktrees` | The main view. `/` and any unknown path redirect to `/desk` |
+| `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
+| `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
+| `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
+| `?project= &branch= &agents= &status= &q= &closed=1` | The filters. `status=all` is every status |
+| `?zone=done` | The narrow deck's zone |
+| `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
+
+`nav/location.ts` parses a URL into a `Loc` and builds one back, from one table, and leaves every
+default out. `nav/location.test.ts` round-trips each row above.
+
+**What lives where.**
+
+| Held by | What |
+| --- | --- |
+| The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form |
+| The store, in `sessionStorage` | The open tabs, their recency and the split tabs |
+| The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed |
+
+The open tabs survive a refresh but not a copied link: `sessionStorage` is per window, so a link
+opens only its own tab. `resetToPageLoad` in `store/store.ts` resets the store as a page load
+does, keeping those tabs. `nav/useLocSync.ts` keeps the store in step with the location: a move to
+a view shows its pane, and a move to a tab opens it in the set and shows the panel. Viewport
+moves — fit, pan, zoom — never touch the URL.
+
+**Push or replace.** A move pushes a history entry, so Back undoes it. Four moves replace the
+entry instead:
+
+- A search keystroke, so Back leaves the search and not one letter.
+- Prev and Next in the editor, so Back closes the editor.
+- Closing the active tab, and collapsing a card whose node a filter hid: Back must not return to
+  what is gone.
+- A redirect, such as `/` to `/desk`.
+
+**Reading the location.** `useLoc` reads it for rendering. A move goes through `useGo`, which reads
+the router's location when it runs, not the one the component rendered with. Two moves built from
+one rendered copy would undo each other: a tab close followed by an effect that collapses a card.
+
+**Back on a phone.** The narrow layout's Back button calls `useBack`. An entry the app pushed
+carries `IN_APP` as its history state, and from there Back is the browser's Back. The first entry
+of a copied link has nothing of the app behind it, so Back replaces it with its parent: the panel
+tab goes first, then the card.
+
+**Tests and stories.** `renderApp({ url })` mounts the app on a memory router and returns it, so a
+test reads `router.state.location` and calls `router.navigate(-1)`. A move is a router navigation,
+so a test waits for the screen to follow it. A story wraps a router-aware component in
+`nav/MemoryNav.tsx`: Ladle owns the page URL.
+
+**Serving `dist/`.** A server for the built app must answer every app path with `index.html`.
+Vite's dev server does this already.
 
 ## The jig
 
@@ -1326,10 +1392,12 @@ sets `hmrHost` to the dev host. See
 [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device).
 
 **The fake mode needs no server.** The `web-fake` service runs the same dev server with
-`FAKE_MODE=1`. It answers `/` with `preview.html`, which mounts the production `App` on the fake
-server through `AppDeps`. `src/fake/main.tsx` is the entry. The index lists the scenarios of
-`src/fake/scenarios.ts`, and `?scenario=<name>` opens one. `src/fake/deepLink.ts` lists the
-parameters that open a screen. `pnpm build` reads `index.html` only, so the fake does not ship.
+`FAKE_MODE=1`. It answers every page with `preview.html`, which mounts the production `App` on the
+fake server through `AppDeps`. `src/fake/main.tsx` is the entry. The index lists the
+scenarios of `src/fake/scenarios.ts`. `/scenario/<name>` is the router's base, so
+`/scenario/detail/desk/task/NORT-12` opens a scenario on a card and a refresh keeps both. Each
+scenario's `screen` is the URL it exists to show. `pnpm build` reads `index.html` only, so the
+fake does not ship.
 
 **The icons are static files in `public/`.** Vite serves them at `/` and copies them into the
 build. `logo.svg` is the one source. The PNG files and `favicon.ico` are committed, made from it
