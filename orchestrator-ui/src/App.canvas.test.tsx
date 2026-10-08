@@ -463,6 +463,23 @@ describe('change notices', () => {
 });
 
 describe('grouping and filters', () => {
+  it('puts a filter in the URL, and Back takes it off again', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    await user.selectOptions(screen.getByLabelText('Project'), 'northwind');
+    await user.selectOptions(screen.getByLabelText('Agent status'), 'idle');
+    expect(router.state.location.search).toBe('?project=northwind&agents=idle');
+    await act(() => router.navigate(-1));
+    expect(screen.getByLabelText('Agent status')).toHaveValue('all');
+    expect(screen.getByLabelText('Project')).toHaveValue('northwind');
+  });
+
+  it('opens on the filters the URL names', async () => {
+    await renderApp({ url: '/desk?project=maelstrom&branch=maelstrom/feat/orchestrator-ui' });
+    expect(screen.getByLabelText('Project')).toHaveValue('maelstrom');
+    expect(screen.getByLabelText('Branch')).toHaveValue('maelstrom/feat/orchestrator-ui');
+  });
+
   it('uses one Project and Branch filter in Desk and Tasks', async () => {
     const user = userEvent.setup();
     await renderApp();

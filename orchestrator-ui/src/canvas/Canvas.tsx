@@ -64,7 +64,7 @@ export function Canvas() {
   // A refused rewire has no wire to draw on, so the refusal says so over the
   // board. Local state and `role="alert"`, as `StatusPicker` does it.
   const [rewireError, setRewireError] = useState<string | null>(null);
-  const filters = useAppStore((s) => s.ui.filters);
+  const { filters } = useLoc();
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useLoc().panel?.key ?? null;
   const { expandedNodeId, expandedWorktreeId, open, collapse } = useCard();

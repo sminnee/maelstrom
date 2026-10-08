@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from 'react';
-import type { AgentStatusFilter } from '../selectors/filters';
+import type { AgentStatusFilter, Filters } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { filterOptions } from '../selectors/filterOptions';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES } from '../protocol/entities';
 import { MultiSelect } from '../ui/MultiSelect';
 import { useShowing } from '../layout/useShowing';
-import { useAppStore } from '../store/store';
+import { useGo, useLoc } from '../nav/useNav';
 import type { View } from '../store/uiSlice';
 import styles from './FilterBar.module.css';
 
@@ -19,14 +19,11 @@ const AGENT_STATUS_OPTIONS = Object.entries(AGENT_STATUS_LABELS).map(([value, la
 
 /** The shared filters, plus the controls of each main view on screen. */
 export function FilterBar() {
-  const { world } = useWorld();
+  const { world, status } = useWorld();
   const showing = useShowing();
-  const filters = useAppStore((s) => s.ui.filters);
-  const listFilters = useAppStore((s) => s.ui.listFilters);
-  const worktreeFilters = useAppStore((s) => s.ui.worktreeFilters);
-  const setFilters = useAppStore((s) => s.setFilters);
-  const setListFilters = useAppStore((s) => s.setListFilters);
-  const setWorktreeFilters = useAppStore((s) => s.setWorktreeFilters);
+  const { filters, listFilters, worktreeFilters } = useLoc();
+  const go = useGo();
+  const setFilters = (patch: Partial<Filters>) => go({ filters: patch });
   const views = useMemo(() => showing.filter((p): p is View => p !== 'tabs'), [showing]);
   const { project, branch } = filters;
   // The canvas options run the graph over every task, so build them only on a change.
@@ -34,12 +31,17 @@ export function FilterBar() {
     () => filterOptions(world, { project, branch }, views, worktreeFilters),
     [world, project, branch, views, worktreeFilters],
   );
-  const stale = filters.branch !== null && !options.branches.some((b) => b.key === filters.branch);
+  // Not while the world loads: a branch from a copied link names work that has not arrived.
+  const stale =
+    status === 'ready' &&
+    filters.branch !== null &&
+    !options.branches.some((b) => b.key === filters.branch);
   useEffect(() => {
     // A branch that left the world would filter to an empty canvas while the
     // select shows "all"; drop it so the control says what the canvas does.
-    if (stale) setFilters({ branch: null });
-  }, [stale, setFilters]);
+    // A replace: the branch was never the user's pick to go back to.
+    if (stale) go({ filters: { branch: null } }, { replace: true });
+  }, [stale, go]);
 
   return (
     <div className={styles.bar}>
@@ -81,7 +83,7 @@ export function FilterBar() {
           <input
             type="checkbox"
             checked={worktreeFilters.showClosed}
-            onChange={() => setWorktreeFilters({ showClosed: !worktreeFilters.showClosed })}
+            onChange={() => go({ worktreeFilters: { showClosed: !worktreeFilters.showClosed } })}
           />
           <span>show closed</span>
         </label>
@@ -108,7 +110,7 @@ export function FilterBar() {
             label="Status"
             options={TASK_STATUS_OPTIONS}
             value={listFilters.statuses}
-            onChange={(statuses) => setListFilters({ statuses })}
+            onChange={(statuses) => go({ listFilters: { statuses } })}
             // The list reads an empty pick as no filter.
             emptyLabel="all"
           />
@@ -117,7 +119,8 @@ export function FilterBar() {
             <input
               type="search"
               value={listFilters.text}
-              onChange={(e) => setListFilters({ text: e.target.value })}
+              // One entry for a search, not one per key: Back leaves the search, not a letter.
+              onChange={(e) => go({ listFilters: { text: e.target.value } }, { replace: true })}
             />
           </label>
         </>

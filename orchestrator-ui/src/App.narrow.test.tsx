@@ -51,6 +51,14 @@ describe('the narrow layout', () => {
     expect(deckRows()).toContain('NORT-9.1');
   });
 
+  it('opens on the zone the URL names, and a tab moves the location', async () => {
+    const { router } = await renderApp({ viewport: 'narrow', url: '/desk?zone=done' });
+    expect(zoneTab(/^Done/)).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(zoneTab(/^Running/));
+    expect(router.state.location.search).toBe('');
+    expect(router.state.historyAction).toBe('PUSH');
+  });
+
   it('names how much each zone holds, so a tab says what is behind it', async () => {
     await renderApp({ viewport: 'narrow' });
     // The seed puts six nodes in the running zone and none in done, which the

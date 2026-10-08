@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useWorld } from '../api/useWorld';
 import type { Deck } from '../selectors/deck';
 import { deriveDeck } from '../selectors/deck';
-import { useAppStore } from '../store/store';
+import { useLoc } from '../nav/useNav';
 
 /**
  * The deck, derived once per world change rather than once per render.
@@ -15,7 +15,7 @@ export function useDeck(): Deck & {
   byId: Map<string, Deck['zones'][keyof Deck['zones']][number]>;
 } {
   const { world } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
+  const { filters } = useLoc();
   return useMemo(() => {
     const deck = deriveDeck(world, { filters });
     const byId = new Map(

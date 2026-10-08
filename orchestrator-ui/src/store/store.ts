@@ -3,9 +3,6 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
 import type { AgentId, TaskId } from '../protocol/ids';
-import type { Filters } from '../selectors/filters';
-import type { ListFilters } from '../selectors/taskList';
-import type { WorktreeFilters } from '../selectors/worktrees';
 import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
@@ -19,7 +16,6 @@ import {
   showPane as showPaneIn,
   togglePane as togglePaneIn,
 } from '../selectors/slots';
-import type { Zone } from '../protocol/progress';
 
 export interface AppStore {
   ui: UiState;
@@ -37,9 +33,6 @@ export interface AppStore {
   togglePane(pane: Pane): void;
   /** Move a pane's anchor to the other side. Wide layout only. */
   moveAnchor(pane: Pane): void;
-  setFilters(patch: Partial<Filters>): void;
-  setListFilters(patch: Partial<ListFilters>): void;
-  setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
   /**
    * Open a tab, or touch it as the active one, and show the panel. A split tab opened again
    * leaves the split and fills the body. The location names the active tab; this keeps the
@@ -72,8 +65,6 @@ export interface AppStore {
   /** Drop the seed once the form has taken it, so a remount does not lay it again. */
   clearNewWorkSeed(): void;
   setPanelWidth(width: number): void;
-  /** Which zone the deck list shows. Narrow layout only. */
-  setDeckZone(zone: Zone): void;
 }
 
 /** The store's tabs, with the active one the location names. */
@@ -122,12 +113,6 @@ export const useAppStore = create<AppStore>()(
       showPane: (pane) => set((s) => ({ ui: { ...s.ui, ...showPaneIn(s.ui, pane) } })),
       togglePane: (pane) => set((s) => ({ ui: { ...s.ui, ...togglePaneIn(s.ui, pane) } })),
       moveAnchor: (pane) => set((s) => ({ ui: { ...s.ui, ...moveAnchorIn(s.ui, pane) } })),
-      setFilters: (patch) =>
-        set((s) => ({ ui: { ...s.ui, filters: { ...s.ui.filters, ...patch } } })),
-      setListFilters: (patch) =>
-        set((s) => ({ ui: { ...s.ui, listFilters: { ...s.ui.listFilters, ...patch } } })),
-      setWorktreeFilters: (patch) =>
-        set((s) => ({ ui: { ...s.ui, worktreeFilters: { ...s.ui.worktreeFilters, ...patch } } })),
       // Opening a tab always shows the panel: a link must show what it opened.
       openTab: (tab) =>
         set((s) => {
@@ -150,7 +135,6 @@ export const useAppStore = create<AppStore>()(
       clearNewWorkSeed: () =>
         set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
       setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
-      setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
     }),
     {
       name: TABS_STORAGE_KEY,

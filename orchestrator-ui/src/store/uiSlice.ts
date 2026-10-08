@@ -1,11 +1,4 @@
-import type { Filters } from '../selectors/filters';
-import { noFilters } from '../selectors/filters';
-import type { ListFilters } from '../selectors/taskList';
-import { noListFilters } from '../selectors/taskList';
-import type { WorktreeFilters } from '../selectors/worktrees';
-import { noWorktreeFilters } from '../selectors/worktrees';
 import type { AgentId, DocumentId, TaskId, WorktreeId } from '../protocol/ids';
-import type { Zone } from '../protocol/progress';
 
 /**
  * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
@@ -47,11 +40,6 @@ export interface UiState {
   slots: Record<Side, Pane | null>;
   /** Panes, most recently selected first. The front one is always showing. */
   paneRecency: Pane[];
-  filters: Filters;
-  /** The task list's own filters. */
-  listFilters: ListFilters;
-  /** The worktree table's own filters. */
-  worktreeFilters: WorktreeFilters;
   /** The open tabs. The active one is the location's `panel`: see `nav/location.ts`. */
   tabs: PanelTab[];
   /** Tab keys, most recently activated first. */
@@ -80,11 +68,6 @@ export interface UiState {
    * persisted across a reload.
    */
   panelWidth: number;
-  /**
-   * Which zone the deck list is showing. Narrow layout only: the canvas draws
-   * every zone at once, so it has no such choice to make.
-   */
-  deckZone: Zone;
 }
 
 /**
@@ -104,9 +87,6 @@ export function initialUiState(): UiState {
     slots: { left: 'canvas', right: 'tabs' },
     // Every pane, so the left slot can reopen on one that was never selected.
     paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
-    filters: noFilters(),
-    listFilters: noListFilters(),
-    worktreeFilters: noWorktreeFilters(),
     tabs: [],
     tabRecency: [],
     splitTabs: {},
@@ -114,7 +94,5 @@ export function initialUiState(): UiState {
     newWorkOpen: false,
     newWorkSeed: null,
     panelWidth: openingWidth(),
-    // Running is where the work the user can act on is.
-    deckZone: 'running',
   };
 }

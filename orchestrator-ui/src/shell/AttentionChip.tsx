@@ -32,7 +32,7 @@ export function AttentionChip({ hideWhenClear = false }: { hideWhenClear?: boole
  */
 function useAttention() {
   const { world } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
+  const { filters } = useLoc();
   // Grouping moves a node between lanes and changes neither its state nor
   // whether it draws, so the chip does not follow it.
   const nodes = useMemo(() => deriveGraph(world, { filters }).nodes, [world, filters]);
@@ -48,15 +48,14 @@ function useAttention() {
 function NarrowChip({ hideWhenClear }: { hideWhenClear: boolean }) {
   const { nodes, count, unanswered } = useAttention();
   const { expandedNodeId } = useCard();
-  const setDeckZone = useAppStore((s) => s.setDeckZone);
   const go = useGo();
 
   const onClick = () => {
     const next = nodes.find((n) => n.id === nextAttentionNode(nodes, expandedNodeId));
     if (!next) return;
-    // The deck under the detail is the list that holds the node. An unanswered
-    // node sits in the same zone as an ask.
-    setDeckZone(zoneForState('needs-attention'));
+    // Back from the detail lands on a list that holds the node, so the zone moves on the
+    // entry under it. An unanswered node sits in the same zone as an ask.
+    go({ zone: zoneForState('needs-attention') }, { replace: true });
     // The detail is the top screen: a screen left over it would hide where the chip went.
     go({ card: cardOf(next), panel: null });
   };

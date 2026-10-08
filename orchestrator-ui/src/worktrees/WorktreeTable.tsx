@@ -6,7 +6,7 @@ import type { WorktreeId } from '../protocol/ids';
 import { worktreePr } from '../selectors/cardPr';
 import { listWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
-import { useAppStore } from '../store/store';
+import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -25,8 +25,7 @@ import styles from './WorktreeTable.module.css';
  */
 export function WorktreeTable() {
   const { world, status, errors, retry } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
-  const worktreeFilters = useAppStore((s) => s.ui.worktreeFilters);
+  const { filters, worktreeFilters } = useLoc();
   const refresh = useRefreshWorktrees();
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.

@@ -7,6 +7,7 @@ import type { Task } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { listTasks } from '../selectors/taskList';
 import { useAppStore } from '../store/store';
+import { useLoc } from '../nav/useNav';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
@@ -80,8 +81,7 @@ function TaskForm({ task }: { task: Task }) {
   const opened = useRef(draft);
 
   const { world } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
-  const listFilters = useAppStore((s) => s.ui.listFilters);
+  const { filters, listFilters } = useLoc();
   const { prevId, nextId } = useMemo(() => {
     const rows = listTasks(world, filters, listFilters);
     const index = rows.findIndex((r) => r.task.id === task.id);
