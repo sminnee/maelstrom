@@ -1,26 +1,28 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { createBrowserRouter } from 'react-router';
 import '@fontsource/inter-tight/latin-600.css';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import { trackVisualViewport } from '../layout/visualViewport';
-import { openFromParams } from './deepLink';
+import { routes } from '../nav/routes';
 import { FakeApp } from './FakeApp';
 import { ScenarioIndex } from './ScenarioIndex';
-import { isScenarioName } from './scenarios';
+import { isScenarioName, SCENARIOS, type Scenario } from './scenarios';
 
-/** The fake mode's entry. DESIGN.md, "Seeing a change", lists the URL parameters. */
+/** The fake mode's entry. `/scenario/<name>` is the app's base: see DESIGN.md, "Seeing a change". */
 trackVisualViewport(document.documentElement, window.visualViewport);
 
 const params = new URLSearchParams(window.location.search);
-const scenario = params.get('scenario');
+const scenario = window.location.pathname.match(/^\/scenario\/([^/]+)/)?.[1] ?? null;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {isScenarioName(scenario) ? (
       <FakeApp
         scenario={scenario}
-        open={() => openFromParams(params)}
+        ui={(SCENARIOS[scenario] as Scenario).ui}
+        router={createBrowserRouter(routes, { basename: `/scenario/${scenario}` })}
         hold={params.has('hold')}
         refuse={params.get('refuse') ?? undefined}
       />

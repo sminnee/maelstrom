@@ -8,14 +8,11 @@ import type { WorktreeFilters } from '../selectors/worktrees';
 import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
-  activateTab as activateTabIn,
   closeTabs as closeTabsIn,
   openTab as openTabIn,
-  selectGroup as selectGroupIn,
   toggleSplit as toggleSplitIn,
+  type TabState,
 } from '../selectors/tabs';
-import type { MobileScreen } from '../selectors/navStack';
-import { popScreen, pushScreen } from '../selectors/navStack';
 import {
   moveAnchor as moveAnchorIn,
   showPane as showPaneIn,
@@ -42,19 +39,31 @@ export interface AppStore {
   setFilters(patch: Partial<Filters>): void;
   setListFilters(patch: Partial<ListFilters>): void;
   setWorktreeFilters(patch: Partial<WorktreeFilters>): void;
-  /** Open a tab, or focus it. A split tab opened again leaves the split and fills the body. */
+  /**
+   * Open a tab, or touch it as the active one, and show the panel. A split tab opened again
+   * leaves the split and fills the body. The location names the active tab; this keeps the
+   * open set in step with it.
+   */
   openTab(tab: PanelTab): void;
-  /** Make a tab of the strip active. A click on the split tab does nothing: it is already showing. */
-  activateTab(key: string): void;
-  /** Show a tab in the right half of its group's body, or take it out. `groupOf` as for `closeTabs`. */
-  toggleSplit(key: string, groupOf: (tab: PanelTab) => string): void;
+  /**
+   * Show a tab in the right half of its group's body, or take it out. `groupOf` as for
+   * `closeTabs`. Returns the tab that is active after, which the caller moves the location to.
+   */
+  toggleSplit(
+    key: string,
+    groupOf: (tab: PanelTab) => string,
+    active: string | null,
+  ): string | null;
   /**
    * Close tabs. `groupOf` names each tab's worktree group, which the store
-   * cannot work out: the world lives in the query cache, not here.
+   * cannot work out: the world lives in the query cache, not here. Returns the tab that is
+   * active after, as `toggleSplit` does.
    */
-  closeTabs(keys: string[], groupOf: (tab: PanelTab) => string): void;
-  /** Show a worktree group: activate the most recent of its tabs, past its split tab. */
-  selectGroup(tabKeys: string[]): void;
+  closeTabs(
+    keys: string[],
+    groupOf: (tab: PanelTab) => string,
+    active: string | null,
+  ): string | null;
   /** Open the editor on a task, or close it with `null`. */
   setEditingTask(taskId: TaskId | null): void;
   /** Open or close the new-work form. A `seed` is what it opens on. */
@@ -64,19 +73,29 @@ export interface AppStore {
   setPanelWidth(width: number): void;
   /** Which zone the deck list shows. Narrow layout only. */
   setDeckZone(zone: Zone): void;
-  /** Push a screen over the deck list, or return to it if it is already open. */
-  pushScreen(screen: MobileScreen): void;
-  /** Go back one screen. At the deck list this does nothing. */
-  popScreen(): void;
-  /** Drop every pushed screen and return to the deck list. */
-  clearStack(): void;
 }
+
+/** The store's tabs, with the active one the location names. */
+const tabState = (ui: UiState, activeTabKey: string | null): TabState => ({
+  tabs: ui.tabs,
+  activeTabKey,
+  tabRecency: ui.tabRecency,
+  splitTabs: ui.splitTabs,
+});
+
+/** `ui` with a tab state laid over it. The active tab is the location's, so it stays out. */
+const withTabs = (ui: UiState, { tabs, tabRecency, splitTabs }: TabState): UiState => ({
+  ...ui,
+  tabs,
+  tabRecency,
+  splitTabs,
+});
 
 /**
  * One store for what is not fetched: UI state, the connection state and the
  * open transcripts. The world itself lives in the query cache.
  */
-export const useAppStore = create<AppStore>()((set) => ({
+export const useAppStore = create<AppStore>()((set, get) => ({
   ui: initialUiState(),
   connection: 'connecting',
   transcripts: {},
@@ -102,15 +121,19 @@ export const useAppStore = create<AppStore>()((set) => ({
   // Opening a tab always shows the panel: a link must show what it opened.
   openTab: (tab) =>
     set((s) => {
-      const ui = { ...s.ui, ...openTabIn(s.ui, tab) };
+      const ui = withTabs(s.ui, openTabIn(tabState(s.ui, null), tab));
       return { ui: { ...ui, ...showPaneIn(ui, 'tabs') } };
     }),
-  activateTab: (key) => set((s) => ({ ui: { ...s.ui, ...activateTabIn(s.ui, key) } })),
-  toggleSplit: (key, groupOf) =>
-    set((s) => ({ ui: { ...s.ui, ...toggleSplitIn(s.ui, key, groupOf) } })),
-  closeTabs: (keys, groupOf) =>
-    set((s) => ({ ui: { ...s.ui, ...closeTabsIn(s.ui, keys, groupOf) } })),
-  selectGroup: (tabKeys) => set((s) => ({ ui: { ...s.ui, ...selectGroupIn(s.ui, tabKeys) } })),
+  toggleSplit: (key, groupOf, active) => {
+    const next = toggleSplitIn(tabState(get().ui, active), key, groupOf);
+    set((s) => ({ ui: withTabs(s.ui, next) }));
+    return next.activeTabKey;
+  },
+  closeTabs: (keys, groupOf, active) => {
+    const next = closeTabsIn(tabState(get().ui, active), keys, groupOf);
+    set((s) => ({ ui: withTabs(s.ui, next) }));
+    return next.activeTabKey;
+  },
   setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
   setNewWorkOpen: (newWorkOpen, seed) =>
     set((s) => ({ ui: { ...s.ui, newWorkOpen, newWorkSeed: (newWorkOpen && seed) || null } })),
@@ -118,14 +141,4 @@ export const useAppStore = create<AppStore>()((set) => ({
     set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
   setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
   setDeckZone: (deckZone) => set((s) => ({ ui: { ...s.ui, deckZone } })),
-  pushScreen: (screen) =>
-    set((s) => ({ ui: { ...s.ui, mobileStack: pushScreen(s.ui.mobileStack, screen) } })),
-  popScreen: () =>
-    set((s) =>
-      s.ui.mobileStack.length === 0
-        ? s
-        : { ui: { ...s.ui, mobileStack: popScreen(s.ui.mobileStack) } },
-    ),
-  clearStack: () =>
-    set((s) => (s.ui.mobileStack.length === 0 ? s : { ui: { ...s.ui, mobileStack: [] } })),
 }));

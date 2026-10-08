@@ -109,6 +109,7 @@ describe('the panel sidebar groups tabs by worktree', () => {
     await user.click(within(head).getByRole('menuitem', { name: 'Off desk' }));
     // Its own tab goes, and with it its row; the other worktree's tab stays.
     await waitFor(() => expect(rows()).toEqual(['northwind alpha']));
-    expect(stripKeys()).toEqual(['session:a1f3c9e2']);
+    // The location moves to the tab that takes over once the router has run.
+    await waitFor(() => expect(stripKeys()).toEqual(['session:a1f3c9e2']));
   });
 });

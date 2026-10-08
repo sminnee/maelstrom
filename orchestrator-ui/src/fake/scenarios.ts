@@ -14,19 +14,27 @@ import {
   worldWith,
 } from './fixtures';
 import { seedWorld, T, type Seed } from './seedWorld';
+import { defaultLoc, toHref, withLoc, type LocPatch } from '../nav/location';
+import { changesTab, devEnvTab, sessionTab } from '../selectors/tabs';
+import type { UiState } from '../store/uiSlice';
 
 /**
  * The worlds the fake mode opens on. Each one is a state of the product that a
- * person must be able to look at: `preview.html?scenario=<name>` draws it. See
+ * person must be able to look at: `/scenario/<name>/desk` draws it. See
  * `scenarios.test.tsx`.
  */
 export interface Scenario {
   /** What the scenario shows, for the index page. */
   about: string;
   build: () => Seed;
-  /** The deep link to the screen the scenario exists to show. See `deepLink.ts`. */
+  /** The URL of the screen the scenario exists to show: a path and a search. */
   screen?: string;
+  /** Workspace the URL cannot carry, such as a split tab. */
+  ui?: Partial<UiState>;
 }
+
+/** The URL of the desk with `patch` laid over it. */
+const at = (patch: LocPatch) => toHref(withLoc(defaultLoc(), patch));
 
 const NATO = [
   'alpha',
@@ -676,40 +684,45 @@ export const SCENARIOS = {
   detail: {
     about: 'A finished task with a milestone band, a PR, and a document of each kind.',
     build: detail,
-    screen: `task=${DETAIL_TASK}`,
+    screen: at({ card: { kind: 'task', id: DETAIL_TASK } }),
   },
   changes: {
     about: 'A worktree with dirty files and commits, and a diff of each status.',
     build: changes,
-    screen: 'changes=northwind-delta',
+    screen: at({ panel: changesTab('northwind-delta') }),
   },
   'pr-differs': {
     about: 'A ready PR whose head is not the local branch: Merge waits for a sync.',
     build: prDiffers,
-    screen: 'changes=northwind-delta&task=NORT-12',
+    screen: at({ card: { kind: 'task', id: 'NORT-12' }, panel: changesTab('northwind-delta') }),
   },
   asks: {
     about: 'Each ask: permission, question, plan review, and the three server items.',
     build: asks,
-    screen: `session=${ASK_AGENT}`,
+    screen: at({ panel: sessionTab(ASK_AGENT) }),
   },
   transcript: {
     about: 'A long session with every item type and every tool-call status.',
     build: transcript,
-    screen: 'session=c3e8f1b5',
+    screen: at({ panel: sessionTab('c3e8f1b5') }),
   },
   usage: { about: 'The seed with both usage windows read, one ahead of pace.', build: usage },
   devenv: {
     about: "The seed, with delta's session and its dev env tab side by side.",
     build: seedWorld,
-    screen: 'session=e5b1d8c3&devenv=northwind-delta/web&split',
+    screen: at({ panel: sessionTab('e5b1d8c3') }),
+    ui: {
+      tabs: [sessionTab('e5b1d8c3'), devEnvTab('northwind-delta', 'web')],
+      splitTabs: { 'northwind-delta': devEnvTab('northwind-delta', 'web').key },
+    },
   },
   empty: { about: 'An empty desk, with no worktree.', build: empty },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
 } satisfies Record<string, Scenario>;
 
-/** The deep link of a scenario, or none for one whose first screen is the point. */
-export const screenOf = (name: ScenarioName): string => (SCENARIOS[name] as Scenario).screen ?? '';
+/** The URL a scenario opens on: the desk, for one whose first screen is the point. */
+export const screenOf = (name: ScenarioName): string =>
+  (SCENARIOS[name] as Scenario).screen ?? '/desk';
 
 export type ScenarioName = keyof typeof SCENARIOS;
 

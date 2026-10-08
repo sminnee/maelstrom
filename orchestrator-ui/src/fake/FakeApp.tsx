@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createMemoryRouter } from 'react-router';
-import { App, type AppDeps, type AppRouter } from '../App';
+import { App, type AppDeps } from '../App';
+import type { AppRouter } from '../nav/router';
 import { routes } from '../nav/routes';
 import { useAppStore } from '../store/store';
 import type { UiState } from '../store/uiSlice';

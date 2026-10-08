@@ -1,4 +1,4 @@
-import { act, waitFor } from '@testing-library/react';
+import { waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttentionKind } from '../protocol/attention';
 import type { DocumentKind, DocumentStatus } from '../protocol/documents';
@@ -15,7 +15,6 @@ import { progressOf, type DriftKind, type NodeState } from '../protocol/progress
 import type { ToolCallStatus, TranscriptItem } from '../protocol/transcript';
 import { agentsByTask } from '../selectors/graph';
 import { renderApp } from '../test/renderApp';
-import { openFromParams } from './deepLink';
 import { SCENARIOS, screenOf, type ScenarioName } from './scenarios';
 
 /**
@@ -207,9 +206,12 @@ describe('the scenario catalogue', () => {
     'draws %s and its screen on the %s layout with no error',
     async (name, viewport) => {
       const errors = vi.spyOn(console, 'error');
-      const { container, queryClient } = await renderApp({ scenario: name, viewport });
       // The screen the scenario exists to show: a session, a diff, a detail.
-      act(() => openFromParams(new URLSearchParams(screenOf(name))));
+      const { container, queryClient } = await renderApp({
+        scenario: name,
+        viewport,
+        url: screenOf(name),
+      });
       await waitFor(() => expect(queryClient.isFetching()).toBe(0));
       expect(container).not.toBeEmptyDOMElement();
       expect(errors).not.toHaveBeenCalled();

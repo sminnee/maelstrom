@@ -244,8 +244,21 @@ describe('the view in the URL', () => {
   });
 
   it('moves a path with no screen to the desk', async () => {
-    const { router } = await renderApp({ url: '/' });
+    const { router } = await renderApp({ url: '/?panel=session/d9a4c7f1' });
     expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.search).toBe('?panel=session/d9a4c7f1');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(screen.getByTestId('canvas')).toBeInTheDocument();
+  });
+
+  it('brings the view back to the front on the medium layout when Back leaves the panel', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ viewport: 'medium' });
+    clickNode('NORT-9');
+    await user.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Session' }));
+    expect(isShowing('Tabs')).toBe(true);
+    await act(() => router.navigate(-1));
+    expect(isShowing('Desk')).toBe(true);
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
   });
 

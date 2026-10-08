@@ -8,6 +8,7 @@ import { SessionTab } from '../session/SessionTab';
 import { PANEL_BODY_ID, PANEL_GROUP_ID, PanelTabs } from './PanelTabs';
 import { PanelSidebar } from './PanelSidebar';
 import { rowId, usePanelGroups } from './usePanelGroups';
+import { usePanelNav } from './usePanelNav';
 import { WorktreeBar } from './WorktreeBar';
 import styles from './Panel.module.css';
 
@@ -26,7 +27,7 @@ export function Panel({
 }) {
   const tabs = useAppStore((s) => s.ui.tabs);
   const { groups, activeGroup, close } = usePanelGroups();
-  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
+  const { activeTabKey } = usePanelNav();
   const splitTabs = useAppStore((s) => s.ui.splitTabs);
   const active = tabs.find((t) => t.key === activeTabKey) ?? null;
   const splitKey = activeGroup ? splitTabs[activeGroup.key] : undefined;

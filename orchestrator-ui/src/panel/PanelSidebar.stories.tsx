@@ -2,11 +2,12 @@ import type { Story } from '@ladle/react';
 import { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
+import { MemoryNav } from '../nav/MemoryNav';
 import { useAppStore } from '../store/store';
 import { createFakeServer } from '../fake/fakeServer';
 import { PanelSidebar } from './PanelSidebar';
 import { PanelTabs } from './PanelTabs';
-import { sidebar, sidebarWorld } from './panelTabs.fixture';
+import { sidebar, sidebarWorld, urlOf } from './panelTabs.fixture';
 import { WorktreeBar } from './WorktreeBar';
 import { usePanelGroups } from './usePanelGroups';
 
@@ -55,12 +56,14 @@ function Frame() {
 export const TwoProjects: Story = () => {
   useState(() => {
     useAppStore.setState((s) => ({
-      ui: { ...s.ui, tabs: sidebar.tabs, activeTabKey: sidebar.activeTabKey, tabRecency: [] },
+      ui: { ...s.ui, tabs: sidebar.tabs, tabRecency: [] },
     }));
   });
   return (
     <ApiProvider api={api} queryClient={queryClient}>
-      <Frame />
+      <MemoryNav url={urlOf(sidebar)}>
+        <Frame />
+      </MemoryNav>
     </ApiProvider>
   );
 };

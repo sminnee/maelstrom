@@ -27,16 +27,20 @@ const https =
 // Dev only. A built page carries no address — the orchestrator would serve it
 // same-origin — so `eventsUrl` falls back to a relative URL there.
 
-// The fake mode: `web-fake` sets FAKE_MODE, and `/` serves `preview.html`.
-// See docs/dev/orchestrator-ui.md.
+// The fake mode: `web-fake` sets FAKE_MODE, and every page serves `preview.html`.
+// A page is a request that accepts HTML: an app URL can end in `.1`, so the
+// path alone cannot tell a page from an asset. See docs/dev/orchestrator-ui.md.
 const fakeMode = process.env.FAKE_MODE === '1';
 const serveFake: Plugin = {
   name: 'mael-serve-fake',
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      if (req.url === '/' || req.url?.startsWith('/?')) {
-        req.url = `/preview.html${req.url.slice(1)}`;
-      }
+      const url = req.url ?? '/';
+      const page =
+        req.headers.accept?.includes('text/html') &&
+        !url.startsWith('/api') &&
+        !url.startsWith('/preview.html');
+      if (page) req.url = `/preview.html${url.includes('?') ? url.slice(url.indexOf('?')) : ''}`;
       next();
     });
   },

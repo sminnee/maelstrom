@@ -8,7 +8,7 @@ import { showsProject } from '../selectors/filters';
 import { NewWork } from '../newwork/NewWork';
 import { useDeck } from '../deck/useDeck';
 import { nodeTitle } from '../selectors/graph';
-import type { MobileScreen } from '../selectors/navStack';
+import type { PanelTab } from '../store/uiSlice';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
@@ -26,27 +26,24 @@ import styles from './MobileShell.module.css';
 /**
  * The narrow layout: one screen at a time.
  *
- * There is no canvas and no panel. The deck list is the ground, and a node's
- * detail, a session, a document and a worktree's changes are pushed over it. Back pops one screen.
- * `mobileStack` holds what is pushed; empty is the deck itself.
+ * There is no canvas and no panel. The view is the ground; over it the location's card draws
+ * as a node's detail, and over that its panel tab as a session, a document or a worktree's
+ * changes. Back goes back a location, which pops the top screen.
  */
 export function MobileShell() {
-  const { view } = useLoc();
-  const stack = useAppStore((s) => s.ui.mobileStack);
+  const { view, panel } = useLoc();
   const { expandedNodeId } = useCard();
-  const back = useBack();
+  const onBack = useBack();
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
   const { status } = useWorld();
-  const popScreen = useAppStore((s) => s.popScreen);
-  // The card's detail is the ground of the stack. A worktree's card has no narrow screen.
+  // A worktree's card has no narrow screen, nor has a dev env tab.
   const detail = useMemo(
     (): MobileScreen | undefined =>
       expandedNodeId ? { kind: 'detail', nodeId: expandedNodeId } : undefined,
     [expandedNodeId],
   );
-  const top = stack[stack.length - 1] ?? detail;
-  const onBack = stack.length > 0 ? popScreen : back;
+  const top = panel && panel.kind !== 'devenv' ? panel : detail;
   const title = useScreenTitle(top);
   const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
   return (
@@ -90,6 +87,9 @@ export function MobileShell() {
     </ScreenChromeContext.Provider>
   );
 }
+
+/** One screen over the narrow layout's view: a node's detail, or a panel tab it has a screen for. */
+type MobileScreen = { kind: 'detail'; nodeId: string } | Exclude<PanelTab, { kind: 'devenv' }>;
 
 /**
  * The chrome state of the pushed screen `top`, or `null` on the deck, and the

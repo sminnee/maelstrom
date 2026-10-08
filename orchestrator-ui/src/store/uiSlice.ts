@@ -6,7 +6,6 @@ import type { WorktreeFilters } from '../selectors/worktrees';
 import { noWorktreeFilters } from '../selectors/worktrees';
 import type { AgentId, DocumentId, TaskId, WorktreeId } from '../protocol/ids';
 import type { Zone } from '../protocol/progress';
-import type { MobileScreen } from '../selectors/navStack';
 
 /**
  * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
@@ -53,8 +52,8 @@ export interface UiState {
   listFilters: ListFilters;
   /** The worktree table's own filters. */
   worktreeFilters: WorktreeFilters;
+  /** The open tabs. The active one is the location's `panel`: see `nav/location.ts`. */
   tabs: PanelTab[];
-  activeTabKey: string | null;
   /** Tab keys, most recently activated first. */
   tabRecency: string[];
   /**
@@ -86,11 +85,6 @@ export interface UiState {
    * every zone at once, so it has no such choice to make.
    */
   deckZone: Zone;
-  /**
-   * What the narrow layout has pushed over the deck list, deepest last. Empty
-   * is the deck itself.
-   */
-  mobileStack: MobileScreen[];
 }
 
 /**
@@ -114,7 +108,6 @@ export function initialUiState(): UiState {
     listFilters: noListFilters(),
     worktreeFilters: noWorktreeFilters(),
     tabs: [],
-    activeTabKey: null,
     tabRecency: [],
     splitTabs: {},
     editingTaskId: null,
@@ -123,6 +116,5 @@ export function initialUiState(): UiState {
     panelWidth: openingWidth(),
     // Running is where the work the user can act on is.
     deckZone: 'running',
-    mobileStack: [],
   };
 }

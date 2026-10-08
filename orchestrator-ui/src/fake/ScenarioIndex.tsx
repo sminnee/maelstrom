@@ -8,14 +8,14 @@ export function ScenarioIndex() {
       <ul style={{ padding: 0, listStyle: 'none' }}>
         {Object.entries(SCENARIOS).map(([name, { about }]) => (
           <li key={name} style={{ marginBottom: 'var(--u-2)' }}>
-            <a href={`?scenario=${name}&${screenOf(name as ScenarioName)}`}>{name}</a>
+            <a href={`/scenario/${name}${screenOf(name as ScenarioName)}`}>{name}</a>
             <div style={{ color: 'var(--fg-muted)' }}>{about}</div>
           </li>
         ))}
       </ul>
       <p style={{ color: 'var(--fg-muted)' }}>
-        Add <code>&amp;hold=1</code> for the loading state, or <code>&amp;refuse=/api/tasks</code>{' '}
-        for an error state.
+        Add <code>?hold=1</code> for the loading state, or <code>?refuse=/api/tasks</code> for an
+        error state.
       </p>
     </main>
   );

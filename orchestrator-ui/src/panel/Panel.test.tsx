@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { tabStrip, paneItem, isShowing } from '../test/appHelpers';
-import { renderApp } from '../test/renderApp';
+import { expanded, isShowing, openSession, paneItem, tabStrip } from '../test/appHelpers';
+import { clickNode, renderApp } from '../test/renderApp';
 
 describe('the panel beside each view', () => {
   it('stays beside the task list and the worktree table', async () => {
@@ -39,5 +39,57 @@ describe('the panel beside each view', () => {
     await user.click(within(row as HTMLElement).getByRole('link'));
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
+  });
+});
+
+describe('the panel tab in the URL', () => {
+  const selected = () => within(tabStrip()).getByRole('tab', { selected: true });
+
+  it('opens on the tab the URL names', async () => {
+    await renderApp({ url: '/desk?panel=session/d9a4c7f1' });
+    expect(selected()).toHaveAccessibleName(/NORT-9/);
+    expect(screen.getByTestId('session-tab')).toBeInTheDocument();
+  });
+
+  it('links a tab at its URL, and Back returns to the tab before', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    clickNode('NORT-9');
+    const link = within(expanded()).getByRole('link', { name: 'Session' });
+    expect(link).toHaveAttribute('href', '/desk/task/NORT-9?panel=session/d9a4c7f1');
+    await user.click(link);
+    expect(router.state.location.search).toBe('?panel=session/d9a4c7f1');
+    await openSession(user, 'NORT-7');
+    expect(selected()).toHaveAccessibleName(/NORT-7/);
+    await act(() => router.navigate(-1));
+    expect(selected()).toHaveAccessibleName(/NORT-9/);
+  });
+
+  it('moves to another tab for a click on it in the strip', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/desk?panel=session/d9a4c7f1' });
+    await openSession(user, 'NORT-7');
+    await user.click(within(tabStrip()).getByRole('tab', { name: /NORT-7/ }));
+    expect(router.state.location.search).toBe('?panel=session/a1f3c9e2');
+  });
+
+  it('replaces the location with the tab that takes over from a closed one', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    await openSession(user, 'NORT-9');
+    await openSession(user, 'NORT-7');
+    await user.click(screen.getByRole('button', { name: 'Close NORT-7' }));
+    await waitFor(() => expect(router.state.location.search).toBe('?panel=session/d9a4c7f1'));
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
+  it('draws the tab as a screen over the card on the narrow layout, and Back pops each', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow', url: '/desk/task/NORT-9?panel=session/d9a4c7f1' });
+    expect(screen.getByTestId('session-tab')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
   });
 });

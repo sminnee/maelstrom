@@ -2,6 +2,7 @@ import type { Story } from '@ladle/react';
 import { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
+import { MemoryNav } from '../nav/MemoryNav';
 import { useAppStore } from '../store/store';
 import { createFakeServer } from '../fake/fakeServer';
 import { PanelTabs } from './PanelTabs';
@@ -13,6 +14,7 @@ import {
   gone,
   longTitle,
   realWidths,
+  urlOf,
   sessionAndPlan,
   single,
   world,
@@ -45,55 +47,57 @@ const queryClient = new QueryClient({
 function Strip({ strip, width }: { strip: Strip; width?: number }) {
   useState(() => {
     useAppStore.setState((s) => ({
-      ui: { ...s.ui, tabs: strip.tabs, activeTabKey: strip.activeTabKey, tabRecency: [] },
+      ui: { ...s.ui, tabs: strip.tabs, tabRecency: [] },
     }));
   });
   return (
     <ApiProvider api={api} queryClient={queryClient}>
-      <div
-        style={{
-          fontFamily: 'var(--font)',
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius)',
-          overflow: 'hidden',
-          width: width ? `${width}px` : '100%',
-          maxWidth: '100%',
-        }}
-      >
-        <GroupTabs />
-        {/*
+      <MemoryNav url={urlOf(strip)}>
+        <div
+          style={{
+            fontFamily: 'var(--font)',
+            background: 'var(--bg)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            overflow: 'hidden',
+            width: width ? `${width}px` : '100%',
+            maxWidth: '100%',
+          }}
+        >
+          <GroupTabs />
+          {/*
           The shape `Panel.tsx` builds: a scrolling box holding a status row
           and the reading under it. Keep the nesting, or the story stops
           matching the panel it stands for.
         */}
-        <div style={{ overflow: 'auto' }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 'var(--u)',
-              padding: '6px 12px',
-              borderBottom: '1px solid var(--border)',
-              color: 'var(--fg-muted)',
-              fontFamily: 'var(--mono)',
-              fontSize: 'var(--text-sm)',
-            }}
-          >
-            <span>The status row. The tab in view opens onto it.</span>
-            <span>34k ctx</span>
-          </div>
-          <div
-            style={{
-              padding: 'var(--u-3)',
-              color: 'var(--fg-faint)',
-              fontSize: 'var(--text-sm)',
-            }}
-          >
-            The conversation body.
+          <div style={{ overflow: 'auto' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 'var(--u)',
+                padding: '6px 12px',
+                borderBottom: '1px solid var(--border)',
+                color: 'var(--fg-muted)',
+                fontFamily: 'var(--mono)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              <span>The status row. The tab in view opens onto it.</span>
+              <span>34k ctx</span>
+            </div>
+            <div
+              style={{
+                padding: 'var(--u-3)',
+                color: 'var(--fg-faint)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              The conversation body.
+            </div>
           </div>
         </div>
-      </div>
+      </MemoryNav>
     </ApiProvider>
   );
 }

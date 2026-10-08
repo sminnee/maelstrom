@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { useLocation } from 'react-router';
+import { currentLoc, useRouter } from './router';
 import { defaultLoc, parseLocation, toHref, withLoc, type Loc, type LocPatch } from './location';
 
 /** Parts of locations read so far, by value, least recently read first. */
@@ -36,20 +37,35 @@ export function useLoc(): Loc {
   return useMemo(() => share(parseLocation(pathname, search) ?? defaultLoc()), [pathname, search]);
 }
 
+/**
+ * The history state of an entry this app pushed. Back from such an entry stays in the app; the
+ * first entry, a copied link, has none. A link passes it as its `state`.
+ */
+export const IN_APP = { inApp: true } as const;
+
+const isInApp = (state: unknown) => (state as { inApp?: unknown } | null)?.inApp === true;
+
 /** Options for one move. `replace` swaps the current history entry rather than pushing one. */
 export interface GoOptions {
   replace?: boolean;
 }
 
-/** A function that moves to the current location with a patch laid over it. */
+/**
+ * A function that moves to the current location with a patch laid over it. It reads the
+ * location when it runs, not when the component rendered, so it is safe after an await.
+ */
 export function useGo(): (patch: LocPatch, opts?: GoOptions) => void {
-  const loc = useLoc();
-  const navigate = useNavigate();
+  const router = useRouter();
   return useCallback(
     (patch, opts) => {
-      void navigate(toHref(withLoc(loc, patch)), { replace: opts?.replace });
+      // A replace keeps the entry what it was: the first entry stays the first.
+      const state = opts?.replace ? router.state.location.state : IN_APP;
+      void router.navigate(toHref(withLoc(currentLoc(router), patch)), {
+        replace: opts?.replace,
+        state,
+      });
     },
-    [loc, navigate],
+    [router],
   );
 }
 
@@ -70,24 +86,19 @@ export function parentOf(loc: Loc): LocPatch | null {
 }
 
 /**
- * Back, as the narrow layout's Back button does it. With an entry of this app behind the
- * current one it is the browser's Back. On the first entry — a copied link — there is none,
+ * Back, as the narrow layout's Back button does it. From an entry this app pushed it is the
+ * browser's Back. On the first entry — a copied link — there is nothing of the app behind,
  * so it replaces the location with its parent rather than leave the app.
  */
 export function useBack(): () => void {
-  const loc = useLoc();
-  const { key } = useLocation();
-  const navigate = useNavigate();
+  const router = useRouter();
   return useCallback(() => {
-    // The browser router keeps its index in `history.state`; the memory router a test uses
-    // does not, and its first entry has the key `default`.
-    const idx = (window.history.state as { idx?: unknown } | null)?.idx;
-    const canGoBack = typeof idx === 'number' ? idx > 0 : key !== 'default';
-    if (canGoBack) {
-      void navigate(-1);
+    if (isInApp(router.state.location.state)) {
+      void router.navigate(-1);
       return;
     }
+    const loc = currentLoc(router);
     const parent = parentOf(loc);
-    if (parent) void navigate(toHref(withLoc(loc, parent)), { replace: true });
-  }, [loc, key, navigate]);
+    if (parent) void router.navigate(toHref(withLoc(loc, parent)), { replace: true });
+  }, [router]);
 }

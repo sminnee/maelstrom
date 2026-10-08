@@ -1,7 +1,7 @@
 import { useWorld } from '../api/useWorld';
-import { groupKeyOf, groupTabs } from '../selectors/tabs';
+import { groupTabs } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
-import type { PanelTab } from '../store/uiSlice';
+import { usePanelNav } from './usePanelNav';
 
 /** The id of a sidebar row, so the panel it controls can name it. */
 export const rowId = (groupKey: string) => `panel-row-${groupKey}`;
@@ -17,17 +17,15 @@ export const rowId = (groupKey: string) => `panel-row-${groupKey}`;
 export function usePanelGroups() {
   const { world } = useWorld();
   const tabs = useAppStore((s) => s.ui.tabs);
-  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const closeTabs = useAppStore((s) => s.closeTabs);
+  const { activeTabKey, close } = usePanelNav();
   const groups = groupTabs(world, tabs);
   const activeGroup =
     groups.flatMap((p) => p.worktrees).find((g) => g.tabs.some((t) => t.key === activeTabKey)) ??
     null;
-  const groupOf = (tab: PanelTab) => groupKeyOf(world, tab);
   return {
     groups,
     activeGroup,
     /** Close tabs; the active one hands over within its own group first. */
-    close: (keys: string[]) => closeTabs(keys, groupOf),
+    close,
   };
 }
