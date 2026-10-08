@@ -66,7 +66,7 @@ class TestSchemaVersion:
         state_db = open_state_db(tmp_path / "state.db")
         with pytest.raises(SchemaTooOldError) as exc:
             await state_db.check()
-        assert "mael admin migrate" in str(exc.value)
+        assert "bin/install" in str(exc.value)
         state_db.close()
 
     async def test_a_subsystem_behind_this_build_names_the_command(self, db):
@@ -77,7 +77,7 @@ class TestSchemaVersion:
             await db.check()
         assert "fake" in str(exc.value)
         assert "2" in str(exc.value) and "3" in str(exc.value)
-        assert "mael admin migrate" in str(exc.value)
+        assert "bin/install" in str(exc.value)
 
     async def test_a_subsystem_ahead_of_this_build_refuses(self, db):
         db.ladders["fake"] = (_noop_migration(), _noop_migration())

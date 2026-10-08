@@ -21,7 +21,7 @@ from mael_agent.agent_transport import (
     SocketAsyncDaemonClient,
 )
 from mael_agent.agent_wire import AGENT_EXITED
-from mael_cli import admin_cli, agent_cli
+from mael_cli import agent_cli
 from mael_cli.agent_view import render_agent_detail
 from mael_daemon.agent_model import (
     build_agent_detail,
@@ -162,10 +162,8 @@ def test_set_mode_refuses_a_mode_that_is_not_one_of_the_three():
     assert client.calls == []
 
 
-def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
+def test_register_adopts_a_live_agent_with_no_record(migrated_notebook):
     """A daemon-only agent, born before this branch, gets a store record."""
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
 
     result, client = run_cli(
         ["register", "a1", "--task-id", "2026-09-16.4.3"],
@@ -186,7 +184,7 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert client.calls == [{"cmd": "list"}]
-    db = open_state_db(tmp_path / "state.db")
+    db = open_state_db(migrated_notebook / "state.db")
     try:
         stored = asyncio.run(SqliteAgentStore(db).list())
     finally:
@@ -210,10 +208,8 @@ def test_register_adopts_a_live_agent_with_no_record(tmp_path, monkeypatch):
     }
 
 
-def test_register_refuses_an_agent_id_the_daemon_does_not_list(tmp_path, monkeypatch):
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-
+@pytest.mark.usefixtures("migrated_notebook")
+def test_register_refuses_an_agent_id_the_daemon_does_not_list():
     result, client = run_cli(["register", "ghost"], [{"agents": []}])
 
     assert result.exit_code == 1
@@ -855,14 +851,10 @@ def snapshot(
     }
 
 
-def test_cost_reports_each_stage_and_names_the_dollars_parent_only(
-    tmp_path, monkeypatch
-):
+def test_cost_reports_each_stage_and_names_the_dollars_parent_only(migrated_notebook):
     """The whole point: which stage was expensive, and what the $ covers."""
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
     seed_ledger(
-        tmp_path,
+        migrated_notebook,
         snapshot("planned", 10_000, 0, 0.5),
         snapshot("built", 75_000, 30_000, 2.6),
     )
@@ -881,11 +873,9 @@ def test_cost_reports_each_stage_and_names_the_dollars_parent_only(
     assert lines[4].split()[1:] == ["95,000", "65,000", "30,000", "105,000", "2.1000"]
 
 
-def test_cost_makes_no_daemon_call(tmp_path, monkeypatch):
+def test_cost_makes_no_daemon_call(migrated_notebook):
     """It reads the ledger, which is what lets a stopped agent still report."""
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-    seed_ledger(tmp_path, snapshot("built", 40_000, 0, 1.0))
+    seed_ledger(migrated_notebook, snapshot("built", 40_000, 0, 1.0))
 
     result, client = run_cli(["cost", "a1"])
 
@@ -894,10 +884,10 @@ def test_cost_makes_no_daemon_call(tmp_path, monkeypatch):
     assert "40,000 tokens" in result.output
 
 
-def test_cost_flags_a_stage_name_the_flow_does_not_declare(tmp_path, monkeypatch):
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-    seed_ledger(tmp_path, snapshot("deployed", 5_000, 0, 0.1, recognised=False))
+def test_cost_flags_a_stage_name_the_flow_does_not_declare(migrated_notebook):
+    seed_ledger(
+        migrated_notebook, snapshot("deployed", 5_000, 0, 0.1, recognised=False)
+    )
 
     result = CliRunner().invoke(agent_cli.agent, ["cost"])
 
@@ -905,15 +895,13 @@ def test_cost_flags_a_stage_name_the_flow_does_not_declare(tmp_path, monkeypatch
     assert "deployed (?)" in result.output
 
 
-def test_cost_does_not_flag_the_row_that_closes_the_ledger(tmp_path, monkeypatch):
+def test_cost_does_not_flag_the_row_that_closes_the_ledger(migrated_notebook):
     """`<final>` is Maelstrom's own, not a name an agent mistyped.
 
     "(?)" says the agent wrote a word we do not know. The closing row is not
     the agent's, so drawing it there would send a reader looking for a typo.
     """
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-    seed_ledger(tmp_path, snapshot("<final>", 5_000, 0, 0.1))
+    seed_ledger(migrated_notebook, snapshot("<final>", 5_000, 0, 0.1))
 
     result = CliRunner().invoke(agent_cli.agent, ["cost"])
 
@@ -922,21 +910,17 @@ def test_cost_does_not_flag_the_row_that_closes_the_ledger(tmp_path, monkeypatch
     assert "(?)" not in result.output
 
 
-def test_cost_says_so_when_nothing_is_recorded(tmp_path, monkeypatch):
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
-
+@pytest.mark.usefixtures("migrated_notebook")
+def test_cost_says_so_when_nothing_is_recorded():
     result = CliRunner().invoke(agent_cli.agent, ["cost"])
 
     assert result.exit_code == 0, result.output
     assert "No milestones recorded." in result.output
 
 
-def test_cost_json_carries_the_stage_deltas(tmp_path, monkeypatch):
-    monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(tmp_path))
-    assert CliRunner().invoke(admin_cli.cmd_migrate, []).exit_code == 0
+def test_cost_json_carries_the_stage_deltas(migrated_notebook):
     seed_ledger(
-        tmp_path,
+        migrated_notebook,
         snapshot("planned", 10_000, 0, 0.5),
         snapshot("built", 75_000, 30_000, 2.6),
     )

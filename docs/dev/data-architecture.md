@@ -306,7 +306,7 @@ index plus one, so the number is derived rather than maintained.
 | Found | What happens |
 |---|---|
 | Equal | Opens. |
-| Lower | Refuses, naming `mael admin migrate`. |
+| Lower | Refuses, naming `bin/install` and `python -m mael_domain.state_db.migrate`. |
 | Higher | Refuses, naming both versions. |
 
 A rung usually runs SQL. It may instead run Python, for a step SQL cannot take — reading a

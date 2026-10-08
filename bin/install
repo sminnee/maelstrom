@@ -1,0 +1,10 @@
+#!/bin/sh
+# The project's install_cmd: dependencies, then the state database.
+# The migration reads its notebook root from this checkout's `.env`, so run
+# from the checkout root. It needs only the Python dependencies, so it runs
+# before pnpm, whose failure would otherwise skip it.
+set -e
+cd "$(dirname "$0")/.."
+uv sync --extra dev
+uv run python -m mael_domain.state_db.migrate
+pnpm --dir orchestrator-ui install --frozen-lockfile
