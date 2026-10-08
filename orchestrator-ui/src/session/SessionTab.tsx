@@ -13,7 +13,8 @@ import { answeredOnCanvas } from '../selectors/transcript';
 import { PanelLink } from '../shell/PanelLink';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
-import { useAppStore } from '../store/store';
+import { useLayoutMode } from '../layout/useLayoutMode';
+import { useCard } from '../nav/useCard';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
@@ -113,7 +114,9 @@ export function SessionTab({
   const anchored = anchor === null ? -1 : transcript.items.findIndex((i) => i.id === anchor);
   const start = anchored >= 0 ? anchored : Math.max(0, count - WINDOW);
   const visible = transcript.items.slice(start);
-  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
+  // The narrow layout draws no card under a session, so nothing there answers for it.
+  const card = useCard().expandedNodeId;
+  const expandedNodeId = useLayoutMode() === 'narrow' ? null : card;
   // Stop is the one urgent control, so it takes the strip. See DESIGN.md, "The
   // One Strip Rule".
   const chrome = useScreenChrome();

@@ -4,6 +4,9 @@ import { ZONES } from '../protocol/progress';
 import { emptyZoneWords, zoneLabel } from '../selectors/deck';
 import { useDeck } from './useDeck';
 import { useAppStore } from '../store/store';
+import { cardOf } from '../nav/useCard';
+import { toHref, withLoc } from '../nav/location';
+import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { DeckRow } from './DeckRow';
@@ -18,7 +21,7 @@ export function DeckList() {
   const deck = useDeck();
   const zone = useAppStore((s) => s.ui.deckZone);
   const setDeckZone = useAppStore((s) => s.setDeckZone);
-  const pushScreen = useAppStore((s) => s.pushScreen);
+  const loc = useLoc();
   const showProject = useAppStore((s) => showsProject(s.ui.filters));
 
   if (status === 'loading') {
@@ -71,7 +74,7 @@ export function DeckList() {
               key={node.id}
               node={node}
               showProject={showProject}
-              onOpen={() => pushScreen({ kind: 'detail', nodeId: node.id })}
+              to={toHref(withLoc(loc, { card: cardOf(node) }))}
             />
           ))
         )}

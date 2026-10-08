@@ -8,6 +8,8 @@ import { deriveGraph } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
+import { cardOf, useCard } from '../nav/useCard';
+import { useGo } from '../nav/useNav';
 import { VIEW_MOVE_MS } from '../canvas/viewport';
 import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
@@ -45,27 +47,22 @@ function useAttention() {
 /** The chip on a phone: it takes the deck list to the node and opens it. */
 function NarrowChip({ hideWhenClear }: { hideWhenClear: boolean }) {
   const { nodes, count, unanswered } = useAttention();
-  const stack = useAppStore((s) => s.ui.mobileStack);
-  const pushScreen = useAppStore((s) => s.pushScreen);
+  const { expandedNodeId } = useCard();
   const setDeckZone = useAppStore((s) => s.setDeckZone);
-  const deckShowing = useShowing().includes('canvas');
-  const showPane = useAppStore((s) => s.showPane);
-  const top = stack[stack.length - 1];
+  const go = useGo();
 
-  const go = () => {
-    const current = top?.kind === 'detail' ? top.nodeId : null;
-    const next = nextAttentionNode(nodes, current);
+  const onClick = () => {
+    const next = nodes.find((n) => n.id === nextAttentionNode(nodes, expandedNodeId));
     if (!next) return;
-    // Back from the detail screen lands on the list that holds the node. An
-    // unanswered node sits in the same zone as an ask.
+    // The deck under the detail is the list that holds the node. An unanswered
+    // node sits in the same zone as an ask.
     setDeckZone(zoneForState('needs-attention'));
-    // From the task list, the deck has to be showing for Back to land on it.
-    if (!deckShowing) showPane('canvas');
-    pushScreen({ kind: 'detail', nodeId: next });
+    // The detail is the top screen: a screen left over it would hide where the chip went.
+    go({ card: cardOf(next), panel: null });
   };
 
   if (hideWhenClear && count === 0 && unanswered === 0) return null;
-  return <Chip count={count} unanswered={unanswered} onClick={go} />;
+  return <Chip count={count} unanswered={unanswered} onClick={onClick} />;
 }
 
 /** The chip on a main monitor: it expands the node on the canvas. */
@@ -73,22 +70,21 @@ function WideChip() {
   const { world, nodes, count, unanswered } = useAttention();
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const expandedNodeId = useAppStore((s) => s.ui.expandedNodeId);
-  const expandNode = useAppStore((s) => s.expandNode);
+  const { expandedNodeId, open } = useCard();
   const canvasShowing = useShowing().includes('canvas');
   const showPane = useAppStore((s) => s.showPane);
   const { fitView } = useReactFlow();
 
   const go = () => {
     const current = expandedNodeId ?? focusedTaskId(world, tabs, activeTabKey);
-    const next = nextAttentionNode(nodes, current);
+    const next = nodes.find((n) => n.id === nextAttentionNode(nodes, current));
     if (!next) return;
     // The canvas has to be showing before it can be fitted, so the fit waits
     // for the frame that draws it.
     if (!canvasShowing) showPane('canvas');
-    expandNode(next, false);
+    open(cardOf(next), false);
     requestAnimationFrame(() => {
-      void fitView({ nodes: [{ id: next }], duration: VIEW_MOVE_MS, maxZoom: 1.2 });
+      void fitView({ nodes: [{ id: next.id }], duration: VIEW_MOVE_MS, maxZoom: 1.2 });
     });
   };
 

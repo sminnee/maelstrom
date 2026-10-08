@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useDocuments } from '../api/documents';
 import { driftLabel } from '../protocol/progress';
 import { phaseLabel } from '../protocol/phase';
@@ -15,17 +16,18 @@ import styles from './DeckRow.module.css';
  * It reads the same three registers the canvas node does — the title, the
  * state in words, then the identity — and carries the same `data-state` and
  * `data-phase`, so it inherits the node's whole state vocabulary rather than
- * inventing a second one. The row is the button: a tap opens the node.
+ * inventing a second one. The row is a link: a tap opens the node.
  */
 export function DeckRow({
   node,
   showProject,
-  onOpen,
+  to,
 }: {
   node: GraphNode;
   /** Whether the row names its project. False when the project filter already does. */
   showProject: boolean;
-  onOpen: () => void;
+  /** Where a tap goes: the node's card, which the narrow layout draws as its detail. */
+  to: string;
 }) {
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   const documents = useDocuments();
@@ -40,7 +42,7 @@ export function DeckRow({
       data-phase={node.phase ?? undefined}
       data-state={node.progress.state}
     >
-      <button type="button" className={styles.open} onClick={onOpen}>
+      <Link to={to} className={styles.open}>
         <span className={styles.title}>{nodeTitle(node)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />
@@ -63,8 +65,8 @@ export function DeckRow({
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
-      </button>
-      {/* The badge sits outside the row's own button: it opens the document
+      </Link>
+      {/* The badge sits outside the row's own link: it opens the document
           the agent waits on, which is a different destination. */}
       {node.progress.state === 'needs-attention' && documentId && (
         <PanelLink

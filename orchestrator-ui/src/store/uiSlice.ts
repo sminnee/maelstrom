@@ -62,14 +62,6 @@ export interface UiState {
    * beside the active tab. Never the active tab itself. See CONTEXT.md, "Split tab".
    */
   splitTabs: Record<string, string>;
-  /** The one node grown into a card on the canvas, if any: a task or an agent. */
-  expandedNodeId: string | null;
-  /**
-   * The worktree whose **Worktree card** is open on the canvas, if any. The
-   * canvas shows one card at a time, so this and `expandedNodeId` are never
-   * both set.
-   */
-  expandedWorktreeId: WorktreeId | null;
   /** The task the editor is open on. */
   editingTaskId: TaskId | null;
   /**
@@ -125,8 +117,6 @@ export function initialUiState(): UiState {
     activeTabKey: null,
     tabRecency: [],
     splitTabs: {},
-    expandedNodeId: null,
-    expandedWorktreeId: null,
     editingTaskId: null,
     newWorkOpen: false,
     newWorkSeed: null,

@@ -1,6 +1,6 @@
 import type { NodeProps, Node } from '@xyflow/react';
 import { branchLabel } from '../selectors/worktrees';
-import { useAppStore } from '../store/store';
+import { useCard } from '../nav/useCard';
 import type { WorktreeBox } from './layout';
 import styles from './WorktreeBoxNode.module.css';
 
@@ -13,8 +13,8 @@ export type WorktreeBoxFlowNode = Node<{ box: WorktreeBox }, 'worktreeBox'>;
  */
 export function WorktreeBoxNode({ data }: NodeProps<WorktreeBoxFlowNode>) {
   const { worktree, empty } = data.box;
-  const expanded = useAppStore((s) => s.ui.expandedWorktreeId === worktree.id);
-  const expandWorktree = useAppStore((s) => s.expandWorktree);
+  const { expandedWorktreeId, open } = useCard();
+  const expanded = expandedWorktreeId === worktree.id;
   return (
     <div
       className={styles.box}
@@ -27,7 +27,7 @@ export function WorktreeBoxNode({ data }: NodeProps<WorktreeBoxFlowNode>) {
         className={`${styles.label} nodrag nopan`}
         title={worktree.branch || undefined}
         aria-expanded={expanded}
-        onClick={() => expandWorktree(worktree.id)}
+        onClick={() => open({ kind: 'worktree', id: worktree.id })}
       >
         <span className={styles.name}>{worktree.nato}</span>{' '}
         <span className={styles.branch}>{branchLabel(worktree)}</span>

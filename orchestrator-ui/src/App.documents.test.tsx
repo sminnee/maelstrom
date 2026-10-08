@@ -383,7 +383,7 @@ describe('a document an agent tagged in its own message', () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ viewport: 'narrow' });
     addTaskSet(server);
-    await user.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
+    await user.click(screen.getByRole('link', { name: /Rotate auth tokens/ }));
     const group = await screen.findByRole('group', { name: 'Iteration 3' });
     await user.click(within(group).getByRole('link', { name: 'Execute: mint v1' }));
     const tab = await screen.findByTestId('document-tab');

@@ -1,5 +1,5 @@
 import type { GraphNode } from '../selectors/graph';
-import { useAppStore } from '../store/store';
+import { useCard } from '../nav/useCard';
 import { nodeTitle } from '../selectors/graph';
 import { CanvasCard } from './CanvasCard';
 import { NodeCardBody } from './NodeCardBody';
@@ -22,7 +22,7 @@ export function NodeCard({
   open: boolean;
   onClosed: () => void;
 }) {
-  const collapseCard = useAppStore((s) => s.collapseCard);
+  const { collapse } = useCard();
   return (
     <CanvasCard
       label={nodeTitle(node)}
@@ -36,13 +36,13 @@ export function NodeCard({
     >
       <NodeCardBody
         node={node}
-        onDone={collapseCard}
+        onDone={() => collapse()}
         closeControl={
           <button
             type="button"
             className={styles.close}
             aria-label="Collapse"
-            onClick={collapseCard}
+            onClick={() => collapse()}
           >
             {actionIcon('close')}
           </button>

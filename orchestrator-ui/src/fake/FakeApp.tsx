@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { App, type AppDeps } from '../App';
+import { createMemoryRouter } from 'react-router';
+import { App, type AppDeps, type AppRouter } from '../App';
+import { routes } from '../nav/routes';
 import { useAppStore } from '../store/store';
 import type { UiState } from '../store/uiSlice';
 import { fakeDeps } from './fakeDeps';
@@ -31,6 +33,11 @@ export interface FakeAppProps {
   hold?: boolean;
   /** Refuse each route this pattern matches, so the app shows its error state. */
   refuse?: string;
+  /**
+   * What reads and moves the location. A memory router on the desk when left out: a story
+   * runs on a page whose URL Ladle owns.
+   */
+  router?: AppRouter;
 }
 
 /**
@@ -39,7 +46,15 @@ export interface FakeAppProps {
  * `deps` is the injection point `renderApp` uses, so the fake mode and a story
  * run the production tree and not a stand-in that can drift from it.
  */
-export function FakeApp({ scenario = 'desk', amend, ui, open, hold, refuse }: FakeAppProps) {
+export function FakeApp({
+  scenario = 'desk',
+  amend,
+  ui,
+  open,
+  hold,
+  refuse,
+  router,
+}: FakeAppProps) {
   const [deps] = useState((): AppDeps => {
     // The store is a module singleton. Without the reset, a scenario inherits
     // the view, the filters and the tabs of the one shown before it.
@@ -51,7 +66,10 @@ export function FakeApp({ scenario = 'desk', amend, ui, open, hold, refuse }: Fa
     if (hold) server.hold();
     if (refuse)
       server.refuse(routePattern(refuse), { status: 500, code: 'internal', message: 'Refused' });
-    return deps;
+    return {
+      ...deps,
+      router: router ?? createMemoryRouter(routes, { initialEntries: ['/desk'] }),
+    };
   });
   const { queryClient } = deps;
   useEffect(() => {

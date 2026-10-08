@@ -1,7 +1,8 @@
 import type { Story } from '@ladle/react';
-import { useEffect } from 'react';
-import { useAppStore } from '../store/store';
+import { useEffect, useState } from 'react';
+import { createMemoryRouter } from 'react-router';
 import { FakeApp } from '../fake/FakeApp';
+import { routes } from '../nav/routes';
 import { deskIdForTask } from '../protocol/deskId';
 import { makeTask, makeWorktree } from '../fake/fixtures';
 import type { Seed } from '../fake/seedWorld';
@@ -39,11 +40,13 @@ function amend(seed: Seed) {
 
 /** The real app on that world. See `orchestrator-ui/DESIGN.md`, "Seeing a change". */
 /**
- * `expand` opens one card once the board has drawn: a node's, or a worktree's.
- * Every story is the real app, so a click on a box label or a node opens its
- * card here as it does on the desk.
+ * `open` is the card's URL, moved to once the board has drawn: a node's, or a
+ * worktree's. Every story is the real app, so a click on a box label or a node
+ * opens its card here as it does on the desk.
  */
-function Harness({ expand = {} }: { expand?: { node?: string; worktree?: string } }) {
+function Harness({ open }: { open?: string }) {
+  // A memory router: Ladle owns the page's URL.
+  const [router] = useState(() => createMemoryRouter(routes, { initialEntries: ['/desk'] }));
   // Opened once the board has drawn and fitted, as a click would: a card set
   // before the first draw is placed before the viewport settles, and its pan
   // into view is lost.
@@ -52,16 +55,14 @@ function Harness({ expand = {} }: { expand?: { node?: string; worktree?: string 
       if (!document.querySelector('[data-testid="worktree-box"]')) return;
       window.clearInterval(timer);
       window.setTimeout(() => {
-        const { expandNode, expandWorktree } = useAppStore.getState();
-        if (expand.node) expandNode(expand.node, false);
-        if (expand.worktree) expandWorktree(expand.worktree, false);
+        if (open) void router.navigate(open);
       }, 300);
     }, 50);
     return () => window.clearInterval(timer);
-  }, [expand.node, expand.worktree]);
+  }, [open, router]);
   return (
     <div style={{ height: '100vh' }}>
-      <FakeApp amend={amend} />
+      <FakeApp amend={amend} router={router} />
     </div>
   );
 }
@@ -81,16 +82,16 @@ export const ProjectLane: Story = () => <Harness />;
  * label, or a node, and the card moves there: one card shows at a time.
  */
 export const WorktreeCardOnAnEmptyBox: Story = () => (
-  <Harness expand={{ worktree: 'northwind-foxtrot' }} />
+  <Harness open="/desk/worktree/northwind-foxtrot" />
 );
 
 /** What to look at: the Worktree card open on `delta`, a box that holds a node. */
 export const WorktreeCardOnAHeldBox: Story = () => (
-  <Harness expand={{ worktree: 'northwind-delta' }} />
+  <Harness open="/desk/worktree/northwind-delta" />
 );
 
 /**
  * What to look at: the node card of NORT-12. The worktree area is its last
  * band, under one hairline, and reads the same as the Worktree card of `delta`.
  */
-export const NodeCardWorktreeArea: Story = () => <Harness expand={{ node: 'NORT-12' }} />;
+export const NodeCardWorktreeArea: Story = () => <Harness open="/desk/task/NORT-12" />;

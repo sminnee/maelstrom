@@ -514,7 +514,7 @@ describe('the Changes tab', () => {
   async function pushChanges(user: ReturnType<typeof userEvent.setup>) {
     const { server } = await renderApp({ viewport: 'narrow' });
     seedChanges(server);
-    await user.click(screen.getByRole('button', { name: /Rotate auth tokens/ }));
+    await user.click(screen.getByRole('link', { name: /Rotate auth tokens/ }));
     await user.click(screen.getByRole('link', { name: 'Changes' }));
     expect(await screen.findByText('new expiry')).toBeInTheDocument();
   }

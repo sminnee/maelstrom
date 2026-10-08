@@ -14,11 +14,6 @@ export function openFromParams(params: URLSearchParams) {
   const store = useAppStore.getState();
   const view = params.get('view');
   if (view === 'list' || view === 'worktrees') store.showPane(view satisfies Pane);
-  const task = params.get('task');
-  if (task) {
-    store.expandNode(task);
-    store.pushScreen({ kind: 'detail', nodeId: task });
-  }
   const session = params.get('session');
   if (session) {
     store.openTab(sessionTab(session));

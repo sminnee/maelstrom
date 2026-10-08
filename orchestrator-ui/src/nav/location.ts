@@ -209,3 +209,11 @@ export function toHref(loc: Loc): string {
     .join('&');
   return search ? `${path}?${search}` : path;
 }
+
+/** The node a card stands for, else `null`: a worktree's card is no node's. */
+export const cardNodeId = (card: Card | null): string | null =>
+  card && card.kind !== 'worktree' ? card.id : null;
+
+/** The worktree a card stands for, else `null`. */
+export const cardWorktreeId = (card: Card | null): string | null =>
+  card?.kind === 'worktree' ? card.id : null;
