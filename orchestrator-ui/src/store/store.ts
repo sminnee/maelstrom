@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
-import type { AgentId, TaskId } from '../protocol/ids';
+import type { AgentId } from '../protocol/ids';
 import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
@@ -58,10 +58,8 @@ export interface AppStore {
     groupOf: (tab: PanelTab) => string,
     active: string | null,
   ): string | null;
-  /** Open the editor on a task, or close it with `null`. */
-  setEditingTask(taskId: TaskId | null): void;
-  /** Open or close the new-work form. A `seed` is what it opens on. */
-  setNewWorkOpen(open: boolean, seed?: NewWorkSeed): void;
+  /** What the new-work form opens on, or `null` for nothing. */
+  setNewWorkSeed(seed: NewWorkSeed | null): void;
   /** Drop the seed once the form has taken it, so a remount does not lay it again. */
   clearNewWorkSeed(): void;
   setPanelWidth(width: number): void;
@@ -129,9 +127,7 @@ export const useAppStore = create<AppStore>()(
         set((s) => ({ ui: withTabs(s.ui, next) }));
         return next.activeTabKey;
       },
-      setEditingTask: (editingTaskId) => set((s) => ({ ui: { ...s.ui, editingTaskId } })),
-      setNewWorkOpen: (newWorkOpen, seed) =>
-        set((s) => ({ ui: { ...s.ui, newWorkOpen, newWorkSeed: (newWorkOpen && seed) || null } })),
+      setNewWorkSeed: (newWorkSeed) => set((s) => ({ ui: { ...s.ui, newWorkSeed } })),
       clearNewWorkSeed: () =>
         set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
       setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),

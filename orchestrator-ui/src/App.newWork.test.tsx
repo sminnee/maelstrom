@@ -1,6 +1,6 @@
 import { paneItem } from './test/appHelpers';
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Agent } from './protocol/entities';
 import type { FakeServer } from './fake/fakeServer';
@@ -32,6 +32,22 @@ describe('new work', () => {
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
     await user.click(paneItem('Tasks'));
     expect(screen.getByRole('button', { name: 'New' })).toBeVisible();
+  });
+
+  it('opens on the form when the URL says so, and Back closes it', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/desk?new=1' });
+    expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'New work' })).getByRole('button', {
+        name: 'Close',
+      }),
+    );
+    expect(router.state.location.search).toBe('');
+    await openNewWork(user);
+    expect(router.state.location.search).toBe('?new=1');
+    await act(() => router.navigate(-1));
+    expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull();
   });
 
   it('dismisses the combo box on Escape without closing the dialog', async () => {

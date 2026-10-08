@@ -80,7 +80,7 @@ describe('the medium layout: one slot', () => {
     await renderApp({ viewport: 'medium' });
     await user.click(item('Tasks'));
     const row = screen.getByTestId('task-list').querySelector('[data-task-id="NORT-7"]');
-    await user.click(within(row as HTMLElement).getByRole('link'));
+    await user.click(within(row as HTMLElement).getByRole('link', { name: /needs you/i }));
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(screen.queryByTestId('task-list')).not.toBeInTheDocument();
     expect(isShowing('Tabs')).toBe(true);

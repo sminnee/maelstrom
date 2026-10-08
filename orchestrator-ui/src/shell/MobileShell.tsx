@@ -13,7 +13,6 @@ import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
-import { useAppStore } from '../store/store';
 import { useCard } from '../nav/useCard';
 import { useBack, useLoc } from '../nav/useNav';
 import { Dialog } from '../ui/Dialog';
@@ -31,11 +30,9 @@ import styles from './MobileShell.module.css';
  * changes. Back goes back a location, which pops the top screen.
  */
 export function MobileShell() {
-  const { view, panel } = useLoc();
+  const { view, panel, edit: editingTaskId, newWork: newWorkOpen } = useLoc();
   const { expandedNodeId } = useCard();
   const onBack = useBack();
-  const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
-  const newWorkOpen = useAppStore((s) => s.ui.newWorkOpen);
   const { status } = useWorld();
   // A worktree's card has no narrow screen, nor has a dev env tab.
   const detail = useMemo(

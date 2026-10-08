@@ -447,7 +447,7 @@ describe('the task list', () => {
 
     await user.keyboard('{Escape}');
 
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(listRow('NORT-9')).toHaveTextContent('Migrate to Postgres 16');
   });
 
@@ -479,11 +479,17 @@ describe('the task list', () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    await user.click(within(listRow('NORT-7') as HTMLElement).getByRole('link'));
+    await user.click(
+      within(listRow('NORT-7') as HTMLElement).getByRole('link', { name: /needs you/i }),
+    );
     expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-7/);
     expect(screen.queryByRole('dialog')).toBeNull();
-    // NORT-9.1 has no agent, so its state is words only.
-    expect(within(listRow('NORT-9.1') as HTMLElement).queryByRole('link')).toBeNull();
+    // NORT-9.1 has no agent, so its state is words only: its one link is its id.
+    expect(
+      within(listRow('NORT-9.1') as HTMLElement)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['NORT-9.1']);
   });
 
   it('a click anywhere on a row opens the task, read-only', async () => {
@@ -550,6 +556,31 @@ describe('the task list', () => {
     // Neither end of the list, so both directions stay live.
     expect(within(editor).getByRole('button', { name: 'Prev' })).toBeEnabled();
     expect(within(editor).getByRole('button', { name: 'Next' })).toBeEnabled();
+  });
+
+  it('opens the editor the URL names, and steps without a history entry per task', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/tasks?edit=NORT-9' });
+    const editor = await screen.findByRole('dialog', { name: 'Migrate to Postgres 16' });
+    await user.click(within(editor).getByRole('button', { name: 'Next' }));
+    expect(router.state.location.search).toBe('?edit=NORT-9.1');
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
+  it('puts the editor in the URL, and Back closes it', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/tasks' });
+    await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+    expect(router.state.location.search).toBe('?edit=NORT-9');
+    await act(() => router.navigate(-1));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it("links a desk task's id to its card", async () => {
+    await renderApp({ url: '/tasks' });
+    expect(
+      within(listRow('NORT-9') as HTMLElement).getByRole('link', { name: 'NORT-9' }),
+    ).toHaveAttribute('href', '/desk/task/NORT-9');
   });
 
   it('disables Prev on the first row and Next on the last', async () => {

@@ -23,6 +23,7 @@ import {
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
 import { useLoc } from '../nav/useNav';
+import { useNewWork } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
@@ -132,7 +133,7 @@ const mintBucket = () => `draft-${Math.random().toString(36).slice(2, 10)}`;
  * that gates on it. See `docs/dev/orchestrator-ui.md`.
  */
 export function NewWork() {
-  const close = useAppStore((s) => s.setNewWorkOpen);
+  const { close } = useNewWork();
   const projects = useProjects();
   const worktrees = useWorktrees();
   const infer = useInferTask();
@@ -313,7 +314,7 @@ export function NewWork() {
     // Submitted, so the held copy is spent. Before the close, which unmounts the
     // dialog and would otherwise flush what is still in the field.
     release();
-    close(false);
+    close();
   };
 
   const startInvestigation = async () => {
@@ -326,7 +327,7 @@ export function NewWork() {
       investigate: true,
     });
     release();
-    close(false);
+    close();
   };
 
   const planIssue = async (launch: boolean) => {
@@ -346,7 +347,7 @@ export function NewWork() {
       throw e;
     }
     release();
-    close(false);
+    close();
   };
 
   const writeTask = async (launch: boolean) => {
@@ -380,12 +381,12 @@ export function NewWork() {
       throw e;
     }
     release();
-    close(false);
+    close();
   };
 
   return (
-    <Dialog label="New work" onClose={() => close(false)}>
-      <DialogHeader title="New work" onClose={() => close(false)} />
+    <Dialog label="New work" onClose={() => close()}>
+      <DialogHeader title="New work" onClose={() => close()} />
 
       <Capture
         names={names}
@@ -449,7 +450,7 @@ export function NewWork() {
             <AppButton variant="link" onClick={() => release()}>
               Clear
             </AppButton>
-            <AppButton variant="link" onClick={() => close(false)}>
+            <AppButton variant="link" onClick={() => close()}>
               Cancel
             </AppButton>
           </>

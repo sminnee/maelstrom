@@ -6,8 +6,8 @@ import { useWorld } from '../api/useWorld';
 import type { Task } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { listTasks } from '../selectors/taskList';
-import { useAppStore } from '../store/store';
 import { useLoc } from '../nav/useNav';
+import { useEditor } from '../nav/useOverlays';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
@@ -42,8 +42,8 @@ function WaitShell({
   error: string | null;
   retry: () => void;
 }) {
-  const close = useAppStore((s) => s.setEditingTask);
-  const leave = useCallback(() => close(null), [close]);
+  const { close } = useEditor();
+  const leave = useCallback(() => close(), [close]);
   return (
     <Dialog label={taskId} onClose={leave} testId="task-editor-wait">
       <p role={error ? 'alert' : undefined}>
@@ -67,7 +67,9 @@ function WaitShell({
 }
 
 function TaskForm({ task }: { task: Task }) {
-  const close = useAppStore((s) => s.setEditingTask);
+  const editor = useEditor();
+  // To another task, or shut. A step replaces the location; see `useEditor`.
+  const close = (id: TaskId | null) => (id ? editor.step(id) : editor.close());
   const update = useUpdateTask();
   const setStatus = useSetStatus();
   const remove = useDeleteTask();
