@@ -99,6 +99,10 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
+    app.router.add_get("/api/comms", _comms)
+    app.router.add_get("/api/comms/{id}", _comm)
+    app.router.add_post("/api/comms", _create_comm)
+    app.router.add_patch("/api/comms/{id}", _update_comm)
     app.router.add_get("/api/agents", _agents)
     app.router.add_get("/api/agents/{id}", _agent)
     app.router.add_get("/api/agents/{id}/transcript", _transcript)
@@ -288,6 +292,26 @@ async def _task(request: web.Request) -> web.Response:
         "displayContent": attachment_urls(task["content"], task["project"]),
     }
     return web.json_response(detail)
+
+
+async def _comms(request: web.Request) -> web.Response:
+    """Every comm, open and closed; the ETag answers 304, as for the tasks."""
+    orch = await _ready(request)
+    etag = f'"{orch.epoch}-{orch.comm_revision}"'
+    if request.headers.get("If-None-Match") == etag:
+        return web.Response(status=304, headers={"ETag": etag})
+    return web.json_response(
+        {"comms": list(orch.world["comms"].values())}, headers={"ETag": etag}
+    )
+
+
+async def _comm(request: web.Request) -> web.Response:
+    orch = await _ready(request)
+    comm_id = request.match_info["id"]
+    comm = orch.world["comms"].get(comm_id)
+    if comm is None:
+        return error_response("unknown_id", f"No comm {comm_id}")
+    return web.json_response(comm)
 
 
 async def _agents(request: web.Request) -> web.Response:
@@ -762,6 +786,19 @@ async def _linear_plan(request: web.Request) -> web.StreamResponse:
 async def _create_task(request: web.Request) -> web.StreamResponse:
     """Write a new task; ``launch`` starts it too, as ``mael task add --run`` does."""
     return await _command(request, lambda body: {**body, "type": "task.create"})
+
+
+async def _create_comm(request: web.Request) -> web.StreamResponse:
+    return await _command(request, lambda body: {**body, "type": "comm.create"})
+
+
+async def _update_comm(request: web.Request) -> web.StreamResponse:
+    """Edit a comm. A task link is a task edit: ``PATCH /api/tasks/…`` with ``comms``."""
+    comm_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {"type": "comm.update", "commId": comm_id, "fields": body},
+    )
 
 
 async def _approve_document(request: web.Request) -> web.StreamResponse:

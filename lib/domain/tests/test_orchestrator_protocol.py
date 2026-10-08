@@ -36,6 +36,8 @@ def make_task(**over):
         "updated": NOW,
         "actionable": True,
         "startedAt": "",
+        "landing": None,
+        "comms": [],
     }
     task.update(over)
     return task

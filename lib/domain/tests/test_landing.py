@@ -4,9 +4,11 @@ from dataclasses import replace
 
 import pytest
 
+from mael_domain import task as task_model
 from mael_domain.config import MaelstromConfig
 from mael_domain.landing import (
     Deploy,
+    Landings,
     LandingSignals,
     Merge,
     TrackedTask,
@@ -337,6 +339,39 @@ class TestSync:
             ("q", "t1", "done"),
             ("q", "t1", "merged"),
         ]
+
+
+class TestLandingOf:
+    """A task's landing as the wire carries it: the status, and each env's state."""
+
+    async def landing(self, status="done", pr_number=7, stored=None):
+        landings = Landings(config_for=lambda project: UAT_AND_LIVE)
+        if stored is not None:
+            await landings.prs.write(stored)
+        task = task_model.Task(
+            id="t1", title="t", project="p", status=status, pr_number=pr_number
+        )
+        return await landings.landing_of(task)
+
+    async def test_a_task_not_done_has_none(self):
+        assert await self.landing(status="in-progress", stored=pr()) is None
+
+    async def test_a_done_task_with_no_pr_has_nothing_to_land(self):
+        assert await self.landing(pr_number=0) == {"status": "done", "envs": {}}
+
+    async def test_an_unmerged_pr_is_not_yet_everywhere(self):
+        landing = await self.landing(stored=replace(pr(), merged_at=""))
+        assert landing == {
+            "status": "done",
+            "envs": {"uat": "not_yet", "live": "not_yet"},
+        }
+
+    async def test_a_merged_pr_reports_each_env_it_was_read_for(self):
+        landing = await self.landing(stored=pr(uat=LANDED))
+        assert landing == {
+            "status": "uat",
+            "envs": {"uat": "landed", "live": "unknown"},
+        }
 
 
 class TestProjectConfig:

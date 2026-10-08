@@ -28,6 +28,7 @@ from mael_domain import task as model
 from mael_domain import task_actions
 from mael_domain.agent_store import AgentStore
 from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
+from mael_domain.landing import Landings
 from mael_domain.list_all import build_list_all_data
 from mael_domain.protocol import Project, Task, Worktree
 from mael_domain.session_discovery import LiveSessionSet
@@ -194,6 +195,14 @@ class TaskSource(Protocol):
 
     async def revision_now(self) -> int:
         """The revision a later :meth:`read_since` should be asked from."""
+        ...
+
+    async def read_some(self, task_ids: list[str]) -> list[Task]:
+        """The named tasks, by wire id. An id that names no task is left out.
+
+        What the server re-reads when something outside the task table moved
+        a task's entity, such as a landing step.
+        """
         ...
 
     #: Whether :meth:`version` returns this source's own table revision. A
@@ -368,9 +377,12 @@ class NotebookTaskSource:
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         agents: AgentStore | None = None,
+        landings: Landings | None = None,
     ) -> None:
         self.table = table
         self.agents = agents
+        #: Where each done task's landing is read. See CONTEXT.md, "Landing".
+        self.landings = landings if landings is not None else Landings()
         #: Task session id -> when its first agent started, folded from the
         #: Agent records a revision at a time.
         self._first_starts: dict[str, str] = {}
@@ -445,7 +457,17 @@ class NotebookTaskSource:
             task,
             actionable=await model.is_actionable(task, self.table),
             started_at=self._first_starts.get(session, ""),
+            landing=await self.landings.landing_of(task),
         )
+
+    async def read_some(self, task_ids: list[str]) -> list[Task]:
+        entities: list[Task] = []
+        for task_id in task_ids:
+            project, notebook_id = split_task_key(task_id)
+            task = await self.table.load(project, notebook_id)
+            if task is not None:
+                entities.append(await self._entity(task))
+        return entities
 
     async def read_since(self, since: int) -> TaskReading:
         """The tasks that moved after ``since``, and the ids that went.
@@ -528,6 +550,8 @@ class NotebookTaskSource:
         # out, so a wire id has to lose its project again here.
         if "follows" in wanted:
             wanted["follows"] = [split_task_key(f)[1] for f in wanted["follows"]]
+        if "comms" in wanted:
+            wanted["comms"] = list(dict.fromkeys(wanted["comms"]))
         await model.update(self.table, project, notebook_id, **wanted)
 
     async def register_pr(self, task_id: str, number: int, url: str) -> None:

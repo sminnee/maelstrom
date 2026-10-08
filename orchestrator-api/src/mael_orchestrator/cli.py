@@ -11,6 +11,8 @@ import logging
 import signal
 import ssl
 import sys
+import time
+from collections.abc import Callable
 from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
@@ -21,6 +23,8 @@ from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemo
 from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
+from mael_domain.comm_store import SqliteCommStore
+from mael_domain.config import MaelstromConfig
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
 from mael_domain.env import refresh_env
@@ -57,7 +61,7 @@ from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
 from .routes import build_app, serve_app
-from .server import Orchestrator
+from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
     CloseBlocked,
     ListAllWorktreeSource,
@@ -263,11 +267,19 @@ def build_orchestrator(
     def list_projects() -> list[str]:
         return [path.name for path in find_all_projects(projects_dir)]
 
+    landings = Landings(
+        prs=SqlitePullRequestStore(state_db),
+        steps=SqliteTaskStepStore(state_db),
+        signals=GhLandingSignals(projects_dir),
+        tracked=lambda: tracked_tasks(table, list_projects()),
+        config_for=_config_reader(projects_dir),
+    )
     tasks = NotebookTaskSource(
         table,
         list_projects,
         open_worktree=open_worktree,
         agents=agent_store,
+        landings=landings,
     )
     worktrees = ListAllWorktreeSource(
         projects_dir,
@@ -293,13 +305,8 @@ def build_orchestrator(
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
         task_attachments=SqliteTaskAttachmentTable(state_db),
-        landings=Landings(
-            prs=SqlitePullRequestStore(state_db),
-            steps=SqliteTaskStepStore(state_db),
-            signals=GhLandingSignals(projects_dir),
-            tracked=lambda: tracked_tasks(table, list_projects()),
-            config_for=lambda project: project_config(projects_dir, project),
-        ),
+        landings=landings,
+        comms=SqliteCommStore(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.
@@ -314,6 +321,27 @@ def build_orchestrator(
         executor=executor,
         worktree_executor=worktree_executor,
     )
+
+
+def _config_reader(
+    projects_dir: Path, ttl: float = WORKTREE_POLL_SECS
+) -> Callable[[str], MaelstromConfig]:
+    """``project_config``, read from disk at most once per ``ttl`` per project.
+
+    A whole task read asks it once per done task, so an uncached read would
+    parse a project's ``.maelstrom.yaml`` hundreds of times. An edit to the
+    ``deploy:`` block shows within one worktree poll.
+    """
+    cache: dict[str, tuple[float, MaelstromConfig]] = {}
+
+    def read(project: str) -> MaelstromConfig:
+        now = time.monotonic()
+        hit = cache.get(project)
+        if hit is None or now - hit[0] >= ttl:
+            hit = cache[project] = (now, project_config(projects_dir, project))
+        return hit[1]
+
+    return read
 
 
 #: What every log line looks like. The time and the level come first, because

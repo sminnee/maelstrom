@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from .config import MaelstromConfig, load_config_or_default
+from .config import DEPLOY_STEPS, MaelstromConfig, load_config_or_default
 from .landing_store import (
     STEPS,
     EnvLanding,
@@ -23,7 +23,8 @@ from .landing_store import (
     StepEvent,
     TaskStepStore,
 )
-from .task import STATUS_DONE
+from .protocol import EnvLandingState, TaskLanding
+from .task import STATUS_DONE, Task
 from .task_table import TaskTable
 
 log = logging.getLogger(__name__)
@@ -356,6 +357,28 @@ class Landings:
             self.config_for,
             now,
         )
+
+    async def landing_of(self, task: Task) -> TaskLanding | None:
+        """``task``'s landing as the wire carries it, or ``None`` until done. Reads nothing from GitHub."""
+        if task.status != STATUS_DONE:
+            return None
+        config = self.config_for(task.project)
+        tracked = TrackedTask(task.project, task.id, task.status, task.pr_number)
+        pr = (
+            await self.prs.read(task.project, task.pr_number)
+            if task.pr_number
+            else None
+        )
+        envs: dict[str, EnvLandingState] = {}
+        if task.pr_number:
+            for step in DEPLOY_STEPS:
+                if step not in config.deploy_environments:
+                    continue
+                if pr is None or not pr.merged_at:
+                    envs[step] = NOT_YET
+                else:
+                    envs[step] = pr.envs.get(step, EnvLanding(UNKNOWN)).state  # type: ignore[assignment]
+        return {"status": status_of(tracked, pr, config) or "done", "envs": envs}
 
     async def report(self) -> list[LandingRow]:
         """Each followed task, as the last sync left it. Reads nothing from GitHub."""
