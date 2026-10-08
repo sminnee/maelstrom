@@ -164,16 +164,18 @@ running, so a task launched from the UI joins the desk as well.
 
 The canvas is where the user decides. The panel is where the user reads. The task list is where
 the user chooses what the canvas draws. The worktree table is where the user manages the
-worktrees themselves.
+worktrees themselves. The Comms view is where the user keeps track of what to tell people outside
+the team.
 
 The canvas draws a node when it is on the desk, or it has a live agent. The liveness half is
 what makes running work always visible: an agent shows the moment it starts, before the server's
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar shows Desk, Tasks, Worktrees and Tabs; see "The three layouts". There is one
-filter bar, and it draws the controls of each main view on screen. Project applies to all three
-main views and is always drawn.
+the desk. The top bar shows Desk, Tasks, Worktrees, Comms and Tabs; see "The three layouts". There is one
+filter bar, and it draws the controls of each main view on screen. Project applies to Desk, Tasks
+and Worktrees. A comm belongs to no project, so the bar hides Project when Comms is the only view
+on screen.
 Branch applies to Desk and Tasks only: a worktree on a branch no work names would silently vanish
 from a table meant to show every one of them. The Project and Branch options are what the views on
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
@@ -237,6 +239,30 @@ Each row carries its operations. Sync, the environment control and the close con
 buttons. The close control is `worktrees/CloseControl.tsx` — see "The worktree area". Delete is
 `ui/ConfirmButton.tsx`, because it asks before it acts. `_main` is offered neither close nor
 delete — it holds the main checkout — but it still syncs.
+
+### The Comms view
+
+`comms/CommList.tsx` draws one row per open **Comm**: its title, its recipients, its linked task
+count, and the highest **Landing** status among its tasks. The rank is none, `done`, `merged`, then
+each deploy step; `selectors/comms.ts` holds it and the strip text. "Show closed" adds the closed
+comms. It is the view's own state, not a filter in the URL, because no other view reads it. Below
+840px the rows stack, as the task list's do.
+
+`comms/CommEditor.tsx` opens over the list as a dialog. It edits the title, the content and the
+recipients, which are chips: Enter adds one, and Save also adds what is left in the field. It
+lists the linked tasks, each with its landing strip, such as `merged · UAT ✓ · live ○`: ✓ is
+`landed`, ○ is `not_yet` and ? is `unknown`. A task that is not done shows its status.
+
+A link is the task's own `comms` field. So the Link picker and each Unlink write through
+`useUpdateTask` with `comms`. The `comm` notice that follows refetches the comm, with its new
+`taskIds`. `comms`
+rides on the update call, not on `TaskEdit`, so it stays out of the task editor and out of new
+work. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
+editor, so it is disabled while the form holds unsaved edits.
+
+The `comm` notice invalidates per id, as `task` does: `perId(keys.comms, …)` in
+`live/changeStream.ts`. `/scenario/comms` opens the fake mode on three comms over tasks at
+each landing step.
 
 The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync", sends `plain`,
 so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds "Sync & squash"
@@ -1195,13 +1221,13 @@ The app draws one of three layouts, chosen by viewport width.
 
 `orchestrator-ui/DESIGN.md` says why each break sits there.
 
-**Slots and anchors.** The top bar has four items: Desk, Tasks, Worktrees and Tabs. Each item has
+**Slots and anchors.** The top bar has five items: Desk, Tasks, Worktrees, Comms and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
 `ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-Desk, Tasks and Worktrees are links to their view's path; Tabs is a button, because the panel is
+Desk, Tasks, Worktrees and Comms are links to their view's path; Tabs is a button, because the panel is
 not a location. A click on a view that is not showing moves to its path, and the shell calls
 `showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
 location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,
@@ -1269,7 +1295,7 @@ as its detail screen and the panel tab as a screen over it.
 
 | URL | What it opens |
 | --- | --- |
-| `/desk`, `/tasks`, `/worktrees` | The main view. `/` and any unknown path redirect to `/desk` |
+| `/desk`, `/tasks`, `/worktrees`, `/comms` | The main view. `/` and any unknown path redirect to `/desk` |
 | `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
 | `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |

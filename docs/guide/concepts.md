@@ -150,6 +150,7 @@ lines there and post the comments to the agents in that worktree. A worktree's d
 opens in a tab too. A shift-click on a tab shows it beside the tab you have open. Desk shows the work on your
 desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project, branch and Search filters apply
 to both views. On a phone, the Filters button holds them. Tasks opens on live work. It also edits a task: its status, title, content and more.
+Comms lists what to tell people outside the team when work lands, and links tasks to each comm.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
 The URL names the view, the open card, the active tab and the filters. Back and Forward move
 through the app, a refresh keeps the screen, and a copied link opens it in another window.

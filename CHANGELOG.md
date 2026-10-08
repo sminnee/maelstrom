@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Comms.** A **Comm** is something to tell people outside the team when work lands. The
+  Comms view lists the open comms, edits them and links tasks to them, with each linked task's
+  landing. An agent uses `mael comms new`, `list`, `close`, `link` and `edit`, and
+  `mael task add --comm`. A child task inherits its parent task's comms. See
+  [Comms](docs/reference/cli.md#comms).
+
 - **Fire a template when a GitHub build finishes.** `mael task add --template --trigger
   gh-action/nightly.yml` starts a run when the nightly workflow fails. A trigger can list other
   conclusions, such as `success`, and can work with a `schedule`. The run's content gains a
@@ -24,7 +30,7 @@ release while that section is empty, and retitles it to the version it is releas
 - **Search the Desk.** One Search box filters the Desk and Tasks. A task matches by its id or
   title; a free agent by its id or its title.
 
-- **Follow a task past done with `mael comms list`.** The orchestrator server reads each
+- **Follow a task past done with `mael comms landings`.** The orchestrator server reads each
   tracked task's **Landing** from GitHub on its worktree poll: merged, then each deploy named
   in the new `deploy:` block. See [`deploy:`](docs/reference/configuration.md#deploy). The
   deploy reads need `deployments: read` on the server's token.

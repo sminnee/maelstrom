@@ -210,7 +210,18 @@ to GitHub's data about that PR, which the orchestrator server reads on its workt
 - A project with no `deploy:` block stops at `merged`.
 - The server records each landing step the first time a task reaches it, with the time it
   recorded it.
+- A landing belongs to one task. There is no chain landing.
 _Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phase, milestone
+
+**Comm**:
+Something to tell people outside the team when some work lands. It has an id (`c1`, `c2`, …,
+one sequence across every project), a title, its content (the request as it came in) and its
+recipients. A recipient is free text: a Slack channel, an email address or a note.
+- A comm links to tasks, and task ↔ comm is many-to-many. The link is the task's `comms`
+  field, so a task names the comms it feeds.
+- A new child task gets its parent task's comms, as it gets the parent's branch.
+- You close a comm when everyone is told. A closed comm leaves the open list.
+_Avoid_: outcome, promise, communiqué, notification, announcement, ticket
 
 **Draft**:
 A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
@@ -1064,6 +1075,13 @@ node's expanded card offers the same toggle for every task its task follows or i
 The task list lists tasks only: a free agent has no row, and is taken **Off desk** from its node on the canvas.
 _Avoid_: Table view, index
 
+**Comms**:
+The view that lists the open **Comms** and edits them: a row per comm, with its recipients, its
+linked task count and the highest **Landing** status among its tasks. The editor links and
+unlinks tasks, and shows each linked task's landing strip. A person works here; an agent uses
+`mael comms`.
+_Avoid_: Inbox, outbox, notifications tab
+
 **Task editor**:
 The form that edits one task's fields: title, status, content and branch, with the planning level
 shown above Advanced, and command, mode, base, priority, model and follows folded away there. It
@@ -1117,14 +1135,14 @@ _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
 
 **Slot**:
 One of the two places in the body, left and right, that draws a top bar item: the desk, the task
-list, the worktree table or the panel. The wide layout draws both slots. A click on a showing item
+list, the worktree table, the Comms view or the panel. The wide layout draws both slots. A click on a showing item
 closes its slot, and the other slot takes the full width. The body is never empty: closing the
 last open slot reopens the left slot on its most recent item. The code calls a top bar item a
 pane.
 _Avoid_: Column, region, split (a split inside the panel is a **Split tab**)
 
 **Anchor**:
-The side, left or right, that a top bar item shows on. The three main views start anchored left
+The side, left or right, that a top bar item shows on. The four main views start anchored left
 and the panel starts anchored right. A shift-click on the item moves its anchor to the other
 side. The top bar draws each item in the group of its anchor.
 _Avoid_: Dock, pin
