@@ -22,6 +22,7 @@ import {
 } from '../tasklist/TaskFields';
 import { useWorktrees } from '../api/worktrees';
 import { useAppStore } from '../store/store';
+import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
@@ -144,7 +145,7 @@ export function NewWork() {
   // The canvas view, read the way every other view reads it, so the project
   // radios follow the filter bar.
   const { world } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
+  const { filters } = useLoc();
   const inView = useMemo(() => projectsInView(world, filters), [world, filters]);
 
   const names = projects.data?.projects.map((p) => p.name) ?? [];

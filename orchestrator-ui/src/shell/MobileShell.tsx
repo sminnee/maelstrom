@@ -171,7 +171,7 @@ function Screen({ screen, onBack }: { screen: MobileScreen; onBack: () => void }
  */
 function Detail({ nodeId, onDone }: { nodeId: string; onDone: () => void }) {
   const node = useDeck().byId.get(nodeId);
-  const showProject = useAppStore((s) => showsProject(s.ui.filters));
+  const showProject = showsProject(useLoc().filters);
   // The node has left the desk, or the world no longer holds it.
   if (!node) return <p className={styles.gone}>This work is no longer on the desk.</p>;
   return (

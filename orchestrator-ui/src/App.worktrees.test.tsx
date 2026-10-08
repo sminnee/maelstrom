@@ -36,6 +36,22 @@ describe('the worktrees view', () => {
     ]);
   });
 
+  it('lists the closed worktrees too when the URL says so', async () => {
+    await renderApp({ url: '/worktrees?closed=1' });
+    expect(screen.getByLabelText('show closed')).toBeChecked();
+    expect(listedIds()).toEqual([
+      '_main',
+      'maelstrom-alpha',
+      'maelstrom-bravo',
+      'maelstrom-charlie',
+      'northwind-alpha',
+      'northwind-bravo',
+      'northwind-charlie',
+      'northwind-delta',
+      'northwind-echo',
+    ]);
+  });
+
   it('groups the rows under their project', async () => {
     const user = userEvent.setup();
     await renderApp();

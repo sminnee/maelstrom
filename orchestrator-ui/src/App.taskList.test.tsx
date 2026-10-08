@@ -111,6 +111,15 @@ describe('the task list', () => {
     expect(listedIds()).toEqual(Object.keys(seedWorld().world.tasks).sort());
   });
 
+  it('opens on the statuses the URL names, and searches without a history entry per key', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/tasks?status=all' });
+    expect(listedIds()).toEqual(Object.keys(seedWorld().world.tasks).sort());
+    await user.type(screen.getByLabelText('Search'), 'NORT');
+    expect(router.state.location.search).toBe('?status=all&q=NORT');
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
   it('adds a task to the desk, and it is then drawn on the canvas', async () => {
     const user = userEvent.setup();
     await renderApp();

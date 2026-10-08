@@ -10,6 +10,7 @@ import { sessionTab } from '../selectors/tabs';
 import { listTasks } from '../selectors/taskList';
 import { PanelLink } from '../shell/PanelLink';
 import { useAppStore } from '../store/store';
+import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -21,8 +22,7 @@ import styles from './TaskList.module.css';
 /** Every task in the world, each with its desk toggle. */
 export function TaskList() {
   const { world, status, errors, retry } = useWorld();
-  const filters = useAppStore((s) => s.ui.filters);
-  const listFilters = useAppStore((s) => s.ui.listFilters);
+  const { filters, listFilters } = useLoc();
   const editTask = useAppStore((s) => s.setEditingTask);
   const editingTaskId = useAppStore((s) => s.ui.editingTaskId);
   const setStatus = useSetStatus();

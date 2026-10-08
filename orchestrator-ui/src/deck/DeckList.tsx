@@ -3,10 +3,9 @@ import { showsProject } from '../selectors/filters';
 import { ZONES } from '../protocol/progress';
 import { emptyZoneWords, zoneLabel } from '../selectors/deck';
 import { useDeck } from './useDeck';
-import { useAppStore } from '../store/store';
 import { cardOf } from '../nav/useCard';
 import { toHref, withLoc } from '../nav/location';
-import { useLoc } from '../nav/useNav';
+import { useGo, useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { DeckRow } from './DeckRow';
@@ -19,10 +18,10 @@ const DECK_PANEL_ID = 'deck-rows';
 export function DeckList() {
   const { status, errors, retry } = useWorld();
   const deck = useDeck();
-  const zone = useAppStore((s) => s.ui.deckZone);
-  const setDeckZone = useAppStore((s) => s.setDeckZone);
   const loc = useLoc();
-  const showProject = useAppStore((s) => showsProject(s.ui.filters));
+  const { zone } = loc;
+  const go = useGo();
+  const showProject = showsProject(loc.filters);
 
   if (status === 'loading') {
     return (
@@ -56,7 +55,7 @@ export function DeckList() {
             aria-controls={DECK_PANEL_ID}
             tabIndex={z === zone ? 0 : -1}
             data-zone={z}
-            onClick={() => setDeckZone(z)}
+            onClick={() => go({ zone: z })}
           >
             {zoneLabel(z)}
             <span className={styles.count}>{deck.counts[z]}</span>

@@ -3,7 +3,7 @@ import { useShowing } from '../layout/useShowing';
 import type { AgentStatusFilter } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { agentCounts } from '../selectors/usage';
-import { useAppStore } from '../store/store';
+import { useGo, useLoc } from '../nav/useNav';
 import { SplitChip } from '../ui/SplitChip';
 import styles from './AgentsChip.module.css';
 
@@ -36,8 +36,8 @@ const nextStatus = (status: AgentStatusFilter): CycleStatus => {
  */
 export function AgentsChip() {
   const { world } = useWorld();
-  const agentStatus = useAppStore((s) => s.ui.filters.agentStatus) ?? 'all';
-  const setFilters = useAppStore((s) => s.setFilters);
+  const agentStatus = useLoc().filters.agentStatus ?? 'all';
+  const go = useGo();
   const deskShowing = useShowing().includes('canvas');
   const { open, working } = agentCounts(world.agents);
   // An empty desk has nothing to say. `0/0` would be a reading about nothing.
@@ -56,7 +56,7 @@ export function AgentsChip() {
     `${counts}. Agent status: ${AGENT_STATUS_LABELS[agentStatus]}. ` +
     `Click to show ${AGENT_STATUS_LABELS[next]}.`;
   return (
-    <SplitChip label="agents" title={title} onClick={() => setFilters({ agentStatus: next })}>
+    <SplitChip label="agents" title={title} onClick={() => go({ filters: { agentStatus: next } })}>
       {agentStatus === 'working-idle' ? (
         <>
           <span className={styles.faint}>{working}/</span>
