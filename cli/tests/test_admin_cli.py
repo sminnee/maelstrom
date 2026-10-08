@@ -185,7 +185,8 @@ class TestSelfUpdateRestartsOnlyWhatChanged:
         sync_cmd = update.run.call_args_list[1].args[0]
         assert sync_cmd[:3] == ["/usr/bin/uv", "tool", "install"]
 
-    def test_a_failed_install_command_warns_and_carries_on(self):
+    def test_a_failed_install_command_skips_the_restart(self):
+        """The install migrates the state database, so new code could refuse it."""
         update = _run_self_update(
             cli_versions=["c1", "c1"],
             run_results=[_ok()],
@@ -193,7 +194,8 @@ class TestSelfUpdateRestartsOnlyWhatChanged:
         )
         assert update.result.exit_code == 0, update.result.output
         assert "install_cmd failed" in update.result.output
-        update.restart.assert_called_once()
+        assert "mael self-env restart --install" in update.result.output
+        update.restart.assert_not_called()
         assert "Update complete." in update.result.output
 
     def test_a_failed_restart_names_what_may_be_down(self):

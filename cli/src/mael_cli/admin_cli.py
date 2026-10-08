@@ -258,13 +258,21 @@ def _cli_hash(repo_root: Path) -> str | None:
 def _update_self_env(repo_root: Path) -> None:
     """Install new dependencies in `_main`, then restart its changed services.
 
-    Best-effort, as the dependency sync is: the pull has already landed.
+    Best-effort, as the dependency sync is: the pull has already landed. A
+    failed install skips the restart: the install migrates the state database,
+    and new code refuses one it did not migrate.
     """
     click.echo("Installing dependencies in _main...")
     try:
         run_install_cmd(repo_root)
     except (OSError, subprocess.CalledProcessError) as e:
-        click.echo(f"  Warning: install_cmd failed: {e}", err=True)
+        click.echo(
+            f"  Warning: install_cmd failed: {e}. The changed services were not "
+            "restarted. Fix the install, then run "
+            "`mael self-env restart --install`.",
+            err=True,
+        )
+        return
 
     click.echo("Restarting changed services...")
     try:
