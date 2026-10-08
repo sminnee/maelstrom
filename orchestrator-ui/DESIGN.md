@@ -1146,10 +1146,11 @@ There are two ways to see a change with no orchestrator, no daemon and no live a
 | Ladle     | `mael env start ladle`    | one component's states, drawn side by side |
 
 The fake mode is the production `App` on the fake server of the test suite. Its index lists the
-scenarios, and `?scenario=<name>` opens one. `&task=<id>`, `&session=<agent>`,
-`&document=<id>`, `&changes=<worktree>`, `&edit=<task>`, `&view=list`, `&view=worktrees` and `&new=1` open a screen. `&hold=1`
-keeps each reply back, for a loading state. `&refuse=<pattern>` fails each route that the pattern
-matches, for an error state. A phone on the tailnet opens the same URL.
+scenarios, and `/scenario/<name>/desk` opens one. Every URL of the app works under that base, so
+`/scenario/detail/desk/task/NORT-12?panel=changes/northwind-delta` opens a card and a tab: copy
+the URL from the app itself. `?hold=1` keeps each reply back, for a loading state.
+`?refuse=<pattern>` fails each route that the pattern matches, for an error state. A phone on the
+tailnet opens the same URL.
 
 A test fails when a value of a protocol set has no scenario, so a new state arrives with a world
 that shows it. `src/fake/scenarios.ts` holds the scenarios.

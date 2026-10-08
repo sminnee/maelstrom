@@ -29,7 +29,7 @@ export interface Scenario {
   build: () => Seed;
   /** The URL of the screen the scenario exists to show: a path and a search. */
   screen?: string;
-  /** Workspace the URL cannot carry, such as a split tab. */
+  /** UI state the URL cannot carry, such as a split tab. */
   ui?: Partial<UiState>;
 }
 
