@@ -196,6 +196,9 @@ TASK_FIELDS = (
     _FieldSpec("pr-url"),
     # What fires a template. See CONTEXT.md, "Trigger".
     _FieldSpec("trigger"),
+    # The comms the task feeds. A child inherits its parent task's list. See
+    # CONTEXT.md, "Comm".
+    _FieldSpec("comms", block=True),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -286,6 +289,8 @@ class Task:
     pr_url: str = ""
     # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
     trigger: str = ""
+    # The ids of the comms this task feeds, such as ``c3``. See CONTEXT.md.
+    comms: list[str] = field(default_factory=list)
     content: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
@@ -301,8 +306,8 @@ class Task:
         """
         lines = ["---"]
         for k in FRONTMATTER_KEYS:
-            if k == "follows":
-                lines.append(f"follows: {_dump_follows(self.follows)}")
+            if k in ("follows", "comms"):
+                lines.append(f"{k}: {_dump_follows(getattr(self, k))}")
             else:
                 attr = _FRONTMATTER_ATTR.get(k, k)
                 lines.append(f"{k}: {_dump_scalar(getattr(self, attr))}")
@@ -347,6 +352,7 @@ class Task:
             pr_number=_coerce_pr_number(frontmatter.get("pr")),
             pr_url=str(frontmatter.get("pr-url", "")),
             trigger=str(frontmatter.get("trigger", "")),
+            comms=_coerce_follows(frontmatter.get("comms")),
             content=sections.get("content", ""),
             log=sections.get("log", ""),
             status=status,
@@ -673,6 +679,7 @@ async def create(
     last_run: str = "",
     trigger: str = "",
     priority: str = "",
+    comms: list[str] | None = None,
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
@@ -689,6 +696,9 @@ async def create(
     boundary date via :func:`allocate_run_id`); when ``None`` an id is allocated
     as a child of ``parent`` or a fresh orphan. ``status`` places the task in a
     folder other than ``todo/`` (e.g. ``template/`` for a parked template).
+
+    ``comms`` set to ``None`` inherits the parent task's comms, as the branch
+    is inherited. An explicit list wins, and ``[]`` opts out.
     """
     timestamp = now if now is not None else now_iso()
     if id is None:
@@ -736,6 +746,11 @@ async def create(
         model=model,
         execute_model=execute_model,
         base=base,
+        comms=(
+            list(comms)
+            if comms is not None
+            else await _parent_comms(table, project, parent)
+        ),
         content=content,
         status=status,
     )
@@ -762,6 +777,7 @@ async def duplicate(
     schedule: str = "",
     trigger: str = "",
     priority: str | None = None,
+    comms: list[str] | None = None,
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
@@ -775,6 +791,10 @@ async def duplicate(
     ``trigger``/``last_run`` are intentionally *not* copied: ``schedule`` and
     ``trigger`` are set only from the explicit override (so a run never inherits
     its template's cron or trigger).
+
+    ``comms`` set to ``None`` takes the parent task's comms when there is a
+    parent, and the source's comms when there is none — so a scheduled run
+    feeds the comms its template feeds.
 
     ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
     duplicate. For a scheduled run pass ``parent=""`` and
@@ -803,6 +823,7 @@ async def duplicate(
         schedule=schedule,
         trigger=trigger,
         priority=priority if priority is not None else src.priority,
+        comms=comms if comms is not None or parent else list(src.comms),
         status=status,
         id=id,
         now=now,
@@ -951,6 +972,8 @@ async def promote_draft(
         title=draft.title,
         content=draft.content,
         follows=list(follows or []),
+        # A draft that names comms wins; one that names none inherits them.
+        comms=draft.comms or None,
         **fields,
     )
     if consume:
@@ -1154,6 +1177,8 @@ async def load_many(
                 pre_action=str(args.get("pre-action", "")),
                 post_action=str(args.get("post-action", "")),
                 follows=deduped,
+                # An omitted key inherits the parent task's comms.
+                comms=(_coerce_follows(args["comms"]) if "comms" in args else None),
                 content=b["content"],
                 now=now,
             )
@@ -1252,6 +1277,7 @@ async def update(
     trigger: str | None = None,
     priority: str | None = None,
     follows: list[str] | None = None,
+    comms: list[str] | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -1292,6 +1318,8 @@ async def update(
         task.priority = priority
     if follows is not None:
         task.follows = follows
+    if comms is not None:
+        task.comms = comms
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
@@ -1515,6 +1543,17 @@ async def _parent_branch(table: "TaskTable", project: str, parent: str) -> str:
     except KeyError:
         return ""
     return parent_task.branch
+
+
+async def _parent_comms(table: "TaskTable", project: str, parent: str) -> list[str]:
+    """Return the parent task's comms, or ``[]`` for no parent or a virtual one."""
+    if not parent:
+        return []
+    try:
+        parent_task = await load(table, project, parent)
+    except KeyError:
+        return []
+    return list(parent_task.comms)
 
 
 def default_branch(

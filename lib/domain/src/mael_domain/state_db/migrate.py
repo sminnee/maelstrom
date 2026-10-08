@@ -21,6 +21,7 @@ from ..notebook_root import (
 from ..worktree_model import MAIN_WORKTREE_FOLDER, parse_env_text
 from .db import StateDb
 from .migrations.agents import AGENTS
+from .migrations.comms import COMMS
 from .migrations.desk import DESK
 from .migrations.landings import LANDINGS
 from .migrations.spine import SPINE
@@ -38,6 +39,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "agents": AGENTS,
     "task_attachments": TASK_ATTACHMENTS,
     "landings": LANDINGS,
+    "comms": COMMS,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
@@ -61,6 +63,8 @@ TABLES: dict[str, TableSpec] = {
     "pull_requests": TableSpec("pull_requests", cached=True, notifies=False),
     # The steps each task has reached. Canonical: see docs/dev/data-architecture.md.
     "task_steps": TableSpec("task_steps", notifies=False),
+    # The comms the Comms view lists and edits. Canonical.
+    "comms": TableSpec("comms"),
 }
 
 

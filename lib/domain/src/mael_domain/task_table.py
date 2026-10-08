@@ -39,7 +39,7 @@ from .task import Task, creation_order, session_id_for, task_key
 TABLE = "tasks"
 
 #: Every scalar column a row carries, and the :class:`~mael_domain.task.Task`
-#: attribute it holds. ``follows`` is JSON text and handled apart; ``project``,
+#: attribute it holds. ``follows`` and ``comms`` are JSON text and handled apart; ``project``,
 #: ``status`` and ``session_id`` are derived on the way in.
 _SCALARS = (
     "title",
@@ -108,6 +108,7 @@ def columns_for(task: Task) -> dict[str, Any]:
         "status": task.status,
         "session_id": session_id_for(task.project, task.id),
         "follows": json.dumps(list(task.follows)),
+        "comms": json.dumps(list(task.comms)),
     }
     for name in _SCALARS:
         value = getattr(task, name)
@@ -134,6 +135,7 @@ def task_from_row(row: sqlite3.Row) -> Task:
     task = Task(id=row["task_id"], title=row["title"], project=row["project"])
     task.status = row["status"]
     task.follows = list(json.loads(row["follows"] or "[]"))
+    task.comms = list(json.loads(row["comms"] or "[]"))
     for name in _SCALARS:
         setattr(task, name, row[name])
     return task

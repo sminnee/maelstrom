@@ -157,6 +157,7 @@ class TestTheTasksLadderUpgrade:
             assert row is not None
             assert row["execute_model"] == ""
             assert (row["pr_number"], row["pr_url"]) == (0, "")
+            assert row["comms"] == "[]"
         finally:
             db.close()
 
@@ -235,6 +236,24 @@ class TestTheTasksLadderUpgrade:
             assert (await db.read("pull_requests", "p/1"))["fetched_at"] == "t"
             with pytest.raises(ValueError, match="canonical"):
                 await db.upsert("task_steps", "p/t/done", fetched_at="t", step="done")
+        finally:
+            db.close()
+
+    async def test_an_older_database_gains_the_comms_table(self, tmp_path):
+        """A database from before comms gains the table, and it notifies."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders.pop("comms")
+            await db.migrate()
+            assert not await db.has_table("comms")
+
+            db.ladders["comms"] = full
+            await db.migrate()
+
+            before = await db.revision()
+            await db.upsert("comms", "c1", title="Invoice export")
+            notices, _ = await db.notices_since(before)
+            assert notices == {"comms": {"c1"}}
         finally:
             db.close()
 

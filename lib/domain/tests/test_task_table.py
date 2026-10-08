@@ -43,6 +43,7 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         execute_model="sonnet",
         pr_number=118,
         pr_url="https://github.com/o/r/pull/118",
+        comms=["c3", "c7"],
         content="The prose the row carries.",
         log="- started",
         status="todo",
