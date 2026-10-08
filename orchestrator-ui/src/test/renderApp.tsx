@@ -2,7 +2,8 @@ import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-lib
 import { StrictMode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
-import { App, type AppRouter } from '../App';
+import { App } from '../App';
+import type { AppRouter } from '../nav/router';
 import { routes } from '../nav/routes';
 import { keys } from '../api/keys';
 import { useAppStore } from '../store/store';

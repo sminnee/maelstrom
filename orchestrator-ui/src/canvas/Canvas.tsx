@@ -18,6 +18,7 @@ import { focusedTaskId } from '../selectors/tabs';
 import { useShowing } from '../layout/useShowing';
 import { useAppStore } from '../store/store';
 import { cardOf, useCard } from '../nav/useCard';
+import { useLoc } from '../nav/useNav';
 import { layoutSwimlanes, type WorktreeBox } from './layout';
 import { GroupNode, type GroupFlowNode } from './GroupNode';
 import { canConnect, followsAfterConnect } from './connect';
@@ -65,7 +66,7 @@ export function Canvas() {
   const [rewireError, setRewireError] = useState<string | null>(null);
   const filters = useAppStore((s) => s.ui.filters);
   const tabs = useAppStore((s) => s.ui.tabs);
-  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
+  const activeTabKey = useLoc().panel?.key ?? null;
   const { expandedNodeId, expandedWorktreeId, open, collapse } = useCard();
   const { fitView, getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();

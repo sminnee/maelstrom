@@ -1,5 +1,5 @@
 import type { ProjectGroup, TabGroup } from '../selectors/tabs';
-import { useAppStore } from '../store/store';
+import { usePanelNav } from './usePanelNav';
 import { actionIcon } from '../ui/actionIcons';
 import { PANEL_GROUP_ID } from './PanelTabs';
 import { rowId } from './usePanelGroups';
@@ -18,7 +18,7 @@ export function PanelSidebar({
   activeGroup: TabGroup | null;
   onClose: (keys: string[]) => void;
 }) {
-  const selectGroup = useAppStore((s) => s.selectGroup);
+  const { selectGroup } = usePanelNav();
   const rows = groups.flatMap((p) => p.worktrees);
   if (rows.length === 0) return null;
 

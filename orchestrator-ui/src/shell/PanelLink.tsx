@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { useLayoutMode } from '../layout/useLayoutMode';
+import { IN_APP, useHrefFor } from '../nav/useNav';
 import { useAppStore } from '../store/store';
-import type { MobileScreen } from '../selectors/navStack';
 import type { PanelTab } from '../store/uiSlice';
 import type { TabOf } from '../selectors/tabs';
 import { ExternalLink } from './ExternalLink';
@@ -17,41 +18,16 @@ type ScreenTab = Exclude<PanelTab, { kind: 'devenv' }>;
  */
 type Target = { tab: ScreenTab; external?: never } | { tab: TabOf<'devenv'>; external: string };
 
-/** The same destination as a screen the narrow layout can push. */
-function screenFor(tab: ScreenTab): MobileScreen {
-  switch (tab.kind) {
-    case 'session':
-      return { kind: 'session', agentId: tab.agentId };
-    case 'document':
-      return { kind: 'document', documentId: tab.documentId };
-    case 'changes':
-      return { kind: 'changes', worktreeId: tab.worktreeId };
-  }
-}
-
-/** The id a tab's href carries: what the panel would show, for a hover or a copied link. */
-function hrefFor(tab: PanelTab): string {
-  switch (tab.kind) {
-    case 'session':
-      return `#panel/session/${tab.agentId}`;
-    case 'document':
-      return `#panel/document/${tab.documentId}`;
-    case 'changes':
-      return `#panel/changes/${tab.worktreeId}`;
-    case 'devenv':
-      return `#panel/devenv/${tab.worktreeId}/${tab.service}`;
-  }
-}
-
 /**
  * A link that opens a session, a document, a worktree's changes or its dev
  * env. Links open more information; buttons act. Every panel link carries the open-in-panel icon so the two
  * are told apart at a glance. The click stops there: a link on a canvas node
  * must not also toggle the node.
  *
- * Where it opens depends on the layout: a panel tab when wide, a pushed
- * screen when narrow, or an external link for a dev env when narrow. Every
- * link in the app goes through here, so one branch carries the whole difference.
+ * Its href is the current location with the tab as its `panel`, so it opens in a new window
+ * too. The location draws as a panel tab when wide and as a screen when narrow; a dev env
+ * links out of the app when narrow. Every link in the app goes through here, so one branch
+ * carries the whole difference.
  */
 export function PanelLink({
   tab,
@@ -68,8 +44,8 @@ export function PanelLink({
   'aria-label'?: string;
 }) {
   const openTab = useAppStore((s) => s.openTab);
-  const pushScreen = useAppStore((s) => s.pushScreen);
   const narrow = useLayoutMode() === 'narrow';
+  const to = useHrefFor({ panel: tab });
   if (narrow && tab.kind === 'devenv')
     return (
       <ExternalLink href={external!} className={className} aria-label={ariaLabel}>
@@ -77,19 +53,21 @@ export function PanelLink({
       </ExternalLink>
     );
   return (
-    <a
-      href={hrefFor(tab)}
+    <Link
+      to={to}
+      state={IN_APP}
       className={[styles.link, className].filter(Boolean).join(' ')}
       aria-label={ariaLabel}
       onClick={(e) => {
-        e.preventDefault();
         e.stopPropagation();
-        if (narrow && tab.kind !== 'devenv') pushScreen(screenFor(tab));
-        else openTab(tab);
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.button !== 0) return;
+        // The location may name the tab already, while the panel is hidden or the tab is
+        // split: a link must show what it opened.
+        if (!narrow) openTab(tab);
       }}
     >
       {children}
       {icon && actionIcon('openInPanel', styles.icon)}
-    </a>
+    </Link>
   );
 }

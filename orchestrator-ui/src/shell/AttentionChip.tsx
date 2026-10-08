@@ -9,7 +9,7 @@ import { focusedTaskId } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { cardOf, useCard } from '../nav/useCard';
-import { useGo } from '../nav/useNav';
+import { useGo, useLoc } from '../nav/useNav';
 import { VIEW_MOVE_MS } from '../canvas/viewport';
 import { AppButton } from '../ui/AppButton';
 import styles from './AttentionChip.module.css';
@@ -69,7 +69,7 @@ function NarrowChip({ hideWhenClear }: { hideWhenClear: boolean }) {
 function WideChip() {
   const { world, nodes, count, unanswered } = useAttention();
   const tabs = useAppStore((s) => s.ui.tabs);
-  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
+  const activeTabKey = useLoc().panel?.key ?? null;
   const { expandedNodeId, open } = useCard();
   const canvasShowing = useShowing().includes('canvas');
   const showPane = useAppStore((s) => s.showPane);

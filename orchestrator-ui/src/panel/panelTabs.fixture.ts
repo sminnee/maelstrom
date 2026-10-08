@@ -1,4 +1,5 @@
 import type { PanelTab } from '../store/uiSlice';
+import { defaultLoc, toHref, withLoc } from '../nav/location';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../fake/fixtures';
 
@@ -72,6 +73,10 @@ export interface Strip {
   tabs: PanelTab[];
   activeTabKey: string;
 }
+
+/** The URL whose panel is a strip's active tab: the location names the active tab. */
+export const urlOf = ({ tabs, activeTabKey }: Strip): string =>
+  toHref(withLoc(defaultLoc(), { panel: tabs.find((t) => t.key === activeTabKey) ?? null }));
 
 /** The one-tab strip: nothing to rank against, so the active state stands alone. */
 export const single: Strip = {

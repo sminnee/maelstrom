@@ -1,8 +1,9 @@
-import { groupKeyOf, tabAttribution } from '../selectors/tabs';
+import { tabAttribution } from '../selectors/tabs';
 import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { actionIcon } from '../ui/actionIcons';
 import { TabChip } from './TabChip';
+import { usePanelNav } from './usePanelNav';
 import type { TabGroup } from '../selectors/tabs';
 import styles from './PanelTabs.module.css';
 
@@ -37,14 +38,12 @@ export function PanelTabs({
 }) {
   const { world } = useWorld();
   const tabs = group?.tabs ?? [];
-  const activeTabKey = useAppStore((s) => s.ui.activeTabKey);
-  const activateTab = useAppStore((s) => s.activateTab);
-  const toggleSplit = useAppStore((s) => s.toggleSplit);
+  const { activeTabKey, activate, split: toggleSplit } = usePanelNav();
   const splitKey = useAppStore((s) => (group ? s.ui.splitTabs[group.key] : undefined));
   // Shift puts a tab beside the active one, or takes it back out.
   const choose = (key: string, shift: boolean) => {
-    if (shift) toggleSplit(key, (t) => groupKeyOf(world, t));
-    else activateTab(key);
+    if (shift) toggleSplit(key);
+    else activate(key);
   };
 
   // One tab stop for the strip; arrows move between tabs.
@@ -63,7 +62,7 @@ export function PanelTabs({
       const at = ring.indexOf(tabs[index]!);
       const next = ring[(at + (e.key === 'ArrowRight' ? 1 : ring.length - 1)) % ring.length];
       if (next) {
-        activateTab(next.key);
+        activate(next.key);
         (e.currentTarget.parentElement?.children[tabs.indexOf(next)] as HTMLElement)?.focus();
       }
     }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router';
+import { createBrowserRouter } from 'react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { ApiProvider } from './api/ApiProvider';
 import type { ApiClient } from './api/http';
@@ -7,6 +7,8 @@ import { createQueryClient } from './api/queryClient';
 import type { EventSourceLike } from './live/changeStream';
 import { LiveProvider } from './live/LiveProvider';
 import type { SocketLike } from './live/socketLike';
+import { NavRouter } from './nav/NavRouter';
+import type { AppRouter } from './nav/router';
 import { routes } from './nav/routes';
 import { eventsUrl } from './eventsUrl';
 
@@ -23,9 +25,6 @@ export interface AppDeps {
   router?: AppRouter;
 }
 
-/** The router `App` runs on. A test passes a memory router, to read and move its history. */
-export type AppRouter = ReturnType<typeof createBrowserRouter>;
-
 /** Where the change stream is — see `eventsUrl`. */
 export const EVENTS_URL = eventsUrl(window.location, import.meta.env.VITE_ORCHESTRATOR_PORT);
 
@@ -41,7 +40,7 @@ export function App({ deps }: { deps: AppDeps }) {
         socketFactory={deps.webSocketFactory}
         reconnectMs={deps.streamReconnectMs}
       >
-        <RouterProvider router={router} />
+        <NavRouter router={router} />
       </LiveProvider>
     </ApiProvider>
   );
