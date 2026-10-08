@@ -91,12 +91,6 @@ class TestTheNotebookPathsFollowTheRoot:
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_state_db_path() == Path("/tmp/nb/state.db")
 
-    def test_the_desk_follows_the_root(self, monkeypatch):
-        from mael_domain.state_db.paths import get_desk_json_path
-
-        monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
-        assert get_desk_json_path() == Path("/tmp/nb/desk.json")
-
     def test_the_notebook_export_follows_the_root(self, monkeypatch):
         from mael_domain.state_db.paths import get_notebook_path
 

@@ -203,15 +203,16 @@ class StateDb:
         await self._call(self._migrate)
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
+        root = None if self.path == ":memory:" else Path(self.path).parent
         conn.execute("BEGIN IMMEDIATE")
         try:
-            self._migrate_spine(conn)
+            self._migrate_spine(conn, root)
             for name, ladder in self.ladders.items():
                 found = self._read_version(conn, name)
                 if found > len(ladder):
                     raise SchemaTooNewError(_too_new(name, found, len(ladder)))
                 for rung in ladder[found:]:
-                    self._run_rung(conn, rung)
+                    self._run_rung(conn, rung, root)
                 if found != len(ladder):
                     conn.execute(
                         "INSERT OR REPLACE INTO schema_version (name, version) "
@@ -227,7 +228,7 @@ class StateDb:
         self._known_columns.clear()
 
     @staticmethod
-    def _run_rung(conn: sqlite3.Connection, rung: Rung) -> None:
+    def _run_rung(conn: sqlite3.Connection, rung: Rung, root: Path | None) -> None:
         """Take one step up a ladder, whichever form it takes.
 
         A :class:`~mael_domain.state_db.types.PythonMigration` is handed the raw
@@ -235,17 +236,17 @@ class StateDb:
         the revision counter. Its rows name ``revision = 0`` themselves.
         """
         if isinstance(rung, PythonMigration):
-            rung.run(conn)
+            rung.run(conn, root)
             return
         for statement in rung.statements:
             conn.execute(statement)
 
-    def _migrate_spine(self, conn: sqlite3.Connection) -> None:
+    def _migrate_spine(self, conn: sqlite3.Connection, root: Path | None) -> None:
         found = conn.execute("PRAGMA user_version").fetchone()[0]
         if found > len(self.spine):
             raise SchemaTooNewError(_too_new("the spine", found, len(self.spine)))
         for rung in self.spine[found:]:
-            self._run_rung(conn, rung)
+            self._run_rung(conn, rung, root)
         if found != len(self.spine):
             # A pragma takes no parameter binding; the value is our own int.
             conn.execute(f"PRAGMA user_version = {len(self.spine)}")

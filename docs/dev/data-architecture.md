@@ -314,7 +314,9 @@ file into rows is the case, and the desk's second rung imports `desk.json`. Such
 handed the raw connection rather than a transaction object, because **a migration must not bump
 the revision counter**: its rows name `revision = 0` themselves, so a client polling
 `changed_since` reads them as the state it started from rather than as a change. The rung runs
-inside the migration's own transaction, so a rung that raises rolls the whole run back with it.
+inside the migration's own transaction, so a rung that raises rolls the whole run back with it. It is
+also handed the directory the database file is in, and reads its files from there. So it imports
+the notebook beside the database it fills, whatever `MAEL_NOTEBOOK_ROOT` names.
 
 Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
 background process that rewrote the schema under a running server is worse than a stop with a

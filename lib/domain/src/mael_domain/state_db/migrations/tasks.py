@@ -7,25 +7,23 @@ frontmatter fields — see ``docs/dev/data-architecture.md``, "Canonical".
 """
 
 import sqlite3
+from pathlib import Path
 
-from ..paths import get_notebook_path
+from ..paths import notebook_path
 from ..types import Migration, PythonMigration, Rung
 from .notebook_md import import_notebook
 
 
-def _import_notebook(conn: sqlite3.Connection) -> None:
+def _import_notebook(conn: sqlite3.Connection, root: Path | None) -> None:
     """Bring an existing markdown notebook in, as the ladder's second rung.
 
-    The path is resolved here rather than captured, so a test that pins
-    ``MAEL_NOTEBOOK_ROOT`` is honoured. Both it and
-    :func:`mael_domain.task_store.tasks_root` resolve the same directory from that
-    one root, so the rung and the store cannot disagree about where the notebook
-    is.
+    An in-memory database has no ``root``, so nothing beside it to import.
 
     A ladder version guarantees a rung runs once, which is why no marker row is
     needed: a notebook the user later emptied cannot spring back from the files.
     """
-    import_notebook(conn, get_notebook_path())
+    if root is not None:
+        import_notebook(conn, notebook_path(root))
 
 
 #: The columns rung 1's ``CREATE TABLE`` declares, in its order. Frozen: a rung

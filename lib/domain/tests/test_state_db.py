@@ -270,7 +270,7 @@ class TestPythonRung:
         db.ladders["fake"] = (
             Migration(("CREATE TABLE fake (id TEXT PRIMARY KEY)",)),
             PythonMigration(
-                run=lambda conn: conn.execute("INSERT INTO fake (id) VALUES ('a')")
+                run=lambda conn, root: conn.execute("INSERT INTO fake (id) VALUES ('a')")
             ),
         )
         await db.migrate()
@@ -279,7 +279,7 @@ class TestPythonRung:
     async def test_a_rung_that_raises_leaves_the_version_unmoved(self, db):
         """The transactional-DDL guarantee, extended to Python."""
 
-        def boom(conn):
+        def boom(conn, root):
             conn.execute("INSERT INTO fake (id) VALUES ('a')")
             raise RuntimeError("no")
 
@@ -311,7 +311,7 @@ class TestPythonRung:
                 )
             ),
             PythonMigration(
-                run=lambda conn: conn.execute(
+                run=lambda conn, root: conn.execute(
                     "INSERT INTO fake (id, revision) VALUES ('a', 0)"
                 )
             ),
