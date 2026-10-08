@@ -461,6 +461,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--template` | Park the new task in `template` status: a reusable, non-actionable recipe. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks, e.g. `'0 9 * * 1-5'`. |
 | `--trigger TEXT` | Fire on a finished GitHub Actions run: `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. A value that does not parse is refused. See [Fire on a finished build](../guide/scheduled-work.md#fire-on-a-finished-build). |
+| `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the parent task's comms. An id that names no comm is refused. |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task as a session immediately. |
 | `--here` | With `--run`, launch in the current shell. No worktree, no new workspace. |
@@ -532,10 +533,11 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--base TEXT` | Branch this task's branch stacks on. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
 | `--trigger TEXT` | Build trigger, `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. |
+| `--comm TEXT` | Replace the comms this task feeds. Repeatable. An id that names no comm is refused. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
 Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base`,
-`--schedule` or `--trigger` to clear the field.
+`--schedule`, `--trigger` or `--comm` to clear the field.
 
 **`mael task list`**
 
@@ -1130,20 +1132,71 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 
 ## Comms
 
+A **Comm** is something to tell people outside the team when work lands. These commands let an
+agent change comms. A person uses the Comms view of the orchestrator UI.
+
 | Command | Description |
 |---|---|
-| `mael comms list` | Print each tracked task's **Landing**: its PR, its status, and each environment's state. |
+| `mael comms new TITLE` | Create a comm and print its id, such as `c1`. |
+| `mael comms list` | Print the open comms: id, title, recipients and the number of linked tasks. |
+| `mael comms close COMM` | Close a comm. A closed comm leaves the open list. |
+| `mael comms link COMM TASK...` | Link tasks to a comm. All or nothing: an unknown task links none. |
+| `mael comms edit COMM` | Change a comm's title, content or recipients. |
+| `mael comms landings` | Print each tracked task's **Landing**: its PR, its status, and each environment's state. |
 
 ```bash
-mael comms list                                # one row per tracked task
-mael comms list --since 2026-10-07T00:00:00Z   # the steps recorded after this time
+mael comms new "Invoice export" --to "#cs" --to jo@acme.test   # prints c1
+mael task add "Export invoices as CSV" --comm c1               # its children inherit c1
+mael comms link c1 2026-10-08.3 2026-10-08.4                   # link two more tasks
+mael comms edit c1                                             # edit the content in $EDITOR
+mael comms close c1
+mael comms list --all
+```
+
+A link is the task's own `comms` field, so `mael task update --comm` changes it too.
+
+**`mael comms new`**
+
+| Option | Description |
+|---|---|
+| `--content TEXT` | The request, as it came in. |
+| `--to TEXT` | A recipient: a Slack channel, an email address or a note. Repeatable. |
+
+**`mael comms list`**
+
+| Option | Description |
+|---|---|
+| `--all` | Show closed comms too. |
+
+**`mael comms link`**
+
+| Option | Description |
+|---|---|
+| `--unlink` | Remove the link instead. |
+| `--project TEXT` | Project of the tasks. Default: from the current directory. |
+
+**`mael comms edit`**
+
+With no option, `edit` opens the content in `$EDITOR`. Closing the editor without saving changes
+nothing.
+
+| Option | Description |
+|---|---|
+| `--title TEXT` | Set the title. |
+| `--content TEXT` | Set the content. |
+| `--to TEXT` | Set the recipients. Repeatable. Replaces the list. |
+| `--clear-to` | Remove every recipient. |
+
+**`mael comms landings`**
+
+```bash
+mael comms landings                                # one row per tracked task
+mael comms landings --since 2026-10-07T00:00:00Z   # the steps recorded after this time
 ```
 
 A tracked task is a task with a registered PR. The orchestrator server writes the rows on its
 worktree poll, so the command shows what the last poll saw. An environment the server could
 not read shows `unknown`.
-
-**`mael comms list`**
 
 | Option | Description |
 |---|---|
