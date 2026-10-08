@@ -1,4 +1,5 @@
 import type { Story } from '@ladle/react';
+import { MemoryNav } from '../nav/MemoryNav';
 import { QueryClient } from '@tanstack/react-query';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { ReactNode } from 'react';
@@ -37,7 +38,7 @@ function Board({ children }: { children: ReactNode }) {
             alignItems: 'flex-start',
           }}
         >
-          {children}
+          <MemoryNav>{children}</MemoryNav>
         </div>
       </ReactFlowProvider>
     </ApiProvider>

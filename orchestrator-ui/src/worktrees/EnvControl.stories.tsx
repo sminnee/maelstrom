@@ -1,4 +1,5 @@
 import type { Story } from '@ladle/react';
+import { MemoryNav } from '../nav/MemoryNav';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
@@ -53,7 +54,7 @@ function Board({ children }: { children: ReactNode }) {
           gap: 'var(--u-2)',
         }}
       >
-        {children}
+        <MemoryNav>{children}</MemoryNav>
       </div>
     </ApiProvider>
   );
