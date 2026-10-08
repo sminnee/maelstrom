@@ -11,3 +11,15 @@
 .toggle[aria-pressed='false'][data-state='ready']:hover:not(:disabled) {
   background: var(--bg-control-hover);
 }
+/* Hover swaps the state icon for the arrow icon of the act a click takes. */
+.toggle > .act {
+  display: none;
+}
+@media (hover: hover) {
+  .toggle[data-state='ready']:hover:not(:disabled) > .state {
+    display: none;
+  }
+  .toggle[data-state='ready']:hover:not(:disabled) > .act {
+    display: inline;
+  }
+}

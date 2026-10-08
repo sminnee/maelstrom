@@ -1,11 +1,13 @@
 import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { deskIdForTask } from '../protocol/deskId';
 import { DeskStateIcon } from '../shell/DeskStateIcon';
+import { OffDeskIcon } from '../shell/OffDeskIcon';
+import { OnDeskIcon } from '../shell/OnDeskIcon';
 import type { TaskId } from '../protocol/ids';
 import { AppButton } from '../ui/AppButton';
 import styles from './DeskToggle.module.css';
 
-/** Shows if a task is on the desk; a click flips it. */
+/** Shows if a task is on the desk; a click flips it. Hover shows the act a click takes. */
 export function DeskToggle({
   taskId,
   onDesk,
@@ -22,7 +24,12 @@ export function DeskToggle({
       variant={variant}
       className={styles.toggle}
       aria-pressed={onDesk}
-      icon={<DeskStateIcon onDesk={onDesk} />}
+      icon={
+        <>
+          <DeskStateIcon className={styles.state} onDesk={onDesk} />
+          {onDesk ? <OffDeskIcon className={styles.act} /> : <OnDeskIcon className={styles.act} />}
+        </>
+      }
       onClick={() => (onDesk ? takeOffDesk : putOnDesk).mutateAsync({ id: deskIdForTask(taskId) })}
     >
       On desk

@@ -1,9 +1,10 @@
 import styles from './DeskIcon.module.css';
 
 /** A desk, with a square on it when the task is on the desk. Shows a state, not an act. Decorative; the button names itself. */
-export function DeskStateIcon({ onDesk }: { onDesk: boolean }) {
+export function DeskStateIcon({ onDesk, className }: { onDesk: boolean; className?: string }) {
   return (
     <svg
+      className={className}
       width="12"
       height="12"
       viewBox="0 0 12 12"

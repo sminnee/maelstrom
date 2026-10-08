@@ -818,7 +818,8 @@ same thing cannot draw it two ways. The icons are lucide's, at its 2px stroke on
 
 Two kinds of icon stay hand-drawn. The desk icons have no lucide equivalent, and their arrow
 takes its own colour: see the Reporting Rule. The On desk toggle draws the same desk without an
-arrow, because it shows a state, not an act (`shell/DeskStateIcon.tsx`). The GitHub mark stays too, because lucide's brand
+arrow, because it shows a state, not an act (`shell/DeskStateIcon.tsx`). On hover it draws the
+arrow icon of the act a click takes. The GitHub mark stays too, because lucide's brand
 icons are deprecated.
 
 Every icon is decorative. Lucide marks it `aria-hidden`, and the button's text stays its
