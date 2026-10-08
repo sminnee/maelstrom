@@ -1,4 +1,5 @@
 import type { Story } from '@ladle/react';
+import { MemoryNav } from '../nav/MemoryNav';
 import { Markdown } from '../markdown/Markdown';
 import {
   quietTranscript,
@@ -33,7 +34,7 @@ function Panel({ width = 460, children }: { width?: number; children: React.Reac
         background: 'var(--bg)',
       }}
     >
-      {children}
+      <MemoryNav>{children}</MemoryNav>
     </div>
   );
 }

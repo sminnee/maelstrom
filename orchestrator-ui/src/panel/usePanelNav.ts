@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useWorld } from '../api/useWorld';
 import { useGo, useLoc, type GoOptions } from '../nav/useNav';
-import { groupKeyOf, selectGroup as selectGroupIn } from '../selectors/tabs';
+import { activateTab, groupKeyOf, selectGroup as selectGroupIn } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
 import type { PanelTab } from '../store/uiSlice';
 
@@ -28,9 +28,7 @@ export function usePanelNav() {
   return {
     activeTabKey,
     /** A click on a tab of the strip. The split tab is already showing, so it stays where it is. */
-    activate: (key: string) => {
-      if (!Object.values(ui.splitTabs).includes(key)) show(key);
-    },
+    activate: (key: string) => show(activateTab({ ...ui, activeTabKey }, key).activeTabKey),
     /** A shift-click on a tab: put it beside the active one, or take it back out. */
     split: (key: string) => show(toggleSplit(key, groupOf, activeTabKey)),
     /** Show a worktree group: the most recent of its tabs, past its split tab. */
