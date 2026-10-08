@@ -73,8 +73,8 @@ release while that section is empty, and retitles it to the version it is releas
 ### Changed
 
 - **The On desk control in a task list row is a toggle.** A task list row and a node card's
-  Follows row show one On desk button with a box icon. The box is ticked when the task is on the
-  desk, and the button has no fill when it is off. A click puts the task on the desk or takes it
+  Follows row show one On desk button with a desk icon. A blue square sits on the desk when the
+  task is on the desk. Off the desk, the icon and text are grey and the button has no fill. A click puts the task on the desk or takes it
   off. The bulk bar and the node card's end-of-work control keep On desk and Off desk.
 
 - **The narrow layout is easier to press.** Each button, link and field is 48px high. On the

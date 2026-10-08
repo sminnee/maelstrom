@@ -1,11 +1,12 @@
+/* On the desk the toggle takes the full foreground, also in the quiet variant. */
+.toggle[aria-pressed='true'][data-state='ready'] {
+  color: var(--fg);
+}
 /* Off the desk the toggle has no fill; hover brings it back so it still reads as a control.
    Only in the ready state, so the error look still shows. */
-.toggle[aria-pressed='true'] > svg {
-  color: var(--accent);
-}
 .toggle[aria-pressed='false'][data-state='ready'] {
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-faint);
 }
 .toggle[aria-pressed='false'][data-state='ready']:hover:not(:disabled) {
   background: var(--bg-control-hover);

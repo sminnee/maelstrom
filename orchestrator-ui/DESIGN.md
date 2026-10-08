@@ -145,7 +145,8 @@ so a task's position in its life is readable from hue alone.
 ### Primary
 
 - **Signal Blue** (`--accent`): interactive affordance and nothing else. Links, panel links,
-  the focus ring, the running-command line, the text selection wash, the On desk arrow, the ticked On desk box.
+  the focus ring, the running-command line, the text selection wash, the On desk arrow,
+  the square on the On desk toggle's desk.
   If it is blue, it can be clicked or it has the operator's focus.
 
 ### Secondary
@@ -211,8 +212,9 @@ have adds it to the semantic layer.
 **The Reporting Rule.** Every hue on screen reports state. Nothing is coloured because it looks
 better coloured. When a new element needs emphasis, the answer is weight, size or space —
 not a colour promoted out of the state channel. Two exceptions, both only in a control the user can click. The arrow of a desk icon reports
-the direction of the act, not state: `--accent` onto the desk and `--tone-archival` off it. The
-ticked box of the On desk toggle is `--accent`, and reports that the task is on the desk.
+the direction of the act, not state: `--accent` onto the desk and `--tone-archival` off it. The On
+desk toggle draws an `--accent` square on its desk icon when the task is on the desk. It reports
+state in the affordance hue, not a state hue.
 
 **The Two Calls Rule.** Alert Amber and Reply Yellow are the only channels allowed to escalate
 themselves with a glow. Both call the operator: one holds an ask, the other waits on a reply.
@@ -816,7 +818,8 @@ same thing cannot draw it two ways. The icons are lucide's, at its 2px stroke on
 `--icon` (16px) that draws at about 1.3px.
 
 Two kinds of icon stay hand-drawn. The desk icons have no lucide equivalent, and their arrow
-takes its own colour: see the Reporting Rule. The GitHub mark stays too, because lucide's brand
+takes its own colour: see the Reporting Rule. The On desk toggle draws the same desk without an
+arrow, because it shows a state, not an act (`shell/DeskStateIcon.tsx`). The GitHub mark stays too, because lucide's brand
 icons are deprecated.
 
 Every icon is decorative. Lucide marks it `aria-hidden`, and the button's text stays its
