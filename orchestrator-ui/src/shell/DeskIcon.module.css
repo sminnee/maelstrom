@@ -5,6 +5,10 @@
 .off .arrow {
   color: var(--tone-archival);
 }
+/* The On desk toggle's square: an exception under DESIGN.md's Reporting Rule. */
+.square {
+  fill: var(--accent);
+}
 /* A disabled menu item mutes its text, and the arrow follows it. Keep this rule last: it wins by order. */
 :global([aria-disabled='true']) .arrow {
   color: inherit;

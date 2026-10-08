@@ -1,7 +1,7 @@
 import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { deskIdForTask } from '../protocol/deskId';
+import { DeskStateIcon } from '../shell/DeskStateIcon';
 import type { TaskId } from '../protocol/ids';
-import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import styles from './DeskToggle.module.css';
 
@@ -22,7 +22,7 @@ export function DeskToggle({
       variant={variant}
       className={styles.toggle}
       aria-pressed={onDesk}
-      icon={actionIcon(onDesk ? 'checked' : 'unchecked')}
+      icon={<DeskStateIcon onDesk={onDesk} />}
       onClick={() => (onDesk ? takeOffDesk : putOnDesk).mutateAsync({ id: deskIdForTask(taskId) })}
     >
       On desk

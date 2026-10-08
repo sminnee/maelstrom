@@ -330,7 +330,7 @@ arriving on the transcript is still the live signal: nothing about the ledger mo
 no change notice fires, and the count of bars is what refetches the route.
 
 A task node's card lists every task its task follows and every task that follows it, direct and
-indirect, nearest first (`selectors/follows.ts`). Each row has an On desk toggle: its box icon
+indirect, nearest first (`selectors/follows.ts`). Each row has an On desk toggle: its desk icon
 shows if the task is on the desk. The canvas draws a follows edge only when both ends are on the desk, so without this list
 the user must find each related task in the task list. The list reads `world.tasks`, which
 holds every task, so it needs no route of its own.
@@ -364,9 +364,9 @@ Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
 - A disabled menu item mutes the arrow with its text.
 - In the menu, each item that takes the node off the desk draws the Off desk icon. Plain
   Terminate draws none.
-- Exception: the On desk toggle in a task list row or a follows row shows a state. It draws a
-  box icon, not the desk icon: ticked in the accent hue on the desk, empty and muted off it. Off
-  the desk it has no fill until hover.
+- Exception: the On desk toggle in a task list row or a follows row shows a state. It draws the
+  desk with no arrow, and a square on the desk when the task is on the desk
+  (`shell/DeskStateIcon.tsx`). See the Reporting Rule in `orchestrator-ui/DESIGN.md`.
 
 The close and trash items are left out when the worktree is `_main`, is closed, or does not exist.
 With one item left, the control is a plain button. The close and trash items are disabled while
