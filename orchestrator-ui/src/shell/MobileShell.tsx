@@ -16,6 +16,7 @@ import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useCard } from '../nav/useCard';
 import { useBack, useLoc } from '../nav/useNav';
+import { useEdgeSwipe } from '../gesture/useEdgeSwipe';
 import { SideSheet } from '../ui/SideSheet';
 import { ConnectionBanner } from './ConnectionBanner';
 import { FilterBar } from './FilterBar';
@@ -30,6 +31,9 @@ import styles from './MobileShell.module.css';
  * There is no canvas and no panel. The view is the ground; over it the location's card draws
  * as a node's detail, and over that its panel tab as a session, a document or a worktree's
  * changes. Back goes back a location, which pops the top screen.
+ *
+ * A swipe in from the right edge opens the screen's side sheet: Filters on the
+ * deck list, More on a pushed screen.
  */
 export function MobileShell() {
   const { view, panel, edit: editingTaskId, newWork: newWorkOpen } = useLoc();
@@ -46,6 +50,8 @@ export function MobileShell() {
   const title = useScreenTitle(top);
   const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const edgeSwipe = useEdgeSwipe(() => (chrome ? chrome.openSheet() : setFiltersOpen(true)));
+  const sheetOpen = chrome ? chrome.sheetOpen : filtersOpen;
   return (
     <ScreenChromeContext.Provider value={chrome}>
       <div className={styles.shell}>
@@ -66,6 +72,14 @@ export function MobileShell() {
         <ConnectionBanner hasData={status === 'ready'} />
         <HostBanner />
         <main className={styles.body}>
+          {!sheetOpen && (
+            <div
+              className={styles.edge}
+              data-testid="edge-swipe"
+              aria-hidden="true"
+              {...edgeSwipe}
+            />
+          )}
           {top ? (
             <Screen screen={top} onBack={onBack} />
           ) : view === 'canvas' ? (

@@ -1,10 +1,11 @@
+import { useSheetDrag } from '../gesture/useSheetDrag';
 import { actionIcon } from './actionIcons';
 import { Dialog } from './Dialog';
 import styles from './SideSheet.module.css';
 
 /**
  * The narrow layout's side sheet: a dialog at the right edge, whose head row
- * starts with a bare × (DESIGN.md, The One Strip Rule).
+ * starts with a bare × (DESIGN.md, The One Strip Rule). A drag right closes it.
  */
 export function SideSheet({
   label,
@@ -19,8 +20,18 @@ export function SideSheet({
   head?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const drag = useSheetDrag(onClose);
   return (
-    <Dialog label={label} placement="side" onClose={onClose}>
+    <Dialog
+      label={label}
+      placement="side"
+      onClose={onClose}
+      boxProps={{
+        ...drag.handlers,
+        style: drag.style,
+        'data-dragging': drag.dragging ? '' : undefined,
+      }}
+    >
       <div className={styles.head}>
         <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
           {actionIcon('close')}
