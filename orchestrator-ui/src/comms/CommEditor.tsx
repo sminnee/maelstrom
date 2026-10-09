@@ -8,7 +8,7 @@ import { landingStrip } from '../selectors/comms';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
-import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from '../ui/Dialog';
 import fieldStyles from '../ui/Dialog.module.css';
 import { TextArea } from '../ui/TextArea';
 import styles from './CommEditor.module.css';
@@ -117,67 +117,69 @@ function CommForm({
   return (
     <Dialog label={comm ? comm.title : 'New comm'} onClose={leave}>
       <DialogHeader title={comm ? comm.id : 'New comm'} onClose={leave} />
-      <label className={fieldStyles.field} htmlFor={titleId}>
-        <span>Title</span>
-        <input
-          id={titleId}
-          value={draft.title}
-          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-        />
-      </label>
-      <div className={fieldStyles.field}>
-        <label htmlFor={contentId}>Content</label>
-        <TextArea
-          grow
-          id={contentId}
-          rows={2}
-          value={draft.content}
-          onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
-        />
-      </div>
-      <div className={fieldStyles.field}>
-        <label htmlFor={recipientId}>Recipients</label>
-        {draft.recipients.length > 0 && (
-          <ul className={styles.chips} aria-label="Recipients">
-            {draft.recipients.map((r) => (
-              <li key={r} className={styles.chip}>
-                {r}
-                <button
-                  type="button"
-                  className={styles.remove}
-                  aria-label={`Remove ${r}`}
-                  onClick={() =>
-                    setDraft((d) => ({ ...d, recipients: d.recipients.filter((x) => x !== r) }))
-                  }
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
+      <DialogBody>
+        <label className={fieldStyles.field} htmlFor={titleId}>
+          <span>Title</span>
+          <input
+            id={titleId}
+            value={draft.title}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+          />
+        </label>
+        <div className={fieldStyles.field}>
+          <label htmlFor={contentId}>Content</label>
+          <TextArea
+            grow
+            id={contentId}
+            rows={2}
+            value={draft.content}
+            onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
+          />
+        </div>
+        <div className={fieldStyles.field}>
+          <label htmlFor={recipientId}>Recipients</label>
+          {draft.recipients.length > 0 && (
+            <ul className={styles.chips} aria-label="Recipients">
+              {draft.recipients.map((r) => (
+                <li key={r} className={styles.chip}>
+                  {r}
+                  <button
+                    type="button"
+                    className={styles.remove}
+                    aria-label={`Remove ${r}`}
+                    onClick={() =>
+                      setDraft((d) => ({ ...d, recipients: d.recipients.filter((x) => x !== r) }))
+                    }
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <input
+            id={recipientId}
+            value={recipient}
+            placeholder="A channel, an address or a note; Enter adds it"
+            onChange={(e) => setRecipient(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              addRecipient();
+            }}
+          />
+        </div>
+        {comm && <LinkedTasks comm={comm} />}
+        {confirming && (
+          <p className={styles.confirm} role="alert">
+            <span>Throw away your changes?</span>
+            <AppButton variant="link" onClick={() => setConfirming(false)}>
+              Keep editing
+            </AppButton>
+            <AppButton onClick={onClose}>Discard</AppButton>
+          </p>
         )}
-        <input
-          id={recipientId}
-          value={recipient}
-          placeholder="A channel, an address or a note; Enter adds it"
-          onChange={(e) => setRecipient(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return;
-            e.preventDefault();
-            addRecipient();
-          }}
-        />
-      </div>
-      {comm && <LinkedTasks comm={comm} />}
-      {confirming && (
-        <p className={styles.confirm} role="alert">
-          <span>Throw away your changes?</span>
-          <AppButton variant="link" onClick={() => setConfirming(false)}>
-            Keep editing
-          </AppButton>
-          <AppButton onClick={onClose}>Discard</AppButton>
-        </p>
-      )}
+      </DialogBody>
       <DialogFooter
         aside={
           <AppButton variant="link" onClick={leave}>

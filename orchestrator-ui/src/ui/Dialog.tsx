@@ -141,6 +141,24 @@ export function DialogHeader({
 }
 
 /**
+ * The fields of a dialog, between `DialogHeader` and `DialogFooter`. Only the
+ * body scrolls. See DESIGN.md, "The Still Screen Rule".
+ */
+export function DialogBody({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={[styles.body, className].filter(Boolean).join(' ')} data-testid="dialog-body">
+      {children}
+    </div>
+  );
+}
+
+/**
  * The button row a dialog ends with: `aside` on the left, `children` on the
  * right. A comment box ends with it too. See DESIGN.md § Dialog footers.
  */

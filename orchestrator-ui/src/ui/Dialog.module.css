@@ -35,6 +35,15 @@
   justify-content: space-between;
   gap: var(--u);
 }
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
 .headerControls {
   display: flex;
   gap: var(--u);
@@ -158,6 +167,11 @@
     border-radius: 0;
     padding: var(--u-2);
     padding-bottom: max(var(--u-2), env(safe-area-inset-bottom));
+  }
+  /* A dialog with a body scrolls only the body (DESIGN.md, "The Still Screen
+     Rule"). A dialog without one, such as the side sheet, scrolls as a whole. */
+  .dialog:has(> .body) {
+    overflow: hidden;
   }
   /* A radio is small. Its label is the target the thumb gets, and so is the
      summary of the Advanced fold. */

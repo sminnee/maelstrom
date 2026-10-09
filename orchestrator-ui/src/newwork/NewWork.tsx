@@ -27,7 +27,7 @@ import { useNewWork } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
-import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { LinearFields } from './LinearFields';
 import { PlanningLevelField } from '../tasklist/PlanningLevelField';
 import { ProjectField } from './ProjectField';
@@ -388,59 +388,61 @@ export function NewWork() {
     <Dialog label="New work" onClose={() => close()}>
       <DialogHeader title="New work" onClose={() => close()} />
 
-      <Capture
-        names={names}
-        inView={inView}
-        project={chosen}
-        setProject={(name) =>
-          // The issue belongs to the project it was picked under, so it does
-          // not survive a move to another one.
-          patch({ project: name, issue: '' })
-        }
-        kind={showing}
-        setKind={(next) => patch({ kind: next })}
-        hasLinear={hasLinear}
-        issue={issue}
-        setIssue={(next) => patch({ issue: next })}
-        draft={draft}
-        setDraft={setDraft}
-        branch={branch}
-        setBranch={(next) => patch({ branch: next })}
-        branches={branches}
-        model={model}
-        setModel={(next) => patch({ model: next })}
-        executeModel={executeModel}
-        setExecuteModel={(next) => patch({ executeModel: next })}
-        mode={showing === 'investigate' ? investigateMode : mode}
-        setMode={(next) => patch({ mode: next })}
-        mainBranch={mainBranch}
-        bucket={bucket}
-        attached={attached}
-        onAttached={(a, at) =>
-          // The bucket the image was actually uploaded under, so a first
-          // attach keeps the one its ref embeds.
-          setCaptured((was) => ({ ...was, bucket: at, attached: [...was.attached, a] }))
-        }
-        onRemoved={(image) =>
-          setCaptured((was) => ({
-            ...was,
-            attached: was.attached.filter((w) => w.url !== image.url),
-            draft: withoutRef(was.draft, image),
-          }))
-        }
-        task={task}
-        patchTask={patchTask}
-        onSuggest={suggest}
-        busy={busy}
-      />
+      <DialogBody>
+        <Capture
+          names={names}
+          inView={inView}
+          project={chosen}
+          setProject={(name) =>
+            // The issue belongs to the project it was picked under, so it does
+            // not survive a move to another one.
+            patch({ project: name, issue: '' })
+          }
+          kind={showing}
+          setKind={(next) => patch({ kind: next })}
+          hasLinear={hasLinear}
+          issue={issue}
+          setIssue={(next) => patch({ issue: next })}
+          draft={draft}
+          setDraft={setDraft}
+          branch={branch}
+          setBranch={(next) => patch({ branch: next })}
+          branches={branches}
+          model={model}
+          setModel={(next) => patch({ model: next })}
+          executeModel={executeModel}
+          setExecuteModel={(next) => patch({ executeModel: next })}
+          mode={showing === 'investigate' ? investigateMode : mode}
+          setMode={(next) => patch({ mode: next })}
+          mainBranch={mainBranch}
+          bucket={bucket}
+          attached={attached}
+          onAttached={(a, at) =>
+            // The bucket the image was actually uploaded under, so a first
+            // attach keeps the one its ref embeds.
+            setCaptured((was) => ({ ...was, bucket: at, attached: [...was.attached, a] }))
+          }
+          onRemoved={(image) =>
+            setCaptured((was) => ({
+              ...was,
+              attached: was.attached.filter((w) => w.url !== image.url),
+              draft: withoutRef(was.draft, image),
+            }))
+          }
+          task={task}
+          patchTask={patchTask}
+          onSuggest={suggest}
+          busy={busy}
+        />
 
-      {failure && (
-        <p className={styles.error} role="alert" data-testid="new-work-error">
-          {written
-            ? `${failure.message}. The task is saved as ${written}; start it from the canvas.`
-            : failure.message}
-        </p>
-      )}
+        {failure && (
+          <p className={styles.error} role="alert" data-testid="new-work-error">
+            {written
+              ? `${failure.message}. The task is saved as ${written}; start it from the canvas.`
+              : failure.message}
+          </p>
+        )}
+      </DialogBody>
       <DialogFooter
         aside={
           <>

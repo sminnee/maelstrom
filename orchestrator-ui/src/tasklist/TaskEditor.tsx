@@ -10,7 +10,7 @@ import { useLoc } from '../nav/useNav';
 import { useEditor } from '../nav/useOverlays';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
-import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from '../ui/Dialog';
 import type { TaskDraft } from './TaskFields';
 import { TaskFields } from './TaskFields';
 import { actionIcon } from '../ui/actionIcons';
@@ -155,37 +155,39 @@ function TaskForm({ task }: { task: Task }) {
           {actionIcon('pageNext')}
         </button>
       </DialogHeader>
-      <TaskFields
-        draft={draft}
-        onChange={set}
-        project={task.project}
-        taskId={task.id}
-        bucket={task.notebookId}
-        readOnly={!editing}
-      />
+      <DialogBody>
+        <TaskFields
+          draft={draft}
+          onChange={set}
+          project={task.project}
+          taskId={task.id}
+          bucket={task.notebookId}
+          readOnly={!editing}
+        />
 
-      {(confirming || pendingNav !== null) && (
-        <p className={styles.confirm} role="alert">
-          <span>Throw away your changes?</span>
-          <AppButton
-            variant="link"
-            onClick={() => {
-              setConfirming(false);
-              setPendingNav(null);
-            }}
-          >
-            Keep editing
-          </AppButton>
-          <button type="button" className={styles.discard} onClick={() => close(pendingNav)}>
-            Discard
-          </button>
-        </p>
-      )}
-      {deleteError && (
-        <p className={styles.confirm} role="alert">
-          {deleteError}
-        </p>
-      )}
+        {(confirming || pendingNav !== null) && (
+          <p className={styles.confirm} role="alert">
+            <span>Throw away your changes?</span>
+            <AppButton
+              variant="link"
+              onClick={() => {
+                setConfirming(false);
+                setPendingNav(null);
+              }}
+            >
+              Keep editing
+            </AppButton>
+            <button type="button" className={styles.discard} onClick={() => close(pendingNav)}>
+              Discard
+            </button>
+          </p>
+        )}
+        {deleteError && (
+          <p className={styles.confirm} role="alert">
+            {deleteError}
+          </p>
+        )}
+      </DialogBody>
       <DialogFooter
         aside={
           editing ? (

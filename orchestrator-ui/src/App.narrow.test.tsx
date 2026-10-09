@@ -340,10 +340,19 @@ describe('the narrow layout', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('still starts new work', async () => {
+  it('still starts new work, with only the fields in the part that scrolls', async () => {
     await renderApp({ viewport: 'narrow' });
     await userEvent.click(screen.getByRole('button', { name: 'New' }));
-    expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'New work' });
+    // The header and footer stay in the box when the keyboard shrinks it, so
+    // they sit outside the scroller. See DESIGN.md, "The Still Screen Rule".
+    const body = within(dialog).getByTestId('dialog-body');
+    // A direct child, or the narrow `.dialog:has(> .body)` rule does not match.
+    expect(body.parentElement).toBe(dialog);
+    expect(within(body).getByRole('textbox', { name: 'What needs doing?' })).toBeInTheDocument();
+    expect(within(body).queryByRole('heading', { name: 'New work' })).toBeNull();
+    expect(within(body).queryByRole('button', { name: 'Start' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeInTheDocument();
   });
 
   it('gives the document the full width, with no comment margin beside it', async () => {
