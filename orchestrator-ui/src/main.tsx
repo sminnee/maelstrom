@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource/inter-tight/latin-600.css';
 import './styles/tokens.css';
 import './styles/base.css';
+import './styles/text.css';
 import { createApiClient } from './api/http';
 import { App } from './App';
 import { trackVisualViewport } from './layout/visualViewport';

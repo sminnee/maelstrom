@@ -1,0 +1,16 @@
+/* Text utilities. Which to use where: DESIGN.md, "Text utilities". */
+
+.nowrap {
+  white-space: nowrap;
+}
+.wrap {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

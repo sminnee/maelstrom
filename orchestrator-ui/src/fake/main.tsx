@@ -4,6 +4,7 @@ import { createBrowserRouter } from 'react-router';
 import '@fontsource/inter-tight/latin-600.css';
 import '../styles/tokens.css';
 import '../styles/base.css';
+import '../styles/text.css';
 import { trackVisualViewport } from '../layout/visualViewport';
 import { routes } from '../nav/routes';
 import { FakeApp } from './FakeApp';
