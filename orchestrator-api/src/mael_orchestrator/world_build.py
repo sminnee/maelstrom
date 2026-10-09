@@ -135,6 +135,8 @@ def comm_entity(comm: DomainComm, task_ids: list[str]) -> Comm:
         "recipients": list(comm.recipients),
         "createdAt": comm.created_at,
         "closedAt": comm.closed_at,
+        "category": comm.category,
+        "project": comm.project,
         "taskIds": task_ids,
     }
 

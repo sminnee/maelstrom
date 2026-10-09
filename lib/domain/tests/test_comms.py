@@ -25,9 +25,15 @@ async def store(request):
 
 
 class TestNew:
-    async def test_a_new_comm_is_stored_whole(self, store):
+    async def test_a_new_comm_is_stored_whole_with_its_category_trimmed(self, store):
         await comms.new(
-            store, "Invoice export", "Jo asked for CSV.", ["#cs", "jo@acme.test"], NOW
+            store,
+            "Invoice export",
+            "Jo asked for CSV.",
+            ["#cs", "jo@acme.test"],
+            NOW,
+            category=" release ",
+            project="maelstrom",
         )
         assert await store.read("c1") == Comm(
             id="c1",
@@ -36,6 +42,8 @@ class TestNew:
             recipients=["#cs", "jo@acme.test"],
             created_at=NOW,
             closed_at="",
+            category="release",
+            project="maelstrom",
         )
 
     async def test_ids_count_up_from_c1_in_number_order(self, store):
@@ -60,6 +68,12 @@ class TestEdit:
             id="c1", title="New", content="body", recipients=["#ops"], created_at=NOW
         )
 
+    async def test_edit_sets_and_clears_category_and_project(self, store):
+        made = await comms.new(store, "t", category="a", project="p", now=NOW)
+        await comms.edit(store, made.id, category=" b ", project="")
+        stored = await store.read(made.id)
+        assert (stored.category, stored.project) == ("b", "")
+
     async def test_editing_an_unknown_comm_raises(self, store):
         with pytest.raises(KeyError):
             await comms.edit(store, "c9", title="x")
@@ -78,6 +92,43 @@ class TestCloseAndReopen:
         await comms.close(store, made.id, NOW)
         await comms.close(store, made.id, LATER)
         assert (await store.read(made.id)).closed_at == NOW
+
+
+def _comm(id: str, category: str, project: str, created_at: str = NOW) -> Comm:
+    return Comm(
+        id=id, title=id, category=category, project=project, created_at=created_at
+    )
+
+
+class TestDefaultProject:
+    def test_the_most_common_project_in_the_category_wins(self):
+        made = [
+            _comm("c1", "release", "a"),
+            _comm("c2", "release", "b"),
+            _comm("c3", "release", "b"),
+            _comm("c4", "support", "a"),
+            _comm("c5", "support", "a"),
+            # Blanks outnumber b, so counting them would pick "".
+            _comm("c6", "release", ""),
+            _comm("c7", "release", ""),
+            _comm("c8", "release", ""),
+        ]
+        assert comms.default_project(made, "release") == "b"
+
+    def test_a_tie_goes_to_the_newest_comm_in_either_order(self):
+        made = [_comm("c1", "release", "a", NOW), _comm("c2", "release", "b", LATER)]
+        assert comms.default_project(made, "release") == "b"
+        assert comms.default_project(list(reversed(made)), "release") == "b"
+
+    def test_no_comm_in_the_category_gives_blank(self):
+        assert comms.default_project([_comm("c1", "release", "a")], "other") == ""
+        assert comms.default_project([_comm("c1", "", "a")], "") == ""
+
+
+def test_categories_are_distinct_sorted_and_non_blank():
+    made = [_comm("c1", "b", ""), _comm("c2", "a", ""), _comm("c3", "b", "")]
+    made.append(_comm("c4", "", ""))
+    assert comms.categories(made) == ["a", "b"]
 
 
 class TestChangedSince:

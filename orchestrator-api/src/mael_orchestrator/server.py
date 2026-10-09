@@ -2530,6 +2530,8 @@ class Orchestrator:
             command.get("content") or "",
             list(command.get("recipients") or []),
             now=self.clock(),
+            category=command.get("category") or "",
+            project=command.get("project") or "",
         )
         await self.refresh_comms()
         return {"ok": True, "result": {"id": comm.id}}
@@ -2545,6 +2547,8 @@ class Orchestrator:
             title=str(title).strip() if title is not None else None,
             content=fields.get("content"),
             recipients=fields.get("recipients"),
+            category=fields.get("category"),
+            project=fields.get("project"),
         )
         closed = fields.get("closed")
         if closed is True:

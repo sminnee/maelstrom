@@ -211,18 +211,25 @@ def _wire_edited(fields: dict[str, Any], allowed: tuple[str, ...]) -> list[str]:
 
 
 #: The comm fields ``comm.update`` takes. ``closed`` closes or reopens it.
-COMM_EDITABLE = ("title", "content", "recipients", "closed")
+COMM_EDITABLE = ("title", "content", "recipients", "category", "project", "closed")
 
 
 def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
-def _check_comm_fields(fields: dict[str, Any]) -> dict[str, str] | None:
-    """The shape of a comm's ``content`` and ``recipients``, when sent."""
-    content = fields.get("content")
-    if content is not None and not isinstance(content, str):
-        return _err("invalid", "content is text")
+def _check_comm_fields(world: World, fields: dict[str, Any]) -> dict[str, str] | None:
+    """A comm's text fields, ``recipients`` and ``project``, when sent.
+
+    ``project`` is ``""`` or a project the world holds.
+    """
+    for key in ("content", "category", "project"):
+        value = fields.get(key)
+        if value is not None and not isinstance(value, str):
+            return _err("invalid", f"{key} is text")
+    project = fields.get("project")
+    if project and project not in world["projects"]:
+        return _err("unknown_id", f"No project {project}")
     recipients = fields.get("recipients")
     if recipients is not None and not _is_str_list(recipients):
         return _err("invalid", "recipients is a list of text")
@@ -595,7 +602,7 @@ def validate_command(
     if kind == "comm.create":
         if not str(cmd.get("title", "")).strip():
             return _err("invalid", "A title is required")
-        return _check_comm_fields(cmd)
+        return _check_comm_fields(world, cmd)
 
     if kind == "comm.update":
         comm_id = cmd.get("commId", "")
@@ -610,7 +617,7 @@ def validate_command(
         closed = fields.get("closed")
         if closed is not None and not isinstance(closed, bool):
             return _err("invalid", "closed is true or false")
-        return _check_comm_fields(fields)
+        return _check_comm_fields(world, fields)
 
     if kind == "task.delete":
         task_id = cmd.get("taskId", "")
