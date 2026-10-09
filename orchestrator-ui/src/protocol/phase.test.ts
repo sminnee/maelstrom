@@ -5,7 +5,7 @@ import { makeAgent, makeTask } from '../fake/fixtures';
 describe('phaseForCommand', () => {
   it.each([
     ['shape', 'shape'],
-    ['plan-task', 'plan'],
+    ['plan-task', 'shape'],
     ['plan-next-step', 'plan'],
     ['watch-pr', 'land'],
     ['impeccable shape', 'shape'],

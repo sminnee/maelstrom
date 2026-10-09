@@ -776,7 +776,8 @@ plan mode, which plan approval does. A command nobody recognises has no phase, a
 agent with no task.
 _Avoid_: Stage, step, executing, finalising. **Shape** and **plan** are the phases' own names, so
 they are used for those phases and not as loose synonyms: shaping creates the tasks that planning
-then plans, and `plan` belongs to the `plan-task` skill and to an agent's plan mode.
+then plans. The `plan-task` skill shapes: it drafts and promotes tasks. `plan` belongs to the
+`plan-next-step` skill and to an agent's plan mode.
 
 **Shape**:
 Exploring a brief until a set of tasks is agreed and created. Ends at a user checkpoint. May be

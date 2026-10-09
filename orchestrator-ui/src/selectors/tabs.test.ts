@@ -264,14 +264,14 @@ describe('groupTabs', () => {
 });
 
 const world = worldWith({
-  tasks: [makeTask({ id: 'NORT-7', command: 'plan-task' })],
+  tasks: [makeTask({ id: 'NORT-7', command: 'plan-next-step' })],
   agents: [makeAgent({ id: 'agent-1', taskId: 'NORT-7' })],
   documents: [makeDocument({ id: 'doc-1', agentId: 'agent-1', taskId: 'NORT-7' })],
 });
 
 /** A document whose own task has gone, while its agent still has one. */
 const orphaned = worldWith({
-  tasks: [makeTask({ id: 'NORT-7', command: 'plan-task' })],
+  tasks: [makeTask({ id: 'NORT-7', command: 'plan-next-step' })],
   agents: [makeAgent({ id: 'agent-1', taskId: 'NORT-7' })],
   documents: [makeDocument({ id: 'doc-1', agentId: 'agent-1', taskId: 'gone' })],
 });
@@ -315,7 +315,9 @@ describe('tabAttribution', () => {
   // is the bare notebook id, because the panel sidebar already names the project.
   it("a session tab names its task's bare id and nothing else", () => {
     const qualified = worldWith({
-      tasks: [makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', command: 'plan-task' })],
+      tasks: [
+        makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', command: 'plan-next-step' }),
+      ],
       agents: [makeAgent({ id: 'agent-1', taskId: 'northwind/NORT-7' })],
     });
     expect(tabAttribution(qualified, sessionTab('agent-1'))).toEqual({

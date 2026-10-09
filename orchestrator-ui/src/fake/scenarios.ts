@@ -72,7 +72,7 @@ const NODES: NodeSpec[] = [
   { title: 'Ready to launch', task: { status: 'todo', command: 'shape' } },
   {
     title: 'Working',
-    task: { status: 'in-progress', command: 'plan-task' },
+    task: { status: 'in-progress', command: 'plan-next-step' },
     agent: { state: 'processing' },
     worktree: { prState: 'ci-running', env: partialEnv() },
   },

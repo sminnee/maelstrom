@@ -28,7 +28,7 @@ function chain(id: string, title: string, agentId: string, command: string) {
   };
 }
 
-const planning = chain('NORT-7', 'Add order export', 'a1b2c3d4', 'plan-task');
+const planning = chain('NORT-7', 'Add order export', 'a1b2c3d4', 'plan-next-step');
 // An execute task runs no skill: no command is the ordinary build case.
 const building = chain('NORT-9', 'Migrate to Postgres 16', 'd9a4c7f1', '');
 const shaping = chain('MAEL-40', 'Tell a stopped agent from an idle one', 'f0a6f965', 'shape');
@@ -50,7 +50,7 @@ const dated = chain(
   'maelstrom/2026-09-22.1',
   'Panel tabs: say which agent, and look it',
   '52ec960f',
-  'plan-task',
+  'plan-next-step',
 );
 
 /** An agent with no task: its own id fills the id slot, and it draws no phase. */

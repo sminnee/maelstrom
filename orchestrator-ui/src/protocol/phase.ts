@@ -12,7 +12,7 @@ import type { TaskId } from './ids';
  */
 const PHASES = {
   shape: 'shape',
-  'plan-task': 'plan',
+  'plan-task': 'shape',
   'plan-next-step': 'plan',
   'watch-pr': 'land',
   'impeccable shape': 'shape',
