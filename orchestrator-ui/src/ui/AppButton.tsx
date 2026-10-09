@@ -58,7 +58,11 @@ export function AppButton({
     void run(() => onClick(e));
   };
 
-  const classes = [styles.button, styles[variant], className].filter(Boolean).join(' ');
+  // A label that wraps makes a pill a blob: the row wraps, not the label. A link
+  // is text and follows the Wide Content Rule (DESIGN.md).
+  const classes = [styles.button, styles[variant], variant === 'link' ? null : 'nowrap', className]
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
       {...rest}

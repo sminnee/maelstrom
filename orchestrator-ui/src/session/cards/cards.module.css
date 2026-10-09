@@ -237,6 +237,8 @@
 }
 .stepChip {
   display: inline-flex;
+  /* A long answer is cut with an ellipsis; the chip stays in the row. */
+  max-width: 100%;
   align-items: center;
   gap: var(--u-half);
   border-radius: var(--radius-pill);

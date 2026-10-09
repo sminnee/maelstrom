@@ -95,14 +95,9 @@ export function CommentMargin({
   return (
     <aside className={styles.margin} data-testid="comment-margin">
       {selection && !pending && (
-        <button
-          type="button"
-          className={styles.offer}
-          style={{ top: selection.top }}
-          onClick={onStart}
-        >
+        <AppButton className={styles.offer} style={{ top: selection.top }} onClick={onStart}>
           Comment on selection
-        </button>
+        </AppButton>
       )}
       {comments.length === 0 && !pending && !selection && (
         <div className={styles.hint}>Select text to comment on it.</div>

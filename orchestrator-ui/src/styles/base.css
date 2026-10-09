@@ -85,8 +85,7 @@ button {
   /* One height for every control. A component sets a width, not a height. */
   min-height: var(--control);
   padding: 0 var(--control-pad);
-  /* A label that wraps makes a pill a blob. The row wraps, not the label. */
-  white-space: nowrap;
+  /* No `white-space`: a pill adds `nowrap` itself. See DESIGN.md, Buttons, "One line". */
   cursor: pointer;
 }
 /* `:where`, so a button whose class sets its own ground (a tab, a menu item)

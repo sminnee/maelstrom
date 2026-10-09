@@ -145,7 +145,7 @@ export function QuestionPrompt({
               <button
                 key={q.question}
                 type="button"
-                className={styles.stepChip}
+                className={`${styles.stepChip} nowrap`}
                 data-current={i === step || undefined}
                 data-answered={done || undefined}
                 aria-current={i === step ? 'step' : undefined}
@@ -154,7 +154,11 @@ export function QuestionPrompt({
               >
                 <span className={styles.stepHeader}>{q.header || `Question ${i + 1}`}</span>
                 {done && (
-                  <span className={styles.stepAnswer} data-testid="step-answer">
+                  <span
+                    className={`${styles.stepAnswer} truncate`}
+                    title={answerFor(draft, q)}
+                    data-testid="step-answer"
+                  >
                     {answerFor(draft, q)}
                   </span>
                 )}

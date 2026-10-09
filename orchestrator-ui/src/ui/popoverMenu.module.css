@@ -53,9 +53,6 @@
      item still takes the control's min-height. */
   padding: var(--u-half) var(--u);
   text-align: left;
-  /* Not the pill's `nowrap` from `base.css`: an item wraps once the menu
-     meets the screen's width. */
-  white-space: normal;
   background: none;
   border: none;
   border-radius: var(--radius-sm);

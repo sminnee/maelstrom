@@ -62,16 +62,14 @@ export function ConfirmButton({
       {asking && (
         <div
           ref={open}
-          className={styles.ask}
+          className={`${styles.ask} nowrap`}
           style={anchorStyle}
           role="alertdialog"
           aria-label={question}
           popover="manual"
         >
           <span>{question}</span>
-          <button type="button" onClick={onDismiss}>
-            {cancel}
-          </button>
+          <AppButton onClick={onDismiss}>{cancel}</AppButton>
           {/* The action runs here, so a failure is this button's to report --
               `onError` on the trigger would never hear it. */}
           <AppButton

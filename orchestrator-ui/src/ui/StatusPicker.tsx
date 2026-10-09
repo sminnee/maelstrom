@@ -49,7 +49,7 @@ export function StatusPicker({
       <>
         <button
           type="button"
-          className={`${styles.status} ${className ?? ''}`}
+          className={`${styles.status} nowrap ${className ?? ''}`}
           aria-label={label ? `${label}, ${task.status}` : undefined}
           onClick={onPick}
         >

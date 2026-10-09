@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import type { AppButtonProps } from './AppButton';
+import { AppButton, type AppButtonProps } from './AppButton';
 import { actionIcon } from './actionIcons';
 import { Spinner } from './Spinner';
 import { useAnchorName } from './useAnchorName';
@@ -92,7 +92,7 @@ export function SplitButton({
   }, []);
 
   const shown = running?.processing ?? running?.label;
-  const segment = [buttonStyles.button, buttonStyles[variant]].join(' ');
+  const segment = [buttonStyles.button, buttonStyles[variant], 'nowrap'].join(' ');
 
   return (
     <span
@@ -174,16 +174,14 @@ export function SplitButton({
       {asking?.confirm && (
         <div
           ref={showAsk}
-          className={confirmStyles.ask}
+          className={`${confirmStyles.ask} nowrap`}
           style={anchorStyle}
           role="alertdialog"
           aria-label={asking.confirm.question}
           popover="manual"
         >
           <span>{asking.confirm.question}</span>
-          <button type="button" onClick={() => setAsking(null)}>
-            Keep it
-          </button>
+          <AppButton onClick={() => setAsking(null)}>Keep it</AppButton>
           <button
             type="button"
             className={[buttonStyles.button, buttonStyles.primary].join(' ')}

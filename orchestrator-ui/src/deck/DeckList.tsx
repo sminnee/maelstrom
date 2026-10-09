@@ -50,7 +50,7 @@ export function DeckList() {
             key={z}
             type="button"
             role="tab"
-            className={styles.tab}
+            className={`${styles.tab} nowrap`}
             aria-selected={z === zone}
             aria-controls={DECK_PANEL_ID}
             tabIndex={z === zone ? 0 : -1}
