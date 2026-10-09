@@ -184,7 +184,7 @@ function DeferredWait({ item }: { item: TranscriptItem }) {
   return (
     <div className={styles.deferred} data-testid="deferred-wait">
       <span className={styles.deferredAsk}>{asked}</span>
-      <span className={styles.deferredWhere}>Answering on the canvas</span>
+      <span className={`${styles.deferredWhere} truncate`}>Answering on the canvas</span>
     </div>
   );
 }
@@ -240,7 +240,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
       // `docs/dev/orchestrator-ui.md` for why the two differ.
       return (
         <div className={styles.compact} data-testid="compact">
-          <span className={styles.compactLabel}>
+          <span className="truncate">
             compacted
             {/* The unit lands once, on the figure it ends on. A boundary that
                 reported no counts says only that it happened. */}
@@ -257,7 +257,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
       // The `.compact` idiom, coloured. See `orchestrator-ui/DESIGN.md`, "Milestone bar".
       return (
         <div className={styles.milestone} data-testid="milestone" data-recognised={item.recognised}>
-          <span className={styles.milestoneLabel}>
+          <span className="truncate">
             <span className={styles.milestoneName}>{item.name}</span>
             {!item.recognised && ' (?)'}
             {item.deltaTokens > 0 && ` · ${contextFigure(item.deltaTokens)}`}
@@ -294,7 +294,9 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         <details className={styles.skill} data-testid="skill">
           <summary className={styles.skillHead}>
             <span className={styles.skillLabel}>skill</span>
-            <span className={styles.skillName}>{item.skill}</span>
+            <span className={`${styles.skillName} truncate`} title={item.skill}>
+              {item.skill}
+            </span>
           </summary>
           <Markdown source={item.markdown} />
         </details>

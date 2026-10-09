@@ -45,11 +45,9 @@
 .taskId {
   font-family: var(--mono);
   color: var(--fg-muted);
-  white-space: nowrap;
 }
 .taskTitle {
   flex: 1 1 12rem;
-  min-width: 0;
   color: var(--fg);
 }
 .strip {

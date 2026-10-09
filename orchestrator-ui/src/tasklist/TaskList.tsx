@@ -144,12 +144,16 @@ export function TaskList() {
               </td>
               <td>
                 {/* A real button: a row reaches no keyboard. */}
-                <button type="button" className={styles.title} onClick={() => editTask(task.id)}>
+                <button
+                  type="button"
+                  className={`${styles.title} wrap`}
+                  onClick={() => editTask(task.id)}
+                >
                   {task.title}
                 </button>
               </td>
               <td>{task.project}</td>
-              <td className={styles.mono}>{task.branch}</td>
+              <td className={`${styles.mono} wrap`}>{task.branch}</td>
               <td>
                 <StatusPicker
                   task={task}

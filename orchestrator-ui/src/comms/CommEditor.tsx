@@ -275,8 +275,8 @@ function LinkedTasks({ comm }: { comm: Comm }) {
         <ul className={styles.taskList}>
           {linked.map((task) => (
             <li key={task.id} className={styles.task} data-task-id={task.id}>
-              <span className={styles.taskId}>{task.id}</span>
-              <span className={styles.taskTitle}>{task.title}</span>
+              <span className={`${styles.taskId} nowrap`}>{task.id}</span>
+              <span className={`${styles.taskTitle} wrap`}>{task.title}</span>
               <LandingStrip task={task} />
               <AppButton
                 variant="quiet"

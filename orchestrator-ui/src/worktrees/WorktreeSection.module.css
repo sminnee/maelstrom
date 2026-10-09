@@ -20,7 +20,6 @@
   font-size: var(--text-sm);
   line-height: 1.4;
   color: var(--fg-faint);
-  overflow-wrap: anywhere;
 }
 .nato {
   color: var(--fg-muted);

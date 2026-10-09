@@ -60,13 +60,13 @@ export function CommList() {
               >
                 <td>
                   {/* A real button: a row reaches no keyboard. */}
-                  <button type="button" className={styles.title} onClick={open}>
+                  <button type="button" className={`${styles.title} wrap`} onClick={open}>
                     {comm.title}
                   </button>
                   {comm.closedAt && <span className={styles.closed}> closed</span>}
                 </td>
-                <td className={styles.recipients}>{comm.recipients.join(', ')}</td>
-                <td className={styles.count}>
+                <td className={`${styles.recipients} wrap`}>{comm.recipients.join(', ')}</td>
+                <td className={`${styles.count} nowrap`}>
                   {comm.taskIds.length === 1 ? '1 task' : `${comm.taskIds.length} tasks`}
                 </td>
                 <td data-testid="comm-landing" className={landing ? undefined : styles.faint}>

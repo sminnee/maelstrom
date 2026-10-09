@@ -138,7 +138,10 @@ export function DialogHeader({
 }) {
   return (
     <header className={styles.header}>
-      <h2 className={styles.heading}>{title}</h2>
+      {/* Mono Means Literal: an id stays on one line and is cut with an ellipsis. */}
+      <h2 className={`${styles.heading} truncate`} title={title}>
+        {title}
+      </h2>
       {/* One flex item, so a multi-button child (e.g. Prev/Next) clusters
           beside the close button rather than spreading across the header. */}
       {children && <span className={styles.headerControls}>{children}</span>}

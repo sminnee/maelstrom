@@ -63,7 +63,7 @@ export function WorktreeTable() {
       {terminal}
       {groups.map((group) => (
         <section key={group.project} className={styles.project}>
-          <h2 className={styles.heading}>{group.project}</h2>
+          <h2 className={`${styles.heading} wrap`}>{group.project}</h2>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -95,7 +95,7 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
   return (
     <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed}>
       <td className={styles.mono}>{worktree.nato}</td>
-      <td className={styles.mono}>
+      <td className={`${styles.mono} wrap`}>
         {/* A closed worktree carries no branch, and neither does a detached one. */}
         {worktree.branch || <span className={styles.faint}>(detached)</span>}
       </td>
@@ -109,7 +109,7 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
         <DevEnvLinks worktree={worktree} />
       </td>
       <td data-label="agents">{agents || ''}</td>
-      <td className={styles.actions}>
+      <td className={`${styles.actions} nowrap`}>
         <Actions worktree={worktree} />
       </td>
     </tr>
