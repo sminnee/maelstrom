@@ -84,6 +84,14 @@ export function nodeIdLine(node: GraphNode): string {
   return node.task ? node.task.notebookId : node.id;
 }
 
+/**
+ * The worktree a node's work is in. The agent knows where it runs, so its
+ * worktree beats the branch index's guess.
+ */
+export function nodeWorktree(world: WorldView, node: GraphNode): Worktree | undefined {
+  return node.worktree ?? (node.agent ? world.worktrees[node.agent.worktreeId] : undefined);
+}
+
 /** Whether an agent is still running. An exited one draws nothing by itself. */
 export function isLive(agent: Agent | undefined): boolean {
   return agent !== undefined && agent.state !== 'exited';

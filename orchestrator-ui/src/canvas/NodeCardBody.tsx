@@ -15,7 +15,7 @@ import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
-import { nodeIdLine, nodeTitle } from '../selectors/graph';
+import { nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
 import { documentsByKind } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
@@ -77,7 +77,7 @@ export function NodeCardBody({
   const setStatus = useSetStatus();
   const { open: editTask } = useEditor();
   const [picking, setPicking] = useState(false);
-  const { task, agent, worktree } = node;
+  const { task, agent } = node;
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
   const brief = detail.data?.displayContent.trim() ?? '';
@@ -96,7 +96,7 @@ export function NodeCardBody({
     ),
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
-  const where = worktree ?? (agent ? world.worktrees[agent.worktreeId] : undefined);
+  const where = nodeWorktree(world, node);
   const meta = [
     modelLabel(agent?.model || task?.model || ''),
     agent?.permissionMode || '',
