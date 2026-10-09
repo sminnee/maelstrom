@@ -174,8 +174,8 @@ about 700 tasks across every project and most of them are finished. The task lis
 task with filters for status, project, branch and text, and each row toggles that task on or off
 the desk. The top bar shows Desk, Tasks, Worktrees, Comms and Tabs; see "The three layouts". There is one
 filter bar, and it draws the controls of each main view on screen. Project applies to Desk, Tasks
-and Worktrees. A comm belongs to no project, so the bar hides Project when Comms is the only view
-on screen.
+and Worktrees. The Comms view does not filter by project, so the bar hides Project when Comms is
+the only view on screen.
 Branch applies to Desk and Tasks only: a worktree on a branch no work names would silently vanish
 from a table meant to show every one of them. The Project and Branch options are what the views on
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
@@ -188,6 +188,9 @@ A task matches by its id, notebook id or title; a free agent by its id or its dr
 `deriveGraph` reader follows it, so the attention chip and the New work project radios narrow
 too. The field commits the text after a 200ms pause, so a keystroke does not re-derive every view.
 The field takes a text the URL changes under it, such as one Back returns to.
+Desk and Tasks also share the Comm filter, `filters.comm` (`?comm=`): only the tasks whose
+`comms` name it. A free agent or an empty worktree has no task to link, so the Desk draws neither
+under it.
 A change to any Desk filter fits the canvas to the whole desk again. A world update never moves
 the viewport.
 
@@ -248,16 +251,20 @@ each deploy step; `selectors/comms.ts` holds it and the strip text. "Show closed
 comms. It is the view's own state, not a filter in the URL, because no other view reads it. Below
 840px the rows stack, as the task list's do.
 
-`comms/CommEditor.tsx` opens over the list as a dialog. It edits the title, the content and the
-recipients, which are chips: Enter adds one, and Save also adds what is left in the field. It
-lists the linked tasks, each with its landing strip, such as `merged · UAT ✓ · live ○`: ✓ is
-`landed`, ○ is `not_yet` and ? is `unknown`. A task that is not done shows its status.
+`comms/CommEditor.tsx` opens over the list as a dialog. It edits the title, the content, the
+**Comm category**, the project and the recipients, which are chips: Enter adds one, and Save
+also adds what is left in the field. On a new comm, the project follows the category's
+**Default project** until the user picks one. It lists the linked tasks, each with its landing
+strip, such as `merged · UAT ✓ · live ○`: ✓ is `landed`, ○ is `not_yet` and ? is `unknown`. A
+task that is not done shows its status. New task opens New work seeded with the comm's title,
+content and project, and `task.create` sends `comms`, so the link is in the same write.
 
 A link is the task's own `comms` field. So the Link picker and each Unlink write through
-`useUpdateTask` with `comms`. The `comm` notice that follows refetches the comm, with its new
-`taskIds`. `comms`
-rides on the update call, not on `TaskEdit`, so it stays out of the task editor and out of new
-work. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
+`useUpdateTask` with `comms`, at once and not through a form's Save. The task editor's
+`comms/TaskComms.tsx` links comms the same way. The `comm` notice that follows refetches the
+comm, with its new `taskIds`. `comms` stays off `TaskEdit`, so it is never in the task form's
+diff. Both pickers pass `recent` to `ui/ComboBox.tsx`: an empty field offers the five ids that
+`ui/recent.ts` holds for this browser. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
 editor, so it is disabled while the form holds unsaved edits.
 
 The `comm` notice invalidates per id, as `task` does: `perId(keys.comms, …)` in
@@ -1327,7 +1334,7 @@ as its detail screen and the panel tab as a screen over it.
 | `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
 | `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
-| `?project= &branch= &agents= &status= &q= &closed=1` | The filters. `status=all` is every status |
+| `?project= &branch= &agents= &status= &q= &comm= &closed=1` | The filters. `status=all` is every status |
 | `?zone=done` | The narrow deck's zone |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
 

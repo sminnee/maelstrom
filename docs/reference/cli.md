@@ -1138,14 +1138,14 @@ agent change comms. A person uses the Comms view of the orchestrator UI.
 | Command | Description |
 |---|---|
 | `mael comms new TITLE` | Create a comm and print its id, such as `c1`. |
-| `mael comms list` | Print the open comms: id, title, recipients and the number of linked tasks. |
+| `mael comms list` | Print the open comms: id, title, category, project, recipients and the number of linked tasks. |
 | `mael comms close COMM` | Close a comm. A closed comm leaves the open list. |
 | `mael comms link COMM TASK...` | Link tasks to a comm. All or nothing: an unknown task links none. |
-| `mael comms edit COMM` | Change a comm's title, content or recipients. |
+| `mael comms edit COMM` | Change a comm's title, content, recipients, category or project. |
 | `mael comms landings` | Print each tracked task's **Landing**: its PR, its status, and each environment's state. |
 
 ```bash
-mael comms new "Invoice export" --to "#cs" --to jo@acme.test   # prints c1
+mael comms new "Invoice export" --to "#cs" --to jo@acme.test --category release   # prints c1
 mael task add "Export invoices as CSV" --comm c1               # its children inherit c1
 mael comms link c1 2026-10-08.3 2026-10-08.4                   # link two more tasks
 mael comms edit c1                                             # edit the content in $EDITOR
@@ -1161,12 +1161,15 @@ A link is the task's own `comms` field, so `mael task update --comm` changes it 
 |---|---|
 | `--content TEXT` | The request, as it came in. |
 | `--to TEXT` | A recipient: a Slack channel, an email address or a note. Repeatable. |
+| `--category TEXT` | The comm's category: free text, such as `release`. |
+| `--project TEXT` | The project a task made from the comm goes to. Default: the **Default project** of the category, else the project of the current directory, else none. `''` sets none. |
 
 **`mael comms list`**
 
 | Option | Description |
 |---|---|
 | `--all` | Show closed comms too. |
+| `--category TEXT` | Show only the comms in this category. |
 
 **`mael comms link`**
 
@@ -1186,6 +1189,10 @@ nothing.
 | `--content TEXT` | Set the content. |
 | `--to TEXT` | Set the recipients. Repeatable. Replaces the list. |
 | `--clear-to` | Remove every recipient. |
+| `--category TEXT` | Set the category. `''` clears it. |
+| `--project TEXT` | Set the project. `''` clears it. |
+
+An unknown project is refused by `new` and `edit`.
 
 **`mael comms landings`**
 

@@ -651,8 +651,12 @@ upserts join the same batch. A link change is therefore one task write that send
 and a comm notice together.
 
 A link is `PATCH /api/tasks/{project}/{id}` with `comms`. The list replaces the task's own, and
-each id must name a comm the world holds. `task.create` does not take `comms`: a new task
-inherits its parent task's comms, and a link is a later edit.
+each id must name a comm the world holds. `task.create` takes `comms` too, so a task made from
+a comm is linked in the same write. Without `comms`, a new task inherits its parent task's comms.
+
+A comm's `category` and `project` are plain fields of `comm.create` and `comm.update`. `project`
+is `""` or a project the world holds. The **Default project** of a category is derived in the
+client, in `selectors/comms.ts`, which mirrors `comms.default_project`.
 
 ### Agents
 
