@@ -7,7 +7,7 @@
   padding-bottom: var(--u-2);
   border-bottom: 1px solid var(--border);
 }
-/* Bare, as the screen strip's Back is: a close needs no caption. */
+/* Bare, as the screen strip's Close is: a close needs no caption. */
 .close {
   flex: none;
   min-width: var(--control);

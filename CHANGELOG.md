@@ -96,7 +96,7 @@ release while that section is empty, and retitles it to the version it is releas
   off. The bulk bar and the node card's end-of-work control keep On desk and Off desk.
 
 - **The narrow layout is easier to press.** Each button, link and field is 48px high. On the
-  deck the top bar is two rows. A pushed screen has one row, the screen strip: Back, the title,
+  deck the top bar is two rows. A pushed screen has one row, the screen strip: Close, the title,
   up to two actions and More. More opens a side sheet with the rest of the screen's chrome, the
   readings and New. A soft keyboard shrinks the screen, so the field being written stays in
   view, and field text is 16px. On a node's detail screen
@@ -167,6 +167,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **Close on a phone goes to the list.** The screen strip of a pushed screen has Close in place
+  of Back. After the attention chip opened several nodes, Back went through each of them before
+  the list. Close on a detail goes to the list. Close on a session or a document goes to its
+  detail. The browser's Back still goes through the nodes.
 - **A side sheet closes on a phone.** Every side sheet has a Close button. A tap on the
   backdrop closes a dialog on iOS Safari.
 

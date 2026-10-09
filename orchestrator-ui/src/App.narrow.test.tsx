@@ -85,23 +85,26 @@ describe('the narrow layout', () => {
   });
 
   it('opens a node full-screen from its row, and the screen strip replaces the top bar until it returns', async () => {
-    await renderApp({ viewport: 'narrow' });
+    const { router } = await renderApp({ viewport: 'narrow' });
     const bar = () => within(screen.getByTestId('top-bar'));
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
-    // One strip: the way back, what the screen is, and More. The readings and
+    // One strip: Close, what the screen is, and More. The readings and
     // New move into the side sheet.
     expect(bar().queryByRole('group', { name: 'Views' })).toBeNull();
     expect(bar().getByTestId('screen-title')).toHaveTextContent('Migrate to Postgres 16');
     expect(bar().queryByRole('button', { name: 'New' })).toBeNull();
 
-    await userEvent.click(bar().getByRole('button', { name: 'Back' }));
+    await userEvent.click(bar().getByRole('button', { name: 'Close' }));
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
+    // The detail was pushed from the deck, so Close is the browser's Back: a later Back does not
+    // reopen it.
+    expect(router.state.historyAction).toBe('POP');
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
-    expect(bar().queryByRole('button', { name: 'Back' })).toBeNull();
+    expect(bar().queryByRole('button', { name: 'Close' })).toBeNull();
   });
 
   it('opens the side sheet from More, with New in it, which closes it', async () => {
@@ -132,14 +135,14 @@ describe('the narrow layout', () => {
     });
     await waitFor(() => expect(bar.queryByTestId('attention-chip')).toBeNull());
     // The deck's bar keeps the chip at 0: it is where the chip lives.
-    await userEvent.click(bar.getByRole('button', { name: 'Back' }));
+    await userEvent.click(bar.getByRole('button', { name: 'Close' }));
     expect(screenStrip().getByTestId('attention-chip')).toHaveAttribute('data-count', '0');
   });
 
-  it('opens on the detail the URL names, and Back with nothing behind it goes to the deck', async () => {
+  it('opens on the detail the URL names, and Close with nothing behind it goes to the deck', async () => {
     const { router } = await renderApp({ viewport: 'narrow', url: '/desk/task/NORT-9' });
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
-    await userEvent.click(screenStrip().getByRole('button', { name: 'Back' }));
+    await userEvent.click(screenStrip().getByRole('button', { name: 'Close' }));
     expect(router.state.location.pathname).toBe('/desk');
     expect(router.state.historyAction).toBe('REPLACE');
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
@@ -165,7 +168,7 @@ describe('the narrow layout', () => {
     ).toBeInTheDocument();
   });
 
-  it('pushes the session over the detail, and back pops one screen at a time', async () => {
+  it('pushes the session over the detail, and Close closes one screen at a time', async () => {
     const { router } = await renderApp({ viewport: 'narrow' });
     await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
     await userEvent.click(screen.getByRole('link', { name: /Session/ }));
@@ -173,13 +176,29 @@ describe('the narrow layout', () => {
     // No tab strip in the narrow layout: one thing owns the screen.
     expect(screen.queryAllByRole('tab', { name: /session/i })).toHaveLength(0);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    // The session closes to the detail it was opened from.
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
-    // The browser's Back: the closed screen is ahead in history, not behind.
     expect(router.state.historyAction).toBe('POP');
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
     expect(router.state.historyAction).toBe('POP');
+  });
+
+  it('closes to the deck after the chip went through two nodes, and keeps the history', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ viewport: 'narrow' });
+    // NORT-7 holds the oldest ask in the seed, and NORT-12 the next.
+    await user.click(screen.getByTestId('attention-chip'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Plan the order export');
+    await user.click(screen.getByTestId('attention-chip'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Rotate auth tokens');
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
+    // The browser's Back still goes back through the nodes the chip opened.
+    await act(() => router.navigate(-1));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Plan the order export');
   });
 
   it('puts Stop in the session strip, and the head in the side sheet', async () => {
@@ -255,8 +274,8 @@ describe('the narrow layout', () => {
     await user.click(screen.getByRole('tab', { name: /^Done/ }));
     await user.click(screen.getByTestId('attention-chip'));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Plan the order export');
-    // Back lands on a list that holds it, rather than the zone it was on.
-    await user.click(screen.getByRole('button', { name: 'Back' }));
+    // Close lands on a list that holds it, rather than the zone it was on.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.getByRole('tab', { name: /^Running/ })).toHaveAttribute('aria-selected', 'true');
   });
 

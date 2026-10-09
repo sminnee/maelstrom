@@ -53,7 +53,7 @@ function NarrowChip({ hideWhenClear }: { hideWhenClear: boolean }) {
   const onClick = () => {
     const next = nodes.find((n) => n.id === nextAttentionNode(nodes, expandedNodeId));
     if (!next) return;
-    // Back from the detail lands on a list that holds the node, so the zone moves on the
+    // Close from the detail lands on a list that holds the node, so the zone moves on the
     // entry under it. An unanswered node sits in the same zone as an ask.
     go({ zone: zoneForState('needs-attention') }, { replace: true });
     // The detail is the top screen: a screen left over it would hide where the chip went.
