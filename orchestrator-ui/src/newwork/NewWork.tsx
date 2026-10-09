@@ -388,7 +388,7 @@ export function NewWork() {
     <Dialog label="New work" onClose={() => close()}>
       <DialogHeader title="New work" onClose={() => close()} />
 
-      <DialogBody>
+      <DialogBody className={styles.body}>
         <Capture
           names={names}
           inView={inView}
@@ -620,10 +620,9 @@ function Capture({
       {kind === 'task' && <TaskTitleField draft={task} onChange={patchTask} />}
 
       {kind !== 'linear' && (
-        <div className={`${dialog.field} ${styles.draftField}`}>
+        <div className={dialog.field}>
           <label htmlFor={draftId}>What needs doing?</label>
           <AttachField
-            className={styles.draftAttach}
             project={project}
             bucket={bucket}
             attached={attached}

@@ -42,4 +42,12 @@ describe('the mobile stylesheets', () => {
   it('stop a narrow dialog with a body scrolling as a whole', () => {
     expect(rule(narrow(dialog), '.dialog:has(> .body)')).toMatch(/overflow:\s*hidden/);
   });
+
+  it('pack the narrow New work form to its foot, with a short draft', () => {
+    const newWork = narrow(sheet('newwork/NewWork.module.css'));
+    // Not `justify-content: flex-end`, which puts the top of the form out of reach.
+    expect(rule(newWork, '.body > :first-child')).toMatch(/margin-top:\s*auto/);
+    expect(newWork).not.toMatch(/flex-end/);
+    expect(rule(newWork, '.draft')).toMatch(/max-height:\s*8\.5em/);
+  });
 });

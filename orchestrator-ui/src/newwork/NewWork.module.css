@@ -20,18 +20,17 @@
   color: var(--attention);
 }
 
-/* On a phone the dialog fills the screen above the keyboard, and the draft
-   takes what the other fields leave. Under the 6em floor the dialog scrolls.
-   `textarea.draft` matches the specificity of the dialog's touch floor,
-   `.field textarea`, and this sheet loads after it. */
+/* On a phone the form packs to the foot of its body, near the keyboard
+   (DESIGN.md, "The Still Screen Rule"). An auto margin, not
+   `justify-content: flex-end`, which puts the top of a long form out of reach.
+   Later in the sheet than `.draft`, so it wins over the 12em floor. */
 @media (max-width: 839px) {
-  .draftField,
-  .draftAttach {
-    flex: 1 0 auto;
+  .body > :first-child {
+    margin-top: auto;
   }
-  textarea.draft {
-    flex: 1 0 6em;
-    min-height: 6em;
+  .draft {
+    min-height: 4.5em;
+    max-height: 8.5em;
     overflow-y: auto;
   }
 }
