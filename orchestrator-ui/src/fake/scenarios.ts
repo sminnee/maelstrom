@@ -731,17 +731,23 @@ function comms(): Seed {
       title: 'Order export is live',
       content: 'Sales asked to hear when customers can download their orders.',
       recipients: ['#sales', 'ops@northwind.test'],
+      category: 'release',
+      project: 'northwind',
     }),
     comm({
       id: 'c2',
       title: 'Refunds retry on their own',
       content: 'Support wants to stop retrying failed refunds by hand.',
       recipients: ['#support'],
+      category: 'release',
+      project: 'northwind',
     }),
     comm({
       id: 'c3',
       title: 'Checkout test is stable',
       recipients: ['#eng'],
+      category: 'support',
+      project: 'riverbend',
       closedMinutesAgo: 60,
     }),
   ]) {

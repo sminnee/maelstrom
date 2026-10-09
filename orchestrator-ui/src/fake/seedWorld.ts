@@ -118,6 +118,8 @@ interface CommSpec {
   title: string;
   content?: string;
   recipients?: string[];
+  category?: string;
+  project?: string;
   createdMinutesAgo?: number;
   /** Left out for an open comm. */
   closedMinutesAgo?: number;
@@ -133,6 +135,8 @@ export function comm(spec: CommSpec): Comm {
     title: spec.title,
     content: spec.content ?? '',
     recipients: spec.recipients ?? [],
+    category: spec.category ?? '',
+    project: spec.project ?? '',
     createdAt: T(spec.createdMinutesAgo ?? 600),
     closedAt: spec.closedMinutesAgo === undefined ? '' : T(spec.closedMinutesAgo),
     taskIds: [],

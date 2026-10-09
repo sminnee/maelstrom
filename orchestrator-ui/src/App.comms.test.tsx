@@ -113,6 +113,41 @@ describe('the comms view', () => {
     expect(row(id)).toHaveAttribute('data-closed', 'true');
   });
 
+  it("fills a new comm's project from its category's default project", async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'comms', url: '/comms?project=maelstrom' });
+
+    await user.click(await screen.findByRole('button', { name: 'New comm' }));
+    const editor = within(screen.getByRole('dialog', { name: 'New comm' }));
+    const project = editor.getByLabelText('Project') as HTMLSelectElement;
+    await user.type(editor.getByLabelText('Title'), 'Tell support');
+    // c1 and c2 are release comms for northwind; c3, closed, is support for riverbend.
+    await user.type(editor.getByLabelText('Category'), 'support');
+    expect(project.value).toBe('riverbend');
+    await user.clear(editor.getByLabelText('Category'));
+    await user.type(editor.getByLabelText('Category'), 'release');
+    expect(project.value).toBe('northwind');
+    // A category no comm uses has no default project, so the filter bar's project stands.
+    await user.clear(editor.getByLabelText('Category'));
+    await user.type(editor.getByLabelText('Category'), 'brand new');
+    expect(project.value).toBe('maelstrom');
+
+    // A project the user picked stays, whatever the category becomes.
+    await user.selectOptions(project, 'riverbend');
+    await user.selectOptions(project, 'maelstrom');
+    await user.clear(editor.getByLabelText('Category'));
+    await user.type(editor.getByLabelText('Category'), 'support');
+    expect(project.value).toBe('maelstrom');
+
+    await user.click(editor.getByRole('button', { name: 'Create' }));
+    await waitFor(() =>
+      expect(Object.values(server.world.comms).find((c) => c.id.startsWith('new'))).toMatchObject({
+        category: 'support',
+        project: 'maelstrom',
+      }),
+    );
+  });
+
   it('unlinks a task from a comm', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ scenario: 'comms' });

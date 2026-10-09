@@ -1,10 +1,11 @@
-import { useCallback, useId, useMemo, useState } from 'react';
-import { useComm, useCreateComm, useUpdateComm, type CommEdit } from '../api/comms';
+import { useId, useMemo, useState } from 'react';
+import { useComm, useComms, useCreateComm, useUpdateComm, type CommEdit } from '../api/comms';
 import { useUpdateTask } from '../api/tasks';
 import type { TaskRow } from '../api/types';
 import { useWorld } from '../api/useWorld';
 import type { Comm } from '../protocol/entities';
-import { landingStrip } from '../selectors/comms';
+import { useLoc } from '../nav/useNav';
+import { categories, defaultProject, landingStrip } from '../selectors/comms';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
@@ -17,9 +18,9 @@ interface Draft {
   title: string;
   content: string;
   recipients: string[];
+  category: string;
+  project: string;
 }
-
-const EMPTY: Draft = { title: '', content: '', recipients: [] };
 
 /**
  * Edits one comm, or writes a new one when `commId` is `null`. A new comm
@@ -65,18 +66,46 @@ function CommForm({
 }) {
   const create = useCreateComm();
   const update = useUpdateComm();
+  const comms = useComms().data?.comms;
+  const { world } = useWorld();
+  const { filters } = useLoc();
   // Frozen, as the task editor's is: the comm moves as the server publishes,
   // and a diff against a moved copy would send a field the user never touched.
   const [opened] = useState<Draft>(() =>
-    comm ? { title: comm.title, content: comm.content, recipients: comm.recipients } : EMPTY,
+    comm
+      ? {
+          title: comm.title,
+          content: comm.content,
+          recipients: comm.recipients,
+          category: comm.category,
+          project: comm.project,
+        }
+      : { title: '', content: '', recipients: [], category: '', project: filters.project ?? '' },
   );
   const [draft, setDraft] = useState(opened);
+  // A new comm's project follows its category until the user picks one.
+  const [projectPicked, setProjectPicked] = useState(comm !== null);
+  const categoryOptions = useMemo(
+    () => categories(comms ?? []).map((value) => ({ value })),
+    [comms],
+  );
+  const projectNames = Object.keys(world.projects).sort();
+  const setCategory = (category: string) =>
+    setDraft((d) => ({
+      ...d,
+      category,
+      project: projectPicked
+        ? d.project
+        : defaultProject(comms ?? [], category.trim()) || (filters.project ?? ''),
+    }));
   // What the recipient field holds but has not added yet. Save adds it too.
   const [recipient, setRecipient] = useState('');
   const [confirming, setConfirming] = useState(false);
   const titleId = useId();
   const contentId = useId();
   const recipientId = useId();
+  const categoryId = useId();
+  const projectId = useId();
 
   const withPending = (d: Draft): Draft => {
     const extra = recipient.trim();
@@ -86,10 +115,10 @@ function CommForm({
   };
   const dirty = Object.keys(changed(opened, withPending(draft))).length > 0;
 
-  const leave = useCallback(() => {
+  const leave = () => {
     if (dirty) setConfirming(true);
     else onClose();
-  }, [dirty, onClose]);
+  };
 
   const addRecipient = () => {
     setDraft(withPending);
@@ -103,6 +132,8 @@ function CommForm({
         title: final.title,
         content: final.content,
         recipients: final.recipients,
+        category: final.category,
+        project: final.project,
       });
       onCreated(id);
       return;
@@ -134,6 +165,36 @@ function CommForm({
           value={draft.content}
           onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
         />
+      </div>
+      <div className={styles.pair}>
+        <div className={fieldStyles.field}>
+          <label htmlFor={categoryId}>Category</label>
+          <ComboBox
+            id={categoryId}
+            value={draft.category}
+            options={categoryOptions}
+            onChange={setCategory}
+            placeholder="Pick one or type a new one"
+          />
+        </div>
+        <label className={fieldStyles.field} htmlFor={projectId}>
+          <span>Project</span>
+          <select
+            id={projectId}
+            value={draft.project}
+            onChange={(e) => {
+              setProjectPicked(true);
+              setDraft((d) => ({ ...d, project: e.target.value }));
+            }}
+          >
+            <option value="">None</option>
+            {projectNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <div className={fieldStyles.field}>
         <label htmlFor={recipientId}>Recipients</label>
@@ -343,6 +404,8 @@ function changed(before: Draft, after: Draft): CommEdit {
   const fields: CommEdit = {};
   if (after.title !== before.title) fields.title = after.title;
   if (after.content !== before.content) fields.content = after.content;
+  if (after.category.trim() !== before.category) fields.category = after.category.trim();
+  if (after.project !== before.project) fields.project = after.project;
   if (after.recipients.join('\n') !== before.recipients.join('\n')) {
     fields.recipients = after.recipients;
   }

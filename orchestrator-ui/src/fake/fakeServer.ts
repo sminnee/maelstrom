@@ -1329,7 +1329,7 @@ function command(
   if (pathname === '/api/comms' && method === 'POST') {
     const title = str('title')?.trim() ?? '';
     if (!title) return error(400, 'invalid', 'A title is required');
-    const refused = commFieldsError(b);
+    const refused = commFieldsError(b, world);
     if (refused) return refused;
     const id = `new${mint()}`;
     world.comms[id] = {
@@ -1339,6 +1339,8 @@ function command(
       recipients: Array.isArray(b.recipients) ? (b.recipients as string[]) : [],
       createdAt: now(),
       closedAt: '',
+      category: (str('category') ?? '').trim(),
+      project: str('project') ?? '',
       taskIds: [],
     };
     server.change({ kind: 'comm', ids: [id] });
@@ -1358,12 +1360,14 @@ function command(
     if (b.closed !== undefined && typeof b.closed !== 'boolean') {
       return error(400, 'invalid', 'closed is true or false');
     }
-    const refused = commFieldsError(b);
+    const refused = commFieldsError(b, world);
     if (refused) return refused;
     const next = { ...comm };
     if (b.title !== undefined) next.title = String(b.title).trim();
     if (b.content !== undefined) next.content = String(b.content);
     if (Array.isArray(b.recipients)) next.recipients = b.recipients as string[];
+    if (typeof b.category === 'string') next.category = b.category.trim();
+    if (typeof b.project === 'string') next.project = b.project;
     // Closing again keeps the first stamp, as `comms.close` does.
     if (b.closed === true && !comm.closedAt) next.closedAt = now();
     if (b.closed === false) next.closedAt = '';
@@ -1376,15 +1380,20 @@ function command(
 }
 
 /** The comm fields `comm.update` takes, as `COMM_EDITABLE` in `orchestrator/validate.py`. */
-const COMM_EDITABLE = ['title', 'content', 'recipients', 'closed'] as const;
+const COMM_EDITABLE = ['title', 'content', 'recipients', 'category', 'project', 'closed'] as const;
 
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((v) => typeof v === 'string');
 
-/** The shape of a comm's `content` and `recipients`, as `_check_comm_fields`. */
-function commFieldsError(b: Record<string, unknown>) {
-  if (b.content !== undefined && typeof b.content !== 'string') {
-    return error(400, 'invalid', 'content is text');
+/** A comm's text fields, `recipients` and `project`, as `_check_comm_fields`. */
+function commFieldsError(b: Record<string, unknown>, world: FakeWorld) {
+  for (const key of ['content', 'category', 'project'] as const) {
+    if (b[key] !== undefined && typeof b[key] !== 'string') {
+      return error(400, 'invalid', `${key} is text`);
+    }
+  }
+  if (typeof b.project === 'string' && b.project && !world.projects[b.project]) {
+    return notFound(`project ${b.project}`);
   }
   if (b.recipients !== undefined && !isStrings(b.recipients)) {
     return error(400, 'invalid', 'recipients is a list of text');

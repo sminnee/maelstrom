@@ -12,6 +12,9 @@ export interface CommEdit {
   title?: string;
   content?: string;
   recipients?: string[];
+  category?: string;
+  /** `''` or a project the world holds. */
+  project?: string;
   /** `true` closes the comm and stamps `closedAt`; `false` opens it again. */
   closed?: boolean;
 }
@@ -39,7 +42,7 @@ export function useCreateComm() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { title: string; content?: string; recipients?: string[] }) =>
+    mutationFn: (vars: Omit<CommEdit, 'closed'> & { title: string }) =>
       api.post<{ id: string }>('/api/comms', vars),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.comms.list() }),
   });
