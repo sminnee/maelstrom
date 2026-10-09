@@ -5,23 +5,27 @@ import styles from './TextArea.module.css';
  * A `<textarea>`. With `grow`, its height follows its text, so the container
  * scrolls, not the field. To cap the growth, the caller's class sets
  * `max-height` and `overflow-y: auto`; past the cap the field scrolls itself.
+ *
+ * Where the browser supports `field-sizing: content`, it fits the height and
+ * the script fit does not run. See DESIGN.md, "The Still Screen Rule".
  */
 export function TextArea({
   grow = false,
   className,
+  style,
   ...props
 }: ComponentPropsWithoutRef<'textarea'> & { grow?: boolean }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // A layout effect, so no frame paints the old height.
   useLayoutEffect(() => {
-    if (grow) fitToText(ref.current);
+    if (grow && !sizesItself()) fitToText(ref.current);
   }, [grow, props.value]);
 
   // A new width re-wraps the text: a resized panel, a rotated phone.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!grow || !el || typeof ResizeObserver !== 'function') return;
+    if (!grow || !el || sizesItself() || typeof ResizeObserver !== 'function') return;
     let width = el.clientWidth;
     const observer = new ResizeObserver(() => {
       // The height this sets fires the observer too. Only a width change refits.
@@ -34,8 +38,20 @@ export function TextArea({
   }, [grow]);
 
   const classes = [grow ? styles.grow : undefined, className].filter(Boolean).join(' ');
-  return <textarea ref={ref} className={classes || undefined} {...props} />;
+  // `TextArea.module.css` reads the rows for its floor.
+  const rows = grow && props.rows ? { '--rows': props.rows } : undefined;
+  return (
+    <textarea
+      ref={ref}
+      className={classes || undefined}
+      style={rows ? { ...rows, ...style } : style}
+      {...props}
+    />
+  );
 }
+
+/** Whether the browser fits a field to its text, from `TextArea.module.css`. */
+const sizesItself = () => CSS.supports('field-sizing', 'content');
 
 /** Set a textarea's height to the height of its text. */
 function fitToText(el: HTMLTextAreaElement | null) {

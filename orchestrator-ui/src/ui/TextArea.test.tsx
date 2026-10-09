@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { observeResizes } from '../test/resizeObserver';
 import { TextArea } from './TextArea';
 
 /** jsdom computes no layout: each line of text is 20px of scroll height. */
@@ -32,8 +33,10 @@ function Harness({ initial = '' }: { initial?: string }) {
   );
 }
 
-describe('TextArea grow', () => {
+describe('TextArea grow, where the browser cannot fit the text itself', () => {
   beforeEach(() => {
+    // An older browser, with no `field-sizing`: the field fits by script.
+    vi.spyOn(CSS, 'supports').mockReturnValue(false);
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
       this: HTMLTextAreaElement,
     ) {
@@ -85,21 +88,7 @@ describe('TextArea grow', () => {
   });
 
   it('refits when its width changes, and not when only its height does', () => {
-    let resized: () => void = () => {};
-    // The setup stub is writable but not configurable, so `stubGlobal` cannot
-    // replace it.
-    const stub = globalThis.ResizeObserver;
-    onTestFinished(() => {
-      globalThis.ResizeObserver = stub;
-    });
-    globalThis.ResizeObserver = class {
-      constructor(callback: () => void) {
-        resized = callback;
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver;
+    const resize = observeResizes();
     let width = 400;
     vi.spyOn(HTMLTextAreaElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
     render(<Harness initial={'x'.repeat(30)} />);
@@ -108,11 +97,34 @@ describe('TextArea grow', () => {
 
     // The text now wraps to three lines, but the width is the same.
     perLine = 10;
-    act(() => resized());
+    resize(field);
     expect(field).toHaveStyle({ height: '20px' });
 
     width = 100;
-    act(() => resized());
+    resize(field);
     expect(field).toHaveStyle({ height: '60px' });
+  });
+});
+
+describe('TextArea grow, where the browser fits the text itself', () => {
+  it('sets no height, so iOS has no collapse to scroll after', async () => {
+    vi.spyOn(CSS, 'supports').mockImplementation(
+      (property: string, value?: string) => property === 'field-sizing' && value === 'content',
+    );
+    const user = userEvent.setup();
+    render(<Harness initial={'one\ntwo'} />);
+    const field = screen.getByRole('textbox', { name: 'Notes' });
+
+    await user.type(field, '{Enter}three');
+    await user.click(screen.getByRole('button', { name: 'Attach' }));
+    expect(field.style.height).toBe('');
+  });
+
+  it('hands its rows to the stylesheet, which the browser fit ignores', () => {
+    vi.spyOn(CSS, 'supports').mockReturnValue(true);
+    render(<TextArea grow rows={3} aria-label="Notes" value="" readOnly />);
+    expect(screen.getByRole('textbox', { name: 'Notes' }).style.getPropertyValue('--rows')).toBe(
+      '3',
+    );
   });
 });

@@ -2,4 +2,8 @@
 :where(.grow) {
   resize: none;
   overflow: hidden;
+  field-sizing: content;
+  /* `field-sizing` ignores `rows`, so the floor is set here. The padding and
+     border are the base textarea's. */
+  min-height: max(var(--control), calc(var(--rows, 1) * 1lh + 2 * var(--u-half) + 2px));
 }

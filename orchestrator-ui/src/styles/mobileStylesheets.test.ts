@@ -55,4 +55,10 @@ describe('the mobile stylesheets', () => {
     expect(newWork).not.toMatch(/flex-end/);
     expect(rule(newWork, '.draft')).toMatch(/max-height:\s*8\.5em/);
   });
+
+  it('grow a text area with its content, not by script, from its rows', () => {
+    const grow = sheet('ui/TextArea.module.css');
+    expect(grow).toMatch(/:where\(\.grow\)\s*\{[^}]*field-sizing:\s*content/);
+    expect(grow).toMatch(/:where\(\.grow\)\s*\{[^}]*min-height:[^;]*var\(--rows/);
+  });
 });
