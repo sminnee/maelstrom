@@ -91,13 +91,13 @@ describe('the panel tab in the URL', () => {
     expect(router.state.historyAction).toBe('POP');
   });
 
-  it('draws the tab as a screen over the card on the narrow layout, and Back pops each', async () => {
+  it('draws the tab as a screen over the card on the narrow layout, and Close closes each', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow', url: '/desk/task/NORT-9?panel=session/d9a4c7f1' });
     expect(screen.getByTestId('session-tab')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
-    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(await screen.findByTestId('deck-list')).toBeInTheDocument();
   });
 });

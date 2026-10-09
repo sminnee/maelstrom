@@ -120,7 +120,7 @@
     box-shadow: inset 0 -2px 0 var(--accent);
   }
   /* The screen strip: one row, a control high. See DESIGN.md, "The One Strip Rule". */
-  .back,
+  .close,
   .more {
     flex: none;
     min-width: var(--control);
@@ -128,7 +128,7 @@
     background: none;
     border: none;
   }
-  .back {
+  .close {
     color: var(--accent);
   }
   .more {
@@ -150,13 +150,13 @@
   .actions:empty {
     display: none;
   }
-  /* Bare, as Back and More are: a filled pill each would take the title's room. */
+  /* Bare, as Close and More are: a filled pill each would take the title's room. */
   .actions > button {
     min-width: calc(var(--u) * 5);
     padding: 0 var(--u);
     background: none;
   }
-  .row:has(.back) {
+  .row:has(.close) {
     gap: var(--u-half);
     padding: 0 var(--u-half);
   }

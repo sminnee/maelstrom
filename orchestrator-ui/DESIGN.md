@@ -555,8 +555,8 @@ document has `overscroll-behavior: none`, each full-screen scroller has `contain
 tap does not zoom. Pinch zoom stays: while the page is zoomed `--vvh` holds, so the zoom pans
 over a still app.
 
-**The One Strip Rule.** A pushed screen has one row of chrome, the screen strip. It holds `←`,
-the screen's title, up to two actions of the screen, the attention chip while something waits,
+**The One Strip Rule.** A pushed screen has one row of chrome, the screen strip. It holds `×`
+(Close), the screen's title, up to two actions of the screen, the attention chip while something waits,
 and `⋯` (More). The content gets the rest of the screen. Everything else is one tap away, in the
 side sheet that More opens from the right edge:
 
@@ -567,8 +567,8 @@ side sheet that More opens from the right edge:
 | Document | the title                     | the task, phase, version, status, Session link, siblings   |
 
 The readings and New are at the top of the More sheet. A pick in the sheet that navigates closes
-it. Every side sheet starts its head row with a bare × named Close. It has no caption, as Back
-and More have none. A tap on the backdrop closes the sheet too, but a phone user cannot see that.
+it. Every side sheet starts its head row with a bare × named Close. It has no caption, as the
+strip's Close and More have none. A tap on the backdrop closes the sheet too, but a phone user cannot see that.
 The review dock stays on the Document screen, because it is the terminal act (§ Review Dock).
 
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention

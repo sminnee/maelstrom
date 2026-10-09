@@ -1260,7 +1260,7 @@ vocabulary is one.
 
 **One screen at a time.** The location gives the stack: its panel tab over its card's detail over
 its view. A row links to a node's card, and the detail's links add a session or a document as the
-panel tab. Back goes back one location; see "The URL". `shell/PanelLink.tsx` is the only control
+panel tab. The strip's Close goes to the view; see "The URL". `shell/PanelLink.tsx` is the only control
 that opens a session or a document, so one href rule carries every link on every layout.
 
 **The screen strip and the side sheet.** A pushed screen has one row of chrome. `MobileShell` owns
@@ -1357,7 +1357,7 @@ entry records the href it was pushed from. These moves replace the entry instead
 - Prev and Next in the editor, so Back closes the editor.
 - Collapsing a card whose node a filter hid: Back must not return to what is gone.
 - Dropping a branch filter that left the world: the user did not pick it.
-- The attention chip's zone move, on the entry under the detail, so Back lands on a list that
+- The attention chip's zone move, on the entry under the detail, so Close lands on a list that
   holds the node.
 - A redirect, such as `/` to `/desk`.
 
@@ -1369,10 +1369,10 @@ later Back does not reopen what was closed. Otherwise, as on a copied link, it r
 the router's location when it runs, not the one the component rendered with. Two moves built from
 one rendered copy would undo each other: a tab close followed by an effect that collapses a card.
 
-**Back on a phone.** The narrow layout's Back button calls `useBack`. From an entry the app
-pushed, Back is the browser's Back. The first entry
-of a copied link has nothing of the app behind it, so Back replaces it with its parent: the panel
-tab goes first, then the card.
+**Close on a phone.** The narrow layout's strip has Close. Close on a session, a document or the
+changes drops the panel tab, so it goes to the detail under it. Close on a detail drops the card
+and the panel tab as one close, so it goes to the view. The attention chip pushes an entry for each
+node it opens, so a Back button would go through each of them. The browser's Back still does.
 
 **Tests and stories.** `renderApp({ url })` mounts the app on a memory router and returns it, so a
 test reads `router.state.location` and calls `router.navigate(-1)`. A move is a router navigation,

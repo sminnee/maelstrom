@@ -23,26 +23,27 @@ const PANES: { pane: Pane; label: string }[] = [
 ];
 
 /**
- * The screen strip of a pushed screen of the narrow layout: the way back, what
- * the screen is, where its actions go, and the side sheet's button.
+ * The screen strip of a pushed screen of the narrow layout: Close, what the
+ * screen is, where its actions go, and the side sheet's button.
  */
 export interface StripState {
   title: string;
-  onBack: () => void;
+  /** Goes to the view under the screens. */
+  onClose: () => void;
   sheetOpen: boolean;
   onMore: () => void;
 }
 
 /**
- * The top bar. On the narrow layout `back` replaces it with the screen strip:
+ * The top bar. On the narrow layout `strip` replaces it with the screen strip:
  * see DESIGN.md, "The One Strip Rule".
  */
 export function TopBar({
-  back,
+  strip,
   actionsTarget,
   filters,
 }: {
-  back?: StripState;
+  strip?: StripState;
   /** Receives the element the screen's actions portal into. */
   actionsTarget?: (el: HTMLElement | null) => void;
   /** The Filters side sheet of a narrow main view. */
@@ -51,16 +52,16 @@ export function TopBar({
   const newWork = useNewWork();
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
-  if (narrow && back) {
+  if (narrow && strip) {
     return (
       <header className={styles.bar} data-narrow data-testid="top-bar">
         <h1 className="srOnly">maelstrom</h1>
         <div className={styles.row}>
-          <button type="button" className={styles.back} aria-label="Back" onClick={back.onBack}>
-            {actionIcon('back')}
+          <button type="button" className={styles.close} aria-label="Close" onClick={strip.onClose}>
+            {actionIcon('close')}
           </button>
           <span className={styles.screenTitle} data-testid="screen-title">
-            {back.title}
+            {strip.title}
           </span>
           <span className={styles.actions} ref={actionsTarget} />
           {/* A chip that reads 0 is noise on the screen strip. */}
@@ -70,8 +71,8 @@ export function TopBar({
             className={styles.more}
             aria-label="More"
             aria-haspopup="dialog"
-            aria-expanded={back.sheetOpen}
-            onClick={back.onMore}
+            aria-expanded={strip.sheetOpen}
+            onClick={strip.onMore}
           >
             ⋯
           </button>
