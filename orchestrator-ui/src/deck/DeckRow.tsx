@@ -84,7 +84,9 @@ export function DeckRow({
         <span className={styles.title}>{nodeTitle(node)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />
-          <span className={styles.state}>{node.reason || node.progress.words}</span>
+          <span className={`${styles.state} truncate`} title={node.reason || node.progress.words}>
+            {node.reason || node.progress.words}
+          </span>
           {node.progress.drift && (
             <span
               className={styles.drift}
@@ -97,9 +99,17 @@ export function DeckRow({
           )}
         </span>
         <span className={styles.meta}>
-          {showProject && node.task && <span className={styles.project}>{node.task.project}</span>}
-          <span className={styles.id}>{nodeIdLine(node)}</span>
-          {node.worktree && <span className={styles.worktree}>{node.worktree.nato}</span>}
+          {showProject && node.task && (
+            <span className={`${styles.project} truncate`} title={node.task.project}>
+              {node.task.project}
+            </span>
+          )}
+          <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+            {nodeIdLine(node)}
+          </span>
+          {node.worktree && (
+            <span className={`${styles.worktree} truncate`}>{node.worktree.nato}</span>
+          )}
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>

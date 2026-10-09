@@ -39,7 +39,4 @@
 .label {
   color: var(--fg-muted);
   font-size: var(--text-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

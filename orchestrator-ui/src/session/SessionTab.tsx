@@ -182,10 +182,11 @@ export function SessionTab({
           ? 'The agent is not running a turn.'
           : 'Abandon the turn the agent is running. The agent stays alive.';
   const label = isChild ? `${agent.id} · ${agent.description}` : agent.id;
+  const stateWords = progressOf(task, agent, Object.values(world.attention)).words;
   const live = (
     <>
-      <span className={styles.state} data-state={agent.state}>
-        {progressOf(task, agent, Object.values(world.attention)).words}
+      <span className={`${styles.state} truncate`} data-state={agent.state} title={stateWords}>
+        {stateWords}
       </span>
       {agent.permissionMode && !isChild && (
         <AppButton
@@ -197,10 +198,19 @@ export function SessionTab({
           {agent.permissionMode}
         </AppButton>
       )}
-      {agent.waitingOn && <span className={styles.waiting}>{agent.waitingOn}</span>}
+      {agent.waitingOn && (
+        <span className={`${styles.waiting} truncate`} title={agent.waitingOn}>
+          {agent.waitingOn}
+        </span>
+      )}
     </>
   );
-  const meta = <span className={styles.meta}>{metaParts.join(' · ')}</span>;
+  const metaText = metaParts.join(' · ');
+  const meta = (
+    <span className={`${styles.meta} truncate`} title={metaText}>
+      {metaText}
+    </span>
+  );
   const stop = (
     <AppButton
       icon={actionIcon('stop')}
@@ -277,7 +287,9 @@ export function SessionTab({
               rather than loose children. */}
           <div className={styles.headLine} data-testid="session-head-row">
             <span className={styles.live}>
-              <span className={styles.agent}>{label}</span>
+              <span className={`${styles.agent} truncate`} title={label}>
+                {label}
+              </span>
               {live}
             </span>
             {!isChild && (
@@ -367,9 +379,15 @@ function SubagentStrip({ agents }: { agents: Agent[] }) {
         <PanelLink key={child.id} tab={sessionTab(child.id)} className={styles.subagent}>
           <span className={styles.dot} data-state={child.state} aria-hidden="true" />
           <span className={styles.subagentId}>{child.id}</span>
-          <span className={styles.subagentDescription}>{child.description}</span>
+          <span className={`${styles.subagentDescription} truncate`} title={child.description}>
+            {child.description}
+          </span>
           {child.state.startsWith('awaiting-') && (
-            <span className={styles.subagentWaiting} data-testid="subagent-waiting">
+            <span
+              className={`${styles.subagentWaiting} truncate`}
+              data-testid="subagent-waiting"
+              title={child.waitingOn || 'needs you'}
+            >
               {child.waitingOn || 'needs you'}
             </span>
           )}
@@ -386,7 +404,9 @@ function BackgroundShellStrip({ tasks }: { tasks: BackgroundShell[] }) {
       {tasks.map((task) => (
         <div key={task.id} className={styles.subagent}>
           <span className={styles.dot} data-state="background" aria-hidden="true" />
-          <span className={styles.subagentDescription}>{task.description}</span>
+          <span className={`${styles.subagentDescription} truncate`} title={task.description}>
+            {task.description}
+          </span>
         </div>
       ))}
     </div>
@@ -408,7 +428,9 @@ function FinishedSubagents({ agents }: { agents: Agent[] }) {
       {agents.map((child) => (
         <PanelLink key={child.id} tab={sessionTab(child.id)} className={styles.subagent}>
           <span className={styles.subagentId}>{child.id}</span>
-          <span className={styles.subagentDescription}>{child.description}</span>
+          <span className={`${styles.subagentDescription} truncate`} title={child.description}>
+            {child.description}
+          </span>
         </PanelLink>
       ))}
     </details>

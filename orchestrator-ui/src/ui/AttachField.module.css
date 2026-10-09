@@ -30,9 +30,6 @@
 }
 .name {
   max-width: 14ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .actions {
   display: flex;

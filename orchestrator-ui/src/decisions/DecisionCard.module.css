@@ -115,9 +115,6 @@
   position: relative;
   flex: none;
 }
-.contextToggle {
-  white-space: nowrap;
-}
 /* Over the document, never pushing it. Overlapping earns the card lift. */
 .sheet {
   position: absolute;

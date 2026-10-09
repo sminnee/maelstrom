@@ -159,7 +159,7 @@ function DockedContext({ items }: { items: MessageItem[] }) {
     <div className={styles.docked}>
       <AppButton
         variant="quiet"
-        className={styles.contextToggle}
+        className="nowrap"
         aria-expanded={open}
         aria-controls={sheetId}
         onClick={() => setOpen((was) => !was)}

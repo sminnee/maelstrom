@@ -223,11 +223,11 @@ function Board({ control, heading }: { control: string; heading: string }) {
       </Row>
       <Row label="A panel tab and a field">
         <div className={tabStyles.strip} role="tablist" style={{ flex: 'none' }}>
-          <div role="tab" className={tabStyles.tab} data-active aria-selected>
-            <span className={tabStyles.label}>NORT-7 Session</span>
+          <div role="tab" className={`${tabStyles.tab} nowrap`} data-active aria-selected>
+            <span className={`${tabStyles.label} truncate`}>NORT-7 Session</span>
           </div>
-          <div role="tab" className={tabStyles.tab} aria-selected={false}>
-            <span className={tabStyles.label}>NORT-7 Plan</span>
+          <div role="tab" className={`${tabStyles.tab} nowrap`} aria-selected={false}>
+            <span className={`${tabStyles.label} truncate`}>NORT-7 Plan</span>
           </div>
         </div>
         <input type="text" defaultValue="feat/orders" aria-label="Branch" />

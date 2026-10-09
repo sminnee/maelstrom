@@ -25,7 +25,7 @@ export function ZonesNode({ data }: NodeProps<ZonesFlowNode>) {
         .map((band) => (
           <span
             key={band.zone}
-            className={styles.label}
+            className={`${styles.label} nowrap`}
             data-testid="zone-label"
             data-zone={band.zone}
             style={{ left: `${band.x}px`, width: `${band.width}px` }}

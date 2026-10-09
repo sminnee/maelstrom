@@ -52,7 +52,8 @@ export function MultiSelect<V extends string>({
         aria-labelledby={`${labelId} ${valueId}`}
         title={shown}
       >
-        <span id={valueId} className={styles.value}>
+        {/* The field gives way, not the caret: a long pick ends in an ellipsis. */}
+        <span id={valueId} className="truncate">
           {shown}
         </span>
         <svg className={styles.caret} viewBox="0 0 10 6" aria-hidden="true">

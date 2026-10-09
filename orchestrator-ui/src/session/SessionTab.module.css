@@ -60,27 +60,17 @@
   /* Shrinks but does not grow: growing would push Compact off the right of a
      wide row, away from the fields it belongs with. */
   flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--fg-faint);
 }
 .compact {
   flex: none;
-  white-space: nowrap;
 }
 .stop {
   flex: none;
-  white-space: nowrap;
 }
 .agent {
   /* A subagent's line is its id and its description, which is free text. */
   flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--fg-muted);
 }
 /* The state is what the head is for, so `.waiting` below takes the slack first
@@ -89,10 +79,6 @@
 .state {
   flex: 0 1 auto;
   color: var(--fg-muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .state[data-state='processing'],
 .state[data-state='delegating'],
@@ -107,16 +93,11 @@
 }
 .mode {
   color: var(--fg-muted);
-  white-space: nowrap;
   flex: none;
 }
 .waiting {
   flex: 1;
-  min-width: 0;
   color: var(--attention);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* Positioned, so an absolute child, such as the `.srOnly` span in a message, scrolls with
    the transcript. */
@@ -186,23 +167,16 @@
   flex: none;
   color: var(--fg-muted);
 }
-/* Shrinkable and truncating: `flex: none` overflowed the row instead, and
-   `min-width: 0` alone does not beat a flex item's automatic minimum size. */
+/* Shrinkable, and `truncate` in the TSX cuts it: `flex: none` overflowed the
+   row instead, and `min-width: 0` alone does not beat a flex item's automatic
+   minimum size. */
 .subagentDescription {
   flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* What a blocked subagent waits on. Reads as the attention colour, because
    this row is where the user learns which subagent needs them. */
 .subagentWaiting {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--attention);
 }
 

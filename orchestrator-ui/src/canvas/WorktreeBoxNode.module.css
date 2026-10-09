@@ -38,9 +38,6 @@
 }
 .branch {
   flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--fg-faint);
 }
 /* A box with no node is only as high as its label, so the label sits inside. */

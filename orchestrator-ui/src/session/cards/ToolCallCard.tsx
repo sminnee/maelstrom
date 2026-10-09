@@ -7,11 +7,14 @@ import styles from './cards.module.css';
 /** One tool call, folded for every kind. The summary line names the tool, its title and its status. */
 export function ToolCallCard({ item }: { item: ToolCallItem }) {
   const kind = classifyToolCall(item);
+  const title = toolCallTitle(item);
   return (
     <details className={styles.tool} data-tool-kind={kind} data-status={item.status}>
       <summary className={styles.toolHead}>
         <span className={styles.toolName}>{item.tool}</span>
-        <span className={styles.toolTitle}>{toolCallTitle(item)}</span>
+        <span className={`${styles.toolTitle} truncate`} title={title}>
+          {title}
+        </span>
         <span className={styles.status}>{item.status}</span>
       </summary>
       <ToolBody item={item} kind={kind} />

@@ -8,7 +8,7 @@ export function GroupNode({ data }: NodeProps<GroupFlowNode>) {
   const { group } = data;
   return (
     <div className={styles.group} data-testid="group-node" data-group-id={group.id}>
-      <div className={styles.label}>
+      <div className={`${styles.label} nowrap`}>
         <span>{group.label}</span>
       </div>
     </div>

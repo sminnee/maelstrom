@@ -9,7 +9,7 @@ export function WorktreeBar({ group }: { group: TabGroup | null }) {
   if (!worktree) return null;
   return (
     <div className={styles.bar} data-testid="worktree-bar">
-      <span className={styles.branch} title={worktree.branch}>
+      <span className={`${styles.branch} truncate`} title={worktree.branch}>
         {worktree.branch}
       </span>
       <span className={styles.controls}>

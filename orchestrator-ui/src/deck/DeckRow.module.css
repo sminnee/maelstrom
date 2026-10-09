@@ -92,6 +92,7 @@
   /* Two lines, then the ellipsis: a phone's width makes one line too little to
      tell two tasks apart, and the row has the height to spare. */
   white-space: normal;
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -104,14 +105,10 @@
   min-width: 0;
   font-size: var(--text-sm);
 }
-/* `flex: 1` with `min-width: 0` is what lets it shrink below its content and
-   truncate; `min-width` alone loses to the flex item's automatic minimum. */
+/* `flex: 1` with the `min-width: 0` of `truncate` is what lets it shrink below
+   its content; `min-width` alone loses to the flex item's automatic minimum. */
 .state {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--fg-muted);
 }
 .dot {
@@ -134,10 +131,6 @@
 .id,
 .worktree {
   flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* The chip is a pill, not text: `overflow: hidden` would cut its rounded
    border rather than ellipsise anything, and shrinking squashes the icon. */

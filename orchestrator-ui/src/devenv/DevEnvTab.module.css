@@ -22,11 +22,7 @@
 }
 /* The URL is the one part that can run long, so it is the part that gives. */
 .url {
-  min-width: 0;
   font-family: var(--mono);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .frame {
   flex: 1;

@@ -62,7 +62,7 @@ export function HueChip({
   // an empty string would ship a link with no name at all.
   const name = label || word || undefined;
   const shared = {
-    className: [styles.chip, className].filter(Boolean).join(' '),
+    className: [styles.chip, 'nowrap', className].filter(Boolean).join(' '),
     'data-tone': tone,
     'data-size': size,
     'aria-label': name,

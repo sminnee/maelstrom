@@ -34,7 +34,9 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
       <div className={styles.head}>
-        <span className={styles.title}>{nodeTitle(node)}</span>
+        <span className={`${styles.title} truncate`} title={nodeTitle(node)}>
+          {nodeTitle(node)}
+        </span>
         {node.progress.state === 'needs-attention' &&
           (documentId ? (
             <PanelLink
@@ -63,9 +65,13 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       <div className={styles.status}>
         <span className={styles.dot} aria-hidden="true" />
         {node.reason ? (
-          <span className={styles.reason}>{node.reason}</span>
+          <span className={`${styles.reason} truncate`} title={node.reason}>
+            {node.reason}
+          </span>
         ) : (
-          <span className={styles.state}>{node.progress.words}</span>
+          <span className="truncate" title={node.progress.words}>
+            {node.progress.words}
+          </span>
         )}
         {node.progress.drift && (
           <span
@@ -79,7 +85,9 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
       </div>
       <div className={styles.meta}>
-        <span className={styles.id}>{nodeIdLine(node)}</span>
+        <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+          {nodeIdLine(node)}
+        </span>
         <PrChip pr={cardPr(node)} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>

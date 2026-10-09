@@ -15,5 +15,4 @@
   font-size: var(--text-sm);
   line-height: 1;
   color: var(--fg-faint);
-  white-space: nowrap;
 }

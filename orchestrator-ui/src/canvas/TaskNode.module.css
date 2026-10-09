@@ -91,10 +91,6 @@
 }
 .title {
   flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: var(--text-ui);
   font-weight: 500;
   line-height: 1.25;
@@ -151,12 +147,6 @@
 .node[data-state='exited'] .dot {
   background: var(--danger);
 }
-.state,
-.reason {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .reason {
   color: var(--attention);
 }
@@ -183,11 +173,7 @@
 }
 .id {
   flex: 1 1 auto;
-  min-width: 0;
   font-family: var(--mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* The chip owns its own type and shape; the row only places it. */
 .pr {

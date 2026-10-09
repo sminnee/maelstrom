@@ -18,9 +18,6 @@
   font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .row {
   position: relative;
@@ -48,10 +45,6 @@
 }
 .name {
   flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-family: var(--mono);
 }
 .name[data-none] {
