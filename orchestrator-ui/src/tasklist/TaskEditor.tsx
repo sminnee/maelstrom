@@ -146,14 +146,14 @@ function TaskForm({ task }: { task: Task }) {
   return (
     <Dialog label={task.title} onClose={leave}>
       <DialogHeader title={task.notebookId} onClose={leave}>
-        <button type="button" disabled={prevId === undefined} onClick={() => go(prevId)}>
+        <AppButton disabled={prevId === undefined} onClick={() => go(prevId)}>
           {actionIcon('pagePrevious')}
           Prev
-        </button>
-        <button type="button" disabled={nextId === undefined} onClick={() => go(nextId)}>
+        </AppButton>
+        <AppButton disabled={nextId === undefined} onClick={() => go(nextId)}>
           Next
           {actionIcon('pageNext')}
-        </button>
+        </AppButton>
       </DialogHeader>
       <TaskFields
         draft={draft}
@@ -176,9 +176,7 @@ function TaskForm({ task }: { task: Task }) {
           >
             Keep editing
           </AppButton>
-          <button type="button" className={styles.discard} onClick={() => close(pendingNav)}>
-            Discard
-          </button>
+          <AppButton onClick={() => close(pendingNav)}>Discard</AppButton>
         </p>
       )}
       {deleteError && (

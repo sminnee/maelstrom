@@ -10,11 +10,3 @@
 .confirm > button {
   min-height: var(--control);
 }
-.discard {
-  font: inherit;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-}

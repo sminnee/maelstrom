@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { useUploadAttachment, type Attachment } from '../api/attachments';
+import { AppButton } from './AppButton';
 import styles from './AttachField.module.css';
 
 /**
@@ -112,13 +113,9 @@ export function AttachField({
             e.target.value = '';
           }}
         />
-        <button
-          type="button"
-          disabled={disabled || upload.isPending}
-          onClick={() => picker.current?.click()}
-        >
+        <AppButton disabled={disabled || upload.isPending} onClick={() => picker.current?.click()}>
           {upload.isPending ? 'Attaching…' : 'Attach image'}
-        </button>
+        </AppButton>
         {failed.length > 0 && (
           <span className={styles.error} role="alert">
             {failed.join('; ')}
