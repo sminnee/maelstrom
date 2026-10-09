@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import { useComms } from '../api/comms';
 import { useWorld } from '../api/useWorld';
+import { useHrefFor } from '../nav/useNav';
 import { highestLanding, listComms } from '../selectors/comms';
+import { noFilters } from '../selectors/filters';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { CommEditor } from './CommEditor';
@@ -67,7 +70,7 @@ export function CommList() {
                 </td>
                 <td className={`${styles.recipients} wrap`}>{comm.recipients.join(', ')}</td>
                 <td className={`${styles.count} nowrap`}>
-                  {comm.taskIds.length === 1 ? '1 task' : `${comm.taskIds.length} tasks`}
+                  <TasksLink comm={comm.id} count={comm.taskIds.length} />
                 </td>
                 <td data-testid="comm-landing" className={landing ? undefined : styles.faint}>
                   {landing ?? 'not done'}
@@ -111,4 +114,18 @@ export function CommList() {
       )}
     </div>
   );
+}
+
+/**
+ * The comm's task count, as a link to Tasks filtered to them alone: the other filters clear, so
+ * the list holds every task the count names. Every status: they are mostly done.
+ */
+function TasksLink({ comm, count }: { comm: string; count: number }) {
+  const to = useHrefFor({
+    view: 'list',
+    card: null,
+    filters: { ...noFilters(), comm },
+    listFilters: { statuses: [] },
+  });
+  return <Link to={to}>{count === 1 ? '1 task' : `${count} tasks`}</Link>;
 }

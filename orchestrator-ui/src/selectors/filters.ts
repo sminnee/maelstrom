@@ -19,12 +19,14 @@ export interface Filters {
   agentStatus?: AgentStatusFilter;
   /** The Search text. The Desk and Tasks share it. */
   text: string;
+  /** A comm id: only the tasks linked to it. The Desk and Tasks share it. */
+  comm: string | null;
 }
 
 export const branchKey = (project: string, branch: string) => `${project}/${branch}`;
 
 export function noFilters(): Filters {
-  return { project: null, branch: null, agentStatus: 'all', text: '' };
+  return { project: null, branch: null, agentStatus: 'all', text: '', comm: null };
 }
 
 /**

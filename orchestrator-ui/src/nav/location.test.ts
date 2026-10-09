@@ -37,6 +37,7 @@ describe('the URL of a location', () => {
     ],
     ['/tasks?status=all', { view: 'list', listFilters: { statuses: [] } }],
     ['/tasks?q=fix%20%26%20test', { view: 'list', filters: { text: 'fix & test' } }],
+    ['/tasks?comm=c2', { view: 'list', filters: { comm: 'c2' } }],
     ['/worktrees?closed=1', { view: 'worktrees', worktreeFilters: { showClosed: true } }],
     ['/desk?zone=done', { zone: 'done' }],
     ['/tasks?edit=maelstrom/2026-09-22.1', { view: 'list', edit: 'maelstrom/2026-09-22.1' }],
@@ -89,6 +90,7 @@ describe('withLoc', () => {
       branch: null,
       agentStatus: 'idle',
       text: '',
+      comm: null,
     });
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentStatusFilter, Filters } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { filterOptions } from '../selectors/filterOptions';
+import { useComms } from '../api/comms';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES } from '../protocol/entities';
 import { MultiSelect } from '../ui/MultiSelect';
@@ -46,7 +47,7 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
     if (stale) go({ filters: { branch: null } }, { replace: true });
   }, [stale, go]);
 
-  // A comm belongs to no project, so the Comms view alone has no use for it.
+  // The Comms view does not filter by project, so it alone has no use for this control.
   const projectApplies = !(views.length > 0 && views.every((v) => v === 'comms'));
 
   return (
@@ -122,8 +123,38 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
           emptyLabel="all"
         />
       )}
+      {(showing.includes('canvas') || showing.includes('list')) && (
+        <CommField value={filters.comm} onChange={(comm) => setFilters({ comm })} />
+      )}
       {(showing.includes('canvas') || showing.includes('list')) && <SearchField />}
     </div>
+  );
+}
+
+/** The Comm filter: the open comms, and the one in force even when it is closed. */
+function CommField({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (comm: string | null) => void;
+}) {
+  const comms = useComms().data?.comms ?? [];
+  const offered = comms.filter((c) => !c.closedAt || c.id === value);
+  return (
+    <label className={styles.field}>
+      <span>Comm</span>
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">all</option>
+        {/* Held before the comms load, so a copied link's comm still shows as picked. */}
+        {value && !offered.some((c) => c.id === value) && <option value={value}>{value}</option>}
+        {offered.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.id} · {c.title}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

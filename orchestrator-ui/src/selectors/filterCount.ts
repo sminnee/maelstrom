@@ -22,6 +22,7 @@ export function activeFilterCount(
     work && filters.branch !== null,
     view === 'canvas' && (filters.agentStatus ?? 'all') !== 'all',
     work && searching(filters),
+    work && !!filters.comm,
     view === 'list' && !sameStatuses(listFilters.statuses, LIVE_STATUSES),
     view === 'worktrees' && worktreeFilters.showClosed,
   ].filter(Boolean).length;
