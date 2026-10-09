@@ -35,12 +35,13 @@ EDITABLE = (
 )
 
 #: The keys ``task.create`` writes, which is :data:`EDITABLE` without
-#: ``follows`` and ``comms``. A new task is wired by ``promote``, which resolves the chain
+#: ``follows``. A new task is wired by ``promote``, which resolves the chain
 #: itself, or by a drag once it is on the board — never by the create body.
 #: The notebook stores a bare id, and only ``update`` unqualifies one, so a
-#: ``follows`` written here would be a wire pointing at nothing. A new task
-#: inherits its parent task's comms; a link is a later edit.
-CREATABLE = tuple(key for key in EDITABLE if key not in ("follows", "comms"))
+#: ``follows`` written here would be a wire pointing at nothing. ``comms`` is
+#: here so a task made from a comm is linked in the same write; left out, a new
+#: task inherits its parent task's comms.
+CREATABLE = tuple(key for key in EDITABLE if key != "follows")
 
 #: Wire keys that spell a model field differently, mapped wire -> model. Every
 #: other ``EDITABLE``/``CREATABLE`` key is spelled identically in both, so a
@@ -236,15 +237,14 @@ def _check_comm_fields(world: World, fields: dict[str, Any]) -> dict[str, str] |
     return None
 
 
-def _check_comm_ids(world: World, task_id: str, comms: Any) -> dict[str, str] | None:
+def _check_comm_ids(world: World, held: list[str], comms: Any) -> dict[str, str] | None:
     """A task's new ``comms``: a list of ids, each naming a comm the world holds.
 
-    An id the task already holds passes, so one unknown id written by a
-    load-many block does not lock the task's other links.
+    An id in ``held``, the task's current comms, passes, so one unknown id
+    written by a load-many block does not lock the task's other links.
     """
     if not _is_str_list(comms):
         return _err("invalid", "comms is a list of comm ids")
-    held = world["tasks"][task_id]["comms"]
     for comm_id in comms:
         if comm_id not in world["comms"] and comm_id not in held:
             return _err("unknown_id", f"No comm {comm_id}")
@@ -591,7 +591,7 @@ def validate_command(
             return _err("invalid", f"No priority {priority}")
         comms = fields.get("comms")
         if comms is not None:
-            error = _check_comm_ids(world, task_id, comms)
+            error = _check_comm_ids(world, world["tasks"][task_id]["comms"], comms)
             if error:
                 return error
         follows = fields.get("follows")
@@ -667,6 +667,9 @@ def validate_command(
         priority = cmd.get("priority")
         if priority is not None and priority not in PRIORITIES:
             return _err("invalid", f"No priority {priority}")
+        comms = cmd.get("comms")
+        if comms is not None:
+            return _check_comm_ids(world, [], comms)
         return None
 
     if kind == "linear.plan":
