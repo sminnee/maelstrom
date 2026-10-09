@@ -1274,6 +1274,33 @@ object that holds a callback ref as a ref. `orchestrator-ui/DESIGN.md`, "The One
 what each screen puts where. `ui/SideSheet.tsx` draws every side sheet: the dialog at the right
 edge, and a head row that starts with a bare × named Close. The More sheet and the Filters sheet both use it.
 
+**Gestures.** The narrow layout has three gestures. No gesture library is used: each is plain
+pointer events. The row swipe and the sheet drag share `gesture/useAxisDrag.ts`: it picks an axis
+after 8px, and lets a vertical drag go.
+
+| Gesture | Code | What it does |
+| --- | --- | --- |
+| A row swipes left | `gesture/useSwipeAction.ts`, `deck/useRowAction.tsx` | Runs the row's **Swipe action** past the threshold. |
+| A swipe in from the right edge | `gesture/useEdgeSwipe.ts` | Opens Filters on the deck list, More on a pushed screen. |
+| A sheet drags right | `gesture/useSheetDrag.ts`, in `ui/SideSheet.tsx` | Closes the sheet. |
+
+- The row threshold is 80px or 35% of the row's width, whichever is more. The row gets
+  `touch-action: pan-y`, so the browser keeps vertical scroll. A vertical lock lets the drag go.
+- Dismiss on a row runs `session/useEndOfWork.tsx`, the hook the card's control uses. So the row
+  and the card cannot run different chains.
+- The edge swipe starts on a 12px strip at the right edge, below the top bar, drawn only under
+  `pointer: coarse`.
+  The strip owns the gesture, so a row under it does not swipe too. Its `touch-action: pan-y`
+  lets a vertical pan scroll. The sheet opens at 40px with the finger still down. It does not
+  follow the finger: its keyframe slides it in, and a drag on it needs a new press.
+- The sheet closes past 30% of its width (at least 80px), or on a flick of 0.5px/ms over 40px or
+  more. It calls `onClose` on `transitionend`, or after a 250ms fallback timer, whichever is first.
+- In mobile Safari's browser chrome, a swipe in from the right edge is Forward. The browser takes
+  it first. The home-screen app has no Forward gesture, so the edge swipe works there.
+
+`gesture/haptic.ts` ticks at the row threshold. Its docstring gives the iOS fallback and its
+limits.
+
 The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also renders. Only the
 shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
 width and the grow animation.

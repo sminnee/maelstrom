@@ -149,7 +149,7 @@ permissions, document feedback. A worktree's Changes tab shows its changes. You 
 lines there and post the comments to the agents in that worktree. A worktree's dev env
 opens in a tab too. A shift-click on a tab shows it beside the tab you have open. Desk shows the work on your
 desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project, branch and Search filters apply
-to both views. On a phone, the Filters button holds them. Tasks opens on live work. It also edits a task: its status, title, content and more.
+to both views. On a phone, the Filters button holds them, or swipe in from the right edge. Swipe a row left to Launch a task that can start, or to Dismiss ended work. Drag a side sheet right to close it. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Comms lists what to tell people outside the team when work lands, and links tasks to each comm.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
 The URL names the view, the open card, the active tab and the filters. Back and Forward move
