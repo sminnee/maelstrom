@@ -1,6 +1,7 @@
 import type { GlobalProvider } from '@ladle/react';
 import '../src/styles/tokens.css';
 import '../src/styles/base.css';
+import '../src/styles/text.css';
 
 /**
  * Stories run against the app's real tokens and base styles, so what a story
