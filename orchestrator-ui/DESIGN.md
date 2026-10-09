@@ -571,6 +571,15 @@ it. Every side sheet starts its head row with a bare × named Close. It has no c
 and More have none. A tap on the backdrop closes the sheet too, but a phone user cannot see that.
 The review dock stays on the Document screen, because it is the terminal act (§ Review Dock).
 
+**The Wide Content Rule.** Only a table or a code block is wider than its view, and it scrolls in
+its own box. A title for one item, on a surface that can grow, wraps, and so does a branch or a
+path beside it. A title in a row of fixed height, or in chrome that a wrap would push down,
+truncates, with its full text in the `title` attribute. An id stays on one line and is cut only
+with an ellipsis (the Mono Means Literal Rule). A flex or grid child that holds text needs
+`min-width: 0`, or its text sets the child's least width. The `wrap` and `truncate` utilities set
+it (§ Text utilities). The `long-text` fake scenario is the check: at 390px no view scrolls
+sideways.
+
 **The Quiet List Rule.** A row cannot glow without lighting its neighbours, so needs-attention
 draws as a field wash and an amber rule rather than the board's glow. An unanswered row draws
 the same in Reply Yellow.
@@ -688,6 +697,21 @@ The home-screen icons put the mark on console-slate. The maskable icon keeps the
 centre 80 %, which an Android launcher never crops.
 
 ## Components
+
+### Text utilities
+
+`styles/text.css` holds three global classes. A component adds one as a plain string, as it adds
+`srOnly`: ``className={`${styles.title} wrap`}``.
+
+| Class      | Sets                                            | Use it on                                     |
+| ---------- | ----------------------------------------------- | --------------------------------------------- |
+| `nowrap`   | one line                                        | a pill, a chip, a short fixed label           |
+| `wrap`     | wraps, breaks an unbroken token, `min-width: 0` | a title for one item, on a surface that grows |
+| `truncate` | one line, cut with an ellipsis, `min-width: 0`  | a field in a fixed-height row, chrome, an id  |
+
+A module class does not repeat what the utility sets. It keeps the font, the colour and the flex.
+A rule inside a media or container query stays in the module, because the utility applies at all
+widths. See the Wide Content Rule.
 
 ### Task Node
 
@@ -816,6 +840,10 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   only on hover. For a control that reads as prose, not a box, e.g. "Show less" beside a body
   that is already its own expand control.
 - **Disabled:** 0.5 opacity, default cursor.
+- **One line:** a pill holds its label on one line. `AppButton` adds `nowrap` to every variant but
+  Link; a raw `<button>` drawn as a pill adds it itself. `base.css` does not set it on `button`,
+  because a `<button>` means clickable, not a pill. A `<button>` that draws a title or a row
+  follows the Wide Content Rule.
 - **Focus:** the global 2px Signal Blue ring at 2px offset. Never removed.
 
 #### Icons
@@ -1017,7 +1045,8 @@ its 320px minimum in a browser.
 ### Table (task list)
 
 Hairline-separated rows, no zebra, no vertical rules. Headers are tracked uppercase micro-labels
-in faint text. Ids and branches are mono. The filter row is sticky on a raised ground so the
+in faint text. Ids and branches are mono. The title wraps, and so does a long branch; an id stays
+on one line. The filter row is sticky on a raised ground so the
 controls stay reachable through a long list.
 
 ### Fields
@@ -1236,7 +1265,8 @@ browser with the scheme forced — rather than trusting the toggle.
 - **Do** check contrast in both schemes. Light is not a courtesy mode.
 - **Do** provide a static fallback for anything that signals by animation, under
   `prefers-reduced-motion`.
-- **Do** truncate with an ellipsis and keep ids on one line.
+- **Do** truncate with an ellipsis and keep ids on one line: the Wide Content Rule, with
+  `truncate`.
 
 ### Don't:
 
@@ -1250,3 +1280,4 @@ browser with the scheme forced — rather than trusting the toggle.
 - **Don't** show a raw agent state, or any term `CONTEXT.md` lists under `_Avoid_`.
 - **Don't** let the board reflow because an agent progressed.
 - **Don't** hardcode a font size in a component — read the `--text-*` scale.
+- **Don't** let a title push a view wider than the screen.

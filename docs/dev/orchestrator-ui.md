@@ -1130,7 +1130,8 @@ wrapping label would leave the field with no accessible name.
 
 Colour comes from `styles/tokens.css`, which holds both the primitive and the semantic layer
 and documents the rule: no file outside it names a hex colour. One `[data-phase]` rule in
-`styles/base.css` sets `--phase` from a phase attribute.
+`styles/base.css` sets `--phase` from a phase attribute. `styles/text.css` holds the text
+utilities `nowrap`, `wrap` and `truncate`; see DESIGN.md, "Text utilities".
 
 ## Holding what was typed
 
@@ -1516,6 +1517,13 @@ The jig is its own vitest project, which runs in Node by default. `plugin.test.t
 Vite dev server and drives `/__mael/monkeypatch`, the HMR event and Send against a fake orchestrator.
 `overlay.test.ts` opts into jsdom, which cascades the declared values of a `<style>` rule into
 `getComputedStyle` without layout.
+
+A view that scrolls sideways is not tested either, because jsdom lays nothing out. It is checked
+in a browser on the `long-text` fake scenario at 390px wide: Tasks, Comms, Changes, the node
+detail, the task editor, a document, a session and Worktrees. A failure is an element with
+`overflow-x: auto` or `scroll` whose `scrollWidth` exceeds its `clientWidth`, outside a table, a
+`pre` or a diff. That check sees width only: a pill that wraps makes a view taller, so Ladle's
+`UI / Controls` is where a pill is checked.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.

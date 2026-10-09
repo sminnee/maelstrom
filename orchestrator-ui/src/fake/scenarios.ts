@@ -750,6 +750,51 @@ function comms(): Seed {
   return seed;
 }
 
+const LONG_BRANCH = 'feat/rotate-auth-tokens-for-every-service-and-keep-the-old-one-for-a-minute';
+
+/**
+ * The changes scenario with every title too long for a phone. No view may
+ * scroll sideways on it. See DESIGN.md, "The Wide Content Rule".
+ */
+function longText(): Seed {
+  const seed = changes();
+  const { world } = seed;
+  world.tasks['NORT-12'] = {
+    ...world.tasks['NORT-12']!,
+    notebookId: 'northwind/2026-09-22.1-rotate-auth-tokens',
+    title:
+      'Rotate auth tokens in northwind/services/auth/token_rotation/scheduler_configuration.py and keep the old one for a minute',
+    branch: LONG_BRANCH,
+    comms: ['c-long'],
+  };
+  world.worktrees['northwind-delta'] = {
+    ...world.worktrees['northwind-delta']!,
+    branch: LONG_BRANCH,
+  };
+  const commits = world.changes['northwind-delta']!.changes.commits;
+  commits[0] = {
+    ...commits[0]!,
+    subject:
+      'feat: rotate an auth token on expiry in services/auth/token_rotation/scheduler_configuration.py',
+  };
+  const doc = world.documents['doc-nort12-tasks']!;
+  world.documents[doc.id] = {
+    ...doc,
+    title:
+      'Iteration 2: rotate the tokens in services/auth/token_rotation/scheduler_configuration.py',
+  };
+  const deep = diff('northwind/services/auth/token_rotation/scheduler/configuration/defaults.py');
+  const diffs = world.changes['northwind-delta']!.diffs;
+  diffs[CHANGES_SHA] = [...diffs[CHANGES_SHA]!, deep];
+  world.comms['c-long'] = comm({
+    id: 'c-long',
+    title:
+      'Auth tokens now rotate on their own across every northwind service, and the old token stays valid for a minute',
+    recipients: ['#security-and-platform-engineering', 'platform-announcements@northwind.test'],
+  });
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -803,6 +848,11 @@ export const SCENARIOS = {
     about: 'Two open comms and a closed one, over tasks at each landing step.',
     build: comms,
     screen: at({ view: 'comms' }),
+  },
+  'long-text': {
+    about: 'Titles, ids, a branch, a commit and a comm too long for a phone.',
+    build: longText,
+    screen: at({ view: 'list' }),
   },
 } satisfies Record<string, Scenario>;
 
