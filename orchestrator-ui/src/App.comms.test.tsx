@@ -251,6 +251,39 @@ describe('the comms view', () => {
     expect(within(screen.getByRole('listbox')).getAllByRole('option').length).toBeGreaterThan(1);
   });
 
+  it("links and unlinks comms from a task's editor, recent comms first", async () => {
+    const user = userEvent.setup();
+    const { server, router } = await renderApp({ scenario: 'comms' });
+    await goToComms(user);
+    // Viewing c1 is what puts it first in the task's picker.
+    await user.click(within(row('c1')!).getByRole('button', { name: 'Order export is live' }));
+    await screen.findByRole('dialog', { name: 'Order export is live' });
+    await user.keyboard('{Escape}');
+
+    await router.navigate('/tasks?edit=NORT-12');
+    const dialog = await screen.findByRole('dialog', {
+      name: server.world.tasks['NORT-12']!.title,
+    });
+    const comms = within(within(dialog).getByRole('region', { name: 'Comms' }));
+    expect(comms.getByText('Refunds retry on their own')).toBeInTheDocument();
+
+    await user.click(comms.getByLabelText('Link a comm'));
+    const offer = screen.getByRole('listbox');
+    expect(offer).toHaveTextContent('Recent');
+    expect(
+      within(offer)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['c1Order export is live']);
+    await user.click(within(offer).getByRole('option'));
+    await user.click(comms.getByRole('button', { name: 'Link' }));
+    await waitFor(() => expect(server.world.tasks['NORT-12']!.comms).toEqual(['c2', 'c1']));
+    await waitFor(() => expect(comms.getByText('Order export is live')).toBeInTheDocument());
+
+    await user.click(comms.getByRole('button', { name: 'Unlink c2' }));
+    await waitFor(() => expect(server.world.tasks['NORT-12']!.comms).toEqual(['c1']));
+  });
+
   it('unlinks a task from a comm', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ scenario: 'comms' });

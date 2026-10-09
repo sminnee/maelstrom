@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TaskComms } from '../comms/TaskComms';
 import { ApiError, describeError } from '../api/http';
 import { useDeleteTask, useSetStatus, useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
@@ -167,6 +168,7 @@ function TaskForm({ task }: { task: Task }) {
         bucket={task.notebookId}
         readOnly={!editing}
       />
+      <TaskComms taskId={task.id} held={task.comms} />
 
       {(confirming || pendingNav !== null) && (
         <p className={styles.confirm} role="alert">
