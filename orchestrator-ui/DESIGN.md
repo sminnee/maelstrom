@@ -555,6 +555,17 @@ document has `overscroll-behavior: none`, each full-screen scroller has `contain
 tap does not zoom. Pinch zoom stays: while the page is zoomed `--vvh` holds, so the zoom pans
 over a still app.
 
+The field being written sits at the foot of its box, on the keyboard. iOS scrolls the page to
+reach a caret far above the keyboard, and the box then moves off the keyboard. So:
+
+- Only a body or a pane scrolls. The head and foot are its siblings, outside the scroller. A
+  narrow dialog scrolls its `DialogBody`. The session composer sits under the transcript pane.
+- A field on a phone stays short. The composer and the New work draft cap at 8.5em, about six
+  lines, and then scroll themselves.
+- A growing field uses `field-sizing: content`. A fit by script collapses the field on each
+  change, and iOS scrolls again after each collapse.
+- The transcript follows its pane as the keyboard shrinks it.
+
 **The One Strip Rule.** A pushed screen has one row of chrome, the screen strip. It holds `←`,
 the screen's title, up to two actions of the screen, the attention chip while something waits,
 and `⋯` (More). The content gets the rest of the screen. Everything else is one tap away, in the
@@ -1028,8 +1039,7 @@ A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its co
 A field with no scrolling container, such as the conversation input or a review dock field, caps
 at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
 the visual viewport's height there, because a soft keyboard does not shrink `dvh`. On a phone the
-conversation input may take the visible height less four controls, and the New work draft takes
-what its dialog leaves.
+conversation input and the New work draft cap at about six lines (§ The Still Screen Rule).
 
 A text field does not share its row with the buttons that submit it. The field takes the full
 width, and its buttons sit in a row under it, at the right edge. A field between two buttons gets

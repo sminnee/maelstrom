@@ -1280,7 +1280,9 @@ width and the grow animation.
 
 Three things differ below the 840px break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and
 bottom-anchored at `--vvh`, as `#root` is, so a soft keyboard shrinks the box rather than covering
-the focused field. And Enter makes a newline in the message input, since
+the focused field. A dialog puts its fields in `ui/Dialog.tsx`'s `DialogBody`, between
+`DialogHeader` and `DialogFooter`. On a narrow screen only the body scrolls
+(`orchestrator-ui/DESIGN.md`, "The Still Screen Rule"). And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 
 ## The URL
