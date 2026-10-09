@@ -9,7 +9,9 @@ import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
+import { useSwipeAction } from '../gesture/useSwipeAction';
 import styles from './DeckRow.module.css';
+import { useRowAction } from './useRowAction';
 
 /**
  * One node in the deck list.
@@ -18,6 +20,9 @@ import styles from './DeckRow.module.css';
  * state in words, then the identity — and carries the same `data-state` and
  * `data-phase`, so it inherits the node's whole state vocabulary rather than
  * inventing a second one. The row is a link: a tap opens the node.
+ *
+ * A row whose work can start or has ended swipes left to Launch or Dismiss
+ * (CONTEXT.md, "Swipe action"). The action shows behind the row as it moves.
  */
 export function DeckRow({
   node,
@@ -36,15 +41,46 @@ export function DeckRow({
   const documentTitle = documentId
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
+  const action = useRowAction(node);
+  const swipe = useSwipeAction(action?.run ?? null);
   return (
     <div
       className={styles.row}
+      data-swipe={action?.kind}
+      data-swiping={swipe.offset !== 0 || undefined}
       data-testid="deck-row"
       data-task-id={node.id}
       data-phase={node.phase ?? undefined}
       data-state={node.progress.state}
     >
-      <Link to={to} state={linkState} className={styles.open}>
+      {action && (
+        <div
+          className={styles.reveal}
+          data-testid="swipe-reveal"
+          data-armed={swipe.armed}
+          aria-hidden="true"
+        >
+          <span className={styles.revealIcon}>{action.icon}</span>
+          <span className={styles.revealLabel}>
+            {swipe.state.kind === 'error'
+              ? swipe.state.message
+              : swipe.state.kind === 'processing'
+                ? `${action.label}…`
+                : action.label}
+          </span>
+        </div>
+      )}
+      <Link
+        to={to}
+        state={linkState}
+        className={styles.open}
+        draggable={false}
+        data-dragging={swipe.dragging || undefined}
+        style={action && swipe.offset ? { transform: `translateX(${swipe.offset}px)` } : undefined}
+        // Always on: a world change can take the action away mid-drag, and the
+        // release must still reach the hook to end it.
+        {...swipe.handlers}
+      >
         <span className={styles.title}>{nodeTitle(node)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />

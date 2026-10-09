@@ -611,6 +611,11 @@ the name leads, the quiet facts follow, and the commands end the row.
 
 ### Named Rules
 
+**The Swipe Reveal Rule.** A row's swipe action shows behind the row as the row moves: its icon
+and its label, quiet. At the threshold the reveal fills with the accent and its icon steps up.
+Only a release past the threshold acts. A release before it springs the row back and does
+nothing, so a swipe started by mistake costs nothing.
+
 **The Fixed Board Rule.** A card moves only when its own work moves: it changes zone when it
 starts or finishes, and the cards behind it close up. Its lane never changes, and its order
 against the other cards in its zone never changes. The board reports progress and nothing else.
