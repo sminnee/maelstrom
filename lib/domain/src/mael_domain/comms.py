@@ -5,6 +5,8 @@ See ``CONTEXT.md``, "Comm". A comm row is kept by
 link change is a task write.
 """
 
+from collections import Counter
+
 from mael_common.util import now_iso
 
 from . import task as task_model
@@ -32,6 +34,8 @@ async def new(
     content: str = "",
     recipients: list[str] | None = None,
     now: str | None = None,
+    category: str = "",
+    project: str = "",
 ) -> Comm:
     """Create a comm. Its id is the next ``c<n>``.
 
@@ -45,6 +49,8 @@ async def new(
             content=content,
             recipients=list(recipients or []),
             created_at=now if now is not None else now_iso(),
+            category=category.strip(),
+            project=project,
         )
         await store.save(comm)
     return comm
@@ -57,8 +63,10 @@ async def edit(
     title: str | None = None,
     content: str | None = None,
     recipients: list[str] | None = None,
+    category: str | None = None,
+    project: str | None = None,
 ) -> Comm:
-    """Change the given fields.
+    """Change the given fields. ``""`` clears ``category`` or ``project``.
 
     Raises ``KeyError`` for an unknown id and ``ValueError`` for a blank title.
     """
@@ -69,8 +77,34 @@ async def edit(
         comm.content = content
     if recipients is not None:
         comm.recipients = list(recipients)
+    if category is not None:
+        comm.category = category.strip()
+    if project is not None:
+        comm.project = project
     await store.save(comm)
     return comm
+
+
+def default_project(comms: list[Comm], category: str) -> str:
+    """The project a new comm in ``category`` defaults to.
+
+    It is the most common non-blank project among the comms in that category.
+    A tie goes to the project of the newest comm. Blank when no comm in the
+    category has a project, or when ``category`` is blank.
+    """
+    if not category:
+        return ""
+    used = [c for c in comms if c.category == category and c.project]
+    counts = Counter(c.project for c in used)
+    newest: dict[str, str] = {}
+    for c in used:
+        newest[c.project] = max(newest.get(c.project, ""), c.created_at)
+    return max(counts, key=lambda p: (counts[p], newest[p]), default="")
+
+
+def categories(comms: list[Comm]) -> list[str]:
+    """The distinct non-blank categories, sorted."""
+    return sorted({c.category for c in comms if c.category})
 
 
 async def close(store: CommStore, id: str, now: str | None = None) -> Comm:

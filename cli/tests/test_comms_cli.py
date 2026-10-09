@@ -64,7 +64,9 @@ async def _seed() -> None:
 
 
 @pytest.fixture
-def invoke(tmp_path):
+def invoke(tmp_path, monkeypatch):
+    # Outside every project, so no comm takes its project from the cwd.
+    monkeypatch.chdir(tmp_path)
     asyncio.run(_seed())
     project = tmp_path / "projects" / "p"
     (project / "_main").mkdir(parents=True)
@@ -152,9 +154,19 @@ def test_new_prints_the_id_and_list_shows_the_open_comm(invoke):
     result = invoke("list")
     assert result.exit_code == 0, result.output
     assert _rows(result.output) == [
-        ["ID", "TITLE", "RECIPIENTS", "TASKS"],
+        ["ID", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"],
         ["c1", "Invoice", "export", "#cs,", "jo@acme.test", "2"],
     ]
+
+
+def test_list_filters_by_category(invoke):
+    invoke("new", "Ship", "--category", "release", "--project", "p")
+    invoke("new", "Help", "--category", "support")
+    assert [r[0] for r in _rows(invoke("list", "--category", "release").output)] == [
+        "ID",
+        "c1",
+    ]
+    assert invoke("list", "--category", "other").output.strip() == "No open comms."
 
 
 def test_close_hides_a_comm_unless_all_is_asked(invoke):
@@ -186,6 +198,37 @@ def test_link_refuses_an_unknown_comm_or_task(invoke):
     assert _task_comms("t1") == []
 
 
+def test_new_in_a_category_defaults_to_the_category_s_usual_project(invoke):
+    invoke("new", "A", "--category", "release", "--project", "p")
+    invoke("new", "B", "--category", "release")
+    assert (_comm("c2").category, _comm("c2").project) == ("release", "p")
+    invoke("new", "C", "--category", "release", "--project", "")
+    assert _comm("c3").project == ""
+
+
+def test_new_and_edit_refuse_an_unknown_project(invoke):
+    made = invoke("new", "A", "--project", "nope")
+    assert made.exit_code != 0
+    assert "Unknown project: nope" in made.output
+    invoke("new", "A")
+    edited = invoke("edit", "c1", "--project", "nope")
+    assert edited.exit_code != 0
+    assert "Unknown project: nope" in edited.output
+    assert _comm("c1").project == ""
+
+
+def test_new_with_no_default_project_takes_the_cwd_s_project(
+    invoke, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path / "projects" / "p" / "_main")
+    with patch(
+        "mael_domain.context.load_global_config",
+        return_value=GlobalConfig(projects_dir=tmp_path / "projects"),
+    ):
+        invoke("new", "A", "--category", "release")
+    assert _comm("c1").project == "p"
+
+
 def test_new_refuses_a_blank_title(invoke):
     result = invoke("new", " ")
     assert result.exit_code != 0
@@ -204,6 +247,10 @@ def test_edit_sets_each_given_field(invoke):
     )
     invoke("edit", "c1", "--clear-to")
     assert _comm("c1").recipients == []
+    invoke("edit", "c1", "--category", "release", "--project", "p")
+    assert (_comm("c1").category, _comm("c1").project) == ("release", "p")
+    invoke("edit", "c1", "--category", "", "--project", "")
+    assert (_comm("c1").category, _comm("c1").project) == ("", "")
 
 
 def test_edit_with_no_option_saves_what_the_editor_returns(invoke):

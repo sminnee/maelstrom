@@ -7621,10 +7621,29 @@ def test_a_comm_is_created_edited_linked_and_closed_over_the_routes(harness):
     assert again.status == 304
 
 
+def test_a_comm_s_category_and_project_round_trip_over_the_routes(harness):
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                "/api/comms",
+                {"title": "Release", "category": " release ", "project": PROJECT},
+            )
+            made = await api.get_json("/api/comms/c1")
+            await api.patch("/api/comms/c1", {"category": "support", "project": ""})
+            return made, await api.get_json("/api/comms/c1")
+
+    made, edited = run(scenario())
+    assert (made["category"], made["project"]) == ("release", PROJECT)
+    assert (edited["category"], edited["project"]) == ("support", "")
+
+
 @pytest.mark.parametrize(
     ("method", "path", "body", "code"),
     [
         ("post", "/api/comms", {"title": " "}, "invalid"),
+        ("post", "/api/comms", {"title": "x", "project": "nope"}, "unknown_id"),
+        ("post", "/api/comms", {"title": "x", "category": 3}, "invalid"),
+        ("patch", "/api/comms/c1", {"project": "nope"}, "unknown_id"),
         ("post", "/api/comms", {"title": "x", "recipients": "#cs"}, "invalid"),
         ("patch", "/api/comms/c9", {"title": "x"}, "unknown_id"),
         ("patch", "/api/comms/c1", {}, "invalid"),

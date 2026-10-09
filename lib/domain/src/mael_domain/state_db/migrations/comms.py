@@ -21,4 +21,10 @@ COMMS: tuple[Rung, ...] = (
             "CREATE INDEX comms_revision ON comms (revision)",
         )
     ),
+    Migration(
+        (
+            "ALTER TABLE comms ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE comms ADD COLUMN project TEXT NOT NULL DEFAULT ''",
+        )
+    ),
 )

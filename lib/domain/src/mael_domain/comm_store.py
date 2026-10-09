@@ -23,7 +23,8 @@ class Comm:
 
     ``content`` is the request as it came in. ``recipients`` are free strings: a
     Slack channel, an email address, or a note. ``closed_at`` is empty while the
-    comm is open.
+    comm is open. ``category`` is free text; ``project`` is the project a task
+    made from the comm goes to.
     """
 
     id: str
@@ -32,6 +33,8 @@ class Comm:
     recipients: list[str] = field(default_factory=list)
     created_at: str = ""
     closed_at: str = ""
+    category: str = ""
+    project: str = ""
 
 
 @dataclass(frozen=True)
@@ -149,6 +152,8 @@ class SqliteCommStore(CommStore):
             recipients=json.dumps(list(comm.recipients)),
             created_at=comm.created_at,
             closed_at=comm.closed_at,
+            category=comm.category,
+            project=comm.project,
         )
 
     async def next_id(self) -> str:
@@ -174,4 +179,6 @@ def _comm_from_row(row: Any) -> Comm:
         recipients=list(json.loads(row["recipients"] or "[]")),
         created_at=row["created_at"],
         closed_at=row["closed_at"],
+        category=row["category"],
+        project=row["project"],
     )

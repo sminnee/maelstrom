@@ -15,7 +15,11 @@ from mael_common.cli_async import AsyncGroup
 from mael_domain import comms as comms_model
 from mael_domain.comm_store import SqliteCommStore
 from mael_domain.config import DEPLOY_STEPS
-from mael_domain.context import load_global_config, resolve_project
+from mael_domain.context import (
+    load_global_config,
+    resolve_context,
+    resolve_project,
+)
 from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.state_db.db import StateDb
@@ -66,6 +70,16 @@ def _projects() -> list[str]:
     return [p.name for p in find_all_projects(load_global_config().projects_dir)]
 
 
+def _check_project(project: str | None) -> None:
+    if project and project not in _projects():
+        raise click.ClickException(f"Unknown project: {project}")
+
+
+def _cwd_project() -> str:
+    """The project of the current directory, or blank outside every project."""
+    return resolve_context(None).project or ""
+
+
 async def _require(store: SqliteCommStore, id: str) -> None:
     if await store.read(id) is None:
         raise click.ClickException(f"Comm not found: {id}")
@@ -85,12 +99,35 @@ def comms() -> None:
     multiple=True,
     help="A recipient: a channel, an address, or a note (repeatable).",
 )
-async def cmd_new(title: str, content: str, recipients: tuple[str, ...]) -> None:
+@click.option("--category", default="", help="The comm's category: free text.")
+@click.option(
+    "--project",
+    default=None,
+    help="The project a task made from the comm goes to. Default: the category's "
+    "default project, else the project of the current directory.",
+)
+async def cmd_new(
+    title: str,
+    content: str,
+    recipients: tuple[str, ...],
+    category: str,
+    project: str | None,
+) -> None:
     """Create a comm and print its id."""
+    _check_project(project)
     async with _db() as db:
+        store = SqliteCommStore(db)
+        if project is None:
+            usual = comms_model.default_project(await store.list(), category.strip())
+            project = usual or _cwd_project()
         try:
             comm = await comms_model.new(
-                SqliteCommStore(db), title, content, list(recipients)
+                store,
+                title,
+                content,
+                list(recipients),
+                category=category,
+                project=project,
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
@@ -99,7 +136,8 @@ async def cmd_new(title: str, content: str, recipients: tuple[str, ...]) -> None
 
 @comms.command("list")
 @click.option("--all", "all_", is_flag=True, help="Show closed comms too.")
-async def cmd_list(all_: bool) -> None:
+@click.option("--category", default=None, help="Show only this category.")
+async def cmd_list(all_: bool, category: str | None) -> None:
     """Print the open comms, with the count of tasks linked to each."""
     async with _db() as db:
         table = SqliteTaskTable(db)
@@ -112,10 +150,14 @@ async def cmd_list(all_: bool) -> None:
         for comm in await SqliteCommStore(db).list():
             if comm.closed_at and not all_:
                 continue
+            if category is not None and comm.category != category.strip():
+                continue
             rows.append(
                 {
                     "ID": comm.id,
                     "TITLE": comm.title,
+                    "CATEGORY": comm.category,
+                    "PROJECT": comm.project,
                     "RECIPIENTS": ", ".join(comm.recipients),
                     "TASKS": str(linked[comm.id]),
                 }
@@ -123,7 +165,7 @@ async def cmd_list(all_: bool) -> None:
     if not rows:
         click.echo("No comms." if all_ else "No open comms.")
         return
-    draw_table(rows, ["ID", "TITLE", "RECIPIENTS", "TASKS"])
+    draw_table(rows, ["ID", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"])
 
 
 @comms.command("close")
@@ -166,20 +208,26 @@ async def cmd_link(
     "--to", "recipients", multiple=True, help="Set the recipients (repeatable)."
 )
 @click.option("--clear-to", is_flag=True, help="Remove every recipient.")
+@click.option("--category", default=None, help="Set the category ('' clears it).")
+@click.option("--project", default=None, help="Set the project ('' clears it).")
 async def cmd_edit(
     comm: str,
     title: str | None,
     content: str | None,
     recipients: tuple[str, ...],
     clear_to: bool,
+    category: str | None,
+    project: str | None,
 ) -> None:
     """Change a comm. With no option, edit its content in $EDITOR."""
+    _check_project(project)
     async with _db() as db:
         store = SqliteCommStore(db)
         current = await store.read(comm)
         if current is None:
             raise click.ClickException(f"Comm not found: {comm}")
-        if title is None and content is None and not recipients and not clear_to:
+        given = (title, content, category, project)
+        if all(v is None for v in given) and not recipients and not clear_to:
             # click.edit returns None when the editor closes without a save.
             content = click.edit(current.content)
             if content is None:
@@ -191,6 +239,8 @@ async def cmd_edit(
                 title=title,
                 content=content,
                 recipients=[] if clear_to else (list(recipients) or None),
+                category=category,
+                project=project,
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc

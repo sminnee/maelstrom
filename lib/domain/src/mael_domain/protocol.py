@@ -284,7 +284,8 @@ class Comm(TypedDict):
     """One **Comm** on the wire. See ``CONTEXT.md``, "Comm".
 
     ``taskIds`` are the wire ids of the tasks that name it in their ``comms``.
-    ``closedAt`` is ``""`` while the comm is open.
+    ``closedAt`` is ``""`` while the comm is open. ``category`` is free text;
+    ``project`` is the project a task made from the comm goes to, or ``""``.
     """
 
     id: str
@@ -293,6 +294,8 @@ class Comm(TypedDict):
     recipients: list[str]
     createdAt: str
     closedAt: str
+    category: str
+    project: str
     taskIds: list[str]
 
 
