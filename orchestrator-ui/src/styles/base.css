@@ -66,6 +66,15 @@ body {
   white-space: nowrap;
   border: 0;
 }
+/* A button with no fill, border or padding: an icon that needs no caption, such as a close. It
+   keeps a control's width, so it is still a tap target. */
+.bareButton {
+  flex: none;
+  min-width: var(--control);
+  padding: 0;
+  background: none;
+  border: none;
+}
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
