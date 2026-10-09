@@ -27,6 +27,29 @@ export function listComms(comms: readonly Comm[], showClosed: boolean): Comm[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 
+/** The distinct non-blank categories, sorted. Mirrors `comms.categories` in Python. */
+export function categories(comms: readonly Comm[]): string[] {
+  return [...new Set(comms.map((c) => c.category).filter(Boolean))].sort();
+}
+
+/** The **Default project** of `category`, or `''`. Mirrors `comms.default_project` in Python. */
+export function defaultProject(comms: readonly Comm[], category: string): string {
+  if (!category) return '';
+  const count = new Map<string, number>();
+  const newest = new Map<string, string>();
+  for (const c of comms) {
+    if (c.category !== category || !c.project) continue;
+    count.set(c.project, (count.get(c.project) ?? 0) + 1);
+    if (c.createdAt > (newest.get(c.project) ?? '')) newest.set(c.project, c.createdAt);
+  }
+  let best = '';
+  for (const [project, n] of count) {
+    const bestN = count.get(best) ?? 0;
+    if (n > bestN || (n === bestN && newest.get(project)! > newest.get(best)!)) best = project;
+  }
+  return best;
+}
+
 const ENV_MARKS: Record<EnvLandingState, string> = { landed: '✓', not_yet: '○', unknown: '?' };
 const ENV_WORDS: Record<EnvLandingState, string> = {
   landed: 'landed',

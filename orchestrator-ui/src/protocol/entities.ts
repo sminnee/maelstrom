@@ -238,6 +238,10 @@ export interface Comm {
   createdAt: string;
   /** `''` while the comm is open. */
   closedAt: string;
+  /** Free text. See `CONTEXT.md`, "Comm category". */
+  category: string;
+  /** The project a task made from the comm goes to, or `''`. */
+  project: string;
   taskIds: TaskId[];
 }
 

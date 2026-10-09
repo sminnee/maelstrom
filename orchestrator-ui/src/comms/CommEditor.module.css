@@ -72,3 +72,12 @@
   font-size: var(--text-sm);
   color: var(--attention);
 }
+/* Category and project, side by side: one fact about where the comm belongs. */
+.pair {
+  display: flex;
+  gap: var(--u);
+}
+.pair > * {
+  flex: 1 1 50%;
+  min-width: 0;
+}
