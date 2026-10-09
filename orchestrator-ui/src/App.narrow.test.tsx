@@ -585,4 +585,80 @@ describe('the narrow layout', () => {
       expect(router.state.location.pathname).not.toBe(path);
     });
   });
+
+  describe('a swipe on the side sheet', () => {
+    const drag = (el: Element, x: number, dx: number, msPerStep?: number) =>
+      touchDrag(el, { from: { x, y: 300 }, by: { x: dx }, msPerStep });
+    const fromRightEdge = (
+      dx: number,
+      { dy = 0, pointerType }: { dy?: number; pointerType?: 'touch' | 'mouse' } = {},
+    ) =>
+      touchDrag(screen.getByTestId('edge-swipe'), {
+        from: { x: window.innerWidth - 4, y: 300 },
+        by: { x: dx, y: dy },
+        pointerType,
+      });
+    const filters = () => screen.queryByRole('dialog', { name: 'Filters' });
+
+    it('opens Filters on the deck list from a swipe in at the right edge', async () => {
+      await renderApp({ viewport: 'narrow' });
+      fromRightEdge(-60);
+      expect(filters()).toBeInTheDocument();
+    });
+
+    it('opens More on a pushed screen from a swipe in at the right edge', async () => {
+      await renderApp({ viewport: 'narrow' });
+      await userEvent.click(screen.getByRole('link', { name: /Migrate to Postgres 16/ }));
+      fromRightEdge(-60);
+      expect(screen.getByRole('dialog', { name: 'More' })).toBeInTheDocument();
+    });
+
+    it('keeps the sheet shut on a short, a vertical or a mouse edge swipe', async () => {
+      await renderApp({ viewport: 'narrow' });
+      fromRightEdge(-20);
+      expect(filters()).toBeNull();
+      fromRightEdge(-60, { dy: 100 });
+      expect(filters()).toBeNull();
+      fromRightEdge(-60, { pointerType: 'mouse' });
+      expect(filters()).toBeNull();
+    });
+
+    it('closes the sheet on a drag right past 30% of its width, and keeps it on less', async () => {
+      await renderApp({ viewport: 'narrow' });
+      fromRightEdge(-60);
+      const sheet = filters()!;
+      // A 360px sheet: the threshold is 108px.
+      vi.spyOn(sheet, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 30, width: 360, height: 800 }),
+      );
+      drag(sheet, 100, 100);
+      expect(sheet.style.transform).toBe('');
+      expect(filters()).toBe(sheet);
+
+      drag(sheet, 100, 120);
+      await waitFor(() => expect(filters()).toBeNull());
+    });
+
+    it('keeps the drag through a second finger lifting', async () => {
+      await renderApp({ viewport: 'narrow' });
+      fromRightEdge(-60);
+      const sheet = filters()!;
+      touchDrag(sheet, { from: { x: 100, y: 300 }, by: { x: 150 }, release: false });
+      fireEvent.pointerDown(sheet, { pointerId: 2, pointerType: 'touch', isPrimary: false });
+      fireEvent.pointerUp(sheet, { pointerId: 2, pointerType: 'touch', isPrimary: false });
+      fireEvent.pointerUp(sheet, { pointerId: 1, pointerType: 'touch', clientX: 250 });
+      await waitFor(() => expect(filters()).toBeNull());
+    });
+
+    it('closes the sheet on a fast flick short of the distance, and not on a slow drag', async () => {
+      await renderApp({ viewport: 'narrow' });
+      fromRightEdge(-60);
+      const sheet = filters()!;
+      drag(sheet, 100, 50);
+      expect(filters()).toBe(sheet);
+      // 10px every 5ms is 2px/ms.
+      drag(sheet, 100, 50, 5);
+      await waitFor(() => expect(filters()).toBeNull());
+    });
+  });
 });

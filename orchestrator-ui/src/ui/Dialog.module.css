@@ -201,4 +201,25 @@
   border-left: 1px solid var(--border);
   border-radius: 0;
   font-family: var(--font);
+  /* The browser keeps vertical scroll; a sideways drag is the sheet's close. */
+  touch-action: pan-y;
+  transition: transform 0.2s ease-out;
+}
+.dialog.side[data-dragging] {
+  transition: none;
+}
+/* The backdrop lightens as the sheet is dragged out. `--sheet-dim` is set
+   inline only while it moves; at rest the backdrop is fully dark. */
+.dialog.side::backdrop {
+  opacity: var(--sheet-dim, 1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dialog.side {
+    animation: sheet-in 0.2s ease-out;
+  }
+}
+@keyframes sheet-in {
+  from {
+    transform: translateX(100%);
+  }
 }

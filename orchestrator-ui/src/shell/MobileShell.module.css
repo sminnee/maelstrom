@@ -3,7 +3,26 @@
   flex-direction: column;
   height: 100%;
 }
+/* The edge swipe's strip (`useEdgeSwipe`). Touch only: a mouse has no edge
+   swipe. It sits in the body, below the top bar, so it covers no bar control. */
+.edge {
+  display: none;
+}
+@media (pointer: coarse) {
+  .edge {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 12px;
+    z-index: 1;
+    /* A vertical pan still scrolls; the browser cancels the swipe for it. */
+    touch-action: pan-y;
+  }
+}
 .body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;

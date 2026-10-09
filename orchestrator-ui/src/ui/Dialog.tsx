@@ -15,7 +15,11 @@ import styles from './Dialog.module.css';
  * the focus and draws the `::backdrop`.
  *
  * `placement="side"` draws it as the narrow layout's side sheet: full height
- * at the right edge, rather than centred.
+ * at the right edge, rather than centred. It slides in.
+ *
+ * `boxProps` reach the `<dialog>` itself, for a caller that moves the box, as
+ * the side sheet's drag does. A pointer handler in them runs before the
+ * dialog's own.
  */
 export function Dialog({
   label,
@@ -23,6 +27,7 @@ export function Dialog({
   testId,
   className,
   placement = 'centre',
+  boxProps,
   children,
 }: {
   /** The dialog's accessible name. */
@@ -33,6 +38,9 @@ export function Dialog({
   /** Added to the box, for a dialog whose content is not text. */
   className?: string;
   placement?: 'centre' | 'side';
+  boxProps?: Omit<React.HTMLAttributes<HTMLDialogElement>, 'onCancel' | 'onClick'> & {
+    [data: `data-${string}`]: string | undefined;
+  };
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDialogElement>(null);
@@ -40,6 +48,7 @@ export function Dialog({
   // element both the press and the release were in, so a drag from a field out
   // to the backdrop clicks the dialog too.
   const backdropPress = useRef(false);
+  const side = placement === 'side';
 
   // Open from a callback ref, not an effect: `showModal()` throws on a dialog
   // that is already open, and a callback ref fires only when the DOM node
@@ -68,10 +77,9 @@ export function Dialog({
 
   return (
     <dialog
+      {...boxProps}
       ref={open}
-      className={[styles.dialog, placement === 'side' && styles.side, className]
-        .filter(Boolean)
-        .join(' ')}
+      className={[styles.dialog, side && styles.side, className].filter(Boolean).join(' ')}
       aria-label={label}
       data-testid={testId}
       tabIndex={-1}
@@ -88,6 +96,7 @@ export function Dialog({
       }}
       {...(!hasLightDismiss() && {
         onPointerDown: (e: React.PointerEvent<HTMLDialogElement>) => {
+          boxProps?.onPointerDown?.(e);
           backdropPress.current = onBackdrop(e);
         },
         onClick: (e: React.MouseEvent<HTMLDialogElement>) => {
