@@ -43,6 +43,11 @@ describe('the mobile stylesheets', () => {
     expect(rule(narrow(dialog), '.dialog:has(> .body)')).toMatch(/overflow:\s*hidden/);
   });
 
+  it('cap the narrow composer by lines, not by the visible height', () => {
+    const input = rule(narrow(sheet('session/MessageInput.module.css')), '.input');
+    expect(input).toMatch(/max-height:\s*8\.5em/);
+  });
+
   it('pack the narrow New work form to its foot, with a short draft', () => {
     const newWork = narrow(sheet('newwork/NewWork.module.css'));
     // Not `justify-content: flex-end`, which puts the top of the form out of reach.
