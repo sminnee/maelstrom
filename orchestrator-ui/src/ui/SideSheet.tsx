@@ -33,7 +33,12 @@ export function SideSheet({
       }}
     >
       <div className={styles.head}>
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
+        <button
+          type="button"
+          className={`bareButton ${styles.close}`}
+          aria-label="Close"
+          onClick={onClose}
+        >
           {actionIcon('close')}
         </button>
         {head ?? <h2 className={styles.title}>{label}</h2>}

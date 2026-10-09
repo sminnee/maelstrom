@@ -57,7 +57,12 @@ export function TopBar({
       <header className={styles.bar} data-narrow data-testid="top-bar">
         <h1 className="srOnly">maelstrom</h1>
         <div className={styles.row}>
-          <button type="button" className={styles.close} aria-label="Close" onClick={strip.onClose}>
+          <button
+            type="button"
+            className={`bareButton ${styles.close}`}
+            aria-label="Close"
+            onClick={strip.onClose}
+          >
             {actionIcon('close')}
           </button>
           <span className={styles.screenTitle} data-testid="screen-title">
@@ -68,7 +73,7 @@ export function TopBar({
           <AttentionChip hideWhenClear />
           <button
             type="button"
-            className={styles.more}
+            className={`bareButton ${styles.more}`}
             aria-label="More"
             aria-haspopup="dialog"
             aria-expanded={strip.sheetOpen}
