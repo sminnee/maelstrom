@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { nodeState, openSheet, screenStrip, paneItem } from './test/appHelpers';
+import {
+  commandsSince,
+  nodeState,
+  openSheet,
+  screenStrip,
+  paneItem,
+  touchDrag,
+} from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import type { FakeServer } from './fake/fakeServer';
 
@@ -422,5 +429,160 @@ describe('the narrow layout', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByText('one two')).toBeInTheDocument();
     expect(input).toHaveValue('');
+  });
+
+  describe('a swipe on a deck row', () => {
+    const row = (id: string) =>
+      screen.getByTestId('deck-list').querySelector<HTMLElement>(`[data-task-id="${id}"]`)!;
+    const sliding = (id: string) => row(id).querySelector<HTMLElement>('a')!;
+
+    const reveal = (id: string) => within(row(id)).getByTestId('swipe-reveal');
+    const drag = (el: HTMLElement, dx: number, dy = 0, { release = true } = {}) =>
+      touchDrag(el, { from: { x: 300, y: 40 }, by: { x: dx, y: dy }, release });
+
+    /** NORT-9.1 follows NORT-9, so it waits, and has no swipe. Let it start. */
+    async function readyToLaunch() {
+      const app = await renderApp({ viewport: 'narrow', url: '/desk?zone=notStarted' });
+      expect(row('NORT-9.1')).not.toHaveAttribute('data-swipe');
+      app.server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
+        w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, actionable: true };
+      });
+      await waitFor(() => expect(row('NORT-9.1')).toHaveAttribute('data-swipe', 'launch'));
+      return app;
+    }
+
+    it('launches a not-started row dragged past 35% of its width', async () => {
+      const { server } = await readyToLaunch();
+      // A 400px row: the threshold is 140px.
+      vi.spyOn(sliding('NORT-9.1'), 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 400, height: 80 }),
+      );
+      const before = server.requests.length;
+      drag(sliding('NORT-9.1'), -120);
+      expect(reveal('NORT-9.1')).toHaveAttribute('data-armed', 'false');
+      expect(commandsSince(server, before)).toEqual([]);
+      drag(sliding('NORT-9.1'), -150);
+      await waitFor(() =>
+        expect(commandsSince(server, before)).toEqual(['POST /api/tasks/NORT-9.1/launch']),
+      );
+    });
+
+    it('springs back, and sends nothing, on a release before the threshold', async () => {
+      const { server } = await readyToLaunch();
+      const before = server.requests.length;
+      drag(sliding('NORT-9.1'), -50);
+      expect(sliding('NORT-9.1').style.transform).toBe('');
+      expect(reveal('NORT-9.1')).toHaveAttribute('data-armed', 'false');
+      // A drag right uncovers nothing: the row only moves left.
+      drag(sliding('NORT-9.1'), 100, 0, { release: false });
+      expect(sliding('NORT-9.1').style.transform).toBe('');
+      expect(commandsSince(server, before)).toEqual([]);
+    });
+
+    it('opens the row its whole width when the launch refuses, with the reason in the reveal', async () => {
+      const { server } = await readyToLaunch();
+      vi.spyOn(sliding('NORT-9.1'), 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 400, height: 80 }),
+      );
+      server.refuse(/POST \/api\/tasks\/NORT-9.1\/launch$/, {
+        status: 409,
+        code: 'invalid',
+        message: 'No free worktree',
+      });
+      drag(sliding('NORT-9.1'), -150);
+      await waitFor(() => expect(reveal('NORT-9.1')).toHaveTextContent('No free worktree'));
+      expect(reveal('NORT-9.1')).toHaveAttribute('data-armed', 'true');
+      expect(sliding('NORT-9.1').style.transform).toBe('translateX(-400px)');
+      // A second swipe while it shows sends nothing.
+      const before = server.requests.length;
+      drag(sliding('NORT-9.1'), -100);
+      expect(commandsSince(server, before)).toEqual([]);
+    });
+
+    it('arms the reveal at the threshold with one haptic tick, and disarms going back', async () => {
+      const vibrate = vi.fn();
+      vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { vibrate }));
+      try {
+        await readyToLaunch();
+        const armed = () => reveal('NORT-9.1');
+        drag(sliding('NORT-9.1'), -50, 0, { release: false });
+        expect(armed()).toHaveAttribute('data-armed', 'false');
+        expect(sliding('NORT-9.1').style.transform).toBe('translateX(-50px)');
+        fireEvent.pointerMove(sliding('NORT-9.1'), { pointerId: 1, clientX: 200, clientY: 40 });
+        fireEvent.pointerMove(sliding('NORT-9.1'), { pointerId: 1, clientX: 190, clientY: 40 });
+        expect(armed()).toHaveAttribute('data-armed', 'true');
+        expect(vibrate).toHaveBeenCalledTimes(1);
+        fireEvent.pointerMove(sliding('NORT-9.1'), { pointerId: 1, clientX: 260, clientY: 40 });
+        expect(armed()).toHaveAttribute('data-armed', 'false');
+        expect(vibrate).toHaveBeenCalledTimes(1);
+        fireEvent.pointerCancel(sliding('NORT-9.1'), { pointerId: 1 });
+        expect(sliding('NORT-9.1').style.transform).toBe('');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('dismisses a done row, even one whose task reads as actionable', async () => {
+      const { server } = await renderApp({ viewport: 'narrow', url: '/desk?zone=done' });
+      // Only a not-started row launches: the zone decides, not the flag.
+      server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
+        w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, status: 'done', actionable: true };
+      });
+      await waitFor(() => expect(row('NORT-9.1')).toHaveAttribute('data-swipe', 'dismiss'));
+      const before = server.requests.length;
+      drag(sliding('NORT-9.1'), -100);
+      await waitFor(() => expect(deckRows()).not.toContain('NORT-9.1'));
+      expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/task:NORT-9.1']);
+    });
+
+    it('dismisses an exited row with the chain the card runs, closing a worktree it is alone in', async () => {
+      const { server } = await renderApp({ viewport: 'narrow' });
+      server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
+        w.agents['a1f3c9e2'] = {
+          ...w.agents['a1f3c9e2']!,
+          state: 'exited',
+          exitCode: 1,
+          pendingRequestIds: [],
+        };
+      });
+      await waitFor(() => expect(nodeState('NORT-7')).toBe('exited'));
+      expect(row('NORT-7')).toHaveAttribute('data-swipe', 'dismiss');
+      const before = server.requests.length;
+      drag(sliding('NORT-7'), -100);
+      await waitFor(() => expect(deckRows()).not.toContain('NORT-7'));
+      expect(commandsSince(server, before)).toEqual([
+        'POST /api/worktrees/northwind-alpha/close',
+        'DELETE /api/desk/task:NORT-7',
+      ]);
+    });
+
+    it('gives a working row no swipe', async () => {
+      await renderApp({ viewport: 'narrow' });
+      const working = screen
+        .getByTestId('deck-list')
+        .querySelector<HTMLElement>('[data-testid="deck-row"][data-state="working"]')!;
+      expect(working).not.toHaveAttribute('data-swipe');
+      expect(within(working).queryByTestId('swipe-reveal')).toBeNull();
+    });
+
+    it('lets a vertical drag go, so the list scrolls', async () => {
+      const { server } = await readyToLaunch();
+      const before = server.requests.length;
+      drag(sliding('NORT-9.1'), -100, 150);
+      expect(sliding('NORT-9.1').style.transform).toBe('');
+      expect(commandsSince(server, before)).toEqual([]);
+    });
+
+    it('does not open the node from the click that ends a swipe', async () => {
+      const { router } = await readyToLaunch();
+      const path = router.state.location.pathname;
+      drag(sliding('NORT-9.1'), -50);
+      fireEvent.click(sliding('NORT-9.1'));
+      expect(router.state.location.pathname).toBe(path);
+      // The next tap opens it.
+      fireEvent.pointerDown(sliding('NORT-9.1'), { pointerId: 2, isPrimary: true });
+      fireEvent.click(sliding('NORT-9.1'));
+      expect(router.state.location.pathname).not.toBe(path);
+    });
   });
 });

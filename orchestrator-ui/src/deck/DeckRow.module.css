@@ -25,6 +25,66 @@
   border: none;
   cursor: pointer;
 }
+
+/* A swipeable row. `background: inherit` lets the sliding layer cover the
+   reveal at rest. */
+.row[data-swipe] {
+  /* The sliding layer moves past the row's edge. */
+  overflow: hidden;
+}
+/* Inside the row, so the clip does not cut the focus ring. */
+.open:focus-visible {
+  outline-offset: -2px;
+}
+.row[data-swipe] .open {
+  position: relative;
+  background: inherit;
+  touch-action: pan-y;
+  transition: transform 0.2s ease-out;
+}
+.row[data-swipe] .open[data-dragging] {
+  transition: none;
+}
+/* A faded row lifts to full strength while it moves, so the reveal reads. */
+.row[data-swiping] {
+  opacity: 1;
+}
+.reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* The icon sits at the right edge, so it shows first as the row moves; the
+     label reads to its left once there is room. */
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: var(--u);
+  padding: 0 var(--u-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: var(--bg-sunken);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+/* Past the threshold (DESIGN.md, The Swipe Reveal Rule). */
+.reveal[data-armed='true'] {
+  color: var(--fg-on-hue);
+  background: var(--accent);
+}
+.revealIcon {
+  display: flex;
+  transition: transform 0.15s;
+}
+.reveal[data-armed='true'] .revealIcon {
+  transform: scale(1.25);
+}
+.revealLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .title {
   font-size: var(--text-ui);
   font-weight: 500;

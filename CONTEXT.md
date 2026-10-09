@@ -1049,6 +1049,13 @@ screen instead of across it, because a phone has no room for a board. The deck l
 canvas below 840px, and never appears at or above that width.
 _Avoid_: Mobile canvas, card list, feed
 
+**Swipe action**:
+A deck row's left swipe. A not-started row that can start swipes to Launch. A row in the done,
+cancelled, stopped or exited state swipes to **Dismiss**, which runs the same chain as the node
+card's Dismiss. Other rows have no swipe action. `orchestrator-ui/DESIGN.md`, "The Swipe Reveal
+Rule", gives the threshold.
+_Avoid_: Swipe to delete, quick action
+
 **Fake mode**:
 The orchestrator UI on a fake server, with no orchestrator server and no agent daemon. The
 `web-fake` service serves it. It is the production app, so a layout seen there is the layout the

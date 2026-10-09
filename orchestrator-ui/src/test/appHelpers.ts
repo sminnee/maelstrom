@@ -1,4 +1,5 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { vi } from 'vitest';
 import type { UserEvent } from '@testing-library/user-event';
 import type { FakeServer } from '../fake/fakeServer';
 import { clickNode } from './renderApp';
@@ -101,4 +102,50 @@ export function worktreeControls(dialog: HTMLElement): [string | null, boolean][
       (el as HTMLButtonElement).disabled === true,
     ],
   );
+}
+
+/**
+ * A pointer drag on `el`: a press at `from`, moves in 10px steps to `from + by`,
+ * then a release unless `release` is false.
+ *
+ * jsdom stamps an event with `Date.now()`, so the clock is stepped
+ * `msPerStep` per move. That makes the drag's speed a choice of the test: the
+ * default 50ms a step is slow, so no flick closes anything by accident.
+ */
+export function touchDrag(
+  el: Element,
+  {
+    from,
+    by,
+    msPerStep = 50,
+    release = true,
+    pointerType = 'touch',
+  }: {
+    from: { x: number; y: number };
+    by: { x?: number; y?: number };
+    msPerStep?: number;
+    release?: boolean;
+    pointerType?: 'touch' | 'mouse';
+  },
+) {
+  const dx = by.x ?? 0;
+  const dy = by.y ?? 0;
+  const at = { pointerId: 1, pointerType, isPrimary: true };
+  let now = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  try {
+    fireEvent.pointerDown(el, { ...at, clientX: from.x, clientY: from.y });
+    const steps = Math.max(Math.abs(dx), Math.abs(dy)) / 10;
+    for (let i = 1; i <= steps; i++) {
+      now += msPerStep;
+      fireEvent.pointerMove(el, {
+        ...at,
+        clientX: from.x + (dx * i) / steps,
+        clientY: from.y + (dy * i) / steps,
+      });
+    }
+    if (release) fireEvent.pointerUp(el, { ...at, clientX: from.x + dx, clientY: from.y + dy });
+  } finally {
+    clock.mockRestore();
+  }
 }
