@@ -237,7 +237,7 @@ export const stopped = byState.find((n) => n.state === 'stopped')!;
 export const stoppedByPhase: { phase: Phase; node: GraphNode }[] = (
   [
     ['shape', 'shape'],
-    ['plan', 'plan-task'],
+    ['plan', 'plan-next-step'],
     ['build', ''],
     ['land', 'watch-pr'],
   ] as const
