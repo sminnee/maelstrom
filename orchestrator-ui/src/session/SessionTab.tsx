@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAnswer, useApprove, useDeny, useInterrupt, useSay, useSetMode } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
@@ -136,6 +136,19 @@ export function SessionTab({
     if (!following.current) return;
     bottom.current?.scrollIntoView?.({ block: 'end' });
   }, [count, tailLength]);
+
+  // The soft keyboard shrinks the pane and leaves its scrollTop, so the tail
+  // goes behind the composer with no scroll event to say so. A ref callback,
+  // as the pane mounts only once the agent is in the world.
+  const followResize = useCallback((pane: HTMLDivElement | null) => {
+    if (!pane || typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(() => {
+      // The pane only: `scrollIntoView` can pan the page on iOS.
+      if (following.current) pane.scrollTop = pane.scrollHeight;
+    });
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, []);
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
   // Where the agent runs, what it runs on, how full its context is and what
@@ -292,6 +305,7 @@ export function SessionTab({
         </div>
       )}
       <div
+        ref={followResize}
         className={styles.scroll}
         data-testid="transcript-scroll"
         onScroll={(e) => {

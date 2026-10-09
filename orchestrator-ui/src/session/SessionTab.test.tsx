@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { clickNode, renderApp } from '../test/renderApp';
+import { observeResizes } from '../test/resizeObserver';
 
 const head = () => screen.getByTestId('session-head');
 
@@ -386,6 +387,17 @@ function watchScroll() {
 }
 
 /**
+ * Watch the pane's own scroll writes. Call after `scrollTranscriptTo`, which
+ * redefines `scrollTop`; the read keeps the position it set.
+ */
+function watchPaneScroll(pane: HTMLElement) {
+  const top = pane.scrollTop;
+  const set = vi.fn();
+  Object.defineProperty(pane, 'scrollTop', { configurable: true, get: () => top, set });
+  return set;
+}
+
+/**
  * Scroll the transcript container to its tail, or away from it.
  *
  * The geometry is defined on the container node, not on `HTMLElement`'s
@@ -577,6 +589,28 @@ describe('following the transcript', () => {
     appendMany(server, 1, 'resumed');
     await screen.findByText('resumed 0');
     expect(scrolled).toHaveBeenCalled();
+  });
+
+  it('keeps the tail in view when the keyboard shrinks the pane', async () => {
+    const resize = observeResizes();
+    const user = userEvent.setup();
+    await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+    const pane = screen.getByTestId('transcript-scroll');
+
+    // The keyboard changes the pane's height, not its scrollTop, so no scroll
+    // event comes. Away from the tail first, as above.
+    scrollTranscriptTo('up');
+    let scrolled = watchPaneScroll(pane);
+    resize(pane);
+    expect(scrolled).not.toHaveBeenCalled();
+
+    scrollTranscriptTo('bottom');
+    scrolled = watchPaneScroll(pane);
+    resize(pane);
+    // The pane itself, not `scrollIntoView`, which can pan the page on iOS.
+    expect(scrolled).toHaveBeenCalledWith(1000);
   });
 
   it('follows the tail again once the reader returns to the bottom', async () => {
