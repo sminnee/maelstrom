@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useComm, useComms, useCreateComm, useUpdateComm, type CommEdit } from '../api/comms';
 import { useUpdateTask } from '../api/tasks';
 import type { TaskRow } from '../api/types';
@@ -12,6 +12,7 @@ import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import fieldStyles from '../ui/Dialog.module.css';
+import { useRecent } from '../ui/recent';
 import { TextArea } from '../ui/TextArea';
 import styles from './CommEditor.module.css';
 
@@ -38,6 +39,11 @@ export function CommEditor({
   onClose: () => void;
 }) {
   const comm = useComm(commId);
+  // Opening a comm is what makes it recent: a task's comm picker offers it first.
+  const { touch } = useRecent('comm');
+  useEffect(() => {
+    if (commId !== null) touch(commId);
+  }, [commId, touch]);
   if (commId === null) return <CommForm comm={null} onCreated={onCreated} onClose={onClose} />;
   if (comm.data) return <CommForm comm={comm.data} onCreated={onCreated} onClose={onClose} />;
   return (
@@ -308,6 +314,7 @@ function OpenCloseButton({
 function LinkedTasks({ comm }: { comm: Comm }) {
   const { world } = useWorld();
   const newWork = useNewWork();
+  const recent = useRecent('task');
   const updateTask = useUpdateTask();
   const [picked, setPicked] = useState('');
   const pickerId = useId();
@@ -364,6 +371,7 @@ function LinkedTasks({ comm }: { comm: Comm }) {
           id={pickerId}
           value={picked}
           options={options}
+          recent={recent.ids}
           onChange={setPicked}
           placeholder="A task id or title"
         />
@@ -375,6 +383,7 @@ function LinkedTasks({ comm }: { comm: Comm }) {
           onClick={async () => {
             if (!target) return;
             await setComms(target, [...target.comms, comm.id]);
+            recent.touch(target.id);
             setPicked('');
           }}
         >

@@ -83,7 +83,8 @@ function read<T>(key: string, initial: T): T {
   }
 }
 
-function write(key: string, value: unknown) {
+/** Write `value` as JSON at `key`, through the guarded storage. `ui/recent.ts` writes here too. */
+export function writeStored(key: string, value: unknown) {
   try {
     backing.setItem(key, JSON.stringify(value));
   } catch {
@@ -98,6 +99,18 @@ function forget(key: string) {
     backing.removeItem(key);
   } catch {
     // Nothing to do: the value is already unreachable.
+  }
+}
+
+/**
+ * The raw string at `key`, through the same guard as a held value: `null` when there is none
+ * or the storage refuses the read. For `ui/recent.ts`, whose list is not a held draft.
+ */
+export function readStoredRaw(key: string): string | null {
+  try {
+    return backing.getItem(key);
+  } catch {
+    return null;
   }
 }
 
@@ -187,7 +200,7 @@ export function useRetained<T>(
     if (leaving !== key && timer.current !== null) {
       clearTimeout(timer.current);
       timer.current = null;
-      if (leaving !== null) write(leaving, latest.current);
+      if (leaving !== null) writeStored(leaving, latest.current);
     }
     latest.current = value;
     keyRef.current = key;
@@ -199,7 +212,7 @@ export function useRetained<T>(
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
-      write(key, latest.current);
+      writeStored(key, latest.current);
     }, WRITE_DELAY_MS);
   }, [key, value]);
 
@@ -212,7 +225,7 @@ export function useRetained<T>(
       clearTimeout(timer.current);
       timer.current = null;
       const at = keyRef.current;
-      if (at !== null) write(at, latest.current);
+      if (at !== null) writeStored(at, latest.current);
     };
   }, []);
 

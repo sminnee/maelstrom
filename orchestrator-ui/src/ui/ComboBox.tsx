@@ -2,6 +2,9 @@ import { useMemo } from 'react';
 import styles from './ComboBox.module.css';
 import { useComboBoxOffer } from './useComboBoxOffer';
 
+/** How many recent options an empty field offers. */
+const RECENT_SHOWN = 5;
+
 /** One row of the offer. `label` names the value; the field shows the value alone. */
 export interface ComboOption {
   value: string;
@@ -19,6 +22,10 @@ export interface ComboOption {
  * free-text value is never blocked by an empty box. Use a `<select>` instead
  * where free text is not a legal answer.
  *
+ * With `recent`, an empty field offers only the first few of those values that are still
+ * among `options`, under a "Recent" heading. Typing searches every option. With no recent
+ * value left, an empty field offers every option.
+ *
  * The offer is a popover, so it draws in the top layer and no scrolling
  * ancestor clips it — the dialogs that hold this control all scroll. CSS
  * anchors it to the field; see `useAnchorName` for the pair.
@@ -30,23 +37,36 @@ export function ComboBox({
   id,
   placeholder,
   readOnly,
+  recent,
 }: {
   value: string;
   options: readonly ComboOption[];
+  /** Values to offer first, newest first, while the field is empty. */
+  recent?: readonly string[];
   onChange: (value: string) => void;
   id?: string;
   placeholder?: string;
   /** Shows the value without offering to change it. The offer never opens. */
   readOnly?: boolean;
 }) {
-  const offered = useMemo(() => {
+  const [offered, showsRecent] = useMemo((): [readonly ComboOption[], boolean] => {
     const needle = value.trim().toLowerCase();
-    if (!needle) return options;
-    return options.filter(
-      (o) =>
-        o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle),
-    );
-  }, [options, value]);
+    if (!needle) {
+      const byValue = new Map(options.map((o) => [o.value, o]));
+      const first = (recent ?? [])
+        .map((v) => byValue.get(v))
+        .filter((o): o is ComboOption => o !== undefined)
+        .slice(0, RECENT_SHOWN);
+      return first.length > 0 ? [first, true] : [options, false];
+    }
+    return [
+      options.filter(
+        (o) =>
+          o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle),
+      ),
+      false,
+    ];
+  }, [options, value, recent]);
 
   const {
     open,
@@ -153,6 +173,11 @@ export function ComboBox({
             if ((e as unknown as { newState: string }).newState === 'open') place(e.currentTarget);
           }}
         >
+          {showsRecent && (
+            <li role="presentation" className={styles.group}>
+              Recent
+            </li>
+          )}
           {offered.map((option, i) => (
             <li
               key={option.value}
