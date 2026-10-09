@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, describeError } from '../api/http';
 import { useDeleteTask, useSetStatus, useTask, useUpdateTask } from '../api/tasks';
 import type { TaskEdit } from '../api/types';
@@ -10,6 +10,7 @@ import { useLoc } from '../nav/useNav';
 import { useEditor } from '../nav/useOverlays';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
+import { useRecent } from '../ui/recent';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import type { TaskDraft } from './TaskFields';
 import { TaskFields } from './TaskFields';
@@ -81,6 +82,9 @@ function TaskForm({ task }: { task: Task }) {
   // Frozen: the store's copy moves as the server publishes, and diffing
   // against a moved copy would send a field the user never touched.
   const opened = useRef(draft);
+  // Opening a task is what makes it recent: a comm's task picker offers it first.
+  const { touch } = useRecent('task');
+  useEffect(() => touch(task.id), [task.id, touch]);
 
   const { world } = useWorld();
   const { filters, listFilters } = useLoc();

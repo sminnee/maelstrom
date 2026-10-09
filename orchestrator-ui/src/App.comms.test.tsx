@@ -222,6 +222,35 @@ describe('the comms view', () => {
     expect(form.getByTestId('new-work-comms')).not.toHaveTextContent('c1');
   });
 
+  it("offers the tasks viewed most recently first in a comm's task picker", async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ scenario: 'comms', url: '/tasks?edit=NORT-23' });
+    await screen.findByRole('dialog', { name: 'Reword the refund email' });
+    await router.navigate('/tasks?edit=NORT-22');
+    await screen.findByRole('dialog', { name: 'Retry a failed refund webhook' });
+    // NORT-20 is viewed last, but c1 already links it, so it is not offered.
+    await router.navigate('/tasks?edit=NORT-20');
+    await screen.findByRole('dialog', { name: 'Export orders as CSV' });
+    await router.navigate('/tasks');
+    await goToComms(user);
+
+    await user.click(within(row('c1')!).getByRole('button', { name: 'Order export is live' }));
+    const editor = within(await screen.findByRole('dialog', { name: 'Order export is live' }));
+    await user.click(editor.getByLabelText('Link a task'));
+    const offer = screen.getByRole('listbox');
+    expect(offer).toHaveTextContent('Recent');
+    expect(
+      within(offer)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['NORT-22Retry a failed refund webhook', 'NORT-23Reword the refund email']);
+
+    // Typing searches every task, not only the recent ones.
+    await user.type(editor.getByLabelText('Link a task'), 'NORT-2');
+    expect(screen.getByRole('listbox')).not.toHaveTextContent('Recent');
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').length).toBeGreaterThan(1);
+  });
+
   it('unlinks a task from a comm', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ scenario: 'comms' });

@@ -40,3 +40,10 @@
 .label {
   composes: label from './comboBoxOffer.module.css';
 }
+/* The heading over the recent values an empty field offers. Not an option.
+   `li.group` to outrank the shared `.list li` row rule. */
+li.group {
+  font-size: var(--text-caption);
+  color: var(--fg-faint);
+  cursor: default;
+}
