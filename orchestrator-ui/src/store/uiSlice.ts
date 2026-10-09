@@ -26,12 +26,13 @@ export type Side = 'left' | 'right';
  */
 export type View = Exclude<Pane, 'tabs'>;
 
-/** A free agent in one worktree: what a **Worktree card** starts. */
-export interface NewWorkSeed {
-  kind: 'agent';
-  project: string;
-  branch: string;
-}
+/**
+ * What a surface opens the new-work form on: a free agent in one worktree, which a **Worktree
+ * card** starts, or a task made from a comm and linked to it.
+ */
+export type NewWorkSeed =
+  | { kind: 'agent'; project: string; branch: string }
+  | { kind: 'task'; project: string; title: string; draft: string; comms: string[] };
 
 export interface UiState {
   /** The side each pane shows on. Shift-click on a top bar item moves it. */

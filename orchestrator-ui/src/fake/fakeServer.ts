@@ -1012,10 +1012,18 @@ function command(
     if (!world.projects[project]) return notFound(`project ${project}`);
     const title = str('title')?.trim() ?? '';
     if (!title) return error(400, 'invalid', 'A title is required');
+    if (b.comms !== undefined) {
+      if (!isStrings(b.comms)) return error(400, 'invalid', 'comms is a list of comm ids');
+      const unknown = b.comms.find((id) => !world.comms[id]);
+      if (unknown) return notFound(`comm ${unknown}`);
+    }
     const taskId = `${project}/NEW-${mint()}`;
     world.tasks[taskId] = {
       ...makeNewTask(taskId, project, title, b),
+      comms: b.comms ? [...new Set(b.comms as string[])] : [],
     };
+    const relinked = linkComms(world);
+    if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
     server.change({ kind: 'task', ids: [taskId] });
     server.change({ kind: 'desk', ids: [`task:${taskId}`] });

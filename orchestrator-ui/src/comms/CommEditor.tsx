@@ -5,6 +5,7 @@ import type { TaskRow } from '../api/types';
 import { useWorld } from '../api/useWorld';
 import type { Comm } from '../protocol/entities';
 import { useLoc } from '../nav/useNav';
+import { useNewWork } from '../nav/useOverlays';
 import { categories, defaultProject, landingStrip } from '../selectors/comms';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -306,6 +307,7 @@ function OpenCloseButton({
  */
 function LinkedTasks({ comm }: { comm: Comm }) {
   const { world } = useWorld();
+  const newWork = useNewWork();
   const updateTask = useUpdateTask();
   const [picked, setPicked] = useState('');
   const pickerId = useId();
@@ -377,6 +379,20 @@ function LinkedTasks({ comm }: { comm: Comm }) {
           }}
         >
           Link
+        </AppButton>
+        <AppButton
+          icon={actionIcon('new')}
+          onClick={() =>
+            newWork.open({
+              kind: 'task',
+              project: comm.project,
+              title: comm.title,
+              draft: comm.content,
+              comms: [comm.id],
+            })
+          }
+        >
+          New task
         </AppButton>
       </div>
     </section>

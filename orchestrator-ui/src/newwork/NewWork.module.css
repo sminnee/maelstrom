@@ -13,6 +13,17 @@
 .branchRow > label {
   flex: 1;
 }
+/* The comms a task made from a comm is linked to as it is written. */
+.comms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.unlink {
+  margin-left: var(--u-half);
+}
 /* The look comes from `base.css`'s button rule. Only the size is this row's. */
 .error {
   margin: 0;

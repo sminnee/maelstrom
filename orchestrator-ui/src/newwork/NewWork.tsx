@@ -5,6 +5,7 @@ import { useStartAgent } from '../api/agents';
 import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
 import { useCreateLinearTask } from '../api/linear';
+import { useComms } from '../api/comms';
 import { useCreateTask, useInferTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import type { PermissionMode } from '../protocol/modes';
@@ -90,6 +91,10 @@ interface Captured {
   taskModel: string;
   taskExecuteModel: string;
   taskBase: string;
+  /** The comms a task is linked to as it is written: set by a comm's New task. */
+  comms: string[];
+  /** The prose the last comm seed wrote, so the next seed can tell it from the user's own. */
+  seededDraft: string;
 }
 
 /**
@@ -117,6 +122,8 @@ const initialCaptured: Captured = {
   taskModel: UNSET_MODEL,
   taskExecuteModel: UNSET_MODEL,
   taskBase: '',
+  comms: [],
+  seededDraft: '',
 };
 
 /** The modes an investigation offers -- see `CONTEXT.md`, "Investigation". */
@@ -161,9 +168,21 @@ export function NewWork() {
   // user's, whichever worktree the form was opened from.
   const seed = useAppStore((s) => s.ui.newWorkSeed);
   const clearSeed = useAppStore((s) => s.clearNewWorkSeed);
+  // A comm's seed keeps prose the user typed; prose another comm seeded, untouched, goes. A comm
+  // with no project keeps the held project.
   useEffect(() => {
     if (!seed) return;
-    setCaptured((was) => ({ ...was, ...seed }));
+    setCaptured((was) => {
+      if (seed.kind === 'agent') return { ...was, ...seed };
+      const own = was.draft.trim() !== '' && was.draft !== was.seededDraft;
+      return {
+        ...was,
+        ...seed,
+        project: seed.project || was.project,
+        draft: own ? was.draft : seed.draft,
+        seededDraft: own ? was.seededDraft : seed.draft,
+      };
+    });
     clearSeed();
   }, [seed, setCaptured, clearSeed]);
   const { kind, issue, draft, branch, mode, model, executeModel, attached } = captured;
@@ -368,6 +387,7 @@ export function NewWork() {
         base: task.base,
         // `follows` is left out: a new task has nothing to follow yet, and an
         // explicit empty list would be a needless field on the wire.
+        ...(latest.current.comms.length > 0 ? { comms: latest.current.comms } : {}),
         ...(launch ? { launch } : {}),
       });
     } catch (e) {
@@ -432,6 +452,8 @@ export function NewWork() {
         patchTask={patchTask}
         onSuggest={suggest}
         busy={busy}
+        comms={captured.comms}
+        setComms={(next) => patch({ comms: next })}
       />
 
       {failure && (
@@ -542,6 +564,8 @@ function Capture({
   patchTask,
   onSuggest,
   busy,
+  comms,
+  setComms,
 }: {
   names: string[];
   /** The projects the canvas is drawing, which the radios offer. */
@@ -577,6 +601,8 @@ function Capture({
   /** Returns its promise, so the button it sits on can show the wait. */
   onSuggest: () => Promise<void>;
   busy: boolean;
+  comms: string[];
+  setComms: (comms: string[]) => void;
 }) {
   // Document-global, so nothing else on the page may share them.
   const kindName = useId();
@@ -616,6 +642,7 @@ function Capture({
       {/* Title first, matching the task editor's order — see
           `tasklist/TaskFields.tsx`. */}
       {kind === 'task' && <TaskTitleField draft={task} onChange={patchTask} />}
+      {kind === 'task' && comms.length > 0 && <LinkedComms comms={comms} setComms={setComms} />}
 
       {kind !== 'linear' && (
         <div className={`${dialog.field} ${styles.draftField}`}>
@@ -733,5 +760,34 @@ function Capture({
         </>
       )}
     </>
+  );
+}
+
+/** The comms the task will be linked to, each with a way to drop the link before it is written. */
+function LinkedComms({
+  comms,
+  setComms,
+}: {
+  comms: string[];
+  setComms: (comms: string[]) => void;
+}) {
+  const titles = new Map((useComms().data?.comms ?? []).map((c) => [c.id, c.title]));
+  return (
+    <ul className={styles.comms} data-testid="new-work-comms">
+      {comms.map((id) => (
+        <li key={id}>
+          Links to {id}
+          {titles.has(id) && ` · ${titles.get(id)}`}
+          <button
+            type="button"
+            className={styles.unlink}
+            aria-label={`Do not link ${id}`}
+            onClick={() => setComms(comms.filter((c) => c !== id))}
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

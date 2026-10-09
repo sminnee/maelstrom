@@ -42,6 +42,8 @@ export interface InferredTask {
 export interface TaskCreate extends TaskEdit {
   project: string;
   title: string;
+  /** The comms the task is linked to as it is written. */
+  comms?: string[];
   launch?: boolean;
 }
 
