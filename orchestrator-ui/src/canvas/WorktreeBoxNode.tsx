@@ -24,13 +24,13 @@ export function WorktreeBoxNode({ data }: NodeProps<WorktreeBoxFlowNode>) {
     >
       <button
         type="button"
-        className={`${styles.label} nodrag nopan`}
+        className={`${styles.label} nowrap nodrag nopan`}
         title={worktree.branch || undefined}
         aria-expanded={expanded}
         onClick={() => open({ kind: 'worktree', id: worktree.id })}
       >
         <span className={styles.name}>{worktree.nato}</span>{' '}
-        <span className={styles.branch}>{branchLabel(worktree)}</span>
+        <span className={`${styles.branch} truncate`}>{branchLabel(worktree)}</span>
       </button>
     </div>
   );

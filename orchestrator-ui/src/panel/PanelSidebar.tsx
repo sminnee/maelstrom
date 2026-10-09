@@ -52,7 +52,7 @@ export function PanelSidebar({
     >
       {groups.map((project) => (
         <div key={project.project} className={styles.project} role="presentation">
-          <div className={styles.heading} role="presentation">
+          <div className={`${styles.heading} truncate`} role="presentation" title={project.label}>
             {project.label}
           </div>
           {project.worktrees.map((group) => {
@@ -74,7 +74,10 @@ export function PanelSidebar({
                 onClick={() => selectGroup(group.tabs.map((t) => t.key))}
                 onKeyDown={(e) => onKeyDown(e, group.key)}
               >
-                <span className={styles.name} data-none={!group.worktree || undefined}>
+                <span
+                  className={`${styles.name} truncate`}
+                  data-none={!group.worktree || undefined}
+                >
                   {group.label}
                 </span>
                 <span className={styles.count}>{group.tabs.length}</span>

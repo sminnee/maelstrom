@@ -241,7 +241,7 @@ function ViewItem({ view, label, side, on, title }: ItemProps & { view: View }) 
     <Link
       to={to}
       state={linkState}
-      className={styles.view}
+      className={`${styles.view} nowrap`}
       aria-current={on ? 'true' : undefined}
       title={title}
       onClick={(e) => {
@@ -274,7 +274,7 @@ function TabsItem({ label, side, on, title }: ItemProps) {
   return (
     <button
       type="button"
-      className={styles.view}
+      className={`${styles.view} nowrap`}
       aria-pressed={on}
       title={title}
       onClick={(e) => {

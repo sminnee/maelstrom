@@ -20,13 +20,6 @@
   background: var(--bg);
   border-color: var(--border-strong);
 }
-/* The field gives way, not the caret: a long pick ends in an ellipsis. */
-.value {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .caret {
   flex: none;
   width: 10px;

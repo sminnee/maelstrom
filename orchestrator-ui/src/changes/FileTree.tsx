@@ -43,7 +43,7 @@ export const FileTree = memo(function FileTree({
               <span className={styles.status} data-status={node.file.status}>
                 {STATUS_LETTER[node.file.status]}
               </span>
-              <span className={styles.name}>{node.name}</span>
+              <span className="truncate">{node.name}</span>
             </button>
           </li>
         );
@@ -60,7 +60,7 @@ export const FileTree = memo(function FileTree({
             onClick={() => toggle(node.path)}
           >
             {actionIcon(open ? 'folderOpen' : 'folder', styles.folder)}
-            <span className={styles.name}>{node.name}</span>
+            <span className="truncate">{node.name}</span>
           </button>
           {open && <ul role="group">{level(node.children, depth + 1)}</ul>}
         </li>

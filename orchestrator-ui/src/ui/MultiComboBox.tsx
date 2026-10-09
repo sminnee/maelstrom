@@ -184,7 +184,11 @@ export function MultiComboBox({
               onClick={() => choose(option)}
             >
               <span className={styles.value}>{option.value}</span>
-              {option.label && <span className={styles.label}>{option.label}</span>}
+              {option.label && (
+                <span className={`${styles.label} truncate`} title={option.label}>
+                  {option.label}
+                </span>
+              )}
             </li>
           ))}
         </ul>

@@ -53,7 +53,6 @@
   justify-content: center;
   font-family: var(--font);
   font-size: var(--text-control);
-  white-space: nowrap;
   text-decoration: none;
   min-height: 0;
   padding: 0 var(--u);

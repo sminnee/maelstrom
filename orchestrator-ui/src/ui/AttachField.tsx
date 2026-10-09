@@ -83,7 +83,7 @@ export function AttachField({
           {attached.map((image) => (
             <li key={image.url} className={styles.thumb}>
               <img src={image.url} alt={image.name} />
-              <span className={styles.name} title={image.name}>
+              <span className={`${styles.name} truncate`} title={image.name}>
                 {image.name}
               </span>
               <button

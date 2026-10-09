@@ -37,12 +37,6 @@
   background: var(--bg-hover);
   color: var(--fg);
 }
-.name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* One slot width for the status letter and the folder icon, so the names stay in line. */
 .status,
 .folder {

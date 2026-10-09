@@ -40,7 +40,7 @@ export function DevEnvView({
         <span className={styles.service}>{service}</span>
         {live && (
           <>
-            <ExternalLink href={live.url} className={styles.url}>
+            <ExternalLink href={live.url} className={`${styles.url} truncate`}>
               {live.url}
             </ExternalLink>
             <AppButton variant="quiet" onClick={() => setLoads((n) => n + 1)}>

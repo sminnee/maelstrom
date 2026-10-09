@@ -23,7 +23,6 @@
 
   font-family: var(--font);
   line-height: 1;
-  white-space: nowrap;
   text-decoration: none;
 
   transition: grid-template-columns var(--duration-fast) ease-out;
@@ -107,7 +106,6 @@
 .word {
   padding-left: var(--u);
   padding-right: 1px;
-  white-space: nowrap;
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;

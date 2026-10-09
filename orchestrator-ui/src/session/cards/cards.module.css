@@ -70,9 +70,6 @@
 }
 .toolTitle {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* Scaffolding: the row's outcome, read only when it is not the expected one. */
 .status {

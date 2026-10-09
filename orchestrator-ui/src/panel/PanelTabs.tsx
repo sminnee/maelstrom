@@ -82,7 +82,7 @@ export function PanelTabs({
             aria-selected={active || split}
             aria-controls={PANEL_BODY_ID}
             tabIndex={active ? 0 : -1}
-            className={styles.tab}
+            className={`${styles.tab} nowrap`}
             data-active={active || undefined}
             data-split={split || undefined}
             data-tab-key={tab.key}
@@ -98,7 +98,9 @@ export function PanelTabs({
           >
             <TabChip attribution={attribution} />
             {split && <SplitMark />}
-            {attribution.label && <span className={styles.label}>{attribution.label}</span>}
+            {attribution.label && (
+              <span className={`${styles.label} truncate`}>{attribution.label}</span>
+            )}
             <button
               type="button"
               className={styles.close}
