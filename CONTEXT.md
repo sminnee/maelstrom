@@ -216,12 +216,28 @@ _Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phas
 **Comm**:
 Something to tell people outside the team when some work lands. It has an id (`c1`, `c2`, …,
 one sequence across every project), a title, its content (the request as it came in) and its
-recipients. A recipient is free text: a Slack channel, an email address or a note.
+recipients. A recipient is free text: a Slack channel, an email address or a note. A comm also
+has a **Comm category** and a project: the project a task made from the comm goes to.
+- A new comm's project defaults to the **Default project** of its category.
 - A comm links to tasks, and task ↔ comm is many-to-many. The link is the task's `comms`
   field, so a task names the comms it feeds.
 - A new child task gets its parent task's comms, as it gets the parent's branch.
 - You close a comm when everyone is told. A closed comm leaves the open list.
 _Avoid_: outcome, promise, communiqué, notification, announcement, ticket
+
+**Comm category**:
+Free text that groups comms of one kind, such as `release` or `support`. You pick an existing
+category or type a new one.
+_Avoid_: tag, label, type, channel
+
+**Default project**:
+The project a new comm in a category gets: the most common non-blank project among the comms in
+that category, closed comms included. A tie goes to the project of the newest comm. It is derived
+from the comms each time, not stored, so it follows how the category is used. A comm with no
+category has no default project. With no comm in
+the category, the CLI uses the project of the current directory and the UI uses the filter bar's
+project.
+_Avoid_: category project, project mapping
 
 **Draft**:
 A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
@@ -1086,13 +1102,17 @@ _Avoid_: Table view, index
 **Comms**:
 The view that lists the open **Comms** and edits them: a row per comm, with its recipients, its
 linked task count and the highest **Landing** status among its tasks. The editor links and
-unlinks tasks, and shows each linked task's landing strip. A person works here; an agent uses
+unlinks tasks, and shows each linked task's landing strip. Its New task button opens New work on
+the comm's title, content and project, and the task it writes is linked to the comm. The task
+count opens Tasks with the Comm filter set. The **Task editor** links comms too. Each picker
+offers the five comms or tasks this browser viewed or linked most recently, before a search. A person works here; an agent uses
 `mael comms`.
 _Avoid_: Inbox, outbox, notifications tab
 
 **Task editor**:
 The form that edits one task's fields: title, status, content and branch, with the planning level
-shown above Advanced, and command, mode, base, priority, model and follows folded away there. It
+shown above Advanced, and command, mode, base, priority, model and follows folded away there.
+Below the fields, a Comms section links and unlinks comms at once, not through Save. It
 opens from the task list or a task's node on the desk, and writes through `task.update`, except
 status, which writes through its own route since it is folder-derived. New work composes the same
 field components, so both surfaces read and order fields the same way — except status, which new
