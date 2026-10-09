@@ -148,6 +148,80 @@ describe('the comms view', () => {
     );
   });
 
+  it('makes a task from a comm, linked to it, through New work', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'comms' });
+    await goToComms(user);
+
+    await user.click(within(row('c1')!).getByRole('button', { name: 'Order export is live' }));
+    const editor = within(await screen.findByRole('dialog', { name: 'Order export is live' }));
+    await user.click(editor.getByRole('button', { name: 'New task' }));
+
+    const form = within(await screen.findByRole('dialog', { name: 'New work' }));
+    expect(form.getByLabelText('Title')).toHaveValue('Order export is live');
+    expect(form.getByLabelText('What needs doing?')).toHaveValue(
+      'Sales asked to hear when customers can download their orders.',
+    );
+    expect(form.getByRole('radio', { name: 'northwind' })).toBeChecked();
+    expect(form.getByTestId('new-work-comms')).toHaveTextContent(
+      'Links to c1 · Order export is live',
+    );
+    await user.click(form.getByRole('button', { name: 'Save' }));
+
+    const made = await waitFor(() => {
+      const task = Object.values(server.world.tasks).find((t) => t.id.includes('/NEW-'));
+      expect(task).toBeDefined();
+      return task!;
+    });
+    expect(made.comms).toEqual(['c1']);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole('dialog', { name: 'Order export is live' })
+          .querySelector(`[data-task-id="${made.id}"]`),
+      ).not.toBeNull(),
+    );
+  });
+
+  it("keeps the prose New work already holds over the comm's content", async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'comms' });
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    let form = within(await screen.findByRole('dialog', { name: 'New work' }));
+    await user.type(form.getByLabelText('What needs doing?'), 'My own words');
+    await user.click(form.getByRole('button', { name: 'Cancel' }));
+
+    await goToComms(user);
+    await user.click(within(row('c1')!).getByRole('button', { name: 'Order export is live' }));
+    const editor = within(await screen.findByRole('dialog', { name: 'Order export is live' }));
+    await user.click(editor.getByRole('button', { name: 'New task' }));
+    form = within(await screen.findByRole('dialog', { name: 'New work' }));
+    expect(form.getByLabelText('What needs doing?')).toHaveValue('My own words');
+    expect(form.getByLabelText('Title')).toHaveValue('Order export is live');
+  });
+
+  it("replaces one comm's seeded prose with the next comm's", async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'comms' });
+    await goToComms(user);
+    const newTaskFrom = async (title: string) => {
+      await user.click(within(document.body).getByRole('button', { name: title }));
+      const editor = within(await screen.findByRole('dialog', { name: title }));
+      await user.click(editor.getByRole('button', { name: 'New task' }));
+      return within(await screen.findByRole('dialog', { name: 'New work' }));
+    };
+
+    let form = await newTaskFrom('Order export is live');
+    await user.click(form.getByRole('button', { name: 'Cancel' }));
+    await user.keyboard('{Escape}');
+    form = await newTaskFrom('Refunds retry on their own');
+    expect(form.getByLabelText('What needs doing?')).toHaveValue(
+      'Support wants to stop retrying failed refunds by hand.',
+    );
+    expect(form.getByTestId('new-work-comms')).toHaveTextContent('Links to c2');
+    expect(form.getByTestId('new-work-comms')).not.toHaveTextContent('c1');
+  });
+
   it('unlinks a task from a comm', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ scenario: 'comms' });
