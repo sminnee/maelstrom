@@ -58,7 +58,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--u-half);
-  white-space: nowrap;
 }
 .terminal {
   margin: 0;
@@ -104,7 +103,6 @@
     order: 1;
     flex: 1 1 100%;
     color: var(--fg-muted);
-    overflow-wrap: anywhere;
   }
   .table td[data-label] {
     order: 2;

@@ -27,13 +27,9 @@
 }
 .branch {
   color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .base {
   color: var(--fg-faint);
-  white-space: nowrap;
 }
 .prMatch {
   display: flex;
@@ -100,12 +96,6 @@
   background: var(--bg-raised);
   color: var(--fg);
   font-weight: var(--weight-medium);
-}
-.revLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .revCount {
   margin-left: auto;
@@ -192,10 +182,6 @@
   content: '▾';
 }
 .subject {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-weight: var(--weight-semibold);
 }
 
@@ -213,7 +199,6 @@
   padding: var(--u) var(--u-2) 0;
 }
 .messageSubject {
-  min-width: 0;
   font-weight: var(--weight-semibold);
 }
 
@@ -306,12 +291,6 @@
   font-family: var(--mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-}
-.path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .status {
   width: 1ch;

@@ -97,16 +97,16 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const header = (
     <header className={styles.header}>
       <div className={styles.line}>
-        <span className={styles.task}>{doc.taskId}</span>
+        <span className={`${styles.task} wrap`}>{doc.taskId}</span>
         {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
-        <span className={styles.title}>{doc.title}</span>
+        <span className={`${styles.title} wrap`}>{doc.title}</span>
         <span className={styles.version}>v{doc.version}</span>
         <span className={styles.status} data-status={doc.status}>
           {describeDocumentStatus(doc.status)}
         </span>
       </div>
       <div className={styles.taskLine}>
-        {task && <span className={styles.taskTitle}>{task.title}</span>}
+        {task && <span className={`${styles.taskTitle} wrap`}>{task.title}</span>}
         {agent && (
           <PanelLink tab={sessionTab(agent.id)} className={styles.sessionLink}>
             Session
@@ -207,7 +207,9 @@ function SiblingNav({
           .filter((d) => d.id !== documentId)
           .map((d) => (
             <PanelLink key={d.id} tab={documentTab(d.id)} className={styles.siblingLink}>
-              <span className={styles.siblingTitle}>{d.title}</span>
+              <span className="truncate" title={d.title}>
+                {d.title}
+              </span>
             </PanelLink>
           ))}
       </div>

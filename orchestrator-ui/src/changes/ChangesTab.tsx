@@ -182,8 +182,12 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   const header = (
     <header className={styles.header}>
       <span className={styles.where}>
-        <span className={styles.branch}>{worktree?.branch || worktreeId}</span>
-        <span className={styles.base}>on {base}</span>
+        <span className={`${styles.branch} truncate`} title={worktree?.branch || worktreeId}>
+          {worktree?.branch || worktreeId}
+        </span>
+        <span className={`${styles.base} truncate`} title={`on ${base}`}>
+          on {base}
+        </span>
       </span>
       {worktree?.prNumber != null && worktree.prMatch && <PrMatch worktree={worktree} />}
       <AppButton
@@ -335,7 +339,7 @@ function RevNav({
           {commits.map((c) => (
             <RevEntry key={c.sha} rev={c.sha} current={rev} onPick={onPickRev} title={c.subject}>
               <span className={styles.sha}>{c.shortSha}</span>{' '}
-              <span className={styles.revLabel}>{c.subject}</span>
+              <span className="truncate">{c.subject}</span>
             </RevEntry>
           ))}
         </ul>
@@ -343,13 +347,13 @@ function RevNav({
       <ul className={`${styles.revs} ${styles.summary}`}>
         {commits.length > 0 && (
           <RevEntry rev={BRANCH} current={rev} onPick={onPickRev}>
-            <span className={styles.revLabel}>All commits</span>{' '}
+            <span className="truncate">All commits</span>{' '}
             <span className={styles.revCount}>{commits.length}</span>
           </RevEntry>
         )}
         {dirtyFiles.length > 0 && (
           <RevEntry rev={UNCOMMITTED} current={rev} onPick={onPickRev}>
-            <span className={styles.revLabel}>Uncommitted</span>{' '}
+            <span className="truncate">Uncommitted</span>{' '}
             <span className={styles.revCount}>{dirtyFiles.length}</span>
           </RevEntry>
         )}
@@ -557,7 +561,7 @@ const Files = memo(function Files({
         <>
           <div className={styles.messageLine}>
             <Fold open={messageOpen} onOpen={onMessageOpen} controls={messageId}>
-              <span className={styles.messageSubject}>{commit.subject}</span>
+              <span className={`${styles.messageSubject} wrap`}>{commit.subject}</span>
             </Fold>
           </div>
           <CommitMessage commit={commit} id={messageId} open={messageOpen} />
@@ -567,7 +571,9 @@ const Files = memo(function Files({
         <>
           <div className={styles.titleLine}>
             <Fold open={messageOpen} onOpen={onMessageOpen} controls={messageId}>
-              <span className={styles.subject}>{commit.subject}</span>
+              <span className={`${styles.subject} truncate`} title={commit.subject}>
+                {commit.subject}
+              </span>
             </Fold>
             <CommitStep prev={prev} next={next} onPick={onPick} labels={['Prev', 'Next']} />
           </div>
@@ -590,7 +596,9 @@ const Files = memo(function Files({
                   <span className={styles.status} data-status={f.status}>
                     {STATUS_LETTER[f.status]}
                   </span>
-                  <span className={styles.path}>{f.path}</span>
+                  <span className={`${styles.path} truncate`} title={f.path}>
+                    {f.path}
+                  </span>
                   <Counts add={f.additions} remove={f.deletions} />
                 </button>
               </li>
@@ -719,7 +727,9 @@ const FileBlock = memo(function FileBlock({
         <span className={styles.status} data-status={file.status}>
           {STATUS_LETTER[file.status]}
         </span>
-        <span className={styles.path}>{file.oldPath ? `${file.oldPath} → ${path}` : path}</span>
+        <span className="truncate" title={file.oldPath ? `${file.oldPath} → ${path}` : path}>
+          {file.oldPath ? `${file.oldPath} → ${path}` : path}
+        </span>
         <Counts add={file.additions} remove={file.deletions} />
       </h3>
       {file.binary ? (

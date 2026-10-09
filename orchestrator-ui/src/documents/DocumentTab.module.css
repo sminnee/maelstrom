@@ -25,8 +25,6 @@
   color: var(--fg-muted);
 }
 .task {
-  min-width: 0;
-  overflow-wrap: anywhere;
   font-weight: var(--weight-semibold);
   color: var(--fg);
 }
@@ -37,8 +35,6 @@
   font-size: var(--text-sm);
 }
 .title {
-  min-width: 0;
-  overflow-wrap: anywhere;
   color: var(--fg);
 }
 .version {
@@ -80,18 +76,12 @@
   flex: none;
   line-height: var(--u-3);
 }
+/* The link is `inline-flex`, so the ellipsis goes on a child that can shrink
+   (`truncate`), and the open-in-panel icon stays visible. */
 .siblingLink {
   min-height: 0;
   max-width: 100%;
   min-width: 0;
-}
-/* The link is `inline-flex`, so the ellipsis goes on a child that can shrink,
-   and the open-in-panel icon stays visible. */
-.siblingTitle {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .siblingsMore {
   margin-top: var(--u-half);
@@ -99,7 +89,6 @@
 }
 .taskTitle {
   flex: 1;
-  min-width: 0;
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }

@@ -60,11 +60,9 @@
 }
 .recipients {
   color: var(--fg-muted);
-  overflow-wrap: anywhere;
 }
 .count {
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 .faint {
   color: var(--fg-faint);

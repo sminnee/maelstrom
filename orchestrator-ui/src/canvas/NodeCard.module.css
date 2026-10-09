@@ -41,13 +41,9 @@
 .project,
 .id {
   font-family: var(--mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .project {
   flex: 0 1 auto;
-  min-width: 0;
   color: var(--fg-faint);
 }
 .project::after {
@@ -55,7 +51,6 @@
 }
 .id {
   flex: 0 1 auto;
-  min-width: 0;
 }
 .phase {
   flex: none;
@@ -71,7 +66,6 @@
   font-size: var(--text-sm);
   color: var(--fg-faint);
   line-height: 1.4;
-  overflow-wrap: anywhere;
 }
 .close {
   border: none;
@@ -163,7 +157,6 @@
 }
 .driftText {
   flex: 1;
-  min-width: 0;
   color: var(--fg-muted);
 }
 .status[data-state='needs-attention'] .stateText {
@@ -174,10 +167,6 @@
 }
 .reason {
   color: var(--fg-muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* The settable status sits at the right end of the id line. */
 .taskStatus {
@@ -272,7 +261,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--u-half);
-  min-width: 0;
 }
 /* A note is the agent's own account of its work, where the last message is
    whatever prose ended a turn. Setting it in the foreground colour marks that
@@ -327,12 +315,6 @@
   grid-column: 2;
   grid-row: 1 / span 2;
 }
-.followsTitle {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .followsRow[data-on-desk='false'] .followsTitle {
   color: var(--fg-muted);
 }
@@ -340,9 +322,6 @@
   font-family: var(--mono);
   font-size: var(--text-sm);
   color: var(--accent);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .footer {
   display: flex;

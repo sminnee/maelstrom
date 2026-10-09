@@ -112,9 +112,6 @@
   flex: 1;
   border-top: 1px solid var(--border);
 }
-.compactLabel {
-  white-space: nowrap;
-}
 /* The `.compact` rule's shape, in `--ok`. See `orchestrator-ui/DESIGN.md`, "Milestone bar". */
 .milestone {
   display: flex;
@@ -136,9 +133,6 @@
 .milestone[data-recognised='false']::before,
 .milestone[data-recognised='false']::after {
   border-top-color: var(--border);
-}
-.milestoneLabel {
-  white-space: nowrap;
 }
 .milestoneName {
   color: var(--ok);
@@ -190,7 +184,6 @@
 .deferredWhere {
   font-size: var(--text-sm);
   color: var(--attention);
-  white-space: nowrap;
 }
 /* The same ledger row a tool call draws: both are collapsed disclosures of
    something the agent did, so neither outranks the prose between them. */

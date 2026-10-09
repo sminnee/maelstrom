@@ -138,10 +138,16 @@ export function NodeCardBody({
     <>
       <header className={styles.header}>
         <div className={styles.titleBlock}>
-          <h2 className={styles.title}>{title}</h2>
+          <h2 className={`${styles.title} wrap`}>{title}</h2>
           <div className={styles.idLine} data-testid="node-id-line">
-            {showProject && task && <span className={styles.project}>{task.project}</span>}
-            <span className={styles.id}>{nodeIdLine(node)}</span>
+            {showProject && task && (
+              <span className={`${styles.project} truncate`} title={task.project}>
+                {task.project}
+              </span>
+            )}
+            <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+              {nodeIdLine(node)}
+            </span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
             {task && (
               <StatusPicker
@@ -159,7 +165,7 @@ export function NodeCardBody({
             )}
           </div>
           {meta.length > 0 && (
-            <div className={styles.meta} data-testid="node-meta">
+            <div className={`${styles.meta} wrap`} data-testid="node-meta">
               {meta.join(' · ')}
             </div>
           )}
@@ -180,7 +186,11 @@ export function NodeCardBody({
               <span className={styles.stateText}>{node.progress.words}</span>
             </>
           )}
-          {reason && <span className={styles.reason}>{reason}</span>}
+          {reason && (
+            <span className={`${styles.reason} truncate`} title={reason}>
+              {reason}
+            </span>
+          )}
         </div>
       )}
 
@@ -210,7 +220,9 @@ export function NodeCardBody({
           <span className={styles.driftMark} aria-hidden="true">
             ▲
           </span>
-          <span className={styles.driftText}>{driftSentence(node.progress, task.status)}</span>
+          <span className={`${styles.driftText} wrap`}>
+            {driftSentence(node.progress, task.status)}
+          </span>
           {node.progress.fixStatus && (
             <AppButton
               variant="quiet"
@@ -263,10 +275,16 @@ export function NodeCardBody({
                 </time>
               )}
             </div>
-            <span className={styles.nowText} data-note={now === note && note ? '' : undefined}>
+            <span
+              className={`${styles.nowText} wrap`}
+              data-note={now === note && note ? '' : undefined}
+            >
               {now}
               {running && running.type === 'tool_call' && (
-                <span className={styles.running}>
+                <span
+                  className={`${styles.running} truncate`}
+                  title={`${running.tool} ${toolCallTitle(running)}`}
+                >
                   {running.tool} {toolCallTitle(running)}
                 </span>
               )}
@@ -436,7 +454,9 @@ function FollowsGroup({
         const onDesk = deskIdForTask(t.id) in desk;
         return (
           <div key={t.id} className={styles.followsRow} data-on-desk={onDesk}>
-            <span className={styles.followsTitle}>{t.title}</span>
+            <span className={`${styles.followsTitle} truncate`} title={t.title}>
+              {t.title}
+            </span>
             <span className={styles.meta}>
               <span data-testid="follows-id">{t.notebookId}</span> ·{' '}
               <span data-testid="follows-status">{t.status}</span>

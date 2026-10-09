@@ -28,7 +28,7 @@ export function WorktreeSection({
   return (
     <section className={styles.section} aria-label="Worktree" data-testid="worktree-section">
       <span className={styles.head}>Worktree</span>
-      <div className={styles.name} data-testid="worktree-name" title={worktree.branch}>
+      <div className={`${styles.name} wrap`} data-testid="worktree-name" title={worktree.branch}>
         <span className={styles.nato}>{worktree.nato}</span>
         {' · '}
         <span>{branchLabel(worktree)}</span>
