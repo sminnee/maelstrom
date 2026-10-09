@@ -306,3 +306,38 @@ describe('the comms view', () => {
     expect(listedIds()).toEqual(['c1', 'c2']);
   });
 });
+
+describe('the comm filter', () => {
+  const listed = () =>
+    [...document.querySelectorAll('[data-testid="task-list"] [data-task-id]')]
+      .map((r) => r.getAttribute('data-task-id'))
+      .sort();
+  const drawn = () =>
+    [...document.querySelectorAll('[data-testid="task-node"]')]
+      .map((n) => n.getAttribute('data-task-id'))
+      .sort();
+
+  it("lists only the comm's tasks, from the comm list's task count", async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ scenario: 'comms', url: '/comms' });
+    const count = await screen.findByRole('link', { name: '3 tasks' });
+    await user.click(count);
+
+    // Every status: a comm's tasks are mostly done.
+    await waitFor(() => expect(listed()).toEqual(['NORT-12', 'NORT-22', 'NORT-23']));
+    expect(router.state.location.search).toContain('comm=c2');
+    expect(screen.getByLabelText('Comm')).toHaveValue('c2');
+
+    await user.selectOptions(screen.getByLabelText('Comm'), 'c1');
+    await waitFor(() => expect(listed()).toEqual(['NORT-20', 'NORT-21']));
+  });
+
+  it('draws only the nodes of tasks linked to the comm on the Desk', async () => {
+    await renderApp({ scenario: 'comms', url: '/desk?comm=c2' });
+    // No free agent and no empty worktree: neither has a task to link.
+    await waitFor(() => expect(drawn()).toEqual(['NORT-12']));
+    expect(
+      document.querySelectorAll('[data-testid="worktree-box"][data-empty="true"]'),
+    ).toHaveLength(0);
+  });
+});

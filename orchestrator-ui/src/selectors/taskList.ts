@@ -34,6 +34,7 @@ export function listTasks(world: WorldView, filters: Filters, listFilters: ListF
   return Object.values(world.tasks)
     .filter((t) => !filters.project || t.project === filters.project)
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
+    .filter((t) => !filters.comm || t.comms.includes(filters.comm))
     .filter((t) => listFilters.statuses.length === 0 || listFilters.statuses.includes(t.status))
     .filter((t) => matchesText([t.id, t.notebookId, t.title], filters))
     .sort(

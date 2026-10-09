@@ -158,6 +158,7 @@ function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
     .filter((t) => t.status !== 'template')
     .filter((t) => !filters.project || t.project === filters.project)
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
+    .filter((t) => !filters.comm || t.comms.includes(filters.comm))
     .filter((t) => matchesText([t.id, t.notebookId, t.title], filters))
     .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
 }
@@ -238,10 +239,13 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     nodes.push(node);
   }
 
-  // A branch, status or text filter hides nodes, so a worktree with no node
-  // drawn may still hold work. An empty box would then say what is not true.
+  // A branch, status, text or comm filter hides nodes, so a worktree with no
+  // node drawn may still hold work. An empty box would then say what is not true.
   const hidesNodes =
-    opts.filters.branch || (opts.filters.agentStatus ?? 'all') !== 'all' || searching(opts.filters);
+    opts.filters.branch ||
+    opts.filters.comm ||
+    (opts.filters.agentStatus ?? 'all') !== 'all' ||
+    searching(opts.filters);
   if (!hidesNodes) listEmptyWorktrees(world, opts.filters, nodes, laneOf);
 
   const visible = new Set(nodes.map((n) => n.id));
@@ -265,6 +269,8 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
  * worktree it runs in answers for its project and its branch.
  */
 function allowsAgent(filters: Filters, agent: Agent, worktree: Worktree | undefined): boolean {
+  // A comm links tasks, so an agent with none never matches one.
+  if (filters.comm) return false;
   const project = agent.project || worktree?.project || '';
   if (filters.project && project !== filters.project) return false;
   if (filters.branch && branchKey(project, worktree?.branch ?? '') !== filters.branch) return false;

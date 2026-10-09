@@ -181,6 +181,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
       agentStatus:
         agents && agents in AGENT_STATUS_LABELS ? (agents as Filters['agentStatus']) : 'all',
       text: q.get('q') ?? '',
+      comm: q.get('comm') || null,
     },
     listFilters: { statuses: parseStatuses(q.get('status')) },
     worktreeFilters: { showClosed: q.get('closed') === '1' },
@@ -215,6 +216,7 @@ export function toHref(loc: Loc): string {
     ],
     ['status', statusValue(loc.listFilters.statuses)],
     ['q', loc.filters.text || null],
+    ['comm', loc.filters.comm],
     ['closed', loc.worktreeFilters.showClosed ? '1' : null],
     ['zone', loc.zone !== DEFAULT_ZONE ? loc.zone : null],
     ['edit', loc.edit],
