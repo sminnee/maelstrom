@@ -118,6 +118,9 @@ def task_entity(
         "startedAt": started_at,
         "landing": landing,
         "comms": list(task.comms),
+        "schedule": task.schedule,
+        "trigger": task.trigger,
+        "lastRun": task.last_run,
     }
 
 

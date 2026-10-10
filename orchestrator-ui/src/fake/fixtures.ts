@@ -61,6 +61,9 @@ export function makeTask(over: Partial<Task> = {}): Task {
     startedAt: '',
     landing: null,
     comms: [],
+    schedule: '',
+    trigger: '',
+    lastRun: '',
     ...over,
   };
 }

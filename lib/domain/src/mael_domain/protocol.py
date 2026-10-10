@@ -229,6 +229,11 @@ class Task(TypedDict):
     landing: TaskLanding | None
     #: The ids of the comms the task feeds, such as ``c3``. Global, so bare.
     comms: list[str]
+    #: A template's cron schedule, and what else fires it. See CONTEXT.md, "Trigger".
+    schedule: str
+    trigger: str
+    #: When a template last fired, ISO 8601; ``""`` when it never has.
+    lastRun: str
 
 
 class TaskRow(TypedDict):
@@ -260,6 +265,9 @@ class TaskRow(TypedDict):
     startedAt: str
     landing: TaskLanding | None
     comms: list[str]
+    schedule: str
+    trigger: str
+    lastRun: str
 
 
 class TaskDetail(Task):
