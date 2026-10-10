@@ -103,6 +103,7 @@ export function SplitButton({
       <button
         type="button"
         className={`${segment} ${styles.main}`}
+        style={split ? undefined : anchorStyle}
         disabled={main.disabled || processing || asking !== null}
         aria-busy={processing || undefined}
         data-state={state.kind}
