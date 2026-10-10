@@ -11,6 +11,7 @@ import { isWorking, progressOf } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey, matchesText, searching } from './filters';
 import { byName } from './worktrees';
+import { hasRegisteredPr } from './cardPr';
 
 /** What a node stands for: a notebook task, or an agent with no task. */
 export type NodeKind = 'task' | 'freeAgent';
@@ -173,7 +174,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   const worktreeByBranch = openWorktreesByBranch(world);
   const tasks = filteredTasks(world, opts.filters)
     .filter((t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)))
-    .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id)));
+    .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id), t));
 
   const groups = new Map<string, GraphGroup>();
   const laneOf = (project: string) => {
@@ -219,7 +220,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk)) continue;
     const worktree = world.worktrees[agent.worktreeId];
     if (!allowsAgent(opts.filters, agent, worktree)) continue;
-    if (!allowsAgentStatus(opts.filters.agentStatus, agent)) continue;
+    if (!allowsAgentStatus(opts.filters.agentStatus, agent, undefined)) continue;
     const attention = attentionFrom(attentionIndex, undefined, agent);
     const groupId = agent.project || worktree?.project || '';
     const node: GraphNode = {
@@ -281,6 +282,7 @@ function allowsAgent(filters: Filters, agent: Agent, worktree: Worktree | undefi
 function allowsAgentStatus(
   filter: AgentStatusFilter | undefined,
   agent: Agent | undefined,
+  task: TaskRow | undefined,
 ): boolean {
   switch (filter ?? 'all') {
     case 'all':
@@ -295,6 +297,8 @@ function allowsAgentStatus(
       return agent?.state === 'exited';
     case 'planned':
       return agent === undefined;
+    case 'has-pr':
+      return hasRegisteredPr(task);
   }
 }
 

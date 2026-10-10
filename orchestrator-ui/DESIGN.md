@@ -916,7 +916,7 @@ the same `DialogFooter`.
   agent status filter to the next of All, Working + Idle and Working. The chip greys the count
   that the filter leaves out: `6/` for Working + Idle, `/11` for Working. The filter is the
   only state, so the chip and the Agent status dropdown always agree, and they share their
-  labels. A status outside the cycle, such as Planned, greys nothing, and a click goes on as
+  labels. A status outside the cycle, such as Planned or Has PR, greys nothing, and a click goes on as
   from All. Off the Desk the chip is a plain reading: the filter's effect is drawn on the Desk,
   so a click elsewhere would change nothing in view.
 

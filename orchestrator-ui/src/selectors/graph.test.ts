@@ -22,11 +22,14 @@ const unfiltered = { filters: noFilters() };
 
 describe('deriveGraph', () => {
   it('filters Desk tasks by their agent status', () => {
+    // Has PR reads the task's Registered PR alone: not the agent, not the worktree's PR.
+    const prs: Record<string, number> = { idle: 42, planned: 43 };
     const tasks = ['working', 'delegating', 'idle', 'awaiting', 'terminated', 'planned'].map((id) =>
-      makeTask({ id }),
+      makeTask({ id, prNumber: prs[id] ?? 0 }),
     );
     const world = drawnWorld({
       tasks,
+      worktrees: [makeWorktree({ prNumber: 7 })],
       agents: [
         makeAgent({ id: 'working-agent', taskId: 'working', state: 'processing' }),
         makeAgent({ id: 'delegating-agent', taskId: 'delegating', state: 'delegating' }),
@@ -53,6 +56,7 @@ describe('deriveGraph', () => {
     expect(shown('working-idle')).toEqual(['awaiting', 'delegating', 'idle', 'working']);
     expect(shown('terminated')).toEqual(['terminated']);
     expect(shown('planned')).toEqual(['planned']);
+    expect(shown('has-pr')).toEqual(['idle', 'planned']);
   });
 
   it('filters free agents by their status, but never treats one as planned', () => {
@@ -82,6 +86,7 @@ describe('deriveGraph', () => {
     expect(shown('working-idle')).toEqual(['working-agent', 'idle-agent', 'awaiting-agent']);
     expect(shown('terminated')).toEqual(['terminated-agent']);
     expect(shown('planned')).toEqual([]);
+    expect(shown('has-pr')).toEqual([]);
   });
 
   it('a task without an agent waits: ready when its turn has come, else queued', () => {

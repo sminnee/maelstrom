@@ -181,7 +181,8 @@ from a table meant to show every one of them. The Project and Branch options are
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
 `deriveGraph`, so no Desk option filters the canvas to nothing. A selected value stays offered
 across a view switch. A selected branch drops out once no view in the world names it. Desk has an
-Agent status control, which the top bar's agents chip also steps through; Tasks has a status
+Agent status control, which the top bar's agents chip also steps through. Its Has PR choice keeps
+the tasks with a **Registered PR**: the cards that draw a PR chip. Tasks has a status
 control, and Worktrees has "show closed". Desk and Tasks share one Search text, `filters.text`
 (`?q=`).
 A task matches by its id, notebook id or title; a free agent by its id or its drawn title. Every

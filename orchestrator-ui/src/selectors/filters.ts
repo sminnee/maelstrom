@@ -1,6 +1,9 @@
-/** Which agents the Desk shows. `planned` is a task that has not launched one. */
+/**
+ * Which agents the Desk shows. `planned` is a task that has not launched one.
+ * `has-pr` is a task with a Registered PR: the cards that draw a PR chip.
+ */
 export type AgentStatusFilter =
-  'all' | 'working' | 'idle' | 'working-idle' | 'terminated' | 'planned';
+  'all' | 'working' | 'idle' | 'working-idle' | 'terminated' | 'planned' | 'has-pr';
 
 /** What the Agent status dropdown and the agents chip call each status. */
 export const AGENT_STATUS_LABELS: Record<AgentStatusFilter, string> = {
@@ -10,6 +13,7 @@ export const AGENT_STATUS_LABELS: Record<AgentStatusFilter, string> = {
   'working-idle': 'Working + Idle',
   terminated: 'Terminated',
   planned: 'Planned',
+  'has-pr': 'Has PR',
 };
 
 export interface Filters {
