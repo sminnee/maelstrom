@@ -947,6 +947,10 @@ The world is served over REST, from memory, once the first source reads have fin
 route is under `/api` and answers JSON. A task id is two path segments, because the wire id is
 `<project>/<notebookId>`.
 
+The two task reads, and a task status move, first re-read the tasks when the notebook moved. Some
+`mael task` commands still write the notebook directly, and the next command must see that write
+without waiting for the poll.
+
 | Route | Returns |
 |---|---|
 | `GET /api/projects` | `{projects: [Project]}` |
