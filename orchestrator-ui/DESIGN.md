@@ -1134,22 +1134,23 @@ end of the reading path and under the thumb.
 
 The prompt stops being a card here. The band already carries the rule and the wash, so a second
 border around the same message reads as a box inside a box. The heading goes too, and so does
-the sentence naming the ask: Approve and Deny say the act, and a sentence above them is a kicker
+the sentence naming the ask: the button's label says the act, and a sentence above it is a kicker
 above a heading. A permission's tool input goes with them, because a band is no place to read a
 block of JSON.
 
-**The field, then Approve, as the primary.** The field takes the full width (§ Fields). Under it,
-at the right edge, Approve leads the negative act — Deny, or Decline. Every approval in the dock
-reads the same way round, whether it answers the agent or the document. The band's whole claim
-is that the reader learns one shape. Button rank carries the affirmative act; colour does not,
-so Approve takes no green of its own. The tab order is the visual order: the field, Approve, then
-the negative act.
+**The field, then one act.** The field takes the full width (§ Fields). Under it, at the right
+edge, the dock shows one button. An empty field gives Approve, in accent. A comment in the field
+turns the button into the negative act, Deny or Decline, in Fault Rose. On a document, an
+unresolved comment counts as a comment too. Approve therefore can never drop a comment the
+reader wrote. The colour and the label change together, so the change is seen before the click.
+Every approval in the dock reads the same way, whether it answers the agent or the document. The
+tab order is the visual order: the field, then the button.
 
 The context is offered, not spent. `Before this · 3` leads the band and opens the rail as a sheet
 over the document rather than pushing it — the document never reflows for a decision. The sheet
 overlaps content it is not part of, so the Overlap Test earns it the card lift. Escape closes it.
-Below 30rem of panel the control drops to a line of its own, because four controls do not fit
-one row on a phone.
+Below 30rem of panel the control drops to a line of its own, because the controls do not fit one
+row on a phone.
 
 - **Waiting:** the top rule takes Alert Amber and the ground takes an 8% amber wash. The Quiet
   List Rule holds here as it does on a deck row: a docked band signals with a rule and a wash,

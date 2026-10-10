@@ -17,7 +17,8 @@ export default { title: 'Documents / Review dock' };
  * "Seeing a change".
  *
  * Approve must sit in the same place, drawn the same way, in every story.
- * Switching between them is how that is read.
+ * Switching between them is how that is read. Type in the field: the one
+ * button turns from Approve, in accent, to Deny or Decline, in Fault Rose.
  */
 
 /** The two wait kinds the dock draws as a band. */
@@ -202,8 +203,8 @@ function Harness({
  *
  * What to look at: the plan reads from its first line, the dock is one band at
  * the bottom carrying the amber rule and wash. On a wide panel `Before this`
- * sits beside the reason field, and Approve and Deny sit under the field at its
- * right edge. Drag the panel under 30rem and `Before this` takes a line of its
+ * sits beside the reason field, and Approve sits under the field at its right
+ * edge. Drag the panel under 30rem and `Before this` takes a line of its
  * own.
  */
 export const AwaitingReview: Story = () => <Harness />;
