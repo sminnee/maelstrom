@@ -18,24 +18,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
-  /* Near the bottom of the screen the menu opens upward instead. With no
-     room to its left, it pins to the screen's left edge. Named fallbacks,
-     not `flip-block`, so no engine has to flip `anchor()` inside `calc()`. */
+  /* See `anchoredPopover.module.css`. */
   position-try-fallbacks: --above, --pin-left, --pin-left-above;
-}
-@position-try --above {
-  top: auto;
-  bottom: calc(anchor(top) + 2px);
-}
-@position-try --pin-left {
-  right: auto;
-  left: var(--u);
-}
-@position-try --pin-left-above {
-  top: auto;
-  bottom: calc(anchor(top) + 2px);
-  right: auto;
-  left: var(--u);
 }
 /* Offsets at (0,2,0) — see `anchoredPopover.module.css`. */
 .menu:popover-open {
