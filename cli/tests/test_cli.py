@@ -1649,6 +1649,48 @@ class TestCmdSyncAutorepair:
         repair.assert_not_called()
         assert plain.call_args.kwargs["pre_push"] is False
 
+    def test_sync_all_sweeps_on_past_a_refused_push_then_fails(self, tmp_path):
+        """One refused push must not stop the other worktrees, nor read as success."""
+        from contextlib import ExitStack
+
+        project_path = tmp_path / "proj"
+        paths = [project_path / "proj-bravo", project_path / "proj-charlie"]
+        for path in paths:
+            path.mkdir(parents=True)
+        ctx = MagicMock(project="proj", project_path=project_path)
+        refused = SyncResult(
+            success=True,
+            branch="feature/work",
+            message="Rebased",
+            push_failed=True,
+            push_message="Push failed: denied",
+        )
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("mael_cli.cli.resolve_context", return_value=ctx))
+            stack.enter_context(
+                patch(
+                    "mael_cli.cli.list_worktrees",
+                    return_value=[
+                        MagicMock(path=p, branch=f"feature/{p.name}") for p in paths
+                    ],
+                )
+            )
+            stack.enter_context(patch("mael_cli.cli.run_git"))
+            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
+            plain = stack.enter_context(
+                patch(
+                    "mael_cli.cli.sync_worktree",
+                    side_effect=[refused, _sync_result()],
+                )
+            )
+            result = CliRunner().invoke(cli, ["sync-all"])
+
+        assert result.exit_code == 1
+        assert plain.call_count == 2
+        assert "Push failed: denied" in result.stderr
+        assert "All worktrees synced successfully." not in result.output
+
     def test_the_start_of_an_autorepair_reaches_the_terminal(self, tmp_path):
         """The model layer stays click-free, so it announces with bare print.
 

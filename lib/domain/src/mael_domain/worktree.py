@@ -25,6 +25,7 @@ from .config import (
     shared_service_port_names,
 )
 from .dev_cert import dev_env_vars
+from .github_model import token_env
 from .ports import (
     allocate_port_base,
     generate_port_env_vars,
@@ -106,7 +107,11 @@ class WorktreeInfo:
 
 
 def run_git(
-    args: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True
+    args: list[str],
+    cwd: Path | None = None,
+    quiet: bool = False,
+    check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a git command and return the result.
 
@@ -114,7 +119,7 @@ def run_git(
     instead of raising, which is what a git *read* wants — asking whether a ref
     resolves is a question, not an error.
     """
-    return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=check)
+    return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=check, env=env)
 
 
 async def run_git_async(
@@ -489,6 +494,7 @@ class SyncResult:
     upstream_head: str | None = None  # SHA of origin/main
     pushed: bool = False  # Whether the branch was pushed to remote
     push_message: str | None = None  # Push status message
+    push_failed: bool = False  # the rebase landed, but the push was refused
     aborted: bool = False  # rebase aborted on conflict (--abort)
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
@@ -1036,6 +1042,7 @@ def sync_worktree(
     abort_on_conflict: bool = False,
     close_if_empty: bool = False,
     pre_push: bool = True,
+    token: str | None = None,
 ) -> SyncResult:
     """Sync a worktree by rebasing against origin/main, then pushing.
 
@@ -1056,6 +1063,8 @@ def sync_worktree(
         pre_push: If True, run the project's ``pre_push_cmd`` between the
             rebase and the push. A failed check leaves the branch rebased and
             unpushed.
+        token: A GitHub token for the push, passed as ``GH_TOKEN``. ``None``
+            leaves the push on the agent token. Only the orchestrator passes one.
 
     Returns:
         SyncResult with status and message.
@@ -1156,10 +1165,11 @@ def sync_worktree(
 
     # Rebase succeeded - check if remote branch exists and push
     pushed = False
-    push_message = None
+    push_failed = False
 
     # Check if remote branch exists
     remote_branch = f"origin/{branch}"
+    push_message = f"No {remote_branch}; not pushed"
     remote_check = run_git(
         ["rev-parse", "--verify", remote_branch],
         cwd=worktree_path,
@@ -1184,11 +1194,13 @@ def sync_worktree(
             ["git", "push", "--force-with-lease", "origin", branch],
             cwd=worktree_path,
             check=False,
+            env=token_env(token),
         )
         if push_result.returncode == 0:
             pushed = True
             push_message = f"Pushed {branch} to origin"
         else:
+            push_failed = True
             push_message = f"Push failed: {push_result.stderr or push_result.stdout}"
 
     return SyncResult(
@@ -1197,6 +1209,7 @@ def sync_worktree(
         message=result.message,
         pushed=pushed,
         push_message=push_message,
+        push_failed=push_failed,
     )
 
 
@@ -1334,6 +1347,7 @@ def sync_worktree_with_autorepair(
     squash: bool = False,
     close_if_empty: bool = False,
     pre_push: bool = True,
+    token: str | None = None,
     repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
     announce: Callable[[str], None] = print_flushed,
 ) -> SyncResult:
@@ -1355,6 +1369,7 @@ def sync_worktree_with_autorepair(
         squash: If True, autosquash ``fixup!`` commits while rebasing.
         close_if_empty: If True, delete an empty branch and close the worktree.
         pre_push: If True, run the project's ``pre_push_cmd`` before the push.
+        token: A GitHub token for the push; see :func:`sync_worktree`.
         repair_runner: Callable taking the worktree path and returning a
             ``CompletedProcess``. Defaults to the real headless session; tests
             substitute their own.
@@ -1371,6 +1386,7 @@ def sync_worktree_with_autorepair(
         abort_on_conflict=False,
         close_if_empty=close_if_empty,
         pre_push=pre_push,
+        token=token,
     )
     if first.success or not first.had_conflicts:
         return first  # success, or a fetch failure there is no repairing
@@ -1387,6 +1403,7 @@ def sync_worktree_with_autorepair(
         abort_on_conflict=True,
         close_if_empty=close_if_empty,
         pre_push=pre_push,
+        token=token,
     )
     return dataclasses.replace(final, repaired=True) if final.success else final
 
@@ -1884,7 +1901,11 @@ def _merge_in_progress(worktree_path: Path) -> bool:
 
 
 def close_worktree(
-    worktree_path: Path, *, force: bool = False, discard: bool = False
+    worktree_path: Path,
+    *,
+    force: bool = False,
+    discard: bool = False,
+    token: str | None = None,
 ) -> CloseResult:
     """Close a worktree by syncing and resetting to origin/main.
 
@@ -1914,6 +1935,7 @@ def close_worktree(
         worktree_path: Path to the worktree directory.
         force: If True, close even with unmerged/dirty/conflicting work (see above).
         discard: If True, destructively remove worktree files before closing.
+        token: A GitHub token for the sync's push; see :func:`sync_worktree`.
 
     Returns:
         CloseResult with status and message.
@@ -1949,7 +1971,9 @@ def close_worktree(
 
     # Sync. With --force, abort a conflicting rebase instead of leaving it in progress.
     # No pre-push check: a close must not wait for it.
-    sync_result = sync_worktree(worktree_path, abort_on_conflict=force, pre_push=False)
+    sync_result = sync_worktree(
+        worktree_path, abort_on_conflict=force, pre_push=False, token=token
+    )
     if not sync_result.success and not force:
         return CloseResult(
             success=False,
@@ -1981,6 +2005,9 @@ def close_worktree(
     # --force (or clean) → tear down. Branch is preserved (only HEAD detaches).
     # Tree is clean by now (wip committed), so the normal detach works.
     result = detach_and_free_ports(worktree_path)
+    if sync_result.push_failed:
+        # The branch is kept, so nothing is lost, but origin does not hold it.
+        result.message = f"{result.message}. {sync_result.push_message}"
     # Surface what the caller needs to create a reopen task.
     result.branch = branch
     result.had_unmerged_work = had_unmerged
@@ -3230,6 +3257,7 @@ def setup_worktree_for_branch(
     run_install: bool = True,
     base: str | None = None,
     live: LiveSessionSet | None = None,
+    token: str | None = None,
     announce: Callable[[str], None] = print_flushed,
 ) -> WorktreeSetup:
     """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
@@ -3249,6 +3277,7 @@ def setup_worktree_for_branch(
             is ``main`` unless someone moved it; ``main`` opts this one worktree
             out of a moved tip.
         live: The live-session sweep, for the reuse rebase's occupancy check.
+        token: A GitHub token for the open's push; see :func:`sync_worktree`.
             ``None`` sweeps on first use. Pass a sweep taken elsewhere to reuse
             it.
         announce: Callable taking one line of progress text, for the stale-tip
@@ -3350,7 +3379,7 @@ def setup_worktree_for_branch(
     # rebased tree. close_if_empty stays off: a brand-new branch is "empty" and
     # must never be deleted here. No pre-push check: an open must not wait for it.
     sync = sync_worktree_with_autorepair(
-        worktree_path, pre_push=False, announce=announce
+        worktree_path, pre_push=False, token=token, announce=announce
     )
 
     # Finalize (recycle + create): write CLAUDE.local.md, run install command.
@@ -3771,7 +3800,9 @@ def commit_wip(worktree_path: Path) -> bool:
     return True
 
 
-def rename_remote_branch(project_path: Path, old: str, new: str) -> None:
+def rename_remote_branch(
+    project_path: Path, old: str, new: str, token: str | None = None
+) -> None:
     """Push local ``old`` to origin as ``new``, then delete ``origin/old``.
 
     ``origin/old`` is fetched first and must be contained in local ``old``.
@@ -3787,9 +3818,14 @@ def rename_remote_branch(project_path: Path, old: str, new: str) -> None:
         raise WorktreeError(
             f"origin/{old} has commits the local {old} lacks; sync the branch first"
         )
-    run_git(["push", "origin", f"refs/heads/{old}:refs/heads/{new}"], cwd=project_path)
+    env = token_env(token)
+    run_git(
+        ["push", "origin", f"refs/heads/{old}:refs/heads/{new}"],
+        cwd=project_path,
+        env=env,
+    )
     if on_origin:
-        run_git(["push", "origin", "--delete", old], cwd=project_path)
+        run_git(["push", "origin", "--delete", old], cwd=project_path, env=env)
 
 
 def rename_branch(project_path: Path, old: str, new: str) -> None:

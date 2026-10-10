@@ -742,8 +742,8 @@ class TestRun:
     async def test_run_reports_a_failed_push_but_still_launches(
         self, runner, store, launch
     ):
-        # sync_worktree reports a rejected push as success=True plus a
-        # push_message. The rebase landed, so the session may start — but an
+        # sync_worktree reports a rejected push as success=True plus
+        # push_failed. The rebase landed, so the session may start — but an
         # unattended run must still say the branch and its remote have diverged.
         launch.setup.return_value = WorktreeSetup(
             path=launch.wt_path,
@@ -754,6 +754,7 @@ class TestRun:
                 branch="feat/x",
                 message="Successfully rebased feat/x onto origin/main",
                 push_message="Push failed: rejected (stale info)",
+                push_failed=True,
             ),
         )
         t = await model.create(store, project="p", title="Plan it")
@@ -761,7 +762,7 @@ class TestRun:
         result = runner.invoke(task_cli.task, ["run", t.id])
 
         assert result.exit_code == 0, result.output
-        assert "Push failed" in result.output
+        assert "Push failed" in result.stderr
         launch.session.assert_called_once()
 
     async def test_run_existing_task_resumes_stale_transcript(

@@ -355,8 +355,9 @@ GitHub refuses the merge when a push landed after the orchestrator last read the
 Wait for the new commit's checks, then merge again. The merge closes no worktree and moves no
 task. GitHub deletes the branch when the repository has "Automatically delete head branches" on.
 
-The orchestrator merges with the server's `gh` login. Set `github.merge_token` to give it a token
-of its own — see [configuration.md](../reference/configuration.md).
+The orchestrator merges with `github.orchestrator_token`. Unset, it merges with the token it
+inherits, which can be an agent token without merge rights. See
+[configuration.md](../reference/configuration.md#api-keys).
 
 To merge locally:
 

@@ -7,6 +7,7 @@ import re
 import signal
 import ssl
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -186,7 +187,6 @@ def test_a_failed_env_refresh_warns_and_still_opens(tmp_path, monkeypatch, capsy
 def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:
     """The worktree source ``build_orchestrator`` wires, over ``table``."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
-    from types import SimpleNamespace
 
     with (
         patch(
@@ -300,10 +300,12 @@ async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> Non
         await worktrees.read()
 
 
-async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch):
+async def test_the_merge_port_merges_with_the_orchestrator_token(tmp_path, monkeypatch):
     """The token is the point of the port: without it the merge uses the
-    login the agents share."""
-    monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_merge")
+    narrow token the agents share."""
+    monkeypatch.setattr(
+        "mael_orchestrator.cli.github.orchestrator_token", lambda: "ghp_merge"
+    )
     worktrees = _worktree_source(tmp_path, monkeypatch)
     await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
@@ -314,7 +316,36 @@ async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch)
     )
 
 
-async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("port", "model", "extra"),
+    [
+        ("sync", "run_sync", ("plain",)),
+        ("close", "close_worktree_fully", ()),
+        ("force_close", "close_worktree_fully", ()),
+        ("trash", "trash_worktree_fully", ()),
+    ],
+)
+async def test_each_port_that_writes_to_github_uses_the_orchestrator_token(
+    tmp_path, monkeypatch, port, model, extra
+):
+    """A UI action runs for any project; the inherited token is maelstrom's."""
+    monkeypatch.setattr(
+        "mael_orchestrator.cli.github.orchestrator_token", lambda: "ghp_orch"
+    )
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    done = SimpleNamespace(
+        ok=True, close=CloseResult(success=True, message="ok", branch="feat/x")
+    )
+    with patch(f"mael_orchestrator.cli.{model}", new=AsyncMock(return_value=done)) as m:
+        await getattr(worktrees, port)("northwind", "alpha", "/p/alpha", *extra)
+    assert m.call_args.kwargs["token"] == "ghp_orch"
+
+
+async def test_the_merge_port_reports_what_github_refused(
+    tmp_path, monkeypatch, caplog
+):
+    """The refusal goes to the button and to the log: the button text is gone
+    once it is dismissed."""
     worktrees = _worktree_source(tmp_path, monkeypatch)
     await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
@@ -322,6 +353,8 @@ async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch)
     with patch("mael_orchestrator.cli.github.merge_pr", side_effect=refused):
         with pytest.raises(CloseBlocked, match="Head branch was modified"):
             await worktrees.merge("northwind", "feat/x", "/p/alpha")
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Head branch was modified" in r.getMessage() for r in warnings)
 
 
 @pytest.mark.usefixtures("migrated_notebook")

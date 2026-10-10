@@ -27,7 +27,7 @@ from mael_domain.github import (
     get_run_artifacts,
     get_worktree_code,
     merge_pr,
-    merge_token,
+    orchestrator_token,
     read_pr,
     wait_for_merge,
 )
@@ -693,6 +693,13 @@ class TestFindOpenPr:
             with pytest.raises(GitHubCliMissing):
                 await find_open_pr(Path("."), "feat/a")
 
+    async def test_a_token_reaches_gh_as_its_own_login(self):
+        """Trash looks the PR up from the orchestrator, in any project."""
+        empty = json.dumps({"number": None, "commits": 0, "url": None})
+        with patch("mael_domain.github.run_cmd_async", return_value=_ok(empty)) as run:
+            await find_open_pr(Path("."), "feat/a", token="ghp_orch")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_orch"}
+
 
 class TestClosePr:
     def test_it_closes_the_pr_with_the_comment(self):
@@ -712,6 +719,12 @@ class TestClosePr:
         with patch("mael_domain.github.run_cmd", side_effect=refused):
             with pytest.raises(GitHubCommandFailed):
                 close_pr(Path("."), 42, "x")
+
+    def test_a_token_reaches_gh_as_its_own_login(self):
+        """Trash closes the PR from the orchestrator, in any project."""
+        with patch("mael_domain.github.run_cmd") as run:
+            close_pr(Path("."), 42, "Trashed", token="ghp_orch")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_orch"}
 
 
 class TestMergePr:
@@ -753,29 +766,25 @@ class TestMergePr:
         assert run.call_args.kwargs["timeout"] == 100
 
 
-class TestMergeToken:
-    def test_the_environment_names_it(self, monkeypatch, tmp_path):
+class TestOrchestratorToken:
+    def test_the_global_config_names_it(self):
+        config = GlobalConfig.from_dict(
+            {"github": {"orchestrator_token": "ghp_config"}}
+        )
+        with patch("mael_domain.github.load_global_config", return_value=config):
+            assert orchestrator_token() == "ghp_config"
+
+    def test_the_environment_and_dotenv_do_not_reach_it(self, monkeypatch, tmp_path):
+        """A service environment reaches every agent; see configuration.md#api-keys."""
         monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("MAEL_GITHUB_ORCHESTRATOR_TOKEN=ghp_dotenv\n")
+        monkeypatch.setenv("MAEL_GITHUB_ORCHESTRATOR_TOKEN", "ghp_env")
         monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_env")
-        assert merge_token() == "ghp_env"
-
-    def test_the_global_config_is_the_fallback(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("MAEL_GITHUB_MERGE_TOKEN", raising=False)
-        config = GlobalConfig.from_dict({"github": {"merge_token": "ghp_config"}})
         with patch(
-            "mael_domain.integrations._auth.load_global_config", return_value=config
-        ):
-            assert merge_token() == "ghp_config"
-
-    def test_with_neither_the_merge_uses_the_gh_login(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("MAEL_GITHUB_MERGE_TOKEN", raising=False)
-        with patch(
-            "mael_domain.integrations._auth.load_global_config",
+            "mael_domain.github.load_global_config",
             return_value=GlobalConfig.from_dict({}),
         ):
-            assert merge_token() is None
+            assert orchestrator_token() is None
 
 
 class TestGetOpenPrs:

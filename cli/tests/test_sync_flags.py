@@ -1169,6 +1169,23 @@ class TestSyncCli:
         assert result.exit_code == 0
         assert "Pushed feature/work to origin" in result.output
 
+    def test_a_refused_push_fails_the_command(self):
+        """The rebase landed, but a caller reading the exit code must not read
+        the branch as published. The CLI passes no token: an agent keeps the
+        token it inherits."""
+        sync_result = SyncResult(
+            success=True,
+            branch="feature/work",
+            message="Successfully rebased feature/work onto origin/main",
+            push_failed=True,
+            push_message="Push failed: Permission denied",
+        )
+        result, mock_sync = self._run([], sync_result)
+
+        assert result.exit_code == 1
+        assert "Push failed: Permission denied" in result.stderr
+        assert mock_sync.call_args.kwargs.get("token") is None
+
     def test_abort_and_close_on_conflict_aborts_cleanly(self):
         """--abort --close: a conflict aborts; close/delete is never attempted."""
         sync_result = SyncResult(

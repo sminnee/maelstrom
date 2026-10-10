@@ -70,8 +70,10 @@ def _copy_back(project_path: Path, worktree_path: Path) -> CopyBackResult:
     return copy_back_new_env_vars(project_path, worktree_path)
 
 
-def _close(worktree_path: Path, force: bool, discard: bool) -> CloseResult:
-    return close_worktree(worktree_path, force=force, discard=discard)
+def _close(
+    worktree_path: Path, force: bool, discard: bool, token: str | None
+) -> CloseResult:
+    return close_worktree(worktree_path, force=force, discard=discard, token=token)
 
 
 def _close_workspace(project: str, worktree: str) -> bool:
@@ -98,7 +100,7 @@ class CloseSteps:
     live_sessions: Callable[[Path], Sequence[LiveSession]] = _live_sessions
     stop_sessions: Callable[[Sequence[LiveSession]], list[str]] = _stop_sessions
     copy_back: Callable[[Path, Path], CopyBackResult] = _copy_back
-    close: Callable[[Path, bool, bool], CloseResult] = _close
+    close: Callable[[Path, bool, bool, str | None], CloseResult] = _close
     close_workspace: Callable[[str, str], bool] = _close_workspace
     #: Removes the checkout outright: ``(project_path, folder_name) -> None``.
     remove: Callable[[Path, str], None] = _remove
@@ -205,6 +207,7 @@ async def close_worktree_fully(
     *,
     force: bool = False,
     discard: bool = False,
+    token: str | None = None,
     steps: CloseSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
@@ -215,6 +218,9 @@ async def close_worktree_fully(
     any pid is signalled, so a normal close is not recorded as a crash. The
     cmux workspace closes only after the git close succeeded, so a refused
     close leaves the user's workspace where it was.
+
+    ``token`` is the GitHub token the close's sync pushes with; see
+    :func:`~mael_domain.worktree.sync_worktree`.
 
     Never raises for a refusal: read ``result.close.success``.
     """
@@ -240,7 +246,7 @@ async def close_worktree_fully(
         return StepOutcome()
 
     def git_close() -> StepOutcome:
-        outcome = steps.close(worktree_path, force, discard)
+        outcome = steps.close(worktree_path, force, discard, token)
         closed.append(outcome)
         # A refusal stops the sequence, so close_workspace never runs on one
         # and the user's workspace stays where it was.

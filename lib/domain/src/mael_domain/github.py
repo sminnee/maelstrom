@@ -31,6 +31,7 @@ from mael_common.shell import run_cmd, run_cmd_async
 
 from .base_store import GitConfigBaseStore
 from .config import load_config_or_default
+from .context import load_global_config
 from .github_model import (
     PASSING_STATES,
     PR_DRAFT_PATH,
@@ -60,8 +61,8 @@ from .github_model import (
     parse_run_states,
     rollup_refused,
     stack_chain,
+    token_env,
 )
-from .integrations._auth import resolve_secret
 from .project_scaffold import scaffold_files
 from .worktree import (
     SyncResult,
@@ -234,7 +235,9 @@ async def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
         return None
 
 
-async def find_open_pr(cwd: Path, branch: str) -> PrStatus | None:
+async def find_open_pr(
+    cwd: Path, branch: str, token: str | None = None
+) -> PrStatus | None:
     """``branch``'s open pull request, for a caller that must not guess.
 
     :func:`get_pr_for_branch` reads a failed lookup as "no PR", which suits a
@@ -246,7 +249,11 @@ async def find_open_pr(cwd: Path, branch: str) -> PrStatus | None:
     """
     try:
         result = await run_cmd_async(
-            _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
+            _pr_for_branch_argv(branch),
+            cwd=cwd,
+            quiet=True,
+            check=False,
+            env=token_env(token),
         )
     except FileNotFoundError:
         raise GitHubCliMissing("gh")
@@ -293,7 +300,7 @@ def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None
     )
 
 
-def close_pr(cwd: Path, number: int, comment: str) -> None:
+def close_pr(cwd: Path, number: int, comment: str, token: str | None = None) -> None:
     """Close pull request ``number`` without merging it, leaving ``comment``.
 
     Raises:
@@ -301,7 +308,9 @@ def close_pr(cwd: Path, number: int, comment: str) -> None:
         GitHubCommandFailed: If ``gh`` refused.
     """
     try:
-        run_cmd(_close_pr_argv(number, comment), cwd=cwd, quiet=True)
+        run_cmd(
+            _close_pr_argv(number, comment), cwd=cwd, quiet=True, env=token_env(token)
+        )
     except subprocess.CalledProcessError as e:
         raise GitHubCommandFailed(f"close PR #{number}", e.stderr)
     except FileNotFoundError:
@@ -337,13 +346,12 @@ def merge_pr(
         GitHubCliMissing: If ``gh`` is not installed.
         GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
     """
-    env = {"GH_TOKEN": token} if token else None
     try:
         run_cmd(
             merge_pr_argv(number, head_oid),
             cwd=cwd,
             quiet=True,
-            env=env,
+            env=token_env(token),
             timeout=MERGE_TIMEOUT_SECS,
         )
     except subprocess.CalledProcessError as e:
@@ -373,9 +381,12 @@ def merge_pr_argv(number: int, head_oid: str) -> list[str]:
     ]
 
 
-def merge_token() -> str | None:
-    """The token the orchestrator merges with, or ``None`` for the ``gh`` login."""
-    return resolve_secret("MAEL_GITHUB_MERGE_TOKEN", config_attr="github_merge_token")
+def orchestrator_token() -> str | None:
+    """The orchestrator token, or ``None`` to leave ``gh`` on the agent token.
+
+    Read from ``config.yaml`` only: see docs/reference/configuration.md#api-keys.
+    """
+    return load_global_config().github_orchestrator_token
 
 
 # Each named branch's most recent pull requests, in one round trip.

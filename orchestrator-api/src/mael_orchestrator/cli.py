@@ -144,10 +144,14 @@ def build_orchestrator(
                 branch,
                 run_install=False,
                 base=base or None,
+                token=github.orchestrator_token(),
                 announce=lambda line: click.echo(line, err=True),
             )
         except (ValueError, WorktreeError) as exc:
             raise LaunchBlocked(str(exc)) from exc
+        if setup.sync is not None and setup.sync.push_failed:
+            # The rebase landed, so the launch goes ahead on the local branch.
+            log.warning("open of %s/%s: %s", project, branch, setup.sync.push_message)
         if setup.rebuilds_env:
             _refresh_env(project, setup.name, projects_dir / project, setup.path)
         return setup
@@ -162,6 +166,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             force=False,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
         )
         if not outcome.close.success:
@@ -176,6 +181,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             force=True,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
         )
         if not outcome.close.success:
@@ -193,6 +199,7 @@ def build_orchestrator(
             nato,
             Path(path),
             projects_dir / project,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
         )
         if not outcome.close.success:
@@ -223,6 +230,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             mode,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
         )
         if not ran.ok:
@@ -231,9 +239,13 @@ def build_orchestrator(
     def merge_worktree_pr(path: str, number: int, head_oid: str) -> None:
         try:
             github.merge_pr(
-                number, cwd=Path(path), head_oid=head_oid, token=github.merge_token()
+                number,
+                cwd=Path(path),
+                head_oid=head_oid,
+                token=github.orchestrator_token(),
             )
         except GitHubError as exc:
+            log.warning("merge of PR %d in %s refused: %s", number, path, exc)
             raise CloseBlocked(str(exc)) from exc
 
     async def env_worktree(

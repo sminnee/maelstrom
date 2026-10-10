@@ -44,7 +44,7 @@ class GlobalConfig:
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
     openai_api_key: str | None = None
-    github_merge_token: str | None = None
+    github_orchestrator_token: str | None = None
     slack_webhooks: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -96,10 +96,10 @@ class GlobalConfig:
         openai_api_key = (
             openai_config.get("api_key") if isinstance(openai_config, dict) else None
         )
-        # Support nested github config: github.merge_token
+        # Support nested github config: github.orchestrator_token
         github_config = data.get("github", {})
-        github_merge_token = (
-            github_config.get("merge_token")
+        github_orchestrator_token = (
+            github_config.get("orchestrator_token")
             if isinstance(github_config, dict)
             else None
         )
@@ -120,7 +120,7 @@ class GlobalConfig:
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,
             openai_api_key=openai_api_key,
-            github_merge_token=github_merge_token,
+            github_orchestrator_token=github_orchestrator_token,
             slack_webhooks=slack_webhooks,
         )
 
