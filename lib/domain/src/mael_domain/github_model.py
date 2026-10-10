@@ -20,6 +20,18 @@ from typing import Literal
 
 from .worktree_model import MAIN_BRANCH
 
+
+def token_env(token: str | None) -> dict[str, str] | None:
+    """The subprocess ``env`` that gives ``gh`` and ``git`` push ``token``.
+
+    ``gh`` reads ``GH_TOKEN`` before ``GITHUB_TOKEN``. ``git push`` reads it
+    only through ``gh auth git-credential`` (``gh auth setup-git``); an SSH
+    remote or another credential helper ignores it. ``None`` leaves the command
+    on the agent token.
+    """
+    return {"GH_TOKEN": token} if token else None
+
+
 # Where the PR body is drafted, relative to the worktree. A fixed path rather
 # than a flag: the agent that writes the overview and the agent that appends
 # review notes both name it, and a flag would put the same constant in every

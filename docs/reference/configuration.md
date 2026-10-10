@@ -252,7 +252,7 @@ uptimerobot:
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
 | `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
-| `github.merge_token` | string | — | GitHub token the orchestrator merges pull requests with. |
+| `github.orchestrator_token` | string | — | GitHub token the orchestrator uses for UI actions that write to GitHub. Read from this file only. See [API keys](#api-keys). |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
 
 ```yaml
@@ -274,7 +274,7 @@ openai:
   api_key: "sk-xxx"
 
 github:
-  merge_token: "github_pat_xxx"
+  orchestrator_token: "github_pat_xxx"
 
 slack:
   webhooks:
@@ -295,14 +295,24 @@ Each API key resolves in this order:
 2. A `.env` file, searched upward from the current directory.
 3. The matching key in `~/.maelstrom/config.yaml`.
 
-`github.merge_token` resolves the same way, from `MAEL_GITHUB_MERGE_TOKEN`.
+`github.orchestrator_token` is read from `~/.maelstrom/config.yaml` only, never from an
+environment variable or `.env`. Every service environment copies the `.env` values, and the
+agent daemon passes its environment to every agent, so a token there would reach the agents.
 
-- The orchestrator passes it to the Merge button's `gh pr merge` call as `GH_TOKEN`, and to
-  nothing else. Unset, the merge uses the server's `gh` login.
-- A fine-grained personal access token (PAT) needs `contents: write` and `pull requests: write`
-  on the repository.
-- An agent that reads this file can read the token. The token separates the rights of the two
-  `gh` logins. It does not hide them.
+- The orchestrator uses it for the UI actions that write to GitHub: Merge, Sync, Close, Force
+  close, Trash, and the sync when the UI opens a worktree. It passes the token as `GH_TOKEN` to
+  each `gh` and `git push` call, and never puts it in its own environment.
+- `git push` reads `GH_TOKEN` only when git asks `gh` for credentials, as `gh auth setup-git`
+  sets up. An SSH remote ignores the token.
+- The fetches before a push, and the orchestrator's reads, still use the agent token.
+- One token serves every project. A fine-grained personal access token (PAT) must list every
+  repository, with `contents: write` and `pull requests: write`.
+- Agent `mael` commands, such as `mael sync` and `mael gh create-pr`, never use it. They keep
+  the `GITHUB_TOKEN` they inherit from `.env`.
+- Unset, the UI actions also use the inherited `GITHUB_TOKEN`, or the server's `gh` login.
+- Restart the orchestrator after a change: `mael self-env restart orchestrator`.
+- An agent that reads this file can read the token. The token separates the rights of the UI
+  and the agents. It does not hide them.
 
 This file holds plaintext secrets. `mael doctor` checks its permissions and tightens them.
 

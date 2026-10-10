@@ -231,9 +231,13 @@ def build_orchestrator(
     def merge_worktree_pr(path: str, number: int, head_oid: str) -> None:
         try:
             github.merge_pr(
-                number, cwd=Path(path), head_oid=head_oid, token=github.merge_token()
+                number,
+                cwd=Path(path),
+                head_oid=head_oid,
+                token=github.orchestrator_token(),
             )
         except GitHubError as exc:
+            log.warning("merge of PR %d in %s refused: %s", number, path, exc)
             raise CloseBlocked(str(exc)) from exc
 
     async def env_worktree(

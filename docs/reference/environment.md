@@ -158,7 +158,6 @@ that lack the key.
 | `LINEAR_API_KEY` | `linear.api_key` | `mael linear …` |
 | `SENTRY_API_KEY` | `sentry.api_key` | `mael sentry …` |
 | `UPTIMEROBOT_API_KEY` | `uptimerobot.api_key` | `mael uptimerobot …` |
-| `MAEL_GITHUB_MERGE_TOKEN` | `github.merge_token` | The orchestrator's Merge button — see [configuration.md](configuration.md#api-keys) |
 | `OPENAI_API_KEY` | `openai.api_key` | Task naming (`task.infer`, and branch generation in `mael task add` and `mael linear plan`) |
 
 ### Other
@@ -175,9 +174,11 @@ that lack the key.
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 
-`GITHUB_TOKEN` is not read directly — `mael gh …` shells out to the `gh` CLI, which uses
-its own authentication. `MAEL_GITHUB_MERGE_TOKEN`, above, is the one GitHub secret maelstrom
-reads.
+`GITHUB_TOKEN` is not read directly. A `GITHUB_TOKEN` in a project's `.env` reaches every
+service and agent by inheritance. `gh` reads it before its own login, and `git push` reads it
+through `gh auth git-credential`. The orchestrator's token for UI actions is not an
+environment variable — see `github.orchestrator_token` in
+[configuration.md](configuration.md#api-keys).
 
 ---
 

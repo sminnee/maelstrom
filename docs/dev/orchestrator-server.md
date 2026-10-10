@@ -909,8 +909,9 @@ sequence and takes no worktree scope, because it does not touch the checkout.
 - A sync re-reads with the synced branch added to the active branches, so GitHub is asked for
   its new head even when the branch is not on the desk. That re-read waits out a read already in
   flight, because the read in flight chose its branches without the synced one.
-- The merge token, when set, reaches that one call as `GH_TOKEN` — see
-  [configuration.md](../reference/configuration.md#api-keys).
+- The orchestrator token, when set, reaches the call as `GH_TOKEN`. It is read from
+  `config.yaml` only — see [configuration.md](../reference/configuration.md#api-keys).
+- A refused merge logs a WARNING with the `gh` message.
 - The handler re-reads the worktrees whichever way the merge ends.
 
 `worktree.createTerminal` runs the `ensure_terminal` port. It makes the worktree's workspace

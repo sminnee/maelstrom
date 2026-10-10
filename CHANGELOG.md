@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The orchestrator writes to GitHub with its own token.** Set `github.orchestrator_token` in
+  `~/.maelstrom/config.yaml`. The UI's Merge, Sync, Close, Force close and Trash use it, and so
+  does a launch from the UI. So a merge works in any project. Agents keep the token they
+  inherit. `github.merge_token` is gone. See
+  [API keys](docs/reference/configuration.md#api-keys).
+
 - **Comms.** A **Comm** is something to tell people outside the team when work lands. The
   Comms view lists the open comms, edits them and links tasks to them, with each linked task's
   landing. An agent uses `mael comms new`, `list`, `close`, `link` and `edit`, and

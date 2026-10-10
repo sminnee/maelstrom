@@ -300,10 +300,12 @@ async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> Non
         await worktrees.read()
 
 
-async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch):
+async def test_the_merge_port_merges_with_the_orchestrator_token(tmp_path, monkeypatch):
     """The token is the point of the port: without it the merge uses the
-    login the agents share."""
-    monkeypatch.setenv("MAEL_GITHUB_MERGE_TOKEN", "ghp_merge")
+    narrow token the agents share."""
+    monkeypatch.setattr(
+        "mael_orchestrator.cli.github.orchestrator_token", lambda: "ghp_merge"
+    )
     worktrees = _worktree_source(tmp_path, monkeypatch)
     await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
@@ -314,7 +316,11 @@ async def test_the_merge_port_merges_with_the_merge_token(tmp_path, monkeypatch)
     )
 
 
-async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch):
+async def test_the_merge_port_reports_what_github_refused(
+    tmp_path, monkeypatch, caplog
+):
+    """The refusal goes to the button and to the log: the button text is gone
+    once it is dismissed."""
     worktrees = _worktree_source(tmp_path, monkeypatch)
     await _read_a_ready_pr(worktrees, monkeypatch)
     assert worktrees.merge is not None
@@ -322,6 +328,8 @@ async def test_the_merge_port_reports_what_github_refused(tmp_path, monkeypatch)
     with patch("mael_orchestrator.cli.github.merge_pr", side_effect=refused):
         with pytest.raises(CloseBlocked, match="Head branch was modified"):
             await worktrees.merge("northwind", "feat/x", "/p/alpha")
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Head branch was modified" in r.getMessage() for r in warnings)
 
 
 @pytest.mark.usefixtures("migrated_notebook")

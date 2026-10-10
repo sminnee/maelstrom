@@ -736,6 +736,16 @@ _Avoid_: Gate, approval step
 
 ## Pull requests
 
+**Orchestrator token**:
+The GitHub token the orchestrator server uses for UI actions that write to GitHub. One token
+serves every project. Set as `github.orchestrator_token`, read from `config.yaml` only.
+_Avoid_: Merge token, server token
+
+**Agent token**:
+The `GITHUB_TOKEN` a project's `.env` gives every service and agent. It may lack merge rights,
+and may reach only its own project.
+_Avoid_: Narrow token, inherited credentials
+
 **PR draft**:
 The file `.drafts/pr.md`, holding the body a PR will get. `mael gh create-pr` reads it, writes it
 to the PR, then deletes it. A missing draft leaves an existing PR's body alone.
