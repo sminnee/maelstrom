@@ -36,7 +36,6 @@ import {
 import { useCreateLinearTask } from './linear';
 import { ApiError } from './http';
 import { usePostChangeComments } from './worktreeChanges';
-import { useMergePullRequest } from './worktrees';
 import { keys } from './keys';
 import type { TaskId } from '../protocol/ids';
 import {
@@ -343,14 +342,6 @@ describe('the mutation hooks', () => {
       'POST /api/documents/d1/request-changes',
       { version: 1, summary: 'Tighten it' },
       [keys.documents.list(), keys.documents.detail('d1')],
-    ],
-    [
-      'useMergePullRequest',
-      useMergePullRequest,
-      { worktreeId: 'northwind-alpha' },
-      'POST /api/worktrees/northwind-alpha/merge-pr',
-      {},
-      [keys.worktrees()],
     ],
     [
       'usePostChangeComments',

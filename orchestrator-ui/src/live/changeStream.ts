@@ -62,6 +62,9 @@ export function invalidationsFor(notice: ChangeNotice): QueryKey[] {
       return perId(keys.documents, notice.ids);
     case 'comm':
       return perId(keys.comms, notice.ids);
+    case 'operation':
+      if (notice.ids.length === 0) return [keys.operations.all()];
+      return [keys.operations.list(), ...notice.ids.map((id) => keys.operations.log(id))];
   }
 }
 

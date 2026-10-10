@@ -38,6 +38,12 @@ export const keys = {
     list: () => ['documents', 'list'] as const,
     detail: (id: string) => ['documents', 'detail', id] as const,
   },
+  /** The list, and each operation's log: a running one's log grows per step. */
+  operations: {
+    all: () => ['operations'] as const,
+    list: () => ['operations', 'list'] as const,
+    log: (id: string) => ['operations', 'log', id] as const,
+  },
   comms: {
     all: () => ['comms'] as const,
     list: () => ['comms', 'list'] as const,

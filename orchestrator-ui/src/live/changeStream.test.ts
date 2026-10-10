@@ -30,6 +30,14 @@ describe('invalidationsFor', () => {
       ],
     ],
     [{ kind: 'comm', ids: [] }, [['comms']]],
+    [
+      { kind: 'operation', ids: ['op1'] },
+      [
+        ['operations', 'list'],
+        ['operations', 'log', 'op1'],
+      ],
+    ],
+    [{ kind: 'operation', ids: [] }, [['operations']]],
   ])('maps %j to the keys it invalidates', (notice, expected) => {
     expect(invalidationsFor(notice)).toEqual(expected);
   });
