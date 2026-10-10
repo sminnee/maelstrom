@@ -134,11 +134,13 @@ button:disabled {
     font-size: var(--text-sm) !important;
   }
 }
+/* A read-only field. A module that styles its fields must leave this one alone: see
+   DESIGN.md § Fields. */
 input[readonly],
 textarea[readonly],
 select:disabled {
   background: transparent;
-  border-color: color-mix(in srgb, var(--border) 40%, transparent);
+  border: 1px dotted var(--field-fill, var(--bg-field));
 }
 a {
   color: var(--accent);

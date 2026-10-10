@@ -57,6 +57,8 @@
   cursor: pointer;
 }
 .field {
+  /* The editable fill. A read-only field draws its dotted border in it. */
+  --field-fill: var(--bg);
   display: flex;
   flex-direction: column;
   gap: var(--u-half);
@@ -69,7 +71,10 @@
   font: inherit;
   font-size: var(--text-sm);
   color: var(--fg);
-  background: var(--bg);
+}
+/* Editable fields only: a read-only field takes base.css's rule. See DESIGN.md § Fields. */
+.field :is(input:not([readonly]), textarea:not([readonly]), select:not(:disabled)) {
+  background: var(--field-fill);
   border: 1px solid var(--border);
 }
 .field textarea {
