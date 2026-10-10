@@ -2465,7 +2465,7 @@ class TestMainExitCodes:
         repair — the message is all a user gets.
 
         The project is named for the same reason the promote test names one:
-        `task list` resolves its project first, from the working directory. A
+        `task get-status` resolves its project first, from the working directory. A
         run from inside a project finds one and reaches the notebook; a run
         from anywhere else raises "Could not determine project" and never gets
         there. Naming it makes the test say the same thing wherever it runs.
@@ -2473,7 +2473,7 @@ class TestMainExitCodes:
         from mael_cli.cli import main
 
         monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
-        code = main(["task", "list", "--project", "someproject"])
+        code = main(["task", "get-status", "T-1", "--project", "someproject"])
         assert code == 1
         err = capsys.readouterr().err
         assert "MAEL_NOTEBOOK_ROOT is not set" in err

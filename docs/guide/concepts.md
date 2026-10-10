@@ -166,6 +166,11 @@ from the task notebook, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and
 [the orchestrator server](../dev/orchestrator-server.md) for the server and its wire protocol.
 
+The `mael task` commands `show`, `read`, `list` and `status` also call this server. Run
+`mael self-env start orchestrator` and set
+[`orchestrator_url:`](../reference/configuration.md#global-configuration--maelstromconfigyaml)
+before you use them.
+
 ### Dev environments — isolated services
 
 Each NATO worktree gets a `PORT_BASE` in the range 300-999. Service ports are

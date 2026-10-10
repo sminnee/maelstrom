@@ -345,73 +345,6 @@ class TestUpdateRename:
         assert "Renamed" not in result.output
 
 
-class TestStatusFiresActions:
-    def test_status_done_fires_post_action(self, runner, store, monkeypatch):
-        from mael_domain.integrations import linear
-
-        calls = []
-
-        def set_issue_status(issue_id, status):
-            calls.append((issue_id, status))
-            return f"{issue_id}: Todo -> {status}"
-
-        monkeypatch.setattr(linear, "set_issue_status", set_issue_status)
-        new_id = runner.invoke(
-            task_cli.task,
-            [
-                "add",
-                "E",
-                "--parent",
-                "linear.NORT-12",
-                "--post-action",
-                "linear.done",
-            ],
-        ).output.strip()
-        result = runner.invoke(task_cli.task, ["status", "done", new_id])
-        assert result.exit_code == 0, result.output
-        assert calls == [("NORT-12", "done")]
-        # The provider's result line is reported on stderr, beside the action line.
-        assert "NORT-12: Todo -> done" in result.stderr
-        assert "NORT-12: Todo -> done" not in result.stdout
-
-
-class TestStatusDoneFollowerHint:
-    async def test_done_suggests_actionable_follower(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        b = await model.create(
-            store, project="p", title="Plan next step", follows=[a.id]
-        )
-        result = runner.invoke(task_cli.task, ["status", "done", a.id])
-        assert result.exit_code == 0, result.output
-        assert "mael task next --run will run the following task" in result.output
-        assert f"{b.id} - Plan next step" in result.output
-
-    async def test_done_no_follower_is_silent(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        result = runner.invoke(task_cli.task, ["status", "done", a.id])
-        assert result.exit_code == 0, result.output
-        assert result.output.strip() == f"{a.id} -> done"
-
-    async def test_done_in_progress_follower_reports_running(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        b = await model.create(
-            store, project="p", title="Plan next step", follows=[a.id]
-        )
-        await model.move(store, "p", b.id, model.STATUS_IN_PROGRESS)
-        result = runner.invoke(task_cli.task, ["status", "done", a.id])
-        assert result.exit_code == 0, result.output
-        assert "already in-progress" in result.output
-        assert f"{b.id} - Plan next step" in result.output
-        assert "mael task next --run" not in result.output
-
-    async def test_cancel_does_not_suggest_follower(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        await model.create(store, project="p", title="b", follows=[a.id])
-        result = runner.invoke(task_cli.task, ["status", "cancel", a.id])
-        assert result.exit_code == 0, result.output
-        assert result.output.strip() == f"{a.id} -> cancelled"
-
-
 # --- next: selection ---
 
 
@@ -465,113 +398,6 @@ class TestNext:
 
 
 # --- list: actionable-by-default filtering ---
-
-
-class TestList:
-    def test_no_tasks(self, runner, store):
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert "No tasks." in result.output
-
-    async def test_default_hides_blocked_and_terminal_shows_actionable(
-        self, runner, store
-    ):
-        a = await model.create(store, project="p", title="alpha")  # actionable
-        b = await model.create(
-            store, project="p", title="beta", follows=[a.id]
-        )  # blocked
-        done = await model.create(store, project="p", title="finished")
-        await model.move(store, "p", done.id, model.STATUS_DONE)
-        cancelled = await model.create(store, project="p", title="dropped")
-        await model.move(store, "p", cancelled.id, model.STATUS_CANCELLED)
-
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert a.id in result.output
-        assert b.id not in result.output
-        assert done.id not in result.output
-        assert cancelled.id not in result.output
-
-    async def test_default_in_progress_gated_by_actionability(self, runner, store):
-        dep = await model.create(store, project="p", title="dep")
-        blocked_ip = await model.create(
-            store, project="p", title="blocked-in-prog", follows=[dep.id]
-        )
-        await model.move(store, "p", blocked_ip.id, model.STATUS_IN_PROGRESS)
-
-        ready_dep = await model.create(store, project="p", title="ready-dep")
-        await model.move(store, "p", ready_dep.id, model.STATUS_DONE)
-        ready_ip = await model.create(
-            store, project="p", title="ready-in-prog", follows=[ready_dep.id]
-        )
-        await model.move(store, "p", ready_ip.id, model.STATUS_IN_PROGRESS)
-
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        # in-progress but deps incomplete -> hidden; deps done -> shown.
-        assert blocked_ip.id not in result.output
-        assert ready_ip.id in result.output
-
-    async def test_all_todo_shows_actionable_and_blocked_hides_terminal(
-        self, runner, store
-    ):
-        a = await model.create(store, project="p", title="alpha")
-        b = await model.create(
-            store, project="p", title="beta", follows=[a.id]
-        )  # blocked
-        done = await model.create(store, project="p", title="finished")
-        await model.move(store, "p", done.id, model.STATUS_DONE)
-
-        result = runner.invoke(task_cli.task, ["list", "--all-todo"])
-        assert result.exit_code == 0, result.output
-        assert a.id in result.output
-        assert b.id in result.output
-        assert done.id not in result.output
-
-    async def test_all_shows_terminal_too(self, runner, store):
-        a = await model.create(store, project="p", title="alpha")
-        b = await model.create(store, project="p", title="beta", follows=[a.id])
-        done = await model.create(store, project="p", title="finished")
-        await model.move(store, "p", done.id, model.STATUS_DONE)
-        cancelled = await model.create(store, project="p", title="dropped")
-        await model.move(store, "p", cancelled.id, model.STATUS_CANCELLED)
-
-        result = runner.invoke(task_cli.task, ["list", "--all"])
-        assert result.exit_code == 0, result.output
-        for t in (a, b, done, cancelled):
-            assert t.id in result.output
-
-    async def test_actionable_column_only_in_all_views(self, runner, store):
-        await model.create(store, project="p", title="alpha")
-
-        default = runner.invoke(task_cli.task, ["list"])
-        assert "ACTIONABLE" not in default.output
-
-        all_todo = runner.invoke(task_cli.task, ["list", "--all-todo"])
-        assert "ACTIONABLE" in all_todo.output
-
-        all_ = runner.invoke(task_cli.task, ["list", "--all"])
-        assert "ACTIONABLE" in all_.output
-
-    async def test_blocked_folder_hidden_by_default_even_with_deps_done(
-        self, runner, store
-    ):
-        # blocked/ parks a task by hand: it never launches, so it stays out of
-        # the default view even when every id it follows is done. --all-todo is
-        # the flag that reveals it.
-        dep = await model.create(store, project="p", title="dep")
-        await model.move(store, "p", dep.id, model.STATUS_DONE)
-        t = await model.create(
-            store, project="p", title="manually-blocked", follows=[dep.id]
-        )
-        await model.move(store, "p", t.id, model.STATUS_BLOCKED)
-
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert t.id not in result.output
-
-        all_todo = runner.invoke(task_cli.task, ["list", "--all-todo"])
-        assert t.id in all_todo.output
 
 
 # --- rm ---
@@ -2143,49 +1969,14 @@ class TestAddParentDefault:
 
 
 class TestStatus:
-    @pytest.mark.parametrize(
-        "sub,status",
-        [
-            ("start", model.STATUS_IN_PROGRESS),
-            ("done", model.STATUS_DONE),
-            ("cancel", model.STATUS_CANCELLED),
-            ("block", model.STATUS_BLOCKED),
-        ],
-    )
-    async def test_status_with_id_moves_task(self, runner, store, sub, status):
-        t = await model.create(store, project="p", title="t")
-        result = runner.invoke(task_cli.task, ["status", sub, t.id])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).status == status
-        assert f"{t.id} -> {status}" in result.output
+    """The cases decided before the server is called. The rest are in
+    ``tests/test_cli_over_api.py``."""
 
-    async def test_status_todo_moves_task_back(self, runner, store):
-        t = await model.create(store, project="p", title="t")
-        await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS)
-        result = runner.invoke(task_cli.task, ["status", "todo", t.id])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).status == model.STATUS_TODO
-        assert f"{t.id} -> {model.STATUS_TODO}" in result.output
-
-    async def test_status_env_fallback(self, runner, store, monkeypatch):
-        t = await model.create(store, project="p", title="t")
-        monkeypatch.setenv("MAEL_TASK_ID", t.id)
-        result = runner.invoke(task_cli.task, ["status", "done"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).status == model.STATUS_DONE
-
-    async def test_status_no_id_and_no_env_errors(self, runner, store, monkeypatch):
-        await model.create(store, project="p", title="t")
+    def test_status_no_id_and_no_env_errors(self, runner, store, monkeypatch):
         monkeypatch.delenv("MAEL_TASK_ID", raising=False)
         result = runner.invoke(task_cli.task, ["status", "done"])
         assert result.exit_code != 0
         assert "No task id" in result.output
-
-    def test_status_unknown_id_errors(self, runner, store, monkeypatch):
-        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
-        result = runner.invoke(task_cli.task, ["status", "done", "nope"])
-        assert result.exit_code != 0
-        assert "Task not found" in result.output
 
     async def test_old_flat_command_gone(self, runner, store):
         t = await model.create(store, project="p", title="t")
@@ -2300,29 +2091,6 @@ class TestEnvThreading:
 
 
 # --- list: BRANCH column ---
-
-
-class TestListBranch:
-    async def test_branch_column_shows_default_when_blank(self, runner, store):
-        t = await model.create(store, project="p", title="alpha")
-        # Force a blank branch to exercise the inferred fallback.
-        await model.update(store, "p", t.id, branch="")
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert "BRANCH" in result.output
-        assert f"task/{t.id}" in result.output
-
-    async def test_branch_column_shows_explicit_branch(self, runner, store):
-        await model.create(store, project="p", title="alpha", branch="feat/foo")
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert "feat/foo" in result.output
-
-    async def test_branch_column_in_all_views(self, runner, store):
-        await model.create(store, project="p", title="alpha", branch="feat/bar")
-        for args in (["list"], ["list", "--all-todo"], ["list", "--all"]):
-            result = runner.invoke(task_cli.task, args)
-            assert "BRANCH" in result.output, args
 
 
 # --- update ---
@@ -2499,12 +2267,6 @@ class TestPriority:
         result = runner.invoke(task_cli.task, ["update", t.id, "--priority", "bogus"])
         assert result.exit_code != 0
 
-    async def test_show_prints_priority(self, runner, store):
-        t = await model.create(store, project="p", title="alpha", priority="high")
-        result = runner.invoke(task_cli.task, ["show", t.id])
-        assert result.exit_code == 0, result.output
-        assert "priority: high" in result.output
-
     async def test_update_sets_the_model(self, runner, store):
         t = await model.create(store, project="p", title="alpha")
         result = runner.invoke(task_cli.task, ["update", t.id, "--model", "opus"])
@@ -2524,55 +2286,6 @@ class TestPriority:
         result = runner.invoke(task_cli.task, ["update", t.id, "--branch", "x"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", t.id)).model == "opus"
-
-    async def test_show_prints_model_when_set(self, runner, store):
-        t = await model.create(store, project="p", title="alpha", model="opus")
-        result = runner.invoke(task_cli.task, ["show", t.id])
-        assert result.exit_code == 0, result.output
-        assert "model:   opus" in result.output
-
-    async def test_show_omits_model_when_unset(self, runner, store):
-        # Empty means "inherit the user's default" — nothing to report, so the
-        # line is suppressed like parent/schedule.
-        t = await model.create(store, project="p", title="alpha")
-        result = runner.invoke(task_cli.task, ["show", t.id])
-        assert result.exit_code == 0, result.output
-        assert "model:" not in result.output
-
-    async def test_list_orders_critical_above_low(self, runner, store):
-        low = await model.create(store, project="p", title="low one", priority="low")
-        crit = await model.create(
-            store, project="p", title="crit one", priority="critical"
-        )
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert "PRIORITY" in result.output
-        # The critical task's row must appear before the low one's.
-        assert result.output.index(crit.id) < result.output.index(low.id)
-
-    @pytest.mark.parametrize(
-        ("older_id", "newer_id"), [("aaaa", "zzzz"), ("zzzz", "aaaa")]
-    )
-    async def test_list_orders_a_priority_band_oldest_first(
-        self, runner, store, older_id, newer_id
-    ):
-        await model.create(
-            store,
-            project="p",
-            title="new one",
-            id=newer_id,
-            now="2026-06-09T12:00:00+00:00",
-        )
-        await model.create(
-            store,
-            project="p",
-            title="old one",
-            id=older_id,
-            now="2026-06-08T12:00:00+00:00",
-        )
-        result = runner.invoke(task_cli.task, ["list"])
-        assert result.exit_code == 0, result.output
-        assert result.output.index(older_id) < result.output.index(newer_id)
 
 
 # --- templates + schedule metadata ---
@@ -2621,8 +2334,6 @@ class TestCommFlag:
         tid = runner.invoke(task_cli.task, ["add", "T", "--comm", "c1"]).output.strip()
         runner.invoke(task_cli.task, ["update", tid, "--comm", "c2"])
         assert (await model.load(store, "p", tid)).comms == ["c2"]
-        shown = runner.invoke(task_cli.task, ["show", tid]).output
-        assert "comms: c2" in shown
         runner.invoke(task_cli.task, ["update", tid, "--comm", ""])
         assert (await model.load(store, "p", tid)).comms == []
 
@@ -2649,16 +2360,6 @@ class TestTemplates:
         result = runner.invoke(task_cli.task, ["next"])
         assert result.exit_code != 0  # no actionable task
 
-    def test_template_invisible_to_default_list(self, runner, store):
-        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
-        result = runner.invoke(task_cli.task, ["list"])
-        assert tid not in result.output
-
-    def test_template_listed_with_status_filter(self, runner, store):
-        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
-        result = runner.invoke(task_cli.task, ["list", "--status", "template"])
-        assert tid in result.output
-
     async def test_update_schedule_round_trips(self, runner, store):
         tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
         runner.invoke(task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"])
@@ -2668,8 +2369,6 @@ class TestTemplates:
         )
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", tid)).trigger == "gh-action/nightly.yml"
-        shown = runner.invoke(task_cli.task, ["show", tid]).output
-        assert "trigger: gh-action/nightly.yml" in shown
         refused = runner.invoke(
             task_cli.task, ["update", tid, "--trigger", "nightly.yml"]
         )
@@ -2677,12 +2376,6 @@ class TestTemplates:
         assert (await model.load(store, "p", tid)).trigger == "gh-action/nightly.yml"
         runner.invoke(task_cli.task, ["update", tid, "--trigger", ""])
         assert (await model.load(store, "p", tid)).trigger == ""
-
-    async def test_status_template_parks_existing_task(self, runner, store):
-        tid = runner.invoke(task_cli.task, ["add", "Existing"]).output.strip()
-        result = runner.invoke(task_cli.task, ["status", "template", tid])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", tid)).status == model.STATUS_TEMPLATE
 
     async def test_template_from_duplicate(self, runner, store):
         src = await model.create(store, project="p", title="Base", command="plan-task")

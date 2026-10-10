@@ -59,6 +59,8 @@ paths = [
   "lib/**",
   "agent-daemon/**",
   "orchestrator-api/**",
+  # The suite that drives the CLI against a real orchestrator server.
+  "tests/**",
   # The normaliser tests read these.
   "orchestrator-ui/fixtures/**",
   # The skill tests read these, and the pipeline test reads the services.
