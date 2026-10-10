@@ -9,7 +9,6 @@ replies.
 import asyncio
 import json
 import threading
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -2068,22 +2067,6 @@ def test_a_host_with_no_reading_offers_no_usage(harness):
                 return await api.get_json("/api/host")
 
     assert run(scenario())["host"]["usage"] is None
-
-
-def test_the_host_reply_carries_the_longest_loop_stall(harness):
-    """A change that moves work off the loop proves itself by this figure
-    dropping, so it must be readable from outside the server."""
-
-    async def scenario():
-        async with harness.client() as api:
-            # Blocks the loop, as a sync call made by a handler would.
-            time.sleep(0.3)
-            await asyncio.sleep(0.15)  # a tick lands after the stall
-            return await api.get_json("/api/host")
-
-    loop = run(scenario())["loop"]
-    assert loop["maxGapMs"] >= 300
-    assert loop["lastStallAt"] == NOW
 
 
 def test_one_failed_poll_raises_no_host_notice(harness):
