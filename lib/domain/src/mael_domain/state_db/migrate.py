@@ -24,6 +24,7 @@ from .migrations.agents import AGENTS
 from .migrations.comms import COMMS
 from .migrations.desk import DESK
 from .migrations.landings import LANDINGS
+from .migrations.operations import OPERATIONS
 from .migrations.spine import SPINE
 from .migrations.task_attachments import TASK_ATTACHMENTS
 from .migrations.task_export import TASK_EXPORT
@@ -40,6 +41,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "task_attachments": TASK_ATTACHMENTS,
     "landings": LANDINGS,
     "comms": COMMS,
+    "operations": OPERATIONS,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they
@@ -65,6 +67,9 @@ TABLES: dict[str, TableSpec] = {
     "task_steps": TableSpec("task_steps", notifies=False),
     # The comms the Comms view lists and edits. Canonical.
     "comms": TableSpec("comms"),
+    # The operations the console lists. The server publishes each change as
+    # it makes it, so a write here is not a second piece of news.
+    "operations": TableSpec("operations", notifies=False),
 }
 
 
