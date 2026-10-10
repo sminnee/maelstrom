@@ -435,7 +435,7 @@ class TestTheExecutor:
         )
 
     async def test_an_async_step_is_not_sent_to_the_executor(self):
-        """There is nothing blocking to move: it is awaited on the loop."""
+        """The step is awaited on the loop; only its lock wait leaves it."""
         used: list[str] = []
 
         class Watching(ThreadPoolExecutor):

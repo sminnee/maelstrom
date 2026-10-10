@@ -13,6 +13,7 @@ a warning line to the caller's ``warn`` (no matching ref, API error, unknown
 code).
 """
 
+import asyncio
 import re
 from collections.abc import Callable
 
@@ -110,12 +111,15 @@ async def move_with_actions(
     the pure model) guarantees both the explicit ``mael task status start/done``
     path and the launch / session-end paths trigger actions — keyed off the
     destination status. Returns the moved Task; action failures never block the
-    move (:func:`run_action` swallows + warns).
+    move (:func:`run_action` swallows + warns). The action runs in a thread, so
+    ``warn`` is called from that thread.
     """
     from . import task as model
 
     moved = await model.move(table, project, id, new_status, now=now)
     field = _ACTION_FOR_STATUS.get(new_status)
     if field:
-        run_action(moved, getattr(moved, field), warn=warn)
+        # The providers are sync HTTP clients; on the server's loop they would
+        # freeze every client for their round trips.
+        await asyncio.to_thread(run_action, moved, getattr(moved, field), warn=warn)
     return moved

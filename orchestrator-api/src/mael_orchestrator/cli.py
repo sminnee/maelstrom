@@ -278,6 +278,7 @@ def build_orchestrator(
         table,
         list_projects,
         open_worktree=open_worktree,
+        worktree_executor=worktree_executor,
         agents=agent_store,
         landings=landings,
     )

@@ -785,7 +785,12 @@ still finds it.
 `agent.launch` reuses the model steps `mael task run` takes, from `task_launch.py`: the same
 session id, environment, permission mode, branch and prompt, and the same two refusals — a live
 session already holds the task, or the worktree's rebase failed. `NotebookTaskSource.launch`
-runs them, then hands the host a `start`.
+runs them, then hands the host a `start`. Neither refusal runs on the loop: the live-session sweep
+is awaited, and the worktree opens on the worktree pool.
+
+The server opens one worktree per project at a time, for a launch and a free agent alike.
+`create_worktree` picks a NATO name and adds the worktree with no scope held, so two opens in one
+project could pick the same name.
 
 A task that has already run owns its session id, and claiming that id again is refused. So the
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
@@ -965,7 +970,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
-| `GET /api/host` | `{host: Host \| null}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled |
+| `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 
 ### A worktree's changes
 
@@ -1218,9 +1223,10 @@ and the client gives that one call a longer timeout.
 
 The desk commands and the task commands never reach the host. Both desk commands carry a desk
 id, not a bare task id, and the desk is the server's own table. A task write goes to the
-notebook: a status change moves the task through `move_with_actions`, so the status actions fire
-as `mael task status` fires them, and a patch writes the fields it is given. Both force a task
-refresh, as a launch does, so the change is in the world before the reply.
+notebook. A status change moves the task through `move_with_actions`, so the status actions fire
+as `mael task status` fires them. The actions run in a thread, because the Linear client is sync
+HTTP. A patch writes the fields it is given. Both force a task refresh, as a launch does, so the
+change is in the world before the reply.
 
 The two document commands are the server's own too: a document lives in the world, not in the
 notebook and not on the host. Each names one document and acts on its review group's current
@@ -1340,7 +1346,7 @@ The server writes timestamped logs to stderr. Under `mael env` that stream lands
 | --- | --- |
 | `debug` | Everything below, plus aiohttp's and asyncio's own detail. Maelstrom logs nothing at this level yet |
 | `info` | Every shell-out, as `shell.py` records it |
-| `warning` | A refused attach, a missing backlog marker, an unreachable host |
+| `warning` | A refused attach, a missing backlog marker, an unreachable host, a loop stall |
 | `error` | A failed refresh, a failed command, and anything that escapes a task |
 
 `--log-level` sets it; the default is `info`.
@@ -1362,12 +1368,28 @@ Two rules keep the file worth reading:
 Logging is configured in `cli.setup_logging`, not in `build_app`. The test suite runs
 the real app, and a global logging setup inside `build_app` would follow it into every test.
 
+### Loop stalls
+
+The server has one event loop. A sync call on it — a `subprocess.run`, a `flock`, a `urllib`
+request — freezes every client until it returns. `loop_watch.LoopWatch` measures this. It sleeps
+100 ms in a loop and records the gap between two wake-ups.
+
+- A gap over 250 ms is a stall. The server logs a warning with the gap and the stack of every task.
+- `GET /api/host` serves `loop.maxGapMs`, the longest gap since start, and `loop.lastStallAt`. A
+  gap includes the 100 ms sleep, so after the first tick `maxGapMs` is never below 100. It never
+  resets, so compare it across restarts.
+
+A change that moves work off the loop shows its effect as a lower `maxGapMs`. The stacks in the
+warning show where each task waits after the stall, not the call that blocked. Read them with the
+log lines just before the warning to name the blocking call.
+
 ## Open risks
 
 - A partial message can draw unclosed markdown oddly until it closes: `**`, a fence, half a table.
 
-- Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,
-  and the launch reply waits for it. Every launch pays that cost, including a reopen.
+- A launch opens its worktree on the worktree pool. `setup_worktree_for_branch` can take tens of
+  seconds, and the launch reply waits for it. Every launch pays that cost, including a reopen.
+  Other clients are served meanwhile.
 - The host's watcher queue drops the oldest event at 1000. The drop is marked, so the transcript
   shows a gap, but the dropped events themselves are gone. A lost answer is closed on the next
   reconciliation, whether or not the marker arrives.

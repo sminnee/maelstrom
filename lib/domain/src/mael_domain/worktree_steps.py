@@ -26,9 +26,9 @@ import asyncio
 import fcntl
 import os
 import time
-from collections.abc import Awaitable, Callable, Generator, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Sequence
 from concurrent.futures import Executor
-from contextlib import contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import isawaitable, iscoroutinefunction
@@ -204,6 +204,34 @@ def _scopes_held(
             yield
 
 
+@asynccontextmanager
+async def _scopes_held_off_loop(
+    repo: Path | None,
+    worktree: Path | None,
+    scopes: Sequence[Scope],
+    on_acquire: Callable[[Scope], None] | None,
+) -> AsyncGenerator[None]:
+    """:func:`_scopes_held`, acquired in a thread so the wait never blocks the loop.
+
+    Released on the loop: ``flock`` unlock does not wait. A caller cancelled
+    while the thread still waits releases once the thread has the lock, so a
+    cancel never leaves a scope held.
+    """
+    held = ExitStack()
+    acquiring = asyncio.ensure_future(
+        asyncio.to_thread(
+            held.enter_context, _scopes_held(repo, worktree, scopes, on_acquire)
+        )
+    )
+    try:
+        await asyncio.shield(acquiring)
+    except asyncio.CancelledError:
+        acquiring.add_done_callback(lambda _: held.close())
+        raise
+    with held:
+        yield
+
+
 async def _run_step(
     step: Step,
     repo: Path | None,
@@ -219,18 +247,16 @@ async def _run_step(
 
     A blocking step runs on ``executor`` when one is given. That is how the
     server's bounded worktree pool is the pool the git work actually lands on:
-    :func:`asyncio.to_thread` would use the loop's own default executor, which
-    is unbounded, so the pool's size would bound nothing.
+    :func:`asyncio.to_thread` would use the loop's shared default executor, so
+    the pool's size would bound nothing.
     """
 
     def blocking() -> StepOutcome | Awaitable[StepOutcome]:
         with _scopes_held(repo, worktree, step.scopes, on_acquire):
             return step.run()
 
-    # An async step is awaited on the loop; the scopes are held around the
-    # await rather than in a thread, because there is nothing blocking to move.
     if iscoroutinefunction(step.run):
-        with _scopes_held(repo, worktree, step.scopes, on_acquire):
+        async with _scopes_held_off_loop(repo, worktree, step.scopes, on_acquire):
             outcome = await step.run()
     else:
         loop = asyncio.get_running_loop()

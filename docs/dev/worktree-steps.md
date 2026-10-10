@@ -146,11 +146,16 @@ fetch holding that thread would stall every task read for as long as it ran.
 
 **The pool is handed to the sequence, not applied at the call site.** An operation is a coroutine
 that awaits its steps, so offloading the operation would do nothing; it is each blocking *step*
-that needs a thread. `asyncio.to_thread` would use the loop's own default executor instead, which
-is unbounded, so the pool's width would bound nothing.
+that needs a thread. `asyncio.to_thread` would use the loop's shared default executor instead, so
+the pool's width would bound nothing.
 
 That width is for overlap, not for correctness. The scopes are what enforce correctness, so do not
 reduce it to one.
+
+An async step is awaited on the loop, but its scopes are taken in a thread first. The lock polls
+for up to 120 s, so a close that waits on the loop for a peer's `mael sync` would freeze the server.
+That wait uses `asyncio.to_thread`, not the worktree pool. A thread that only waits for a lock must
+not take a slot from the git work, and the width of the pool bounds git work, not waits.
 
 ## Designed for streaming
 
