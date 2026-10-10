@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Dialog, DialogFooter } from './Dialog';
 
 /** The modal shell's one way out: `cancel`, which Escape and the backdrop both raise. */
@@ -192,6 +193,38 @@ describe('the focused field', () => {
     unmount();
     keyboard(500);
     expect(scrolled()).toBe(0);
+  });
+});
+
+/** A focused textarea fills a narrow dialog; the CSS is in `Dialog.module.css`. */
+describe('leaving a focused textarea', () => {
+  function editor() {
+    render(
+      <Dialog label="Test" onClose={() => {}}>
+        <label>
+          Notes <textarea />
+        </label>
+      </Dialog>,
+    );
+    return screen.getByRole('textbox', { name: 'Notes' });
+  }
+  // Hidden until CSS shows it for a focused textarea, which jsdom cannot.
+  const leave = () => screen.getByLabelText('Done editing');
+
+  it('takes the focus off the field, and is out of reach until CSS shows it', () => {
+    const notes = editor();
+    expect(screen.queryByRole('button', { name: 'Done editing' })).toBeNull();
+    notes.focus();
+    fireEvent.click(leave());
+    expect(notes).not.toHaveFocus();
+  });
+
+  it('keeps the focus on the field while it is pressed, so the button stays to be clicked', async () => {
+    const user = userEvent.setup();
+    const notes = editor();
+    notes.focus();
+    await user.pointer({ keys: '[MouseLeft>]', target: leave() });
+    expect(notes).toHaveFocus();
   });
 });
 

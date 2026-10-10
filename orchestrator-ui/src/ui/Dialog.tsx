@@ -115,6 +115,22 @@ export function Dialog({
         },
       })}
     >
+      {/* Shown by CSS only while a textarea fills the narrow box. Pressing it
+          must not move the focus first, or the box changes under the tap. */}
+      <button
+        type="button"
+        hidden
+        // Tab already leaves the field; a tab stop here would vanish as it lands.
+        tabIndex={-1}
+        className={styles.leave}
+        aria-label="Done editing"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        }}
+      >
+        {actionIcon('close')}
+      </button>
       {children}
     </dialog>
   );

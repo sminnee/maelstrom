@@ -32,16 +32,21 @@ function Harness({ initial = '' }: { initial?: string }) {
   );
 }
 
+/** The scroll height of a field's text, as the browser would lay it out. */
+function textHeight(el: HTMLTextAreaElement) {
+  const lines = el.value
+    .split('\n')
+    .reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0);
+  // A real field scrolls no less than its own height.
+  return Math.max(lines * LINE, parseFloat(el.style.height) || 0);
+}
+
 describe('TextArea grow', () => {
   beforeEach(() => {
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
       this: HTMLTextAreaElement,
     ) {
-      const lines = this.value
-        .split('\n')
-        .reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0);
-      // A real field scrolls no less than its own height.
-      return Math.max(lines * LINE, parseFloat(this.style.height) || 0);
+      return textHeight(this);
     });
     perLine = Infinity;
   });
@@ -75,6 +80,27 @@ describe('TextArea grow', () => {
       />,
     );
     expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveStyle({ height: '42px' });
+  });
+
+  it('fits its text again when it loses the focus', async () => {
+    // A focused field in a narrow dialog is stretched to the box, so a fit
+    // made while it has the focus reads the box's height, not the text's.
+    const user = userEvent.setup();
+    render(<Harness />);
+    const field = screen.getByRole('textbox', { name: 'Notes' });
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
+      this: HTMLTextAreaElement,
+    ) {
+      return document.activeElement === this ? 300 : textHeight(this);
+    });
+
+    await user.type(field, 'a{Enter}b');
+    expect(field).toHaveStyle({ height: '300px' });
+
+    // Away with no change to the text, so only the blur can refit it.
+    await user.tab();
+    expect(field).not.toHaveFocus();
+    expect(field).toHaveStyle({ height: '40px' });
   });
 
   it('fits a value changed from outside', async () => {

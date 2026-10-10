@@ -1067,6 +1067,15 @@ at half the visible height and scrolls itself. The visible height is `--vvh`: `m
 the visual viewport's height there, because a soft keyboard does not shrink `dvh`. On a phone the
 conversation input may take the visible height less four controls.
 
+In a dialog on a phone, a textarea has two states:
+
+- **Not focused:** it grows to its text with no cap, and never scrolls itself. The dialog
+  scrolls.
+- **Focused:** it fills the dialog, 16px in from each edge, under its own label and a × that
+  leaves it. Everything else in the dialog is hidden, and only the textarea scrolls. It is the
+  same element, never an overlay: iOS opens the keyboard only for a focus a tap made. The
+  keyboard's ⌃⌄ arrows are disabled while it fills the dialog, because iOS skips a hidden field.
+
 A text field does not share its row with the buttons that submit it. The field takes the full
 width, and its buttons sit in a row under it, at the right edge. A field between two buttons gets
 a sliver of a phone's width and reads as a stray control on a wide screen. One shape on every

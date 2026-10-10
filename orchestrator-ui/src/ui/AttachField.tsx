@@ -66,6 +66,9 @@ export function AttachField({
   return (
     <div
       className={[styles.field, className].filter(Boolean).join(' ')}
+      // A marker for the focus-mode label rule in `Dialog.module.css`: `:has`
+      // cannot nest.
+      data-field-box=""
       onPaste={(e) => {
         // A screenshot on the clipboard is a file item. Text pasted alongside
         // it must still reach the textarea, so only an image stops the event.
