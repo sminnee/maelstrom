@@ -25,7 +25,7 @@ async def _no_agents(path):
     return []
 
 
-async def _no_pr(cwd, branch):
+async def _no_pr(cwd, branch, token):
     return None
 
 
@@ -40,7 +40,7 @@ def real_git(**over) -> TrashSteps:
         copy_back=lambda project_path, path: CopyBackResult(),
         close_workspace=lambda project, worktree: False,
         find_pr=_no_pr,
-        close_pr=lambda cwd, number, comment: None,
+        close_pr=lambda cwd, number, comment, token: None,
     )
     return TrashSteps(**{**defaults, **over})
 
@@ -137,10 +137,10 @@ class TestAgainstARealRepo:
         _pushed_branch(project_path, worktree_path)
         seen: list[tuple[int, str, list[str]]] = []
 
-        async def find_pr(cwd, branch):
+        async def find_pr(cwd, branch, token):
             return PR
 
-        def close_pr(cwd, number, comment):
+        def close_pr(cwd, number, comment, token):
             seen.append((number, comment, _refs(remote_path, "refs/heads/")))
 
         result = await _trash_alpha(
@@ -262,7 +262,7 @@ def recording(order: list[str], **over) -> TrashSteps:
         order.append("stop_agents")
         return []
 
-    async def find_pr(cwd, branch):
+    async def find_pr(cwd, branch, token):
         order.append("find_pr")
         return PR
 
@@ -286,12 +286,13 @@ def recording(order: list[str], **over) -> TrashSteps:
     return TrashSteps(**{**defaults, **over})
 
 
-async def trash_fully(order, **over):
+async def trash_fully(order, token=None, **over):
     return await trash_worktree_fully(
         "myproject",
         "alpha",
         WORKTREE_PATH,
         PROJECT_PATH,
+        token=token,
         steps=recording(order, **over),
     )
 
@@ -334,6 +335,35 @@ class TestTheSequence:
             "close_workspace",
         ]
 
+    async def test_the_token_reaches_each_github_step(self):
+        """The PR lookup, the PR close and the push all act on GitHub."""
+        order: list[str] = []
+        seen: dict[str, str | None] = {}
+
+        async def find_pr(cwd, branch, token):
+            seen["find_pr"] = token
+            return PR
+
+        def close_pr(cwd, number, comment, token):
+            seen["close_pr"] = token
+
+        def rename_remote(path, old, new, token):
+            seen["rename_remote"] = token
+
+        result = await trash(
+            order,
+            token="ghp_orch",
+            find_pr=find_pr,
+            close_pr=close_pr,
+            rename_remote=rename_remote,
+        )
+        assert result.success, result.message
+        assert seen == {
+            "find_pr": "ghp_orch",
+            "close_pr": "ghp_orch",
+            "rename_remote": "ghp_orch",
+        }
+
     async def test_a_refusal_stops_nothing_and_changes_nothing(self):
         order: list[str] = []
         result = await trash(order, refusal=lambda p, b: "feature/work is busy")
@@ -344,7 +374,7 @@ class TestTheSequence:
     async def test_a_pr_lookup_that_fails_is_not_read_as_no_pr(self):
         order: list[str] = []
 
-        async def find_pr(cwd, branch):
+        async def find_pr(cwd, branch, token):
             raise GitHubCommandFailed("look up the PR", "HTTP 502")
 
         result = await trash(order, find_pr=find_pr)

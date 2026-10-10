@@ -37,14 +37,20 @@ RESTART = "restart"
 
 # No pre-push check: the sync runs in a locked step, and a long check would
 # hold the worktree lock and hide its output from the UI.
-def _sync(worktree_path: Path, squash: bool, abort: bool) -> SyncResult:
+def _sync(
+    worktree_path: Path, squash: bool, abort: bool, token: str | None
+) -> SyncResult:
     return sync_worktree(
-        worktree_path, squash=squash, abort_on_conflict=abort, pre_push=False
+        worktree_path,
+        squash=squash,
+        abort_on_conflict=abort,
+        pre_push=False,
+        token=token,
     )
 
 
-def _autorepair(worktree_path: Path) -> SyncResult:
-    return sync_worktree_with_autorepair(worktree_path, pre_push=False)
+def _autorepair(worktree_path: Path, token: str | None) -> SyncResult:
+    return sync_worktree_with_autorepair(worktree_path, pre_push=False, token=token)
 
 
 def _start(
@@ -74,8 +80,8 @@ def _stop(project: str, worktree: str, services: list[str] | None) -> list[str]:
 class SyncSteps:
     """The collaborators the sync drives. Swapped whole in tests."""
 
-    sync: Callable[[Path, bool, bool], SyncResult] = _sync
-    autorepair: Callable[[Path], SyncResult] = _autorepair
+    sync: Callable[[Path, bool, bool, str | None], SyncResult] = _sync
+    autorepair: Callable[[Path, str | None], SyncResult] = _autorepair
 
 
 @dataclass
@@ -93,6 +99,7 @@ async def run_sync(
     project_path: Path,
     mode: str,
     *,
+    token: str | None = None,
     steps: SyncSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
@@ -107,15 +114,17 @@ async def run_sync(
     scope where it belongs, and declaring it here as well would deadlock — see
     ``worktree_steps``.
 
+    ``token`` is the GitHub token the push uses; see :func:`sync_worktree`.
+
     Never raises for a refusal: read ``result.ok``.
     """
     steps = steps or SyncSteps()
 
     def rebase() -> StepOutcome:
         if mode == AUTOREPAIR:
-            result = steps.autorepair(worktree_path)
+            result = steps.autorepair(worktree_path, token)
         else:
-            result = steps.sync(worktree_path, mode == SQUASH, True)
+            result = steps.sync(worktree_path, mode == SQUASH, True, token)
         if not result.success:
             return StepOutcome(blocked=result.message)
         pushed = [result.push_message] if result.push_message else []

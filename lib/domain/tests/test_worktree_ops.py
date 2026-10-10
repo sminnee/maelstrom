@@ -18,10 +18,10 @@ PROJECT_PATH = Path("/Users/dev/Projects/myproject")
 
 def sync_steps(**over) -> SyncSteps:
     defaults = dict(
-        sync=lambda path, squash, abort: SyncResult(
+        sync=lambda path, squash, abort, token: SyncResult(
             success=True, branch="feat/x", message="Rebased"
         ),
-        autorepair=lambda path: SyncResult(
+        autorepair=lambda path, token: SyncResult(
             success=True, branch="feat/x", message="Rebased"
         ),
     )
@@ -48,11 +48,11 @@ class TestSyncModes:
             PROJECT_PATH,
             "autorepair",
             steps=sync_steps(
-                autorepair=lambda path: (
+                autorepair=lambda path, token: (
                     seen.append("autorepair")
                     or SyncResult(success=True, branch="feat/x", message="Rebased")
                 ),
-                sync=lambda path, squash, abort: (
+                sync=lambda path, squash, abort, token: (
                     seen.append("plain")
                     or SyncResult(success=True, branch="feat/x", message="Rebased")
                 ),
@@ -70,7 +70,7 @@ class TestSyncModes:
             PROJECT_PATH,
             "plain",
             steps=sync_steps(
-                sync=lambda path, squash, abort: (
+                sync=lambda path, squash, abort, token: (
                     seen.append((squash, abort))
                     or SyncResult(success=True, branch="feat/x", message="Rebased")
                 )
@@ -92,7 +92,7 @@ class TestSyncModes:
             PROJECT_PATH,
             "squash",
             steps=sync_steps(
-                sync=lambda path, squash, abort: (
+                sync=lambda path, squash, abort, token: (
                     seen.append((squash, abort))
                     or SyncResult(success=True, branch="feat/x", message="Rebased")
                 )
@@ -108,7 +108,7 @@ class TestSyncModes:
             PROJECT_PATH,
             "plain",
             steps=sync_steps(
-                sync=lambda path, squash, abort: SyncResult(
+                sync=lambda path, squash, abort, token: SyncResult(
                     success=False, branch="feat/x", message="Rebase conflicted"
                 )
             ),
@@ -125,7 +125,7 @@ class TestSyncModes:
             PROJECT_PATH,
             "plain",
             steps=sync_steps(
-                sync=lambda path, squash, abort: SyncResult(
+                sync=lambda path, squash, abort, token: SyncResult(
                     success=True,
                     branch="feat/x",
                     message="Rebased",
@@ -139,6 +139,32 @@ class TestSyncModes:
             "Rebased",
             "Pushed feat/x to origin",
         ]
+
+
+class TestSyncPush:
+    """The push is the orchestrator's, so it takes the orchestrator's token."""
+
+    async def test_the_token_reaches_every_mode(self):
+        seen: list[str | None] = []
+
+        def record(token):
+            seen.append(token)
+            return SyncResult(success=True, branch="feat/x", message="Rebased")
+
+        for mode in ("plain", "squash", "autorepair"):
+            await run_sync(
+                "myproject",
+                "alpha",
+                WORKTREE_PATH,
+                PROJECT_PATH,
+                mode,
+                token="ghp_orch",
+                steps=sync_steps(
+                    sync=lambda path, squash, abort, token: record(token),
+                    autorepair=lambda path, token: record(token),
+                ),
+            )
+        assert seen == ["ghp_orch"] * 3
 
 
 class TestEnvActions:

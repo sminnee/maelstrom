@@ -55,10 +55,12 @@ class TrashSteps(CloseSteps):
     commit_wip: Callable[[Path], bool] = commit_wip
     detach: Callable[[Path], CloseResult] = detach_and_free_ports
     #: Raises ``GitHubError`` when the lookup fails: "no PR" must be known.
-    find_pr: Callable[[Path, str], Awaitable[PrStatus | None]] = find_open_pr
-    close_pr: Callable[[Path, int, str], None] = close_pr
-    #: ``(project_path, old, new)``: push ``new`` to origin, delete ``old`` there.
-    rename_remote: Callable[[Path, str, str], None] = rename_remote_branch
+    find_pr: Callable[[Path, str, str | None], Awaitable[PrStatus | None]] = (
+        find_open_pr
+    )
+    close_pr: Callable[[Path, int, str, str | None], None] = close_pr
+    #: ``(project_path, old, new, token)``: push ``new`` to origin, delete ``old``.
+    rename_remote: Callable[[Path, str, str, str | None], None] = rename_remote_branch
     #: ``(project_path, old, new)``: the local branch and its working history.
     rename: Callable[[Path, str, str], None] = rename_branch
 
@@ -70,17 +72,19 @@ def _guard(steps: TrashSteps, project_path: Path, branch: str) -> Step:
     return Step(name="guard", run=guard)
 
 
-def _remote_steps(steps: TrashSteps, project_path: Path, branch: str) -> list[Step]:
+def _remote_steps(
+    steps: TrashSteps, project_path: Path, branch: str, token: str | None
+) -> list[Step]:
     """Close the pull request, then move the branch on origin."""
     target = trash_name(branch)
 
     async def pr() -> StepOutcome:
         try:
-            found = await steps.find_pr(project_path, branch)
+            found = await steps.find_pr(project_path, branch, token)
             if found is None:
                 return StepOutcome()
             steps.close_pr(
-                project_path, found.number, f"Trashed: branch moved to {target}"
+                project_path, found.number, f"Trashed: branch moved to {target}", token
             )
         except GitHubError as e:
             return StepOutcome(blocked=f"Could not close the PR for {branch}: {e}")
@@ -88,7 +92,7 @@ def _remote_steps(steps: TrashSteps, project_path: Path, branch: str) -> list[St
 
     def remote() -> StepOutcome:
         try:
-            steps.rename_remote(project_path, branch, target)
+            steps.rename_remote(project_path, branch, target, token)
         except WorktreeError as e:
             return StepOutcome(blocked=str(e))
         except subprocess.CalledProcessError as e:
@@ -124,6 +128,7 @@ async def trash_worktree_fully(
     worktree_path: Path,
     project_path: Path,
     *,
+    token: str | None = None,
     steps: TrashSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
@@ -131,6 +136,8 @@ async def trash_worktree_fully(
     """Trash the branch ``worktree`` holds, and close the worktree.
 
     The guard runs before the teardown, so a refusal leaves the agents running.
+
+    ``token`` is the GitHub token the PR lookup, the PR close and the push use.
 
     The result has the shape of :func:`close_worktree_fully`'s, so one caller
     reports both. Never raises for a refusal: read ``result.close.success``.
@@ -190,7 +197,7 @@ async def trash_worktree_fully(
         Step(name="rescue_env_vars", run=copy_back, scopes=(Scope.WORKTREE,)),
         Step(name="commit_wip", run=wip, scopes=(Scope.WORKTREE,)),
     ]
-    sequence += _remote_steps(steps, project_path, branch)
+    sequence += _remote_steps(steps, project_path, branch, token)
     sequence += [
         Step(name="detach", run=detach, scopes=(Scope.WORKTREE,)),
         _rename_step(steps, project_path, branch),

@@ -47,7 +47,9 @@ def steps(**over) -> CloseSteps:
         live_sessions=lambda path: [],
         stop_sessions=lambda sessions: [],
         copy_back=lambda project_path, path: CopyBackResult(),
-        close=lambda path, force, discard: CloseResult(success=True, message="Closed"),
+        close=lambda path, force, discard, token: CloseResult(
+            success=True, message="Closed"
+        ),
         close_workspace=lambda project, worktree: False,
         remove=lambda project_path, folder: None,
         dirty_files=lambda path: [],
@@ -55,9 +57,14 @@ def steps(**over) -> CloseSteps:
     return CloseSteps(**{**defaults, **over})
 
 
-async def run(**over):
+async def run(token=None, **over):
     return await close_worktree_fully(
-        "myproject", "alpha", WORKTREE_PATH, PROJECT_PATH, steps=steps(**over)
+        "myproject",
+        "alpha",
+        WORKTREE_PATH,
+        PROJECT_PATH,
+        token=token,
+        steps=steps(**over),
     )
 
 
@@ -72,12 +79,23 @@ class TestTheSequence:
         result = await run(
             env_status=lambda p, w: [MagicMock(alive=True)],
             stop_env=lambda p, w: order.append("stop_env") or ["web: stopped"],
-            close=lambda path, force, discard: (
+            close=lambda path, force, discard, token: (
                 order.append("close") or CloseResult(success=True, message="Closed")
             ),
         )
         assert order == ["stop_env", "close"]
         assert any("web: stopped" in line for line in result.messages)
+
+    async def test_the_token_reaches_the_git_close(self):
+        """The close syncs, and the sync pushes."""
+        seen: list[str | None] = []
+        await run(
+            token="ghp_orch",
+            close=lambda path, force, discard, token: (
+                seen.append(token) or CloseResult(success=True, message="Closed")
+            ),
+        )
+        assert seen == ["ghp_orch"]
 
     async def test_no_environment_means_no_stop(self):
         stop = MagicMock(return_value=[])
@@ -103,7 +121,7 @@ class TestTheSequence:
         order: list[str] = []
         await run(
             copy_back=lambda pp, p: order.append("copy_back") or CopyBackResult(),
-            close=lambda path, force, discard: (
+            close=lambda path, force, discard, token: (
                 order.append("close") or CloseResult(success=True, message="Closed")
             ),
         )
@@ -131,7 +149,7 @@ class TestARefusal:
     async def test_a_refused_close_leaves_the_cmux_workspace_open(self):
         close_workspace = MagicMock(return_value=True)
         result = await run(
-            close=lambda path, force, discard: CloseResult(
+            close=lambda path, force, discard, token: CloseResult(
                 success=False,
                 message="Worktree has 2 commit(s) not merged to origin/main",
                 had_unpushed_commits=True,
@@ -144,7 +162,7 @@ class TestARefusal:
 
     async def test_the_refusal_message_is_the_model_s_own(self):
         result = await run(
-            close=lambda path, force, discard: CloseResult(
+            close=lambda path, force, discard, token: CloseResult(
                 success=False, message="Sync failed: could not fetch"
             )
         )
@@ -161,7 +179,7 @@ class TestForce:
             PROJECT_PATH,
             force=True,
             steps=steps(
-                close=lambda path, force, discard: (
+                close=lambda path, force, discard, token: (
                     seen.append(force) or CloseResult(success=True, message="Closed")
                 )
             ),
@@ -171,7 +189,7 @@ class TestForce:
     async def test_without_force_the_close_is_asked_not_to_force(self):
         seen: list[bool] = []
         await run(
-            close=lambda path, force, discard: (
+            close=lambda path, force, discard, token: (
                 seen.append(force) or CloseResult(success=True, message="Closed")
             )
         )
@@ -188,7 +206,7 @@ class TestDiscard:
             PROJECT_PATH,
             discard=True,
             steps=steps(
-                close=lambda path, force, discard: (
+                close=lambda path, force, discard, token: (
                     seen.append((force, discard))
                     or CloseResult(success=True, message="Closed")
                 )

@@ -49,6 +49,7 @@ from mael_domain.worktree import (
     reclaim_or_allocate_ports,
     remove_worktree,
     remove_worktree_by_path,
+    rename_remote_branch,
     run_git,
     run_git_async,
     setup_claude_memory_symlink,
@@ -2134,9 +2135,7 @@ class TestSyncWorktreePrePush:
     """
 
     def _pushed_branch(self, worktree_path):
-        create_commit(worktree_path, "a.txt", "a\n", "feat: a")
-        git(worktree_path, "push", "origin", "feature/work:feature/work")
-        advance_origin_main(worktree_path)
+        _pushed_branch(worktree_path)
         return git(worktree_path, "rev-parse", "HEAD").stdout.strip()
 
     def test_the_hook_sees_the_rebased_commit_before_the_push(
@@ -2193,6 +2192,71 @@ class TestSyncWorktreePrePush:
 
         assert result.pushed, result.push_message
         assert not log.exists()
+
+
+def _pushed_branch(worktree_path):
+    create_commit(worktree_path, "a.txt", "a\n", "feat: a")
+    git(worktree_path, "push", "origin", "feature/work:feature/work")
+    advance_origin_main(worktree_path)
+
+
+def _record_push_tokens(worktree_path, log):
+    """A client ``pre-push`` hook that logs the ``GH_TOKEN`` each push ran with."""
+    common = git(
+        worktree_path, "rev-parse", "--path-format=absolute", "--git-common-dir"
+    )
+    hook = Path(common.stdout.strip()) / "hooks" / "pre-push"
+    hook.parent.mkdir(exist_ok=True)
+    hook.write_text(f'#!/bin/sh\necho "${{GH_TOKEN-unset}}" >> {log}\n')
+    hook.chmod(0o755)
+
+
+class TestSyncWorktreePush:
+    """The push after the rebase uses the token it is given."""
+
+    def test_a_token_reaches_the_push_as_gh_token(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        _, worktree_path, _ = project_with_worktree
+        _pushed_branch(worktree_path)
+        log = tmp_path / "tokens.log"
+        _record_push_tokens(worktree_path, log)
+
+        result = sync_worktree(worktree_path, pre_push=False, token="ghp_orch")
+
+        assert result.pushed, result.push_message
+        assert log.read_text().split() == ["ghp_orch"]
+
+    def test_with_no_token_the_push_inherits_the_environment(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        _, worktree_path, _ = project_with_worktree
+        _pushed_branch(worktree_path)
+        log = tmp_path / "tokens.log"
+        _record_push_tokens(worktree_path, log)
+
+        result = sync_worktree(worktree_path, pre_push=False)
+
+        assert result.pushed, result.push_message
+        assert log.read_text().split() == ["unset"]
+
+    def test_the_remote_rename_pushes_with_the_token(
+        self, project_with_worktree, tmp_path, monkeypatch
+    ):
+        """Trash moves the branch on origin: one push, then one delete."""
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        project_path, worktree_path, _ = project_with_worktree
+        _pushed_branch(worktree_path)
+        log = tmp_path / "tokens.log"
+        _record_push_tokens(worktree_path, log)
+
+        rename_remote_branch(
+            project_path, "feature/work", "trash/feature/work", token="ghp_orch"
+        )
+
+        assert log.read_text().split() == ["ghp_orch", "ghp_orch"]
 
 
 class TestSquashWorktree:

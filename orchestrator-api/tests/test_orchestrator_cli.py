@@ -7,6 +7,7 @@ import re
 import signal
 import ssl
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -186,7 +187,6 @@ def test_a_failed_env_refresh_warns_and_still_opens(tmp_path, monkeypatch, capsy
 def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:
     """The worktree source ``build_orchestrator`` wires, over ``table``."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
-    from types import SimpleNamespace
 
     with (
         patch(
@@ -314,6 +314,31 @@ async def test_the_merge_port_merges_with_the_orchestrator_token(tmp_path, monke
     merge_pr.assert_called_once_with(
         118, cwd=Path("/p/alpha"), head_oid="deadbee", token="ghp_merge"
     )
+
+
+@pytest.mark.parametrize(
+    ("port", "model", "extra"),
+    [
+        ("sync", "run_sync", ("plain",)),
+        ("close", "close_worktree_fully", ()),
+        ("force_close", "close_worktree_fully", ()),
+        ("trash", "trash_worktree_fully", ()),
+    ],
+)
+async def test_each_port_that_writes_to_github_uses_the_orchestrator_token(
+    tmp_path, monkeypatch, port, model, extra
+):
+    """A UI action runs for any project; the inherited token is maelstrom's."""
+    monkeypatch.setattr(
+        "mael_orchestrator.cli.github.orchestrator_token", lambda: "ghp_orch"
+    )
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    done = SimpleNamespace(
+        ok=True, close=CloseResult(success=True, message="ok", branch="feat/x")
+    )
+    with patch(f"mael_orchestrator.cli.{model}", new=AsyncMock(return_value=done)) as m:
+        await getattr(worktrees, port)("northwind", "alpha", "/p/alpha", *extra)
+    assert m.call_args.kwargs["token"] == "ghp_orch"
 
 
 async def test_the_merge_port_reports_what_github_refused(
