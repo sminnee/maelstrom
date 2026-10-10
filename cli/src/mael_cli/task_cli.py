@@ -1,8 +1,8 @@
 """Thin CLI for the task notebook: ``mael task ...``.
 
-Each command builds a :class:`~mael_domain.task_store.GitFileStore`, calls a single
-model function from :mod:`mael_domain.task`, and renders the result. All logic
-lives in the model; this layer only parses arguments and prints.
+Each command parses arguments, asks the orchestrator server or a model function
+from :mod:`mael_domain.task`, and prints the result. ``docs/dev/cli-over-api.md``
+says which commands call the server.
 """
 
 import os
@@ -10,6 +10,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import click
 
@@ -38,6 +39,7 @@ from mael_domain.build_runs_github import GhBuildRuns
 from mael_domain.cmux.client import ensure_cmux_running
 from mael_domain.comm_store import CommStore, SqliteCommStore
 from mael_domain.context import load_global_config, resolve_context, resolve_project
+from mael_domain.protocol import StatusMoved, TaskDetail, TaskFollower, TaskRow
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -57,6 +59,7 @@ from mael_domain.worktree import (
 from mael_domain.worktree_model import WorktreeError
 
 from .env_cli import refresh_worktree_env
+from .orchestrator_client import OrchestratorClient, OrchestratorRefused
 from .table_cli import draw_table
 from .worktree_launcher import (
     build_task_launch_line,
@@ -439,6 +442,39 @@ def _resolve_task_id(id: str | None) -> str:
     if not task_id:
         raise click.ClickException("No task id given and MAEL_TASK_ID is not set.")
     return task_id
+
+
+def _task_call(project: str, id: str, action: str = "", body: dict | None = None):
+    """GET the task or its ``action``, or POST ``body`` to it, on the orchestrator server.
+
+    Each id is quoted, so an id with ``/`` or ``?`` in it names no other route.
+    An unknown id is "Task not found", as it was when the CLI read the notebook.
+    """
+    path = f"/api/tasks/{quote(project, safe='')}/{quote(id, safe='')}"
+    client = OrchestratorClient.from_config()
+    try:
+        if body is not None:
+            return client.post(f"{path}/{action}", body)
+        return client.get(f"{path}/{action}" if action else path)
+    except OrchestratorRefused as exc:
+        if exc.code == "unknown_id":
+            raise click.ClickException(f"Task not found: {id}") from exc
+        raise
+
+
+def _fetch_rows() -> list[TaskRow]:
+    """Every task in every project, as the orchestrator server lists them."""
+    return OrchestratorClient.from_config().get("/api/tasks")["tasks"]
+
+
+def _pick_order(t: TaskRow) -> tuple[int, str, str]:
+    """The order ``mael task next`` picks by: priority, then oldest first."""
+    return (model.priority_rank(t["priority"]), t["created"], t["notebookId"])
+
+
+def _notebook_id(wire_id: str) -> str:
+    """The notebook id of a wire id, ``<project>/<notebook id>``."""
+    return wire_id.rpartition("/")[2]
 
 
 async def register_pr(
@@ -1355,13 +1391,17 @@ async def task_list(
 
     By default only actionable tasks are shown. ``--all-todo`` also includes
     tasks waiting on incomplete ``follows`` deps and tasks parked in ``blocked/``;
-    ``--all`` additionally includes done and cancelled. ``--status`` still
-    constrains the folder scanned, so e.g. ``--status done`` without ``--all``
-    naturally shows nothing.
+    ``--all`` additionally includes done and cancelled. ``--status`` filters
+    first, so e.g. ``--status done`` without ``--all`` naturally shows nothing.
     """
     proj = resolve_project(project)
-    table = await _table()
-    tasks = await model.list_tasks(table, project=proj, status=status, parent=parent)
+    tasks = [
+        t
+        for t in _fetch_rows()
+        if t["project"] == proj
+        and (status is None or t["status"] == status)
+        and (parent is None or t["parent"] == parent)
+    ]
     if not tasks:
         click.echo("No tasks.")
         return
@@ -1372,14 +1412,12 @@ async def task_list(
     show_all_in_folder = status == model.STATUS_TEMPLATE
 
     # The same order ``mael task next`` picks by.
-    tasks.sort(
-        key=lambda t: (model.priority_rank(t.priority), *model.creation_order(t))
-    )
+    tasks.sort(key=_pick_order)
 
     rows = []
     for t in tasks:
-        actionable = await model.is_actionable(t, table)
-        terminal = model.is_terminal(t.status)
+        actionable = t["actionable"]
+        terminal = model.is_terminal(t["status"])
         blocked = not actionable and not terminal
         if all_ or show_all_in_folder:
             visible = True
@@ -1389,15 +1427,15 @@ async def task_list(
             visible = actionable
         if not visible:
             continue
-        row = {"ID": t.id, "STATUS": t.status, "PRIORITY": t.priority}
+        row = {"ID": t["notebookId"], "STATUS": t["status"], "PRIORITY": t["priority"]}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
         if show_all_in_folder:
             # The trigger fills the column for a template with no cron.
-            row["SCHEDULE"] = t.schedule or t.trigger
-            row["NEXT-FIRE"] = _next_fire_display(t)
-        row["BRANCH"] = t.branch or model.default_branch(t.id, t.parent)
-        row["TITLE"] = t.title
+            row["SCHEDULE"] = t.get("schedule", "") or t.get("trigger", "")
+            row["NEXT-FIRE"] = _next_fire_display(t.get("schedule", ""))
+        row["BRANCH"] = t["branch"]
+        row["TITLE"] = t["title"]
         rows.append(row)
 
     if not rows:
@@ -1421,14 +1459,14 @@ async def task_list(
     draw_table(rows, columns)
 
 
-def _next_fire_display(task: "model.Task") -> str:
+def _next_fire_display(schedule: str) -> str:
     """Render a template's next scheduled fire for the listing, or ''."""
-    if not task.schedule:
+    if not schedule:
         return ""
     from mael_domain import schedule as sched
 
     try:
-        nxt = sched.next_fire(task.schedule, datetime.now().astimezone())
+        nxt = sched.next_fire(schedule, datetime.now().astimezone())
     except ValueError:
         return "(invalid)"
     return nxt.isoformat(timespec="minutes") if nxt else ""
@@ -1675,45 +1713,39 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_show(id: str, project: str | None) -> None:
     """Show a summary of a task."""
-    proj = resolve_project(project)
-    table = await _table()
-    try:
-        t = await model.load(table, proj, id)
-    except KeyError:
-        raise click.ClickException(f"Task not found: {id}")
-    click.echo(f"id:      {t.id}")
-    click.echo(f"title:   {t.title}")
-    click.echo(f"status:  {t.status}")
-    click.echo(f"project: {t.project}")
-    click.echo(f"command: {t.command}")
-    click.echo(f"mode:    {t.mode}")
+    t: TaskDetail = _task_call(resolve_project(project), id)
+    click.echo(f"id:      {t['notebookId']}")
+    click.echo(f"title:   {t['title']}")
+    click.echo(f"status:  {t['status']}")
+    click.echo(f"project: {t['project']}")
+    click.echo(f"command: {t['command']}")
+    click.echo(f"mode:    {t['mode']}")
     # Conditional like parent/schedule: empty means "inherit the user's Claude
     # Code default", which is nothing to report.
-    if t.model:
-        click.echo(f"model:   {t.model}")
-    if t.execute_model:
-        click.echo(f"execute-model: {t.execute_model}")
-    click.echo(f"priority: {t.priority}")
-    click.echo(f"branch:  {t.branch}")
-    if t.parent:
-        click.echo(f"parent:  {t.parent}")
-    if t.follows:
-        click.echo(f"follows: {', '.join(t.follows)}")
-    if t.schedule:
-        click.echo(f"schedule: {t.schedule}")
-    if t.trigger:
-        click.echo(f"trigger: {t.trigger}")
-    if t.comms:
-        click.echo(f"comms: {', '.join(t.comms)}")
-    if t.last_run:
-        click.echo(f"last-run: {t.last_run}")
-    click.echo(f"created: {t.created}")
-    click.echo(f"updated: {t.updated}")
-    actionable = await model.is_actionable(t, table)
-    click.echo(f"actionable: {'yes' if actionable else 'no'}")
-    if t.content:
+    if t["model"]:
+        click.echo(f"model:   {t['model']}")
+    if t["executeModel"]:
+        click.echo(f"execute-model: {t['executeModel']}")
+    click.echo(f"priority: {t['priority']}")
+    click.echo(f"branch:  {t['branch']}")
+    if t["parent"]:
+        click.echo(f"parent:  {t['parent']}")
+    if t["follows"]:
+        click.echo(f"follows: {', '.join(_notebook_id(f) for f in t['follows'])}")
+    if t.get("schedule"):
+        click.echo(f"schedule: {t.get('schedule', '')}")
+    if t.get("trigger"):
+        click.echo(f"trigger: {t.get('trigger', '')}")
+    if t["comms"]:
+        click.echo(f"comms: {', '.join(t['comms'])}")
+    if t.get("lastRun"):
+        click.echo(f"last-run: {t.get('lastRun', '')}")
+    click.echo(f"created: {t['created']}")
+    click.echo(f"updated: {t['updated']}")
+    click.echo(f"actionable: {'yes' if t['actionable'] else 'no'}")
+    if t["content"]:
         click.echo("\n## Content\n")
-        click.echo(t.content)
+        click.echo(t["content"])
 
 
 @task.command("get-status")
@@ -1765,18 +1797,13 @@ async def task_current(project: str | None) -> None:
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_read(id: str, project: str | None) -> None:
-    """Print the task as markdown, rendered from its row.
+    """Print the task as markdown, rendered from its row by the server.
 
     The notebook is a table, so this re-renders rather than reading a file —
     the same text ``mael task edit`` opens and the export writes.
     """
-    proj = resolve_project(project)
-    table = await _table()
-    try:
-        t = await model.load(table, proj, id)
-    except KeyError:
-        raise click.ClickException(f"Task not found: {id}")
-    click.echo(t.to_markdown(), nl=False)
+    reply = _task_call(resolve_project(project), id, "markdown")
+    click.echo(reply["markdown"], nl=False)
 
 
 @task.command("prompt")
@@ -1965,6 +1992,17 @@ async def task_rm(id: str, project: str | None) -> None:
     click.echo(f"Deleted {id}.")
 
 
+def _echo_follower(follower: TaskFollower) -> None:
+    """Name the task that follows the one just done: running already, or next to run."""
+    title = f" - {follower['title']}" if follower["title"] else ""
+    click.echo()
+    if follower["running"]:
+        click.echo("The following task is already in-progress:")
+    else:
+        click.echo("mael task next --run will run the following task in a new session:")
+    click.echo(f"  {_notebook_id(follower['id'])}{title}")
+
+
 @task.group("status")
 def task_status() -> None:
     """Move a task between lifecycle states."""
@@ -1977,31 +2015,12 @@ def _status_command(name: str, status: str, help_text: str):
     async def _cmd(id: str | None, project: str | None) -> None:
         task_id = _resolve_task_id(id)
         proj = resolve_project(project)
-        table = await _table()
-        try:
-            await task_actions.move_with_actions(
-                table, proj, task_id, status, warn=_warn
-            )
-        except KeyError:
-            raise click.ClickException(f"Task not found: {task_id}")
+        reply: StatusMoved = _task_call(proj, task_id, "status", {"status": status})
+        for line in reply.get("actionLines", []):
+            _warn(line)
         click.echo(f"{task_id} -> {status}")
-        if status == model.STATUS_DONE:
-            running = await model.running_follower(table, proj, task_id)
-            if running is not None:
-                title = f" - {running.title}" if running.title else ""
-                click.echo()
-                click.echo(
-                    f"The following task is already in-progress:\n  {running.id}{title}"
-                )
-            else:
-                nxt = await model.next_follower(table, proj, task_id)
-                if nxt is not None:
-                    title = f" - {nxt.title}" if nxt.title else ""
-                    click.echo()
-                    click.echo(
-                        "mael task next --run will run the following task in a new session:"
-                    )
-                    click.echo(f"  {nxt.id}{title}")
+        if "follower" in reply:
+            _echo_follower(reply["follower"])
 
     return _cmd
 

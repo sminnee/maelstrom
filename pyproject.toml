@@ -56,6 +56,7 @@ testpaths = [
     "lib/domain/tests",
     "agent-daemon/tests",
     "orchestrator-api/tests",
+    "tests",
 ]
 # The domain and daemon suites' support modules. `cli/tests/` imports them too, so
 # they must be on the path whichever suite pytest collects first.

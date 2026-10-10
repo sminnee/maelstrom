@@ -427,6 +427,11 @@ mael task next --run                          # launch the next actionable task
 mael task status done                         # close $MAEL_TASK_ID
 ```
 
+`mael task list`, `show`, `read` and `status` call the orchestrator server that
+[`orchestrator_url:`](configuration.md#global-configuration--maelstromconfigyaml) names. They fail
+when that key is unset or no server answers. The server runs the status actions, and `status`
+prints each action's line on stderr.
+
 Quote `'*'` — an unquoted `*` is expanded by the shell before `mael` sees it.
 
 `'*'` resolves against the task's parent, which defaults to `$MAEL_TASK_PARENT`. It therefore
