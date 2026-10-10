@@ -1223,9 +1223,10 @@ and the client gives that one call a longer timeout.
 
 The desk commands and the task commands never reach the host. Both desk commands carry a desk
 id, not a bare task id, and the desk is the server's own table. A task write goes to the
-notebook: a status change moves the task through `move_with_actions`, so the status actions fire
-as `mael task status` fires them, and a patch writes the fields it is given. Both force a task
-refresh, as a launch does, so the change is in the world before the reply.
+notebook. A status change moves the task through `move_with_actions`, so the status actions fire
+as `mael task status` fires them. The actions run in a thread, because the Linear client is sync
+HTTP. A patch writes the fields it is given. Both force a task refresh, as a launch does, so the
+change is in the world before the reply.
 
 The two document commands are the server's own too: a document lives in the world, not in the
 notebook and not on the host. Each names one document and acts on its review group's current
