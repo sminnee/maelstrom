@@ -235,7 +235,9 @@ async def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
         return None
 
 
-async def find_open_pr(cwd: Path, branch: str) -> PrStatus | None:
+async def find_open_pr(
+    cwd: Path, branch: str, token: str | None = None
+) -> PrStatus | None:
     """``branch``'s open pull request, for a caller that must not guess.
 
     :func:`get_pr_for_branch` reads a failed lookup as "no PR", which suits a
@@ -247,7 +249,11 @@ async def find_open_pr(cwd: Path, branch: str) -> PrStatus | None:
     """
     try:
         result = await run_cmd_async(
-            _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
+            _pr_for_branch_argv(branch),
+            cwd=cwd,
+            quiet=True,
+            check=False,
+            env=token_env(token),
         )
     except FileNotFoundError:
         raise GitHubCliMissing("gh")
@@ -294,7 +300,7 @@ def _parse_pr_for_branch(result: subprocess.CompletedProcess) -> PrStatus | None
     )
 
 
-def close_pr(cwd: Path, number: int, comment: str) -> None:
+def close_pr(cwd: Path, number: int, comment: str, token: str | None = None) -> None:
     """Close pull request ``number`` without merging it, leaving ``comment``.
 
     Raises:
@@ -302,7 +308,9 @@ def close_pr(cwd: Path, number: int, comment: str) -> None:
         GitHubCommandFailed: If ``gh`` refused.
     """
     try:
-        run_cmd(_close_pr_argv(number, comment), cwd=cwd, quiet=True)
+        run_cmd(
+            _close_pr_argv(number, comment), cwd=cwd, quiet=True, env=token_env(token)
+        )
     except subprocess.CalledProcessError as e:
         raise GitHubCommandFailed(f"close PR #{number}", e.stderr)
     except FileNotFoundError:
