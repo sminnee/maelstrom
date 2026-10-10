@@ -679,6 +679,10 @@ class Orchestrator:
         ]
         return [item for item in found if item is not None]
 
+    async def task_markdown(self, task_id: str) -> str | None:
+        """The task as the notebook renders it, read from the notebook itself."""
+        return await self._run(self.tasks.markdown, task_id)
+
     async def refresh_tasks(self, *, force: bool = False) -> None:
         """Re-read the notebook when its version moved, and publish the difference.
 

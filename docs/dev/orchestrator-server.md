@@ -956,6 +956,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
+| `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
 | `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, taskIds}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
 | `GET /api/comms/{id}` | The `Comm` |
 | `GET /api/agents` | `{agents: [Agent]}` |

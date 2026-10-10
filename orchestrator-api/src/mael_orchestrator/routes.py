@@ -99,6 +99,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
+    app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
     app.router.add_get("/api/comms", _comms)
     app.router.add_get("/api/comms/{id}", _comm)
     app.router.add_post("/api/comms", _create_comm)
@@ -292,6 +293,16 @@ async def _task(request: web.Request) -> web.Response:
         "displayContent": attachment_urls(task["content"], task["project"]),
     }
     return web.json_response(detail)
+
+
+async def _task_markdown(request: web.Request) -> web.Response:
+    """``{markdown}``: the task as the notebook renders it, for ``mael task read``."""
+    orch = await _ready(request)
+    task_id = _task_id(request)
+    markdown = await orch.task_markdown(task_id)
+    if markdown is None:
+        return error_response("unknown_id", f"No task {task_id}")
+    return web.json_response({"markdown": markdown})
 
 
 async def _comms(request: web.Request) -> web.Response:
