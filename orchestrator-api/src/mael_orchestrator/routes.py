@@ -201,6 +201,19 @@ async def _ready(request: web.Request) -> Orchestrator:
     return orch
 
 
+async def _ready_with_tasks(request: web.Request) -> Orchestrator:
+    """The orchestrator, with every task write so far in its world.
+
+    Some ``mael task`` commands still write the notebook directly, and the
+    next one may read through here at once: ``add`` then ``status start``. A
+    read that waited for the poll would answer that the new task does not
+    exist. The refresh costs one revision query when nothing moved.
+    """
+    orch = await _ready(request)
+    await orch.refresh_tasks()
+    return orch
+
+
 async def _projects(request: web.Request) -> web.Response:
     orch = await _ready(request)
     return web.json_response({"projects": list(orch.world["projects"].values())})
@@ -266,7 +279,7 @@ async def _tasks(request: web.Request) -> web.Response:
     No server-side filter: the client holds every row and filters in memory,
     and one list keeps one cache entry.
     """
-    orch = await _ready(request)
+    orch = await _ready_with_tasks(request)
     etag = f'"{orch.epoch}-{orch.task_revision}"'
     if request.headers.get("If-None-Match") == etag:
         return web.Response(status=304, headers={"ETag": etag})
@@ -279,7 +292,7 @@ async def _tasks(request: web.Request) -> web.Response:
 
 
 async def _task(request: web.Request) -> web.Response:
-    orch = await _ready(request)
+    orch = await _ready_with_tasks(request)
     task_id = f"{request.match_info['project']}/{request.match_info['id']}"
     task = orch.world["tasks"].get(task_id)
     if task is None:
@@ -613,6 +626,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
 
 async def _set_status(request: web.Request) -> web.StreamResponse:
     task_id = _task_id(request)
+    await _ready_with_tasks(request)
     return await _command(
         request,
         lambda body: {
