@@ -32,7 +32,8 @@ html {
   }
   #root {
     position: fixed;
-    bottom: 0;
+    /* See DESIGN.md, "The Still Screen Rule". */
+    top: var(--vvt, 0px);
     left: 0;
     right: 0;
     height: var(--vvh, 100dvh);

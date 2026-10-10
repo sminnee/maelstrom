@@ -546,11 +546,13 @@ but `--text-caption` (8px) is at least 16px. The chip height `--chip` goes from 
 does not hold the brand, so the brand is hidden visually and kept for a screen reader.
 
 **The Still Screen Rule.** The app is the visible area and does not move.
-`layout/visualViewport.ts` writes the visual viewport's height to `--vvh`, once a frame at most.
-`#root` is fixed to the bottom at that height, so a soft keyboard shrinks the app from the top
-and the field being written stays on the keyboard. `html` and `body` take the same height, so
+`layout/visualViewport.ts` writes the visual viewport's height to `--vvh` and its top to
+`--vvt`, once a frame at most. `#root` is fixed at `--vvt` and `--vvh`, so a soft keyboard
+shrinks the app from the bottom and the app ends on the keyboard. It is not fixed to
+`bottom: 0`: on iOS the keyboard shrinks the visual viewport, not the layout viewport, so the
+bottom of the layout viewport is behind the keyboard. `html` and `body` take the same height, so
 iOS has no document to scroll toward a field. A modal dialog is outside `#root`, so it anchors to
-the bottom at `--vvh` itself. The top is not tracked: on an iPhone `offsetTop` stays 0. The
+`--vvt` and `--vvh` itself. The
 document has `overscroll-behavior: none`, each full-screen scroller has `contain`, and a double
 tap does not zoom. Pinch zoom stays: while the page is zoomed `--vvh` holds, so the zoom pans
 over a still app.
@@ -1062,8 +1064,7 @@ A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its co
 A field with no scrolling container, such as the conversation input or a review dock field, caps
 at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
 the visual viewport's height there, because a soft keyboard does not shrink `dvh`. On a phone the
-conversation input may take the visible height less four controls, and the New work draft takes
-what its dialog leaves.
+conversation input may take the visible height less four controls.
 
 A text field does not share its row with the buttons that submit it. The field takes the full
 width, and its buttons sit in a row under it, at the right edge. A field between two buttons gets
