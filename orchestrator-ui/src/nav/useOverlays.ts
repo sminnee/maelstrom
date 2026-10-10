@@ -12,14 +12,24 @@ export function useEditor() {
   const { edit } = useLoc();
   const go = useGo();
   const router = useRouter();
+  const setEditing = useAppStore((s) => s.setEditorEditing);
+  const close = () => {
+    setEditing(false);
+    go({ edit: null }, { close: true });
+  };
   return {
     editingTaskId: edit,
-    open: (taskId: TaskId) => go({ edit: taskId }),
+    /** Open a task, in view mode unless `editing` is given. */
+    open: (taskId: TaskId, { editing = false }: { editing?: boolean } = {}) => {
+      setEditing(editing);
+      go({ edit: taskId });
+    },
+    /** Step to another task. The mode does not change. */
     step: (taskId: TaskId) => go({ edit: taskId }, { replace: true }),
-    close: () => go({ edit: null }, { close: true }),
+    close,
     /** Close the editor if it is still open on `taskId`, as the location is now. */
     closeIf: (taskId: TaskId) => {
-      if (currentLoc(router).edit === taskId) go({ edit: null }, { close: true });
+      if (currentLoc(router).edit === taskId) close();
     },
   };
 }

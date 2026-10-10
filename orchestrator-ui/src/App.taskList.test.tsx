@@ -620,7 +620,7 @@ describe('the task list', () => {
     expect(within(openLast).getByRole('button', { name: 'Prev' })).toBeEnabled();
   });
 
-  it('asks before Next drops an unsaved edit, and lands on the next task once confirmed', async () => {
+  it('asks before Next drops an unsaved edit, and lands on the next task in edit mode', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     await goToList(user);
@@ -636,6 +636,8 @@ describe('the task list', () => {
 
     const next = await screen.findByRole('dialog', { name: 'Watch the migration PR' });
     expect(within(next).getByLabelText('Title')).toHaveValue('Watch the migration PR');
+    // A step keeps the mode: Edit was pressed, so the next task opens in edit mode too.
+    expect(within(next).getByLabelText('Title')).not.toHaveAttribute('readonly');
     expect(server.requests.some((r) => r.method === 'PATCH')).toBe(false);
   });
 

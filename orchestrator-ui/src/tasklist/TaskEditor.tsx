@@ -8,6 +8,7 @@ import type { Task } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { listTasks } from '../selectors/taskList';
 import { useLoc } from '../nav/useNav';
+import { useAppStore } from '../store/store';
 import { useEditor } from '../nav/useOverlays';
 import { AppButton } from '../ui/AppButton';
 import { ConfirmButton } from '../ui/ConfirmButton';
@@ -79,7 +80,13 @@ function TaskForm({ task }: { task: Task }) {
   const [confirming, setConfirming] = useState(false);
   const [pendingNav, setPendingNav] = useState<TaskId | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [editing, setEditing] = useState(false);
+  // The store holds the mode, so a step to the next task opens in the mode this one is in.
+  const [editing, setEditing] = useState(() => useAppStore.getState().ui.editorEditing);
+  const setEditorEditing = useAppStore((s) => s.setEditorEditing);
+  const startEditing = () => {
+    setEditing(true);
+    setEditorEditing(true);
+  };
   // Frozen: the store's copy moves as the server publishes, and diffing
   // against a moved copy would send a field the user never touched.
   const opened = useRef(draft);
@@ -231,7 +238,7 @@ function TaskForm({ task }: { task: Task }) {
             Save
           </AppButton>
         ) : (
-          <AppButton variant="primary" icon={actionIcon('edit')} onClick={() => setEditing(true)}>
+          <AppButton variant="primary" icon={actionIcon('edit')} onClick={startEditing}>
             Edit
           </AppButton>
         )}

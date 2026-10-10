@@ -305,9 +305,11 @@ content and branch, with command, mode, base, priority and model under a folded 
 task with an agent has a panel link in its state cell, to the agent's session. The row's click
 guard skips links, so that link does not open the editor. The
 title cell carries a real button, because a table row reaches no keyboard. The dialog opens
-read-only with Edit, Delete and Close; Edit unlocks the fields and restores Cancel and Save. Every
-read-only or disabled field draws with a transparent background and a fainter border, the one
-global rule in `base.css` rather than a per-field affordance. A read-only dialog has nothing
+read-only, with Close and Delete on the left and Edit on the right. Edit unlocks the fields:
+Cancel takes Close's place and Save takes Edit's, and Delete stays put. The expanded card's
+**Edit task** opens the dialog in edit mode, and Prev/Next keep the mode. A read-only or disabled
+field has a transparent fill and a dotted border, from one rule in `base.css` (see `DESIGN.md`
+§ Fields). A read-only dialog has nothing
 unsaved, so it always closes at once. Delete asks first, from the dialog and from the row alike.
 Save patches the changed fields, and a changed status goes out through the same route the list's
 own picker uses rather than the batched PATCH, since status is folder-derived. The header also
@@ -1373,7 +1375,7 @@ leaves every default out. `nav/location.test.ts` round-trips each row above.
 | --- | --- |
 | The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form |
 | The store, in `sessionStorage` | The open tabs, their recency and the split tabs |
-| The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed |
+| The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed, the task editor's mode |
 
 The open tabs survive a refresh but not a copied link: `sessionStorage` is per window, so a link
 opens only its own tab. `resetToPageLoad` in `store/store.ts` resets the store as a page load

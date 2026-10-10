@@ -59,6 +59,12 @@ export interface UiState {
    */
   newWorkSeed: NewWorkSeed | null;
   /**
+   * Whether the task editor is in edit mode rather than view mode. A step to the next task keeps
+   * it. The location says which task is open; the mode is a form state, so it stays here, as
+   * `newWorkSeed` does.
+   */
+  editorEditing: boolean;
+  /**
    * The right slot's width in px while both slots are open. Set by a drag; not
    * persisted across a reload.
    */
@@ -86,6 +92,7 @@ export function initialUiState(): UiState {
     tabRecency: [],
     splitTabs: {},
     newWorkSeed: null,
+    editorEditing: false,
     panelWidth: openingWidth(),
   };
 }
