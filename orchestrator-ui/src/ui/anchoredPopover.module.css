@@ -30,3 +30,23 @@
   position: fixed;
   position-anchor: var(--anchor-name);
 }
+/*
+ * Fallbacks for a popover right-aligned under its trigger. Near the bottom of the screen it
+ * opens upward. With no room to its left, it pins to the screen's left edge. Named fallbacks,
+ * not `flip-block`, so no engine has to flip `anchor()` inside `calc()`. The names are global,
+ * so they are declared once, in the file every anchored popover composes.
+ */
+@position-try --above {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
+}
+@position-try --pin-left {
+  right: auto;
+  left: var(--u);
+}
+@position-try --pin-left-above {
+  top: auto;
+  bottom: calc(anchor(top) + 2px);
+  right: auto;
+  left: var(--u);
+}
