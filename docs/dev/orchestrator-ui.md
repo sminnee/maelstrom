@@ -714,6 +714,12 @@ card is this area under a header. Both draw the one component, so the two cannot
 | Trash | `worktree.trash` | yes |
 | Delete (**Remove**) | `worktree.remove` | yes |
 
+Each option starts an **Operation**. The route answers at once with the operation's id, and the
+mutation waits on the entity in `api/operations.ts`, not on the HTTP call. So the button shows
+its processing label until the operation ends, and a refusal shows the operation's words. Sync,
+Merge and the environment controls wait the same way. The fake server runs each step on a timer:
+a second in the fake mode, `OPERATION_STEP_MS` in the suite.
+
 A close stops every agent in the worktree. The control is therefore held while an agent runs
 there, and each item says so. The node card's Terminate chains are the way to end live work.
 

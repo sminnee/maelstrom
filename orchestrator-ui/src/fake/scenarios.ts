@@ -1,7 +1,15 @@
 import type { Attention, AttentionKind } from '../protocol/attention';
 import { deskIdForTask } from '../protocol/deskId';
 import type { DocumentKind, DocumentStatus } from '../protocol/documents';
-import type { Agent, FileDiff, PrState, Task, Worktree } from '../protocol/entities';
+import type {
+  Agent,
+  FileDiff,
+  Operation,
+  OperationStep,
+  PrState,
+  Task,
+  Worktree,
+} from '../protocol/entities';
 import type { ToolCallStatus, TranscriptItem } from '../protocol/transcript';
 import {
   makeAgent,
@@ -13,6 +21,7 @@ import {
   onDesk,
   worldWith,
 } from './fixtures';
+import { faultKey } from './operations';
 import { comm, seedWorld, T, task, type Seed } from './seedWorld';
 import { defaultLoc, toHref, withLoc, type LocPatch } from '../nav/location';
 import { changesTab, devEnvTab, sessionTab } from '../selectors/tabs';
@@ -801,6 +810,88 @@ function longText(): Seed {
   return seed;
 }
 
+/** One ended step of a seeded operation, `minutesAgo` minutes back. */
+function endedStep(
+  name: string,
+  state: OperationStep['state'],
+  minutesAgo: number,
+  words = '',
+): OperationStep {
+  return { name, words, state, startedAt: T(minutesAgo), endedAt: T(minutesAgo) };
+}
+
+const TEARDOWN = ['stop_env', 'stop_agents', 'stop_sessions', 'rescue_env_vars'];
+
+/**
+ * A history of one operation of each ending, and a world that repeats them
+ * live: Close on maelstrom-bravo is refused over its two unmerged commits, and
+ * Sync on northwind-delta fails. Close on a clean worktree succeeds.
+ */
+function operations(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  const op = (o: Pick<Operation, 'id' | 'kind' | 'worktreeId' | 'words' | 'state' | 'steps'>) => ({
+    taskId: null,
+    agentId: null,
+    startedAt: o.steps[0]!.startedAt!,
+    endedAt: o.steps.at(-1)!.endedAt,
+    seen: o.state === 'done',
+    ...o,
+  });
+  const syncFault = 'git rebase exited 128: could not apply 3f9c2e1 (feat: invoice totals)';
+  world.operations = {
+    op1: op({
+      id: 'op1',
+      kind: 'close',
+      worktreeId: 'northwind-charlie',
+      words: 'Closed charlie',
+      state: 'done',
+      steps: [...TEARDOWN, 'git_close', 'close_workspace'].map((n) => endedStep(n, 'done', 30)),
+    }),
+    op2: op({
+      id: 'op2',
+      kind: 'close',
+      worktreeId: 'maelstrom-bravo',
+      words: 'Worktree has 2 commit(s) not merged to origin/main',
+      state: 'refused',
+      steps: [
+        ...TEARDOWN.map((n) => endedStep(n, 'done', 12)),
+        endedStep('git_close', 'refused', 12, 'Worktree has 2 commit(s) not merged to origin/main'),
+        { name: 'close_workspace', words: '', state: 'pending', startedAt: null, endedAt: null },
+      ],
+    }),
+    op3: op({
+      id: 'op3',
+      kind: 'sync',
+      worktreeId: 'northwind-delta',
+      words: `Could not sync the worktree: ${syncFault}`,
+      state: 'failed',
+      steps: [endedStep('rebase', 'failed', 4, syncFault)],
+    }),
+  };
+  world.operationLogs = {
+    op1: {
+      stop_env: ['Stopped the environment.'],
+      git_close: ["Closing worktree 'charlie'...", 'Worktree detached at origin/main.'],
+      close_workspace: ["Closed cmux workspace 'northwind-charlie'."],
+    },
+    op2: {
+      stop_env: ['Stopped the environment.'],
+      stop_agents: ['Stopped 1 agent.'],
+      git_close: ["Closing worktree 'bravo'..."],
+    },
+    op3: {
+      rebase: [
+        'Fetching origin...',
+        'Rebasing feat/invoices onto origin/main...',
+        'CONFLICT (content): Merge conflict in src/invoices/totals.ts',
+      ],
+    },
+  };
+  world.operationFaults = { [faultKey('sync', 'northwind-delta')]: syncFault };
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -854,6 +945,11 @@ export const SCENARIOS = {
     about: 'Two open comms and a closed one, over tasks at each landing step.',
     build: comms,
     screen: at({ view: 'comms' }),
+  },
+  operations: {
+    about: 'An operation of each ending, and worktrees that close, refuse and fail live.',
+    build: operations,
+    screen: at({ view: 'worktrees' }),
   },
   'long-text': {
     about: 'Titles, ids, a branch, a commit and a comm too long for a phone.',

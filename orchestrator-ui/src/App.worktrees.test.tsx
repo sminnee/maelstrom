@@ -111,16 +111,28 @@ describe('the worktrees view', () => {
     expect(main.queryByRole('button', { name: 'More sync actions' })).toBeNull();
   });
 
-  it('closes a worktree and the row goes with it', async () => {
+  it('closes a worktree, processing until the operation ends, and the row goes with it', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
+    // Long enough that the running operation is plain to see.
+    server.stepMs = 100;
     await goToWorktrees(user);
     exitAgent(server, 'a1f3c9e2');
 
     const close = await within(row('northwind-alpha')!).findByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
-    await waitFor(() => expect(row('northwind-alpha')).toBeNull());
+    // The button waits on the operation entity, not on the reply.
+    expect(
+      await within(row('northwind-alpha')!).findByRole('button', { busy: true }),
+    ).toHaveTextContent('Closing…');
+    await waitFor(() => expect(row('northwind-alpha')).toBeNull(), { timeout: 2000 });
+    await waitFor(() =>
+      expect(server.world.operations['op1']).toMatchObject({
+        state: 'done',
+        words: 'Closed alpha',
+      }),
+    );
   });
 
   it('holds the close while an agent runs in the worktree, and says why', async () => {
@@ -169,6 +181,27 @@ describe('the worktrees view', () => {
       expect(within(row('maelstrom-alpha')!).getByTitle(/uncommitted changes/)).toBeInTheDocument(),
     );
     expect(row('maelstrom-alpha')).not.toBeNull();
+    // The words are the operation's: the refusal arrived on the entity, not the reply.
+    expect(server.world.operations['op1']).toMatchObject({
+      state: 'refused',
+      words: 'Worktree has uncommitted changes',
+    });
+  });
+
+  it('says what failed when a sync fails', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.operationFaults['sync:northwind-alpha'] = 'git rebase exited 128';
+    await goToWorktrees(user);
+
+    await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
+    await waitFor(() =>
+      expect(
+        within(row('northwind-alpha')!).getByTitle(
+          'Could not sync the worktree: git rebase exited 128',
+        ),
+      ).toBeInTheDocument(),
+    );
   });
 
   it('asks before it deletes, and the worktree then leaves the world', async () => {

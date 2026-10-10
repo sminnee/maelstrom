@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { makeAgent, makeQuestionItem, makeTask, worldWith } from '../fake/fixtures';
+import { makeAgent, makeQuestionItem, makeTask, makeWorktree, worldWith } from '../fake/fixtures';
 import { createFakeServer } from '../fake/fakeServer';
 import { useAgent, useAgents } from './agents';
 import { ApiProvider } from './ApiProvider';
 import { useAttention } from './attention';
 import { useDesk } from './desk';
 import { useDocument, useDocuments } from './documents';
+import { useMarkSeen, useOperationLog, useOperations, useRetryOperation } from './operations';
 import { useProjects } from './projects';
 import { useTask, useTasks } from './tasks';
 import { useWorld } from './useWorld';
@@ -116,5 +117,62 @@ describe('useWorld', () => {
     const { result } = renderHook(() => useWorld(), { wrapper });
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.errors[0]?.message).toBe('bad gateway');
+  });
+});
+
+describe('the operation hooks', () => {
+  /** A worktree whose close the fake refuses over its two unmerged commits. */
+  function refusedClose() {
+    const worktree = makeWorktree({ localCommits: 2 });
+    const server = createFakeServer({ world: worldWith({ worktrees: [worktree] }), stepMs: 0 });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ApiProvider api={server.api} queryClient={queryClient}>
+        {children}
+      </ApiProvider>
+    );
+    const ended = async () => {
+      await server.api.post(`/api/worktrees/${worktree.id}/close`);
+      await waitFor(() => expect(server.world.operations['op1']?.state).toBe('refused'));
+    };
+    return { server, wrapper, worktree, ended };
+  }
+
+  it('lists the operations and reads one log by step', async () => {
+    const { wrapper, ended } = refusedClose();
+    await ended();
+    const { result } = renderHook(() => ({ list: useOperations(), log: useOperationLog('op1') }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.log.data).toBeDefined());
+    expect(result.current.list.data?.operations[0]).toMatchObject({
+      id: 'op1',
+      state: 'refused',
+      words: 'Worktree has 2 commit(s) not merged to origin/main',
+      seen: false,
+    });
+    expect(result.current.log.data?.steps.find((s) => s.name === 'git_close')).toEqual({
+      name: 'git_close',
+      lines: ["Closing worktree 'alpha'..."],
+    });
+  });
+
+  it('marks an operation seen', async () => {
+    const { server, wrapper, ended } = refusedClose();
+    await ended();
+    const { result } = renderHook(() => useMarkSeen(), { wrapper });
+    await act(() => result.current.mutateAsync({ operationId: 'op1' }));
+    expect(server.world.operations['op1']?.seen).toBe(true);
+  });
+
+  it('retries a refused operation under the same id', async () => {
+    const { server, wrapper, worktree, ended } = refusedClose();
+    await ended();
+    // The commits were pushed and merged meanwhile, so the close goes through.
+    server.world.worktrees[worktree.id] = { ...worktree, localCommits: 0 };
+    const { result } = renderHook(() => useRetryOperation(), { wrapper });
+    const started = await act(() => result.current.mutateAsync({ operationId: 'op1' }));
+    expect(started).toEqual({ operationId: 'op1' });
+    await waitFor(() => expect(server.world.operations['op1']?.state).toBe('done'));
   });
 });

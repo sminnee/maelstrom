@@ -18,6 +18,7 @@ import type {
   DeskEntry,
   FileDiff,
   Host,
+  Operation,
   Project,
   Task,
   TaskMode,
@@ -30,6 +31,12 @@ import type { AgentId, TaskId } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
+import {
+  retryOperation,
+  startOperation,
+  type FakeOperationSpec,
+  type FakeStep,
+} from './operations';
 
 /**
  * The world the fake serves: the eight tables, keyed by id, with tasks and
@@ -66,6 +73,15 @@ export interface FakeWorld {
    * with no entry reads as clean, with no commits ahead of `main`.
    */
   changes: Record<string, { changes: WorktreeChanges; diffs: Record<string, FileDiff[]> }>;
+  /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
+  operations: Record<string, Operation>;
+  /** Each operation's log lines by step: a separate read, as on the server. */
+  operationLogs: Record<string, Record<string, string[]>>;
+  /**
+   * Faults to plant, by `faultKey(kind, worktreeId)`: the operation's last step
+   * fails with these words. The fake's stand-in for git exiting non-zero.
+   */
+  operationFaults: Record<string, string>;
 }
 
 export function emptyFakeWorld(): FakeWorld {
@@ -73,6 +89,9 @@ export function emptyFakeWorld(): FakeWorld {
     linearIssues: {},
     milestones: {},
     changes: {},
+    operations: {},
+    operationLogs: {},
+    operationFaults: {},
     projects: {},
     worktrees: {},
     tasks: {},
@@ -155,12 +174,16 @@ export interface FakeServer {
   openStreams(epoch?: string): void;
   /** Drop every open socket on `agentId` (every agent with none), as a network drop would. */
   dropSockets(agentId?: AgentId): void;
+  /** How long each step of an operation takes. */
+  stepMs: number;
 }
 
 export interface FakeServerOptions {
   world?: FakeWorld;
   transcripts?: Record<AgentId, Transcript>;
   autoOpen?: boolean;
+  /** How long each operation step takes; a test makes it short. */
+  stepMs?: number;
 }
 
 export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
@@ -219,6 +242,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
   const server: FakeServer = {
     world,
     transcripts: opts.transcripts ?? {},
+    stepMs: opts.stepMs ?? 1000,
     requests,
     hostRefuses: {},
     sources,
@@ -449,6 +473,24 @@ function read(path: string, server: FakeServer): Reply {
   const params = new URLSearchParams(query);
   if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
   if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
+  if (pathname === '/api/operations') {
+    const limit = Number(params.get('limit') ?? 0);
+    const ops = Object.values(world.operations).sort(
+      (a, b) => Number(b.id.slice(2)) - Number(a.id.slice(2)),
+    );
+    return ok({ operations: limit > 0 ? ops.slice(0, limit) : ops });
+  }
+  const opLog = pathname.match(/^\/api\/operations\/([^/]+)\/log$/);
+  if (opLog) {
+    const id = decodeURIComponent(opLog[1]!);
+    const op = world.operations[id];
+    if (!op) return notFound(`operation ${id}`);
+    const lines = world.operationLogs[id] ?? {};
+    return ok({
+      operationId: id,
+      steps: op.steps.map((s) => ({ name: s.name, lines: lines[s.name] ?? [] })),
+    });
+  }
   const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff)$/);
   if (wt) {
     const id = decodeURIComponent(wt[1]!);
@@ -564,6 +606,12 @@ const waitName = (kind: string) => WAIT_NAMES[kind] ?? kind;
 /** The worktree command vocabularies, mirroring `orchestrator/validate.py`. */
 const SYNC_MODES: readonly string[] = ['plain', 'autorepair', 'squash'];
 const ENV_ACTIONS: readonly string[] = ['start', 'stop', 'restart'];
+/** What an environment operation reads, by action: while it runs, and once done. */
+const ENV_WORDS: Record<string, [string, string]> = {
+  start: ['Starting', 'Started'],
+  stop: ['Stopping', 'Stopped'],
+  restart: ['Restarting', 'Restarted'],
+};
 
 /**
  * The environment after an env call. A named service flips alone. A whole
@@ -1129,6 +1177,54 @@ function command(
     return ok({});
   }
 
+  // The slow worktree changes run as operations: the route answers at once with
+  // the id, and the steps move on `server.stepMs`. A refusal the real step
+  // makes is judged when its step runs, so it arrives on the operation.
+  const operate = (spec: FakeOperationSpec): Reply => {
+    const started = startOperation(server, spec);
+    if ('busy' in started) {
+      return {
+        status: 400,
+        body: {
+          error: {
+            code: 'invalid',
+            message: `Operation ${started.busy} is already running here`,
+            operationId: started.busy,
+          },
+        },
+      };
+    }
+    return { status: 202, body: started };
+  };
+  const moveWorktree = (id: string, patch: Partial<Worktree> | null) =>
+    server.change({ kind: 'worktree', ids: [id] }, (w) => {
+      if (patch === null) delete w.worktrees[id];
+      else w.worktrees[id] = { ...w.worktrees[id]!, ...patch };
+    });
+  // The real teardown stops every agent before git is asked, so a refused
+  // close has still stopped them.
+  const teardown = (id: string): FakeStep[] => [
+    { name: 'stop_env', lines: ['Stopped the environment.'] },
+    {
+      name: 'stop_agents',
+      run: () => {
+        const stopped = Object.values(world.agents).filter(
+          (a) => a.worktreeId === id && a.state !== 'exited',
+        );
+        for (const a of stopped) {
+          world.agents[a.id] = { ...a, state: 'exited', exitCode: 0, pendingRequestIds: [] };
+        }
+        if (stopped.length) server.change({ kind: 'agent', ids: stopped.map((a) => a.id) });
+      },
+    },
+    { name: 'stop_sessions' },
+  ];
+  const workspace = (worktree: Worktree): FakeStep => ({
+    name: 'close_workspace',
+    lines: [`Closed cmux workspace '${worktree.project}-${worktree.nato}'.`],
+  });
+  const closed = { isClosed: true, branch: '', base: '' };
+
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/close$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);
@@ -1138,29 +1234,33 @@ function command(
       return error(400, 'invalid', `${id} holds the main checkout and cannot be closed`);
     }
     if (worktree.isClosed) return error(400, 'invalid', `${id} is already closed`);
-    // Both refusals the real close makes, in its order — dirty tree, then
-    // unmerged commits — with the model's own wording.
-    if (worktree.dirtyFiles > 0) {
-      return error(400, 'invalid', 'Worktree has uncommitted changes');
-    }
-    if (worktree.localCommits > 0) {
-      return error(
-        400,
-        'invalid',
-        `Worktree has ${worktree.localCommits} commit(s) not merged to origin/main`,
-      );
-    }
-    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
-    server.change({ kind: 'worktree', ids: [id] });
-    // The real close stops every agent in the worktree.
-    const stopped = Object.values(world.agents).filter(
-      (a) => a.worktreeId === id && a.state !== 'exited',
-    );
-    for (const a of stopped) {
-      world.agents[a.id] = { ...a, state: 'exited', exitCode: 0, pendingRequestIds: [] };
-    }
-    if (stopped.length) server.change({ kind: 'agent', ids: stopped.map((a) => a.id) });
-    return ok({});
+    return operate({
+      kind: 'close',
+      worktreeId: id,
+      doing: `Closing ${worktree.nato}`,
+      done: `Closed ${worktree.nato}`,
+      failing: 'Could not close the worktree',
+      steps: [
+        ...teardown(id),
+        { name: 'rescue_env_vars' },
+        {
+          name: 'git_close',
+          lines: [`Closing worktree '${worktree.nato}'...`],
+          // Both refusals the real close makes, in its order — dirty tree,
+          // then unmerged commits — with the model's own wording.
+          refuse: () => {
+            const now = world.worktrees[id]!;
+            if (now.dirtyFiles > 0) return 'Worktree has uncommitted changes';
+            if (now.localCommits > 0) {
+              return `Worktree has ${now.localCommits} commit(s) not merged to origin/main`;
+            }
+            return undefined;
+          },
+          run: () => moveWorktree(id, closed),
+        },
+        workspace(worktree),
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/force-close$/);
@@ -1174,9 +1274,19 @@ function command(
     if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed already`);
     // No dirty-tree or unmerged-commit check: skipping them is what makes
     // this a force close.
-    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
-    server.change({ kind: 'worktree', ids: [id] });
-    return ok({});
+    return operate({
+      kind: 'shelve',
+      worktreeId: id,
+      doing: `Shelving ${worktree.nato}`,
+      done: `Shelved ${worktree.nato}`,
+      failing: 'Could not close the worktree',
+      steps: [
+        ...teardown(id),
+        { name: 'rescue_env_vars' },
+        { name: 'git_close', run: () => moveWorktree(id, closed) },
+        workspace(worktree),
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/trash$/);
@@ -1189,9 +1299,24 @@ function command(
     }
     if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
     // Uncommitted work is committed as wip, so nothing here refuses it.
-    world.worktrees[id] = { ...worktree, isClosed: true, branch: '', base: '' };
-    server.change({ kind: 'worktree', ids: [id] });
-    return ok({});
+    return operate({
+      kind: 'trash',
+      worktreeId: id,
+      doing: `Trashing ${worktree.nato}`,
+      done: `Trashed ${worktree.nato}`,
+      failing: 'Could not trash the worktree',
+      steps: [
+        { name: 'guard' },
+        ...teardown(id),
+        { name: 'rescue_env_vars' },
+        { name: 'commit_wip' },
+        { name: 'close_pr' },
+        { name: 'rename_remote' },
+        { name: 'detach', run: () => moveWorktree(id, closed) },
+        { name: 'rename' },
+        workspace(worktree),
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)$/);
@@ -1203,9 +1328,19 @@ function command(
       return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
     }
     // A closed worktree is removable: deleting a parked one is the point.
-    delete world.worktrees[id];
-    server.change({ kind: 'worktree', ids: [id] });
-    return ok({});
+    return operate({
+      kind: 'delete',
+      worktreeId: id,
+      doing: `Deleting ${worktree.nato}`,
+      done: `Deleted ${worktree.nato}`,
+      failing: 'Could not remove the worktree',
+      steps: [
+        { name: 'check_dirty' },
+        ...teardown(id),
+        { name: 'git_remove', run: () => moveWorktree(id, null) },
+        workspace(worktree),
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/sync$/);
@@ -1218,13 +1353,26 @@ function command(
     if (!SYNC_MODES.includes(mode)) {
       return error(400, 'invalid', `Unknown sync mode: ${mode}`);
     }
-    // A sync moves counts the fake does not model, but it makes the PR head the
-    // local head. The change still goes out, so a test can see the call landed.
-    if (worktree.prNumber != null && worktree.prMatch) {
-      world.worktrees[id] = { ...worktree, prMatch: 'match' };
-    }
-    server.change({ kind: 'worktree', ids: [id] });
-    return ok({});
+    return operate({
+      kind: 'sync',
+      worktreeId: id,
+      doing: `Syncing ${worktree.nato}`,
+      done: `Synced ${worktree.nato}`,
+      failing: 'Could not sync the worktree',
+      steps: [
+        {
+          name: 'rebase',
+          lines: [`Rebased ${worktree.branch} onto origin/${worktree.base || 'main'}.`],
+          // A sync moves counts the fake does not model, but it makes the PR
+          // head the local head. The change still goes out, so a test can see
+          // the call landed.
+          run: () => {
+            const now = world.worktrees[id]!;
+            moveWorktree(id, now.prNumber != null && now.prMatch ? { prMatch: 'match' } : {});
+          },
+        },
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/merge-pr$/);
@@ -1240,9 +1388,47 @@ function command(
         `The local branch differs from PR #${worktree.prNumber}. Sync it first.`,
       );
     }
-    world.worktrees[id] = { ...worktree, prState: 'merged', prMergedAt: new Date().toISOString() };
-    server.change({ kind: 'worktree', ids: [id] });
+    return operate({
+      kind: 'merge',
+      worktreeId: id,
+      doing: `Merging the pull request of ${worktree.nato}`,
+      done: `Merged the pull request of ${worktree.nato}`,
+      failing: 'Could not merge the pull request',
+      steps: [
+        {
+          name: 'merge_pr',
+          run: () => moveWorktree(id, { prState: 'merged', prMergedAt: new Date().toISOString() }),
+        },
+      ],
+    });
+  }
+
+  m = pathname.match(/^\/api\/operations\/([^/]+)\/seen$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const op = world.operations[id];
+    if (!op) return notFound(`operation ${id}`);
+    server.change({ kind: 'operation', ids: [id] }, (w) => {
+      w.operations[id] = { ...op, seen: true };
+    });
     return ok({});
+  }
+
+  m = pathname.match(/^\/api\/operations\/([^/]+)\/retry$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const op = world.operations[id];
+    if (!op) return notFound(`operation ${id}`);
+    if (op.state !== 'refused' && op.state !== 'failed') {
+      return error(400, 'invalid', `Operation ${id} is ${op.state}`);
+    }
+    const again = retryOperation(server, id);
+    // A seeded operation has no steps the fake can run again.
+    if (again === null) return error(400, 'invalid', `Operation ${id} cannot run again here`);
+    if ('busy' in again) {
+      return error(400, 'invalid', `Operation ${again.busy} is already running here`);
+    }
+    return { status: 202, body: again };
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/comments$/);
@@ -1301,9 +1487,22 @@ function command(
       }
       if (action === 'restart') return error(400, 'invalid', 'A single service cannot restart');
     }
-    world.worktrees[id] = { ...worktree, env: actOnEnv(env, action, named) };
-    server.change({ kind: 'worktree', ids: [id] });
-    return ok({});
+    const subject = named ? `${named} in ${worktree.nato}` : `the environment of ${worktree.nato}`;
+    const [doing, done] = ENV_WORDS[action]!;
+    return operate({
+      kind: 'env',
+      worktreeId: id,
+      doing: `${doing} ${subject}`,
+      done: `${done} ${subject}`,
+      failing: 'Could not change the environment',
+      steps: [
+        { name: 'stop_env' },
+        {
+          name: 'start_env',
+          run: () => moveWorktree(id, { env: actOnEnv(env, action, named) }),
+        },
+      ],
+    });
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/terminal$/);

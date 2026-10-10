@@ -126,6 +126,8 @@ describe('the Worktree card of a worktree with no node', () => {
     await waitFor(() =>
       expect(commandsSince(server, before)).toEqual(['POST /api/worktrees/northwind-charlie/sync']),
     );
+    // One operation per worktree: the env waits for the sync to end.
+    await waitFor(() => expect(server.world.operations['op1']?.state).toBe('done'));
     await user.click(within(card()).getByRole('button', { name: 'Start env' }));
     await waitFor(() =>
       expect(within(card()).getByRole('button', { name: 'Stop env' })).toBeInTheDocument(),

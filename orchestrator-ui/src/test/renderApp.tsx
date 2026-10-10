@@ -12,6 +12,9 @@ import type { FakeServer, FakeServerOptions } from '../fake/fakeServer';
 import { SCENARIOS, type ScenarioName } from '../fake/scenarios';
 import { setViewportWidth } from './setup';
 
+/** How long each fake operation step takes in the suite. */
+export const OPERATION_STEP_MS = 20;
+
 /** The three viewports the app draws for: a phone, a laptop and the main monitor. */
 export const VIEWPORTS = { narrow: 390, medium: 1440, wide: 1920 } as const;
 
@@ -64,10 +67,12 @@ export async function renderApp(
   // so only a second mount in one test finds any.
   resetToPageLoad();
   const seed = SCENARIOS[opts.scenario ?? 'desk'].build();
-  const { server, queryClient, deps } = fakeDeps({
-    world: seed.world,
-    transcripts: opts.transcripts ?? seed.transcripts,
-  });
+  const { server, queryClient, deps } = fakeDeps(
+    { world: seed.world, transcripts: opts.transcripts ?? seed.transcripts },
+    // Short, so an operation ends inside a `waitFor`; long enough that a
+    // test can still see one running.
+    { stepMs: OPERATION_STEP_MS },
+  );
   if (opts.ready === false) server.hold();
   // A memory router, so a test reads `router.state.location` and moves with `router.navigate`.
   const router = createMemoryRouter(routes, { initialEntries: [opts.url ?? '/desk'] });
