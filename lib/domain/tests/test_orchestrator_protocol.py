@@ -38,6 +38,9 @@ def make_task(**over):
         "startedAt": "",
         "landing": None,
         "comms": [],
+        "schedule": "",
+        "trigger": "",
+        "lastRun": "",
     }
     task.update(over)
     return task

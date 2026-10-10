@@ -110,6 +110,9 @@ export function task(spec: TaskSpec): Task {
           ? { status: 'done', envs: {} }
           : null,
     comms: spec.comms ?? [],
+    schedule: '',
+    trigger: '',
+    lastRun: '',
   };
 }
 

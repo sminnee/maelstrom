@@ -211,6 +211,11 @@ export interface Task {
   landing: TaskLanding | null;
   /** The ids of the comms the task feeds, e.g. `c3`. */
   comms: string[];
+  /** A template's cron schedule, and what else fires it. */
+  schedule: string;
+  trigger: string;
+  /** When a template last fired, ISO 8601, or `''` when it never has. */
+  lastRun: string;
 }
 
 /** One deploy environment's reading for a done task. `unknown` never counts as reached. */
