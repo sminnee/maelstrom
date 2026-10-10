@@ -1,3 +1,4 @@
+import type { TaskRow } from '../api/types';
 import type { PrState, Worktree } from '../protocol/entities';
 import type { GraphNode } from './graph';
 
@@ -15,6 +16,9 @@ export interface PrReading {
 /** The node fields the choice reads. */
 export type CardPrFacts = Pick<GraphNode, 'task' | 'worktree'>;
 
+/** Whether a task has a **Registered PR**: whether its card draws a PR chip. */
+export const hasRegisteredPr = (task: TaskRow | undefined): task is TaskRow => !!task?.prNumber;
+
 /**
  * The PR a card shows: the **Registered PR** of its own task, never its
  * chain's or its branch's. A free agent has no task, so none. Its state comes
@@ -26,7 +30,7 @@ export type CardPrFacts = Pick<GraphNode, 'task' | 'worktree'>;
  */
 export function cardPr(node: CardPrFacts, worktree = node.worktree): PrReading | undefined {
   const task = node.task;
-  if (!task?.prNumber) return undefined;
+  if (!hasRegisteredPr(task)) return undefined;
   const pr = { number: task.prNumber, url: task.prUrl };
   if (!worktree || !samePr(pr, worktree)) return { ...pr, state: '', draft: false };
   return {
