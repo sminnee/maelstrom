@@ -18,6 +18,7 @@ from mael_domain.worktree_close import (
     remove_worktree_fully,
 )
 from mael_domain.worktree_model import CopyBackResult
+from mael_domain.worktree_steps import StepHook
 
 WORKTREE_PATH = Path("/Users/dev/Projects/myproject/myproject-alpha")
 PROJECT_PATH = Path("/Users/dev/Projects/myproject")
@@ -53,6 +54,20 @@ def steps(**over) -> CloseSteps:
         dirty_files=lambda path: [],
     )
     return CloseSteps(**{**defaults, **over})
+
+
+class Planned(StepHook):
+    """A hook that notes the plan it hears, and skips the steps it is told to."""
+
+    def __init__(self, skip: tuple[str, ...] = ()) -> None:
+        self.names: list[str] = []
+        self.skip = skip
+
+    def planned(self, names: list[str]) -> None:
+        self.names = names
+
+    def skips(self, name: str) -> bool:
+        return name in self.skip
 
 
 async def run(**over):
@@ -376,3 +391,57 @@ def test_the_workspace_step_closes_the_worktrees_cmux_workspace(fake_cmux):
 
 def test_the_workspace_step_is_a_no_op_outside_cmux():
     assert CloseSteps().close_workspace("myproject", "alpha") is False
+
+
+class TestTheHook:
+    """The server hears a close through the hook it passes in."""
+
+    async def test_the_hook_hears_the_close_s_steps(self):
+        hook = Planned()
+        await close_worktree_fully(
+            "myproject", "alpha", WORKTREE_PATH, PROJECT_PATH, steps=steps(), hook=hook
+        )
+        assert hook.names == [
+            "stop_env",
+            "stop_agents",
+            "stop_sessions",
+            "rescue_env_vars",
+            "git_close",
+            "close_workspace",
+        ]
+
+    async def test_a_retry_that_skips_the_done_git_close_still_succeeds(self):
+        """A retry after close_workspace failed has no CloseResult of its own."""
+        hook = Planned(
+            skip=(
+                "stop_env",
+                "stop_agents",
+                "stop_sessions",
+                "rescue_env_vars",
+                "git_close",
+            )
+        )
+        result = await close_worktree_fully(
+            "myproject", "alpha", WORKTREE_PATH, PROJECT_PATH, steps=steps(), hook=hook
+        )
+        assert result.close.success
+
+    async def test_the_hook_hears_the_remove_s_steps(self):
+        hook = Planned()
+        await remove_worktree_fully(
+            "myproject",
+            "alpha",
+            WORKTREE_PATH,
+            PROJECT_PATH,
+            "myproject-alpha",
+            steps=steps(),
+            hook=hook,
+        )
+        assert hook.names == [
+            "check_dirty",
+            "stop_env",
+            "stop_agents",
+            "stop_sessions",
+            "git_remove",
+            "close_workspace",
+        ]

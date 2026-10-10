@@ -23,6 +23,8 @@ from mael_domain.worktree_steps import (
     Scope,
     SequenceResult,
     Step,
+    StepEnd,
+    StepHook,
     StepOutcome,
     run_sequence,
     scope_lock,
@@ -118,6 +120,90 @@ class TestAnnounce:
             step("a", StepOutcome(messages=["one"])), announce=seen.append
         )
         assert result.messages == seen
+
+
+class Listening(StepHook):
+    """A hook that writes down what it hears, and skips the steps it is told to."""
+
+    def __init__(self, skip: tuple[str, ...] = ()) -> None:
+        self.heard: list[tuple[str, str] | StepEnd] = []
+        self.skip = skip
+
+    def skips(self, name: str) -> bool:
+        return name in self.skip
+
+    def planned(self, names: list[str]) -> None:
+        self.heard.append(("plan", ",".join(names)))
+
+    def started(self, name: str) -> None:
+        self.heard.append(("start", name))
+
+    def ended(self, end: StepEnd) -> None:
+        self.heard.append(end)
+
+
+class TestTheHook:
+    """The hook is how the server hears each step as it runs."""
+
+    async def test_the_hook_hears_each_step_start_and_end(self):
+        hook = Listening()
+        await run_sequence(
+            [
+                step("a", StepOutcome(messages=["one"])),
+                step("b", StepOutcome()),
+            ],
+            announce=lambda line: None,
+            hook=hook,
+        )
+        assert hook.heard == [
+            ("plan", "a,b"),
+            ("start", "a"),
+            StepEnd(name="a", state="done", lines=["one"], words=None),
+            ("start", "b"),
+            StepEnd(name="b", state="done", lines=[], words=None),
+        ]
+
+    async def test_a_blocked_step_ends_refused_and_nothing_after_it_starts(self):
+        hook = Listening()
+        await run_sequence(
+            [
+                Step(name="git_close", run=lambda: StepOutcome(blocked="2 commits")),
+                step("after", StepOutcome()),
+            ],
+            announce=lambda line: None,
+            hook=hook,
+        )
+        assert hook.heard[1:] == [
+            ("start", "git_close"),
+            StepEnd(name="git_close", state="refused", lines=[], words="2 commits"),
+        ]
+
+    async def test_a_step_that_raises_ends_failed_and_the_error_still_rises(self):
+        def boom() -> StepOutcome:
+            raise RuntimeError("git exited 128")
+
+        hook = Listening()
+        with pytest.raises(RuntimeError):
+            await run_sequence(
+                [Step(name="git_close", run=boom)],
+                announce=lambda line: None,
+                hook=hook,
+            )
+        assert hook.heard[1:] == [
+            ("start", "git_close"),
+            StepEnd(name="git_close", state="failed", lines=[], words="git exited 128"),
+        ]
+
+    async def test_a_step_the_hook_skips_does_not_run(self):
+        order: list[str] = []
+        hook = Listening(skip=("a",))
+        await run_sequence(
+            [recording("a", order), recording("b", order)],
+            announce=lambda line: None,
+            hook=hook,
+        )
+        assert order == ["b"]
+        assert ("start", "a") not in hook.heard
 
 
 class TestScopes:

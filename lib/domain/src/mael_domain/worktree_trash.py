@@ -42,7 +42,7 @@ from .worktree_model import (
     is_worktree_closable,
     trash_name,
 )
-from .worktree_steps import Scope, Step, StepOutcome, run_sequence
+from .worktree_steps import Scope, Step, StepHook, StepOutcome, run_sequence
 
 
 @dataclass
@@ -127,6 +127,7 @@ async def trash_worktree_fully(
     steps: TrashSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
 ) -> FullCloseResult:
     """Trash the branch ``worktree`` holds, and close the worktree.
 
@@ -202,6 +203,7 @@ async def trash_worktree_fully(
         repo=project_path,
         worktree=worktree_path,
         executor=executor,
+        hook=hook,
     )
     return FullCloseResult(
         close=CloseResult(

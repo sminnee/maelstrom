@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from mael_domain.worktree import SyncResult
 from mael_domain.worktree_ops import EnvSteps, SyncSteps, run_env, run_sync
+from mael_domain.worktree_steps import StepHook
 
 WORKTREE_PATH = Path("/Users/dev/Projects/myproject/myproject-alpha")
 PROJECT_PATH = Path("/Users/dev/Projects/myproject")
@@ -34,6 +35,20 @@ def env_steps(**over) -> EnvSteps:
         stop=lambda project, worktree, services: [],
     )
     return EnvSteps(**{**defaults, **over})
+
+
+class Planned(StepHook):
+    """A hook that notes the plan it hears, and skips the steps it is told to."""
+
+    def __init__(self, skip: tuple[str, ...] = ()) -> None:
+        self.names: list[str] = []
+        self.skip = skip
+
+    def planned(self, names: list[str]) -> None:
+        self.names = names
+
+    def skips(self, name: str) -> bool:
+        return name in self.skip
 
 
 class TestSyncModes:
@@ -253,3 +268,26 @@ class TestEnvActions:
         )
         assert not result.ok
         start.assert_not_called()
+
+
+async def test_the_hook_hears_a_sync_and_an_env_change():
+    synced, changed = Planned(), Planned()
+    await run_sync(
+        "myproject",
+        "alpha",
+        WORKTREE_PATH,
+        PROJECT_PATH,
+        "plain",
+        steps=sync_steps(),
+        hook=synced,
+    )
+    await run_env(
+        "myproject",
+        "alpha",
+        WORKTREE_PATH,
+        PROJECT_PATH,
+        "restart",
+        steps=env_steps(),
+        hook=changed,
+    )
+    assert (synced.names, changed.names) == (["rebase"], ["stop_env", "start_env"])

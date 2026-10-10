@@ -40,7 +40,7 @@ from .worktree import (
     remove_worktree_by_path,
 )
 from .worktree_model import CopyBackResult
-from .worktree_steps import Scope, Step, StepOutcome, run_sequence
+from .worktree_steps import Scope, Step, StepHook, StepOutcome, run_sequence
 
 # Each default adapts one collaborator's signature to the CloseSteps shape:
 # injecting the store, naming the `force` keyword, coercing a sequence.
@@ -208,6 +208,7 @@ async def close_worktree_fully(
     steps: CloseSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
 ) -> FullCloseResult:
     """Close ``worktree`` and everything living in it.
 
@@ -277,13 +278,15 @@ async def close_worktree_fully(
         repo=project_path,
         worktree=worktree_path,
         executor=executor,
+        hook=hook,
     )
     return FullCloseResult(
-        # A sequence blocked before the git step never produced a CloseResult.
-        # Its own refusal stands in, so a caller reads one shape either way.
+        # No CloseResult when the git step was blocked before it ran, or a retry
+        # skipped it. The sequence's own outcome stands in, so a caller reads one
+        # shape either way.
         close=closed[0]
         if closed
-        else CloseResult(success=False, message=ran.blocked or ""),
+        else CloseResult(success=ran.ok, message=ran.blocked or ""),
         messages=ran.messages,
         copy_back=rescue,
         messages_before_copy_back=split,
@@ -301,6 +304,7 @@ async def remove_worktree_fully(
     steps: CloseSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
 ) -> FullCloseResult:
     """Remove ``worktree`` and everything living in it.
 
@@ -378,6 +382,7 @@ async def remove_worktree_fully(
         repo=project_path,
         worktree=worktree_path,
         executor=executor,
+        hook=hook,
     )
     return FullCloseResult(
         close=CloseResult(success=ran.ok, message=ran.blocked or "Worktree removed."),

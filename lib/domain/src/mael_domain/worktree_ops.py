@@ -22,7 +22,14 @@ from pathlib import Path
 from .env import start_env, stop_env
 from .env_store import JsonEnvStore
 from .worktree import SyncResult, sync_worktree, sync_worktree_with_autorepair
-from .worktree_steps import Scope, SequenceResult, Step, StepOutcome, run_sequence
+from .worktree_steps import (
+    Scope,
+    SequenceResult,
+    Step,
+    StepHook,
+    StepOutcome,
+    run_sequence,
+)
 
 #: The three settings ``mael sync`` has, which the one sync operation chooses
 #: between. Mirrored by ``validate.SYNC_MODES``.
@@ -96,6 +103,7 @@ async def run_sync(
     steps: SyncSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
 ) -> SequenceResult:
     """Rebase ``worktree`` onto its base.
 
@@ -127,6 +135,7 @@ async def run_sync(
         repo=project_path,
         worktree=worktree_path,
         executor=executor,
+        hook=hook,
     )
 
 
@@ -141,6 +150,7 @@ async def run_env(
     steps: EnvSteps | None = None,
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
 ) -> SequenceResult:
     """Start, stop or restart the environment in ``worktree``.
 
@@ -183,4 +193,5 @@ async def run_env(
         repo=project_path,
         worktree=worktree_path,
         executor=executor,
+        hook=hook,
     )

@@ -152,18 +152,30 @@ is unbounded, so the pool's width would bound nothing.
 That width is for overlap, not for correctness. The scopes are what enforce correctness, so do not
 reduce it to one.
 
-## Designed for streaming
+## The step hook
 
-Per-step progress is a planned next iteration, so the runner takes that seam now.
+`run_sequence` takes an optional `hook: StepHook`, so a caller hears each step as it runs. The
+server uses it to publish the progress of an **Operation**. The CLI passes none. Every builder
+above takes `hook=` and passes it through, so no step changes.
 
-A sequence is driven through one `announce: Callable[[str], None]` — the argument
-`sync_worktree_with_autorepair` and `setup_worktree_for_branch` already take. The CLI passes
-`click.echo`; the server passes a collector. When streaming lands, the server passes a callback that
-publishes a notice, and no step changes.
+| Call | When |
+|---|---|
+| `planned(names)` | Once, before the first step, with every step name in order |
+| `skips(name)` | Before each step. `True` passes the step over |
+| `started(name)` | Before a step runs |
+| `ended(StepEnd)` | After a step, with its state, lines and words |
 
-Two properties make that swap cheap. A step is **named**, so a later notice can say "stopping env"
-rather than relaying a raw line — `SequenceResult.blocked_step` carries which step refused. And a
-step **announces as it goes and returns its lines too**: the returned `messages` stay the record of
-the whole run, and `announce` is the live edge.
+`StepEnd.state` is `done`, `refused` or `failed`. A `blocked` outcome is `refused`: the step said
+no on purpose. An exception is `failed`, and the exception still rises, because the caller decides
+what to do with a fault. `words` is the refusal or the error.
 
-The notice kind, the per-row client state, and the channel that carries them are not built.
+`skips` is how a retry starts from the first step that did not finish: see
+[orchestrator-server.md](orchestrator-server.md#operations), "Operations". A hook never splits a
+git algorithm to get a finer grain: see "What stays whole".
+
+`announce` carries the lines live, and `SequenceResult` is the record of the whole run.
+
+**Known limit.** A builder may read state before its sequence runs: `trash_worktree_fully` reads
+the branch. A retry reads that state again, so a step after `detach` would find no branch. The
+server refuses that retry first: the worktree is closed by then, and the retried command is
+validated again.
