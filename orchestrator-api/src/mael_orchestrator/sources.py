@@ -203,6 +203,14 @@ class TaskSource(Protocol):
         """The revision a later :meth:`read_since` should be asked from."""
         ...
 
+    async def markdown(self, task_id: str) -> str | None:
+        """The task as the notebook renders it, by wire id; ``None`` when there is none.
+
+        The wire task is a projection: it fills in a default branch and splits
+        the log. ``mael task read`` shows the notebook's own text.
+        """
+        ...
+
     async def read_some(self, task_ids: list[str]) -> list[Task]:
         """The named tasks, by wire id. An id that names no task is left out.
 
@@ -465,6 +473,10 @@ class NotebookTaskSource:
             started_at=self._first_starts.get(session, ""),
             landing=await self.landings.landing_of(task),
         )
+
+    async def markdown(self, task_id: str) -> str | None:
+        task = await self.table.load(*split_task_key(task_id))
+        return task.to_markdown() if task is not None else None
 
     async def read_some(self, task_ids: list[str]) -> list[Task]:
         entities: list[Task] = []
