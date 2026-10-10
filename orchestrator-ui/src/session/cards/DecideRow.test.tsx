@@ -7,39 +7,45 @@ function precedes(a: Element, b: Element) {
   return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
-function parts() {
-  return [
-    screen.getByRole('button', { name: 'Approve' }),
-    screen.getByRole('textbox', { name: 'Deny reason' }),
-    screen.getByRole('button', { name: 'Deny' }),
-  ] as const;
-}
+const field = () => screen.getByRole('textbox', { name: 'Deny reason' });
 
 describe('DecideRow', () => {
   // DOM order is the tab order, and DESIGN.md wants it to match what the eye reads.
-  it('puts the field first, with both buttons in a row under it, Approve leading', () => {
+  it('puts the field first, with the one button under it', () => {
     render(<DecideRow onDecide={vi.fn()} />);
-    const [approve, field, deny] = parts();
-    expect(precedes(field, approve)).toBe(true);
-    expect(precedes(approve, deny)).toBe(true);
-    expect(approve.parentElement).toContainElement(deny);
-    expect(approve.parentElement).not.toContainElement(field);
+    const approve = screen.getByRole('button', { name: 'Approve' });
+    expect(precedes(field(), approve)).toBe(true);
+    expect(approve.parentElement).not.toContainElement(field());
   });
 
-  it('withholds Deny until there is a reason to give', async () => {
+  it('turns Approve into Deny while the field holds a comment, and back', async () => {
     render(<DecideRow onDecide={vi.fn()} />);
-    const deny = screen.getByRole('button', { name: 'Deny' });
-    expect(deny).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Deny reason' }), 'too risky');
-    expect(deny).toBeEnabled();
+    await userEvent.type(field(), 'too risky');
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+
+    await userEvent.clear(field());
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
+  });
+
+  it('counts whitespace as no comment', async () => {
+    const onDecide = vi.fn();
+    render(<DecideRow onDecide={onDecide} />);
+
+    await userEvent.type(field(), '   ');
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(onDecide).toHaveBeenCalledWith('approve', '');
   });
 
   it('sends the reason trimmed', async () => {
     const onDecide = vi.fn();
     render(<DecideRow onDecide={onDecide} />);
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Deny reason' }), '  too risky  ');
+    await userEvent.type(field(), '  too risky  ');
     await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
 
     expect(onDecide).toHaveBeenCalledWith('deny', 'too risky');
@@ -49,36 +55,17 @@ describe('DecideRow', () => {
     const onDecide = vi.fn();
     render(<DecideRow onDecide={onDecide} />);
 
-    await userEvent.type(
-      screen.getByRole('textbox', { name: 'Deny reason' }),
-      'too risky{Enter}try a dry run',
-    );
+    await userEvent.type(field(), 'too risky{Enter}try a dry run');
     await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
 
     expect(onDecide).toHaveBeenCalledWith('deny', 'too risky\ntry a dry run');
   });
 
-  it('counts whitespace as no reason', async () => {
-    render(<DecideRow onDecide={vi.fn()} />);
-
-    await userEvent.type(screen.getByRole('textbox', { name: 'Deny reason' }), '   ');
-
-    expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
-  });
-
-  it('approves with no reason, whatever the field holds', async () => {
-    const onDecide = vi.fn();
-    render(<DecideRow onDecide={onDecide} />);
-
-    await userEvent.type(screen.getByRole('textbox', { name: 'Deny reason' }), 'ignored');
-    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
-
-    expect(onDecide).toHaveBeenCalledWith('approve', '');
-  });
-
-  it('offers both acts but takes neither with no handler', () => {
+  it('takes no act with no handler', async () => {
     render(<DecideRow />);
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+
+    await userEvent.type(field(), 'too risky');
     expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
   });
 

@@ -600,9 +600,9 @@ summary and leaves no body to hide — see
 A decision shows the last three things the agent said, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer
 sends together. A split button at the row's right end refuses the question — see `CONTEXT.md`, "Decline".
-Decline sends `agent.deny` with a fixed reason. Decline & stop sends `agent.interrupt`. A permission shows the tool input with Approve and Deny. A plan review links
-to the plan with Approve and Deny. Both use one control, `session/cards/DecideRow.tsx`. Deny
-sends the reason as the agent's tool result, and the
+Decline sends `agent.deny` with a fixed reason. Decline & stop sends `agent.interrupt`. A permission shows the tool input, and a plan review links to the plan. Both use one control,
+`session/cards/DecideRow.tsx`. It shows one button: Approve while the field is empty, Deny once
+it holds a comment. Deny sends the reason as the agent's tool result, and the
 agent carries on with it. The expanded node and the document tab render the same
 `DecisionCard`, so the two agree. A `variant` prop says which surface it draws on: `block` is the
 card, where the decision is read and the context rail is inline and open; `dock` is the band

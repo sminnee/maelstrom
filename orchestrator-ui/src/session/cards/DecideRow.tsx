@@ -9,7 +9,7 @@ import styles from './cards.module.css';
  * A permission request and a plan review ask the same thing of the user, so
  * they ask it in the same shape.
  *
- * The field leads, and Approve leads the buttons under it, as the primary —
+ * A comment in the field turns Approve into Deny, so the comment is never lost —
  * see `orchestrator-ui/DESIGN.md`, "Review Dock".
  */
 export function DecideRow({
@@ -19,6 +19,7 @@ export function DecideRow({
   onDecide?: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
 }) {
   const [reason, setReason] = useState('');
+  const denying = reason.trim() !== '';
   return (
     <div className={`${styles.options} ${styles.decide}`} data-role="prompt-actions">
       <TextArea
@@ -26,26 +27,32 @@ export function DecideRow({
         rows={1}
         className={styles.reasonInput}
         aria-label="Deny reason"
-        placeholder="Reason to deny"
+        placeholder="Comment to deny"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
       <div className={styles.buttons}>
-        <AppButton
-          icon={actionIcon('approve')}
-          variant="primary"
-          disabled={!onDecide}
-          onClick={() => onDecide?.('approve', '')}
-        >
-          Approve
-        </AppButton>
-        <AppButton
-          icon={actionIcon('deny')}
-          disabled={!onDecide || !reason.trim()}
-          onClick={() => onDecide?.('deny', reason.trim())}
-        >
-          Deny
-        </AppButton>
+        {denying ? (
+          <AppButton
+            key="deny"
+            icon={actionIcon('deny')}
+            variant="danger"
+            disabled={!onDecide}
+            onClick={() => onDecide?.('deny', reason.trim())}
+          >
+            Deny
+          </AppButton>
+        ) : (
+          <AppButton
+            key="approve"
+            icon={actionIcon('approve')}
+            variant="primary"
+            disabled={!onDecide}
+            onClick={() => onDecide?.('approve', '')}
+          >
+            Approve
+          </AppButton>
+        )}
       </div>
     </div>
   );
