@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Dialog, DialogFooter } from './Dialog';
 
@@ -94,6 +94,104 @@ describe('the dialog shell', () => {
     const box = open(onClose);
     fireEvent(box, new Event('cancel', { bubbles: false, cancelable: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the focused field', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * A box that records its own scroll, with a field `top` px down its content
+   * and `height` tall. The field's rect moves as the box scrolls.
+   */
+  function form(field: { top: number; height: number }) {
+    const viewport = Object.assign(new EventTarget(), { height: 900, offsetTop: 0 });
+    vi.stubGlobal('visualViewport', viewport);
+    const view = render(
+      <Dialog label="Test" onClose={() => {}}>
+        <label>
+          Base <input />
+        </label>
+        <label>
+          Title <input />
+        </label>
+      </Dialog>,
+    );
+    const box = screen.getByRole('dialog', { name: 'Test' });
+    let height = 900;
+    let scrollTop = 0;
+    Object.defineProperty(box, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+    box.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 400, height });
+    const base = screen.getByRole('textbox', { name: 'Base' });
+    base.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 0, y: field.top - scrollTop, width: 400, height: field.height });
+    /** The keyboard opens: the visible area, and so the box, is now `to` tall. */
+    const keyboard = (to: number) => {
+      height = to;
+      viewport.height = to;
+      viewport.dispatchEvent(new Event('resize'));
+      vi.advanceTimersToNextFrame();
+    };
+    const drawn = () => base.getBoundingClientRect();
+    return { box, base, keyboard, drawn, scrolled: () => scrollTop, unmount: view.unmount };
+  }
+
+  it('scrolls the box to a field the keyboard covers, to 16px above its foot', () => {
+    const { base, keyboard, drawn } = form({ top: 600, height: 40 });
+    fireEvent.focus(base);
+    vi.advanceTimersToNextFrame();
+    // In view before the keyboard: nothing moves.
+    expect(drawn().bottom).toBe(640);
+
+    keyboard(500);
+    expect(drawn().bottom).toBe(484);
+    // A second resize finds it in view, and leaves it there.
+    keyboard(500);
+    expect(drawn().bottom).toBe(484);
+  });
+
+  it('scrolls back to a field above the top of the box, to 16px below it', () => {
+    const { box, base, drawn } = form({ top: 50, height: 40 });
+    box.scrollTop = 100;
+    fireEvent.focus(base);
+    vi.advanceTimersToNextFrame();
+    expect(drawn().top).toBe(16);
+  });
+
+  it('leaves a field taller than the box where it is, so the caret stays in view', () => {
+    const { base, keyboard, scrolled } = form({ top: 100, height: 900 });
+    fireEvent.focus(base);
+    keyboard(500);
+    expect(scrolled()).toBe(0);
+  });
+
+  it('leaves the box alone once the field has lost the focus', () => {
+    const { base, keyboard, scrolled } = form({ top: 600, height: 40 });
+    fireEvent.focus(base);
+    fireEvent.blur(base);
+    keyboard(500);
+    expect(scrolled()).toBe(0);
+  });
+
+  it('stops watching when the dialog goes while the field has the focus', () => {
+    // A removed field fires no blur in every browser.
+    const { base, keyboard, scrolled, unmount } = form({ top: 600, height: 40 });
+    fireEvent.focus(base);
+    unmount();
+    keyboard(500);
+    expect(scrolled()).toBe(0);
   });
 });
 

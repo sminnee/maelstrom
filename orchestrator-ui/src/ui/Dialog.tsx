@@ -48,6 +48,8 @@ export function Dialog({
   // element both the press and the release were in, so a drag from a field out
   // to the backdrop clicks the dialog too.
   const backdropPress = useRef(false);
+  // The focused field's reveal, ended by the next focus or the unmount.
+  const reveals = useRef<AbortController | null>(null);
   const side = placement === 'side';
 
   // Open from a callback ref, not an effect: `showModal()` throws on a dialog
@@ -70,6 +72,8 @@ export function Dialog({
     // screen reader reads the dialog from its start.
     box.current?.focus({ preventScroll: true });
     return () => {
+      // A field removed while focused fires no blur in every browser.
+      reveals.current?.abort();
       if (opener instanceof HTMLElement && opener.isConnected)
         opener.focus({ preventScroll: true });
     };
@@ -87,6 +91,12 @@ export function Dialog({
       // box's edge, is inside by the DOM tree; the box's own padding is inside
       // by its rect.
       closedby="any"
+      onFocus={(e) => {
+        boxProps?.onFocus?.(e);
+        reveals.current?.abort();
+        reveals.current = new AbortController();
+        revealWhileFocused(e.currentTarget, e.target, reveals.current.signal);
+      }}
       // Escape, and a backdrop click under `closedby`, arrive as `cancel`. Taking
       // it here, not on the document, lets a control inside stop Escape first;
       // the combo box does.
@@ -108,6 +118,54 @@ export function Dialog({
       {children}
     </dialog>
   );
+}
+
+/** The room a revealed field keeps from the box's edge. */
+const REVEAL_MARGIN = 16;
+
+/**
+ * Scroll `box` until `field` is in view, now and each time the visible area
+ * resizes while the field has the focus.
+ *
+ * A soft keyboard opens after the focus. iOS scrolls toward the field before
+ * the box shrinks, so a field low in a long form ends under the keyboard. A
+ * frame after each resize, `--vvh` is written and the box has its new height.
+ * Only the box scrolls: `scrollIntoView` would scroll the page too.
+ */
+function revealWhileFocused(box: HTMLElement, field: EventTarget, signal: AbortSignal) {
+  if (!(field instanceof HTMLElement) || field === box) return;
+  let frame = 0;
+  const schedule = () => {
+    if (!frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        reveal(box, field);
+      });
+  };
+  const stop = new AbortController();
+  const end = () => {
+    stop.abort();
+    if (frame) cancelAnimationFrame(frame);
+  };
+  signal.addEventListener('abort', end, { signal: stop.signal });
+  field.addEventListener('blur', end, { signal: stop.signal });
+  window.visualViewport?.addEventListener('resize', schedule, { signal: stop.signal });
+  schedule();
+}
+
+/**
+ * Scroll `box` the least that puts `field` inside it, clear of its edges. A
+ * field taller than the box is left alone: its foot would take the caret off
+ * screen.
+ */
+function reveal(box: HTMLElement, field: HTMLElement) {
+  const outer = box.getBoundingClientRect();
+  const inner = field.getBoundingClientRect();
+  if (inner.height > outer.height - 2 * REVEAL_MARGIN) return;
+  const below = inner.bottom - (outer.bottom - REVEAL_MARGIN);
+  const above = outer.top + REVEAL_MARGIN - inner.top;
+  if (below > 0) box.scrollTop += below;
+  else if (above > 0) box.scrollTop -= above;
 }
 
 /** Whether `closedby` works here. Where it does, the fallback would close twice. */
