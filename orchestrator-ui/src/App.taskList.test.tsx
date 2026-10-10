@@ -639,11 +639,12 @@ describe('the task list', () => {
     expect(server.requests.some((r) => r.method === 'PATCH')).toBe(false);
   });
 
-  it('asks before it deletes from the dialog, and closes once it has', async () => {
+  it('asks before it deletes from the dialog in edit mode, and closes once it has', async () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
-    const editor = await openTask(user, 'NORT-9', 'Migrate to Postgres 16');
+    // View mode's Delete is covered by 'a delete the dialog cannot make says why'.
+    const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
 
     await user.click(within(editor).getByRole('button', { name: 'Delete' }));
     // The question itself, not just a dialog that was open anyway.

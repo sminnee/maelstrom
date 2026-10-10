@@ -881,7 +881,9 @@ icon keeps the pill above, with its text at `--text-control`.
 
 A dialog footer ranks its actions. The primary and the secondary buttons sit on the right, with
 icons. The exception actions — Cancel, Clear, Close, Keep editing — sit on the left as links,
-with no icon. So Clear never sits beside Start at the same weight. A link in the footer keeps
+with no icon. So Clear never sits beside Start at the same weight. A destructive action, such as
+the task editor's Delete, also sits on the left, after the link. It keeps its place when the
+dialog changes mode. A link in the footer keeps
 the control height, so it is still a 48px target on the narrow layout. The comment boxes end with
 the same `DialogFooter`.
 

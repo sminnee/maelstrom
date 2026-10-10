@@ -192,23 +192,17 @@ function TaskForm({ task }: { task: Task }) {
       )}
       <DialogFooter
         aside={
-          editing ? (
-            <AppButton variant="link" onClick={leave}>
-              Cancel
-            </AppButton>
-          ) : (
-            <AppButton variant="link" onClick={() => close(null)}>
-              Close
-            </AppButton>
-          )
-        }
-      >
-        {editing ? (
-          <AppButton variant="primary" icon={actionIcon('save')} onClick={save}>
-            Save
-          </AppButton>
-        ) : (
           <>
+            {editing ? (
+              <AppButton variant="link" onClick={leave}>
+                Cancel
+              </AppButton>
+            ) : (
+              <AppButton variant="link" onClick={() => close(null)}>
+                Close
+              </AppButton>
+            )}
+            {/* In the aside in both modes, so it does not move when Edit is pressed. */}
             <ConfirmButton
               icon={actionIcon('delete')}
               question="Delete this task?"
@@ -229,10 +223,17 @@ function TaskForm({ task }: { task: Task }) {
             >
               Delete
             </ConfirmButton>
-            <AppButton variant="primary" icon={actionIcon('edit')} onClick={() => setEditing(true)}>
-              Edit
-            </AppButton>
           </>
+        }
+      >
+        {editing ? (
+          <AppButton variant="primary" icon={actionIcon('save')} onClick={save}>
+            Save
+          </AppButton>
+        ) : (
+          <AppButton variant="primary" icon={actionIcon('edit')} onClick={() => setEditing(true)}>
+            Edit
+          </AppButton>
         )}
       </DialogFooter>
     </Dialog>
