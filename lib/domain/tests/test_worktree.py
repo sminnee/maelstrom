@@ -2211,8 +2211,15 @@ def _record_push_tokens(worktree_path, log):
     hook.chmod(0o755)
 
 
+def _refuse_pushes(worktree_path):
+    origin = Path(git(worktree_path, "remote", "get-url", "origin").stdout.strip())
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\necho refused by the test >&2\nexit 1\n")
+    hook.chmod(0o755)
+
+
 class TestSyncWorktreePush:
-    """The push after the rebase uses the token it is given."""
+    """The push after the rebase: whose token it uses, and how a refusal reads."""
 
     def test_a_token_reaches_the_push_as_gh_token(
         self, project_with_worktree, tmp_path, monkeypatch
@@ -2241,6 +2248,44 @@ class TestSyncWorktreePush:
 
         assert result.pushed, result.push_message
         assert log.read_text().split() == ["unset"]
+
+    def test_a_refused_push_is_a_push_failure(self, project_with_worktree):
+        """The rebase landed, so the sync succeeds, but the caller must see it."""
+        _, worktree_path, _ = project_with_worktree
+        _pushed_branch(worktree_path)
+        _refuse_pushes(worktree_path)
+
+        result = sync_worktree(worktree_path, pre_push=False)
+
+        assert (result.success, result.pushed, result.push_failed) == (
+            True,
+            False,
+            True,
+        )
+        assert "refused by the test" in (result.push_message or "")
+
+    def test_a_branch_with_no_remote_says_it_was_not_pushed(
+        self, project_with_worktree
+    ):
+        _, worktree_path, _ = project_with_worktree
+        create_commit(worktree_path, "a.txt", "a\n", "feat: a")
+
+        result = sync_worktree(worktree_path, pre_push=False)
+
+        assert (result.success, result.push_failed) == (True, False)
+        assert result.push_message == "No origin/feature/work; not pushed"
+
+    def test_a_force_close_names_a_refused_push(self, project_with_worktree):
+        """The branch is kept, but origin does not hold the wip commit."""
+        _, worktree_path, _ = project_with_worktree
+        _pushed_branch(worktree_path)
+        (worktree_path / "wip.txt").write_text("wip\n")
+        _refuse_pushes(worktree_path)
+
+        result = close_worktree(worktree_path, force=True)
+
+        assert result.success, result.message
+        assert "refused by the test" in result.message
 
     def test_the_remote_rename_pushes_with_the_token(
         self, project_with_worktree, tmp_path, monkeypatch

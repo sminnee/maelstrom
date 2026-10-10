@@ -193,7 +193,7 @@ def _report_open_sync(sync: SyncResult | None) -> None:
         # A rejected push still leaves a usable worktree, so the launch goes
         # ahead — but the branch and its remote have diverged, which is a
         # warning, not progress.
-        click.echo(sync.push_message, err=not sync.pushed)
+        click.echo(sync.push_message, err=sync.push_failed)
 
 
 @click.group(cls=AsyncGroup)
@@ -1275,6 +1275,9 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_p
         click.echo(result.message)
         if result.repaired:
             click.echo(REPAIRED_MESSAGE)
+        if result.push_failed:
+            click.echo(result.push_message, err=True)
+            raise SystemExit(1)
         if result.push_message:
             click.echo(result.push_message)
         return
@@ -1552,6 +1555,9 @@ def cmd_sync_all(project, autorepair):
     click.echo(f"Syncing {len(worktrees)} worktree(s) with their bases...")
     click.echo()
 
+    # A refused push leaves a usable worktree, so the sweep goes on to the
+    # next one, and fails at the end.
+    refused: list[str] = []
     for wt in worktrees:
         # Extract worktree name from folder for display (e.g., "myproject-alpha" -> "alpha")
         display_name = (
@@ -1575,7 +1581,9 @@ def cmd_sync_all(project, autorepair):
             if result.repaired:
                 click.echo(f"  {REPAIRED_MESSAGE}")
             if result.push_message:
-                click.echo(f"  {result.push_message}")
+                click.echo(f"  {result.push_message}", err=result.push_failed)
+            if result.push_failed:
+                refused.append(display_name)
             click.echo()
             continue
 
@@ -1611,6 +1619,11 @@ def cmd_sync_all(project, autorepair):
 
         raise SystemExit(1)
 
+    if refused:
+        click.echo(
+            f"Synced, but the push was refused for: {', '.join(refused)}", err=True
+        )
+        raise SystemExit(1)
     click.echo("All worktrees synced successfully.")
 
 
