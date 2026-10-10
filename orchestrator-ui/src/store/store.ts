@@ -62,6 +62,7 @@ export interface AppStore {
   setNewWorkSeed(seed: NewWorkSeed | null): void;
   /** Drop the seed once the form has taken it, so a remount does not lay it again. */
   clearNewWorkSeed(): void;
+  setEditorEditing(editing: boolean): void;
   setPanelWidth(width: number): void;
 }
 
@@ -128,6 +129,7 @@ export const useAppStore = create<AppStore>()(
         return next.activeTabKey;
       },
       setNewWorkSeed: (newWorkSeed) => set((s) => ({ ui: { ...s.ui, newWorkSeed } })),
+      setEditorEditing: (editorEditing) => set((s) => ({ ui: { ...s.ui, editorEditing } })),
       clearNewWorkSeed: () =>
         set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
       setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),

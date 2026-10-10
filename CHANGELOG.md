@@ -84,6 +84,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Edit task opens the task editor in edit mode.** The expanded card's Edit task opens the
+  dialog with its fields unlocked. Delete sits on the left of the footer in view and edit mode
+  alike. A read-only field has no fill and a dotted border, in a dialog too.
+
 - **The install script migrates the state database.** `mael admin migrate` is removed. The
   project's `install_cmd` is now `bin/install`, which migrates after it installs the Python
   dependencies. So each worktree open, `mael env start` and `mael self-update` migrate with no

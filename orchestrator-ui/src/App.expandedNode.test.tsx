@@ -597,7 +597,7 @@ describe('the expanded node', () => {
     expect(opener).toBeUndefined();
   });
 
-  it('opens the task editor from the card, the same dialog the task list opens', async () => {
+  it('opens the task editor from the card in edit mode, the same dialog the task list opens', async () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('NORT-9');
@@ -611,6 +611,8 @@ describe('the expanded node', () => {
     const withTitle = editor.find((d) => within(d).queryByLabelText('Title'));
     expect(withTitle).toBeDefined();
     expect(within(withTitle!).getByLabelText('Title')).toHaveValue('Migrate to Postgres 16');
+    expect(within(withTitle!).getByLabelText('Title')).not.toHaveAttribute('readonly');
+    expect(within(withTitle!).getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
   it('has no Edit task button on a free agent, which has no task to open', async () => {

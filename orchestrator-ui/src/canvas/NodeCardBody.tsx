@@ -350,7 +350,11 @@ export function NodeCardBody({
             </AppButton>
           )}
           {node.kind === 'task' && task && (
-            <AppButton variant="quiet" icon={actionIcon('edit')} onClick={() => editTask(task.id)}>
+            <AppButton
+              variant="quiet"
+              icon={actionIcon('edit')}
+              onClick={() => editTask(task.id, { editing: true })}
+            >
               Edit task
             </AppButton>
           )}
