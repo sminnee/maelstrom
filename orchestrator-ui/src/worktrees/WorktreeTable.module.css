@@ -52,6 +52,12 @@
 .faint {
   color: var(--fg-faint);
 }
+/* The links sit inline, so they need a gap of their own at every width. */
+.links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--u-half) var(--u-2);
+}
 /* The buttons sit on one line and wrap together, so a narrow window stacks
    them rather than stretching the column. */
 .actions {

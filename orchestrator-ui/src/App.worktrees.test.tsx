@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { exitAgent, paneItem } from './test/appHelpers';
+import { commandsSince, exitAgent, paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 describe('the worktrees view', () => {
@@ -104,6 +104,7 @@ describe('the worktrees view', () => {
 
     const main = within(row('_main')!);
     expect(main.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(main.queryByRole('button', { name: 'More close actions' })).toBeNull();
     expect(main.queryByRole('button', { name: 'Delete' })).toBeNull();
     // It still syncs: _main is a checkout like any other.
     expect(main.getByRole('button', { name: 'Sync' })).toBeInTheDocument();
@@ -130,9 +131,28 @@ describe('the worktrees view', () => {
     const alpha = within(row('northwind-alpha')!);
     expect(alpha.getByRole('button', { name: 'Close' })).toBeDisabled();
     await user.click(alpha.getByRole('button', { name: 'More close actions' }));
-    expect(alpha.getByRole('menuitem', { name: 'Shelve' })).toHaveAccessibleDescription(
-      '1 agent still running in alpha',
-    );
+    for (const name of ['Shelve', 'Trash', 'Delete']) {
+      expect(alpha.getByRole('menuitem', { name })).toHaveAccessibleDescription(
+        '1 agent still running in alpha',
+      );
+    }
+  });
+
+  it('links to the changes and offers Merge once the PR is ready', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await goToWorktrees(user);
+
+    const delta = () => within(row('northwind-delta')!);
+    expect(delta().getByRole('link', { name: 'Changes' })).toBeInTheDocument();
+    expect(delta().getByRole('link', { name: /cmux/ })).toBeInTheDocument();
+    expect(delta().queryByRole('button', { name: 'Merge' })).toBeNull();
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
+        w.worktrees['northwind-delta'] = { ...w.worktrees['northwind-delta']!, prState: 'ready' };
+      });
+    });
+    expect(await delta().findByRole('button', { name: 'Merge' })).toBeInTheDocument();
   });
 
   it('says what the model said when a close is refused', async () => {
@@ -153,18 +173,24 @@ describe('the worktrees view', () => {
 
   it('asks before it deletes, and the worktree then leaves the world', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
     await goToWorktrees(user);
+    exitAgent(server, 'a1f3c9e2');
 
-    await user.click(within(row('northwind-bravo')!).getByRole('button', { name: 'Delete' }));
+    const alpha = within(row('northwind-alpha')!);
+    await waitFor(() => expect(alpha.getByRole('button', { name: 'Close' })).toBeEnabled());
+    await user.click(alpha.getByRole('button', { name: 'More close actions' }));
+    await user.click(alpha.getByRole('menuitem', { name: 'Delete' }));
     // The question names the worktree and what survives it.
-    expect(screen.getByText(/Delete bravo\?/)).toBeInTheDocument();
-    expect(row('northwind-bravo')).not.toBeNull();
+    expect(screen.getByText(/Delete alpha\?/)).toBeInTheDocument();
+    expect(row('northwind-alpha')).not.toBeNull();
 
+    const before = server.requests.length;
     await user.click(
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete it' }),
     );
-    await waitFor(() => expect(row('northwind-bravo')).toBeNull());
+    await waitFor(() => expect(row('northwind-alpha')).toBeNull());
+    expect(commandsSince(server, before)).toEqual(['DELETE /api/worktrees/northwind-alpha']);
   });
 
   it('starts a stopped environment, and the button becomes Stop', async () => {
@@ -312,17 +338,26 @@ describe('the worktrees view', () => {
 
   it('refuses a sync on a closed worktree, as the server does', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
     await goToWorktrees(user);
     await user.click(screen.getByRole('checkbox', { name: 'show closed' }));
     await waitFor(() => expect(row('maelstrom-charlie')).not.toBeNull());
 
     // A closed worktree holds no branch, so it is offered no sync at all.
     expect(within(row('maelstrom-charlie')!).queryByRole('button', { name: /^Sync/ })).toBeNull();
-    // Deleting one is still the point of listing it.
-    expect(
-      within(row('maelstrom-charlie')!).getByRole('button', { name: 'Delete' }),
-    ).toBeInTheDocument();
+    // Deleting one is still the point of listing it, and the only thing left to do.
+    const charlie = within(row('maelstrom-charlie')!);
+    expect(charlie.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+    expect(charlie.queryByRole('button', { name: 'More close actions' })).toBeNull();
+    await user.click(charlie.getByRole('button', { name: 'Delete' }));
+    const before = server.requests.length;
+    await user.click(
+      within(screen.getByRole('alertdialog', { name: /Delete charlie\?/ })).getByRole('button', {
+        name: 'Delete it',
+      }),
+    );
+    await waitFor(() => expect(row('maelstrom-charlie')).toBeNull());
+    expect(commandsSince(server, before)).toEqual(['DELETE /api/worktrees/maelstrom-charlie']);
   });
 
   it('honours the project filter', async () => {

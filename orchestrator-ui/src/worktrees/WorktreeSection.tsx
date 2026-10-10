@@ -1,8 +1,6 @@
-import { useWorld } from '../api/useWorld';
 import type { Worktree } from '../protocol/entities';
 import { worktreePr, type PrReading } from '../selectors/cardPr';
-import { branchLabel, trackedAgents } from '../selectors/worktrees';
-import { CloseControl } from './CloseControl';
+import { branchLabel } from '../selectors/worktrees';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeSection.module.css';
 
@@ -23,8 +21,6 @@ export function WorktreeSection({
   worktree: Worktree;
   pr?: PrReading | null;
 }) {
-  const { world } = useWorld();
-  const idle = trackedAgents(world, worktree.id).length === 0;
   return (
     <section className={styles.section} aria-label="Worktree" data-testid="worktree-section">
       <span className={styles.head}>Worktree</span>
@@ -37,8 +33,7 @@ export function WorktreeSection({
         <WorktreeLinks worktree={worktree} pr={pr} />
       </div>
       <div className={styles.commands}>
-        <WorktreeCommands worktree={worktree} />
-        {idle && <CloseControl worktree={worktree} />}
+        <WorktreeCommands worktree={worktree} busyClose="hide" />
       </div>
     </section>
   );
