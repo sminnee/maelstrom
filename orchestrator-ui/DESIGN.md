@@ -1065,6 +1065,12 @@ Selects and text inputs share one chassis: field background, hairline border, 6p
 padding, capped at 180px so a long branch name cannot push the filter bar apart. They inherit
 the interface font — a form control never falls back to the browser's own.
 
+A read-only field has a transparent fill and a dotted border in the editable fill colour, so it
+does not read as a place to type. The rule is in `base.css`. A module rule such as `.field input`
+has the same specificity and loads later, so it wins the tie. A module that styles its fields
+therefore scopes its fill and border to editable fields, as `ui/Dialog.module.css` does with
+`:not([readonly])`. The module sets `--field-fill`, and the dotted border reads it.
+
 A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its container scrolls.
 A field with no scrolling container, such as the conversation input or a review dock field, caps
 at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
