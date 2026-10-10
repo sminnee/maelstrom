@@ -146,6 +146,7 @@ def build_orchestrator(
                 branch,
                 run_install=False,
                 base=base or None,
+                token=github.orchestrator_token(),
                 announce=lambda line: click.echo(line, err=True),
             )
         except (ValueError, WorktreeError) as exc:
@@ -166,6 +167,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             force=False,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
             hook=hook,
         )
@@ -183,6 +185,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             force=True,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
             hook=hook,
         )
@@ -203,6 +206,7 @@ def build_orchestrator(
             nato,
             Path(path),
             projects_dir / project,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
             hook=hook,
         )
@@ -239,6 +243,7 @@ def build_orchestrator(
             Path(path),
             projects_dir / project,
             mode,
+            token=github.orchestrator_token(),
             executor=worktree_executor,
             hook=hook,
         )

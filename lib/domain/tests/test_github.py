@@ -693,6 +693,13 @@ class TestFindOpenPr:
             with pytest.raises(GitHubCliMissing):
                 await find_open_pr(Path("."), "feat/a")
 
+    async def test_a_token_reaches_gh_as_its_own_login(self):
+        """Trash looks the PR up from the orchestrator, in any project."""
+        empty = json.dumps({"number": None, "commits": 0, "url": None})
+        with patch("mael_domain.github.run_cmd_async", return_value=_ok(empty)) as run:
+            await find_open_pr(Path("."), "feat/a", token="ghp_orch")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_orch"}
+
 
 class TestClosePr:
     def test_it_closes_the_pr_with_the_comment(self):
@@ -712,6 +719,12 @@ class TestClosePr:
         with patch("mael_domain.github.run_cmd", side_effect=refused):
             with pytest.raises(GitHubCommandFailed):
                 close_pr(Path("."), 42, "x")
+
+    def test_a_token_reaches_gh_as_its_own_login(self):
+        """Trash closes the PR from the orchestrator, in any project."""
+        with patch("mael_domain.github.run_cmd") as run:
+            close_pr(Path("."), 42, "Trashed", token="ghp_orch")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_orch"}
 
 
 class TestMergePr:
