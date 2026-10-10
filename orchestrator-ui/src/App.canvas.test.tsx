@@ -6,7 +6,14 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { askQuestion } from './fake/moves';
-import { chipCount, commandsSince, nodeState, paneItem, isShowing } from './test/appHelpers';
+import {
+  chipCount,
+  commandsSince,
+  exitAgent,
+  isShowing,
+  nodeState,
+  paneItem,
+} from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
 
@@ -79,7 +86,7 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
     // c3e8f1b5 still runs in maelstrom-bravo, so Dismiss does not close it.
-    expect(await dismissRuns(user, card)).toBe('Terminate & take off desk');
+    expect(await dismissRuns(user, card)).toBe('…and take off desk');
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
@@ -109,19 +116,23 @@ describe('App', () => {
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Off desk',
-      'Take off desk & close bravo',
-      'Take off desk & trash bravo',
+      '…and close bravo',
+      '…shelving the branch',
+      '…or trashing the branch',
+      '…or ignoring the branch',
     ]);
     expect(within(card).getByRole('menuitem', { name: 'Off desk' })).toHaveAttribute(
       'data-default',
     );
     // c3e8f1b5 still runs in maelstrom-bravo.
-    expect(
-      within(card).getByRole('menuitem', { name: 'Take off desk & close bravo' }),
-    ).toHaveAttribute('aria-disabled', 'true');
-    expect(
-      within(card).getByRole('menuitem', { name: 'Take off desk & trash bravo' }),
-    ).toHaveAttribute('aria-disabled', 'true');
+    for (const name of [
+      '…and close bravo',
+      '…shelving the branch',
+      '…or trashing the branch',
+      '…or ignoring the branch',
+    ]) {
+      expect(within(card).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true');
+    }
     await user.keyboard('{Escape}');
 
     expect(document.querySelector('[data-task-id="f2c6a9d4"]')).toBeInTheDocument();
@@ -162,7 +173,7 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
 
     await within(card).findByRole('button', { name: 'Resume' });
-    expect(await dismissRuns(user, card)).toBe('Take off desk & close alpha');
+    expect(await dismissRuns(user, card)).toBe('…and close alpha');
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
@@ -192,7 +203,7 @@ describe('App', () => {
 
     // Picking it asks, and sends nothing.
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & trash alpha' }));
+    await user.click(within(card).getByRole('menuitem', { name: '…or trashing the branch' }));
     const ask = within(card).getByRole('alertdialog', {
       name: 'Trash feat/orders? Its PR closes and the branch moves to trash/.',
     });
@@ -200,7 +211,7 @@ describe('App', () => {
     expect(commandsSince(server, before)).toEqual([]);
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    await user.click(within(card).getByRole('menuitem', { name: 'Take off desk & trash alpha' }));
+    await user.click(within(card).getByRole('menuitem', { name: '…or trashing the branch' }));
     await user.click(within(card).getByRole('button', { name: 'Trash it' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
@@ -210,6 +221,42 @@ describe('App', () => {
       'DELETE /api/desk/task:NORT-7',
     ]);
   });
+
+  it.each([
+    [
+      '…shelving the branch',
+      'Shelve alpha? Work in progress is committed. Unmerged work gets a task to reopen it.',
+      'Shelve it',
+      'POST /api/worktrees/northwind-alpha/force-close',
+    ],
+    [
+      '…or ignoring the branch',
+      'Delete alpha? The checkout goes; the branch stays.',
+      'Delete it',
+      'DELETE /api/worktrees/northwind-alpha',
+    ],
+  ])(
+    'asks before %s, then runs it and takes the node off the desk',
+    async (item, question, answer, command) => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      exitAgent(server, 'a1f3c9e2');
+      clickNode('NORT-7');
+      const card = screen.getByRole('dialog', { name: 'Plan the order export' });
+      await within(card).findByRole('button', { name: 'Resume' });
+      const before = server.requests.length;
+
+      await user.click(within(card).getByRole('button', { name: 'More actions' }));
+      await user.click(within(card).getByRole('menuitem', { name: item }));
+      const ask = within(card).getByRole('alertdialog', { name: question });
+      expect(commandsSince(server, before)).toEqual([]);
+      await user.click(within(ask).getByRole('button', { name: answer }));
+      await waitFor(() =>
+        expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
+      );
+      expect(commandsSince(server, before)).toEqual([command, 'DELETE /api/desk/task:NORT-7']);
+    },
+  );
 
   it('draws a plain Dismiss, with no menu, on a task with no worktree to close', async () => {
     await renderApp();
@@ -259,9 +306,11 @@ describe('App', () => {
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Terminate',
-      'Terminate & take off desk',
-      'Terminate, take off desk & close bravo',
-      'Terminate, take off desk & trash bravo',
+      '…and take off desk',
+      '…and close bravo',
+      '…shelving the branch',
+      '…or trashing the branch',
+      '…or ignoring the branch',
     ]);
   });
 
@@ -271,7 +320,7 @@ describe('App', () => {
     clickNode('NORT-12');
     const card = screen.getByRole('dialog', { name: 'Rotate auth tokens' });
 
-    expect(await dismissRuns(user, card)).toBe('Terminate, take off desk & close delta');
+    expect(await dismissRuns(user, card)).toBe('…and close delta');
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
@@ -291,7 +340,7 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
     // The subagent d9a4c7f1.1 is live in the same worktree, and does not hold the close.
-    expect(await dismissRuns(user, card)).toBe('Terminate, take off desk & close bravo');
+    expect(await dismissRuns(user, card)).toBe('…and close bravo');
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     const alert = await within(card).findByRole('alert');
@@ -309,7 +358,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
+    await user.click(within(card).getByRole('menuitem', { name: '…and take off desk' }));
     await within(card).findByRole('alert');
     expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
@@ -332,7 +381,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
-    await user.click(within(card).getByRole('menuitem', { name: 'Terminate & take off desk' }));
+    await user.click(within(card).getByRole('menuitem', { name: '…and take off desk' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
     );
@@ -347,7 +396,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const close = within(card).getByRole('menuitem', {
-      name: 'Terminate, take off desk & close bravo',
+      name: '…and close bravo',
     });
     expect(close).toHaveAttribute('aria-disabled', 'true');
     expect(close).toHaveAccessibleDescription('1 other agent still running in bravo');

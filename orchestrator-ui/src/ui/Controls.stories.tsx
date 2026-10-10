@@ -203,7 +203,7 @@ function Board({ control, heading }: { control: string; heading: string }) {
             options={[
               { label: 'Terminate', icon: actionIcon('terminate'), run: later },
               {
-                label: 'Terminate & take off desk',
+                label: '…and take off desk',
                 isDefault: true,
                 buttonLabel: 'Dismiss',
                 run: later,
@@ -295,21 +295,35 @@ const terminateAt = (corner: CSSProperties) => (
       options={[
         { label: 'Terminate', icon: actionIcon('terminate'), run: later },
         {
-          label: 'Terminate & take off desk',
+          label: '…and take off desk',
           icon: <OffDeskIcon />,
           isDefault: true,
           buttonLabel: 'Dismiss',
           run: later,
         },
         {
-          label: 'Terminate, take off desk & close charlie',
+          label: '…and close charlie',
           icon: <OffDeskIcon />,
           disabled: true,
           detail: '2 other agents still running in charlie',
           run: later,
         },
         {
-          label: 'Terminate, take off desk & trash charlie',
+          label: '…shelving the branch',
+          icon: <OffDeskIcon />,
+          disabled: true,
+          detail: '2 other agents still running in charlie',
+          run: later,
+        },
+        {
+          label: '…or trashing the branch',
+          icon: <OffDeskIcon />,
+          disabled: true,
+          detail: '2 other agents still running in charlie',
+          run: later,
+        },
+        {
+          label: '…or ignoring the branch',
           icon: <OffDeskIcon />,
           disabled: true,
           detail: '2 other agents still running in charlie',

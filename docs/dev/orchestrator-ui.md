@@ -387,17 +387,27 @@ The task list lists tasks only. Every node card ends its commands with one end-o
 
 | Node state | Menu |
 |---|---|
-| Live agent | Terminate · Terminate & take off desk · Terminate, take off desk & close `<nato>` · Terminate, take off desk & trash `<nato>` |
-| No live agent | Off desk · Take off desk & close `<nato>` · Take off desk & trash `<nato>` |
+| Live agent | Terminate · …and take off desk · …and close `<nato>` · …shelving the branch · …or trashing the branch · …or ignoring the branch |
+| No live agent | Off desk · …and close `<nato>` · …shelving the branch · …or trashing the branch · …or ignoring the branch |
+
+Each item after the first continues the item above it, so the menu reads as one chain. The four
+worktree items are the close control's four options:
+
+| Item | Runs |
+|---|---|
+| …and close `<nato>` | `worktree.close`, then Off desk |
+| …shelving the branch | `worktree.forceClose` (Shelve), then Off desk |
+| …or trashing the branch | `worktree.trash`, then Off desk |
+| …or ignoring the branch | `worktree.remove` (**Remove**), then Off desk |
 
 Dismiss runs one item of the menu. It closes the worktree only when the worktree can close and no
 other top-level agent runs in it:
 
 | Node state | Worktree closes | Dismiss runs |
 |---|---|---|
-| Live agent | yes | Terminate, take off desk & close `<nato>` |
-| Live agent | no, or no worktree | Terminate & take off desk |
-| No live agent | yes | Take off desk & close `<nato>` |
+| Live agent | yes | …and close `<nato>` |
+| Live agent | no, or no worktree | …and take off desk |
+| No live agent | yes | …and close `<nato>` |
 | No live agent | no, or no worktree | Off desk |
 
 The menu draws that item bold. In every split button, the bold item is the one the button runs
@@ -416,21 +426,22 @@ Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
   (`shell/DeskStateIcon.tsx`). On hover it draws the On desk or Off desk icon instead: the act
   a click takes. See the Reporting Rule in `orchestrator-ui/DESIGN.md`.
 
-The close and trash items are left out when the worktree is `_main`, is closed, or does not exist.
-With one item left, the control is a plain button. The close and trash items are disabled while
+The four worktree items are left out when the worktree is `_main`, is closed, or does not exist.
+With one item left, the control is a plain button. The worktree items are disabled while
 another top-level agent runs in the same worktree, and the second line says how many. A subagent
 is not counted, because it stops with its parent.
 
-The trash item asks first, beside the control, because it closes a PR and renames a branch. Only
-the confirming answer sends anything. A `SplitOption` with `confirm` draws the question, in the
+The shelve, trash and ignore items ask first, beside the control, because each one loses or moves
+work. `worktrees/closeConfirms.ts` holds the questions, and the close control asks the same ones.
+Only the confirming answer sends anything. A `SplitOption` with `confirm` draws the question, in the
 style of `ui/ConfirmButton.tsx`, and holds both segments while it is open.
 
-A chain with a close or a trash sends that command first and no stop, because the server stops
+A chain with a worktree item sends that command first and no stop, because the server stops
 every agent in the worktree. That command is also the step that can refuse: a close on a dirty
 tree or unmerged commits, a trash on a stacked branch or an existing `trash/<branch>`. Sent
 first, a refusal leaves the node on the desk, and the control shows the reason in its title. A
 live node can draw with no desk entry, so a chain skips Off desk when there is none to take.
-"Terminate & take off desk" sends the stop first: `agent.stop` records the exit before it
+"…and take off desk" sends the stop first: `agent.stop` records the exit before it
 replies, so the node can go off the desk at once.
 
 The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
