@@ -270,6 +270,25 @@ class TaskRow(TypedDict):
     lastRun: str
 
 
+class TaskFollower(TypedDict):
+    """A task that follows a task just done: one already running, or the next to run."""
+
+    id: str
+    title: str
+    running: bool
+
+
+class StatusMoved(TypedDict, total=False):
+    """The reply to a status move. Each key is absent when it has nothing to say.
+
+    ``actionLines`` are what the status actions reported, such as a Linear
+    move. ``follower`` is set only for a move to ``done``.
+    """
+
+    actionLines: list[str]
+    follower: TaskFollower
+
+
 class TaskDetail(Task):
     """A task as ``GET /api/tasks/{project}/{id}`` carries it.
 

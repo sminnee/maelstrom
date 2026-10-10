@@ -2563,17 +2563,19 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """One notebook write, then the upsert it caused, then the reply.
 
+        A write that returns a result, as a status move does, sends it back.
+
         The refresh is forced, as the launch path forces it: a version-checked
         refresh races the poll, so the client could get its reply first.
         """
         try:
-            await self._run(write, task_id, *args)
+            result = await self._run(write, task_id, *args)
         except KeyError:
             return _refused("unknown_id", f"No task {task_id}")
         except ValueError as exc:
             return _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
-        return {"ok": True, "result": {}}
+        return {"ok": True, "result": result or {}}
 
 
 def _attachment_paths(attachments: Any) -> list[dict[str, str]]:

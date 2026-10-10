@@ -13,6 +13,7 @@ a warning line to the caller's ``warn`` (no matching ref, API error, unknown
 code).
 """
 
+import asyncio
 import re
 from collections.abc import Callable
 
@@ -117,5 +118,7 @@ async def move_with_actions(
     moved = await model.move(table, project, id, new_status, now=now)
     field = _ACTION_FOR_STATUS.get(new_status)
     if field:
-        run_action(moved, getattr(moved, field), warn=warn)
+        # An action makes blocking HTTP calls, such as Linear's. On a thread,
+        # they do not stall the orchestrator server's loop for every client.
+        await asyncio.to_thread(run_action, moved, getattr(moved, field), warn=warn)
     return moved

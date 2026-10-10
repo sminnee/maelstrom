@@ -1133,7 +1133,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks` | `{project, title, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `{taskId, agentId?}` |
 | `POST /api/agents` | `{project, branch, prompt, mode, model?}` | `agent.start` | `{agentId}` |
 | `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `{taskId, agentId?}` |
-| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `{}` |
+| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
