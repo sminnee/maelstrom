@@ -11,3 +11,5 @@ export type AttentionId = string;
 export type DeskId = string;
 export type RequestId = string;
 export type TranscriptItemId = string;
+/** `op<n>`, minted by the server in start order. */
+export type OperationId = string;

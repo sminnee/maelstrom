@@ -1,5 +1,5 @@
 import type { PermissionMode } from './modes';
-import type { AgentId, DeskId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
+import type { AgentId, DeskId, OperationId, ProjectId, RequestId, TaskId, WorktreeId } from './ids';
 
 /**
  * Which of the four stages a task's work is in, named as the imperative of the
@@ -248,6 +248,39 @@ export interface Comm {
   /** The project a task made from the comm goes to, or `''`. */
   project: string;
   taskIds: TaskId[];
+}
+
+/** How an **Operation** stands. See `CONTEXT.md`, "Refused". */
+export type OperationState = 'running' | 'done' | 'refused' | 'failed';
+
+/** What runs as an operation. The agent and launch kinds come later. */
+export type OperationKind = 'close' | 'shelve' | 'trash' | 'delete' | 'sync' | 'merge' | 'env';
+
+/** One **Step** of an operation. Its log lines are a separate read: `useOperationLog`. */
+export interface OperationStep {
+  name: string;
+  /** The refusal or the error; `''` otherwise. */
+  words: string;
+  state: 'pending' | OperationState;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+/** One **Operation**: a slow change to the world, run on the server as steps. */
+export interface Operation {
+  id: OperationId;
+  kind: OperationKind;
+  worktreeId: WorktreeId;
+  taskId: TaskId | null;
+  agentId: AgentId | null;
+  /** The work while it runs; the refusal or the error once it ended badly. */
+  words: string;
+  state: OperationState;
+  startedAt: string;
+  endedAt: string | null;
+  /** `false` while an operation that ended badly is **Unseen**. */
+  seen: boolean;
+  steps: OperationStep[];
 }
 
 /** From `agent_model.py`: every state is observed from an event, never inferred. */

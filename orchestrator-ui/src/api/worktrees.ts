@@ -4,6 +4,7 @@ import type { WorktreeId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
+import { runOperation, type OperationStarted } from './operations';
 
 export interface WorktreesBody {
   worktrees: Worktree[];
@@ -18,17 +19,17 @@ export function useWorktrees() {
 }
 
 /**
- * Close a worktree: the same close `mael close` runs. It syncs the branch and
- * stops what lives there, so it takes the long timeout a launch takes.
+ * Close a worktree: the same close `mael close` runs, as an operation. See
+ * `runOperation`.
  */
 export function useCloseWorktree() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/close`, undefined, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/close`),
+      ),
     onSuccess: () => {
       // The close stops every agent in the worktree, which clears what they
       // waited on. It leaves the desk as it was.
@@ -51,9 +52,11 @@ export function useForceCloseWorktree() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/force-close`, undefined, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(
+          `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/force-close`,
+        ),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
@@ -72,9 +75,9 @@ export function useTrashWorktree() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/trash`, undefined, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/trash`),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
@@ -93,9 +96,9 @@ export function useRemoveWorktree() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.delete(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}`, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      runOperation(queryClient, api, () =>
+        api.delete<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}`),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
@@ -108,19 +111,18 @@ export function useRemoveWorktree() {
 export type SyncMode = 'plain' | 'autorepair' | 'squash';
 
 /**
- * Sync a worktree: the same `mael sync` runs, in one of its three modes. It
- * rebases and pushes, so it takes the long timeout, but it starts and stops no
- * agent — only the worktree's own counts move.
+ * Sync a worktree: the same `mael sync` runs, in one of its three modes, as an
+ * operation. It starts and stops no agent — only the worktree's own counts move.
  */
 export function useSyncWorktree() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId; mode: SyncMode }) =>
-      api.post(
-        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/sync`,
-        { mode: vars.mode },
-        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/sync`, {
+          mode: vars.mode,
+        }),
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
@@ -129,17 +131,19 @@ export function useSyncWorktree() {
 }
 
 /**
- * Merge a worktree's pull request. The server waits on GitHub, so it takes the
- * long timeout. Only the worktree's own PR state moves.
+ * Merge a worktree's pull request, as an operation. Only the worktree's own PR
+ * state moves.
  */
 export function useMergePullRequest() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.post(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/merge-pr`, undefined, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(
+          `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/merge-pr`,
+        ),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
     },
@@ -160,10 +164,11 @@ export function useEnvWorktree() {
       action: 'start' | 'stop' | 'restart';
       service?: string;
     }) =>
-      api.post(
-        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/env`,
-        { action: vars.action, service: vars.service },
-        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      runOperation(queryClient, api, () =>
+        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/env`, {
+          action: vars.action,
+          service: vars.service,
+        }),
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
