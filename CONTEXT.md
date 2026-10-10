@@ -638,6 +638,29 @@ orchestrator server mints one at start, and carries it on the change stream's `r
 are unrelated names on unrelated streams.
 _Avoid_: Generation, run id, session
 
+**Operation**:
+One slow change to the world that the orchestrator server runs in the background: a close, a
+shelve, a trash, a delete, a sync, a merge or an environment change. It is a list of **Steps**,
+each with a state and log lines. It ends `done`, **Refused** or `failed`. The state database
+keeps it, so a reload loses nothing.
+_Avoid_: Action (a **Step** avoids it), job (a **Task** avoids it), activity, background task
+
+**Refused**:
+How an **Operation** ends when a **Step** said no on purpose, such as a close over unmerged
+commits. A refusal is expected, and the user chooses the next act. Distinct from `failed`, which
+is a fault: a step raised an error.
+_Avoid_: Blocked (the step's own outcome field), rejected, error
+
+**Unseen**:
+An **Operation** that ended **Refused** or `failed`, and that the user has not yet looked at. It
+stays in the **Console** strip until the user selects it. The record stays in the history.
+_Avoid_: Unread, new, unacknowledged
+
+**Console**:
+The drawer at the foot of the orchestrator UI that lists **Operations**: a one-line strip of the
+running and **Unseen** ones when closed, and the history with each log by step when open.
+_Avoid_: Log panel, activity feed, drawer (alone), toast
+
 ## Dev environments
 
 **Environment**:

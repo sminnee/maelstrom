@@ -326,6 +326,44 @@ class Comm(TypedDict):
     taskIds: list[str]
 
 
+class OperationStep(TypedDict):
+    """One **Step** of an **Operation**, as the wire carries it.
+
+    ``state`` is ``pending``, ``running``, ``done``, ``refused`` or ``failed``.
+    ``words`` is the refusal or the error, and ``""`` otherwise. The step's log
+    lines are a separate read: ``GET /api/operations/{id}/log``.
+    """
+
+    name: str
+    words: str
+    state: str
+    startedAt: str | None
+    endedAt: str | None
+
+
+class Operation(TypedDict):
+    """One **Operation** on the wire. See ``CONTEXT.md``, "Operation".
+
+    ``kind`` names what runs: ``close``, ``shelve``, ``trash``, ``delete``,
+    ``sync``, ``merge`` or ``env``. ``state`` is ``running``, ``done``,
+    ``refused`` or ``failed``. ``words`` is what a person reads: the work while
+    it runs, and the refusal or the error once it ended badly. ``seen`` is
+    ``False`` while an operation that ended badly is **Unseen**.
+    """
+
+    id: str
+    kind: str
+    worktreeId: str
+    taskId: str | None
+    agentId: str | None
+    words: str
+    state: str
+    startedAt: str
+    endedAt: str | None
+    seen: bool
+    steps: list[OperationStep]
+
+
 class BackgroundShell(TypedDict):
     """One background shell an agent runs: the task id and its ``Bash`` description."""
 
@@ -559,6 +597,7 @@ class World(TypedDict):
     desk: dict[str, DeskEntry]
     host: dict[str, Host]
     comms: dict[str, Comm]
+    operations: dict[str, Operation]
 
 
 class ClientState(TypedDict):
@@ -584,6 +623,7 @@ ENTITY_KINDS = (
     "desk",
     "host",
     "comm",
+    "operation",
 )
 
 #: Which ``World`` key each entity kind lives under.
@@ -598,6 +638,7 @@ WORLD_KEY = {
     "desk": "desk",
     "host": "host",
     "comm": "comms",
+    "operation": "operations",
 }
 
 
@@ -613,6 +654,7 @@ def empty_world() -> World:
         "desk": {},
         "host": {},
         "comms": {},
+        "operations": {},
     }
 
 
