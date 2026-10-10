@@ -248,6 +248,7 @@ uptimerobot:
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
 | `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
 | `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Run `mael env reset` in a worktree after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
+| `orchestrator_url` | string | — | The URL of the orchestrator server on this machine, such as `https://desk.tailnet.ts.net:3220`. Read only from the notebook root's `config.yaml`; see below. Its port is the `ORCHESTRATOR_PORT` in the `_main` worktree's `.env`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no value, or with no server on it, these commands fail. Start the server with `mael self-env start orchestrator`. The client does not verify the server's TLS certificate. |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -260,6 +261,7 @@ projects_dir: ~/Projects
 open_command: "cursor"
 dev_host: desk.tailnet.ts.net
 dev_https: true
+orchestrator_url: https://desk.tailnet.ts.net:3220
 
 linear:
   api_key: "lin_api_xxx"
@@ -286,6 +288,22 @@ slack:
 `mael slack post` uses when you pass no `--channel`.
 
 The legacy path `~/.maelstrom.yaml` still loads if `~/.maelstrom/config.yaml` is absent.
+
+### A dev environment's own config
+
+`MAEL_NOTEBOOK_ROOT` names the notebook root: `~/.maelstrom` for everyday use, and a directory such
+as `~/.maelstrom/playpen/kilo` for a dev environment. A `config.yaml` in that directory overlays
+the global file. Each key it sets replaces the global key, and the other keys stay.
+
+`orchestrator_url:` is the exception. It names the server of that notebook, so maelstrom reads it
+from the notebook root's `config.yaml` alone. When the root is `~/.maelstrom`, that is the global
+file. A dev environment with no `config.yaml` of its own has no server, and the `mael task`
+commands that call one fail. They never reach the everyday server.
+
+```yaml
+# ~/.maelstrom/playpen/kilo/config.yaml
+orchestrator_url: http://127.0.0.1:3222   # this worktree's ORCHESTRATOR_PORT
+```
 
 ### API keys
 
