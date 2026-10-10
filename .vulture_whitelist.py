@@ -106,6 +106,12 @@ no_power_commands  # unused variable (cli/tests/test_schedule_launchd.py)
 quiet_finalize  # unused variable (cli/tests/test_sync_flags.py)
 process_cleanup  # unused variable (cli/tests/e2e/conftest.py)
 
+# Methods http.server calls by name: do_<METHOD> per request, and log_message
+# to write the access log.
+do_GET  # unused variable (cli/tests/test_orchestrator_client.py)
+do_POST  # unused variable (cli/tests/test_orchestrator_client.py)
+log_message  # unused method (cli/tests/test_orchestrator_client.py)
+
 # Parameters a lambda must accept to match the signature it replaces.
 pp  # unused variable (cli/tests/test_task_cli.py, lib/domain/tests/test_worktree_close.py)
 num  # unused variable (lib/domain/tests/test_ports.py)

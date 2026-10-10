@@ -31,7 +31,7 @@ from mael_domain.list_all import project_repo_url
 from mael_domain.worktree_model import PrePushFailed
 
 from . import task_cli
-from .orchestrator_notify import tell_orchestrator
+from .orchestrator_client import tell_orchestrator
 
 
 @click.group("gh", cls=AsyncGroup)
@@ -152,8 +152,8 @@ async def gh_create_pr(
         _open_pr_in_cmux(url)
         # The PR is in no world until something looks it up, and the next
         # worktree poll is up to a minute away — landing on exactly the moment
-        # the user looks at the card for it. Never raises; see the module.
-        tell_orchestrator(cwd, REFRESH_PATH)
+        # the user looks at the card for it. Never raises; see tell_orchestrator.
+        tell_orchestrator(REFRESH_PATH)
     except (
         GitHubError,
         SyncFailed,
