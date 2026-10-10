@@ -378,9 +378,15 @@ async def _desk(request: web.Request) -> web.Response:
 
 
 async def _host(request: web.Request) -> web.Response:
-    """The agent host's reachability, or ``null`` before the first poll has settled."""
+    """The agent host's reachability, or ``null`` before the first poll has settled.
+
+    ``loop`` is the server's own health: the longest gap between two loop
+    ticks, and when the last stall was seen. See ``loop_watch``.
+    """
     orch = await _ready(request)
-    return web.json_response({"host": orch.world["host"].get(HOST_ID)})
+    return web.json_response(
+        {"host": orch.world["host"].get(HOST_ID), "loop": orch.loop_watch.reading()}
+    )
 
 
 # -- commands --

@@ -965,7 +965,7 @@ route is under `/api` and answers JSON. A task id is two path segments, because 
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
-| `GET /api/host` | `{host: Host \| null}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled |
+| `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 
 ### A worktree's changes
 
@@ -1340,7 +1340,7 @@ The server writes timestamped logs to stderr. Under `mael env` that stream lands
 | --- | --- |
 | `debug` | Everything below, plus aiohttp's and asyncio's own detail. Maelstrom logs nothing at this level yet |
 | `info` | Every shell-out, as `shell.py` records it |
-| `warning` | A refused attach, a missing backlog marker, an unreachable host |
+| `warning` | A refused attach, a missing backlog marker, an unreachable host, a loop stall |
 | `error` | A failed refresh, a failed command, and anything that escapes a task |
 
 `--log-level` sets it; the default is `info`.
@@ -1361,6 +1361,21 @@ Two rules keep the file worth reading:
 
 Logging is configured in `cli.setup_logging`, not in `build_app`. The test suite runs
 the real app, and a global logging setup inside `build_app` would follow it into every test.
+
+### Loop stalls
+
+The server has one event loop. A sync call on it — a `subprocess.run`, a `flock`, a `urllib`
+request — freezes every client until it returns. `loop_watch.LoopWatch` measures this. It sleeps
+100 ms in a loop and records the gap between two wake-ups.
+
+- A gap over 250 ms is a stall. The server logs a warning with the gap and the stack of every task.
+- `GET /api/host` serves `loop.maxGapMs`, the longest gap since start, and `loop.lastStallAt`. A
+  gap includes the 100 ms sleep, so after the first tick `maxGapMs` is never below 100. It never
+  resets, so compare it across restarts.
+
+A change that moves work off the loop shows its effect as a lower `maxGapMs`. The stacks in the
+warning show where each task waits after the stall, not the call that blocked. Read them with the
+log lines just before the warning to name the blocking call.
 
 ## Open risks
 

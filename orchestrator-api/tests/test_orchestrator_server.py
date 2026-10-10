@@ -8,6 +8,8 @@ replies.
 
 import asyncio
 import json
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -2067,6 +2069,22 @@ def test_a_second_agent_poll_publishes_nothing(harness):
                 before = published(harness)
                 await harness.orch.refresh_agents()
                 assert published(harness) == before
+
+def test_the_host_reply_carries_the_longest_loop_stall(harness):
+    """A change that moves work off the loop proves itself by this figure
+    dropping, so it must be readable from outside the server."""
+
+    async def scenario():
+        async with harness.client() as api:
+            # Blocks the loop, as a sync call made by a handler would.
+            time.sleep(0.3)
+            await asyncio.sleep(0.15)  # a tick lands after the stall
+            return await api.get_json("/api/host")
+
+    loop = run(scenario())["loop"]
+    assert loop["maxGapMs"] >= 300
+    assert loop["lastStallAt"] == NOW
+
 
     run(scenario())
 

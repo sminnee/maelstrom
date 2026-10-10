@@ -83,6 +83,7 @@ from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
+from .loop_watch import LoopWatch
 from .notices import notices_for
 from .sources import CloseBlocked, TaskSource, WorktreeSource
 from .transcript_log import (
@@ -331,6 +332,8 @@ class Orchestrator:
         #: is reported unreachable on the second, so one dropped connection
         #: during a daemon restart does not raise the banner.
         self._host_failures = 0
+        #: The loop-stall watchdog, started with the pollers.
+        self.loop_watch = LoopWatch(now=clock)
 
     # -- running --
 
@@ -350,6 +353,7 @@ class Orchestrator:
         await self._drop_dead_agent_entries()
         self._started.set()
         self._pollers = [
+            asyncio.create_task(self.loop_watch.run()),
             asyncio.create_task(self._poll(self._task_poll, self.refresh_tasks)),
             asyncio.create_task(self._poll(self._task_poll, self.refresh_comms)),
             asyncio.create_task(
