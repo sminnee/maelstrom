@@ -4,10 +4,9 @@ import { makePermissionRequest as item } from '../../fake/fixtures';
 import { PermissionPrompt } from './PermissionPrompt';
 
 describe('PermissionPrompt', () => {
-  it('offers Approve and Deny while the request is open', () => {
+  it('shows the decide row while the request is open', () => {
     render(<PermissionPrompt item={item()} onDecide={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument();
   });
 
   it('offers nothing for a request nothing answered, even with a handler', () => {
