@@ -235,7 +235,10 @@ export function DialogFooter({
   className,
   children,
 }: {
-  /** Exception actions: `AppButton variant="link"`, with no icon. */
+  /**
+   * Exception actions: `AppButton variant="link"` with no icon, or a destructive action such as
+   * a Delete `ConfirmButton`.
+   */
   aside?: React.ReactNode;
   className?: string;
   children?: React.ReactNode;

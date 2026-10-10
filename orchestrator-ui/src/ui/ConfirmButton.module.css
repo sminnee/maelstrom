@@ -28,4 +28,6 @@
   /* Right-aligned to the trigger: these sit at the end of a row or a footer,
      so growing leftward keeps the question on screen. */
   right: anchor(right);
+  /* Near the screen's foot or left edge it falls back. See `anchoredPopover.module.css`. */
+  position-try-fallbacks: --above, --pin-left, --pin-left-above;
 }
