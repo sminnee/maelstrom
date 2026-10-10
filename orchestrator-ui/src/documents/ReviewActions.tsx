@@ -42,8 +42,9 @@ export function ReviewActions({
       </div>
     );
   }
-  // The field leads; Approve leads the buttons under it, as the primary. The
-  // tab order follows the DOM — see `orchestrator-ui/DESIGN.md`, "Review Dock".
+  // Approve would drop the summary and unresolved comments — see
+  // `orchestrator-ui/DESIGN.md`, "Review Dock".
+  const declining = summary.trim() !== '' || unresolved > 0;
   return (
     <div className={styles.bar}>
       <TextArea
@@ -57,22 +58,27 @@ export function ReviewActions({
         onChange={(e) => setSummary(e.target.value)}
       />
       <div className={styles.buttons}>
-        <AppButton
-          icon={actionIcon('approve')}
-          variant="primary"
-          errorChildren={describeError}
-          onClick={() => onApprove()}
-        >
-          {approveLabel(doc, members)}
-        </AppButton>
-        <AppButton
-          icon={actionIcon('decline')}
-          errorChildren={describeError}
-          disabled={!summary.trim() && unresolved === 0}
-          onClick={() => onRequestChanges(summary.trim())}
-        >
-          {members > 1 ? `Decline all ${members}` : 'Decline'}
-        </AppButton>
+        {declining ? (
+          <AppButton
+            key="decline"
+            icon={actionIcon('decline')}
+            variant="danger"
+            errorChildren={describeError}
+            onClick={() => onRequestChanges(summary.trim())}
+          >
+            {members > 1 ? `Decline all ${members}` : 'Decline'}
+          </AppButton>
+        ) : (
+          <AppButton
+            key="approve"
+            icon={actionIcon('approve')}
+            variant="primary"
+            errorChildren={describeError}
+            onClick={() => onApprove()}
+          >
+            {approveLabel(doc, members)}
+          </AppButton>
+        )}
       </div>
     </div>
   );

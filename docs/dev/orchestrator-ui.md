@@ -949,7 +949,8 @@ why the document's own route is refused.
 
 A **draft** document draws nothing. It is something to read: nothing waits behind it, so
 `documents/ReviewActions.tsx` returns nothing rather than a bar refusing a review nobody asked
-for. Every other status keeps the bar — `awaiting-review` offers Approve and Decline, and
+for. Every other status keeps the bar — `awaiting-review` offers Approve, or Decline while a summary or an unresolved comment is
+present, and
 the rest read "This version is {status}." One verdict settles the whole review group, so for a
 group of more than one the labels count it: "Approve all 3", "Approve and create 3 tasks",
 "Decline all 3", and "All 3 are {status}." See `CONTEXT.md`, "Document tag", for how an agent asks

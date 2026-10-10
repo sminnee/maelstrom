@@ -120,8 +120,8 @@ the tab lists the ids it created and every draft moves to approved.
 The tasks are created, not started. Approving a plan and starting work are two decisions, so
 launch the head yourself from its node card or the task list.
 
-To send the plan back instead, use **Decline**. The summary reaches the agent as a
-message. It revises the drafts and tags them again, and each draft comes back as version 2. A
+To send the plan back instead, type a summary in the field. The button turns into **Decline**,
+and the summary reaches the agent as a message. It revises the drafts and tags them again, and each draft comes back as version 2. A
 draft the agent leaves out drops off the card.
 
 ## Single-session vs multi-session
