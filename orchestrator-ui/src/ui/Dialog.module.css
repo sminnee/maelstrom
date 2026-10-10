@@ -139,17 +139,17 @@
 /*
  * On a narrow screen the dialog is the screen. Centred with a margin, it spends
  * a fifth of a phone's width on chrome, and a soft keyboard pushes the focused
- * field out of sight. Bottom-anchored and full-bleed instead, as `#root` is,
- * measured in `--vvh` so the keyboard shrinks the box rather than covering it.
+ * field out of sight. Full-bleed over the visible area instead, as `#root` is,
+ * so the keyboard shrinks the box rather than covering it.
  */
 @media (max-width: 839px) {
   .dialog {
     width: 100%;
     max-width: none;
     /* The dialog is in the top layer, outside `#root`, so it takes the
-       visible height itself. */
-    top: auto;
-    bottom: 0;
+       visible area itself. */
+    top: var(--vvt, 0px);
+    bottom: auto;
     height: var(--vvh, 100dvh);
     max-height: var(--vvh, 100dvh);
     /* Anchored and full-bleed, so the UA's centring margin goes. */
@@ -186,9 +186,9 @@
  * there. See DESIGN.md, "The One Strip Rule".
  */
 .dialog.side {
-  top: auto;
+  top: var(--vvt, 0px);
   right: 0;
-  bottom: 0;
+  bottom: auto;
   left: auto;
   width: min(85vw, 24rem);
   height: var(--vvh, 100dvh);
