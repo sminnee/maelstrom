@@ -10,6 +10,8 @@ has to read every task in every project; one that learns *which rows* moved
 reads those rows alone. Both backends answer it, so both are tested.
 """
 
+import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -587,6 +589,33 @@ def a_launching_source(table, *, has_transcript) -> NotebookTaskSource:
         live_sessions=lambda: LiveSessionSet([]),
         has_transcript=has_transcript,
     )
+
+
+async def test_two_opens_in_one_project_do_not_overlap(table):
+    """``create_worktree`` picks a NATO name with no lock held, so two opens
+    at once in one project could pick the same name. Another project's open
+    is free to run alongside."""
+    inside: list[str] = []
+
+    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+        inside.append(f"enter {branch}")
+        time.sleep(0.05)
+        inside.append(f"leave {branch}")
+        return WorktreeSetup(path=Path("/w/alpha"), name="alpha", action="created")
+
+    source = NotebookTaskSource(table, lambda: [PROJECT], open_worktree=open_worktree)
+    await asyncio.gather(
+        source.worktree_for(PROJECT, "a"),
+        source.worktree_for(PROJECT, "b"),
+        source.worktree_for("askastro", "c"),
+    )
+    ours = [line for line in inside if not line.endswith(" c")]
+    assert ours in (
+        ["enter a", "leave a", "enter b", "leave b"],
+        ["enter b", "leave b", "enter a", "leave a"],
+    )
+    # The other project's open overlapped ours rather than queueing behind it.
+    assert inside.index("enter c") < inside.index(ours[-1])
 
 
 async def test_launch_resumes_a_task_that_has_already_run(table):

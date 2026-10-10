@@ -42,6 +42,7 @@ from mael_domain.landing import (
     tracked_tasks,
 )
 from mael_domain.protocol import HostUsage
+from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
@@ -76,6 +77,8 @@ class Harness:
             lambda: list(self.projects),
             version=lambda: str(self.version),
             landings=over.get("landings"),
+            # Never the real machine's claude processes.
+            live_sessions=lambda: LiveSessionSet([]),
         )
         self.comms = InMemoryCommStore()
         self.worktrees = InMemoryWorktreeSource(
@@ -1493,6 +1496,33 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     assert task["status"] == "todo"
 
 
+def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
+    """Opening a worktree fetches and rebases for seconds. On the loop, that
+    would freeze every client until the launch replies."""
+    harness.add_task("NORT-7")
+    entered, release = threading.Event(), threading.Event()
+    held_to_timeout: list[bool] = []
+
+    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+        entered.set()
+        held_to_timeout.append(not release.wait(timeout=2))
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
+
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            launch = asyncio.create_task(api.post("/api/tasks/northwind/NORT-7/launch"))
+            assert await asyncio.to_thread(entered.wait, 5), "the open never began"
+            await api.get_json("/api/agents")
+            release.set()
+            return await launch
+
+    assert run(scenario()).status == 200
+    # The GET answered before the open was let go, not after it gave up.
+    assert held_to_timeout == [False]
+
+
 def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
     from mael_domain.worktree import SyncResult
 
@@ -2040,6 +2070,22 @@ def test_a_host_with_no_reading_offers_no_usage(harness):
     assert run(scenario())["host"]["usage"] is None
 
 
+def test_the_host_reply_carries_the_longest_loop_stall(harness):
+    """A change that moves work off the loop proves itself by this figure
+    dropping, so it must be readable from outside the server."""
+
+    async def scenario():
+        async with harness.client() as api:
+            # Blocks the loop, as a sync call made by a handler would.
+            time.sleep(0.3)
+            await asyncio.sleep(0.15)  # a tick lands after the stall
+            return await api.get_json("/api/host")
+
+    loop = run(scenario())["loop"]
+    assert loop["maxGapMs"] >= 300
+    assert loop["lastStallAt"] == NOW
+
+
 def test_one_failed_poll_raises_no_host_notice(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
@@ -2069,22 +2115,6 @@ def test_a_second_agent_poll_publishes_nothing(harness):
                 before = published(harness)
                 await harness.orch.refresh_agents()
                 assert published(harness) == before
-
-def test_the_host_reply_carries_the_longest_loop_stall(harness):
-    """A change that moves work off the loop proves itself by this figure
-    dropping, so it must be readable from outside the server."""
-
-    async def scenario():
-        async with harness.client() as api:
-            # Blocks the loop, as a sync call made by a handler would.
-            time.sleep(0.3)
-            await asyncio.sleep(0.15)  # a tick lands after the stall
-            return await api.get_json("/api/host")
-
-    loop = run(scenario())["loop"]
-    assert loop["maxGapMs"] >= 300
-    assert loop["lastStallAt"] == NOW
-
 
     run(scenario())
 
@@ -3904,9 +3934,14 @@ def test_linear_plan_with_launch_starts_the_planning_session(harness, linear):
                     "/api/linear/tasks",
                     {"project": PROJECT, "issueId": "ME-1", "launch": True},
                 )
+                # Read until all three kinds arrive: the launch yields while
+                # it opens the worktree, so the create's task notice and the
+                # launch's need not coalesce into one.
                 kinds = set()
-                for _ in range(3):
+                for _ in range(6):
                     kinds.add((await stream.next("change"))["data"]["kind"])
+                    if kinds >= {"task", "agent", "desk"}:
+                        break
                 return reply, kinds
 
     reply, kinds = run(scenario())

@@ -5,17 +5,16 @@ notebook or ``list-all`` and an in-memory one for tests. Both return wire
 entities built by :mod:`.world_build`, so the server holds one shape of the
 world and diffs readings of it.
 
-The two sources reach the loop differently. :class:`ListAllWorktreeSource`
-awaits its git and ``gh`` calls, so it runs on the loop and never stalls the
-socket. Every :class:`NotebookTaskSource` method blocks, so the server runs it
-in its executor — a pool of one thread; see ``docs/dev/orchestrator-server.md``
-for why one. A source may block or answer with an awaitable, and the server
-takes either, so neither kind needs help from the caller.
+Both sources run on the loop. :class:`ListAllWorktreeSource` awaits its git
+and ``gh`` calls, and :class:`NotebookTaskSource` awaits the task table. A
+source may block or answer with an awaitable, and the server takes either; a
+blocking one goes to the executor — see ``docs/dev/orchestrator-server.md``.
 """
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -277,7 +276,7 @@ class TaskSource(Protocol):
         """
         ...
 
-    def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
+    async def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
         """Open the worktree a branch runs in, provisioning one when it has none.
 
         The path a free agent starts in. A task's launch opens its own
@@ -374,6 +373,7 @@ class NotebookTaskSource:
         *,
         version: Callable[[], str | None] | None = None,
         open_worktree: OpenWorktree | None = None,
+        worktree_executor: Executor | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         agents: AgentStore | None = None,
@@ -390,6 +390,11 @@ class NotebookTaskSource:
         self.projects = projects
         self._version = version
         self.open_worktree = open_worktree
+        #: Where a worktree opens. ``None`` is the loop's default pool, which
+        #: is still off the loop.
+        self.worktree_executor = worktree_executor
+        #: Per project, held while a worktree opens there. See :meth:`_open`.
+        self._opening: dict[str, asyncio.Lock] = {}
         self.live_sessions = live_sessions
         self.has_transcript = has_transcript
         #: An injected version is some test's own counter, not the table's
@@ -513,8 +518,9 @@ class NotebookTaskSource:
                 resolve_execute_model(plan.execute_model)
             except ValueError as exc:
                 raise LaunchBlocked(str(exc)) from exc
-        check_not_live(task.id, plan.session_id, self.live_sessions())
-        setup = self.open_worktree(task.project, plan.branch, task.base or "")
+        live = await self.live_sessions().sweep()
+        check_not_live(task.id, plan.session_id, live)
+        setup = await self._open(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
         payload = build_start_payload(
@@ -570,11 +576,23 @@ class NotebookTaskSource:
     def infer(self, draft: str) -> TaskNames:
         return infer_task_names(draft)
 
-    def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
+    async def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
+        # No base to seed: work with no task has no base to carry.
+        return await self._open(project, branch, "")
+
+    async def _open(self, project: str, branch: str, base: str) -> WorktreeSetup:
+        """Open a worktree on the worktree pool, one open per project at a time.
+
+        Off the loop, because the fetch and rebase take seconds. One at a time,
+        because ``create_worktree`` picks a NATO name and adds the worktree with
+        no scope held: two opens in one project could pick the same name.
+        """
         if self.open_worktree is None:
             raise LaunchBlocked("This server cannot open worktrees")
-        # No base to seed: work with no task has no base to carry.
-        return self.open_worktree(project, branch, "")
+        async with self._opening.setdefault(project, asyncio.Lock()):
+            return await asyncio.get_running_loop().run_in_executor(
+                self.worktree_executor, self.open_worktree, project, branch, base
+            )
 
     async def create(
         self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None

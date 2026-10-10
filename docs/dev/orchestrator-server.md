@@ -785,7 +785,12 @@ still finds it.
 `agent.launch` reuses the model steps `mael task run` takes, from `task_launch.py`: the same
 session id, environment, permission mode, branch and prompt, and the same two refusals — a live
 session already holds the task, or the worktree's rebase failed. `NotebookTaskSource.launch`
-runs them, then hands the host a `start`.
+runs them, then hands the host a `start`. Neither refusal runs on the loop: the live-session sweep
+is awaited, and the worktree opens on the worktree pool.
+
+The server opens one worktree per project at a time, for a launch and a free agent alike.
+`create_worktree` picks a NATO name and adds the worktree with no scope held, so two opens in one
+project could pick the same name.
 
 A task that has already run owns its session id, and claiming that id again is refused. So the
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
@@ -1381,8 +1386,9 @@ log lines just before the warning to name the blocking call.
 
 - A partial message can draw unclosed markdown oddly until it closes: `**`, a fence, half a table.
 
-- Blocking work runs on the worker thread. `setup_worktree_for_branch` can take tens of seconds,
-  and the launch reply waits for it. Every launch pays that cost, including a reopen.
+- A launch opens its worktree on the worktree pool. `setup_worktree_for_branch` can take tens of
+  seconds, and the launch reply waits for it. Every launch pays that cost, including a reopen.
+  Other clients are served meanwhile.
 - The host's watcher queue drops the oldest event at 1000. The drop is marked, so the transcript
   shows a gap, but the dropped events themselves are gone. A lost answer is closed on the next
   reconciliation, whether or not the marker arrives.
