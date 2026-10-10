@@ -92,11 +92,12 @@ function Board({ control, heading }: { control: string; heading: string }) {
       }
     >
       <h2 style={{ margin: 0, fontSize: 'var(--text-ui)' }}>{heading}</h2>
-      <Row label="AppButton — the four variants">
+      <Row label="AppButton — the five variants">
         <AppButton>Stop</AppButton>
         <AppButton variant="primary" onClick={later} processingChildren="Launching">
           Launch
         </AppButton>
+        <AppButton variant="danger">Deny</AppButton>
         <AppButton variant="quiet">Edit task</AppButton>
         <AppButton variant="link">Show more</AppButton>
         <AppButton disabled>Resume</AppButton>

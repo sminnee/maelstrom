@@ -13,7 +13,7 @@ export interface AppButtonProps extends Omit<
 > {
   ref?: React.Ref<HTMLButtonElement>;
   onClick?: ButtonClickHandler;
-  variant?: 'plain' | 'primary' | 'quiet' | 'link';
+  variant?: 'plain' | 'primary' | 'danger' | 'quiet' | 'link';
   /**
    * Drawn before the text — one of `actionIcons.ts`. Decorative; the text
    * stays the name. On the narrow layout the text is a caption under it.
