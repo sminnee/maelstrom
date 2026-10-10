@@ -1094,8 +1094,9 @@ The combobox offer is a `popover`, anchored to its field by CSS. The pattern has
 `ui/useAnchorName.ts` and `ui/anchoredPopover.module.css`, and it is only correct when both are
 applied. Each carries its reasoning; read them before you add a third popover.
 
-CSS anchor positioning is not in Firefox or Safari yet. They fall back to ordinary absolute
-positioning, which reads about right; Chromium is where this is exact.
+Where `CSS.supports` reports no anchor positioning (iOS Safari before 26, Firefox),
+`useComboBoxOffer` writes `top`, `left` and `min-width` from the field's rect, then corrects `top`
+by where the offer is drawn. Its `placeByHand` docstring gives the reason.
 
 Inference, a launch and a Linear read can each take tens of seconds, so every one of these hooks
 takes `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was

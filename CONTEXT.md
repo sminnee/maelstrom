@@ -1230,7 +1230,7 @@ the slots and the panel width are not part of it; the store keeps them.
 _Avoid_: Route, page, nav state
 
 **Offer**:
-The list a combobox shows under its field: the options that match what is typed, which the user
+The list a combobox shows next to its field: the options that match what is typed, which the user
 may take or ignore. It narrows as the user types and closes when nothing matches, because the
 field keeps free text either way.
 _Avoid_: Dropdown, autocomplete list, suggestions, menu

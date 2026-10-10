@@ -4,6 +4,10 @@ import { useAnchorName } from './useAnchorName';
 /** Both duplicate `ComboBox.module.css` and `MultiComboBox.module.css` — change them together. */
 const GAP = 2;
 const MAX_HEIGHT = 240;
+/** Three rows. With less room than this above the field, and more below, a touch screen opens below. */
+const MIN_ABOVE = 90;
+/** How long a focus on a touch screen waits for a keyboard that may not come. */
+const KEYBOARD_WAIT = 400;
 
 /**
  * The popover mechanics `ComboBox` and `MultiComboBox` share: open/dismiss
@@ -26,9 +30,48 @@ export function useComboBoxOffer(offeredCount: number) {
   const input = useRef<HTMLInputElement>(null);
   const { anchorStyle } = useAnchorName();
 
+  // On a touch screen a focus opens the soft keyboard, which then shrinks the
+  // box and makes the dialog scroll the field into view. Until that settles,
+  // a placement is for a box that is about to change, so the offer waits.
+  const [settled, setSettled] = useState(true);
+  useEffect(() => {
+    const el = input.current;
+    if (!el || !isTouchScreen()) return;
+    const viewport = window.visualViewport;
+    let frame = 0;
+    let timer = 0;
+    const settle = () => {
+      viewport?.removeEventListener('resize', onResize);
+      clearTimeout(timer);
+      setSettled(true);
+    };
+    // A frame after the resize: `--vvh` is written and the field revealed.
+    const onResize = () => {
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          settle();
+        });
+    };
+    const onFocus = () => {
+      clearTimeout(timer);
+      setSettled(false);
+      viewport?.addEventListener('resize', onResize);
+      // No resize comes when the keyboard is already up.
+      timer = window.setTimeout(settle, KEYBOARD_WAIT);
+    };
+    el.addEventListener('focus', onFocus);
+    return () => {
+      el.removeEventListener('focus', onFocus);
+      viewport?.removeEventListener('resize', onResize);
+      clearTimeout(timer);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
   // An empty offer shows no box: a dead end is not a reason to keep an empty
   // popover on screen.
-  const showing = open && offeredCount > 0;
+  const showing = open && settled && offeredCount > 0;
   const activeId = showing && active >= 0 ? `${rowId}-${active}` : undefined;
 
   // A click outside is a dismissal. `mousedown`, not `click`, so the box is
@@ -53,21 +96,28 @@ export function useComboBoxOffer(offeredCount: number) {
   const place = useCallback((el: HTMLUListElement) => {
     const field = input.current?.getBoundingClientRect();
     if (!field) return;
-    const below = window.innerHeight - field.bottom - GAP;
-    const above = field.top - GAP;
+    // The visible area, not the window: on iOS a soft keyboard shrinks the
+    // visual viewport and leaves `innerHeight` as it was.
+    const top = window.visualViewport?.offsetTop ?? 0;
+    const bottom = window.visualViewport ? top + window.visualViewport.height : window.innerHeight;
+    const below = bottom - field.bottom - GAP;
+    const above = field.top - top - GAP;
     // How tall the offer wants to be: its rows, capped. Measured rather than
     // assumed, because a three-row offer fits under a field that a full-height
     // one would not, and flipping that one up reads as a jump.
     el.style.removeProperty('max-height');
     const wants = Math.min(el.scrollHeight, MAX_HEIGHT);
-    // Downward whenever it fits below, not merely when there is more room
-    // below -- a short window often has more room above and space enough here.
-    const down = wants <= below || below >= above;
+    // A touch screen opens upward, away from the keyboard. A fine pointer opens
+    // downward whenever the offer fits below, not only when below has more room.
+    const down = isTouchScreen()
+      ? above < MIN_ABOVE && below > above
+      : wants <= below || below >= above;
     const room = down ? below : above;
     el.dataset.position = down ? 'bottom' : 'top';
     // Only cap when the side chosen has less room than the offer wants; an
     // unset max-height lets a short list draw short.
     if (room < wants) el.style.maxHeight = `${room}px`;
+    if (!CSS.supports('top', 'anchor(bottom)')) placeByHand(el, field, down);
   }, []);
 
   // Open and place together, and place again whenever the offer's own height
@@ -78,7 +128,29 @@ export function useComboBoxOffer(offeredCount: number) {
     if (!showing) return;
     el.showPopover();
     place(el);
-    return () => el.hidePopover();
+    // Place again a frame after a resize or a scroll, as the dialog reveals the
+    // field. A scroll does not bubble, so the document hears it in the capture
+    // phase. The offer's own scroll is not one: placing resets its height, which
+    // would clamp it.
+    let frame = 0;
+    const replace = (e: Event) => {
+      if (e.target === el || frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        place(el);
+      });
+    };
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', replace);
+    viewport?.addEventListener('scroll', replace);
+    document.addEventListener('scroll', replace, true);
+    return () => {
+      viewport?.removeEventListener('resize', replace);
+      viewport?.removeEventListener('scroll', replace);
+      document.removeEventListener('scroll', replace, true);
+      if (frame) cancelAnimationFrame(frame);
+      el.hidePopover();
+    };
   }, [showing, offeredCount, place]);
 
   return {
@@ -97,3 +169,24 @@ export function useComboBoxOffer(offeredCount: number) {
     place,
   };
 }
+
+/**
+ * Write the offsets the anchor rules would, for a browser that lays out no
+ * anchors, such as iOS Safari before 26.
+ *
+ * The offset is a first guess, then corrected by where the offer is drawn:
+ * on iOS a fixed box and a rect disagree once the keyboard is open, by an
+ * amount no property reports. Two rects always agree with each other.
+ */
+function placeByHand(el: HTMLUListElement, field: DOMRect, down: boolean) {
+  el.style.left = `${field.left}px`;
+  el.style.minWidth = `${field.width}px`;
+  const guess = down ? field.bottom + GAP : field.top - GAP - el.getBoundingClientRect().height;
+  el.style.top = `${guess}px`;
+  const drawn = el.getBoundingClientRect();
+  const off = down ? drawn.top - (field.bottom + GAP) : drawn.bottom - (field.top - GAP);
+  if (off) el.style.top = `${guess - off}px`;
+}
+
+/** Whether the main pointer is a finger, so a focus opens a soft keyboard. */
+const isTouchScreen = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
