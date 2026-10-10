@@ -1,8 +1,11 @@
+import { useWorld } from '../api/useWorld';
 import type { Worktree } from '../protocol/entities';
 import { worktreePr, type PrReading } from '../selectors/cardPr';
 import { changesTab } from '../selectors/tabs';
+import { trackedAgents } from '../selectors/worktrees';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
+import { CloseControl } from './CloseControl';
 import { CmuxControl } from './CmuxControl';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
@@ -11,8 +14,9 @@ import { SyncControl } from './SyncControl';
 
 /**
  * A worktree's controls, in two pieces so a surface can lay them out on two
- * rows: the links out of it, and the commands on it. The worktree area and
- * the panel's worktree bar both draw these, so the two cannot drift.
+ * rows: the links out of it, and the commands on it. The worktree table, the
+ * worktree area and the panel's worktree bar all draw these, so they cannot
+ * drift.
  */
 
 /**
@@ -42,14 +46,30 @@ export function WorktreeLinks({
   );
 }
 
-/** Merge, sync and env. A closed worktree has nothing to merge, sync or start. */
-export function WorktreeCommands({ worktree }: { worktree: Worktree | undefined }) {
-  if (!worktree || worktree.isClosed) return null;
+/**
+ * Merge, sync, env and the close control. A closed worktree has nothing to
+ * merge, sync or start, so it gets the close control alone. While an agent
+ * runs in the worktree, `busyClose` says what the close does: `hold` draws it
+ * disabled, `hide` leaves it out — see `docs/dev/orchestrator-ui.md`, "The
+ * worktree area".
+ */
+export function WorktreeCommands({
+  worktree,
+  busyClose = 'hold',
+}: {
+  worktree: Worktree | undefined;
+  busyClose?: 'hold' | 'hide';
+}) {
+  const { world } = useWorld();
+  if (!worktree) return null;
+  if (worktree.isClosed) return <CloseControl worktree={worktree} />;
+  const busy = trackedAgents(world, worktree.id).length > 0;
   return (
     <>
       <MergeControl worktree={worktree} />
       <SyncControl worktree={worktree} />
       <EnvControl worktree={worktree} />
+      {!(busy && busyClose === 'hide') && <CloseControl worktree={worktree} />}
     </>
   );
 }

@@ -327,7 +327,7 @@ describe('the expanded node', () => {
       expect(within(expanded()).queryByRole('button', { name: /^Sync/ })).toBeNull();
     });
 
-    it('offers no env or sync control once the worktree is closed', async () => {
+    it('offers Delete alone, and no env or sync control, once the worktree is closed', async () => {
       const { server } = await renderApp();
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
@@ -341,6 +341,8 @@ describe('the expanded node', () => {
         expect(within(expanded()).queryByRole('button', { name: /env$/ })).toBeNull(),
       );
       expect(within(expanded()).queryByRole('button', { name: /^Sync/ })).toBeNull();
+      // A closed worktree has only the remove left, and the remove stops the agent itself.
+      expect(worktreeControls(expanded())).toContainEqual(['Delete', false]);
     });
   });
 

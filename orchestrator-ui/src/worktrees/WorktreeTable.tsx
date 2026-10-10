@@ -1,19 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useWorld } from '../api/useWorld';
-import { useRefreshWorktrees, useRemoveWorktree } from '../api/worktrees';
+import { useRefreshWorktrees } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
-import type { WorktreeId } from '../protocol/ids';
 import { worktreePr } from '../selectors/cardPr';
 import { listWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
 import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
-import { ConfirmButton } from '../ui/ConfirmButton';
-import { CloseControl } from './CloseControl';
-import { DevEnvLinks } from './DevEnvLinks';
-import { EnvControl } from './EnvControl';
-import { SyncControl } from './SyncControl';
+import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeTable.module.css';
 
 /**
@@ -73,7 +68,7 @@ export function WorktreeTable() {
                 <th>local</th>
                 <th>remote</th>
                 <th>pr</th>
-                <th>app</th>
+                <th>links</th>
                 <th>agents</th>
                 <th />
               </tr>
@@ -106,11 +101,14 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
         <PrChip pr={worktreePr(worktree)} />
       </td>
       <td>
-        <DevEnvLinks worktree={worktree} />
+        {/* The PR has its own column, which the narrow layout puts by the name. */}
+        <span className={styles.links}>
+          <WorktreeLinks worktree={worktree} pr={null} />
+        </span>
       </td>
       <td data-label="agents">{agents || ''}</td>
       <td className={`${styles.actions} nowrap`}>
-        <Actions worktree={worktree} />
+        <WorktreeCommands worktree={worktree} />
       </td>
     </tr>
   );
@@ -127,38 +125,4 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
 function remoteCell(worktree: Worktree): string {
   const commits = worktree.prNumber ? worktree.prCommits : worktree.pushedCommits;
   return commits ? String(commits) : '';
-}
-
-function Actions({ worktree }: { worktree: Worktree }) {
-  const [asking, setAsking] = useState(false);
-  const remove = useRemoveWorktree();
-  const id: WorktreeId = worktree.id;
-  // `_main` holds the project's main checkout, so it never closes and never
-  // goes away. It still syncs and still runs an environment.
-  const closable = worktree.nato !== '_main';
-
-  return (
-    <>
-      {!worktree.isClosed && (
-        <>
-          <SyncControl worktree={worktree} />
-          <EnvControl worktree={worktree} />
-        </>
-      )}
-      <CloseControl worktree={worktree} />
-      {closable && (
-        <ConfirmButton
-          variant="quiet"
-          question={`Delete ${worktree.nato}? The checkout goes; the branch stays.`}
-          confirm="Delete it"
-          asking={asking}
-          onAsk={() => setAsking(true)}
-          onDismiss={() => setAsking(false)}
-          onConfirm={() => remove.mutateAsync({ worktreeId: id })}
-        >
-          Delete
-        </ConfirmButton>
-      )}
-    </>
-  );
 }

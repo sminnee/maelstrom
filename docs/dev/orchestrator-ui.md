@@ -223,12 +223,12 @@ PR in its **Chain**. A free agent's card shows no PR.
 
 `worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
 
-It is the only surface that shows a closed worktree, and the only one that deletes one. The
+It is the only surface that shows a closed worktree. The
 canvas draws each open worktree as a **Worktree box**, and the box's label opens the same sync,
 environment and close controls. `selectors/worktrees.ts` reads the rows from the world, so a
 worktree with no node still draws.
 
-The columns are worktree, branch, dirty, local, remote, PR, app and agents. "Remote" is `prCommits`
+The columns are worktree, branch, dirty, local, remote, PR, links and agents. "Remote" is `prCommits`
 once a pull request is open and `pushedCommits` before one is, which is what commits waiting on the
 remote means for a branch waiting on a new PR — `cli.pr_display` reads the same two fields, so the
 table and the terminal give one reading. "Agents" is the world's agent rows joined by `worktreeId`,
@@ -238,10 +238,12 @@ shell as readily as an agent.
 A closed worktree is listed only when "show closed" is ticked, and reads as parked. `_main` sorts
 first, because it holds the branch the others are cut from.
 
-Each row carries its operations. Sync, the environment control and the close control are split
-buttons. The close control is `worktrees/CloseControl.tsx` — see "The worktree area". Delete is
-`ui/ConfirmButton.tsx`, because it asks before it acts. `_main` is offered neither close nor
-delete — it holds the main checkout — but it still syncs.
+Each row draws the shared worktree controls from `worktrees/WorktreeControls.tsx`.
+`WorktreeLinks` fills the links column: Changes, the dev env and cmux. The row passes it no PR,
+because the PR column draws its own chip, which the narrow layout puts by the name. `WorktreeCommands` fills
+the last column: Merge, sync, the environment control and the close control. Delete is in the
+close control — see "The worktree area". `_main` is offered no close control, because it holds
+the main checkout, but it still syncs.
 
 ### The Comms view
 
@@ -280,8 +282,9 @@ split buttons' "More actions", so a row with two menus stays readable to a scree
 The merge control is `worktrees/MergeControl.tsx`. It draws "Merge" only when the worktree's
 **PR state** is `ready` and the pull request is not a draft. While the **PR match** is `differ`
 it draws disabled, with a title that says to sync first. It is a `ConfirmButton`, because a
-merge cannot be undone. `WorktreeCommands` draws it first, so the expanded node, the narrow
-layout's pushed screen and the panel's worktree bar all carry it. The Worktrees table does not.
+merge cannot be undone. `WorktreeCommands` draws it first, so every surface that draws the
+worktree commands carries it: the expanded node, the narrow layout's pushed screen, the panel's
+worktree bar and the Worktrees table.
 GitHub's refusal shows as the confirming button's title, and the question stays open.
 
 The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its
@@ -673,8 +676,8 @@ actions only call them:
 
 A shift-click on a top bar item keeps its own meaning: it moves the item's anchor.
 
-`panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls: the
-`worktrees/WorktreeControls.tsx` pieces and the close control, as the worktree area does.
+`panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls from
+`worktrees/WorktreeControls.tsx`, as the worktree area does.
 
 The same links row carries external links, which open a new browser tab instead of a panel
 tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
@@ -691,19 +694,26 @@ environment and sync. `worktrees/WorktreeSection.tsx` draws them as one area: a 
 and branch, the links, then the commands. The node card ends with this area, and the Worktree
 card is this area under a header. Both draw the one component, so the two cannot drift.
 
-`worktrees/CloseControl.tsx` is the area's close: a split button with three options.
+`worktrees/CloseControl.tsx` is the area's close: a split button with four options.
 
 | Option | Sends | Asks first |
 |---|---|---|
 | Close | `worktree.close` | no — the server refuses unmerged work |
 | Shelve | `worktree.forceClose` | yes |
 | Trash | `worktree.trash` | yes |
+| Delete (**Remove**) | `worktree.remove` | yes |
 
 A close stops every agent in the worktree. The control is therefore held while an agent runs
-there, and each item says so. The node card's Terminate chains are the way to end live work. The
-node card and the Worktree card omit the control while an agent runs: the agent is in view, so a
-held close is noise. The panel's worktree bar and the worktree table keep the held control.
-The control is absent on `_main` and on a closed worktree.
+there, and each item says so. The node card's Terminate chains are the way to end live work.
+
+`WorktreeCommands` draws the control, and its `busyClose` prop sets what happens while an agent
+runs. The node card and the Worktree card pass `hide`: the agent is in view, so a held close is
+noise. The panel's worktree bar and the worktree table keep the default, `hold`, which draws the
+held control.
+
+A closed worktree has only Delete left, so the control is a plain Delete button that asks first.
+Every surface that draws `WorktreeCommands` shows it. It is not held: a plain button has no menu
+item to say why, and the remove stops any agent itself. The control is absent on `_main`.
 
 ### The Worktree card
 
