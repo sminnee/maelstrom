@@ -995,7 +995,7 @@ _Avoid_: Add to desk, pin
 Taking a node off the desk. Off desk never stops an agent; **stop** does, and the node card
 offers both in one control, behind its **Dismiss** button — see `docs/dev/orchestrator-ui.md`. A
 menu item or a list button says "Off desk"; a label that joins it to another act uses the verb
-form, "take off desk", as in "Terminate & take off desk".
+form, "take off desk", as in "…and take off desk" after Terminate.
 _Avoid_: Remove from desk, Hide, archive
 
 **Dismiss**:
