@@ -30,7 +30,13 @@ from mael_domain.agent_store import AgentStore
 from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
 from mael_domain.landing import Landings
 from mael_domain.list_all import build_list_all_data
-from mael_domain.protocol import Project, Task, Worktree
+from mael_domain.protocol import (
+    Project,
+    StatusMoved,
+    Task,
+    TaskFollower,
+    Worktree,
+)
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_launch import (
@@ -224,8 +230,8 @@ class TaskSource(Protocol):
         """Move a task the host refused to start back to where it was."""
         ...
 
-    async def set_status(self, task_id: str, status: str) -> None:
-        """Move a task to ``status``, running its status actions.
+    async def set_status(self, task_id: str, status: str) -> StatusMoved:
+        """Move a task to ``status``, run its status actions, and say what followed.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -534,9 +540,35 @@ class NotebookTaskSource:
     async def rollback(self, request: LaunchRequest) -> None:
         await self._move(request.project, request.task_id, request.previous_status)
 
-    async def set_status(self, task_id: str, status: str) -> None:
+    async def set_status(self, task_id: str, status: str) -> StatusMoved:
         project, notebook_id = split_task_key(task_id)
-        await self._move(project, notebook_id, status)
+        lines: list[str] = []
+
+        def report(line: str) -> None:
+            log.warning("%s", line)
+            lines.append(line)
+
+        await self._move(project, notebook_id, status, warn=report)
+        moved: StatusMoved = {}
+        if lines:
+            moved["actionLines"] = lines
+        if status == model.STATUS_DONE:
+            follower = await self._follower(project, notebook_id)
+            if follower is not None:
+                moved["follower"] = follower
+        return moved
+
+    async def _follower(self, project: str, done_id: str) -> TaskFollower | None:
+        """The follower ``mael task next --run`` would start, unless one already runs."""
+        running = await model.running_follower(self.table, project, done_id)
+        follower = running or await model.next_follower(self.table, project, done_id)
+        if follower is None:
+            return None
+        return {
+            "id": task_key(project, follower.id),
+            "title": follower.title,
+            "running": running is not None,
+        }
 
     async def update(self, task_id: str, fields: dict[str, Any]) -> None:
         """Write a task's fields.
@@ -640,9 +672,16 @@ class NotebookTaskSource:
             model.consume_draft(path)
         return [task_key(project, task_id) for task_id in created]
 
-    async def _move(self, project: str, task_id: str, status: str) -> None:
+    async def _move(
+        self,
+        project: str,
+        task_id: str,
+        status: str,
+        *,
+        warn: Callable[[str], None] = log.warning,
+    ) -> None:
         await task_actions.move_with_actions(
-            self.table, project, task_id, status, warn=log.warning
+            self.table, project, task_id, status, warn=warn
         )
 
 

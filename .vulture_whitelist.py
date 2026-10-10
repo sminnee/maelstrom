@@ -80,6 +80,7 @@ resetsAt  # unused variable (lib/domain/src/mael_domain/protocol.py:252)
 fiveHour  # unused variable (lib/domain/src/mael_domain/protocol.py:264)
 sevenDay  # unused variable (lib/domain/src/mael_domain/protocol.py:265)
 lastRun  # unused variable (lib/domain/src/mael_domain/protocol.py Task)
+actionLines  # unused variable (lib/domain/src/mael_domain/protocol.py StatusMoved)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or
 # that a constructor fills and only a caller reads back.
