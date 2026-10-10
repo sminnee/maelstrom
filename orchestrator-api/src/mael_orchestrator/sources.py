@@ -48,6 +48,7 @@ from mael_domain.task_launch import (
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
 from mael_domain.task_table import TaskTable
 from mael_domain.worktree import WorktreeSetup, get_head_sha_async
+from mael_domain.worktree_steps import StepHook
 
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
@@ -66,19 +67,34 @@ log = logging.getLogger(__name__)
 #: agent — opens a worktree through the same injected collaborator.
 OpenWorktree = Callable[[str, str, str], WorktreeSetup]
 
-#: Closes one worktree: ``(project, nato, path) -> None``. The server passes
-#: what the world already holds, so the closer resolves nothing itself. Raises
-#: :class:`CloseBlocked` with the reason when it will not close — the message
-#: the user reads on the button. Awaited: the close stops the worktree's agents
-#: over the agent host's socket.
-CloseWorktree = Callable[[str, str, str], Awaitable[None]]
 
-#: Rebases one worktree: ``(project, nato, path, mode) -> None``. ``mode`` is
-#: ``plain``, ``autorepair`` or ``squash``, the three settings ``mael sync``
-#: already has. One callable rather than three: it is one operation the user
-#: chooses a setting for, not three operations.
-#:
-SyncWorktree = Callable[[str, str, str, str], Awaitable[None]]
+class CloseWorktree(Protocol):
+    """Closes one worktree: ``(project, nato, path, *, hook) -> None``.
+
+    The server passes what the world already holds, so the closer resolves
+    nothing itself. ``hook`` hears each step, for the operation the close runs
+    as. Raises :class:`CloseBlocked` with the reason when it will not close —
+    the words the operation ends with. Awaited: the close stops the worktree's
+    agents over the agent host's socket.
+    """
+
+    def __call__(
+        self, project: str, nato: str, path: str, *, hook: StepHook
+    ) -> Awaitable[None] | None: ...
+
+
+class SyncWorktree(Protocol):
+    """Rebases one worktree: ``(project, nato, path, mode, *, hook) -> None``.
+
+    ``mode`` is ``plain``, ``autorepair`` or ``squash``, the three settings
+    ``mael sync`` already has. One callable rather than three: it is one
+    operation the user chooses a setting for, not three operations.
+    """
+
+    def __call__(
+        self, project: str, nato: str, path: str, mode: str, *, hook: StepHook
+    ) -> Awaitable[None] | None: ...
+
 
 #: Merges one worktree's pull request: ``(project, branch, path) -> None``.
 #: Raises :class:`CloseBlocked` with GitHub's refusal.
@@ -88,18 +104,31 @@ MergeWorktreePr = Callable[[str, str, str], Awaitable[None]]
 #: ``(path, number, head_oid) -> None``. Blocking: it waits on GitHub.
 MergePr = Callable[[str, int, str], None]
 
-#: Removes one worktree outright: ``(project, nato, path) -> None``. The close
-#: parks a worktree for reuse; this deletes the checkout.
-RemoveWorktree = Callable[[str, str, str], Awaitable[None]]
+#: Removes one worktree outright: ``(project, nato, path, *, hook) -> None``.
+#: The close parks a worktree for reuse; this deletes the checkout.
+RemoveWorktree = CloseWorktree
 
-#: Starts or stops a worktree's environment:
-#: ``(project, nato, path, action, service) -> None`` where ``action`` is
-#: ``start``, ``stop`` or ``restart``, and ``service`` names one optional
-#: service, or is ``None`` for the whole environment. The environment is keyed
-#: by project and worktree name, but a start reads the checkout's own ``.env``
-#: and services, so the path comes too.
-#:
-EnvWorktree = Callable[[str, str, str, str, str | None], Awaitable[None]]
+
+class EnvWorktree(Protocol):
+    """Starts or stops a worktree's environment.
+
+    ``(project, nato, path, action, service, *, hook) -> None`` where
+    ``action`` is ``start``, ``stop`` or ``restart``, and ``service`` names one
+    optional service, or is ``None`` for the whole environment. The environment
+    is keyed by project and worktree name, but a start reads the checkout's own
+    ``.env`` and services, so the path comes too.
+    """
+
+    def __call__(
+        self,
+        project: str,
+        nato: str,
+        path: str,
+        action: str,
+        service: str | None,
+        *,
+        hook: StepHook,
+    ) -> Awaitable[None] | None: ...
 
 
 #: Makes sure a worktree has a terminal in cmux, and returns the ``cmux://``

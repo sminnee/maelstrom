@@ -34,6 +34,7 @@ from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.notebook_root import NotebookRootUnset
+from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
@@ -55,6 +56,7 @@ from mael_domain.worktree_close import (
 )
 from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
 from mael_domain.worktree_ops import run_env, run_sync
+from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import trash_worktree_fully
 
 from .codex_bridge import CodexBridge
@@ -152,7 +154,9 @@ def build_orchestrator(
             _refresh_env(project, setup.name, projects_dir / project, setup.path)
         return setup
 
-    async def close_worktree(project: str, nato: str, path: str) -> None:
+    async def close_worktree(
+        project: str, nato: str, path: str, *, hook: StepHook
+    ) -> None:
         # Not forced: unmerged work is refused, and the model's own message is
         # what the button shows. Forcing is its own command, behind a confirm
         # the UI owns — see ``force_close_worktree`` below.
@@ -163,11 +167,14 @@ def build_orchestrator(
             projects_dir / project,
             force=False,
             executor=worktree_executor,
+            hook=hook,
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
 
-    async def force_close_worktree(project: str, nato: str, path: str) -> None:
+    async def force_close_worktree(
+        project: str, nato: str, path: str, *, hook: StepHook
+    ) -> None:
         # A decision, not a retry — see docs/dev/orchestrator-server.md,
         # "Closing a worktree".
         outcome = await close_worktree_fully(
@@ -177,6 +184,7 @@ def build_orchestrator(
             projects_dir / project,
             force=True,
             executor=worktree_executor,
+            hook=hook,
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
@@ -187,18 +195,23 @@ def build_orchestrator(
             # that close as failed, which is what raising here would do.
             log.exception("could not write the reopen task for %s/%s", project, nato)
 
-    async def trash_worktree(project: str, nato: str, path: str) -> None:
+    async def trash_worktree(
+        project: str, nato: str, path: str, *, hook: StepHook
+    ) -> None:
         outcome = await trash_worktree_fully(
             project,
             nato,
             Path(path),
             projects_dir / project,
             executor=worktree_executor,
+            hook=hook,
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
 
-    async def remove_worktree(project: str, nato: str, path: str) -> None:
+    async def remove_worktree(
+        project: str, nato: str, path: str, *, hook: StepHook
+    ) -> None:
         # Deletes the checkout rather than parking it. The teardown is the
         # close's, so the daemon's agents stop before any pid is signalled.
         # Not forced: a worktree holding uncommitted work is refused, and the
@@ -210,11 +223,14 @@ def build_orchestrator(
             projects_dir / project,
             get_worktree_folder_name(project, nato),
             executor=worktree_executor,
+            hook=hook,
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
 
-    async def sync_worktree(project: str, nato: str, path: str, mode: str) -> None:
+    async def sync_worktree(
+        project: str, nato: str, path: str, mode: str, *, hook: StepHook
+    ) -> None:
         # A sequence like the teardowns, so it takes the worktree scope: a
         # rebase must not reach a checkout a close is already detaching.
         ran = await run_sync(
@@ -224,6 +240,7 @@ def build_orchestrator(
             projects_dir / project,
             mode,
             executor=worktree_executor,
+            hook=hook,
         )
         if not ran.ok:
             raise CloseBlocked(ran.blocked or "The sync did not finish")
@@ -237,7 +254,13 @@ def build_orchestrator(
             raise CloseBlocked(str(exc)) from exc
 
     async def env_worktree(
-        project: str, nato: str, path: str, action: str, service: str | None
+        project: str,
+        nato: str,
+        path: str,
+        action: str,
+        service: str | None,
+        *,
+        hook: StepHook,
     ) -> None:
         ran = await run_env(
             project,
@@ -247,6 +270,7 @@ def build_orchestrator(
             action,
             service=service,
             executor=worktree_executor,
+            hook=hook,
         )
         if not ran.ok:
             raise CloseBlocked(ran.blocked or "The environment did not change")
@@ -307,6 +331,7 @@ def build_orchestrator(
         task_attachments=SqliteTaskAttachmentTable(state_db),
         landings=landings,
         comms=SqliteCommStore(state_db),
+        operations=SqliteOperationStore(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.

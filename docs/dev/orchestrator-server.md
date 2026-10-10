@@ -863,7 +863,8 @@ both adapters, as `task_launch.py` does for a launch, because `env.py` already i
 `worktree.py`.
 
 An ordinary close never forces. A worktree with unmerged commits or a dirty tree is refused, and
-the refusal carries the model's own message, so the UI reads what the command would have printed.
+the operation ends **Refused** with the model's own message, so the UI reads what the command
+would have printed.
 
 Forcing is its own command, which the UI calls **Shelve**. It writes a `wip: uncommitted changes`
 commit and keeps the branch, so nothing is lost. It is a decision, not a retry, so the UI asks
@@ -872,13 +873,12 @@ before it sends. `_main` is refused by `validate.py` for every teardown, before 
 A forced close that went over unmerged work also writes a task to reopen the branch.
 `add_reopen_task` in `worktree_close.py` writes it, and `mael close --force` calls the same
 function. A worktree that was already detached gets no task, because it has no branch to reopen.
-The handler reads the tasks again after the close, so the new task reaches the UI. A task write
+The operation reads the tasks again at its end, so the new task reaches the UI. A task write
 that fails is logged and does not fail the close: the worktree is closed by then.
 
-Trash is also its own command, and the UI asks before it sends. A trash that fails partway may
-already have stopped agents, so the handler refreshes the world whichever way it ends.
+Trash is also its own command, and the UI asks before it sends.
 
-Six operations share that shape: close, force close, trash, remove, sync and env. Each is one optional
+Six commands share that shape: close, force close, trash, remove, sync and env. Each is one optional
 callable on `WorktreeSource`, so a source built without one serves the world read-only for that
 operation rather than half-doing it. Each is a step sequence — close and remove in
 `worktree_close.py`, trash in `worktree_trash.py`, sync and env in `worktree_ops.py` — so each takes the worktree scope and
@@ -889,8 +889,9 @@ takes an optional `service`, which names one optional service to start or stop a
 validator refuses a `service` that is not an optional service in the worktree's `env.services`,
 and refuses `restart` with a `service`.
 
-Each blocks for tens of seconds, so each runs on the worktree pool. The refresh runs whichever way
-the operation ends: a close that fails partway has still stopped agents and freed ports.
+Each blocks for tens of seconds, so each runs as an **Operation** (see "Operations" below), and its
+blocking steps run on the worktree pool. The refresh runs at the end of the operation, whichever
+way it ends: a close that fails partway has still stopped agents and freed ports.
 
 `worktree.mergePr` is a seventh optional callable, `WorktreeSource.merge`. It is not a step
 sequence and takes no worktree scope, because it does not touch the checkout.
@@ -911,7 +912,8 @@ sequence and takes no worktree scope, because it does not touch the checkout.
   flight, because the read in flight chose its branches without the synced one.
 - The merge token, when set, reaches that one call as `GH_TOKEN` — see
   [configuration.md](../reference/configuration.md#api-keys).
-- The handler re-reads the worktrees whichever way the merge ends.
+- The merge runs as an operation of one step, `merge_pr`, so the console reads it as it reads
+  the others. It re-reads the worktrees whichever way the merge ends.
 
 `worktree.createTerminal` runs the `ensure_terminal` port. It makes the worktree's workspace
 when it is missing, and returns the `cmux://` link to its terminal. The server focuses nothing;
@@ -923,6 +925,60 @@ make the terminal, the command is refused `invalid`. A closed worktree is refuse
 Each worktree read also runs the `terminal_urls` port for every open worktree, and puts each link
 in `Worktree.shellUrl`. A worktree with no terminal has `''`. A pane closed since the last read
 leaves a dead link until the next read; cmux ignores it.
+
+## Operations
+
+Close, Shelve, Trash, Delete, Sync, Merge and Environment run as **Operations**
+(`mael_orchestrator/operations.py`). The route validates the command, starts the work as an
+asyncio task, and answers `202` with `{operationId}` at once. Progress reaches the client as
+`operation` change notices. The UI never waits on the HTTP call.
+
+```mermaid
+sequenceDiagram
+    participant UI
+    participant Route
+    participant Runner as OperationRunner
+    participant Source as WorktreeSource
+    UI->>Route: POST /api/worktrees/alpha/close
+    Route->>Runner: begin(command, plan)
+    Runner-->>UI: 202 {operationId: op7}
+    Runner->>Source: close(..., hook)
+    Source-->>Runner: planned, started, ended per step
+    Runner-->>UI: change {kind: operation, ids: [op7]}
+    Runner->>Runner: refresh the world, then end op7
+    Runner-->>UI: change {kind: operation, ids: [op7]}
+```
+
+**The steps are the sequence's own.** The server builds a `StepHook` per operation and passes it
+to the source call, which passes it to `run_sequence`. Each `planned`, `started` and `ended` call
+is an upsert of the operation entity. See `docs/dev/worktree-steps.md`, "The step hook". A merge
+is not a sequence, so the server runs it as one step, `merge_pr`.
+
+**How it ends.** A `CloseBlocked` from the source ends the operation `refused`, with the model's
+words. Any other exception ends it `failed`, with words such as `Could not close the worktree:
+<error>`. Otherwise it ends `done`. The world is refreshed before the end is published, so a
+client that sees the end reads a world that holds the change.
+
+**One at a time per worktree.** A second operation on a worktree that runs one is refused
+`invalid`. The error carries `operationId`, the id of the running one.
+
+**The record.** `OperationRecord` holds the entity, its log lines by step, and the command. The
+`operations` table in the state database keeps the newest 500, by id (`op<n>`). Each change is
+saved in the order it was made. The entity is in the world, so `GET /api/operations` reads
+memory. The log is a separate read, so a long sync does not swell the world.
+
+**A restart.** At start, the server marks every row still `running` as `failed`, with the words
+`Server stopped during the operation`. The step that ran is `failed` too. `stop` cancels what
+runs and leaves its rows `running`, so the next start finds them.
+
+**Retry.** `POST /api/operations/{id}/retry` takes a `refused` or `failed` operation and runs its
+stored command again under the same id. Each step that is `done` is skipped, so the run starts
+from the first step that did not finish. Running the whole chain again would stop an agent that
+the user resumed meanwhile. The command is validated against the world as it is now, as a new
+command would be.
+
+**Seen.** An operation that ended badly has `seen: false` until `POST /api/operations/{id}/seen`.
+A `done` operation is seen when it ends. See `CONTEXT.md`, "Unseen".
 
 ## Task ids on the wire
 
@@ -971,6 +1027,8 @@ without waiting for the poll.
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/host` | `{host: Host \| null}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled |
+| `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
+| `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |
 
 ### A worktree's changes
 
@@ -1023,8 +1081,8 @@ event: change
 data: {"kind": "task", "ids": ["northwind/NORT-7"]}
 ```
 
-The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document`, `desk`, `host`
-and `comm`. A
+The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document`, `desk`, `host`,
+`comm` and `operation`. A
 worktree's changes have no kind of their own; see orchestrator-ui.md, "The Changes tab". A
 notice names what changed and nothing else: no entity travels on it. A remove and an upsert both
 put the id in `ids`, and the client refetches and finds the entity present or gone. Transcript
@@ -1147,17 +1205,19 @@ check being missing, both answer 400 `invalid`.
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
-| `POST /api/worktrees/{id}/close` | | `worktree.close` | `{}` |
-| `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `{}` |
-| `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `{}` |
-| `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `{}` |
-| `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `{}` |
-| `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `{}` |
+| `POST /api/worktrees/{id}/close` | | `worktree.close` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
 | `POST /api/worktrees/{id}/feedback` | the feedback: `type`, then the type's fields | `worktree.feedback` | `{agentIds, refused}` |
-| `DELETE /api/worktrees/{id}` | | `worktree.remove` | `{}` |
+| `DELETE /api/worktrees/{id}` | | `worktree.remove` | `202 {operationId}` |
 | `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
+| `POST /api/operations/{id}/seen` | | `operation.seen` | `{}` |
+| `POST /api/operations/{id}/retry` | | `operation.retry` | `202 {operationId}` |
 
 ## Attachments
 

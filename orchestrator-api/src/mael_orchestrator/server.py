@@ -9,10 +9,11 @@ serve is documented in ``docs/dev/orchestrator-server.md``.
 """
 
 import asyncio
+import functools
 import inspect
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import Executor
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,11 @@ from mael_domain.normalise import (
     normalise_stream_event,
     revive_agent,
 )
+from mael_domain.operation_store import (
+    InMemoryOperationStore,
+    OperationRecord,
+    OperationStore,
+)
 from mael_domain.protocol import (
     HOST_ID,
     Agent,
@@ -77,6 +83,7 @@ from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree_changes import format_change_comments, format_monkeypatch
+from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
 from . import linear_source
@@ -84,7 +91,13 @@ from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .notices import notices_for
-from .sources import CloseBlocked, TaskSource, WorktreeSource
+from .operations import Busy, OperationPlan, OperationRunner
+from .sources import (
+    CloseBlocked,
+    MergeWorktreePr,
+    TaskSource,
+    WorktreeSource,
+)
 from .transcript_log import (
     TRANSCRIPT_RING,
     TranscriptFrame,
@@ -153,6 +166,100 @@ def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
 
 
+#: Each command that runs as an operation: its kind, the ``WorktreeSource``
+#: callable, the refusal of a server without one, and its words — doing, done,
+#: and the start of a fault. ``worktree.forceClose`` is the UI's **Shelve**.
+_OPERATION_COMMANDS: dict[str, tuple[str, str, str, str, str, str]] = {
+    "worktree.close": (
+        "close",
+        "close",
+        "This server cannot close worktrees",
+        "Closing",
+        "Closed",
+        "Could not close the worktree",
+    ),
+    "worktree.forceClose": (
+        "shelve",
+        "force_close",
+        "This server cannot close worktrees",
+        "Shelving",
+        "Shelved",
+        "Could not close the worktree",
+    ),
+    "worktree.trash": (
+        "trash",
+        "trash",
+        "This server cannot trash worktrees",
+        "Trashing",
+        "Trashed",
+        "Could not trash the worktree",
+    ),
+    "worktree.remove": (
+        "delete",
+        "remove",
+        "This server cannot remove worktrees",
+        "Deleting",
+        "Deleted",
+        "Could not remove the worktree",
+    ),
+    "worktree.sync": (
+        "sync",
+        "sync",
+        "This server cannot sync worktrees",
+        "Syncing",
+        "Synced",
+        "Could not sync the worktree",
+    ),
+    "worktree.mergePr": (
+        "merge",
+        "merge",
+        "This server cannot merge pull requests",
+        "Merging",
+        "Merged",
+        "Could not merge the pull request",
+    ),
+    # The words are the action's: see _ENV_WORDS.
+    "worktree.env": (
+        "env",
+        "env",
+        "This server cannot start or stop environments",
+        "",
+        "",
+        "Could not change the environment",
+    ),
+}
+
+#: What an environment operation reads, by action: while it runs, and once done.
+_ENV_WORDS = {
+    "start": ("Starting", "Started"),
+    "stop": ("Stopping", "Stopped"),
+    "restart": ("Restarting", "Restarted"),
+}
+
+
+async def _merge_as_a_step(
+    merge: MergeWorktreePr, project: str, branch: str, path: str, hook: StepHook
+) -> None:
+    """Merge a pull request as an operation of one step.
+
+    A merge is one GitHub call, not a sequence. It is still a step, so the
+    console reads it as it reads every other operation.
+    """
+
+    async def merge_pr() -> StepOutcome:
+        try:
+            await merge(project, branch, path)
+        except CloseBlocked as exc:
+            return StepOutcome(blocked=str(exc))
+        return StepOutcome()
+
+    ran = await run_sequence(
+        [Step(name="merge_pr", run=merge_pr)], announce=lambda line: None, hook=hook
+    )
+    if not ran.ok:
+        raise CloseBlocked(ran.blocked or "The merge did not finish")
+
+
 def _totals_of(agent: Agent) -> tuple[int, int, float]:
     """What an agent has spent: own tokens, subagent tokens, dollars."""
     return agent["totalTokens"], agent["subagentTokens"], agent["costUsd"]
@@ -216,6 +323,7 @@ class Orchestrator:
         task_attachments: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
         comms: CommStore | None = None,
+        operations: OperationStore | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -269,6 +377,13 @@ class Orchestrator:
         #: needs a thread — see ``cli.build_orchestrator``.
         self.worktree_executor = worktree_executor or executor
         self.state = WorldState()
+        #: The operations — see ``CONTEXT.md``, "Operation". Loaded at start;
+        #: each one is a background task this runner owns.
+        self.operations = OperationRunner(
+            operations if operations is not None else InMemoryOperationStore(),
+            self._apply,
+            clock,
+        )
         #: Every file an agent named, by the id that stands for it.
         self.files = FileRegistry()
         #: Minted per server life, so a client can tell a restart from a reconnect.
@@ -340,6 +455,7 @@ class Orchestrator:
         await self.refresh_comms()
         await self._load_attached()
         await self._load_desk()
+        await self.operations.load()
         try:
             await self.refresh_worktrees()
         except RateLimited:
@@ -384,6 +500,7 @@ class Orchestrator:
         self._pollers = []
         self._catch_up = None
         self._event_read = None
+        await self.operations.stop()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
@@ -1697,17 +1814,19 @@ class Orchestrator:
             "agent.start": self._start_free_agent,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
-            "worktree.close": self._close_worktree,
-            "worktree.forceClose": self._force_close_worktree,
-            "worktree.trash": self._trash_worktree,
-            "worktree.remove": self._remove_worktree,
-            "worktree.sync": self._sync_worktree,
-            "worktree.mergePr": self._merge_worktree_pr,
-            "worktree.env": self._env_worktree,
+            "worktree.close": self._operate,
+            "worktree.forceClose": self._operate,
+            "worktree.trash": self._operate,
+            "worktree.remove": self._operate,
+            "worktree.sync": self._operate,
+            "worktree.mergePr": self._operate,
+            "worktree.env": self._operate,
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
             "worktree.feedback": self._send_feedback,
             "worktree.refresh": self._refresh_worktrees_now,
+            "operation.seen": self._mark_seen,
+            "operation.retry": self._retry,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -2270,197 +2389,149 @@ class Orchestrator:
                 )
         self._apply(events)
 
-    async def _close_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Close a worktree and everything living in it.
+    # -- operations --
 
-        The whole ``mael close`` sequence, so a close from the canvas leaves no
-        environment running, no agent alive and no cmux workspace open.
+    async def _operate(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start the operation ``command`` names, and answer with its id at once.
+
+        The work runs in the background; its progress is the operation entity,
+        on the change stream. See ``docs/dev/orchestrator-server.md``,
+        "Operations".
         """
-        close = self.worktrees.close
-        if close is None:
-            return _refused("invalid", "This server cannot close worktrees")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
+        plan = self._plan(command)
+        if isinstance(plan, dict):
+            return plan
+        return await self._begin(command, plan)
+
+    async def _begin(
+        self,
+        command: dict[str, Any],
+        plan: OperationPlan,
+        again: OperationRecord | None = None,
+    ) -> dict[str, Any]:
         try:
-            await self._run_worktree(close, row["project"], row["nato"], row["path"])
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not close worktree %s", worktree_id)
-            return _refused("invalid", f"Could not close the worktree: {exc}")
-        finally:
-            # A close that fails partway has still stopped agents and freed
-            # ports, so the world is stale whichever way this ends.
+            operation_id = await self.operations.begin(command, plan, again=again)
+        except Busy as exc:
+            refused = _refused("invalid", str(exc))
+            refused["error"]["operationId"] = exc.operation_id
+            return refused
+        return {"ok": True, "result": {"operationId": operation_id}}
+
+    def _plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
+        """What ``command`` runs as an operation, or the refusal when it cannot.
+
+        Validation proved the worktree is in the world, so its row is here.
+        """
+        kind = command["type"]
+        op_kind, attr, cannot, doing, done, failing = _OPERATION_COMMANDS[kind]
+        fn = getattr(self.worktrees, attr)
+        if fn is None:
+            return _refused("invalid", cannot)
+        worktree_id = command["worktreeId"]
+        row = self.world["worktrees"][worktree_id]
+        project, nato, path = row["project"], row["nato"], row["path"]
+        subject = nato
+
+        async def teardown_refresh() -> None:
+            # A teardown that fails partway has still stopped agents and freed
+            # ports, so the world is stale whichever way it ended.
             await self.refresh_worktrees()
             await self.refresh_agents()
-        return {"ok": True, "result": {}}
 
-    async def _force_close_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Close a worktree past its refusals.
-
-        The same teardown as a close, but it commits the work in progress
-        first, so nothing is lost. The user takes that decision behind a
-        confirm, which is why it is its own command.
-
-        The source writes a reopen task when the close went over unmerged
-        work, so the tasks are read again with the worktrees.
-        """
-        force_close = self.worktrees.force_close
-        if force_close is None:
-            return _refused("invalid", "This server cannot close worktrees")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await self._run_worktree(
-                force_close, row["project"], row["nato"], row["path"]
-            )
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not close worktree %s", worktree_id)
-            return _refused("invalid", f"Could not close the worktree: {exc}")
-        finally:
-            # A close that fails partway has still stopped agents and freed
-            # ports, so the world is stale whichever way this ends.
-            await self.refresh_worktrees()
-            await self.refresh_agents()
+        async def shelve_refresh() -> None:
+            # A forced close can write a reopen task, so the tasks are read too.
+            await teardown_refresh()
             await self.refresh_tasks(force=True)
-        return {"ok": True, "result": {}}
 
-    async def _trash_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Trash a worktree's branch and close the worktree."""
-        trash = self.worktrees.trash
-        if trash is None:
-            return _refused("invalid", "This server cannot trash worktrees")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await self._run_worktree(trash, row["project"], row["nato"], row["path"])
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not trash worktree %s", worktree_id)
-            return _refused("invalid", f"Could not trash the worktree: {exc}")
-        finally:
-            # A trash that fails partway has still stopped agents and freed
-            # ports, so the world is stale whichever way this ends.
-            await self.refresh_worktrees()
-            await self.refresh_agents()
-        return {"ok": True, "result": {}}
-
-    async def _remove_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Remove a worktree outright.
-
-        A close parks the worktree for reuse; this deletes the checkout. It
-        tears down the same things on the way, so the agents are re-read too.
-        """
-        remove = self.worktrees.remove
-        if remove is None:
-            return _refused("invalid", "This server cannot remove worktrees")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await self._run_worktree(remove, row["project"], row["nato"], row["path"])
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not remove worktree %s", worktree_id)
-            return _refused("invalid", f"Could not remove the worktree: {exc}")
-        finally:
-            # A remove that fails partway has still stopped agents and freed
-            # ports, so the world is stale whichever way this ends.
-            await self.refresh_worktrees()
-            await self.refresh_agents()
-        return {"ok": True, "result": {}}
-
-    async def _sync_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Rebase a worktree onto its base, in the mode the command names.
-
-        Validation proved the mode is one of the three, so it is passed on as
-        it stands. Only the worktrees are re-read: a sync starts and stops no
-        agent, it moves the branch.
-        """
-        sync = self.worktrees.sync
-        if sync is None:
-            return _refused("invalid", "This server cannot sync worktrees")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await self._run_worktree(
-                sync, row["project"], row["nato"], row["path"], command["mode"]
-            )
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not sync worktree %s", worktree_id)
-            return _refused("invalid", f"Could not sync the worktree: {exc}")
-        finally:
-            # A sync that fails partway has still moved the branch, so the
-            # world is stale whichever way this ends.
+        async def sync_refresh() -> None:
+            # A sync moves the branch, and starts and stops no agent.
             await self.refresh_worktrees(extra_branches={row["branch"]})
-        return {"ok": True, "result": {}}
 
-    async def _merge_worktree_pr(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Merge a worktree's pull request.
-
-        Validation proved the world holds a ready pull request for it. Only the
-        worktrees are re-read: a merge moves no task and no agent.
-        """
-        merge = self.worktrees.merge
-        if merge is None:
-            return _refused("invalid", "This server cannot merge pull requests")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await merge(row["project"], row["branch"], row["path"])
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not merge the pull request of %s", worktree_id)
-            return _refused("invalid", f"Could not merge the pull request: {exc}")
-        finally:
-            # A refusal means the world's reading was stale, so re-read
-            # whichever way this ends.
-            await self.refresh_worktrees()
-        return {"ok": True, "result": {}}
-
-    async def _env_worktree(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Start, stop or restart a worktree's environment.
-
-        Only the worktrees are re-read: an environment holds the services,
-        not the agents.
-        """
-        env = self.worktrees.env
-        if env is None:
-            return _refused("invalid", "This server cannot start or stop environments")
-        worktree_id = command["worktreeId"]
-        # Validation proved the worktree is in the world, so the row is here.
-        row = self.world["worktrees"][worktree_id]
-        try:
-            await self._run_worktree(
-                env,
-                row["project"],
-                row["nato"],
-                row["path"],
-                command["action"],
-                command.get("service"),
+        def work(*args: Any) -> Callable[[StepHook], Awaitable[None]]:
+            return lambda hook: self._run_worktree_op(
+                fn, project, nato, path, *args, hook=hook
             )
-        except CloseBlocked as exc:
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not change the environment of %s", worktree_id)
-            return _refused("invalid", f"Could not change the environment: {exc}")
-        finally:
-            # A change that fails partway has still started or stopped some
-            # services, so the world is stale whichever way this ends.
-            await self.refresh_worktrees()
+
+        run = work()
+        # A merge or an environment change moves no agent, so it re-reads the
+        # worktrees alone; a merge refusal means the reading was stale.
+        refresh: Callable[[], Awaitable[None]] = self.refresh_worktrees
+        if kind in ("worktree.close", "worktree.trash", "worktree.remove"):
+            refresh = teardown_refresh
+        elif kind == "worktree.forceClose":
+            refresh = shelve_refresh
+        elif kind == "worktree.sync":
+            run, refresh = work(command["mode"]), sync_refresh
+        elif kind == "worktree.mergePr":
+            subject = f"the pull request of {nato}"
+            run = lambda hook: _merge_as_a_step(  # noqa: E731
+                fn, project, row["branch"], path, hook
+            )
+        elif kind == "worktree.env":
+            service = command.get("service")
+            subject = (
+                f"{service} in {nato}" if service else f"the environment of {nato}"
+            )
+            doing, done = _ENV_WORDS[command["action"]]
+            run = work(command["action"], service)
+        return OperationPlan(
+            op_kind,
+            worktree_id,
+            f"{doing} {subject}",
+            f"{done} {subject}",
+            failing,
+            run,
+            refresh,
+        )
+
+    async def _run_worktree_op(
+        self, fn: Callable[..., Any], *args: Any, hook: StepHook
+    ) -> Any:
+        """Run one worktree operation's source call, telling ``hook`` its steps."""
+        return await self._run_worktree(functools.partial(fn, hook=hook), *args)
+
+    async def operation_log(self, operation_id: str) -> dict[str, Any] | None:
+        """One operation's log lines, grouped by step in the order they ran.
+
+        ``None`` when the operation is not kept.
+        """
+        record = await self.operations.read(operation_id)
+        if record is None:
+            return None
+        order = [s["name"] for s in record.operation["steps"]]
+        order += [name for name in record.log if name not in order]
+        return {
+            "operationId": operation_id,
+            "steps": [
+                {"name": name, "lines": record.log.get(name, [])} for name in order
+            ],
+        }
+
+    async def _mark_seen(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Mark an operation seen. See ``CONTEXT.md``, "Unseen"."""
+        await self.operations.mark_seen(
+            self.world["operations"][command["operationId"]]
+        )
         return {"ok": True, "result": {}}
+
+    async def _retry(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Run a refused or failed operation again, from its first unfinished step.
+
+        See ``docs/dev/orchestrator-server.md``, "Operations".
+        """
+        operation_id = command["operationId"]
+        record = await self.operations.read(operation_id)
+        if record is None:
+            # The world held it at validation; the store dropped it past the cap.
+            return _refused("unknown_id", f"No operation {operation_id}")
+        again = record.command
+        error = validate_command(self.world, again)
+        if error:
+            return {"ok": False, "error": error}
+        plan = self._plan(again)
+        if isinstance(plan, dict):
+            return plan
+        return await self._begin(again, plan, record)
 
     async def _create_worktree_terminal(
         self, command: dict[str, Any]
