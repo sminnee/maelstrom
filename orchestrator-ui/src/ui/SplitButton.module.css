@@ -18,9 +18,13 @@
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
-/* The trigger half of the anchor pair — see `useAnchorName`. */
+/* The trigger half of the anchor pair — see `useAnchorName`. With no chevron,
+   the main segment anchors a confirm. */
+.wrap:not([data-split]) .main,
 .chevron {
   anchor-name: var(--anchor-name);
+}
+.chevron {
   justify-content: center;
   /* Narrower than a control: three of them in a card row cost a wrap. */
   min-width: var(--u-3);

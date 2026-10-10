@@ -136,6 +136,21 @@ function Board({ control, heading }: { control: string; heading: string }) {
           ]}
         />
         <SplitButton variant="primary" options={[{ label: 'Approve', run: later }]} />
+        {/* One option with a confirm: the main segment anchors the question. */}
+        <SplitButton
+          variant="quiet"
+          options={[
+            {
+              label: 'Delete',
+              icon: actionIcon('removeWorktree'),
+              confirm: {
+                question: 'Delete charlie? The checkout goes; the branch stays.',
+                confirm: 'Delete it',
+              },
+              run: later,
+            },
+          ]}
+        />
         <ConfirmButton
           variant="quiet"
           question="Close this worktree?"
