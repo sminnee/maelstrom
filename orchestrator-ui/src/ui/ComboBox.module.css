@@ -26,7 +26,7 @@
   /* At least as wide as the field; a long label may make it wider. */
   min-width: anchor-size(width);
 }
-/* Opening upward, when the field has more room above it than below. */
+/* Opening upward, when `place` in `useComboBoxOffer.ts` chooses the top. */
 .list:popover-open[data-position='top'] {
   top: auto;
   bottom: calc(anchor(top) + 2px);
