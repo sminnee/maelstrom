@@ -494,6 +494,7 @@ class SyncResult:
     upstream_head: str | None = None  # SHA of origin/main
     pushed: bool = False  # Whether the branch was pushed to remote
     push_message: str | None = None  # Push status message
+    push_failed: bool = False  # the rebase landed, but the push was refused
     aborted: bool = False  # rebase aborted on conflict (--abort)
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
@@ -1164,10 +1165,11 @@ def sync_worktree(
 
     # Rebase succeeded - check if remote branch exists and push
     pushed = False
-    push_message = None
+    push_failed = False
 
     # Check if remote branch exists
     remote_branch = f"origin/{branch}"
+    push_message = f"No {remote_branch}; not pushed"
     remote_check = run_git(
         ["rev-parse", "--verify", remote_branch],
         cwd=worktree_path,
@@ -1198,6 +1200,7 @@ def sync_worktree(
             pushed = True
             push_message = f"Pushed {branch} to origin"
         else:
+            push_failed = True
             push_message = f"Push failed: {push_result.stderr or push_result.stdout}"
 
     return SyncResult(
@@ -1206,6 +1209,7 @@ def sync_worktree(
         message=result.message,
         pushed=pushed,
         push_message=push_message,
+        push_failed=push_failed,
     )
 
 
@@ -2001,6 +2005,9 @@ def close_worktree(
     # --force (or clean) → tear down. Branch is preserved (only HEAD detaches).
     # Tree is clean by now (wip committed), so the normal detach works.
     result = detach_and_free_ports(worktree_path)
+    if sync_result.push_failed:
+        # The branch is kept, so nothing is lost, but origin does not hold it.
+        result.message = f"{result.message}. {sync_result.push_message}"
     # Surface what the caller needs to create a reopen task.
     result.branch = branch
     result.had_unmerged_work = had_unmerged

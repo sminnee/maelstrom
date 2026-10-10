@@ -90,6 +90,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A refused push fails the sync.** `mael sync` and `mael sync-all` exit 1 when GitHub
+  refuses the push, and print the refusal to stderr. The branch stays rebased. A sync from the
+  UI shows the refusal. A branch with no `origin` branch prints `No origin/<branch>; not
+  pushed`.
+
 - **The install script migrates the state database.** `mael admin migrate` is removed. The
   project's `install_cmd` is now `bin/install`, which migrates after it installs the Python
   dependencies. So each worktree open, `mael env start` and `mael self-update` migrate with no

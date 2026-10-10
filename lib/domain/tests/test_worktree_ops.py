@@ -142,7 +142,28 @@ class TestSyncModes:
 
 
 class TestSyncPush:
-    """The push is the orchestrator's, so it takes the orchestrator's token."""
+    """The push is the orchestrator's: its token, and a refusal it shows."""
+
+    async def test_a_refused_push_is_blocked_with_the_push_message(self):
+        """The rebase landed, but the UI must not report the branch as synced."""
+        result = await run_sync(
+            "myproject",
+            "alpha",
+            WORKTREE_PATH,
+            PROJECT_PATH,
+            "plain",
+            steps=sync_steps(
+                sync=lambda path, squash, abort, token: SyncResult(
+                    success=True,
+                    branch="feat/x",
+                    message="Rebased",
+                    push_failed=True,
+                    push_message="Push failed: denied",
+                )
+            ),
+        )
+        assert not result.ok
+        assert result.blocked == "Rebased. Push failed: denied"
 
     async def test_the_token_reaches_every_mode(self):
         seen: list[str | None] = []

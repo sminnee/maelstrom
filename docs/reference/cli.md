@@ -213,6 +213,10 @@ environment, asks the agent daemon to stop the agents running there, then signal
 Before it pushes, `mael sync` runs the project's [`pre_push_cmd`](configuration.md#pre_push_cmd)
 on the rebased branch. A failed check leaves the branch rebased and unpushed.
 
+`mael sync` pushes only a branch that already has an `origin` branch. Otherwise it prints
+`No origin/<branch>; not pushed`. When GitHub refuses the push, the branch stays rebased,
+`mael sync` prints the refusal to stderr, and it exits 1.
+
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
 mael sync --squash --no-push       # tidy Land's fixup! commits, publish nothing
@@ -227,6 +231,8 @@ mael sync --base main              # unstack it again
 | `--autorepair` | On conflict, run a headless Claude session (`/resolve-rebase-conflicts`) to resolve it and continue. One session runs per conflicting worktree, in turn. |
 
 `mael sync-all` does not run the project's [`pre_push_cmd`](configuration.md#pre_push_cmd).
+When GitHub refuses a push, `mael sync-all` prints the refusal to stderr and goes on to the
+next worktree. At the end it names the refused worktrees and exits 1.
 
 ```bash
 mael sync-all --autorepair         # repair each conflicting worktree in the sweep

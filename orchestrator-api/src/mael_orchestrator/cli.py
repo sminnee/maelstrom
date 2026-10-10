@@ -149,6 +149,9 @@ def build_orchestrator(
             )
         except (ValueError, WorktreeError) as exc:
             raise LaunchBlocked(str(exc)) from exc
+        if setup.sync is not None and setup.sync.push_failed:
+            # The rebase landed, so the launch goes ahead on the local branch.
+            log.warning("open of %s/%s: %s", project, branch, setup.sync.push_message)
         if setup.rebuilds_env:
             _refresh_env(project, setup.name, projects_dir / project, setup.path)
         return setup

@@ -104,7 +104,7 @@ async def run_sync(
     announce: Callable[[str], None] = lambda line: None,
     executor: Executor | None = None,
 ) -> SequenceResult:
-    """Rebase ``worktree`` onto its base.
+    """Rebase ``worktree`` onto its base, then push it.
 
     ``mode`` is ``plain``, ``autorepair`` or ``squash``. ``abort_on_conflict``
     is implied on the two non-repairing modes: only autorepair wants the
@@ -115,6 +115,8 @@ async def run_sync(
     ``worktree_steps``.
 
     ``token`` is the GitHub token the push uses; see :func:`sync_worktree`.
+    A refused push blocks the step: the rebase stands,
+    but the branch on GitHub is not the one the UI would report.
 
     Never raises for a refusal: read ``result.ok``.
     """
@@ -127,6 +129,8 @@ async def run_sync(
             result = steps.sync(worktree_path, mode == SQUASH, True, token)
         if not result.success:
             return StepOutcome(blocked=result.message)
+        if result.push_failed:
+            return StepOutcome(blocked=f"{result.message}. {result.push_message}")
         pushed = [result.push_message] if result.push_message else []
         return StepOutcome(messages=[result.message, *pushed])
 

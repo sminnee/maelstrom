@@ -377,7 +377,7 @@ async def _run_task(
     # A rejected push is not a failed sync: the rebase landed, so the session may
     # start. Say so anyway — the branch and its remote have diverged, and nobody
     # is watching this run to notice.
-    if result.sync is not None and result.sync.push_message:
+    if result.sync is not None and result.sync.push_failed:
         click.echo(result.sync.push_message, err=True)
     if result.rebuilds_env:
         refresh_worktree_env(

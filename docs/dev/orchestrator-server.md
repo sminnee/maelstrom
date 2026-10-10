@@ -912,7 +912,8 @@ sequence and takes no worktree scope, because it does not touch the checkout.
 - The orchestrator token, when set, reaches the call as `GH_TOKEN`. The sync, close, trash and
   open ports pass it too, to each `gh` and `git push`. It is read from `config.yaml` only — see
   [configuration.md](../reference/configuration.md#api-keys).
-- A refused merge logs a WARNING with the `gh` message.
+- A refused merge logs a WARNING with the `gh` message. A refused sync push blocks the sync. A
+  refused push when the UI opens a worktree logs a WARNING, and the launch goes ahead.
 - The handler re-reads the worktrees whichever way the merge ends.
 
 `worktree.createTerminal` runs the `ensure_terminal` port. It makes the worktree's workspace
