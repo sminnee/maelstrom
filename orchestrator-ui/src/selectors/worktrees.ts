@@ -43,12 +43,14 @@ export function trackedAgents(world: WorldView, worktreeId: string): Agent[] {
   );
 }
 
-/**
- * Whether a close is on offer. `_main` holds the project's main checkout, so it
- * never closes; a closed worktree has nothing left to close.
- */
+/** Whether this is `_main`, which holds the project's main checkout and so never closes. */
+export function isMain(worktree: Worktree): boolean {
+  return worktree.nato === '_main';
+}
+
+/** Whether a close is on offer. A closed worktree has nothing left to close. */
 export function canClose(worktree: Worktree): boolean {
-  return worktree.nato !== '_main' && !worktree.isClosed;
+  return !isMain(worktree) && !worktree.isClosed;
 }
 
 /** The branch as a label. A closed worktree carries none, and neither does a detached one. */
