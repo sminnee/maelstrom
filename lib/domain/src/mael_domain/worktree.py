@@ -106,7 +106,11 @@ class WorktreeInfo:
 
 
 def run_git(
-    args: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True
+    args: list[str],
+    cwd: Path | None = None,
+    quiet: bool = False,
+    check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a git command and return the result.
 
@@ -114,7 +118,7 @@ def run_git(
     instead of raising, which is what a git *read* wants — asking whether a ref
     resolves is a question, not an error.
     """
-    return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=check)
+    return run_cmd(["git"] + args, cwd=cwd, quiet=quiet, check=check, env=env)
 
 
 async def run_git_async(
