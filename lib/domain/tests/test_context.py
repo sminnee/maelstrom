@@ -476,6 +476,65 @@ class TestLoadGlobalConfig:
         assert config.projects_dir == tmp_path / "Projects"
 
 
+class TestNotebookRootConfig:
+    """A dev environment's notebook root may hold a ``config.yaml`` of its own.
+
+    It overlays the global file key by key. ``orchestrator_url`` is read from
+    the notebook root alone, so a dev environment with no server of its own
+    never reaches the real one.
+    """
+
+    @pytest.fixture
+    def home(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".maelstrom").mkdir()
+        return tmp_path
+
+    def write(self, directory: Path, text: str) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "config.yaml").write_text(text)
+
+    def test_a_dev_root_overlays_the_global_file(self, home, monkeypatch):
+        dev = home / ".maelstrom" / "playpen" / "kilo"
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(dev))
+        self.write(
+            home / ".maelstrom",
+            "projects_dir: /global\nlinear:\n  api_key: lin_x\n"
+            "orchestrator_url: https://real:3220\n",
+        )
+        self.write(dev, "projects_dir: /dev\norchestrator_url: http://127.0.0.1:3222\n")
+
+        config = load_global_config()
+
+        assert config.projects_dir == Path("/dev")
+        assert config.linear_api_key == "lin_x"
+        assert config.orchestrator_url == "http://127.0.0.1:3222"
+
+    def test_a_dev_root_without_a_server_names_none(self, home, monkeypatch):
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / "dev"))
+        self.write(home / ".maelstrom", "orchestrator_url: https://real:3220\n")
+
+        assert load_global_config().orchestrator_url is None
+
+    def test_the_global_root_reads_its_own_server(self, home, monkeypatch):
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom"))
+        self.write(home / ".maelstrom", "orchestrator_url: https://real:3220\n")
+
+        assert load_global_config().orchestrator_url == "https://real:3220"
+
+    def test_no_notebook_root_names_no_server(self, home, monkeypatch):
+        monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
+        self.write(
+            home / ".maelstrom",
+            "projects_dir: /global\norchestrator_url: https://real:3220\n",
+        )
+
+        config = load_global_config()
+
+        assert config.projects_dir == Path("/global")
+        assert config.orchestrator_url is None
+
+
 class TestResolveContext:
     """Tests for resolve_context function."""
 

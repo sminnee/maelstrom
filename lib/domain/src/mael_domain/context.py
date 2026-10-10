@@ -6,6 +6,7 @@ This module handles resolving project and worktree context from:
 - Global configuration (~/.maelstrom/config.yaml)
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from pathlib import Path
 import yaml
 
 from mael_common.util import get_maelstrom_dir, harden_path
+
+from .notebook_root import NOTEBOOK_ROOT_ENV
 
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
@@ -30,6 +33,14 @@ def _host_name(value: object) -> str | None:
     return value if _HOST_NAME.fullmatch(value) else None
 
 
+def _url(value: object) -> str | None:
+    """``value`` without its trailing ``/`` when it is an HTTP(S) URL, else ``None``."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().rstrip("/")
+    return value if value.startswith(("http://", "https://")) else None
+
+
 @dataclass
 class GlobalConfig:
     """Global maelstrom configuration from ~/.maelstrom/config.yaml."""
@@ -40,6 +51,9 @@ class GlobalConfig:
     dev_host: str | None = None
     #: Serve dev envs over HTTPS with a tailnet certificate. Needs ``dev_host``.
     dev_https: bool = False
+    #: The orchestrator server the thin CLI commands call, such as
+    #: ``https://host:3220``. ``None`` means those commands refuse.
+    orchestrator_url: str | None = None
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
     uptimerobot_api_key: str | None = None
@@ -73,7 +87,7 @@ class GlobalConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "GlobalConfig":
         """Create from dictionary."""
-        projects_dir = data.get("projects_dir", "~/Projects")
+        projects_dir = data.get("projects_dir")
         open_command = data.get("open_command", "code")
         dev_host = _host_name(data.get("dev_host"))
         # Support nested linear config: linear.api_key
@@ -112,10 +126,15 @@ class GlobalConfig:
                 # dict preserves YAML insertion order — relied on for "first = default".
                 slack_webhooks = {str(k): str(v) for k, v in raw.items()}
         return cls(
-            projects_dir=Path(projects_dir).expanduser(),
+            projects_dir=(
+                Path(projects_dir).expanduser()
+                if projects_dir
+                else cls.default().projects_dir
+            ),
             open_command=open_command,
             dev_host=dev_host,
             dev_https=data.get("dev_https") is True,
+            orchestrator_url=_url(data.get("orchestrator_url")),
             linear_api_key=linear_api_key,
             sentry_api_key=sentry_api_key,
             uptimerobot_api_key=uptimerobot_api_key,
@@ -154,36 +173,45 @@ class ResolvedContext:
 def load_global_config() -> GlobalConfig:
     """Load global config from ~/.maelstrom/config.yaml (or legacy ~/.maelstrom.yaml).
 
+    A dev environment's notebook root may hold a ``config.yaml`` of its own,
+    such as ``~/.maelstrom/playpen/kilo/config.yaml``. Each key it sets
+    replaces the global one. ``orchestrator_url`` comes from the notebook root
+    alone: it names that notebook's server, so a dev environment with no
+    server of its own never reaches the real one.
+
     Returns:
-        GlobalConfig with projects_dir setting, or defaults if file doesn't exist.
+        GlobalConfig from the files, or defaults if neither exists.
     """
     # Loading is a pure read: it never tightens permissions. The config holds
     # plaintext API keys, so loose perms are a real risk — but fixing them lives
     # in ``mael doctor`` (``_check_secret_file_perms``) and ``mael self-update``
     # (which calls :func:`harden_global_config`), not on this hot read path that
     # runs on nearly every command.
+    global_dir = get_maelstrom_dir()
+    data = _read_config(global_dir / GLOBAL_CONFIG_FILENAME)
+    if data is None:
+        data = _read_config(Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY) or {}
 
-    # Try new location first
-    new_config_path = get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME
-    if new_config_path.exists():
-        try:
-            with open(new_config_path) as f:
-                data = yaml.safe_load(f) or {}
-            return GlobalConfig.from_dict(data)
-        except (yaml.YAMLError, OSError):
-            return GlobalConfig.default()
+    root = os.environ.get(NOTEBOOK_ROOT_ENV)
+    root_dir = Path(root).expanduser() if root else None
+    if root_dir is not None and root_dir.resolve() != global_dir.resolve():
+        root_data = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
+        data = {**data, "orchestrator_url": None, **root_data}
+    elif root_dir is None:
+        data = {**data, "orchestrator_url": None}
+    return GlobalConfig.from_dict(data)
 
-    # Fall back to legacy location
-    legacy_config_path = Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY
-    if legacy_config_path.exists():
-        try:
-            with open(legacy_config_path) as f:
-                data = yaml.safe_load(f) or {}
-            return GlobalConfig.from_dict(data)
-        except (yaml.YAMLError, OSError):
-            return GlobalConfig.default()
 
-    return GlobalConfig.default()
+def _read_config(path: Path) -> dict | None:
+    """The YAML mapping at ``path``: ``None`` when there is no file, ``{}`` when it is unreadable."""
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def harden_global_config() -> list[str]:
