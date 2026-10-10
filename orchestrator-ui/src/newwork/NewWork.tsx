@@ -645,10 +645,9 @@ function Capture({
       {kind === 'task' && comms.length > 0 && <LinkedComms comms={comms} setComms={setComms} />}
 
       {kind !== 'linear' && (
-        <div className={`${dialog.field} ${styles.draftField}`}>
+        <div className={dialog.field}>
           <label htmlFor={draftId}>What needs doing?</label>
           <AttachField
-            className={styles.draftAttach}
             project={project}
             bucket={bucket}
             attached={attached}

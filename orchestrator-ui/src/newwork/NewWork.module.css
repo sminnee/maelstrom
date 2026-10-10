@@ -31,18 +31,10 @@
   color: var(--attention);
 }
 
-/* On a phone the dialog fills the screen above the keyboard, and the draft
-   takes what the other fields leave. Under the 6em floor the dialog scrolls.
-   `textarea.draft` matches the specificity of the dialog's touch floor,
-   `.field textarea`, and this sheet loads after it. */
+/* On a phone the draft grows from a shorter floor. Focus mode: see
+   `Dialog.module.css`. Later than `.draft`, so it wins over the 12em floor. */
 @media (max-width: 839px) {
-  .draftField,
-  .draftAttach {
-    flex: 1 0 auto;
-  }
-  textarea.draft {
-    flex: 1 0 6em;
+  .draft {
     min-height: 6em;
-    overflow-y: auto;
   }
 }

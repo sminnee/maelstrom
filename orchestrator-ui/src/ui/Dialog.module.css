@@ -48,7 +48,8 @@
   font-size: var(--text-md);
   color: var(--fg-muted);
 }
-.close {
+.close,
+.leave {
   font: inherit;
   color: var(--fg-muted);
   background: none;
@@ -178,6 +179,60 @@
   }
   .close {
     min-width: var(--control);
+  }
+  /* Focus mode: a focused textarea fills the box under its label, and only it
+     scrolls. A zero basis overrides the height the script fit writes. See
+     DESIGN.md, § Fields. */
+  .dialog:has(textarea:focus) {
+    overflow: hidden;
+    gap: 0;
+    padding: var(--u-2);
+  }
+  .dialog:has(textarea:focus)
+    :not(
+      :has(textarea:focus),
+      textarea:focus,
+      .leave,
+      .leave *,
+      label:has(+ textarea:focus, + [data-field-box] > textarea:focus),
+      label:has(+ textarea:focus, + [data-field-box] > textarea:focus) *
+    ) {
+    display: none;
+  }
+  /* The field's own label: the one just before the textarea, or just before
+     the `AttachField` box it is in. `:has` cannot nest, so that box carries
+     a marker. A row one control tall, with room for the button at its right. */
+  .dialog:has(textarea:focus) label:has(+ textarea:focus, + [data-field-box] > textarea:focus) {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: var(--control);
+    padding-right: var(--control);
+  }
+  .dialog:has(textarea:focus) > .leave {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: var(--u-2);
+    right: var(--u-2);
+    min-width: var(--control);
+    min-height: var(--control);
+  }
+  .dialog:has(textarea:focus) :has(textarea:focus) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+  }
+  .dialog textarea:focus {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
   }
 }
 

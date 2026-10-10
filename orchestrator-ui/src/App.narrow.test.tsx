@@ -366,10 +366,18 @@ describe('the narrow layout', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('still starts new work', async () => {
+  it('still starts new work, typing in the field it focused', async () => {
+    const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await userEvent.click(screen.getByRole('button', { name: 'New' }));
-    expect(screen.getByRole('dialog', { name: 'New work' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    const dialog = screen.getByRole('dialog', { name: 'New work' });
+    // The one-element decision: see DESIGN.md, § Fields, on a textarea in a dialog.
+    const draft = within(dialog).getByRole('textbox', { name: 'What needs doing?' });
+    await user.click(draft);
+    await user.type(draft, 'Fix the export');
+    expect(within(dialog).getByRole('textbox', { name: 'What needs doing?' })).toBe(draft);
+    expect(draft).toHaveFocus();
+    expect(draft).toHaveValue('Fix the export');
   });
 
   it('gives the document the full width, with no comment margin beside it', async () => {

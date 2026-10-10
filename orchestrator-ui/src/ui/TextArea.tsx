@@ -18,6 +18,17 @@ export function TextArea({
     if (grow) fitToText(ref.current);
   }, [grow, props.value]);
 
+  // A focused field in a narrow dialog fills the box, so a fit made while it
+  // has the focus reads the box's height. It fits its text again on the way
+  // out. A listener, not `onBlur`, which a caller's own would replace.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!grow || !el) return;
+    const refit = () => fitToText(el);
+    el.addEventListener('blur', refit);
+    return () => el.removeEventListener('blur', refit);
+  }, [grow]);
+
   // A new width re-wraps the text: a resized panel, a rotated phone.
   useLayoutEffect(() => {
     const el = ref.current;
