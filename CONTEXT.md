@@ -461,6 +461,12 @@ it, and the harness model. `mael_agent` holds it, so the `mael` CLI and the orch
 reach the daemon without importing `mael_daemon`.
 _Avoid_: Client library, SDK
 
+**Orchestrator client**:
+The code a `mael` command uses to call the **Orchestrator server**: `orchestrator_client.py`. A
+command that uses it never opens the **State database**, so the server is the one writer. The
+orchestrator's counterpart of the **Client surface**.
+_Avoid_: API wrapper, REST client
+
 **Stray**:
 A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
 died uncleanly; found by the next daemon start or by `mael-agent-daemon gc` through the pid in its

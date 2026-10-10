@@ -1,9 +1,7 @@
 """Tests for mael_cli.github_cli module."""
 
 import asyncio
-import socket
 import subprocess
-import threading
 from unittest.mock import patch
 
 import pytest
@@ -13,7 +11,6 @@ from domain_fixtures import IN_A_PANE
 from mael_cli import github_cli, task_cli
 from mael_cli.cli import cli
 from mael_cli.github_cli import _format_size, _render_pr_comments
-from mael_cli.orchestrator_notify import orchestrator_url, tell_orchestrator
 from mael_domain import task as model
 from mael_domain.github_model import (
     GitHubCliMissing,
@@ -319,15 +316,18 @@ class TestGhCliRegistration:
         assert result.exit_code == 0, result.output
         told.assert_called_once()
 
-    def test_a_pr_still_succeeds_when_no_orchestrator_is_listening(self, tmp_path):
+    def test_a_pr_still_succeeds_when_no_orchestrator_is_listening(
+        self, tmp_path, monkeypatch
+    ):
         """Running `mael gh create-pr` with no UI open is the ordinary case.
         The PR is already on GitHub, so nothing about telling a server that is
         not there may fail the command or print an error.
 
         The real `tell_orchestrator` runs here rather than a patched one: its
         not-raising is the whole contract, and a fake that cannot raise would
-        assert nothing. `tmp_path` has no `.env`, so it finds no port.
+        assert nothing. `$HOME` is `tmp_path`, whose config names no server.
         """
+        monkeypatch.setenv("HOME", str(tmp_path))
         with (
             patch("mael_cli.github_cli.resolve_context") as mock_ctx,
             patch(
@@ -340,45 +340,6 @@ class TestGhCliRegistration:
             result = CliRunner().invoke(cli, ["gh", "create-pr"])
         assert result.exit_code == 0, result.output
         assert "PR created" in result.output
-
-    def test_telling_an_orchestrator_that_refuses_the_connection_is_silent(
-        self, tmp_path
-    ):
-        """A port in the `.env` with nothing listening on it: the ordinary case
-        once an orchestrator has been stopped. The command has already pushed."""
-        (tmp_path / ".env").write_text("ORCHESTRATOR_PORT=1\n")
-        tell_orchestrator(tmp_path, "/api/worktrees/refresh")
-
-    def test_a_worktree_with_no_port_tells_nobody(self, tmp_path):
-        """A worktree made before the service existed names no port. It must
-        read as nothing to tell, not as a failure."""
-        assert orchestrator_url(tmp_path, "/x") is None
-        tell_orchestrator(tmp_path, "/x")
-
-    @pytest.mark.binds_socket
-    def test_an_https_orchestrator_is_told_over_tls(self, tmp_path, tls_server_context):
-        """Under ``dev_https:`` the notify reaches a TLS-only server whose
-        certificate does not name ``127.0.0.1``."""
-        listener = socket.create_server(("127.0.0.1", 0))
-        listener.settimeout(5)
-        heard: list[list[str]] = []
-
-        def answer_one() -> None:
-            conn, _ = listener.accept()
-            with tls_server_context.wrap_socket(conn, server_side=True) as tls:
-                heard.append(tls.recv(4096).decode().split(" ")[:2])
-                tls.sendall(b"HTTP/1.1 204 No Content\r\n\r\n")
-
-        thread = threading.Thread(target=answer_one, daemon=True)
-        thread.start()
-        port = listener.getsockname()[1]
-        (tmp_path / ".env").write_text(f"DEV_SCHEME=https\nORCHESTRATOR_PORT={port}\n")
-        try:
-            tell_orchestrator(tmp_path, "/api/worktrees/refresh")
-        finally:
-            thread.join(timeout=5)
-            listener.close()
-        assert heard == [["POST", "/api/worktrees/refresh"]]
 
     def test_show_code_smoke(self):
         with (
