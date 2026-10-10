@@ -18,6 +18,7 @@ from mael_domain.task import list_tasks
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import CloseResult
 from mael_domain.worktree_close import FullCloseResult
+from mael_domain.worktree_steps import StepHook
 from mael_orchestrator.cli import (
     DEFAULT_HOST,
     DEFAULT_LOG_LEVEL,
@@ -238,7 +239,7 @@ def _force_close(worktrees: ListAllWorktreeSource, *, had_unmerged_work: bool) -
     with patch(
         "mael_orchestrator.cli.close_worktree_fully", new=AsyncMock(return_value=closed)
     ):
-        asyncio.run(worktrees.force_close("northwind", "alpha", "/p"))
+        asyncio.run(worktrees.force_close("northwind", "alpha", "/p", hook=StepHook()))
 
 
 def test_a_force_close_over_unmerged_work_writes_a_reopen_task(tmp_path, monkeypatch):

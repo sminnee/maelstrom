@@ -711,4 +711,17 @@ def validate_command(
         # afford one right now.
         return None
 
+    if kind in ("operation.seen", "operation.retry"):
+        operation_id = cmd.get("operationId", "")
+        operation = world["operations"].get(operation_id)
+        if operation is None:
+            return _err("unknown_id", f"No operation {operation_id}")
+        # A running operation is still moving, so neither applies to it; and
+        # only one that ended badly has a step left to run.
+        if operation["state"] == "running" or (
+            kind == "operation.retry" and operation["state"] == "done"
+        ):
+            return _err("invalid", f"Operation {operation_id} is {operation['state']}")
+        return None
+
     return _err("invalid", f"Unknown command: {kind}")

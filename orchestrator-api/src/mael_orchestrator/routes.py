@@ -20,6 +20,7 @@ from typing import Any
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
+from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import UnknownRev, list_changes, read_diff
 
@@ -131,6 +132,10 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
     app.router.add_post("/api/worktrees/{id}/feedback", _send_feedback)
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
+    app.router.add_get("/api/operations", _operations)
+    app.router.add_get("/api/operations/{id}/log", _operation_log)
+    app.router.add_post("/api/operations/{id}/seen", _mark_seen)
+    app.router.add_post("/api/operations/{id}/retry", _retry_operation)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
     app.router.add_get("/api/linear/issues", _linear_issues)
@@ -405,13 +410,19 @@ async def _body(request: web.Request) -> dict[str, Any]:
     return body
 
 
-async def _command(request: web.Request, build: Callable[[dict[str, Any]], dict]):
+async def _command(
+    request: web.Request,
+    build: Callable[[dict[str, Any]], dict],
+    *,
+    status: int = 200,
+):
     """Run the command ``build`` makes of the body, and answer its reply.
 
     The command dict is what the world socket carried, so ``validate_command``
     and the host-refusal mapping apply unchanged. A refusal answers the code's
     status; a field the validator did not check being missing is the client's
-    bug, answered as ``invalid``.
+    bug, answered as ``invalid``. ``status`` is the success status: ``202``
+    for a command that starts an operation and answers before it ends.
     """
     orch = await _ready(request)
     try:
@@ -429,7 +440,7 @@ async def _command(request: web.Request, build: Callable[[dict[str, Any]], dict]
         error = dict(reply["error"])
         code = error.pop("code")
         return error_response(code, error.pop("message"), **error)
-    return web.json_response(reply["result"])
+    return web.json_response(reply["result"], status=status)
 
 
 #: Each agent action: the command it makes, from the agent id and the body.
@@ -649,6 +660,7 @@ async def _close_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.close", "worktreeId": worktree_id},
+        status=202,
     )
 
 
@@ -658,6 +670,7 @@ async def _force_close_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.forceClose", "worktreeId": worktree_id},
+        status=202,
     )
 
 
@@ -667,6 +680,7 @@ async def _trash_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.trash", "worktreeId": worktree_id},
+        status=202,
     )
 
 
@@ -676,6 +690,7 @@ async def _remove_worktree(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.remove", "worktreeId": worktree_id},
+        status=202,
     )
 
 
@@ -689,6 +704,7 @@ async def _sync_worktree(request: web.Request) -> web.StreamResponse:
             "worktreeId": worktree_id,
             "mode": body.get("mode", "autorepair"),
         },
+        status=202,
     )
 
 
@@ -698,6 +714,7 @@ async def _merge_worktree_pr(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.mergePr", "worktreeId": worktree_id},
+        status=202,
     )
 
 
@@ -715,6 +732,7 @@ async def _env_worktree(request: web.Request) -> web.StreamResponse:
             "action": body.get("action", "start"),
             "service": body.get("service"),
         },
+        status=202,
     )
 
 
@@ -837,6 +855,51 @@ async def _desk_remove(request: web.Request) -> web.StreamResponse:
     # aiohttp has already decoded the match: a desk id arrives URL-encoded and lands plain.
     desk_id = request.match_info["desk_id"]
     return await _command(request, lambda body: {"type": "desk.remove", "id": desk_id})
+
+
+# -- operations --
+
+
+async def _operations(request: web.Request) -> web.Response:
+    """The operations, newest first, up to ``limit``. See ``CONTEXT.md``, "Operation"."""
+    orch = await _ready(request)
+    limit = _int_or_none(request.query.get("limit"))
+    ops = sorted(
+        orch.world["operations"].values(),
+        key=lambda op: operation_number(op["id"]),
+        reverse=True,
+    )
+    return web.json_response(
+        {"operations": ops[:limit] if limit and limit > 0 else ops}
+    )
+
+
+async def _operation_log(request: web.Request) -> web.Response:
+    """One operation's log lines, grouped by step. A separate read from the entity."""
+    orch = await _ready(request)
+    operation_id = request.match_info["id"]
+    body = await orch.operation_log(operation_id)
+    if body is None:
+        return error_response("unknown_id", f"No operation {operation_id}")
+    return web.json_response(body)
+
+
+async def _mark_seen(request: web.Request) -> web.StreamResponse:
+    operation_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "operation.seen", "operationId": operation_id},
+    )
+
+
+async def _retry_operation(request: web.Request) -> web.StreamResponse:
+    """Run a refused or failed operation again, from its first unfinished step."""
+    operation_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda _body: {"type": "operation.retry", "operationId": operation_id},
+        status=202,
+    )
 
 
 # -- the notice stream --
