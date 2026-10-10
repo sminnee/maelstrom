@@ -158,7 +158,9 @@ The state channel. These never decorate; each one means one thing.
 - **Reply Yellow** (`--unanswered`): an idle agent that left a message on unfinished work. It
   takes the same ring, glow and wash as Alert Amber, so the two differ by colour alone. Only
   the ask takes the count badge.
-- **Fault Rose** (`--danger`): an agent that exited or a failed command. Fault, not warning.
+- **Fault Rose** (`--danger`): an agent that exited or a failed command. Fault, not warning. One
+  exception: the Review Dock's negative act, so a comment that turns Approve into Deny is seen
+  before the click.
 - **Clear Green** (`--ok`): finished and correct. Deliberately quiet — done work should recede.
   A cancelled task never takes it: cancelled work is terminal but not a success, so it draws
   the faint neutral dot instead.
@@ -833,6 +835,8 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
   fill back.
 - **Hover:** the fill steps to `--bg-control-hover`. Nothing moves.
 - **Primary:** a Signal Blue fill with `--fg-on-hue` text at 600 weight.
+- **Danger:** a Fault Rose fill with `--fg-on-hue` text at 600 weight. Only the Review Dock's
+  negative act takes it.
 - **Quiet:** muted text on the same fill.
 - **Split button:** two segments in one fill, divided by a hairline in the label colour. The
   label segment has 8px on its flat side; the chevron segment's padding is 0 8px 0 6px.

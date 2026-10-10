@@ -25,6 +25,14 @@
 .primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent), var(--fg-on-hue) 15%);
 }
+.danger {
+  background: var(--danger);
+  color: var(--fg-on-hue);
+  font-weight: 600;
+}
+.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger), var(--fg-on-hue) 15%);
+}
 .quiet {
   color: var(--fg-muted);
 }
