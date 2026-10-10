@@ -31,6 +31,7 @@ from mael_common.shell import run_cmd, run_cmd_async
 
 from .base_store import GitConfigBaseStore
 from .config import load_config_or_default
+from .context import load_global_config
 from .github_model import (
     PASSING_STATES,
     PR_DRAFT_PATH,
@@ -60,8 +61,8 @@ from .github_model import (
     parse_run_states,
     rollup_refused,
     stack_chain,
+    token_env,
 )
-from .integrations._auth import resolve_secret
 from .project_scaffold import scaffold_files
 from .worktree import (
     SyncResult,
@@ -337,13 +338,12 @@ def merge_pr(
         GitHubCliMissing: If ``gh`` is not installed.
         GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
     """
-    env = {"GH_TOKEN": token} if token else None
     try:
         run_cmd(
             merge_pr_argv(number, head_oid),
             cwd=cwd,
             quiet=True,
-            env=env,
+            env=token_env(token),
             timeout=MERGE_TIMEOUT_SECS,
         )
     except subprocess.CalledProcessError as e:
@@ -373,9 +373,12 @@ def merge_pr_argv(number: int, head_oid: str) -> list[str]:
     ]
 
 
-def merge_token() -> str | None:
-    """The token the orchestrator merges with, or ``None`` for the ``gh`` login."""
-    return resolve_secret("MAEL_GITHUB_MERGE_TOKEN", config_attr="github_merge_token")
+def orchestrator_token() -> str | None:
+    """The orchestrator token, or ``None`` to leave ``gh`` on the agent token.
+
+    Read from ``config.yaml`` only: see docs/reference/configuration.md#api-keys.
+    """
+    return load_global_config().github_orchestrator_token
 
 
 # Each named branch's most recent pull requests, in one round trip.
