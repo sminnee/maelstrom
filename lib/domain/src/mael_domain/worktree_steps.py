@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from inspect import isawaitable, iscoroutinefunction
 from pathlib import Path
+from typing import Literal
 
 #: How long a step waits for a scope before it gives up. A worktree operation
 #: is seconds of git, so a wait this long means a peer is stuck, not busy — and
@@ -102,6 +103,51 @@ class SequenceResult:
     @property
     def ok(self) -> bool:
         return self.blocked is None
+
+
+#: How one step ended. See ``CONTEXT.md``, "Refused".
+StepEnding = Literal["done", "refused", "failed"]
+
+
+@dataclass(frozen=True)
+class StepEnd:
+    """What a :class:`StepHook` hears when one step ends.
+
+    ``words`` is the refusal or the error, and ``None`` for a step that is done.
+    """
+
+    name: str
+    state: StepEnding
+    lines: list[str]
+    words: str | None
+
+
+class StepHook:
+    """Hears each step start and end, and names the steps a run passes over.
+
+    The base hears nothing and skips nothing. The server's operation subclasses
+    it, to publish each step as it runs and to retry from the first step that
+    did not finish.
+
+    Every method is called on the event loop, between steps, so a hook may
+    touch loop state but must not block.
+    """
+
+    def planned(self, names: list[str]) -> None:
+        """The whole sequence, in order, before the first step runs.
+
+        Skipped steps are named too: the plan is the sequence, not this run.
+        """
+
+    def skips(self, name: str) -> bool:
+        """Whether the step ``name`` is passed over, because a past run did it."""
+        return False
+
+    def started(self, name: str) -> None:
+        """The step ``name`` is about to run."""
+
+    def ended(self, end: StepEnd) -> None:
+        """A step finished, refused or raised."""
 
 
 def _lock_path(repo: Path, scope: Scope, worktree: Path | None) -> Path:
@@ -248,6 +294,7 @@ async def run_sequence(
     repo: Path | None = None,
     worktree: Path | None = None,
     executor: Executor | None = None,
+    hook: StepHook | None = None,
     _on_acquire: Callable[[Scope], None] | None = None,
 ) -> SequenceResult:
     """Run ``steps`` in order, stopping at the first refusal.
@@ -257,17 +304,38 @@ async def run_sequence(
     :func:`mael_domain.worktree.sync_worktree_with_autorepair` and
     ``setup_worktree_for_branch`` already take, so this is the existing
     convention. The CLI passes ``click.echo``; the server passes a collector,
-    and will pass a notice publisher when per-step progress lands.
+    and hears each step through ``hook``.
 
     ``executor`` is where a blocking step runs. ``None`` uses the loop's
     default, which is right for the CLI — one operation, one process. The
     server passes its bounded worktree pool.
 
+    ``hook`` hears each step start and end, and may skip a step a past run
+    did. A step that raises ends ``failed`` on the hook, and the error still
+    rises: what to do with a fault is the caller's decision.
+
     Never raises for a refusal: read ``result.ok``.
     """
+    hook = hook or StepHook()
     result = SequenceResult()
+    hook.planned([step.name for step in steps])
     for step in steps:
-        outcome = await _run_step(step, repo, worktree, _on_acquire, executor)
+        if hook.skips(step.name):
+            continue
+        hook.started(step.name)
+        try:
+            outcome = await _run_step(step, repo, worktree, _on_acquire, executor)
+        except Exception as exc:
+            hook.ended(StepEnd(step.name, "failed", [], str(exc) or repr(exc)))
+            raise
+        hook.ended(
+            StepEnd(
+                step.name,
+                "done" if outcome.blocked is None else "refused",
+                list(outcome.messages),
+                outcome.blocked,
+            )
+        )
         for line in outcome.messages:
             announce(line)
             result.messages.append(line)

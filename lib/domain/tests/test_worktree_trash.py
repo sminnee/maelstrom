@@ -16,6 +16,7 @@ from mael_domain.base_store import GitConfigBaseStore
 from mael_domain.github_model import GitHubCommandFailed, PrStatus
 from mael_domain.worktree import CloseResult
 from mael_domain.worktree_model import BaseRef, CopyBackResult
+from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import TrashSteps, trash_worktree_fully
 
 PR = PrStatus(number=7, commits=1, url="", state="unknown", is_draft=False)
@@ -286,6 +287,20 @@ def recording(order: list[str], **over) -> TrashSteps:
     return TrashSteps(**{**defaults, **over})
 
 
+class Planned(StepHook):
+    """A hook that notes the plan it hears, and skips the steps it is told to."""
+
+    def __init__(self, skip: tuple[str, ...] = ()) -> None:
+        self.names: list[str] = []
+        self.skip = skip
+
+    def planned(self, names: list[str]) -> None:
+        self.names = names
+
+    def skips(self, name: str) -> bool:
+        return name in self.skip
+
+
 async def trash_fully(order, **over):
     return await trash_worktree_fully(
         "myproject",
@@ -403,3 +418,28 @@ class TestTheSequence:
         )
         assert not result.close.success
         assert order == []
+
+
+async def test_the_hook_hears_the_trash_s_steps():
+    hook = Planned()
+    await trash_worktree_fully(
+        "myproject",
+        "alpha",
+        WORKTREE_PATH,
+        PROJECT_PATH,
+        steps=recording([]),
+        hook=hook,
+    )
+    assert hook.names == [
+        "guard",
+        "stop_env",
+        "stop_agents",
+        "stop_sessions",
+        "rescue_env_vars",
+        "commit_wip",
+        "close_pr",
+        "rename_remote",
+        "detach",
+        "rename",
+        "close_workspace",
+    ]
