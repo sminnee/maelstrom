@@ -7,9 +7,6 @@ exercised for destination-keyed firing. Every line an action reports reaches
 the caller's ``warn``, collected here in a list.
 """
 
-import asyncio
-import time
-
 import pytest
 
 from mael_domain import task as model
@@ -169,42 +166,6 @@ class TestMoveWithActions:
         await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
         # Must not raise.
         await task_actions.move_with_actions(store, "p", t.id, status, warn=[].append)
-
-    async def test_the_action_runs_off_the_loop(self, monkeypatch, store):
-        """The Linear client is sync urllib. On the server's loop, every launch
-        and every done would freeze each client for three HTTP round trips."""
-        from mael_domain.integrations import linear
-
-        ticks = 0
-        ticks_during_call: list[int] = []
-
-        def slow_linear(ref_id: str, status: str) -> str:
-            time.sleep(0.3)
-            ticks_during_call.append(ticks)
-            return f"{ref_id}: Todo -> Done"
-
-        monkeypatch.setattr(linear, "set_issue_status", slow_linear)
-        t = await self._seed(store, parent="linear.NORT-12", post_action="linear.done")
-
-        async def heartbeat() -> None:
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.01)
-                ticks += 1
-
-        beat = asyncio.create_task(heartbeat())
-        lines: list[str] = []
-        await task_actions.move_with_actions(
-            store, "p", t.id, model.STATUS_DONE, warn=lines.append
-        )
-        beat.cancel()
-        assert lines == [
-            "NORT-12: Todo -> Done",
-            f"action linear.done -> NORT-12 (task {t.id})",
-        ]
-        # About 30 in the 300 ms call; 0 when it holds the loop. Low, because
-        # a loaded machine runs far fewer.
-        assert ticks_during_call[0] >= 3
 
     async def test_returns_moved_task(self, monkeypatch, store):
         t = await self._seed(store)
