@@ -225,6 +225,19 @@
   opacity: 0.5;
 }
 
+/* Under an operation. A running one hatches the band (see DESIGN.md, "The
+   hatch"); one that ended badly takes the danger rule and words. The left
+   edge stays the phase alone. */
+.row[data-operation='refused'],
+.row[data-operation='failed'] {
+  border-color: var(--danger);
+  border-left-color: var(--phase);
+}
+.row[data-operation='refused'] .state,
+.row[data-operation='failed'] .state {
+  color: var(--danger);
+}
+
 /* The badge opens the document the agent waits on: a second destination. */
 .badge {
   flex: none;

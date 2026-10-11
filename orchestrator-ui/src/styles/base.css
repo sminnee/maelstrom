@@ -164,6 +164,29 @@ summary::-webkit-details-marker {
   display: none;
 }
 
+/* The hatch: a unit an operation runs on. See DESIGN.md, "The hatch". The global
+   reduced-motion rule stops the drift. */
+:where([data-operation='running']) {
+  position: relative;
+}
+[data-operation='running']::after {
+  --hatch-tile: calc(6px * 1.41421356);
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--border-strong) 0 1px, transparent 1px 6px) 0
+    0 / var(--hatch-tile) var(--hatch-tile);
+  animation: hatch-drift 20s linear infinite;
+}
+/* Ten tiles in twenty seconds: a whole number of tiles, so the loop has no seam. */
+@keyframes hatch-drift {
+  to {
+    background-position: calc(var(--hatch-tile) * 10) 0;
+  }
+}
+
 /*
  * The one place a phase becomes a colour. Anything under a phased element reads
  * `--phase`. Each phase re-derives `--phase-dormant` with it: a custom property

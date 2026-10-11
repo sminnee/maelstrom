@@ -52,6 +52,29 @@
 .faint {
   color: var(--fg-faint);
 }
+/* The operation on the worktree: a second line under its name. Its floor keeps the column
+   wider than the name above it, so the words break at spaces; the cap keeps the commands in
+   the pane. */
+.operation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 12ch;
+  max-width: 28ch;
+  gap: var(--u);
+  margin-top: var(--u-half);
+  font-family: var(--font);
+  font-weight: normal;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.operation[data-ended] {
+  color: var(--danger);
+}
+/* The global hatch is for the board; a row of the table takes none. */
+.table tr[data-operation]::after {
+  content: none;
+}
 /* The links sit inline, so they need a gap of their own at every width. */
 .links {
   display: inline-flex;
@@ -99,6 +122,10 @@
   }
   .table td:empty {
     display: none;
+  }
+  /* The row is the screen's width: the line wraps inside it. */
+  .operation {
+    max-width: none;
   }
   .table td:nth-child(1) {
     flex: 1 1 auto;
