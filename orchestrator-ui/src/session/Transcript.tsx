@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { attentionSegments, Markdown } from '../markdown/Markdown';
 import type { TranscriptItem } from '../protocol/transcript';
 import { clockTime } from '../protocol/time';
@@ -82,11 +83,14 @@ function drawsNothing(item: TranscriptItem): boolean {
   return item.type === 'tool_call' && classifyToolCall(item) === 'wait';
 }
 
+/** No handlers: one object, so a row's memo sees no change. */
+const NO_HANDLERS: TranscriptHandlers = {};
+
 /** The rich transcript: one card per item, in order. */
 export function Transcript({
   items,
   truncatedBefore,
-  handlers = {},
+  handlers = NO_HANDLERS,
   deferredRequestIds = [],
   hiddenCount = 0,
   revealSize,
@@ -120,31 +124,55 @@ export function Transcript({
       {items.map((item) => {
         if (drawsNothing(item)) return null;
         const deferred = 'requestId' in item && deferredRequestIds.includes(item.requestId);
-        const mark = marks.get(item.id) ?? '';
         return (
-          <div
+          <TranscriptRow
             key={item.id}
-            className={styles.card}
-            data-testid="transcript-card"
-            data-item-type={item.type}
-            data-register={registerOf(item)}
-          >
-            <span className={styles.gutter}>
-              {mark && (
-                <time className={styles.time} data-testid="item-time" dateTime={item.ts}>
-                  {mark}
-                </time>
-              )}
-            </span>
-            <CardBoundary>
-              {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
-            </CardBoundary>
-          </div>
+            item={item}
+            mark={marks.get(item.id) ?? ''}
+            deferred={deferred}
+            handlers={handlers}
+          />
         );
       })}
     </div>
   );
 }
+
+/**
+ * One row. Memoised: the reducer keeps the object of an item that did not
+ * change, so an append draws the new row and leaves the others alone.
+ */
+const TranscriptRow = memo(function TranscriptRow({
+  item,
+  mark,
+  deferred,
+  handlers,
+}: {
+  item: TranscriptItem;
+  mark: string;
+  deferred: boolean;
+  handlers: TranscriptHandlers;
+}) {
+  return (
+    <div
+      className={styles.card}
+      data-testid="transcript-card"
+      data-item-type={item.type}
+      data-register={registerOf(item)}
+    >
+      <span className={styles.gutter}>
+        {mark && (
+          <time className={styles.time} data-testid="item-time" dateTime={item.ts}>
+            {mark}
+          </time>
+        )}
+      </span>
+      <CardBoundary>
+        {deferred ? <DeferredWait item={item} /> : <Card item={item} handlers={handlers} />}
+      </CardBoundary>
+    </div>
+  );
+});
 
 /**
  * The time to print beside each item, by item id.

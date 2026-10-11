@@ -1,4 +1,5 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { TranscriptHandlers } from './Transcript';
 import { useAnswer, useApprove, useDeny, useInterrupt, useSay, useSetMode } from '../api/agents';
 import { useWorld } from '../api/useWorld';
 import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
@@ -136,6 +137,27 @@ export function SessionTab({
     if (!following.current) return;
     bottom.current?.scrollIntoView?.({ block: 'end' });
   }, [count, tailLength]);
+
+  // One object across renders, so the transcript's memoised rows hold.
+  const answerAsync = answer.mutateAsync;
+  const denyAsync = deny.mutateAsync;
+  const approveAsync = approve.mutateAsync;
+  const interruptAsync = interrupt.mutateAsync;
+  const handlers = useMemo<TranscriptHandlers>(
+    () =>
+      isChild
+        ? {}
+        : {
+            onAnswer: (requestId, answers) => answerAsync({ agentId, requestId, answers }),
+            onDecline: (requestId) => denyAsync({ agentId, requestId, reason: DECLINE_REASON }),
+            onDeclineAndStop: () => interruptAsync({ agentId }),
+            onDecide: (requestId, decision, reason) =>
+              decision === 'approve'
+                ? approveAsync({ agentId, requestId })
+                : denyAsync({ agentId, requestId, reason }),
+          },
+    [isChild, agentId, answerAsync, denyAsync, approveAsync, interruptAsync],
+  );
 
   if (!agent) return <div className={styles.empty}>Agent {agentId} is gone.</div>;
   // Where the agent runs, what it runs on, how full its context is and what
@@ -331,21 +353,7 @@ export function SessionTab({
           onShowMore={() => setAnchor(transcript.items[Math.max(0, start - WINDOW)]?.id ?? null)}
           truncatedBefore={transcript.truncatedBefore}
           deferredRequestIds={deferred ? agent.pendingRequestIds : []}
-          handlers={
-            isChild
-              ? {}
-              : {
-                  onAnswer: (requestId, answers) =>
-                    answer.mutateAsync({ agentId, requestId, answers }),
-                  onDecline: (requestId) =>
-                    deny.mutateAsync({ agentId, requestId, reason: DECLINE_REASON }),
-                  onDeclineAndStop: () => interrupt.mutateAsync({ agentId }),
-                  onDecide: (requestId, decision, reason) =>
-                    decision === 'approve'
-                      ? approve.mutateAsync({ agentId, requestId })
-                      : deny.mutateAsync({ agentId, requestId, reason }),
-                }
-          }
+          handlers={handlers}
         />
         <div ref={bottom} />
       </div>
