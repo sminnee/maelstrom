@@ -1,8 +1,22 @@
+import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type * as AgentMessageModule from './cards/AgentMessage';
 
 import { clickNode, renderApp } from '../test/renderApp';
+
+/** How many times an agent message drew. The real card still draws. */
+const agentMessageDraws = vi.hoisted(() => ({ count: 0 }));
+vi.mock('./cards/AgentMessage', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentMessageModule>();
+  return {
+    AgentMessage: (props: Parameters<typeof actual.AgentMessage>[0]) => {
+      agentMessageDraws.count += 1;
+      return createElement(actual.AgentMessage, props);
+    },
+  };
+});
 
 const head = () => screen.getByTestId('session-head');
 
@@ -440,6 +454,20 @@ describe('the transcript window', () => {
     expect(screen.getByRole('button', { name: `Show ${held} earlier events` })).toBeVisible();
     expect(drawnRows().at(0)).toContain(`event ${appended - 50}`);
     expect(drawnRows().at(-1)).toContain(`event ${appended - 1}`);
+  });
+
+  it('draws only the new row when the agent speaks', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await openTaskSession(user);
+    await settleOnSeed();
+    appendMany(server, 5);
+    await waitFor(() => expect(drawnRows()).toHaveLength(SEEDED_ITEMS + 5));
+
+    agentMessageDraws.count = 0;
+    appendMany(server, 1, 'next');
+    await waitFor(() => expect(drawnRows()).toHaveLength(SEEDED_ITEMS + 6));
+    expect(agentMessageDraws.count).toBe(1);
   });
 
   it('offers nothing while the whole session fits in one window', async () => {

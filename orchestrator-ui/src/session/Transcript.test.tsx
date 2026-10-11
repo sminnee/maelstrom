@@ -1,10 +1,24 @@
+import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
+import type * as AgentMessageModule from './cards/AgentMessage';
 import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../fake/fixtures';
 import { goldenItems } from '../test/goldens';
 import type { TranscriptItem } from '../protocol/transcript';
+
+/** How many times an agent message drew. The real card still draws. */
+const agentMessageDraws = vi.hoisted(() => ({ count: 0 }));
+vi.mock('./cards/AgentMessage', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentMessageModule>();
+  return {
+    AgentMessage: (props: Parameters<typeof actual.AgentMessage>[0]) => {
+      agentMessageDraws.count += 1;
+      return createElement(actual.AgentMessage, props);
+    },
+  };
+});
 
 const raisesAWait = (item: TranscriptItem) =>
   item.type === 'tool_call' && classifyToolCall(item) === 'wait';
@@ -415,6 +429,17 @@ describe('Transcript', () => {
     // No thumbnail button: the refused image reaches none of the lightbox path.
     expect(within(card).queryByRole('button')).not.toBeInTheDocument();
     expect(card.textContent).toContain('could not be shown');
+  });
+
+  it('an append draws the new row alone, not every row again', () => {
+    const items = ['m1', 'm2', 'm3', 'm4', 'm5'].map((id) => said(id, '2026-09-01T10:00:00Z'));
+    agentMessageDraws.count = 0;
+    const { rerender } = render(<Transcript items={items} truncatedBefore={false} />);
+    expect(agentMessageDraws.count).toBe(5);
+    rerender(
+      <Transcript items={[...items, said('m6', '2026-09-01T10:00:00Z')]} truncatedBefore={false} />,
+    );
+    expect(agentMessageDraws.count).toBe(6);
   });
 
   it('draws only the window it was given, and offers the rest behind a button', () => {

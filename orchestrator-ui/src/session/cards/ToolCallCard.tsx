@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { ToolCallItem } from '../../protocol/transcript';
 import { classifyToolCall, toolCallTitle } from '../toolCards';
 import { BashCard } from './BashCard';
@@ -68,13 +69,19 @@ function ToolBody({
     case 'read':
       return item.output ? <pre className={styles.code}>{item.output}</pre> : null;
     default:
-      return (
-        <div>
-          <pre className={styles.code}>{JSON.stringify(item.input, null, 2)}</pre>
-          {item.output && <pre className={styles.code}>{item.output}</pre>}
-        </div>
-      );
+      return <RawCall item={item} />;
   }
+}
+
+/** A tool with no card of its own: its input as JSON, and its output. */
+function RawCall({ item }: { item: ToolCallItem }) {
+  const input = useMemo(() => JSON.stringify(item.input, null, 2), [item.input]);
+  return (
+    <div>
+      <pre className={styles.code}>{input}</pre>
+      {item.output && <pre className={styles.code}>{item.output}</pre>}
+    </div>
+  );
 }
 
 /** The tool result when the call did not succeed; a success needs no echo. */
