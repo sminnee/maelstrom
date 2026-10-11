@@ -479,6 +479,12 @@ worktree name in `--fg-muted` and the branch in `--fg-faint`. Both lift to `--fg
 while the card is open. The branch gives way with an ellipsis, and the full branch is in the
 `title`. A detached worktree reads `(detached)`. The label never runs past its box.
 
+The box marks any operation on its worktree, of every kind. While one runs, the hatch fills
+an 8px band inside the outline, and the label adds `· syncing 2/4`. The nodes in the box carry
+their own marks, so the band never lies over them. Once an operation ends badly and is
+**Unseen**, the outline takes Fault Rose and the label adds `· close refused` in Fault Rose.
+Opening the worktree card marks it seen.
+
 Horizontal position is progress first and dependency second:
 
 - The board runs left to right in three zones — DONE, RUNNING, NOT STARTED.
@@ -527,7 +533,9 @@ The deck list takes the canvas's place. The three zones run left to right on a b
 stripes; on a phone the same three run as tabs, opening on running. The model does not change
 between the surfaces, only the axis. A row keeps the task node's three registers — the title, the
 state in words, then the identity — and its whole state vocabulary, drawn as a full-width band
-with the phase bar still on its left edge.
+with the phase bar still on its left edge. A row under an operation reads as its node does: the
+band hatches while the operation runs, and the words and the danger rule follow the node's. A
+running operation takes the row's swipe away.
 
 One thing owns the screen. There is no panel and no tab strip: a node's detail, a session and a
 document each take the viewport. The wide layout's floating card has no
@@ -762,6 +770,25 @@ no box, so a deck row names both.
 - **Exited:** Fault Rose border and ring.
 - **Focused:** 2px Signal Blue outline, 2px offset — the same ring as `:focus-visible`.
 - **Expanded:** children fade to 0 over 120ms while the card grows in its place.
+- **Under operation:** an operation marks the node: a close, shelve, trash or delete on its
+  worktree, or any operation that names its task or agent. The hatch lies over the node, the
+  state line reads the operation's words and step (`Closing alpha · 3/6`), and the edge step
+  meter runs along the bottom. The working pulse and border stop: the operation speaks for the
+  node while it runs. A sync, merge or environment run on the worktree does not mark the node,
+  so it never hides a working agent. The worktree box carries those.
+- **Refused** and **Failed:** the operation ended badly and is **Unseen**. No hatch; the edge step
+  meter stays, its failed step in Fault Rose. The border takes Fault Rose, the left edge stays
+  the phase alone, and the state line reads the end and its reason in Fault Rose:
+  `Close refused · Worktree has 2 commit(s) not merged`. Opening the card marks it seen, and the
+  mark clears.
+
+**The hatch** marks a unit an operation runs on. It is a 1px diagonal in `--border-strong`,
+6px apart, over the whole surface, and it drifts ten tiles in 20 seconds. At that contrast the
+words under it stay legible. Under `prefers-reduced-motion` it is still. The worktree box cuts
+it to a band, and the worktree table takes none.
+
+**The step meter (edge)** is the console's step meter laid along the bottom edge of a node,
+inside its left border, at the node's full width. Its segments take the same colours.
 
 The status dot restates the state in colour, so state is carried twice — position and hue —
 and neither alone is load-bearing.

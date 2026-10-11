@@ -790,6 +790,30 @@ Three rules hold the console still:
 Ctrl-` is the app's one global key. `useConsoleKey` listens on the document, and each shell
 mounts it once. It ignores a key typed in a field.
 
+#### What an operation marks
+
+An operation shows on what it acts on. Every surface that marks — the task node, its card, the
+worktree box and its card, the worktree table row and the deck row — reads one selector,
+`unitOperation`, through `useUnitOperation`. So the surfaces cannot disagree.
+
+- A **worktree unit** (box, table row, worktree card) takes any operation on its worktree.
+- A **node unit** takes an operation that names its task or its agent, and an ending kind
+  (close, shelve, trash, delete) on its worktree. A sync does not mark a node, so it never hides
+  a working agent.
+- The pick is the running operation, else the newest **Unseen** one. A seen or done operation
+  leaves the unit clean.
+
+The surface sets `data-operation` to the operation's state. The hatch in `styles/base.css` is
+keyed on that attribute.
+
+Opening a node card or a worktree card marks its **Unseen** operation seen, through
+`useCardOperation`. The card holds the operation it opened on, so the refusal and its next
+chains stay in view after the mark clears from the board. A card animating shut marks nothing.
+
+While an operation runs, `ui/CommandSet` — a disabled `<fieldset>` — holds the commands of its
+unit: the node card's own commands, the worktree commands of the node card, the worktree card
+and the table row. A deck row has no swipe.
+
 ### The Worktree card
 
 `canvas/WorktreeCard.tsx` opens at the top-left corner of the box whose label was clicked. It

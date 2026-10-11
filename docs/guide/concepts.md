@@ -160,6 +160,9 @@ through the app, a refresh keeps the screen, and a copied link opens it in anoth
 The console shows the operations the server runs, such as a close, a sync or a merge. A strip at
 the foot of the page shows what runs and what refused or failed, and a click on it opens the
 console. Ctrl-` opens it too, with the log of each operation by step.
+The node, worktree box, worktree table row and deck row an operation acts on show it too: a
+moving hatch and its step count while it runs, and a red mark once it refuses or fails. Their
+commands wait while it runs. Opening the node's or worktree's card clears the mark.
 The top bar's "New" control starts new work without leaving the page: a task, a free agent in
 a branch's worktree, or an investigation. An investigation is a free agent on the main branch
 that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start name an empty title or branch from the prose you type. They
