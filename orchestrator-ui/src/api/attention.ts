@@ -12,6 +12,6 @@ export function useAttention() {
   const api = useApi();
   return useQuery({
     queryKey: keys.attention(),
-    queryFn: () => api.get<AttentionBody>('/api/attention'),
+    queryFn: ({ signal }) => api.get<AttentionBody>('/api/attention', { signal }),
   });
 }

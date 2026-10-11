@@ -17,7 +17,7 @@ export function useWorktreeChanges(worktreeId: WorktreeId) {
   const api = useApi();
   return useQuery({
     queryKey: keys.worktreeChanges.changes(worktreeId),
-    queryFn: () => api.get<WorktreeChanges>(`${base(worktreeId)}/changes`),
+    queryFn: ({ signal }) => api.get<WorktreeChanges>(`${base(worktreeId)}/changes`, { signal }),
   });
 }
 
@@ -29,8 +29,10 @@ export function useWorktreeDiff(worktreeId: WorktreeId, rev: string | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.worktreeChanges.diff(worktreeId, rev ?? ''),
-    queryFn: () =>
-      api.get<DiffBody>(`${base(worktreeId)}/diff?rev=${encodeURIComponent(rev ?? '')}`),
+    queryFn: ({ signal }) =>
+      api.get<DiffBody>(`${base(worktreeId)}/diff?rev=${encodeURIComponent(rev ?? '')}`, {
+        signal,
+      }),
     enabled: rev !== null,
   });
 }

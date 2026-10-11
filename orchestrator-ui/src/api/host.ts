@@ -13,6 +13,6 @@ export function useHost() {
   const api = useApi();
   return useQuery({
     queryKey: keys.host(),
-    queryFn: () => api.get<HostBody>('/api/host'),
+    queryFn: ({ signal }) => api.get<HostBody>('/api/host', { signal }),
   });
 }

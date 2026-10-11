@@ -22,10 +22,10 @@ export function useLinearIssues(project: string) {
   const api = useApi();
   return useQuery({
     queryKey: keys.linear.issues(project),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{ issues: LinearIssue[] }>(
         `/api/linear/issues?project=${encodeURIComponent(project)}`,
-        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+        { timeoutMs: SLOW_CALL_TIMEOUT_MS, signal },
       ),
     enabled: project !== '',
   });

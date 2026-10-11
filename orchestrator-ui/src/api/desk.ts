@@ -12,7 +12,7 @@ export function useDesk() {
   const api = useApi();
   return useQuery({
     queryKey: keys.desk(),
-    queryFn: () => api.get<DeskBody>('/api/desk'),
+    queryFn: ({ signal }) => api.get<DeskBody>('/api/desk', { signal }),
   });
 }
 

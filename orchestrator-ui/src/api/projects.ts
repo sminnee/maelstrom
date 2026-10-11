@@ -11,6 +11,6 @@ export function useProjects() {
   const api = useApi();
   return useQuery({
     queryKey: keys.projects(),
-    queryFn: () => api.get<ProjectsBody>('/api/projects'),
+    queryFn: ({ signal }) => api.get<ProjectsBody>('/api/projects', { signal }),
   });
 }
