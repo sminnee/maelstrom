@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { keys } from '../api/keys';
 import { FakeEventSource } from '../fake/fakeEventSource';
 import type { ChangeNotice } from '../api/types';
@@ -94,6 +94,60 @@ describe('startChangeStream', () => {
       new Set([keys.tasks.list(), keys.tasks.detail('p/1'), keys.tasks.detail('p/2')]),
     );
     expect(keysCalled).toHaveLength(3);
+  });
+
+  it('a notice storm neither restarts a slow fetch nor loses the last notice', async () => {
+    // Each fetch takes 200 ms and answers with the notices seen when it began.
+    let seen = 0;
+    let calls = 0;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: keys.host(),
+      queryFn: async () => {
+        calls += 1;
+        const value = seen;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return value;
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    sources[0]!.open('e1');
+    const notices = 20;
+    const MIDWAY = 11; // t = 600 ms: three fetches have had time to finish.
+    let midStorm: number | undefined;
+    for (let i = 0; i < notices; i += 1) {
+      seen += 1;
+      sources[0]!.emit('change', { kind: 'host', ids: ['agent-host'] });
+      await vi.advanceTimersByTimeAsync(50);
+      if (i === MIDWAY) midStorm = observer.getCurrentResult().data;
+    }
+    await vi.advanceTimersByTimeAsync(2000);
+
+    // A storm that restarts the fetch at each flush never lets one finish.
+    expect(midStorm).toBeGreaterThan(0);
+    expect(observer.getCurrentResult().data).toBe(notices);
+    expect(calls).toBeLessThanOrEqual(notices / 2);
+    unsubscribe();
+  });
+
+  it('a follow-up does not fire once the stream stops', async () => {
+    let calls = 0;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: keys.host(),
+      queryFn: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return calls;
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    sources[0]!.emit('change', { kind: 'host', ids: ['agent-host'] });
+    await vi.advanceTimersByTimeAsync(150);
+    const before = calls;
+    stop();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calls).toBe(before);
+    unsubscribe();
   });
 
   it('reports reconnecting while the browser retries, and live again on the next open', () => {

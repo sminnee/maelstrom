@@ -93,17 +93,31 @@ export function startChangeStream(opts: ChangeStreamOptions): () => void {
   const coalesceMs = opts.coalesceMs ?? 150;
   const reconnectMs = opts.reconnectMs ?? 1000;
   const pending = new Map<string, QueryKey>();
+  const followUps = new Map<string, QueryKey>();
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let attempts = 0;
   let source: EventSourceLike | null = null;
   let stopped = false;
 
+  // A success clears the invalidation, so a key fetching now gets one
+  // follow-up when it settles. See docs/dev/orchestrator-ui.md, "The API".
+  const invalidate = (id: string, queryKey: QueryKey) => {
+    const fetching = opts.queryClient.isFetching({ queryKey }) > 0;
+    const settled = opts.queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+    if (!fetching || followUps.has(id)) return;
+    followUps.set(id, queryKey);
+    void settled.finally(() => {
+      if (!followUps.delete(id)) return;
+      void opts.queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+    });
+  };
+
   const flush = () => {
     flushTimer = null;
-    const batch = [...pending.values()];
+    const batch = [...pending];
     pending.clear();
-    for (const queryKey of batch) void opts.queryClient.invalidateQueries({ queryKey });
+    for (const [id, queryKey] of batch) invalidate(id, queryKey);
   };
 
   const queue = (notice: ChangeNotice) => {
@@ -149,6 +163,7 @@ export function startChangeStream(opts: ChangeStreamOptions): () => void {
 
   return () => {
     stopped = true;
+    followUps.clear();
     if (flushTimer) clearTimeout(flushTimer);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     source?.close();
