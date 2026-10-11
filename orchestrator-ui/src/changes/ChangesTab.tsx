@@ -33,7 +33,8 @@ import { clockTime } from '../protocol/time';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
-import { DiffBlock, type DiffRowData, HighlightedRows } from '../ui/DiffRow';
+import { DiffBlock, type DiffRowData, HighlightedRows, type RowHandlers } from '../ui/DiffRow';
+import { useInView } from '../ui/useInView';
 import { retainedKey } from '../ui/retained';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
@@ -636,6 +637,48 @@ function Counts({ add, remove }: { add: number; remove: number }) {
   );
 }
 
+/** One hunk's rows, and where they begin in the file's rows. */
+interface DiffHunk {
+  header: string;
+  first: number;
+  rows: DiffRowData[];
+}
+
+/**
+ * One hunk. It highlights only near the screen: tokenising every hunk of a
+ * large diff at once holds the main thread.
+ */
+function Hunk({
+  hunk,
+  path,
+  selected,
+  handlers,
+  after,
+}: {
+  hunk: DiffHunk;
+  path: string;
+  selected: [number, number] | null;
+  handlers: RowHandlers;
+  after: (index: number) => ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref);
+  return (
+    <div ref={ref}>
+      <div className={styles.hunk}>{hunk.header}</div>
+      <HighlightedRows
+        path={path}
+        rows={hunk.rows}
+        first={hunk.first}
+        selected={selected}
+        handlers={handlers}
+        after={after}
+        highlight={inView}
+      />
+    </div>
+  );
+}
+
 /** One file: its head and its rows, with its comments below their lines. */
 const FileBlock = memo(function FileBlock({
   file,
@@ -668,7 +711,7 @@ const FileBlock = memo(function FileBlock({
   const section = useCallback((el: HTMLElement | null) => holdFile(path, el), [holdFile, path]);
   // Each hunk's rows, and where they begin in `rows`.
   const hunks = useMemo(() => {
-    const out: { header: string; first: number; rows: DiffRowData[] }[] = [];
+    const out: DiffHunk[] = [];
     let first = 0;
     for (const hunk of file.hunks) {
       const end = first + hunk.lines.length;
@@ -738,17 +781,14 @@ const FileBlock = memo(function FileBlock({
         <DiffBlock className={styles.diff}>
           <div className={styles.rows}>
             {hunks.map((hunk, h) => (
-              <div key={h}>
-                <div className={styles.hunk}>{hunk.header}</div>
-                <HighlightedRows
-                  path={path}
-                  rows={hunk.rows}
-                  first={hunk.first}
-                  selected={dragged ?? openAt}
-                  handlers={handlers}
-                  after={after}
-                />
-              </div>
+              <Hunk
+                key={h}
+                hunk={hunk}
+                path={path}
+                selected={dragged ?? openAt}
+                handlers={handlers}
+                after={after}
+              />
             ))}
           </div>
         </DiffBlock>
