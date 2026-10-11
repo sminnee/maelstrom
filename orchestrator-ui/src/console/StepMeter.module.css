@@ -1,0 +1,35 @@
+/* One segment per step, on one line. The segments share the meter's width,
+   so a nine-step close and a one-step sync take the same room. */
+.meter {
+  display: inline-flex;
+  flex: none;
+  gap: calc(var(--u-half) / 2);
+  width: calc(var(--u) * 6);
+  height: 4px;
+}
+.segment {
+  flex: 1;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+.segment[data-state='done'] {
+  background: var(--fg-muted);
+}
+.segment[data-state='running'] {
+  background: var(--fg);
+  animation: lit 1.6s ease-in-out infinite;
+}
+.segment[data-state='refused'],
+.segment[data-state='failed'] {
+  background: var(--danger);
+}
+@keyframes lit {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .segment[data-state='running'] {
+    animation: none;
+  }
+}

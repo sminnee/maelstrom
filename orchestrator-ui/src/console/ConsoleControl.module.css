@@ -1,0 +1,13 @@
+/* Tabular, so a count that ticks over does not move the chips beside it. */
+.control {
+  font-variant-numeric: tabular-nums;
+}
+.control[aria-expanded='true'] {
+  color: var(--fg);
+  background: var(--bg-control-hover);
+}
+/* An Unseen operation is a fault: Fault Rose text,
+   and no glow (the Two Calls Rule). */
+.control[data-fault] {
+  color: var(--danger);
+}

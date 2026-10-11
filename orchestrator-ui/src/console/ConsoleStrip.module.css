@@ -1,0 +1,98 @@
+/* A bar at the foot of the body: raised, a hairline on top. It is a band of
+   controls at the edge of a view, so it pads with --bar-pad. */
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  min-width: 0;
+  padding: var(--bar-pad);
+  padding-bottom: max(var(--bar-pad), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+/* An entry reads as a line of the log, not as a pill: no fill until hover. */
+.entry {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(var(--u) * 52);
+  padding: 0 var(--u);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.entry:hover {
+  background: var(--bg-hover);
+}
+/* A hairline between two entries, inside the gap. */
+.entry + .entry {
+  position: relative;
+}
+.entry + .entry::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--u-half) * -1);
+  top: 25%;
+  bottom: 25%;
+  border-left: 1px solid var(--border);
+}
+.words {
+  flex: 1 1 auto;
+  /* An id cut short is worse than words cut short (the Mono Means Literal
+     Rule), so the words give way. */
+  min-width: 6em;
+}
+.entry[data-state='refused'] .words,
+.entry[data-state='failed'] .words {
+  color: var(--danger);
+}
+.entry[data-state='done'] .words {
+  color: var(--fg-muted);
+}
+.target,
+.step {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.target {
+  color: var(--fg-muted);
+}
+.step {
+  color: var(--fg-faint);
+}
+.more {
+  flex: none;
+  min-height: 0;
+  padding: 0 var(--u);
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.more:hover {
+  color: var(--fg);
+}
+
+/* A phone: one entry, which takes the row, and the count after it. */
+@media (max-width: 839px) {
+  .entry {
+    flex: 1;
+    max-width: none;
+  }
+  .step,
+  .target {
+    display: none;
+  }
+}

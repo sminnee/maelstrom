@@ -1,6 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import {
   Archive,
+  Ban,
   ArrowLeft,
   ArrowRight,
   Bot,
@@ -9,6 +10,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Circle,
+  CircleDot,
   CirclePlay,
   ExternalLink,
   FoldVertical,
@@ -99,4 +102,20 @@ export type ActionVerb = keyof typeof ICONS;
 /** The icon for `verb`. `className` sizes an icon outside a button, e.g. in a link. */
 export function actionIcon(verb: ActionVerb, className?: string): ReactElement {
   return createElement(ICONS[verb], { className });
+}
+
+/**
+ * The glyph of a **Step**'s state in the console. A state, not a verb, so it
+ * has its own map; lucide stays imported here alone.
+ */
+const STEP_ICONS = {
+  pending: Circle,
+  running: CircleDot,
+  done: Check,
+  refused: Ban,
+  failed: X,
+} satisfies Record<string, LucideIcon>;
+
+export function stepIcon(state: keyof typeof STEP_ICONS, className?: string): ReactElement {
+  return createElement(STEP_ICONS[state], { className });
 }

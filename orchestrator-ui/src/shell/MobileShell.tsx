@@ -18,6 +18,10 @@ import { useCard } from '../nav/useCard';
 import { useGo, useLoc } from '../nav/useNav';
 import { useEdgeSwipe } from '../gesture/useEdgeSwipe';
 import { SideSheet } from '../ui/SideSheet';
+import { Console } from '../console/Console';
+import { ConsoleStrip } from '../console/ConsoleStrip';
+import { useConsoleKey } from '../console/useConsole';
+import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
 import { FilterBar } from './FilterBar';
 import { HostBanner } from './HostBanner';
@@ -46,14 +50,18 @@ export function MobileShell() {
       expandedNodeId ? { kind: 'detail', nodeId: expandedNodeId } : undefined,
     [expandedNodeId],
   );
-  const top = panel && panel.kind !== 'devenv' ? panel : detail;
+  const consoleOpen = useAppStore((s) => s.ui.console.open);
+  const closeConsole = useAppStore((s) => s.closeConsole);
+  useConsoleKey();
+  // The console is pushed over whatever screen is up, and closes back to it.
+  const top = consoleOpen ? CONSOLE_SCREEN : panel && panel.kind !== 'devenv' ? panel : detail;
   const go = useGo();
   // A panel tab closes to the detail under it, and the detail to the view.
   const panelOnTop = top !== detail;
-  const onClose = useCallback(
-    () => go(panelOnTop ? { panel: null } : { card: null, panel: null }, { close: true }),
-    [go, panelOnTop],
-  );
+  const onClose = useCallback(() => {
+    if (consoleOpen) closeConsole();
+    else go(panelOnTop ? { panel: null } : { card: null, panel: null }, { close: true });
+  }, [go, panelOnTop, consoleOpen, closeConsole]);
   const title = useScreenTitle(top);
   const { chrome, setActionsTarget, setSheetTarget } = useChrome(top);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -99,6 +107,8 @@ export function MobileShell() {
             <TaskList />
           )}
         </main>
+        {/* Over the view only: a pushed screen has one row of chrome. */}
+        {!top && <ConsoleStrip />}
         {chrome?.sheetOpen && (
           <SideSheet
             label="More"
@@ -121,7 +131,11 @@ export function MobileShell() {
 }
 
 /** One screen over the narrow layout's view: a node's detail, or a panel tab it has a screen for. */
-type MobileScreen = { kind: 'detail'; nodeId: string } | Exclude<PanelTab, { kind: 'devenv' }>;
+type MobileScreen =
+  { kind: 'detail'; nodeId: string } | { kind: 'console' } | Exclude<PanelTab, { kind: 'devenv' }>;
+
+/** One object, so the side sheet's screen stays the console across renders. */
+const CONSOLE_SCREEN: MobileScreen = { kind: 'console' };
 
 /**
  * The chrome state of the pushed screen `top`, or `null` on the deck, and the
@@ -164,6 +178,8 @@ function useScreenTitle(screen: MobileScreen | undefined): string {
   switch (screen?.kind) {
     case 'detail':
       return node ? nodeTitle(node) : '';
+    case 'console':
+      return 'Console';
     case 'session':
       return 'Session';
     case 'changes':
@@ -182,6 +198,8 @@ function Screen({ screen, onClose }: { screen: MobileScreen; onClose: () => void
       <div className={styles.screenBody}>
         {screen.kind === 'detail' ? (
           <Detail nodeId={screen.nodeId} onDone={onClose} />
+        ) : screen.kind === 'console' ? (
+          <Console layout="screen" />
         ) : screen.kind === 'session' ? (
           <SessionTab key={screen.agentId} agentId={screen.agentId} />
         ) : screen.kind === 'changes' ? (

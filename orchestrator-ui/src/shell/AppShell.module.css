@@ -4,6 +4,8 @@
   height: 100%;
 }
 .body {
+  /* The console drawer rises from its foot. */
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
