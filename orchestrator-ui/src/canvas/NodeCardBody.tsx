@@ -37,7 +37,8 @@ import { StatusPicker } from '../ui/StatusPicker';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { AgentControls } from '../session/AgentControls';
 import { useTakeNodeOffDesk } from '../session/useEndOfWork';
-import { useCardOperation } from '../console/useConsole';
+import { useCardOperation, useUnitOperation } from '../console/useConsole';
+import { CommandSet } from '../ui/CommandSet';
 import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { NextChains } from '../worktrees/NextChains';
 import styles from './NodeCard.module.css';
@@ -86,6 +87,8 @@ export function NodeCardBody({
   const [picking, setPicking] = useState(false);
   const { task, agent } = node;
   const op = useCardOperation(nodeUnit(node), open);
+  // A sync does not mark the node, but its worktree's commands wait on it.
+  const worktreeOp = useUnitOperation({ worktreeId: node.worktree?.id ?? '' });
   const takeOffDesk = useTakeNodeOffDesk({ agent, taskId: task?.id, onTakenOffDesk: onDone });
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
@@ -359,29 +362,36 @@ export function NodeCardBody({
             ))}
           </div>
         )}
-        <div className={styles.commands} data-testid="node-commands">
-          {!agent && task?.actionable && (
-            <AppButton
-              variant="primary"
-              icon={actionIcon('launch')}
-              processingChildren="Launching"
-              onClick={() => launch.mutateAsync({ taskId: task.id })}
-            >
-              Launch
-            </AppButton>
-          )}
-          {node.kind === 'task' && task && (
-            <AppButton
-              variant="quiet"
-              icon={actionIcon('edit')}
-              onClick={() => editTask(task.id, { editing: true })}
-            >
-              Edit task
-            </AppButton>
-          )}
-          <AgentControls agent={agent} taskId={task?.id} where={where} onTakenOffDesk={onDone} />
-        </div>
-        {where && <WorktreeSection worktree={where} pr={cardPr(node, where) ?? null} />}
+        {/* While an operation runs on the unit, nothing else may act on it. */}
+        <CommandSet disabled={op?.state === 'running'}>
+          <div className={styles.commands} data-testid="node-commands">
+            {!agent && task?.actionable && (
+              <AppButton
+                variant="primary"
+                icon={actionIcon('launch')}
+                processingChildren="Launching"
+                onClick={() => launch.mutateAsync({ taskId: task.id })}
+              >
+                Launch
+              </AppButton>
+            )}
+            {node.kind === 'task' && task && (
+              <AppButton
+                variant="quiet"
+                icon={actionIcon('edit')}
+                onClick={() => editTask(task.id, { editing: true })}
+              >
+                Edit task
+              </AppButton>
+            )}
+            <AgentControls agent={agent} taskId={task?.id} where={where} onTakenOffDesk={onDone} />
+          </div>
+        </CommandSet>
+        {where && (
+          <CommandSet disabled={op?.state === 'running' || worktreeOp?.state === 'running'}>
+            <WorktreeSection worktree={where} pr={cardPr(node, where) ?? null} />
+          </CommandSet>
+        )}
       </footer>
     </>
   );

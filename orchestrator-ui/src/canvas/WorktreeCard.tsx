@@ -3,6 +3,7 @@ import { useNewWork } from '../nav/useOverlays';
 import { useCard } from '../nav/useCard';
 import { useCardOperation } from '../console/useConsole';
 import { endedBadly, unitWords } from '../selectors/operations';
+import { CommandSet } from '../ui/CommandSet';
 import { StepMeter } from '../ui/StepMeter';
 import { NextChains } from '../worktrees/NextChains';
 import { AppButton } from '../ui/AppButton';
@@ -65,28 +66,30 @@ export function WorktreeCard({
         </div>
       )}
       {op?.state === 'refused' && op.kind === 'close' && <NextChains worktreeId={worktree.id} />}
-      <WorktreeSection worktree={worktree} />
-      {!worktree.isClosed && (
-        <div className={styles.commands}>
-          <AppButton
-            variant="primary"
-            icon={actionIcon('freeAgent')}
-            disabled={!worktree.branch}
-            title={worktree.branch ? undefined : 'A detached worktree has no branch to start on'}
-            onClick={() => {
-              // The form is the one thing open: the card would sit behind it, so
-              // opening on a seed closes it.
-              newWork.open({
-                kind: 'agent',
-                project: worktree.project,
-                branch: worktree.branch,
-              });
-            }}
-          >
-            Start free agent
-          </AppButton>
-        </div>
-      )}
+      <CommandSet disabled={op?.state === 'running'}>
+        <WorktreeSection worktree={worktree} />
+        {!worktree.isClosed && (
+          <div className={styles.commands}>
+            <AppButton
+              variant="primary"
+              icon={actionIcon('freeAgent')}
+              disabled={!worktree.branch}
+              title={worktree.branch ? undefined : 'A detached worktree has no branch to start on'}
+              onClick={() => {
+                // The form is the one thing open: the card would sit behind it, so
+                // opening on a seed closes it.
+                newWork.open({
+                  kind: 'agent',
+                  project: worktree.project,
+                  branch: worktree.branch,
+                });
+              }}
+            >
+              Start free agent
+            </AppButton>
+          </div>
+        )}
+      </CommandSet>
     </CanvasCard>
   );
 }

@@ -44,7 +44,9 @@ export function DeckRow({
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
   const op = useUnitOperation(nodeUnit(node));
-  const action = useRowAction(node);
+  // While an operation runs on the unit, nothing else may act on it.
+  const rowAction = useRowAction(node);
+  const action = op?.state === 'running' ? null : rowAction;
   const words = op ? unitWords(op) : node.reason || node.progress.words;
   const swipe = useSwipeAction(action?.run ?? null);
   return (
