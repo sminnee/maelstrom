@@ -6,6 +6,18 @@
   border-radius: var(--radius);
   pointer-events: none;
 }
+/* The hatch, cut to a band inside the outline: the nodes in the box carry
+   their own marks, so the box marks only its edge. See DESIGN.md, "The hatch". */
+.box[data-operation='running']::after {
+  padding: var(--u);
+  mask:
+    linear-gradient(black 0 0) content-box exclude,
+    linear-gradient(black 0 0);
+}
+.box[data-operation='refused'],
+.box[data-operation='failed'] {
+  border-color: var(--danger);
+}
 /*
  * The label sits on the top border, as a fieldset legend does. Its ground
  * hides the border behind it, and twice the radius keeps it clear of the corner.
@@ -39,6 +51,14 @@
 .branch {
   flex: 0 1 auto;
   color: var(--fg-faint);
+}
+/* What runs on the worktree, or how it ended. It never gives way: the branch does. */
+.operation {
+  flex: none;
+  color: var(--fg-muted);
+}
+.operation[data-ended] {
+  color: var(--danger);
 }
 /* A box with no node is only as high as its label, so the label sits inside. */
 .box[data-empty='true'] .label {

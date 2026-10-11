@@ -8,6 +8,9 @@ import { PrChip } from '../shell/PrChip';
 import { useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
+import { useUnitOperation } from '../console/useConsole';
+import { endedBadly, unitWords } from '../selectors/operations';
+import { StepMeter } from '../ui/StepMeter';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeTable.module.css';
 
@@ -87,9 +90,19 @@ export function WorktreeTable() {
 
 /** One worktree: what it holds, and what can be done to it. */
 function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
+  const op = useUnitOperation({ worktreeId: worktree.id });
   return (
-    <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed}>
-      <td className={styles.mono}>{worktree.nato}</td>
+    <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed} data-operation={op?.state}>
+      <td className={styles.mono}>
+        {worktree.nato}
+        {/* In the first cell, so the narrow layout's reorder of the cells holds. */}
+        {op && (
+          <span className={styles.operation} data-ended={endedBadly(op) || undefined}>
+            <StepMeter op={op} />
+            <span>{unitWords(op)}</span>
+          </span>
+        )}
+      </td>
       <td className={`${styles.mono} wrap`}>
         {/* A closed worktree carries no branch, and neither does a detached one. */}
         {worktree.branch || <span className={styles.faint}>(detached)</span>}

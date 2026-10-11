@@ -10,6 +10,8 @@ import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { useSwipeAction } from '../gesture/useSwipeAction';
+import { useUnitOperation } from '../console/useConsole';
+import { nodeUnit, unitWords } from '../selectors/operations';
 import styles from './DeckRow.module.css';
 import { useRowAction } from './useRowAction';
 
@@ -41,7 +43,9 @@ export function DeckRow({
   const documentTitle = documentId
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
+  const op = useUnitOperation(nodeUnit(node));
   const action = useRowAction(node);
+  const words = op ? unitWords(op) : node.reason || node.progress.words;
   const swipe = useSwipeAction(action?.run ?? null);
   return (
     <div
@@ -52,6 +56,7 @@ export function DeckRow({
       data-task-id={node.id}
       data-phase={node.phase ?? undefined}
       data-state={node.progress.state}
+      data-operation={op?.state}
     >
       {action && (
         <div
@@ -84,8 +89,8 @@ export function DeckRow({
         <span className={styles.title}>{nodeTitle(node)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />
-          <span className={`${styles.state} truncate`} title={node.reason || node.progress.words}>
-            {node.reason || node.progress.words}
+          <span className={`${styles.state} truncate`} title={words}>
+            {words}
           </span>
           {node.progress.drift && (
             <span

@@ -16,6 +16,7 @@
   flex-direction: column;
   justify-content: space-between;
   gap: var(--u-half);
+  position: relative;
   overflow: hidden;
   transition:
     box-shadow 0.2s,
@@ -76,6 +77,20 @@
 .node[data-state='exited'] {
   border-color: var(--danger);
   box-shadow: 0 0 0 1px var(--danger);
+}
+/* Under an operation the operation speaks: no pulse, and a working node's
+   border goes back to plain. The left edge stays the phase alone. */
+.node[data-operation] {
+  animation: none;
+}
+.node[data-operation][data-state='working'] {
+  border-color: var(--border);
+  border-left-color: var(--phase);
+}
+.node[data-operation='refused'],
+.node[data-operation='failed'] {
+  border-color: var(--danger);
+  border-left-color: var(--phase);
 }
 .node[data-focused] {
   outline: 2px solid var(--accent);
@@ -149,6 +164,9 @@
 }
 .reason {
   color: var(--attention);
+}
+.ended {
+  color: var(--danger);
 }
 /* Drift mark. See DESIGN.md, Task Node. */
 .drift {

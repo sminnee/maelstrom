@@ -9,6 +9,9 @@ import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { cardOf, useCard } from '../nav/useCard';
+import { useUnitOperation } from '../console/useConsole';
+import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
+import { StepMeter } from '../ui/StepMeter';
 import styles from './TaskNode.module.css';
 
 export type TaskFlowNode = Node<{ node: GraphNode; focused: boolean; expanded: boolean }, 'task'>;
@@ -22,6 +25,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
   const documentTitle = documentId
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
+  const op = useUnitOperation(nodeUnit(node));
   return (
     <div
       className={styles.node}
@@ -31,6 +35,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       data-state={node.progress.state}
       data-focused={focused || undefined}
       data-expanded={expanded || undefined}
+      data-operation={op?.state}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
       <div className={styles.head}>
@@ -64,7 +69,11 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       </div>
       <div className={styles.status}>
         <span className={styles.dot} aria-hidden="true" />
-        {node.reason ? (
+        {op ? (
+          <span className={`${endedBadly(op) ? styles.ended : ''} truncate`} title={unitWords(op)}>
+            {unitWords(op)}
+          </span>
+        ) : node.reason ? (
           <span className={`${styles.reason} truncate`} title={node.reason}>
             {node.reason}
           </span>
@@ -91,6 +100,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         <PrChip pr={cardPr(node)} className={styles.pr} />
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
+      {op && <StepMeter op={op} variant="edge" />}
       <Handle type="source" position={Position.Right} className={styles.handle} />
     </div>
   );

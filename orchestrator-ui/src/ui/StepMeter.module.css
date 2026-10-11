@@ -7,6 +7,15 @@
   width: calc(var(--u) * 6);
   height: 4px;
 }
+/* Along the bottom edge of a node, inside its left border. The node is the containing block. */
+.meter[data-variant='edge'] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  gap: 1px;
+}
 .segment {
   flex: 1;
   border-radius: 1px;
