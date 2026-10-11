@@ -1021,6 +1021,64 @@ function operationsLive(): Seed {
   return seed;
 }
 
+/**
+ * The board under operations: on the desk, a close runs on maelstrom-alpha, a
+ * close on maelstrom-bravo is refused and a shelve on northwind-delta failed,
+ * both unseen. A sync runs on northwind-bravo, whose agent works: its box
+ * marks, and its node does not.
+ */
+function operationsBoard(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  const closeSteps = [...TEARDOWN, 'git_close', 'close_workspace'];
+  const shelveFault = 'git push exited 1: the remote branch moved under the worktree';
+  world.operations = {
+    op1: seededOp({
+      id: 'op1',
+      kind: 'close',
+      worktreeId: 'maelstrom-alpha',
+      words: 'Closing alpha',
+      state: 'running',
+      steps: runningSteps(closeSteps, 2, 9),
+    }),
+    op2: seededOp({
+      id: 'op2',
+      kind: 'close',
+      worktreeId: 'maelstrom-bravo',
+      words: 'Worktree has 2 commit(s) not merged to origin/main',
+      state: 'refused',
+      steps: [
+        ...TEARDOWN.map((n) => endedStep(n, 'done', 3)),
+        endedStep('git_close', 'refused', 3, 'Worktree has 2 commit(s) not merged to origin/main'),
+        { name: 'close_workspace', words: '', state: 'pending', startedAt: null, endedAt: null },
+      ],
+    }),
+    op3: seededOp({
+      id: 'op3',
+      kind: 'shelve',
+      worktreeId: 'northwind-delta',
+      words: `Could not shelve the worktree: ${shelveFault}`,
+      state: 'failed',
+      steps: [endedStep('stop_env', 'done', 5), endedStep('git_shelve', 'failed', 5, shelveFault)],
+    }),
+    op4: seededOp({
+      id: 'op4',
+      kind: 'sync',
+      worktreeId: 'northwind-bravo',
+      words: 'Syncing bravo',
+      state: 'running',
+      steps: runningSteps(['fetch', 'rebase', 'push'], 1, 4),
+    }),
+  };
+  world.operationLogs = {
+    op1: { stop_env: ['Stopped the environment.'], stop_agents: ['Stopped 1 agent.'] },
+    op2: { git_close: ["Closing worktree 'bravo'...", '2 commits are not on origin/main:'] },
+    op3: { git_shelve: [shelveFault] },
+    op4: { fetch: ['Fetching origin...'] },
+  };
+  return seed;
+}
+
 /** The kinds a long history cycles through, with the words each ends on. */
 const HISTORY: { kind: Operation['kind']; steps: string[]; words: (nato: string) => string }[] = [
   { kind: 'sync', steps: ['rebase'], words: (n) => `Synced ${n}` },
@@ -1139,6 +1197,10 @@ export const SCENARIOS = {
     about:
       'Three operations running, one refused and one failed: the console strip and its reading.',
     build: operationsLive,
+  },
+  'operations-board': {
+    about: 'A close running, a close refused, a shelve failed and a sync: the board marks each.',
+    build: operationsBoard,
   },
   'operations-history': {
     about: 'Sixty operations over a day, so the console list scrolls.',
