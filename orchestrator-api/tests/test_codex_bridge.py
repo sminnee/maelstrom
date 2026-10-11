@@ -300,6 +300,11 @@ async def test_incoming_messages_can_be_read_and_answered(tmp_path):
     notification = await anext(incoming)
     request = await anext(incoming)
     await bridge.respond(request["id"], {"decision": "accept"})
+    # The proxy logs the answer after it reads it; close() could kill it first.
+    for _ in range(200):
+        if "approval-1" in traffic.read_text().splitlines()[-1]:
+            break
+        await asyncio.sleep(0.01)
     await bridge.close()
 
     assert notification == {
