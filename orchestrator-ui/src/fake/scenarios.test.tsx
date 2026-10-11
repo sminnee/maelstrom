@@ -6,6 +6,7 @@ import type {
   AgentState,
   EnvStateName,
   FileDiff,
+  OperationState,
   Phase,
   PrState,
   TaskStatus,
@@ -123,6 +124,13 @@ const DIFF_STATUSES = all<FileDiff['status']>({
   renamed: true,
 });
 
+const OPERATION_STATES = all<OperationState>({
+  running: true,
+  done: true,
+  refused: true,
+  failed: true,
+});
+
 const NAMES = Object.keys(SCENARIOS) as ScenarioName[];
 
 /** Every value the scenarios show, by set. Derived values come from the production readers. */
@@ -141,6 +149,7 @@ function shown() {
     itemType: new Set<string>(),
     toolStatus: new Set<string>(),
     diffStatus: new Set<string>(),
+    operationState: new Set<string>(),
   };
   for (const name of NAMES) {
     const { world, transcripts } = SCENARIOS[name].build();
@@ -171,6 +180,7 @@ function shown() {
         if (item.type === 'tool_call') seen.toolStatus.add(item.status);
       }
     }
+    for (const op of Object.values(world.operations)) seen.operationState.add(op.state);
     for (const entry of Object.values(world.changes)) {
       for (const files of Object.values(entry.diffs)) {
         for (const file of files) seen.diffStatus.add(file.status);
@@ -198,6 +208,7 @@ describe('the scenario catalogue', () => {
     ['transcript item type', ITEM_TYPES, seen.itemType],
     ['tool-call status', TOOL_STATUSES, seen.toolStatus],
     ['diff status', DIFF_STATUSES, seen.diffStatus],
+    ['operation state', OPERATION_STATES, seen.operationState],
   ])('shows every %s', (_set, members, set) => {
     expect(missing(members, set)).toEqual([]);
   });
