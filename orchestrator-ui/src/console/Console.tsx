@@ -11,6 +11,7 @@ import {
   type ConsoleFilter,
 } from '../selectors/operations';
 import { useAppStore } from '../store/store';
+import { actionIcon } from '../ui/actionIcons';
 import { OperationLog } from './OperationLog';
 import { useTick } from './useTick';
 import { clockTime } from '../protocol/time';
@@ -112,7 +113,19 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
       style={layout === 'drawer' && height !== null ? { height } : undefined}
       onKeyDown={onKeyDown}
     >
-      {layout === 'drawer' && <Grip />}
+      {layout === 'drawer' && (
+        <>
+          <Grip />
+          <button
+            type="button"
+            className={`bareButton ${styles.close}`}
+            aria-label="Close console"
+            onClick={closeConsole}
+          >
+            {actionIcon('close')}
+          </button>
+        </>
+      )}
       <div className={styles.side}>
         <div className={styles.filters}>
           <div className={styles.segments} role="group" aria-label="Show">

@@ -42,6 +42,18 @@
 .grip:hover {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
+/* The drawer's ×, at its top-right. */
+.close {
+  position: absolute;
+  top: var(--u);
+  right: var(--u);
+  height: var(--control);
+  color: var(--fg-muted);
+  z-index: 1;
+}
+.close:hover {
+  color: var(--fg);
+}
 
 .side {
   display: flex;
@@ -160,6 +172,10 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* The log's head wraps before it gets to the ×. */
+.console[data-layout='drawer'] .main header {
+  padding-right: calc(var(--control) + var(--u));
 }
 .empty {
   margin: 0;
