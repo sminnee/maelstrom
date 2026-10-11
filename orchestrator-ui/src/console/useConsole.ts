@@ -4,7 +4,7 @@ import { useLayoutMode } from '../layout/useLayoutMode';
 import { useGo } from '../nav/useNav';
 import type { Operation } from '../protocol/entities';
 import type { OperationId } from '../protocol/ids';
-import { isUnseen } from '../selectors/operations';
+import { isUnseen, unitOperation, type Unit } from '../selectors/operations';
 import { useAppStore } from '../store/store';
 
 /** How long a done operation stays in the strip, so the operator sees it end. */
@@ -15,6 +15,14 @@ const NONE: Operation[] = [];
 /** Every operation the server holds, newest first. Empty while the list loads. */
 export function useOperationList(): Operation[] {
   return useOperations().data?.operations ?? NONE;
+}
+
+/**
+ * The operation that marks a unit on the board, if one does. Every board
+ * surface reads through it, so they cannot disagree.
+ */
+export function useUnitOperation(unit: Unit): Operation | undefined {
+  return unitOperation(useOperationList(), unit);
 }
 
 /** Showing an **Unseen** operation marks it seen, once; a failed mark tries again. */
