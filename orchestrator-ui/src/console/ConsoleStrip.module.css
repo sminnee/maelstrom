@@ -1,13 +1,13 @@
-/* A bar at the foot of the body: raised, a hairline on top. It is a band of
-   controls at the edge of a view, so it pads with --bar-pad. */
+/* A bar at the foot of the body: raised, a hairline on top. Side padding
+   only: DESIGN.md, "Console strip". */
 .strip {
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--u);
   min-width: 0;
-  padding: var(--bar-pad);
-  padding-bottom: max(var(--bar-pad), env(safe-area-inset-bottom));
+  padding: 0 var(--bar-pad);
+  padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
   overflow: hidden;
