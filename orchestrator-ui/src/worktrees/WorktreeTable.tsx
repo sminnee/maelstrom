@@ -10,6 +10,7 @@ import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { useUnitOperation } from '../console/useConsole';
 import { endedBadly, unitWords } from '../selectors/operations';
+import { CommandSet } from '../ui/CommandSet';
 import { StepMeter } from '../ui/StepMeter';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeTable.module.css';
@@ -121,7 +122,9 @@ function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
       </td>
       <td data-label="agents">{agents || ''}</td>
       <td className={`${styles.actions} nowrap`}>
-        <WorktreeCommands worktree={worktree} />
+        <CommandSet disabled={op?.state === 'running'}>
+          <WorktreeCommands worktree={worktree} />
+        </CommandSet>
       </td>
     </tr>
   );

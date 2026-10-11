@@ -1,0 +1,5 @@
+/* It draws no box, so its children lay out in its parent, and the narrow
+   command bar still sticks to the screen. */
+.set {
+  display: contents;
+}

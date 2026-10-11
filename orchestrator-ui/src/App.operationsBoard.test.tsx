@@ -49,6 +49,27 @@ describe('a task node under an operation', () => {
 });
 
 describe('the card of a node under an operation', () => {
+  it('disables its commands while the operation runs', async () => {
+    await renderApp({ scenario: 'operations-board' });
+    await waitFor(() => expect(node('MAEL-52')).toHaveAttribute('data-operation', 'running'));
+    clickNode('MAEL-52');
+    const card = screen.getByRole('dialog');
+    expect(card).toHaveTextContent('Closing alpha · 3/6');
+    const commands = within(within(card).getByTestId('node-commands'));
+    expect(commands.getByRole('button', { name: 'Edit task' })).toBeDisabled();
+    expect(commands.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+  });
+
+  it('disables its worktree commands while a sync runs, though the node is not marked', async () => {
+    await renderApp({ scenario: 'operations-board' });
+    await waitFor(() => expect(box('northwind-bravo')).toHaveAttribute('data-operation'));
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog');
+    expect(within(card).getByRole('button', { name: 'Sync' })).toBeDisabled();
+    const commands = within(within(card).getByTestId('node-commands'));
+    expect(commands.getByRole('button', { name: 'Edit task' })).toBeEnabled();
+  });
+
   it('marks a refused close seen as it opens, and still offers the closes that do not refuse', async () => {
     const { server } = await renderApp({ scenario: 'operations-board' });
     await waitFor(() => expect(node('MAEL-40.1')).toHaveAttribute('data-operation', 'refused'));
@@ -126,6 +147,17 @@ describe('a worktree box under an operation', () => {
     const card = screen.getByRole('dialog', { name: 'Worktree northwind delta' });
     expect(card).toHaveTextContent('Shelve failed · git push exited 1');
   });
+
+  it('disables the worktree card commands while an operation runs', async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'operations-board' });
+    await waitFor(() => expect(box('northwind-bravo')).toHaveAttribute('data-operation'));
+    await user.click(within(box('northwind-bravo')!).getByRole('button'));
+    const card = screen.getByRole('dialog', { name: 'Worktree northwind bravo' });
+    expect(card).toHaveTextContent('Syncing bravo · 2/3');
+    expect(within(card).getByRole('button', { name: 'Start free agent' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Sync' })).toBeDisabled();
+  });
 });
 
 describe('a worktree table row under an operation', () => {
@@ -144,6 +176,8 @@ describe('a worktree table row under an operation', () => {
     const running = within(row('maelstrom-alpha')!.cells[0]!);
     expect(running.getByText('Closing alpha · 3/6')).toBeInTheDocument();
     expect(running.getByRole('img', { name: '2 of 6 steps done' })).toBeInTheDocument();
+    expect(within(row('maelstrom-alpha')!).getByRole('button', { name: 'Sync' })).toBeDisabled();
+    expect(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' })).toBeEnabled();
     expect(row('northwind-bravo')).toHaveTextContent('Syncing bravo · 2/3');
     expect(row('maelstrom-bravo')).toHaveAttribute('data-operation', 'refused');
     expect(row('maelstrom-bravo')!.cells[0]).toHaveTextContent(
@@ -164,6 +198,33 @@ describe('a deck row under an operation', () => {
     expect(row('MAEL-40.1')).toHaveAttribute('data-operation', 'refused');
     expect(row('MAEL-40.1')).toHaveTextContent('Close refused · Worktree has 2 commit(s)');
     expect(row('NORT-9')).not.toHaveAttribute('data-operation');
+  });
+
+  it('takes the swipe away while the operation runs', async () => {
+    const { server } = await renderApp({ scenario: 'operations-board', viewport: 'narrow' });
+    // Stopped, the row would swipe to Dismiss, but its worktree is closing.
+    server.change({ kind: 'agent', ids: ['b7d2e4a0'] }, (w) => {
+      w.agents['b7d2e4a0'] = {
+        ...w.agents['b7d2e4a0']!,
+        state: 'exited',
+        exitCode: 0,
+        pendingRequestIds: [],
+      };
+    });
+    // Its question went with it.
+    const asks = Object.values(server.world.attention).filter((a) => a.agentId === 'b7d2e4a0');
+    server.change({ kind: 'attention', ids: asks.map((a) => a.id) }, (w) => {
+      for (const a of asks) delete w.attention[a.id];
+    });
+    await waitFor(() => expect(row('MAEL-52')).toHaveAttribute('data-state', 'stopped'));
+    expect(row('MAEL-52')).toHaveAttribute('data-operation', 'running');
+    expect(row('MAEL-52')).not.toHaveAttribute('data-swipe');
+
+    // Once the close ends the swipe comes back: the operation alone held it.
+    server.change({ kind: 'operation', ids: ['op1'] }, (w) => {
+      w.operations['op1'] = { ...w.operations['op1']!, state: 'refused', seen: true };
+    });
+    await waitFor(() => expect(row('MAEL-52')).toHaveAttribute('data-swipe', 'dismiss'));
   });
 });
 
