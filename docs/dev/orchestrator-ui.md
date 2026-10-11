@@ -17,7 +17,7 @@ unit that needs orders shows it on the canvas itself.
 | Protocol | `protocol/` | The entity and transcript types, `phase.ts`, `deskId.ts`, `time.ts`, and the hand-kept mirrors of Python rules — `planningLevel.ts` | Nothing |
 | Backends | `api/`, `live/` | `api/`: the REST client, its query keys, the query cache, one hook per read and per command. `live/`: the change stream that keeps the cache fresh, and the per-agent transcript streams | Protocol |
 | State | `store/`, `selectors/`, `nav/` | The query cache holds the fetched world; the URL holds the **Location**; one zustand store holds the rest of the UI state, the connection state and the open transcripts; `selectors/` are pure functions over a `WorldView` | Protocol |
-| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, `fake/` for the fake server and its scenarios, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
+| UI | `canvas/`, `tasklist/`, `newwork/`, `panel/`, `decisions/`, `session/`, `documents/`, `console/`, `shell/`, plus the `ui/`, `markdown/` and `styles/` they share, `fake/` for the fake server and its scenarios, and `test/` for shared test helpers. `ui/useRetained.ts` holds unsubmitted text in the browser | React components and CSS | State, Protocol |
 
 The protocol has no React and no I/O. `protocol/phase.ts` reads a task's phase from its
 `command`, its `mode` and its agent's permission mode, and decides whether a task is actionable.
@@ -734,6 +734,37 @@ held control.
 A closed worktree has only Delete left, so the control is a plain Delete button that asks first.
 Every surface that draws `WorktreeCommands` shows it. It is not held: a plain button has no menu
 item to say why, and the remove stops any agent itself. The control is absent on `_main`.
+
+### The console
+
+The **Console** shows every **Operation**: what runs now, what is **Unseen**, and the log of each
+by **Step**. `console/` holds it. DESIGN.md, "Console", has the look and the keys.
+
+| Part | File | Reads |
+| --- | --- | --- |
+| Strip | `ConsoleStrip.tsx` | `useStripOperations` |
+| Drawer, or the narrow screen | `Console.tsx` | `consoleOrder`, `filterOperations` |
+| Log | `OperationLog.tsx` | `useOperationLog` for the lines |
+
+The pure rules are in `selectors/operations.ts`: the words, the order and the filter.
+
+Whether the console is open, and which operation it shows, is store state (`ui.console`), not
+part of the **Location**. The console is a tool over whatever view is up. A Back that closed it
+would cost the operator the view under it.
+
+Three rules hold the console still:
+
+- **A done operation lingers 4 seconds** in the strip, but only when this page saw it running.
+  `useStripOperations` reads the change from one list to the next. A reload therefore does not
+  replay the operations that ended before it.
+- **A pinned row stays pinned** until the console closes. Showing an **Unseen** operation's
+  log marks it seen (`POST /api/operations/{id}/seen`), and the console opens on the top row.
+  A seen row stops pinning, and without the hold it would jump down the list under the pointer.
+- **Focus comes back.** The console takes focus as it opens and returns it as it closes. When
+  the element that had focus is gone, as a strip entry is, focus stays where the page leaves it.
+
+Ctrl-` is the app's one global key. `useConsoleKey` listens on the document, and each shell
+mounts it once. It ignores a key typed in a field.
 
 ### The Worktree card
 
@@ -1562,6 +1593,9 @@ detail, the task editor, a document, a session and Worktrees. A failure is an el
 `overflow-x: auto` or `scroll` whose `scrollWidth` exceeds its `clientWidth`, outside a table, a
 `pre` or a diff. That check sees width only: a pill that wraps makes a view taller, so Ladle's
 `UI / Controls` is where a pill is checked.
+
+The console drawer's grip is not tested, because a drag needs layout. It is checked in a browser
+on the `operations-live` fake scenario.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.

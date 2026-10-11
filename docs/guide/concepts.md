@@ -157,6 +157,9 @@ linked to one comm, on Desk and Tasks.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
 The URL names the view, the open card, the active tab and the filters. Back and Forward move
 through the app, a refresh keeps the screen, and a copied link opens it in another window.
+The console shows the operations the server runs, such as a close, a sync or a merge. A strip at
+the foot of the page shows what runs and what refused or failed, and a click on it opens the
+console. Ctrl-` opens it too, with the log of each operation by step.
 The top bar's "New" control starts new work without leaving the page: a task, a free agent in
 a branch's worktree, or an investigation. An investigation is a free agent on the main branch
 that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start name an empty title or branch from the prose you type. They

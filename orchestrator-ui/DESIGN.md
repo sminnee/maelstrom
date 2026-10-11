@@ -643,10 +643,13 @@ The system is flat and tonal. Depth is normally made with one step of background
 one-pixel hairline: `--bg-raised` against `--bg`, separated by `--border`. That is how bars,
 nodes, tab strips and table headers all sit forward without a shadow.
 
-A shadow is earned by overlapping other content. The expanded node card is the only element
-that currently qualifies — it floats over the canvas, over other nodes, and must read as
-detached from the board rather than part of it. Menus, popovers and dragged elements will
-qualify on the same grounds when they arrive.
+A shadow is earned by overlapping other content. Two surfaces qualify:
+
+- **The expanded node card.** It floats over the canvas and over other nodes, and must read as
+  detached from the board rather than part of it.
+- **The console drawer.** It rises over the foot of the body, over the main view and the panel.
+
+Menus, popovers and dragged elements will qualify on the same grounds when they arrive.
 
 Attention is a separate channel from elevation. The glow on a node that needs the operator is
 a signal, not a lift: it does not mean the node is closer, it means it is asking. Reduced-motion
@@ -657,6 +660,9 @@ users get a static ring in place of the pulse, so the signal survives without th
 - **Card lift** (`--shadow-card`: `0 16px 40px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.5)`):
   a floating surface over the board. Two layers — a wide soft cast for separation, a tight dark
   one for the contact edge. Retuned for the light scheme rather than reused.
+- **Drawer lift** (`--shadow-drawer`): the card lift cast upward, for the console drawer. A
+  drawer rises from the foot of the body, so a downward cast would fall off the screen and show
+  nothing.
 
 ### Named Rules
 
@@ -1200,6 +1206,62 @@ does nothing.
 
 A comment box sits in the diff, below the last line of its range. A selected row takes an accent
 wash over its add or remove ground, so the row keeps its kind.
+
+### Console strip
+
+The strip is the console's one control on screen. The top bar has none: while work runs the
+strip shows it, and while nothing runs Ctrl-` opens the console.
+
+
+A bar at the foot of the body, in the bar style: `--bar-pad`, `--bg-raised`, a hairline on top.
+It shows only while an operation runs, is **Unseen**, or ended done in the last 4 seconds.
+
+One entry per operation, left to right: the **Step** meter, the operation's words, the worktree
+id in mono, and the current step in mono. The words give way before an id, because a cut id is
+worse than cut words (the Mono Means Literal Rule). **Unseen** operations lead, then running work.
+The wide layout shows three entries, the medium two and the narrow one, then `+N more`. A click
+on an entry opens the console on it.
+
+The narrow layout drops the id and the step. The strip shows over the view only, because a
+pushed screen has one row of chrome (the One Strip Rule).
+
+**The step meter** is one segment per step, sharing a fixed 48px. A done step is `--fg-muted`,
+the step that runs is `--fg` and breathes, and a step that refused or failed is `--danger`. A
+pending step is `--border-strong`. Under `prefers-reduced-motion` the running segment is still.
+
+### Console
+
+A drawer over the foot of the body, over the main view and the panel. It opens at 40% of the
+body, and a grip on its top edge resizes it. It takes the drawer lift and a `--border-strong`
+hairline on top.
+
+- **Left: the list.** Newest first, with running and unseen operations pinned on top. A filter
+  row heads it: Running, Problems and All as one segmented control, then a text field. A row
+  holds the meter, the words, the worktree id and the start time. The selected row takes a
+  Signal Blue wash. An unseen row's words are Fault Rose.
+- **Right: the log.** The head shows the words, the worktree as a link to its card, the start
+  time and the duration, and Retry on a refused or failed operation. Under it is one block per
+  step: a glyph, the step name in mono, the step's words, the duration, and the step's lines in
+  mono on the sunken ground. A done step folds to one line. The step that runs, refused or
+  failed opens. A click toggles any step.
+- **A refused close** offers Shelve, Trash and Delete under the log, with the confirms the close
+  control asks (`worktrees/closeConfirms.ts`).
+
+Showing an **Unseen** operation's log marks it seen. The console opens on the top row, so
+opening it shows that row's log.
+
+| Key    | Act                                                                              |
+| ------ | -------------------------------------------------------------------------------- |
+| Ctrl-` | Open or close the console, from any focus but a text field                       |
+| Esc    | Close the console                                                                |
+| ↑ / ↓  | Move through the list                                                            |
+| Enter  | Go to the worktree's card, or the worktrees view on a phone. The console closes. |
+| R      | Retry a refused or failed operation, from its first unfinished step              |
+
+An empty console says `No operations yet.`
+
+On the narrow layout the console is a pushed screen titled `Console`, under the One Strip Rule.
+The list sits over the log, and a list row puts the id and the time under its words.
 
 ## Seeing a change
 
