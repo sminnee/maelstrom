@@ -1212,7 +1212,6 @@ wash over its add or remove ground, so the row keeps its kind.
 The strip is the console's one control on screen. The top bar has none: while work runs the
 strip shows it, and while nothing runs Ctrl-` opens the console.
 
-
 A bar at the foot of the body, in the bar style: `--bar-pad`, `--bg-raised`, a hairline on top.
 It shows only while an operation runs, is **Unseen**, or ended done in the last 4 seconds.
 
