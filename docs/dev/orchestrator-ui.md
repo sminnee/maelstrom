@@ -1594,8 +1594,9 @@ detail, the task editor, a document, a session and Worktrees. A failure is an el
 `pre` or a diff. That check sees width only: a pill that wraps makes a view taller, so Ladle's
 `UI / Controls` is where a pill is checked.
 
-The console drawer's grip is not tested, because a drag needs layout. It is checked in a browser
-on the `operations-live` fake scenario.
+The console drawer's grip is not tested, because a drag needs layout. Neither is the strip's
+height, or the log title clearing the drawer's ×. Each is checked in a browser on the
+`operations-live` fake scenario.
 
 Colours, light mode, glow, the grow animation, pan and zoom, pixel positions and markdown
 fidelity are not tested.

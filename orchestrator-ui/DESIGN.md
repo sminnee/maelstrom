@@ -1233,8 +1233,9 @@ pending step is `--border-strong`. Under `prefers-reduced-motion` the running se
 ### Console
 
 A drawer over the foot of the body, over the main view and the panel. It opens at 40% of the
-body, and a grip on its top edge resizes it. It takes the drawer lift and a `--border-strong`
-hairline on top.
+body, and a grip on its top edge resizes it. A bare × named Close console is at its top-right,
+and the log's head wraps clear of it. The narrow screen has no ×, because its screen strip has
+Close. It takes the drawer lift and a `--border-strong` hairline on top.
 
 - **Left: the list.** Newest first, with running and unseen operations pinned on top. A filter
   row heads it: Running, Problems and All as one segmented control, then a text field. A row

@@ -221,6 +221,17 @@ describe('the console', () => {
     );
   });
 
+  it('closes the drawer on its × button, and the strip comes back', async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'operations-live' });
+    await waitFor(() => expect(stripEntries()).toHaveLength(3));
+    await user.click(stripEntries()[0]!);
+    expect(strip()).toBeNull();
+    await user.click(within(consoleRegion()!).getByRole('button', { name: 'Close console' }));
+    expect(consoleRegion()).toBeNull();
+    expect(stripEntries()).toHaveLength(3);
+  });
+
   it('lists a long history whole, newest first', async () => {
     await renderApp({ scenario: 'operations-history' });
     ctrlBacktick();
@@ -339,6 +350,8 @@ describe('the console on a phone', () => {
     await user.click(entries[0]!);
     expect(consoleRegion()).not.toBeNull();
     expect(screen.getByTestId('screen-title')).toHaveTextContent('Console');
+    // The screen strip has the Close; the drawer's × is not shown.
+    expect(within(consoleRegion()!).queryByRole('button', { name: 'Close console' })).toBeNull();
     await user.click(within(screen.getByTestId('top-bar')).getByRole('button', { name: 'Close' }));
     expect(consoleRegion()).toBeNull();
   });
