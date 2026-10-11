@@ -24,6 +24,20 @@ export interface AgentStreamsOptions {
   reconnectMs?: number;
   /** How long a stream nobody shows stays open, in case a view comes back. */
   graceMs?: number;
+  /**
+   * Calls `onSeen` when the agent list next names the agent. A stream the
+   * server ended as unknown waits on it, so an agent that the server comes to
+   * know again gets its transcript back. Returns the unsubscribe.
+   */
+  watchAgent?: (agentId: AgentId, onSeen: () => void) => () => void;
+}
+
+/** A local stand-in's two handles. */
+export interface StandIn {
+  /** Drops the stand-in: the send failed. */
+  remove(): void;
+  /** The server took the send. The stand-in drops once its echo has come too. */
+  confirm(): void;
 }
 
 export interface AgentStreams {
@@ -31,9 +45,9 @@ export interface AgentStreams {
   acquire(agentId: AgentId): () => void;
   /**
    * Show a sent message before the daemon's echo confirms it reached the
-   * agent. Returns a remover, for a failed send.
+   * agent.
    */
-  sendLocal(agentId: AgentId, markdown: string): () => void;
+  sendLocal(agentId: AgentId, markdown: string): StandIn;
   /**
    * Drop every stream and the timers it is holding, without touching the
    * store. A release only decrements a refcount and arms a grace timer, so
@@ -49,6 +63,10 @@ export const CLOSE_UNKNOWN_ID = 4404;
 export const CLOSE_LAGGING = 4409;
 
 const MAX_RECONNECT_MS = 30_000;
+/** The first wait after a lagging close; doubles while the reader keeps lagging. */
+const LAG_RECONNECT_MS = 250;
+/** How long a socket stays open before a reader that lagged counts as recovered. */
+const LAG_RECOVERED_MS = 30_000;
 
 /**
  * Numbers each stand-in bubble. Not `crypto.randomUUID`: a page served over plain HTTP
@@ -56,6 +74,22 @@ const MAX_RECONNECT_MS = 30_000;
  * replacement manager takes over a store that can still hold the last one's stand-ins.
  */
 let localSeq = 0;
+
+/**
+ * Whether an item is the daemon's echo of a send. Most sends echo as a user
+ * message. A skill command echoes as its `skill` item, and `/compact` as its
+ * `compact` boundary: the summary after the boundary is not a second echo.
+ */
+function isEcho(item: TranscriptItem): boolean {
+  if (item.type === 'message') return item.role === 'user' && !item.pending;
+  return item.type === 'skill' || item.type === 'compact';
+}
+
+/**
+ * What each stand-in has seen, by id. Module-level for the reason `localSeq`
+ * is: a replacement manager can meet the last one's stand-ins in the store.
+ */
+const standIns = new Map<string, { confirmed: boolean; echoed: boolean }>();
 
 type Opening =
   | { type: 'transcript.snapshot'; seq: number; items: TranscriptItem[]; truncatedBefore: boolean }
@@ -65,6 +99,10 @@ interface Stream {
   refs: number;
   socket: SocketLike | null;
   attempts: number;
+  /** Lagging closes in a row; a socket that stays open long enough resets it. */
+  lagAttempts: number;
+  openedAt: number;
+  unwatch: (() => void) | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   graceTimer: ReturnType<typeof setTimeout> | null;
   ended: boolean;
@@ -88,31 +126,40 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
     store.set(agentId, { ...(store.get(agentId) ?? emptyTranscript()), ...patch });
   };
 
-  /**
-   * Drop the oldest local stand-in that matches a just-arrived real user
-   * message, so the two never coexist as duplicate bubbles. At most one
-   * stand-in is in flight per send, so a single match is enough.
-   */
-  const dropEchoedStandIn = (state: TranscriptState, item: TranscriptItem): TranscriptState => {
-    if (item.type !== 'message' || item.role !== 'user' || item.pending) return state;
-    const index = state.items.findIndex(
-      (i) => i.type === 'message' && i.pending && i.markdown === item.markdown,
-    );
-    if (index < 0) return state;
-    return { ...state, items: state.items.toSpliced(index, 1) };
+  const dropStandIn = (state: TranscriptState, id: string): TranscriptState => {
+    standIns.delete(id);
+    return { ...state, items: state.items.filter((i) => i.id !== id) };
   };
 
-  /** `dropEchoedStandIn`, applied only when the frame is the kind it acts on. */
-  const reconcileFrame = (state: TranscriptState, frame: TranscriptFrame): TranscriptState =>
-    frame.event.type === 'transcript.append' ? dropEchoedStandIn(state, frame.event.item) : state;
+  /**
+   * An echo marks the oldest stand-in not yet echoed. The text is not
+   * compared: the echo of a slash command or an attachment differs from what
+   * was typed. A stand-in already confirmed drops.
+   */
+  const markEcho = (state: TranscriptState, frame: TranscriptFrame): TranscriptState => {
+    if (frame.event.type !== 'transcript.append' || !isEcho(frame.event.item)) return state;
+    const standIn = state.items.find(
+      (i) => i.type === 'message' && i.pending && standIns.get(i.id)?.echoed === false,
+    );
+    const seen = standIn && standIns.get(standIn.id);
+    if (!standIn || !seen) return state;
+    seen.echoed = true;
+    return seen.confirmed ? dropStandIn(state, standIn.id) : state;
+  };
+
+  /** One frame, unless the cursor already covers it: a replay can overlap a live frame. */
+  const applyFrame = (state: TranscriptState, frame: TranscriptFrame): TranscriptState =>
+    frame.seq <= state.cursor ? state : markEcho(reduceTranscript(state, frame), frame);
 
   const connect = (agentId: AgentId, stream: Stream) => {
     const cursor = store.get(agentId)?.cursor ?? 0;
     const query = cursor > 0 ? `?from=${cursor}` : '';
     const socket = factory(`/api/agents/${agentId}/stream${query}`);
     stream.socket = socket;
+    stream.openedAt = 0;
     socket.onopen = () => {
       stream.attempts = 0;
+      stream.openedAt = Date.now();
     };
     socket.onmessage = (event) => {
       let message: Opening | TranscriptFrame | TranscriptPartial;
@@ -127,24 +174,22 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       }
       if ('seq' in message && 'event' in message) {
         const current = store.get(agentId) ?? emptyTranscript();
-        const state = reconcileFrame(reduceTranscript(current, message), message);
-        store.set(agentId, { ...state, status: 'live' });
+        const state = applyFrame(current, message);
+        if (state !== current) store.set(agentId, { ...state, status: 'live' });
         return;
       }
       if (message.type === 'transcript.snapshot') {
-        let state: TranscriptState = {
+        // The snapshot replaces the items, and the stand-ins go with them.
+        for (const item of store.get(agentId)?.items ?? []) standIns.delete(item.id);
+        store.set(agentId, {
           items: message.items,
           truncatedBefore: message.truncatedBefore,
           cursor: message.seq,
           status: 'live',
-        };
-        for (const item of message.items) state = dropEchoedStandIn(state, item);
-        store.set(agentId, state);
+        });
       } else if (message.type === 'transcript.replay') {
         let state = store.get(agentId) ?? emptyTranscript();
-        for (const frame of message.frames) {
-          state = reconcileFrame(reduceTranscript(state, frame), frame);
-        }
+        for (const frame of message.frames) state = applyFrame(state, frame);
         store.set(agentId, { ...state, cursor: message.seq, status: 'live' });
       } else if (message.type === 'transcript.partial') {
         const current = store.get(agentId);
@@ -160,14 +205,27 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
       if (event.code === CLOSE_UNKNOWN_ID) {
         stream.ended = true;
         update(agentId, { status: 'ended' });
+        stream.unwatch =
+          opts.watchAgent?.(agentId, () => {
+            stream.unwatch?.();
+            stream.unwatch = null;
+            stream.ended = false;
+            update(agentId, { status: 'connecting' });
+            connect(agentId, stream);
+          }) ?? null;
         return;
       }
       update(agentId, { status: 'reconnecting' });
-      const wait =
-        event.code === CLOSE_LAGGING
-          ? 0
-          : Math.min(reconnectMs * 2 ** stream.attempts, MAX_RECONNECT_MS);
-      stream.attempts += 1;
+      if (stream.openedAt && Date.now() - stream.openedAt >= LAG_RECOVERED_MS)
+        stream.lagAttempts = 0;
+      let wait: number;
+      if (event.code === CLOSE_LAGGING) {
+        wait = Math.min(LAG_RECONNECT_MS * 2 ** stream.lagAttempts, MAX_RECONNECT_MS);
+        stream.lagAttempts += 1;
+      } else {
+        wait = Math.min(reconnectMs * 2 ** stream.attempts, MAX_RECONNECT_MS);
+        stream.attempts += 1;
+      }
       stream.reconnectTimer = setTimeout(() => {
         stream.reconnectTimer = null;
         connect(agentId, stream);
@@ -176,6 +234,8 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
   };
 
   const close = (agentId: AgentId, stream: Stream) => {
+    stream.unwatch?.();
+    stream.unwatch = null;
     if (stream.reconnectTimer) clearTimeout(stream.reconnectTimer);
     if (stream.graceTimer) clearTimeout(stream.graceTimer);
     const socket = stream.socket;
@@ -193,6 +253,9 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
           refs: 0,
           socket: null,
           attempts: 0,
+          lagAttempts: 0,
+          openedAt: 0,
+          unwatch: null,
           reconnectTimer: null,
           graceTimer: null,
           ended: false,
@@ -229,15 +292,26 @@ export function createAgentStreams(opts: AgentStreamsOptions): AgentStreams {
         pending: true,
       };
       const state = store.get(agentId) ?? emptyTranscript();
+      const seen = { confirmed: false, echoed: false };
+      standIns.set(id, seen);
       store.set(agentId, { ...state, items: [...state.items, item] });
-      return () => {
+      const drop = () => {
         const current = store.get(agentId);
-        if (!current) return;
-        store.set(agentId, { ...current, items: current.items.filter((i) => i.id !== id) });
+        if (current) store.set(agentId, dropStandIn(current, id));
+        else standIns.delete(id);
+      };
+      return {
+        remove: drop,
+        confirm: () => {
+          seen.confirmed = true;
+          if (seen.echoed) drop();
+        },
       };
     },
     dispose() {
       for (const stream of streams.values()) {
+        stream.unwatch?.();
+        stream.unwatch = null;
         if (stream.reconnectTimer) clearTimeout(stream.reconnectTimer);
         if (stream.graceTimer) clearTimeout(stream.graceTimer);
         const socket = stream.socket;

@@ -15,6 +15,11 @@ const append = (seq: number, id: string) => ({
   seq,
   event: { type: 'transcript.append', agentId: 'ag1', item: item(id) },
 });
+/** The daemon's echo of a sent message: a real user message, any text. */
+const echo = (seq: number, markdown: string) => ({
+  seq,
+  event: { type: 'transcript.append', agentId: 'ag1', item: { ...item(`echo-${seq}`), markdown } },
+});
 
 /** A store the manager writes to, held as a plain map. */
 function memoryStore(): TranscriptStore & { state: Record<string, TranscriptState> } {
@@ -35,10 +40,13 @@ describe('agent streams', () => {
   let sockets: FakeSocket[];
   let store: ReturnType<typeof memoryStore>;
   let streams: AgentStreams;
+  /** The `onSeen` of each agent the manager watches, after a 4404. */
+  let watching: Map<string, () => void>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     sockets = [];
+    watching = new Map();
     store = memoryStore();
     streams = createAgentStreams({
       store,
@@ -49,6 +57,10 @@ describe('agent streams', () => {
       },
       reconnectMs: 1000,
       graceMs: 5000,
+      watchAgent: (agentId, onSeen) => {
+        watching.set(agentId, onSeen);
+        return () => watching.delete(agentId);
+      },
     });
   });
 
@@ -139,6 +151,23 @@ describe('agent streams', () => {
     expect(store.state['ag1']).toBe(closed);
   });
 
+  it('a frame at or below the cursor changes nothing', () => {
+    streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: 'transcript.snapshot', seq: 5, items: [], truncatedBefore: false });
+    sockets[0]!.receive(append(6, 'a'));
+    const before = store.state['ag1'];
+    sockets[0]!.receive(append(6, 'a'));
+    sockets[0]!.receive(append(4, 'old'));
+    expect(store.state['ag1']).toBe(before);
+    sockets[0]!.receive({
+      type: 'transcript.replay',
+      seq: 7,
+      frames: [append(5, 'old'), append(6, 'a'), append(7, 'b')],
+    });
+    expect(store.state['ag1']).toMatchObject({ items: [item('a'), item('b')], cursor: 7 });
+  });
+
   it('steps over a frame it does not know, and keeps the transcript', () => {
     streams.acquire('ag1');
     sockets[0]!.open();
@@ -177,22 +206,49 @@ describe('agent streams', () => {
     });
   });
 
-  it('a lagging close reconnects at once from its cursor', () => {
+  it('a lagging close reconnects from its cursor, backing off while it keeps lagging', () => {
     streams.acquire('ag1');
     sockets[0]!.open();
     sockets[0]!.receive({ type: 'transcript.snapshot', seq: 5, items: [], truncatedBefore: false });
-    sockets[0]!.serverClose(4409);
-    vi.advanceTimersByTime(0);
-    expect(sockets).toHaveLength(2);
-    expect(sockets[1]!.from).toBe(5);
+    for (const wait of [250, 500, 1000]) {
+      const last = sockets.at(-1)!;
+      last.serverClose(4409);
+      vi.advanceTimersByTime(wait - 1);
+      expect(sockets.at(-1)).toBe(last);
+      vi.advanceTimersByTime(1);
+      expect(sockets.at(-1)!.from).toBe(5);
+      sockets.at(-1)!.open();
+    }
+    // A socket that stayed open 30 s has recovered: the next lag starts again.
+    vi.advanceTimersByTime(30_000);
+    const recovered = sockets.at(-1)!;
+    recovered.serverClose(4409);
+    vi.advanceTimersByTime(250);
+    expect(sockets.at(-1)).not.toBe(recovered);
   });
 
-  it('an unknown agent ends the stream and never reconnects', () => {
+  it('an unknown agent ends the stream until the agent list names it again', () => {
     streams.acquire('ag1');
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: 'transcript.snapshot', seq: 3, items: [], truncatedBefore: false });
     sockets[0]!.serverClose(4404);
     expect(store.state['ag1']!.status).toBe('ended');
     vi.advanceTimersByTime(60_000);
     expect(sockets).toHaveLength(1);
+
+    watching.get('ag1')!();
+    expect(watching.has('ag1')).toBe(false);
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]!.from).toBe(3);
+    expect(store.state['ag1']!.status).toBe('connecting');
+  });
+
+  it('stops watching an ended agent once its stream closes', () => {
+    const release = streams.acquire('ag1');
+    sockets[0]!.serverClose(4404);
+    release();
+    vi.advanceTimersByTime(5000);
+    expect(watching.has('ag1')).toBe(false);
   });
 
   it('two acquires share one socket, and the last release closes it after the grace', () => {
@@ -290,7 +346,7 @@ describe('agent streams', () => {
     });
 
     it('shows at once and its remover drops it again', () => {
-      const remove = streams.sendLocal('ag1', 'hello');
+      const { remove } = streams.sendLocal('ag1', 'hello');
       expect(store.state['ag1']!.items).toHaveLength(1);
       expect(store.state['ag1']!.items[0]).toMatchObject({
         role: 'user',
@@ -303,7 +359,7 @@ describe('agent streams', () => {
     });
 
     it('drops only its own stand-in, even after a replacement manager takes the store', () => {
-      const removeFirst = streams.sendLocal('ag1', 'hello');
+      const first = streams.sendLocal('ag1', 'hello');
       streams.dispose();
       const replacement = createAgentStreams({
         store,
@@ -312,77 +368,87 @@ describe('agent streams', () => {
       replacement.sendLocal('ag1', 'hello');
       const second = store.state['ag1']!.items[1];
 
-      removeFirst();
+      first.remove();
       expect(store.state['ag1']!.items).toEqual([second]);
     });
 
-    it('is dropped once a matching append lands, and the append still moves the cursor', () => {
-      streams.sendLocal('ag1', 'hello');
-      sockets[0]!.receive({
-        seq: 2,
-        event: {
-          type: 'transcript.append',
-          agentId: 'ag1',
-          item: { ...item('echo'), markdown: 'hello' },
-        },
-      });
+    // The daemon's echo need not repeat the text: a slash command or an
+    // attachment comes back in another shape.
+    it('is dropped by a confirm and then an echo of any text', () => {
+      const { confirm } = streams.sendLocal('ag1', 'hello');
+      confirm();
+      expect(store.state['ag1']!.items).toHaveLength(1);
+      sockets[0]!.receive(echo(2, 'hello [image]'));
       expect(store.state['ag1']).toMatchObject({
-        items: [{ ...item('echo'), markdown: 'hello' }],
+        items: [{ ...item('echo-2'), markdown: 'hello [image]' }],
         cursor: 2,
       });
     });
 
-    it('is left alone by an append whose markdown does not match', () => {
-      streams.sendLocal('ag1', 'hello');
-      const standIn = store.state['ag1']!.items[0]!;
-      sockets[0]!.receive(append(2, 'unrelated'));
-      expect(store.state['ag1']!.items).toEqual([standIn, item('unrelated')]);
+    it('is dropped by an echo and then a confirm', () => {
+      const { confirm } = streams.sendLocal('ag1', 'hello');
+      sockets[0]!.receive(echo(2, 'hello'));
+      expect(store.state['ag1']!.items).toHaveLength(2);
+      confirm();
+      expect(store.state['ag1']!.items).toEqual([{ ...item('echo-2'), markdown: 'hello' }]);
     });
 
-    it('the oldest of two matching stand-ins is the one an echo drops', () => {
-      streams.sendLocal('ag1', 'hello');
-      streams.sendLocal('ag1', 'hello');
-      const [first, second] = store.state['ag1']!.items;
-
+    // `/compact` echoes as its boundary, and a skill command as its skill.
+    // Neither leaves a stand-in behind for the next message's echo to take.
+    it.each<[string, TranscriptItem]>([
+      [
+        '/compact',
+        { id: 'boundary', ts: '', type: 'compact', trigger: 'manual', preTokens: 9, postTokens: 1 },
+      ],
+      ['/mael', { id: 'skill', ts: '', type: 'skill', skill: 'mael', markdown: 'Base directory' }],
+    ])('sent as %s, is dropped by the item its command makes', (command, made) => {
+      streams.sendLocal('ag1', command).confirm();
       sockets[0]!.receive({
         seq: 2,
-        event: {
-          type: 'transcript.append',
-          agentId: 'ag1',
-          item: { ...item('echo'), markdown: 'hello' },
-        },
+        event: { type: 'transcript.append', agentId: 'ag1', item: made },
       });
-
-      expect(store.state['ag1']!.items).toEqual([second, { ...item('echo'), markdown: 'hello' }]);
-      expect(store.state['ag1']!.items).not.toContainEqual(first);
+      const next = streams.sendLocal('ag1', 'after');
+      next.confirm();
+      sockets[0]!.receive(echo(3, 'after'));
+      expect(store.state['ag1']!.items).toEqual([made, { ...item('echo-3'), markdown: 'after' }]);
     });
 
-    it('is dropped when the arriving item comes from a snapshot', () => {
+    it('stays while only the echo has come', () => {
+      streams.sendLocal('ag1', 'hello');
+      const standIn = store.state['ag1']!.items[0]!;
+      sockets[0]!.receive(echo(2, 'hello'));
+      expect(store.state['ag1']!.items).toEqual([
+        standIn,
+        { ...item('echo-2'), markdown: 'hello' },
+      ]);
+    });
+
+    it('takes the oldest stand-in for an echo', () => {
+      const first = streams.sendLocal('ag1', 'one');
+      const second = streams.sendLocal('ag1', 'two');
+      const [, secondItem] = store.state['ag1']!.items;
+      first.confirm();
+      second.confirm();
+      sockets[0]!.receive(echo(2, 'one'));
+      expect(store.state['ag1']!.items).toEqual([
+        secondItem,
+        { ...item('echo-2'), markdown: 'one' },
+      ]);
+    });
+
+    it('is dropped by an echo that comes in a replay', () => {
+      streams.sendLocal('ag1', 'hello').confirm();
+      sockets[0]!.receive({ type: 'transcript.replay', seq: 6, frames: [echo(6, 'hello')] });
+      expect(store.state['ag1']!.items).toEqual([{ ...item('echo-6'), markdown: 'hello' }]);
+    });
+
+    it('is dropped by a snapshot', () => {
       streams.sendLocal('ag1', 'hello');
       sockets[0]!.receive({
         type: 'transcript.snapshot',
         seq: 5,
         items: [{ ...item('echo'), markdown: 'hello' }],
         truncatedBefore: false,
-      });
-      expect(store.state['ag1']!.items).toEqual([{ ...item('echo'), markdown: 'hello' }]);
-    });
-
-    it('is dropped when the arriving item comes from a replay', () => {
-      streams.sendLocal('ag1', 'hello');
-      sockets[0]!.receive({
-        type: 'transcript.replay',
-        seq: 6,
-        frames: [
-          {
-            seq: 6,
-            event: {
-              type: 'transcript.append',
-              agentId: 'ag1',
-              item: { ...item('echo'), markdown: 'hello' },
-            },
-          },
-        ],
       });
       expect(store.state['ag1']!.items).toEqual([{ ...item('echo'), markdown: 'hello' }]);
     });

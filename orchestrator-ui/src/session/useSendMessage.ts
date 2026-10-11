@@ -17,11 +17,17 @@ export function useSendMessage(agentId: AgentId) {
   if (!streams) throw new Error('useSendMessage outside LiveProvider');
   return {
     onSend: (text: string, attachments: Attachment[]) => {
-      const removeLocal = text ? streams.sendLocal(agentId, text) : undefined;
-      return say.mutateAsync({ agentId, text, attachments }).catch((err) => {
-        removeLocal?.();
-        throw err;
-      });
+      const standIn = text ? streams.sendLocal(agentId, text) : undefined;
+      return say.mutateAsync({ agentId, text, attachments }).then(
+        (reply) => {
+          standIn?.confirm();
+          return reply;
+        },
+        (err: unknown) => {
+          standIn?.remove();
+          throw err;
+        },
+      );
     },
     onRun: (command: string) => run.mutateAsync({ agentId, command }),
   };
