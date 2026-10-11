@@ -107,16 +107,19 @@ export function HighlightedRows({
   selected = null,
   handlers,
   after,
+  highlight = true,
 }: {
   rows: DiffRowData[];
   path: string;
+  /** False holds back the tokeniser; tokens it made already still show. */
+  highlight?: boolean;
   first?: number;
   /** The first and last selected row. */
   selected?: [number, number] | null;
   handlers?: RowHandlers;
   after?: (index: number) => ReactNode;
 }) {
-  const tokens = useRowTokens(rows, path);
+  const tokens = useRowTokens(rows, path, highlight);
   return rows.map((row, i) => {
     const index = first + i;
     return (
