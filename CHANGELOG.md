@@ -182,6 +182,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A Codex request that gets no answer fails after 30 seconds.** It used to wait forever.
 - **Close on a phone goes to the list.** The screen strip of a pushed screen has Close in place
   of Back. After the attention chip opened several nodes, Back went through each of them before
   the list. Close on a detail goes to the list. Close on a session or a document goes to its

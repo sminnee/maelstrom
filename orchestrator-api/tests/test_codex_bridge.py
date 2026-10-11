@@ -374,3 +374,16 @@ async def test_cli_command_timeout_is_reported(tmp_path):
 
     with pytest.raises(CodexUnavailable, match=r"Timed out running .*--version"):
         await bridge.request("model/list", {})
+
+
+async def test_an_unanswered_request_times_out(tmp_path, caplog):
+    executable, _calls, _traffic = _proxy_codex(tmp_path)
+    bridge = CodexBridge(executable=str(executable), request_timeout=0.1)
+
+    with pytest.raises(CodexUnavailable, match=r"did not answer slow in 0.1s"):
+        await bridge.request("slow", {})
+    # "fast" makes the fake send the late answer to "slow" too.
+    assert await bridge.request("fast", {}) == "fast-result"
+    await bridge.close()
+
+    assert "Codex answered request 2 after it timed out" in caplog.text
