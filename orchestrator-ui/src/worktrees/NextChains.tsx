@@ -11,9 +11,16 @@ type Chain = 'shelve' | 'trash' | 'delete';
 
 /**
  * What a refused close can do next: the closes that skip its checks, each with
- * the confirm the close control asks.
+ * the confirm the close control asks. `then` runs after the chosen close ends,
+ * so a refused Dismiss still ends as a Dismiss: closed, then off the desk.
  */
-export function NextChains({ worktreeId }: { worktreeId: WorktreeId }) {
+export function NextChains({
+  worktreeId,
+  then,
+}: {
+  worktreeId: WorktreeId;
+  then?: () => Promise<unknown>;
+}) {
   const worktree = useWorld().world.worktrees[worktreeId];
   const shelve = useForceCloseWorktree();
   const trash = useTrashWorktree();
@@ -63,7 +70,10 @@ export function NextChains({ worktreeId }: { worktreeId: WorktreeId }) {
             asking={asking === chain}
             onAsk={() => setAsking(chain)}
             onDismiss={() => setAsking(null)}
-            onConfirm={run}
+            onConfirm={async () => {
+              await run();
+              await then?.();
+            }}
           >
             {label}
           </ConfirmButton>

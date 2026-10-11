@@ -36,6 +36,7 @@ export function NodeCard({
     >
       <NodeCardBody
         node={node}
+        open={open}
         onDone={() => collapse()}
         closeControl={
           <button

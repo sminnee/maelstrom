@@ -214,11 +214,12 @@ describe('the console', () => {
     await user.click(
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Shelve it' }),
     );
-    await waitFor(() =>
-      expect(commandsSince(server, before)).toContain(
-        'POST /api/worktrees/maelstrom-bravo/force-close',
-      ),
-    );
+    // The chain ends with the shelve: the console takes nothing off the desk.
+    const shelve = () => Object.values(server.world.operations).find((o) => o.kind === 'shelve');
+    await waitFor(() => expect(shelve()?.state).toBe('done'));
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/worktrees/maelstrom-bravo/force-close',
+    ]);
   });
 
   it('closes the drawer on its × button, and the strip comes back', async () => {

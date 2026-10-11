@@ -36,6 +36,10 @@ import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { AgentControls } from '../session/AgentControls';
+import { useTakeNodeOffDesk } from '../session/useEndOfWork';
+import { useCardOperation } from '../console/useConsole';
+import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
+import { NextChains } from '../worktrees/NextChains';
 import styles from './NodeCard.module.css';
 
 /**
@@ -58,6 +62,7 @@ export function NodeCardBody({
   node,
   showProject = false,
   closeControl,
+  open = true,
   onDone,
 }: {
   node: GraphNode;
@@ -68,6 +73,8 @@ export function NodeCardBody({
   showProject?: boolean;
   /** What closes the surface, drawn at the top right of the header. */
   closeControl?: React.ReactNode;
+  /** False while the surface animates shut. */
+  open?: boolean;
   onDone: () => void;
 }) {
   const { world } = useWorld();
@@ -78,6 +85,8 @@ export function NodeCardBody({
   const { open: editTask } = useEditor();
   const [picking, setPicking] = useState(false);
   const { task, agent } = node;
+  const op = useCardOperation(nodeUnit(node), open);
+  const takeOffDesk = useTakeNodeOffDesk({ agent, taskId: task?.id, onTakenOffDesk: onDone });
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
   const brief = detail.data?.displayContent.trim() ?? '';
@@ -178,20 +187,32 @@ export function NodeCardBody({
        * only echo it. The dot goes with them: it reads the state, so alone it
        * says nothing. With neither words nor a reason there is no row.
        */}
-      {(!node.progress.echoesStatus || reason) && (
+      {op ? (
         <div className={styles.status} data-state={node.progress.state}>
-          {!node.progress.echoesStatus && (
-            <>
-              <span className={styles.dot} aria-hidden="true" />
-              <span className={styles.stateText}>{node.progress.words}</span>
-            </>
-          )}
-          {reason && (
-            <span className={`${styles.reason} truncate`} title={reason}>
-              {reason}
-            </span>
-          )}
+          <span className={styles.dot} aria-hidden="true" />
+          <span className={`${styles.stateText} ${endedBadly(op) ? styles.ended : ''}`}>
+            {unitWords(op)}
+          </span>
         </div>
+      ) : (
+        (!node.progress.echoesStatus || reason) && (
+          <div className={styles.status} data-state={node.progress.state}>
+            {!node.progress.echoesStatus && (
+              <>
+                <span className={styles.dot} aria-hidden="true" />
+                <span className={styles.stateText}>{node.progress.words}</span>
+              </>
+            )}
+            {reason && (
+              <span className={`${styles.reason} truncate`} title={reason}>
+                {reason}
+              </span>
+            )}
+          </div>
+        )
+      )}
+      {op?.state === 'refused' && op.kind === 'close' && (
+        <NextChains worktreeId={op.worktreeId} then={takeOffDesk} />
       )}
 
       {stage && (
