@@ -1,0 +1,124 @@
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-2);
+  padding: var(--u-2);
+}
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+.log[data-state='refused'] .title,
+.log[data-state='failed'] .title {
+  color: var(--danger);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--u) var(--u-2);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.retryError {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+.target {
+  font-family: var(--mono);
+  color: var(--accent);
+  text-decoration: none;
+}
+.target:hover {
+  text-decoration: underline;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+.step {
+  border-bottom: 1px solid var(--border);
+}
+/* A step folded is this one line: the glyph, the name, its words, the time. */
+.stepHead {
+  display: grid;
+  grid-template-columns: var(--icon) minmax(0, max-content) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--u);
+  width: 100%;
+  min-height: var(--control);
+  padding: 0 var(--u);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.stepHead:hover {
+  background: var(--bg-hover);
+}
+.glyph {
+  display: inline-flex;
+  color: var(--fg-muted);
+}
+.glyph > svg {
+  width: var(--icon);
+  height: var(--icon);
+}
+.step[data-state='running'] .glyph {
+  color: var(--fg);
+}
+.step[data-state='pending'] .glyph,
+.step[data-state='pending'] .name {
+  color: var(--fg-faint);
+}
+.step[data-state='refused'] .glyph,
+.step[data-state='failed'] .glyph,
+.step[data-state='refused'] .words,
+.step[data-state='failed'] .words {
+  color: var(--danger);
+}
+.name {
+  font-family: var(--mono);
+}
+.words {
+  color: var(--fg-muted);
+}
+.duration {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* What the step printed, as it printed it. A long line scrolls in its own box
+   (the Wide Content Rule). It sits on the sunken ground, so it reads
+   --fg-muted: --fg-faint is under 4.5:1 there in light. */
+.lines {
+  margin: 0 0 var(--u);
+  padding: var(--u) var(--u) var(--u) calc(var(--icon) + var(--u) * 2);
+  overflow-x: auto;
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-ui);
+}
+
+.next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u);
+}

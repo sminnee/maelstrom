@@ -1,0 +1,208 @@
+/*
+ * The console. As a drawer it rises over the foot of the body, over the main
+ * view and the panel, so it takes the lift (the Overlap Test), cast upward.
+ */
+.console {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--u) * 40), 34%) minmax(0, 1fr);
+  min-height: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+.console[data-layout='drawer'] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40%;
+  /* A height dragged on a taller window still leaves the top of the body. */
+  max-height: calc(100% - var(--control));
+  z-index: var(--z-console);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-drawer);
+}
+/* A phone: a pushed screen, so it overlaps nothing and takes no lift. The
+   list over the log, the list a share of the screen. */
+.console[data-layout='screen'] {
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+/* The drawer's top edge: a strip wider than the line catches the drag. */
+.grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 7px;
+  cursor: row-resize;
+  z-index: 1;
+}
+.grip:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.console[data-layout='screen'] .side {
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
+.filters {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  padding: var(--bar-pad);
+  border-bottom: 1px solid var(--border);
+}
+/* The three filters are one filled control, as the top bar's menu is. */
+.segments {
+  display: flex;
+  flex: none;
+  height: var(--control);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-control);
+}
+.segment {
+  min-height: 0;
+  padding: 0 var(--u);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: var(--text-control);
+}
+.segment:first-child {
+  padding-left: var(--control-pad);
+}
+.segment:last-child {
+  padding-right: var(--control-pad);
+}
+.segment + .segment {
+  border-left: 1px solid var(--bg-raised);
+}
+.segment:hover {
+  color: var(--fg);
+}
+.segment[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--bg-control-hover);
+}
+.search {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.list:focus-visible {
+  outline-offset: -2px;
+}
+/* One operation a row: the meter, the line, the target, the time. */
+.option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, max-content) auto;
+  align-items: center;
+  gap: var(--u);
+  min-height: var(--control);
+  padding: 0 var(--u-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-ui);
+  cursor: pointer;
+}
+.option:hover {
+  background: var(--bg-hover);
+}
+/* The selected row takes the affordance hue: it has the operator's focus. */
+.option[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.option[data-state='done'] .line {
+  color: var(--fg-muted);
+}
+.option[data-unseen] .line {
+  color: var(--danger);
+}
+.target {
+  max-width: calc(var(--u) * 20);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.when {
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.empty {
+  margin: 0;
+  padding: var(--u-3) var(--u-2);
+  color: var(--fg-faint);
+  text-align: center;
+  list-style: none;
+}
+
+/* A phone: the filters take two rows, and a row of the list puts the target
+   and the time under the line, so the line keeps the width. */
+@media (max-width: 839px) {
+  .filters {
+    flex-wrap: wrap;
+  }
+  .segments {
+    flex: 1;
+  }
+  .segment {
+    flex: 1;
+  }
+  .search {
+    flex-basis: 100%;
+  }
+  .option {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'meter line line'
+      '. target when';
+    row-gap: 0;
+    padding-block: var(--u-half);
+  }
+  .option > :first-child {
+    grid-area: meter;
+  }
+  .line {
+    grid-area: line;
+  }
+  .target {
+    grid-area: target;
+    max-width: none;
+  }
+  .when {
+    grid-area: when;
+  }
+}

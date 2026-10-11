@@ -14,6 +14,9 @@ import { useLocSync } from '../nav/useLocSync';
 import { useLoc } from '../nav/useNav';
 import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
+import { Console } from '../console/Console';
+import { ConsoleStrip } from '../console/ConsoleStrip';
+import { useConsoleKey } from '../console/useConsole';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
@@ -49,6 +52,8 @@ function SlotShell() {
   // Above the views, so the list's scrolling box cannot clip it.
   const { edit: editingTaskId, newWork: newWorkOpen } = useLoc();
   const { status } = useWorld();
+  const consoleOpen = useAppStore((s) => s.ui.console.open);
+  useConsoleKey();
   // The clamp also holds after a window resize, not only during a drag.
   const [, resized] = useState(0);
   useEffect(() => {
@@ -96,7 +101,9 @@ function SlotShell() {
           {/* Hidden rather than unmounted: a session tab holds its scroll
               position, window floor and pending waits across a toggle. */}
           <Panel hidden={!showing.includes('tabs')} {...slot('tabs')} />
+          {consoleOpen && <Console layout="drawer" />}
         </main>
+        <ConsoleStrip />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

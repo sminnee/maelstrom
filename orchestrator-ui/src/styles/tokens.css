@@ -105,7 +105,11 @@
   --phase-dormant: color-mix(in srgb, var(--phase) var(--phase-drain), var(--border));
 
   --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.5);
+  /* The card lift cast upward: DESIGN.md, "Elevation". */
+  --shadow-drawer: 0 -16px 40px rgba(0, 0, 0, 0.55), 0 -1px 3px rgba(0, 0, 0, 0.5);
   --z-card: 10;
+  /* Over the main view, the panel and an open card. */
+  --z-console: 20;
 
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   /*
@@ -299,5 +303,6 @@
     --syntax-shade: 20%;
 
     --shadow-card: 0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12);
+    --shadow-drawer: 0 -16px 40px rgba(20, 24, 34, 0.18), 0 -1px 3px rgba(20, 24, 34, 0.12);
   }
 }

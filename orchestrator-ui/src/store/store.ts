@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { ConnectionState } from '../live/changeStream';
 import type { TranscriptState } from '../live/transcriptReducer';
-import type { AgentId } from '../protocol/ids';
+import type { AgentId, OperationId } from '../protocol/ids';
 import type { NewWorkSeed, Pane, PanelTab, UiState } from './uiSlice';
 import { initialUiState } from './uiSlice';
 import {
@@ -64,6 +64,12 @@ export interface AppStore {
   clearNewWorkSeed(): void;
   setEditorEditing(editing: boolean): void;
   setPanelWidth(width: number): void;
+  /** Open the console, on `selected` when given. */
+  openConsole(selected?: OperationId): void;
+  closeConsole(): void;
+  /** Show `id`'s log in the console. */
+  selectOperation(id: OperationId): void;
+  setConsoleHeight(height: number): void;
 }
 
 /** The store's tabs, with the active one the location names. */
@@ -133,6 +139,19 @@ export const useAppStore = create<AppStore>()(
       clearNewWorkSeed: () =>
         set((s) => (s.ui.newWorkSeed ? { ui: { ...s.ui, newWorkSeed: null } } : s)),
       setPanelWidth: (panelWidth) => set((s) => ({ ui: { ...s.ui, panelWidth } })),
+      openConsole: (selected) =>
+        set((s) => ({
+          ui: {
+            ...s.ui,
+            console: { ...s.ui.console, open: true, selected: selected ?? s.ui.console.selected },
+          },
+        })),
+      closeConsole: () =>
+        set((s) => ({ ui: { ...s.ui, console: { ...s.ui.console, open: false } } })),
+      selectOperation: (selected) =>
+        set((s) => ({ ui: { ...s.ui, console: { ...s.ui.console, selected } } })),
+      setConsoleHeight: (height) =>
+        set((s) => ({ ui: { ...s.ui, console: { ...s.ui.console, height } } })),
     }),
     {
       name: TABS_STORAGE_KEY,

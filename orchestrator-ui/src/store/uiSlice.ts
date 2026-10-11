@@ -1,4 +1,4 @@
-import type { AgentId, DocumentId, WorktreeId } from '../protocol/ids';
+import type { AgentId, DocumentId, OperationId, WorktreeId } from '../protocol/ids';
 
 /**
  * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
@@ -69,6 +69,16 @@ export interface UiState {
    * persisted across a reload.
    */
   panelWidth: number;
+  /** The **Console**: whether it is open, and the operation it shows. Not kept across a reload. */
+  console: ConsoleState;
+}
+
+export interface ConsoleState {
+  open: boolean;
+  /** The operation whose log shows. `null` picks the first in the list. */
+  selected: OperationId | null;
+  /** The drawer's height in px once dragged; `null` is its default share of the body. */
+  height: number | null;
 }
 
 /**
@@ -94,5 +104,6 @@ export function initialUiState(): UiState {
     newWorkSeed: null,
     editorEditing: false,
     panelWidth: openingWidth(),
+    console: { open: false, selected: null, height: null },
   };
 }
