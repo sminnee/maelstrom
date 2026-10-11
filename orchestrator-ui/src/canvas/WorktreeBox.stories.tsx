@@ -6,6 +6,7 @@ import { routes } from '../nav/routes';
 import { deskIdForTask } from '../protocol/deskId';
 import { makeTask, makeWorktree } from '../fake/fixtures';
 import type { Seed } from '../fake/seedWorld';
+import { SCENARIOS } from '../fake/scenarios';
 
 export default { title: 'Canvas / Worktree boxes' };
 
@@ -44,7 +45,7 @@ function amend(seed: Seed) {
  * worktree's. Every story is the real app, so a click on a box label or a node
  * opens its card here as it does on the desk.
  */
-function Harness({ open }: { open?: string }) {
+function Harness({ open, more }: { open?: string; more?: (seed: Seed) => void }) {
   // A memory router: Ladle owns the page's URL.
   const [router] = useState(() => createMemoryRouter(routes, { initialEntries: ['/desk'] }));
   // Opened once the board has drawn and fitted, as a click would: a card set
@@ -62,7 +63,13 @@ function Harness({ open }: { open?: string }) {
   }, [open, router]);
   return (
     <div style={{ height: '100vh' }}>
-      <FakeApp amend={amend} router={router} />
+      <FakeApp
+        amend={(seed) => {
+          amend(seed);
+          more?.(seed);
+        }}
+        router={router}
+      />
     </div>
   );
 }
@@ -95,3 +102,17 @@ export const WorktreeCardOnAHeldBox: Story = () => (
  * band, under one hairline, and reads the same as the Worktree card of `delta`.
  */
 export const NodeCardWorktreeArea: Story = () => <Harness open="/desk/task/NORT-12" />;
+
+/** The board scenario's operations, over this story's lanes. */
+function underOperations(seed: Seed) {
+  seed.world.operations = SCENARIOS['operations-board'].build().world.operations;
+}
+
+/**
+ * What to look at: the box of maelstrom `alpha` hatches in a band inside its
+ * outline and reads `closing 3/6`. The box of northwind `bravo` reads
+ * `syncing 2/3`, and its working node is not marked: a sync is not an ending.
+ * The box of maelstrom `bravo` takes the danger outline and reads `close
+ * refused`.
+ */
+export const UnderOperations: Story = () => <Harness more={underOperations} />;

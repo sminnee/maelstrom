@@ -5,6 +5,8 @@ import { ReactFlowProvider } from '@xyflow/react';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import { createFakeServer } from '../fake/fakeServer';
+import { makeWorktree } from '../fake/fixtures';
+import { SCENARIOS } from '../fake/scenarios';
 import { TaskNode } from './TaskNode';
 import type { GraphNode } from '../selectors/graph';
 import { byState, idle, stopped, stoppedByPhase } from './taskNode.fixture';
@@ -18,7 +20,8 @@ export default { title: 'Canvas / TaskNode' };
  * the interface would go on typechecking after the node called a route it does
  * not implement, and fail in the browser instead.
  */
-const { api } = createFakeServer();
+const server = createFakeServer();
+const { api } = server;
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -139,6 +142,35 @@ export const StoppedAcrossPhases: Story = () => (
     <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
       {stoppedByPhase.map(({ phase, node }) => (
         <Cell key={phase} label={phase} node={node} />
+      ))}
+    </div>
+  </Board>
+);
+
+/** A working node moved to a worktree of its own, so an operation can mark it alone. */
+const onWorktree = (id: string, nato: string): GraphNode => {
+  const working = byState.find((n) => n.state === 'working')!.node;
+  return { ...working, id, worktree: makeWorktree({ id, nato, branch: `feat/${nato}` }) };
+};
+const underOperation = {
+  running: onWorktree('maelstrom-alpha', 'alpha'),
+  refused: onWorktree('maelstrom-bravo', 'bravo'),
+  failed: onWorktree('northwind-delta', 'delta'),
+  clean: onWorktree('northwind-alpha', 'alpha'),
+};
+// The board scenario's operations, on the worktrees the nodes above stand in.
+server.world.operations = SCENARIOS['operations-board'].build().world.operations;
+
+/**
+ * A node under each end an operation reaches, beside a clean one. Check the
+ * hatch drifts and the words stay legible under it, in light and in dark, and
+ * that the left edge stays the phase alone on the danger border.
+ */
+export const UnderOperation: Story = () => (
+  <Board>
+    <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
+      {Object.entries(underOperation).map(([label, node]) => (
+        <Cell key={label} label={label} node={node} />
       ))}
     </div>
   </Board>
