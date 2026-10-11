@@ -45,12 +45,11 @@ export function useEndOfWorkLater({
 }: EndOfWorkProps): () => SplitOption[] {
   const { world } = useWorld();
   const stop = useStop();
-  const offDesk = useTakeOffDesk();
+  const takeOffDesk = useTakeNodeOffDesk({ agent, taskId, onTakenOffDesk });
   const closeWorktree = useCloseWorktree();
   const shelveWorktree = useForceCloseWorktree();
   const trashWorktree = useTrashWorktree();
   const removeWorktree = useRemoveWorktree();
-  const task = taskId || agent?.taskId;
   return () =>
     endOfWorkOptions({
       live: isLive(agent),
@@ -60,17 +59,32 @@ export function useEndOfWorkLater({
       // Terminate ends the process; the session tab's Stop only abandons the
       // turn — see CONTEXT.md, "Interrupt".
       stop: () => stop.mutateAsync({ agentId: agent!.id }),
-      takeOffDesk: async () => {
-        const id = task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
-        // A live node draws with no desk entry, so there may be none to take.
-        if (id in world.desk) await offDesk.mutateAsync({ id });
-        onTakenOffDesk();
-      },
+      takeOffDesk,
       close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
       shelve: () => shelveWorktree.mutateAsync({ worktreeId: where!.id }),
       trash: () => trashWorktree.mutateAsync({ worktreeId: where!.id }),
       remove: () => removeWorktree.mutateAsync({ worktreeId: where!.id }),
     });
+}
+
+/**
+ * The last step of each end-of-work chain: the node's desk entry goes, then
+ * `onTakenOffDesk` runs. A refused close's next chains end with it too.
+ */
+export function useTakeNodeOffDesk({
+  agent,
+  taskId,
+  onTakenOffDesk,
+}: Omit<EndOfWorkProps, 'where'>): () => Promise<void> {
+  const { world } = useWorld();
+  const offDesk = useTakeOffDesk();
+  const task = taskId || agent?.taskId;
+  return async () => {
+    const id = task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
+    // A live node draws with no desk entry, so there may be none to take.
+    if (id in world.desk) await offDesk.mutateAsync({ id });
+    onTakenOffDesk();
+  };
 }
 
 /**

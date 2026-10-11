@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useOperations } from '../api/operations';
+import { useMarkSeen, useOperations } from '../api/operations';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useGo } from '../nav/useNav';
 import type { Operation } from '../protocol/entities';
@@ -15,6 +15,18 @@ const NONE: Operation[] = [];
 /** Every operation the server holds, newest first. Empty while the list loads. */
 export function useOperationList(): Operation[] {
   return useOperations().data?.operations ?? NONE;
+}
+
+/** Showing an **Unseen** operation marks it seen, once; a failed mark tries again. */
+export function useMarkSeenOnShow(shown: Operation | null | undefined) {
+  const markSeen = useMarkSeen();
+  const posted = useRef(new Set<OperationId>());
+  useEffect(() => {
+    if (!shown || !isUnseen(shown) || posted.current.has(shown.id)) return;
+    const id = shown.id;
+    posted.current.add(id);
+    markSeen.mutate({ operationId: id }, { onError: () => posted.current.delete(id) });
+  }, [shown, markSeen]);
 }
 
 /**

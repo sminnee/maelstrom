@@ -2,7 +2,7 @@ import { useLayoutMode, type LayoutMode } from '../layout/useLayoutMode';
 import type { Operation } from '../protocol/entities';
 import { currentStep, operationLine } from '../selectors/operations';
 import { useAppStore } from '../store/store';
-import { StepMeter } from './StepMeter';
+import { StepMeter } from '../ui/StepMeter';
 import { useOperationList, useStripOperations } from './useConsole';
 import styles from './ConsoleStrip.module.css';
 

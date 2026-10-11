@@ -116,9 +116,3 @@
   font-size: var(--text-sm);
   line-height: var(--leading-ui);
 }
-
-.next {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--u);
-}
