@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useOperationLog } from '../api/operations';
-import { useWorld } from '../api/useWorld';
-import { useForceCloseWorktree, useRemoveWorktree, useTrashWorktree } from '../api/worktrees';
 import { useHrefFor, useLinkState } from '../nav/useNav';
 import type { Operation, OperationStep } from '../protocol/entities';
 import { operationLine } from '../selectors/operations';
 import { clockTime, durationOf } from '../protocol/time';
 import { actionIcon, stepIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
-import { ConfirmButton } from '../ui/ConfirmButton';
-import { removeConfirm, shelveConfirm, trashConfirm } from '../worktrees/closeConfirms';
+import { NextChains } from '../worktrees/NextChains';
 import { useTick } from './useTick';
 import styles from './OperationLog.module.css';
 
@@ -69,7 +66,7 @@ export function OperationLog({
           <StepBlock key={step.name} step={step} lines={linesOf(step.name)} now={now} />
         ))}
       </ol>
-      {op.state === 'refused' && op.kind === 'close' && <NextChains op={op} />}
+      {op.state === 'refused' && op.kind === 'close' && <NextChains worktreeId={op.worktreeId} />}
     </section>
   );
 }
@@ -118,71 +115,5 @@ function StepBlock({ step, lines, now }: { step: OperationStep; lines: string[];
       </button>
       {open && lines.length > 0 && <pre className={styles.lines}>{lines.join('\n')}</pre>}
     </li>
-  );
-}
-
-type Chain = 'shelve' | 'trash' | 'delete';
-
-/**
- * What a refused close can do next: the closes that skip its checks, each with
- * the confirm the close control asks.
- */
-function NextChains({ op }: { op: Operation }) {
-  const worktree = useWorld().world.worktrees[op.worktreeId];
-  const shelve = useForceCloseWorktree();
-  const trash = useTrashWorktree();
-  const remove = useRemoveWorktree();
-  const [asking, setAsking] = useState<Chain | null>(null);
-  if (!worktree || worktree.isClosed) return null;
-  const target = { worktreeId: worktree.id };
-  const chains: {
-    chain: Chain;
-    label: string;
-    icon: Parameters<typeof actionIcon>[0];
-    confirm: typeof shelveConfirm;
-    run: () => Promise<unknown>;
-  }[] = [
-    {
-      chain: 'shelve',
-      label: 'Shelve',
-      icon: 'archive',
-      confirm: shelveConfirm,
-      run: () => shelve.mutateAsync(target),
-    },
-    {
-      chain: 'trash',
-      label: 'Trash',
-      icon: 'delete',
-      confirm: trashConfirm,
-      run: () => trash.mutateAsync(target),
-    },
-    {
-      chain: 'delete',
-      label: 'Delete',
-      icon: 'removeWorktree',
-      confirm: removeConfirm,
-      run: () => remove.mutateAsync(target),
-    },
-  ];
-  return (
-    <div className={styles.next} role="group" aria-label="Next">
-      {chains.map(({ chain, label, icon, confirm, run }) => {
-        const { question, confirm: yes } = confirm(worktree);
-        return (
-          <ConfirmButton
-            key={chain}
-            icon={actionIcon(icon)}
-            question={question}
-            confirm={yes}
-            asking={asking === chain}
-            onAsk={() => setAsking(chain)}
-            onDismiss={() => setAsking(null)}
-            onConfirm={run}
-          >
-            {label}
-          </ConfirmButton>
-        );
-      })}
-    </div>
   );
 }

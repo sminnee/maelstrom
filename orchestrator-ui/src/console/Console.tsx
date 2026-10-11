@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useMarkSeen, useRetryOperation } from '../api/operations';
+import { useRetryOperation } from '../api/operations';
 import type { Operation } from '../protocol/entities';
 import type { OperationId } from '../protocol/ids';
 import {
@@ -15,8 +15,8 @@ import { actionIcon } from '../ui/actionIcons';
 import { OperationLog } from './OperationLog';
 import { useTick } from './useTick';
 import { clockTime } from '../protocol/time';
-import { StepMeter } from './StepMeter';
-import { isTyping, useGoToTarget, useOperationList } from './useConsole';
+import { StepMeter } from '../ui/StepMeter';
+import { isTyping, useGoToTarget, useMarkSeenOnShow, useOperationList } from './useConsole';
 import styles from './Console.module.css';
 
 const FILTERS: { filter: ConsoleFilter; label: string }[] = [
@@ -58,7 +58,7 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
     text,
   );
   const selected = listed.find((op) => op.id === selectedId) ?? listed[0] ?? null;
-  useMarkSeenOnSelect(selected);
+  useMarkSeenOnShow(selected);
 
   // Focus moves in as the console opens, and back out as it closes. A strip
   // entry leaves the page as the console opens, so it has nothing to return to.
@@ -181,18 +181,6 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
 const canRetry = (op: Operation) => op.state === 'refused' || op.state === 'failed';
 
 const optionId = (id: OperationId) => `${CONSOLE_ID}-op-${id}`;
-
-/** Showing an **Unseen** operation's log marks it seen, once; a failed mark tries again. */
-function useMarkSeenOnSelect(selected: Operation | null) {
-  const markSeen = useMarkSeen();
-  const posted = useRef(new Set<OperationId>());
-  useEffect(() => {
-    if (!selected || !isUnseen(selected) || posted.current.has(selected.id)) return;
-    const id = selected.id;
-    posted.current.add(id);
-    markSeen.mutate({ operationId: id }, { onError: () => posted.current.delete(id) });
-  }, [selected, markSeen]);
-}
 
 /** The list, with the selected row marked. One tab stop; the arrows move in it. */
 function OperationList({
