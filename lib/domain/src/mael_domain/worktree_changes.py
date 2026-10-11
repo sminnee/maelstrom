@@ -45,6 +45,10 @@ _DIFF_FLAGS = [
 # commit in the same worktree.
 _GIT_OPTIONS = ["--no-optional-locks", "-c", "core.quotepath=off"]
 
+#: Untracked files diffed at once, so a tree of new files does not fork
+#: one git per file all together.
+_UNTRACKED_DIFFS_AT_ONCE = 4
+
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _FILES_CHANGED = re.compile(r"(\d+) files? changed")
 _FIELD = "\x1f"
@@ -189,10 +193,20 @@ async def _uncommitted_diff(path: Path) -> list[FileDiff]:
         cwd=path,
         quiet=True,
     )
-    for name in untracked.stdout.split("\0"):
-        if name:
+    names = [name for name in untracked.stdout.split("\0") if name]
+    limit = asyncio.Semaphore(_UNTRACKED_DIFFS_AT_ONCE)
+
+    async def added(name: str) -> list[FileDiff]:
+        async with limit:
             # --no-index exits 1 when the files differ, which is every time.
-            files += await _diff(path, ["--no-index", "--", "/dev/null", name])
+            return await _diff(path, ["--no-index", "--", "/dev/null", name])
+
+    # The tasks keep the ls-files order whatever order the diffs finish in.
+    # A task group stops the other diffs when one fails.
+    async with asyncio.TaskGroup() as group:
+        tasks = [group.create_task(added(name)) for name in names]
+    for task in tasks:
+        files += task.result()
     return [f for f in files if f["path"] not in MAELSTROM_MANAGED_FILES]
 
 
