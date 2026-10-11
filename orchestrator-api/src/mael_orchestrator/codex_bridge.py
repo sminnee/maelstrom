@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import struct
@@ -16,8 +17,11 @@ from mael_orchestrator import __version__
 MINIMUM_CODEX_VERSION = (0, 154, 0)
 MINIMUM_CODEX_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_CODEX_VERSION)
 DEFAULT_COMMAND_TIMEOUT = 15.0
+DEFAULT_REQUEST_TIMEOUT = 30.0
 MAX_FRAME_BYTES = 64 * 1024 * 1024
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+log = logging.getLogger(__name__)
 
 _STABLE_VERSION = re.compile(r"^codex-cli (\d+)\.(\d+)\.(\d+)$")
 _END = object()
@@ -42,6 +46,7 @@ class CodexBridge:
     executable: str = "codex"
     command_timeout: float = DEFAULT_COMMAND_TIMEOUT
     handshake_timeout: float = DEFAULT_COMMAND_TIMEOUT
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT
     _connect_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
     _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
     _process: asyncio.subprocess.Process | None = field(default=None, init=False)
@@ -65,7 +70,11 @@ class CodexBridge:
         self._pending[request_id] = future
         try:
             await self._write({"id": request_id, "method": method, "params": params})
-            return await future
+            return await asyncio.wait_for(future, self.request_timeout)
+        except TimeoutError as error:
+            raise CodexUnavailable(
+                f"Codex did not answer {method} in {self.request_timeout:g}s."
+            ) from error
         finally:
             self._pending.pop(request_id, None)
 
@@ -407,6 +416,12 @@ class CodexBridge:
                 if request_id not in self._pending:
                     if "method" in message:
                         self._incoming.put_nowait(message)
+                    elif request_id is not None:
+                        # The request timed out, but Codex still did the work:
+                        # a thread or a turn may exist that nothing tracks.
+                        log.warning(
+                            "Codex answered request %s after it timed out", request_id
+                        )
                     continue
                 future = self._pending[request_id]
                 if future.done():
