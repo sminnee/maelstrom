@@ -817,10 +817,42 @@ function endedStep(
   minutesAgo: number,
   words = '',
 ): OperationStep {
-  return { name, words, state, startedAt: T(minutesAgo), endedAt: T(minutesAgo) };
+  // A few seconds a step, fixed by the name, so a log reads like a real one.
+  const seconds = 0.4 + (name.length % 7) * 1.3;
+  return { name, words, state, startedAt: T(minutesAgo + seconds / 60), endedAt: T(minutesAgo) };
 }
 
 const TEARDOWN = ['stop_env', 'stop_agents', 'stop_sessions', 'rescue_env_vars'];
+
+/** A moment `secondsAgo` before the scenario is built: a running operation's clock reads now. */
+const ago = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+
+/** A seeded operation: the fields a scenario does not set take their usual values. */
+function seededOp(
+  o: Pick<Operation, 'id' | 'kind' | 'worktreeId' | 'words' | 'state' | 'steps'> &
+    Partial<Operation>,
+): Operation {
+  return {
+    taskId: null,
+    agentId: null,
+    startedAt: o.steps[0]!.startedAt!,
+    endedAt: o.state === 'running' ? null : o.steps.findLast((s) => s.endedAt)!.endedAt,
+    seen: o.state === 'done',
+    ...o,
+  };
+}
+
+/** `names` as steps of a running operation: the first `done` done, the next running. */
+function runningSteps(names: string[], done: number, startedSecondsAgo: number): OperationStep[] {
+  const each = startedSecondsAgo / (done + 1);
+  return names.map((name, i) => ({
+    name,
+    words: '',
+    state: i < done ? 'done' : i === done ? 'running' : 'pending',
+    startedAt: i <= done ? ago(startedSecondsAgo - i * each) : null,
+    endedAt: i < done ? ago(startedSecondsAgo - (i + 1) * each) : null,
+  }));
+}
 
 /**
  * A history of one operation of each ending, and a world that repeats them
@@ -830,17 +862,9 @@ const TEARDOWN = ['stop_env', 'stop_agents', 'stop_sessions', 'rescue_env_vars']
 function operations(): Seed {
   const seed = seedWorld();
   const { world } = seed;
-  const op = (o: Pick<Operation, 'id' | 'kind' | 'worktreeId' | 'words' | 'state' | 'steps'>) => ({
-    taskId: null,
-    agentId: null,
-    startedAt: o.steps[0]!.startedAt!,
-    endedAt: o.steps.at(-1)!.endedAt,
-    seen: o.state === 'done',
-    ...o,
-  });
   const syncFault = 'git rebase exited 128: could not apply 3f9c2e1 (feat: invoice totals)';
   world.operations = {
-    op1: op({
+    op1: seededOp({
       id: 'op1',
       kind: 'close',
       worktreeId: 'northwind-charlie',
@@ -848,7 +872,7 @@ function operations(): Seed {
       state: 'done',
       steps: [...TEARDOWN, 'git_close', 'close_workspace'].map((n) => endedStep(n, 'done', 30)),
     }),
-    op2: op({
+    op2: seededOp({
       id: 'op2',
       kind: 'close',
       worktreeId: 'maelstrom-bravo',
@@ -860,7 +884,7 @@ function operations(): Seed {
         { name: 'close_workspace', words: '', state: 'pending', startedAt: null, endedAt: null },
       ],
     }),
-    op3: op({
+    op3: seededOp({
       id: 'op3',
       kind: 'sync',
       worktreeId: 'northwind-delta',
@@ -889,6 +913,166 @@ function operations(): Seed {
     },
   };
   world.operationFaults = { [faultKey('sync', 'northwind-delta')]: syncFault };
+  return seed;
+}
+
+/**
+ * The console with work in it: three operations running, a close refused over
+ * unmerged commits and a merge failed, both unseen, and two done earlier.
+ * The running ones hold their step, so the strip and the meter can be read.
+ */
+function operationsLive(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  const closeSteps = [...TEARDOWN, 'git_close', 'close_workspace'];
+  const mergeFault =
+    'gh pr merge exited 1: Pull request is not mergeable: the base branch policy prohibits the merge';
+  world.operations = {
+    op1: seededOp({
+      id: 'op1',
+      kind: 'close',
+      worktreeId: 'northwind-charlie',
+      words: 'Closed charlie',
+      state: 'done',
+      steps: closeSteps.map((n) => endedStep(n, 'done', 40)),
+    }),
+    op2: seededOp({
+      id: 'op2',
+      kind: 'env',
+      worktreeId: 'northwind-delta',
+      words: 'Started the environment of delta',
+      state: 'done',
+      // Newer than both unseen ends, so only the pin keeps them above it.
+      steps: ['stop_env', 'start_env'].map((n) => endedStep(n, 'done', 1)),
+    }),
+    op3: seededOp({
+      id: 'op3',
+      kind: 'merge',
+      worktreeId: 'northwind-delta',
+      words: `Could not merge the pull request: ${mergeFault}`,
+      state: 'failed',
+      steps: [endedStep('merge_pr', 'failed', 6, mergeFault)],
+    }),
+    op4: seededOp({
+      id: 'op4',
+      kind: 'close',
+      worktreeId: 'maelstrom-bravo',
+      words: 'Worktree has 2 commit(s) not merged to origin/main',
+      state: 'refused',
+      steps: [
+        ...TEARDOWN.map((n) => endedStep(n, 'done', 3)),
+        endedStep('git_close', 'refused', 3, 'Worktree has 2 commit(s) not merged to origin/main'),
+        { name: 'close_workspace', words: '', state: 'pending', startedAt: null, endedAt: null },
+      ],
+    }),
+    op5: seededOp({
+      id: 'op5',
+      kind: 'close',
+      worktreeId: 'maelstrom-alpha',
+      words: 'Closing alpha',
+      state: 'running',
+      steps: runningSteps(closeSteps, 2, 9),
+    }),
+    op6: seededOp({
+      id: 'op6',
+      kind: 'sync',
+      worktreeId: 'northwind-alpha',
+      words: 'Syncing alpha',
+      state: 'running',
+      steps: runningSteps(['rebase'], 0, 4),
+    }),
+    op7: seededOp({
+      id: 'op7',
+      kind: 'env',
+      worktreeId: 'northwind-bravo',
+      words: 'Restarting the environment of bravo',
+      state: 'running',
+      steps: runningSteps(['stop_env', 'start_env'], 1, 2),
+    }),
+  };
+  world.operationLogs = {
+    op1: {
+      stop_env: ['Stopped the environment.'],
+      git_close: ["Closing worktree 'charlie'...", 'Worktree detached at origin/main.'],
+      close_workspace: ["Closed cmux workspace 'northwind-charlie'."],
+    },
+    op2: { start_env: ['web: started on :3501', 'api: started on :3502'] },
+    op3: {
+      merge_pr: [
+        'Merging pull request #212 (feat/invoices) into main...',
+        'X Pull request sminnee/northwind#212 is not mergeable: the base branch policy prohibits the merge.',
+        'To have the pull request merged after all the requirements have been met, add the `--auto` flag.',
+      ],
+    },
+    op4: {
+      stop_env: ['Stopped the environment.'],
+      stop_agents: ['Stopped 1 agent.'],
+      git_close: [
+        "Closing worktree 'bravo'...",
+        '2 commits are not on origin/main:',
+        '  4be1c07 feat: desk prune',
+        '  9a03d2f test: prune keeps uncovered projects',
+      ],
+    },
+    op5: { stop_env: ['Stopped the environment.'], stop_agents: ['Stopped 2 agents.'] },
+    op6: { rebase: ['Fetching origin...'] },
+    op7: { stop_env: ['web: stopped', 'api: stopped'] },
+  };
+  return seed;
+}
+
+/** The kinds a long history cycles through, with the words each ends on. */
+const HISTORY: { kind: Operation['kind']; steps: string[]; words: (nato: string) => string }[] = [
+  { kind: 'sync', steps: ['rebase'], words: (n) => `Synced ${n}` },
+  {
+    kind: 'env',
+    steps: ['stop_env', 'start_env'],
+    words: (n) => `Restarted the environment of ${n}`,
+  },
+  {
+    kind: 'close',
+    steps: [...TEARDOWN, 'git_close', 'close_workspace'],
+    words: (n) => `Closed ${n}`,
+  },
+  { kind: 'merge', steps: ['merge_pr'], words: (n) => `Merged the pull request of ${n}` },
+];
+
+/**
+ * Sixty operations over the last day, so the console's list scrolls. Every
+ * seventh one failed and every eleventh was refused; all have been seen.
+ */
+function operationsHistory(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  const worktrees = Object.values(world.worktrees).filter((w) => w.nato !== '_main');
+  world.operations = {};
+  world.operationLogs = {};
+  for (let i = 1; i <= 60; i++) {
+    const id = `op${i}`;
+    const shape = HISTORY[i % HISTORY.length]!;
+    const worktree = worktrees[i % worktrees.length]!;
+    const minutesAgo = (61 - i) * 23;
+    const state: Operation['state'] = i % 7 === 0 ? 'failed' : i % 11 === 0 ? 'refused' : 'done';
+    const fault = state === 'failed' ? 'git fetch exited 128: could not read from remote' : '';
+    const refusal = state === 'refused' ? 'Worktree has uncommitted changes' : '';
+    const last = shape.steps.length - 1;
+    world.operations[id] = seededOp({
+      id,
+      kind: shape.kind,
+      worktreeId: worktree.id,
+      words: fault || refusal || shape.words(worktree.nato),
+      state,
+      seen: true,
+      steps: shape.steps.map((n, s) =>
+        s < last
+          ? endedStep(n, 'done', minutesAgo)
+          : endedStep(n, state, minutesAgo, fault || refusal),
+      ),
+    });
+    world.operationLogs[id] = {
+      [shape.steps[last]!]: [fault || refusal || 'Done.'].filter(Boolean),
+    };
+  }
   return seed;
 }
 
@@ -950,6 +1134,15 @@ export const SCENARIOS = {
     about: 'An operation of each ending, and worktrees that close, refuse and fail live.',
     build: operations,
     screen: at({ view: 'worktrees' }),
+  },
+  'operations-live': {
+    about:
+      'Three operations running, one refused and one failed: the console strip and its reading.',
+    build: operationsLive,
+  },
+  'operations-history': {
+    about: 'Sixty operations over a day, so the console list scrolls.',
+    build: operationsHistory,
   },
   'long-text': {
     about: 'Titles, ids, a branch, a commit and a comm too long for a phone.',
