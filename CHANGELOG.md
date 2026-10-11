@@ -182,6 +182,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A large diff no longer freezes the orchestrator.** The Changes tab of a worktree with
+  hundreds of changed files stalled every client for about a second. The server now parses and
+  sends the diff off its event loop.
 - **A Codex request that gets no answer fails after 30 seconds.** It used to wait forever.
 - **Close on a phone goes to the list.** The screen strip of a pushed screen has Close in place
   of Back. After the attention chip opened several nodes, Back went through each of them before

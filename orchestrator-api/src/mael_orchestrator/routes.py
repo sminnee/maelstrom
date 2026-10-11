@@ -266,10 +266,22 @@ async def _worktree_diff(request: web.Request) -> web.Response:
         return error_response("unknown_id", f"No rev {rev} on this branch")
     except (OSError, subprocess.CalledProcessError) as exc:
         return _git_failed(exc)
-    response = web.json_response({"rev": rev, "files": files})
-    # A branch diff runs to megabytes, and it compresses well.
+    # A branch diff runs to megabytes, so it is dumped off the loop and compressed.
+    body = await asyncio.to_thread(_dumps_by_item, {"rev": rev}, "files", files)
+    response = web.json_response(text=body)
     response.enable_compression()
     return response
+
+
+def _dumps_by_item(head: dict[str, Any], key: str, items: list[Any]) -> str:
+    """The JSON of ``{**head, key: items}``, dumped one item per call.
+
+    One call per item lets the GIL pass between items, so the loop waits for
+    one item at most. See "Loop stalls" in docs/dev/orchestrator-server.md.
+    """
+    parts = ", ".join(json.dumps(item) for item in items)
+    opening = json.dumps(head)[:-1] + (", " if head else "")
+    return f"{opening}{json.dumps(key)}: [{parts}]}}"
 
 
 def _git_failed(exc: OSError | subprocess.CalledProcessError) -> web.Response:
@@ -1036,7 +1048,12 @@ async def _stream_frames(
             opening: dict[str, Any] = {"type": "transcript.snapshot", **log.snapshot()}
         else:
             opening = {"type": "transcript.replay", "seq": log.seq, "frames": replay}
-        await ws.send_json(opening)
+        # Dumped off the loop: a long transcript runs to megabytes. The log
+        # replaces items rather than mutating them, and both openings are fresh
+        # lists, so the thread reads a stable value.
+        key = "items" if replay is None else "frames"
+        items = opening.pop(key)
+        await ws.send_str(await asyncio.to_thread(_dumps_by_item, opening, key, items))
         closed = asyncio.create_task(_until_closed(ws))
         # One task spans the loop, so a frame the socket does not take is still
         # waited on by the same task next time round rather than a fresh one.

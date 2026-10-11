@@ -207,7 +207,8 @@ async def _diff(path: Path, args: list[str]) -> list[FileDiff]:
         raise subprocess.CalledProcessError(
             result.returncode, result.args, result.stdout, result.stderr
         )
-    return parse_diff(result.stdout)
+    # A large diff takes seconds to parse; a thread keeps it off the server's loop.
+    return await asyncio.to_thread(parse_diff, result.stdout)
 
 
 def parse_diff(text: str) -> list[FileDiff]:

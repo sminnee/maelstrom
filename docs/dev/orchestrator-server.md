@@ -1451,6 +1451,12 @@ A change that moves work off the loop shows its effect as a lower `maxGapMs`. Th
 warning show where each task waits after the stall, not the call that blocked. Read them with the
 log lines just before the warning to name the blocking call.
 
+`asyncio.to_thread` frees the loop only for Python code, which gives up the Global Interpreter
+Lock (GIL) every few milliseconds. One C call keeps the GIL until it returns. `json.dumps` is such
+a call, so a large dump stalls the loop from a thread too. The diff route and the transcript
+socket's opening frame dump one item per call (`routes._dumps_by_item`), so the GIL can pass
+between items. One very large item still stalls the loop for its own dump.
+
 ## Open risks
 
 - A partial message can draw unclosed markdown oddly until it closes: `**`, a fence, half a table.
