@@ -1212,8 +1212,10 @@ wash over its add or remove ground, so the row keeps its kind.
 The strip is the console's one control on screen. The top bar has none: while work runs the
 strip shows it, and while nothing runs Ctrl-` opens the console.
 
-A bar at the foot of the body, in the bar style: `--bar-pad`, `--bg-raised`, a hairline on top.
-It shows only while an operation runs, is **Unseen**, or ended done in the last 4 seconds.
+A bar at the foot of the body: `--bg-raised` and a hairline on top. It pads with `--bar-pad` at
+the sides only, so it is one control high. Its bottom edge keeps `env(safe-area-inset-bottom)`.
+It is not one of the bars that pad on all four sides. It shows only while an operation runs, is
+**Unseen**, or ended done in the last 4 seconds.
 
 One entry per operation, left to right: the **Step** meter, the operation's words, the worktree
 id in mono, and the current step in mono. The words give way before an id, because a cut id is
