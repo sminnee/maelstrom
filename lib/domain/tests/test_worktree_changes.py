@@ -72,6 +72,25 @@ async def test_staged_unstaged_and_untracked_files_are_dirty_but_env_is_not(repo
     ]
 
 
+async def test_untracked_files_keep_their_ls_files_order(repo):
+    # More files than are diffed at once, and the first is the slowest to
+    # parse, so an order of finishing would differ from the path order.
+    (repo / "a.txt").write_text("line\n" * 100_000)
+    for name in "bcdef":
+        (repo / f"{name}.txt").write_text("x\n")
+
+    files = await read_diff(repo, "uncommitted")
+
+    assert [f["path"] for f in files] == [
+        "a.txt",
+        "b.txt",
+        "c.txt",
+        "d.txt",
+        "e.txt",
+        "f.txt",
+    ]
+
+
 async def test_a_clean_worktree_has_no_uncommitted_diff(repo):
     assert (await list_changes(repo))["dirtyFiles"] == []
     assert await read_diff(repo, "uncommitted") == []
