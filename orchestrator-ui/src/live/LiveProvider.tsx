@@ -5,6 +5,7 @@ import { createAgentStreams } from './agentStreams';
 import { startChangeStream, type EventSourceLike } from './changeStream';
 import type { SocketLike } from './socketLike';
 import { AgentStreamsContext } from './useAgentStream';
+import { watchAgentList } from './watchAgentList';
 
 /**
  * Keeps the query cache fresh from the server's change stream for as long as
@@ -48,6 +49,7 @@ export function LiveProvider({
     createAgentStreams({
       socketFactory,
       reconnectMs,
+      watchAgent: (agentId, onSeen) => watchAgentList(queryClient, agentId, onSeen),
       store: {
         get: (agentId) => useAppStore.getState().transcripts[agentId],
         set: (agentId, state) => useAppStore.getState().setTranscript(agentId, state),

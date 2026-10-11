@@ -232,14 +232,15 @@ export function SessionTab({
       title={compactTitle}
       processingChildren="Compacting…"
       onClick={async () => {
-        const removeLocal = streams.sendLocal(agentId, COMPACT_COMMAND);
+        const standIn = streams.sendLocal(agentId, COMPACT_COMMAND);
         // `say` resolves when the server accepts the relay, which is
         // all the relay does. The compaction takes 10s–130s after
         // that, so the button holds until the boundary says it ended.
         await say.mutateAsync({ agentId, text: COMPACT_COMMAND }).catch((err) => {
-          removeLocal();
+          standIn.remove();
           throw err;
         });
+        standIn.confirm();
         await awaitCompact(agentId, (abandon) => {
           abandonCompact.current = abandon;
         });
