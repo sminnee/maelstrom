@@ -80,3 +80,23 @@ function format(at: Date, options: Intl.DateTimeFormatOptions): string {
       .replace(/[\u202f\u00a0]/g, ' ')
   );
 }
+
+/** A span of time, short: `0.4s`, `12s`, `3m 05s`, `2h 10m`. */
+export function formatDuration(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 10) return `${s.toFixed(1)}s`;
+  if (s < 60) return `${Math.floor(s)}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(Math.floor(s % 60)).padStart(2, '0')}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** How long a step or an operation ran, or has run so far: `''` before it starts. */
+export function durationOf(
+  span: { startedAt: string | null; endedAt: string | null },
+  now: number,
+): string {
+  if (!span.startedAt) return '';
+  const end = span.endedAt ? Date.parse(span.endedAt) : now;
+  return formatDuration(end - Date.parse(span.startedAt));
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ago, clockTime, silentFor } from './time';
+import { ago, clockTime, durationOf, silentFor } from './time';
 
 const NOW = Date.parse('2026-09-05T19:31:00Z');
 
@@ -93,5 +93,21 @@ describe('clockTime', () => {
   it('lower-cases the meridiem where the locale has one', () => {
     const today = clockTime(before(2 * 3_600_000), NOW);
     expect(today).not.toMatch(/\b(AM|PM)\b/);
+  });
+});
+
+describe('durationOf', () => {
+  it.each([
+    ['under ten seconds, to a tenth', 4_240, '4.2s'],
+    ['under a minute, whole seconds', 42_900, '42s'],
+    ['minutes and padded seconds', 3 * 60_000 + 5_000, '3m 05s'],
+    ['hours and padded minutes', 2 * 3_600_000 + 7 * 60_000, '2h 07m'],
+  ])('%s reads %s', (_label, elapsed, expected) => {
+    expect(durationOf({ startedAt: before(elapsed), endedAt: before(0) }, NOW)).toBe(expected);
+  });
+
+  it('counts a running span up to now, and reads nothing before it starts', () => {
+    expect(durationOf({ startedAt: before(12_000), endedAt: null }, NOW)).toBe('12s');
+    expect(durationOf({ startedAt: null, endedAt: null }, NOW)).toBe('');
   });
 });
