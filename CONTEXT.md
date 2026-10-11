@@ -653,7 +653,9 @@ _Avoid_: Blocked (the step's own outcome field), rejected, error
 
 **Unseen**:
 An **Operation** that ended **Refused** or `failed`, and that the user has not yet looked at. It
-stays in the **Console** strip until the user selects it. The record stays in the history.
+stays in the **Console** strip, and marks the node and worktree it acts on, until the user
+selects it in the **Console** or opens the card of that node or worktree. The record stays in
+the history.
 _Avoid_: Unread, new, unacknowledged
 
 **Console**:
