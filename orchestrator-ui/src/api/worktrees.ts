@@ -14,7 +14,7 @@ export function useWorktrees() {
   const api = useApi();
   return useQuery({
     queryKey: keys.worktrees(),
-    queryFn: () => api.get<WorktreesBody>('/api/worktrees'),
+    queryFn: ({ signal }) => api.get<WorktreesBody>('/api/worktrees', { signal }),
   });
 }
 

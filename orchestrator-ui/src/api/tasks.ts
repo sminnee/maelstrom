@@ -16,7 +16,7 @@ export function useTasks() {
   const api = useApi();
   return useQuery({
     queryKey: keys.tasks.list(),
-    queryFn: () => api.get<TasksBody>('/api/tasks'),
+    queryFn: ({ signal }) => api.get<TasksBody>('/api/tasks', { signal }),
   });
 }
 
@@ -28,7 +28,7 @@ export function useTask(taskId: TaskId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.tasks.detail(taskId ?? ''),
-    queryFn: () => api.get<TaskDetail>(`/api/tasks/${taskId}`),
+    queryFn: ({ signal }) => api.get<TaskDetail>(`/api/tasks/${taskId}`, { signal }),
     enabled: taskId !== null,
   });
 }

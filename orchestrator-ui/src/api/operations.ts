@@ -29,7 +29,8 @@ export const OPERATION_LIST_LIMIT = 200;
 
 const operationsQuery = (api: ApiClient) => ({
   queryKey: keys.operations.list(),
-  queryFn: () => api.get<OperationsBody>(`/api/operations?limit=${OPERATION_LIST_LIMIT}`),
+  queryFn: ({ signal }: { signal: AbortSignal }) =>
+    api.get<OperationsBody>(`/api/operations?limit=${OPERATION_LIST_LIMIT}`, { signal }),
 });
 
 /** The operations, newest first. A change notice of kind `operation` refreshes it. */
@@ -43,8 +44,10 @@ export function useOperationLog(operationId: OperationId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.operations.log(operationId ?? ''),
-    queryFn: () =>
-      api.get<OperationLog>(`/api/operations/${encodeURIComponent(operationId ?? '')}/log`),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      api.get<OperationLog>(`/api/operations/${encodeURIComponent(operationId ?? '')}/log`, {
+        signal,
+      }),
     enabled: operationId !== null,
   });
 }

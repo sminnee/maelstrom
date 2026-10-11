@@ -47,7 +47,7 @@ export function useMilestones(agentId: AgentId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.milestones(agentId ?? ''),
-    queryFn: () => api.get<AgentCost>(`/api/agents/${agentId}/milestones`),
+    queryFn: ({ signal }) => api.get<AgentCost>(`/api/agents/${agentId}/milestones`, { signal }),
     enabled: agentId !== null,
   });
 }

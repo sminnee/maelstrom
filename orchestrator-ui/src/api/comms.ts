@@ -24,7 +24,7 @@ export function useComms() {
   const api = useApi();
   return useQuery({
     queryKey: keys.comms.list(),
-    queryFn: () => api.get<CommsBody>('/api/comms'),
+    queryFn: ({ signal }) => api.get<CommsBody>('/api/comms', { signal }),
   });
 }
 
@@ -32,7 +32,7 @@ export function useComm(commId: string | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.comms.detail(commId ?? ''),
-    queryFn: () => api.get<Comm>(`/api/comms/${commId}`),
+    queryFn: ({ signal }) => api.get<Comm>(`/api/comms/${commId}`, { signal }),
     enabled: commId !== null,
   });
 }

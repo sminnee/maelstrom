@@ -23,7 +23,7 @@ export function useAgents() {
   const api = useApi();
   return useQuery({
     queryKey: keys.agents.list(),
-    queryFn: () => api.get<AgentsBody>('/api/agents'),
+    queryFn: ({ signal }) => api.get<AgentsBody>('/api/agents', { signal }),
   });
 }
 
@@ -32,7 +32,7 @@ export function useAgent(agentId: AgentId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.agents.detail(agentId ?? ''),
-    queryFn: () => api.get<AgentDetail>(`/api/agents/${agentId}`),
+    queryFn: ({ signal }) => api.get<AgentDetail>(`/api/agents/${agentId}`, { signal }),
     enabled: agentId !== null,
   });
 }

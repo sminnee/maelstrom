@@ -94,4 +94,36 @@ describe('createApiClient', () => {
       vi.useRealTimers();
     }
   });
+
+  it("aborts the fetch when the caller aborts, and rejects with the caller's reason", async () => {
+    let seen: AbortSignal | undefined;
+    const fetch: typeof globalThis.fetch = (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        seen = init?.signal ?? undefined;
+        seen?.addEventListener('abort', () => reject(seen?.reason));
+      });
+    const api = createApiClient({ fetch });
+    const caller = new AbortController();
+    const reason = new Error('unmounted');
+    const pending = api.get('/api/tasks', { signal: caller.signal }).catch((e: unknown) => e);
+    caller.abort(reason);
+    expect(await pending).toBe(reason);
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it('aborts the fetch at once when the caller signal is already aborted', async () => {
+    let seen: AbortSignal | undefined;
+    const fetch: typeof globalThis.fetch = (_url, init) => {
+      seen = init?.signal ?? undefined;
+      return seen?.aborted ? Promise.reject(seen.reason) : Promise.resolve(jsonResponse(200, {}));
+    };
+    const api = createApiClient({ fetch });
+    const caller = new AbortController();
+    const reason = new Error('gone');
+    caller.abort(reason);
+    expect(await api.get('/api/tasks', { signal: caller.signal }).catch((e: unknown) => e)).toBe(
+      reason,
+    );
+    expect(seen?.aborted).toBe(true);
+  });
 });

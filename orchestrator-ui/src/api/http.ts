@@ -37,6 +37,11 @@ export const SLOW_CALL_TIMEOUT_MS = 120_000;
 export interface RequestOptions {
   /** Overrides the client's default for one call. */
   timeoutMs?: number;
+  /**
+   * The caller's abort, such as TanStack's when a query is cancelled. It
+   * aborts the fetch, so a request nobody waits for frees its connection.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ApiClient {
@@ -76,6 +81,10 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       timedOut = true;
       controller.abort(new Error('Timed out'));
     }, options.timeoutMs ?? defaultTimeoutMs);
+    const callerSignal = options.signal;
+    const onCallerAbort = () => controller.abort(callerSignal?.reason);
+    if (callerSignal?.aborted) onCallerAbort();
+    else callerSignal?.addEventListener('abort', onCallerAbort);
     const init: RequestInit = { method, signal: controller.signal };
     if (body instanceof FormData) {
       // Multipart, for the one route that carries bytes. No Content-Type: the
@@ -94,10 +103,14 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       // then stalls must not hold the query open forever.
       text = await response.text();
     } catch (err) {
+      // TanStack ignores the rejection of a fetch it cancelled, so the
+      // caller's own reason goes back unwrapped.
+      if (callerSignal?.aborted) throw callerSignal.reason;
       if (timedOut) throw new ApiError(0, 'timeout', `${method} ${path} timed out`);
       throw new ApiError(0, 'transport', err instanceof Error ? err.message : String(err));
     } finally {
       clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', onCallerAbort);
     }
     let parsed: unknown = undefined;
     if (text) {

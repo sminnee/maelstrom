@@ -13,7 +13,7 @@ export function useDocuments() {
   const api = useApi();
   return useQuery({
     queryKey: keys.documents.list(),
-    queryFn: () => api.get<DocumentsBody>('/api/documents'),
+    queryFn: ({ signal }) => api.get<DocumentsBody>('/api/documents', { signal }),
   });
 }
 
@@ -22,7 +22,7 @@ export function useDocument(documentId: DocumentId | null) {
   const api = useApi();
   return useQuery({
     queryKey: keys.documents.detail(documentId ?? ''),
-    queryFn: () => api.get<Document>(`/api/documents/${documentId}`),
+    queryFn: ({ signal }) => api.get<Document>(`/api/documents/${documentId}`, { signal }),
     enabled: documentId !== null,
   });
 }
