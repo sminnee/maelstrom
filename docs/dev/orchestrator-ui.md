@@ -90,7 +90,11 @@ The server is the source of truth, and the app reaches it three ways.
 [orchestrator-server.md](orchestrator-server.md) documents each.
 
 **Reads are REST.** `api/http.ts` is the client: every failure is an `ApiError` with a code —
-the server's, or `transport` and `timeout` for a request that got no answer. One hook per
+the server's, or `transport` and `timeout` for a request that got no answer. A caller's abort
+is the exception: it rejects with the caller's own reason, because TanStack ignores the rejection
+of a fetch it cancelled. Every query passes TanStack's `signal`, so a cancelled query aborts its
+fetch. That frees one of the browser's six connections per host. A query that unmounts mid-fetch
+is cancelled too, so the next visit fetches again. One hook per
 resource (`api/tasks.ts`, `api/agents.ts`, …) wraps one GET; `api/useWorld.ts` composes the
 seven list queries into a `WorldView` (`selectors/world.ts`): the tables keyed by id, with tasks
 and documents as slim rows. A view that needs the prose fetches the detail: the editor fetches
@@ -101,7 +105,11 @@ carries the request it waits on.
 `live/changeStream.ts` follows `GET /api/events` and invalidates what each notice names — the
 list and the detail of every id a `task`, `agent` or `document` notice carries, the one key for
 the rest — and a `reset` invalidates everything. TanStack refetches only the queries something
-is showing, so a reset costs one GET per list on screen. The connection state lives in the
+is showing, so a reset costs one GET per list on screen. A notice invalidates with
+`cancelRefetch: false`, so a fetch in flight runs on and a storm of notices cannot restart it
+forever. That fetch clears the invalidation when it succeeds, so a notice that came during it
+would be lost. A key that was fetching therefore gets one follow-up refetch when the fetch
+settles. The connection state lives in the
 store, and `shell/ConnectionBanner.tsx` shows "Connecting…" before any data and "Reconnecting…
 showing the last known state" once there is some. `shell/HostBanner.tsx` is its twin for the far
 end: `api/host.ts` reads `GET /api/host`, and when the server says the agent host has stopped
@@ -115,14 +123,30 @@ acquire and closes five seconds after the last release, so a tab that closes and
 its stream. The opening frame is a snapshot, or a replay when the reconnect carried a cursor the
 server's ring still held; every later frame is reduced by the pure `live/transcriptReducer.ts`
 into the store's `transcripts` slice and moves the cursor. A `transcript.partial` has no seq:
-`applyPartial` sets the text of a partial message and leaves the cursor. A drop reconnects from the cursor
-with a doubling wait, a `4409` at once, and a `4404` ends the stream. Nothing closes every
+`applyPartial` sets the text of a partial message and leaves the cursor. A frame at or below the
+cursor is skipped, live or in a replay. A drop reconnects from the cursor with a doubling wait.
+
+| Close | What the stream does |
+| --- | --- |
+| `4409`, the reader lagged | Reconnects after 250 ms, doubling to 30 s while it keeps lagging. A socket that stayed open 30 s starts again at 250 ms. |
+| `4404`, the agent is unknown | Ends the stream, and watches the agent list. When a fetch after the close names the agent, it reconnects from the cursor. |
+| Any other | Reconnects after 1 s, doubling to 30 s. |
+
+The watch counts only fetches after the close, so an id in a stale list does not loop. Nothing closes every
 stream at once, so a provider that unmounts and mounts again comes back with its streams
 intact.
 
 A sent message shows at once, before the daemon's own echo of the turn arrives: `sendLocal`
-appends a `pending` stand-in item straight to the store, and the append/snapshot/replay paths
-each drop the oldest matching stand-in once the real, non-pending item lands.
+appends a `pending` stand-in item straight to the store. It returns `remove`, for a failed send,
+and `confirm`, for a send the server took. An echo, live or replayed, marks the oldest stand-in
+not yet echoed. Most sends echo as a user message. A skill command echoes as its `skill` item,
+and `/compact` as its `compact` boundary. The stand-in drops when it is both confirmed and echoed, in either
+order. The text is not compared: the echo of a slash command or an attachment differs from what
+was typed. A snapshot replaces the items, and the stand-ins go with them.
+
+`session/Transcript.tsx` draws each item in a memoised row. The reducer keeps the object of an
+item that did not change, so an append draws one row. A row draws again when its item, gutter
+mark, deferred flag or handlers change, so `SessionTab` builds its handlers once.
 
 **Commands are mutations.** One hook per command in `api/` — `useApprove`, `useLaunch`,
 `useSetStatus`, `usePutOnDesk`, … — over one POST, PATCH or DELETE. Its `mutateAsync` resolves
@@ -932,7 +956,11 @@ is all the highlighter sees, so a hunk that opens inside a comment or a string d
 The theme is Shiki's CSS-variable theme, so each token colour is a `var(--syntax-*)`. The
 values are in `styles/tokens.css`, which also sets the light scheme's `--syntax-shade` for
 contrast. A highlighted row keeps its add or remove ground, and only its sign keeps the add or
-remove hue. The rows draw plain first and the colour replaces them when it is ready. A hunk over
+remove hue. The rows draw plain first and the colour replaces them when it is ready. In the
+Changes tab, a hunk is highlighted only when it comes within 200 px of the screen
+(`ui/useInView.ts`). Once highlighted, it stays highlighted. Tokens go into a cache of 500 hunks,
+keyed by language and text. A hunk already in the cache draws in colour at once, with no plain
+first draw. A hunk over
 2,000 rows, or with a line over 1,000 characters, stays plain. A failed load leaves the rows
 plain and logs a warning, and the next diff tries again.
 

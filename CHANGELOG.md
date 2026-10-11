@@ -182,6 +182,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **The orchestrator UI no longer locks up under load.** A cancelled read now aborts its
+  request, so the connection it held is freed. A burst of change notices no longer restarts a
+  slow read. A transcript recovers when it lags, when its agent comes back, and after a slash
+  command. A new transcript event draws one row, and the Changes tab colours a hunk only when it
+  nears the screen.
 - **A large diff no longer freezes the orchestrator.** The Changes tab of a worktree with
   hundreds of changed files stalled every client for about a second. The server now parses and
   sends the diff off its event loop.
