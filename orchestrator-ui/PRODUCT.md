@@ -89,7 +89,7 @@ Constraints:
 - Against the real server, documents, comments and shaping answer `invalid`. The server serves
   agents, the desk, and the notebook writes: a task's status, its fields, and new tasks.
 - The desk persists on the server. Open tabs, filters and the expanded node do not.
-- No embedded terminal, no auth, no global keyboard shortcut layer today.
+- No embedded terminal and no auth. One global key: Ctrl-` opens the console.
 
 Terminology is fixed by `CONTEXT.md` at the repo root, including each term's `_Avoid_` list.
 Use desk, canvas, task list, expanded node, decision, panel link, phase, attention item,
