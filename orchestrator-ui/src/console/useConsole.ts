@@ -4,7 +4,7 @@ import { useLayoutMode } from '../layout/useLayoutMode';
 import { useGo } from '../nav/useNav';
 import type { Operation } from '../protocol/entities';
 import type { OperationId } from '../protocol/ids';
-import { isUnseen, unitOperation, type Unit } from '../selectors/operations';
+import { concerns, endedBadly, isUnseen, unitOperation, type Unit } from '../selectors/operations';
 import { useAppStore } from '../store/store';
 
 /** How long a done operation stays in the strip, so the operator sees it end. */
@@ -23,6 +23,24 @@ export function useOperationList(): Operation[] {
  */
 export function useUnitOperation(unit: Unit): Operation | undefined {
   return unitOperation(useOperationList(), unit);
+}
+
+/**
+ * The operation a unit's card shows. Opening the card marks an **Unseen** one
+ * seen, which would clear it from the board under the reader, so the card
+ * holds the one it showed until it ends well or the card closes. `open` is
+ * false while the card animates shut: what lands then is not read, so it is
+ * not marked seen.
+ */
+export function useCardOperation(unit: Unit, open = true): Operation | undefined {
+  const ops = useOperationList();
+  const marking = unitOperation(ops, unit);
+  const [held, setHeld] = useState(marking?.id);
+  if (marking && marking.id !== held) setHeld(marking.id);
+  // A card that moves to another unit must not hold the last one's operation.
+  const shown = marking ?? ops.find((op) => op.id === held && endedBadly(op) && concerns(op, unit));
+  useMarkSeenOnShow(open ? shown : undefined);
+  return shown;
 }
 
 /** Showing an **Unseen** operation marks it seen, once; a failed mark tries again. */

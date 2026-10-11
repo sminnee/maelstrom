@@ -345,7 +345,13 @@ describe('App', () => {
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     const alert = await within(card).findByRole('alert');
     expect(alert.closest('button')).toHaveAttribute('title', 'Worktree has uncommitted changes');
-    expect(commandsSince(server, before)).toEqual(['POST /api/worktrees/northwind-bravo/close']);
+    // The open card shows the refusal, so it marks it seen.
+    await waitFor(() =>
+      expect(commandsSince(server, before)).toEqual([
+        'POST /api/worktrees/northwind-bravo/close',
+        'POST /api/operations/op1/seen',
+      ]),
+    );
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 

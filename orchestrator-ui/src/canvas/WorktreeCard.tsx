@@ -1,6 +1,10 @@
 import type { Worktree } from '../protocol/entities';
 import { useNewWork } from '../nav/useOverlays';
 import { useCard } from '../nav/useCard';
+import { useCardOperation } from '../console/useConsole';
+import { endedBadly, unitWords } from '../selectors/operations';
+import { StepMeter } from '../ui/StepMeter';
+import { NextChains } from '../worktrees/NextChains';
 import { AppButton } from '../ui/AppButton';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { CanvasCard } from './CanvasCard';
@@ -30,6 +34,7 @@ export function WorktreeCard({
 }) {
   const { collapse } = useCard();
   const newWork = useNewWork();
+  const op = useCardOperation({ worktreeId: worktree.id }, open);
   return (
     <CanvasCard
       label={`Worktree ${worktree.project} ${worktree.nato}`}
@@ -53,6 +58,13 @@ export function WorktreeCard({
           {actionIcon('close')}
         </button>
       </header>
+      {op && (
+        <div className={styles.operation} data-ended={endedBadly(op) || undefined}>
+          <StepMeter op={op} />
+          <span className="wrap">{unitWords(op)}</span>
+        </div>
+      )}
+      {op?.state === 'refused' && op.kind === 'close' && <NextChains worktreeId={worktree.id} />}
       <WorktreeSection worktree={worktree} />
       {!worktree.isClosed && (
         <div className={styles.commands}>

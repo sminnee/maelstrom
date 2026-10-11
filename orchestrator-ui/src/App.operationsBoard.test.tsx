@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { paneItem } from './test/appHelpers';
+import { commandsSince, paneItem } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /**
@@ -48,6 +48,49 @@ describe('a task node under an operation', () => {
   });
 });
 
+describe('the card of a node under an operation', () => {
+  it('marks a refused close seen as it opens, and still offers the closes that do not refuse', async () => {
+    const { server } = await renderApp({ scenario: 'operations-board' });
+    await waitFor(() => expect(node('MAEL-40.1')).toHaveAttribute('data-operation', 'refused'));
+    const before = server.requests.length;
+    clickNode('MAEL-40.1');
+    await waitFor(() =>
+      expect(commandsSince(server, before)).toEqual(['POST /api/operations/op2/seen']),
+    );
+    await waitFor(() => expect(node('MAEL-40.1')).not.toHaveAttribute('data-operation'));
+
+    // The card holds what it opened on: the reader is still reading it.
+    const card = screen.getByRole('dialog');
+    expect(card).toHaveTextContent('Close refused · Worktree has 2 commit(s) not merged');
+    const next = within(within(card).getByRole('group', { name: 'Next' }));
+    expect(next.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Shelve',
+      'Trash',
+      'Delete',
+    ]);
+    expect(
+      within(within(card).getByTestId('node-commands')).getByRole('button', { name: 'Dismiss' }),
+    ).toBeEnabled();
+  });
+
+  it('ends a next chain off the desk, as the Dismiss it stands in for', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'operations-board' });
+    await waitFor(() => expect(node('MAEL-40.1')).toHaveAttribute('data-operation', 'refused'));
+    clickNode('MAEL-40.1');
+    const card = screen.getByRole('dialog');
+    await waitFor(() => expect(node('MAEL-40.1')).not.toHaveAttribute('data-operation'));
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('button', { name: 'Shelve' }));
+    await user.click(within(card).getByRole('button', { name: 'Shelve it' }));
+    await waitFor(() => expect(node('MAEL-40.1')).toBeNull());
+    expect(commandsSince(server, before)).toEqual([
+      'POST /api/worktrees/maelstrom-bravo/force-close',
+      'DELETE /api/desk/task:MAEL-40.1',
+    ]);
+  });
+});
+
 describe('a worktree box under an operation', () => {
   it('says what runs on it in its label, for any kind', async () => {
     await renderApp({ scenario: 'operations-board' });
@@ -62,8 +105,9 @@ describe('a worktree box under an operation', () => {
     expect(within(box('northwind-bravo')!).getByRole('button')).toHaveTextContent('· syncing 2/3');
   });
 
-  it('says how an operation ended badly', async () => {
-    await renderApp({ scenario: 'operations-board' });
+  it('says how an operation ended badly, until its card shows it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'operations-board' });
     await waitFor(() =>
       expect(box('maelstrom-bravo')).toHaveAttribute('data-operation', 'refused'),
     );
@@ -71,6 +115,16 @@ describe('a worktree box under an operation', () => {
       '· close refused',
     );
     expect(box('northwind-delta')).toHaveAttribute('data-operation', 'failed');
+
+    const before = server.requests.length;
+    await user.click(within(box('northwind-delta')!).getByRole('button'));
+    await waitFor(() =>
+      expect(commandsSince(server, before)).toEqual(['POST /api/operations/op3/seen']),
+    );
+    await waitFor(() => expect(box('northwind-delta')).not.toHaveAttribute('data-operation'));
+    // The card holds what it marked seen, so the operator reads what failed.
+    const card = screen.getByRole('dialog', { name: 'Worktree northwind delta' });
+    expect(card).toHaveTextContent('Shelve failed · git push exited 1');
   });
 });
 

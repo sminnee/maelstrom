@@ -42,3 +42,14 @@
   justify-content: flex-end;
   gap: var(--u);
 }
+/* The operation on the worktree, as its box and its table row say it. */
+.operation {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.operation[data-ended] {
+  color: var(--danger);
+}

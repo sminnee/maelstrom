@@ -168,6 +168,9 @@
 .reason {
   color: var(--fg-muted);
 }
+.status .ended {
+  color: var(--danger);
+}
 /* The settable status sits at the right end of the id line. */
 .taskStatus {
   margin-left: auto;
