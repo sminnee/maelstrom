@@ -115,6 +115,7 @@ def task_entity(
         "executeModel": task.execute_model,
         "prNumber": task.pr_number,
         "prUrl": task.pr_url,
+        "prWithdrawn": task.pr_withdrawn,
         "content": task.content.strip(),
         "log": parse_log(task.log),
         "created": task.created,

@@ -91,12 +91,14 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ),
         ("Built.\n\n<milestone>built</milestone>", "Built."),
         ('Pushed.\n\n<link rel="gh-pr">118</link>', "Pushed."),
+        ('More work.\n\n<link rel="gh-pr" withdrawn>118</link>', "More work."),
         ("Look.\n\n<jig show>", "Look."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
         ("Before\n\n<milestone>bui", "Before"),
         ('Before\n\n<link rel="gh-pr">https://github.com/o/r/pu', "Before"),
+        ('Before\n\n<link rel="gh-pr" withdrawn>11', "Before"),
         # An HTML link never closes, so it is prose, not a held-back marker.
         (
             'a <link rel="stylesheet" href="x.css"> b',

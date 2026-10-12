@@ -6845,6 +6845,80 @@ def test_a_free_agents_pr_link_registers_nothing(harness):
     assert pr_of(harness)[0] == 0
 
 
+def withdrawn_of(harness, task_id: str = "NORT-7") -> bool:
+    """Whether the world carries the task's Registered PR as withdrawn."""
+    return harness.orch.world["tasks"][f"{PROJECT}/{task_id}"]["prWithdrawn"]
+
+
+def test_a_withdrawn_pr_link_withdraws_the_registered_pr(harness):
+    an_agent_on_a_task(harness)
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event('<link rel="gh-pr" withdrawn>118</link>')
+                )
+                await wait_until(lambda: withdrawn_of(harness))
+
+    run(scenario())
+    assert pr_of(harness) == (118, PR_URL)
+
+
+def test_a_replayed_withdrawn_pr_link_withdraws_nothing(harness):
+    """A replayed tag is history: a later push may have made the PR ready."""
+    an_agent_on_a_task(
+        harness, backlog=[tag_event('<link rel="gh-pr" withdrawn>118</link>')]
+    )
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await then_settled(harness, api, stream)
+
+    run(scenario())
+    assert withdrawn_of(harness) is False
+
+
+def test_a_withdrawn_link_to_another_pr_withdraws_nothing(harness):
+    an_agent_on_a_task(harness)
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 120, "u120"))
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event('<link rel="gh-pr" withdrawn>118</link>')
+                )
+                await then_settled(harness, api, stream)
+
+    run(scenario())
+    assert (pr_of(harness)[0], withdrawn_of(harness)) == (120, False)
+
+
+def test_a_free_agents_withdrawn_pr_link_withdraws_nothing(harness):
+    harness.add_task("NORT-7")
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL))
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1", tag_event('<link rel="gh-pr" withdrawn>118</link>')
+                )
+                await then_settled(harness, api, stream)
+
+    run(scenario())
+    assert withdrawn_of(harness) is False
+
+
 def milestone_items(harness) -> list[dict]:
     """Every milestone bar in ag1's transcript."""
     return [
