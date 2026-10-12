@@ -70,6 +70,18 @@ describe('useRetained', () => {
     expect(held()).toBeUndefined();
   });
 
+  it('a release that keeps the value clears storage and leaves the field alone', () => {
+    // A form that stays on screen until the server's echo removes it: a reset
+    // there reads as a lost answer.
+    const { result, unmount } = renderHook(() => useRetained(KEY, ''));
+    act(() => result.current[1]('sent'));
+    act(() => result.current[2]({ keepValue: true }));
+    expect(result.current[0]).toBe('sent');
+    settle();
+    unmount();
+    expect(held()).toBeUndefined();
+  });
+
   it('holds again after a release, because the next keystroke is new work', () => {
     const { result } = renderHook(() => useRetained(KEY, ''));
     act(() => result.current[1]('first'));
