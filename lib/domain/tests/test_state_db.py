@@ -157,6 +157,7 @@ class TestTheTasksLadderUpgrade:
             assert row is not None
             assert row["execute_model"] == ""
             assert (row["pr_number"], row["pr_url"]) == (0, "")
+            assert row["pr_withdrawn"] == 0
             assert row["comms"] == "[]"
         finally:
             db.close()

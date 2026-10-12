@@ -223,6 +223,23 @@ async def gh_link_pr(ref, task_id):
     click.echo(f"Registered PR #{number} on {task_id}")
 
 
+@gh.command("withdraw-pr")
+@click.option(
+    "--task",
+    "task_id",
+    default=None,
+    help="Task whose PR to withdraw. Default: $MAEL_TASK_ID",
+)
+async def gh_withdraw_pr(task_id):
+    """Withdraw a task's Registered PR while more work is done.
+
+    The card shows the PR as withdrawn. The next ``create-pr`` push makes it
+    ready again.
+    """
+    task = await task_cli.withdraw_pr(task_id)
+    click.echo(f"Withdrew PR #{task.pr_number} on {task.id}")
+
+
 @gh.command("wait-for-pr")
 @click.argument("target", required=False, default=None)
 @click.option("--timeout", default=1800, help="Timeout in seconds (default: 1800)")

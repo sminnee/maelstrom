@@ -114,4 +114,8 @@ TASKS: tuple[Rung, ...] = (
     Migration(("ALTER TABLE tasks ADD COLUMN trigger TEXT NOT NULL DEFAULT ''",)),
     # The comms a task feeds: a JSON list, like ``follows``. See CONTEXT.md, "Comm".
     Migration(("ALTER TABLE tasks ADD COLUMN comms TEXT NOT NULL DEFAULT '[]'",)),
+    # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
+    Migration(
+        ("ALTER TABLE tasks ADD COLUMN pr_withdrawn INTEGER NOT NULL DEFAULT 0",)
+    ),
 )
