@@ -33,7 +33,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mael_common.shell import run_cmd
 from mael_common.util import now_iso
@@ -683,6 +683,7 @@ async def create(
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
+    generate_branch: bool = True,
 ) -> Task:
     """Create a new task and write its row (one write).
 
@@ -699,6 +700,9 @@ async def create(
 
     ``comms`` set to ``None`` inherits the parent task's comms, as the branch
     is inherited. An explicit list wins, and ``[]`` opts out.
+
+    ``generate_branch=False`` skips the generator and takes the cheap
+    ``task/<id>`` shape, for a caller that names the branch itself later.
     """
     timestamp = now if now is not None else now_iso()
     if id is None:
@@ -724,7 +728,7 @@ async def create(
     )
     if not resolved_branch:
         resolved_branch = default_branch(
-            id, parent, title=title, content=content, generate=True
+            id, parent, title=title, content=content, generate=generate_branch
         )
     task = Task(
         id=id,
@@ -962,7 +966,7 @@ async def promote_draft(
     if draft is None:
         draft = read_draft(path)
     given = overrides or {}
-    fields = {
+    fields: dict[str, Any] = {
         name: value if (value := given.get(name)) is not None else getattr(draft, name)
         for name in PROMOTABLE_FIELDS
     }

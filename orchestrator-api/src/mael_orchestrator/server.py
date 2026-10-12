@@ -16,6 +16,7 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Executor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -83,11 +84,13 @@ from mael_domain.task_attachments import (
 from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
+from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import (
     format_change_comments,
     format_jig_hidden,
     format_monkeypatch,
 )
+from mael_domain.worktree_model import get_worktree_folder_name
 from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
@@ -109,6 +112,7 @@ from .operations import (
 from .sources import (
     CloseBlocked,
     MergeWorktreePr,
+    PreparedLaunch,
     TaskSource,
     WorktreeSource,
 )
@@ -139,6 +143,7 @@ from .world_build import (
     link_agent,
     parse_agent_state,
     row_totals,
+    split_task_key,
 )
 from .world_build import task_key as wire_task_key
 
@@ -251,6 +256,36 @@ _ENV_WORDS = {
     "stop": ("Stopping", "Stopped"),
     "restart": ("Restarting", "Restarted"),
 }
+
+
+#: The steps that launch a task or start an agent, in order. They hold what
+#: they learn in memory, so a retry runs them all again.
+LAUNCH_STEPS = ("open_worktree", "write_env", "start_agent")
+
+
+@dataclass
+class _Launching:
+    """What a launch kind learns as its steps run."""
+
+    project: str
+    task_id: str = ""
+    branch: str = ""
+    prepared: PreparedLaunch | None = None
+    setup: WorktreeSetup | None = None
+    agent_id: str = ""
+
+
+def _opened(setup: WorktreeSetup) -> str:
+    """The log line of an opened worktree: ``Reused alpha.``"""
+    return f"{setup.action.capitalize()} {setup.name}."
+
+
+def _first_line(content: str, limit: int = 60) -> str:
+    """A task's stand-in title: its prose's first line, cut to ``limit``.
+
+    Validation refuses a create with neither a title nor prose, so there is a line.
+    """
+    return content.strip().splitlines()[0][:limit].rstrip()
 
 
 async def _run_own_steps(steps: list[Step], hook: StepHook) -> None:
@@ -465,8 +500,6 @@ class Orchestrator:
         #: Outlives the agent's exit: a resume reuses the agent id, so the
         #: mark has to survive it or the revived agent re-mints old ids.
         self._item_seeds: dict[str, int] = {}
-        #: Tasks whose launch is under way, so a second launch is refused.
-        self._launching: set[str] = set()
         #: Consecutive agent polls the host answered with an error. The host
         #: is reported unreachable on the second, so one dropped connection
         #: during a daemon restart does not raise the banner.
@@ -1834,7 +1867,7 @@ class Orchestrator:
             "agent.interrupt": self._interrupt,
             "agent.setMode": self._set_mode,
             "agent.resume": self._operate,
-            "agent.launch": self._launch,
+            "agent.launch": self._operate,
             "desk.add": self._desk_add,
             "desk.remove": self._desk_remove,
             "desk.dismiss": self._operate,
@@ -1845,8 +1878,8 @@ class Orchestrator:
             "task.create": self._create_task,
             "comm.create": self._create_comm,
             "comm.update": self._update_comm,
-            "linear.plan": self._linear_plan,
-            "agent.start": self._start_free_agent,
+            "linear.plan": self._operate,
+            "agent.start": self._operate,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
             "worktree.close": self._operate,
@@ -1999,43 +2032,6 @@ class Orchestrator:
         """
         return await self._relay({"cmd": "interrupt", "id": command["agentId"]})
 
-    async def _launch(self, command: dict[str, Any]) -> dict[str, Any]:
-        task_id = command["taskId"]
-        if task_id in self._launching:
-            return _refused("invalid", f"Task {task_id} is already launching")
-        self._launching.add(task_id)
-        try:
-            try:
-                request = await self._run(
-                    self.tasks.launch, task_id, command.get("model")
-                )
-            except KeyError:
-                return _refused("unknown_id", f"No task {task_id}")
-            except LaunchBlocked as exc:
-                await self.refresh_tasks(force=True)
-                return _refused("invalid", str(exc))
-            # From here the task is in-progress; any failure to start an
-            # agent for it must put it back, or it strands with no agent.
-            try:
-                reply = await self.daemon.request(request.payload)
-                agent_id = reply.get("id") if "error" not in reply else None
-                if not agent_id:
-                    error = reply.get("error") or "agent host sent no agent id"
-                    await self._run(self.tasks.rollback, request)
-                    await self.refresh_tasks(force=True)
-                    return _refused(_code_for(error), error)
-                await self.refresh_tasks(force=True)
-                await self._add_to_desk(desk_id_for_task(task_id))
-                await self._adopt(_started_row(agent_id, request.payload))
-            except Exception as exc:  # noqa: BLE001 — the rollback must run
-                log.exception("launch of %s failed after the task moved", task_id)
-                await self._run(self.tasks.rollback, request)
-                await self.refresh_tasks(force=True)
-                return _refused("invalid", f"Launch failed: {exc}")
-            return {"ok": True, "result": {"agentId": agent_id}}
-        finally:
-            self._launching.discard(task_id)
-
     async def _infer_task(self, command: dict[str, Any]) -> dict[str, Any]:
         """Name a task from its prose. Reads only — nothing is written.
 
@@ -2054,36 +2050,45 @@ class Orchestrator:
             },
         }
 
-    async def _create_task(
-        self, command: dict[str, Any], extra: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Write a new task, put it on the desk, and launch it when asked.
+    async def _create_task(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Write a new task and put it on the desk, then name and launch it.
 
-        Save and Start both file the task on the desk. A launch then runs the
-        existing launch path unchanged.
-
-        ``extra`` holds fields the server sets and a client may not — see
-        :meth:`_linear_plan`. It bypasses the editable-field filter, so it must
-        never carry anything from the request body.
+        The write is done before the reply, so the reply carries the task id
+        and the desk entry is there at once. A title or branch left empty is
+        named, and a launch runs, as one operation after the reply. A task
+        with every field typed and no launch needs no operation. See
+        ``docs/dev/orchestrator-server.md``, "Creating work".
         """
+        content = str(command.get("content", "")).strip()
+        unnamed = [
+            f for f in ("title", "branch") if not str(command.get(f, "")).strip()
+        ]
+        fields = dict(command)
+        if "title" in unnamed:
+            # A stand-in until the operation names it.
+            fields["title"] = _first_line(content)
         try:
             task_id = await self._run(
-                self.tasks.create, command["project"], command, extra
+                functools.partial(
+                    self.tasks.create,
+                    command["project"],
+                    fields,
+                    None,
+                    generate_branch=False,
+                )
             )
         except ValueError as exc:
             return _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
         await self._add_to_desk(desk_id_for_task(task_id))
-        result: dict[str, Any] = {"taskId": task_id}
-        if command.get("launch"):
-            launched = await self._launch({"taskId": task_id})
-            if not launched["ok"]:
-                # The task is written and on the desk; only the start failed.
-                # The refusal names it, or the client cannot tell this from
-                # "nothing was written" and a retry writes it a second time.
-                return {**launched, "error": {**launched["error"], "taskId": task_id}}
-            result["agentId"] = launched["result"]["agentId"]
-        return {"ok": True, "result": result}
+        if not unnamed and not command.get("launch"):
+            return {"ok": True, "result": {"taskId": task_id}}
+        # The operation's key is the task's own, minted a moment ago, so
+        # nothing can hold it and the start cannot refuse.
+        started = await self._operate(
+            {**command, "taskId": task_id, "unnamed": unnamed}
+        )
+        return {"ok": True, "result": {"taskId": task_id, **started["result"]}}
 
     async def linear_issues(self, project: str) -> dict[str, Any]:
         """A project's Linear issues for the current cycle.
@@ -2116,93 +2121,6 @@ class Orchestrator:
                 ]
             },
         }
-
-    async def _linear_plan(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Plan a Linear issue: the equivalent of ``mael linear plan``.
-
-        Fetches the issue's brief and writes the planning task ``linear plan``
-        would write, then hands it to :meth:`_create_task` — so a Linear plan is
-        saved, filed and launched by the one path a task is. The branch is
-        inferred here and passed to ``plan_fields``.
-        """
-        project = command["project"]
-        issue_id = command["issueId"]
-        try:
-            fields = await self._run(linear_source.plan_fields, project, issue_id)
-            names = await self._run(self.tasks.infer, fields["content"])
-        except IntegrationError as exc:
-            # A missing key or an unreachable API is the user's to fix, so they
-            # are told what Linear said rather than shown a 500.
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not plan %s", issue_id)
-            return _refused("invalid", f"Could not read {issue_id}: {exc}")
-        # The bare issue number leads the branch, as `linear plan` writes it.
-        number = issue_id.rsplit("-", 1)[-1]
-        return await self._create_task(
-            {
-                **fields,
-                "branch": lead_with_number(names.branch, number),
-                "project": project,
-                "launch": command.get("launch", False),
-            },
-            # Not a client's to choose: the parent binds the task to its issue,
-            # and the action moves that issue when the planning session ends.
-            {"parent": fields["parent"], "post_action": fields["post_action"]},
-        )
-
-    async def _start_free_agent(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Start an agent in a branch's worktree, tied to no task.
-
-        A launch's payload less ``session`` and ``env`` — see
-        ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
-        a branch with none gets one provisioned.
-
-        An investigation whose rules file is gone is refused before the
-        worktree opens: without the rules it is an ordinary free agent.
-        """
-        prompt_file = agent_prompt_file()
-        if command.get("investigate"):
-            prompt_file = investigation_prompt_file()
-            if prompt_file is None:
-                return _refused("invalid", "The investigation rules are missing")
-        try:
-            setup = await self._run(
-                self.tasks.worktree_for, command["project"], command["branch"]
-            )
-        except LaunchBlocked as exc:
-            # The source's own refusal, as the launch path treats it.
-            return _refused("invalid", str(exc))
-        except Exception as exc:  # noqa: BLE001 — the client hears why
-            log.exception("could not open a worktree for a free agent")
-            return _refused("invalid", f"Could not open the worktree: {exc}")
-        payload = build_start_payload(
-            setup.path,
-            prompt=command["prompt"],
-            permission_mode=model_permission_mode(command.get("mode", "")),
-            model=command.get("model") or None,
-            execute_model=command.get("executeModel") or None,
-            system_prompt_file=prompt_file,
-        )
-        reply = await self.daemon.request(payload)
-        agent_id = reply.get("id") if "error" not in reply else None
-        if not agent_id:
-            error = reply.get("error") or "agent host sent no agent id"
-            return _refused(_code_for(error), error)
-        # A worktree provisioned a moment ago is not in the world yet, and the
-        # adoption links the agent to it by cwd. Without this the node draws in
-        # a generic lane until the next poll.
-        await self.refresh_worktrees()
-        await self._adopt(_started_row(agent_id, payload))
-        # The desk join is explicit, as the launch's is: ``_adopt`` alone does
-        # not file an agent, only the reconcile that follows one does, and the
-        # user is waiting on this reply to see the agent on the canvas.
-        await self._join_desk(agent_id)
-        # Again, now the branch is on the desk. The read above ran before the
-        # join, so it did not ask about this branch and the node would draw
-        # with no pull request until the next poll.
-        await self.refresh_worktrees()
-        return {"ok": True, "result": {"agentId": agent_id}}
 
     async def _approve_document(self, command: dict[str, Any]) -> dict[str, Any]:
         """The user's verdict on a document, and — for a task set — the tasks.
@@ -2450,7 +2368,363 @@ class Orchestrator:
             return self._dismiss_plan(command)
         if kind in ("agent.stop", "agent.resume"):
             return self._agent_plan(command)
+        if kind == "agent.launch":
+            return self._launch_plan(command)
+        if kind == "task.create":
+            return self._create_plan(command)
+        if kind == "linear.plan":
+            return self._linear_plan(command)
+        if kind == "agent.start":
+            return self._start_plan(command)
         return self._worktree_plan(command)
+
+    # -- launch kinds --
+
+    def _task_launch_steps(
+        self, launching: "_Launching", model_name: str | None, hook: OperationHook
+    ) -> list[Step]:
+        """Open a task's worktree, write its ``.env``, and start its agent.
+
+        The steps of a launch, and the tail of a create or a plan that
+        launches. The task moves in-progress as its worktree opens; the
+        operation's work rolls it back when a later step does not finish.
+        """
+
+        async def open_worktree() -> StepOutcome:
+            try:
+                prepared = await self._run(
+                    self.tasks.prepare_launch, launching.task_id, model_name
+                )
+            except KeyError:
+                return StepOutcome(blocked=f"No task {launching.task_id}")
+            except LaunchBlocked as exc:
+                return StepOutcome(blocked=str(exc))
+            launching.prepared = prepared
+            setup = prepared.setup
+            hook.target(
+                worktree_id=get_worktree_folder_name(launching.project, setup.name)
+            )
+            await self.refresh_tasks(force=True)
+            return StepOutcome(messages=[_opened(setup)])
+
+        async def write_env() -> StepOutcome:
+            assert launching.prepared is not None  # open_worktree ran first
+            lines = await self.tasks.write_env(
+                launching.project, launching.prepared.setup
+            )
+            return StepOutcome(messages=lines)
+
+        async def start_agent() -> StepOutcome:
+            assert launching.prepared is not None  # open_worktree ran first
+            payload = self.tasks.finish_launch(launching.prepared)
+            reply = await self.daemon.request(payload)
+            agent_id = reply.get("id") if "error" not in reply else None
+            if not agent_id:
+                return StepOutcome(
+                    blocked=reply.get("error") or "agent host sent no agent id"
+                )
+            launching.agent_id = agent_id
+            hook.target(agent_id=agent_id)
+            await self.refresh_tasks(force=True)
+            await self._add_to_desk(desk_id_for_task(launching.task_id))
+            await self._adopt(_started_row(agent_id, payload))
+            return StepOutcome(messages=[f"Started {agent_id}."])
+
+        return [
+            Step(name="open_worktree", run=open_worktree),
+            Step(name="write_env", run=write_env),
+            Step(name="start_agent", run=start_agent),
+        ]
+
+    async def _run_launch(
+        self, steps: list[Step], hook: StepHook, launching: "_Launching"
+    ) -> None:
+        """Run a launch kind's steps; put the task back if no agent started."""
+        try:
+            await _run_own_steps(steps, hook)
+        except BaseException:
+            if launching.prepared is not None and not launching.agent_id:
+                await self._run(self.tasks.rollback, launching.prepared)
+            raise
+
+    async def _refresh_launched(self) -> None:
+        # A launch moves the task, and may have provisioned the worktree.
+        await self.refresh_tasks(force=True)
+        await self.refresh_worktrees()
+
+    def _task_title(self, task_id: str) -> str:
+        task = self.world["tasks"].get(task_id)
+        return task["title"] if task else task_id
+
+    def _launch_plan(self, command: dict[str, Any]) -> OperationPlan:
+        """Launch a task: its worktree opens, its ``.env`` is written, its agent starts."""
+        task_id = command["taskId"]
+        launching = _Launching(project=split_task_key(task_id)[0], task_id=task_id)
+
+        async def work(hook: OperationHook) -> None:
+            steps = self._task_launch_steps(launching, command.get("model"), hook)
+            await self._run_launch(steps, hook, launching)
+
+        title = self._task_title(task_id)
+        return OperationPlan(
+            "launch",
+            frozenset({desk_id_for_task(task_id)}),
+            f"Launching {title}",
+            f"Launched {title}",
+            "Could not launch",
+            work,
+            self._refresh_launched,
+            project=launching.project,
+            steps=LAUNCH_STEPS,
+            replay=frozenset(LAUNCH_STEPS),
+            task_id=task_id,
+        )
+
+    def _create_plan(self, command: dict[str, Any]) -> OperationPlan:
+        """Name a task just written, then launch it when asked.
+
+        ``unnamed`` lists the fields the user left empty. Each is written only
+        while it still holds its stand-in, so a field edited while the
+        inference ran is kept. A task with no prose is named from its title.
+        """
+        task_id = command["taskId"]
+        launching = _Launching(project=command["project"], task_id=task_id)
+        unnamed = list(command.get("unnamed") or [])
+        launch = bool(command.get("launch"))
+
+        # What `_create_task` wrote in place of each empty field.
+        stand_ins = {
+            "title": _first_line(command["content"]) if "title" in unnamed else "",
+            "branch": f"task/{split_task_key(task_id)[1]}",
+        }
+
+        async def name_task() -> StepOutcome:
+            task = self.world["tasks"].get(task_id)
+            draft = (task["content"] or task["title"]) if task else ""
+            names = await self._run(self.tasks.infer, draft)
+            # Read again after the inference: the user may have edited meanwhile.
+            task = self.world["tasks"].get(task_id)
+            named = {
+                f: getattr(names, f)
+                for f in unnamed
+                if task is not None and task[f] == stand_ins[f]
+            }
+            if named:
+                await self._run(self.tasks.update, task_id, named)
+            await self.refresh_tasks(force=True)
+            return StepOutcome(messages=[f"{f.title()}: {v}" for f, v in named.items()])
+
+        async def work(hook: OperationHook) -> None:
+            steps = [Step(name="name_task", run=name_task)] if unnamed else []
+            if launch:
+                steps += self._task_launch_steps(launching, command.get("model"), hook)
+            await self._run_launch(steps, hook, launching)
+
+        title = self._task_title(task_id)
+        steps = (("name_task",) if unnamed else ()) + (LAUNCH_STEPS if launch else ())
+        return OperationPlan(
+            "create",
+            frozenset({desk_id_for_task(task_id)}),
+            f"Creating {title}",
+            f"Created {title}",
+            "Could not create the task",
+            work,
+            self._refresh_launched,
+            project=launching.project,
+            steps=steps,
+            replay=frozenset(LAUNCH_STEPS),
+            task_id=task_id,
+        )
+
+    def _linear_plan(self, command: dict[str, Any]) -> OperationPlan:
+        """Plan a Linear issue: the equivalent of ``mael linear plan``.
+
+        Reads the issue's brief, names its branch, and writes the planning task
+        ``linear plan`` would write, then launches it when asked. The task id
+        is known only once it is written, so it is kept on the stored command:
+        a retry does not write the task twice.
+        """
+        project = command["project"]
+        issue_id = command["issueId"]
+        launching = _Launching(project=project, task_id=command.get("taskId", ""))
+        launch = bool(command.get("launch"))
+        read: dict[str, Any] = {}
+
+        async def read_issue() -> StepOutcome:
+            if launching.task_id:
+                return StepOutcome(messages=["Written already."])
+            try:
+                read.update(
+                    await self._run(linear_source.plan_fields, project, issue_id)
+                )
+            except IntegrationError as exc:
+                # A missing key or an unreachable API is the user's to fix.
+                return StepOutcome(blocked=str(exc))
+            return StepOutcome(messages=[f"Read {issue_id}."])
+
+        async def name_task() -> StepOutcome:
+            if launching.task_id:
+                return StepOutcome(messages=["Written already."])
+            names = await self._run(self.tasks.infer, read["content"])
+            # The bare issue number leads the branch, as `linear plan` writes it.
+            read["branch"] = lead_with_number(names.branch, issue_id.rsplit("-", 1)[-1])
+            return StepOutcome(messages=[f"Branch: {read['branch']}"])
+
+        def write_task(hook: OperationHook) -> Step:
+            async def run() -> StepOutcome:
+                # A retry after a fault past the write has the id already.
+                if launching.task_id:
+                    return StepOutcome(messages=["Written already."])
+                task_id = await self._run(
+                    self.tasks.create,
+                    project,
+                    {**read, "project": project},
+                    # Not a client's to choose: the parent binds the task to
+                    # its issue, and the action moves that issue when the
+                    # planning session ends.
+                    {"parent": read["parent"], "post_action": read["post_action"]},
+                )
+                launching.task_id = task_id
+                hook.target(task_id=task_id)
+                hook.remember(taskId=task_id)
+                await self.refresh_tasks(force=True)
+                await self._add_to_desk(desk_id_for_task(task_id))
+                return StepOutcome(messages=[f"Wrote {task_id}."])
+
+            return Step(name="write_task", run=run)
+
+        async def work(hook: OperationHook) -> None:
+            steps = [
+                Step(name="read_issue", run=read_issue),
+                Step(name="name_task", run=name_task),
+                write_task(hook),
+            ]
+            if launch:
+                steps += self._task_launch_steps(launching, None, hook)
+            await self._run_launch(steps, hook, launching)
+
+        steps = ("read_issue", "name_task", "write_task")
+        return OperationPlan(
+            "plan",
+            frozenset({f"linear:{project}/{issue_id}"}),
+            f"Planning {issue_id}",
+            f"Planned {issue_id}",
+            f"Could not plan {issue_id}",
+            work,
+            self._refresh_launched,
+            project=project,
+            steps=steps + (LAUNCH_STEPS if launch else ()),
+            replay=frozenset({"read_issue", "name_task", *LAUNCH_STEPS}),
+            task_id=launching.task_id or None,
+        )
+
+    def _start_plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
+        """Start an agent in a branch's worktree, tied to no task.
+
+        A launch's payload less ``session`` and ``env`` — see
+        ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
+        a branch with none gets one provisioned. An empty branch is named from
+        the prompt first, and kept on the stored command for a retry.
+
+        An investigation whose rules file is gone is refused before the
+        operation starts: without the rules it is an ordinary free agent.
+        """
+        prompt_file = agent_prompt_file()
+        if command.get("investigate"):
+            prompt_file = investigation_prompt_file()
+            if prompt_file is None:
+                return _refused("invalid", "The investigation rules are missing")
+        project = command["project"]
+        typed = str(command.get("branch", "")).strip()
+        launching = _Launching(
+            project=project,
+            branch=typed or str((command.get("named") or {}).get("branch", "")),
+        )
+
+        def name_branch(hook: OperationHook) -> Step:
+            async def run() -> StepOutcome:
+                names = await self._run(self.tasks.infer, command["prompt"])
+                launching.branch = names.branch
+                hook.remember(named={"branch": names.branch})
+                return StepOutcome(messages=[f"Branch: {names.branch}"])
+
+            return Step(name="name_branch", run=run)
+
+        def open_worktree(hook: OperationHook) -> Step:
+            async def run() -> StepOutcome:
+                try:
+                    setup = await self._run(
+                        self.tasks.worktree_for, project, launching.branch
+                    )
+                except LaunchBlocked as exc:
+                    return StepOutcome(blocked=str(exc))
+                launching.setup = setup
+                hook.target(worktree_id=get_worktree_folder_name(project, setup.name))
+                return StepOutcome(messages=[_opened(setup)])
+
+            return Step(name="open_worktree", run=run)
+
+        async def write_env() -> StepOutcome:
+            assert launching.setup is not None  # open_worktree ran first
+            return StepOutcome(
+                messages=await self.tasks.write_env(project, launching.setup)
+            )
+
+        def start_agent(hook: OperationHook) -> Step:
+            async def run() -> StepOutcome:
+                assert launching.setup is not None  # open_worktree ran first
+                payload = build_start_payload(
+                    launching.setup.path,
+                    prompt=command["prompt"],
+                    permission_mode=model_permission_mode(command.get("mode", "")),
+                    model=command.get("model") or None,
+                    execute_model=command.get("executeModel") or None,
+                    system_prompt_file=prompt_file,
+                )
+                reply = await self.daemon.request(payload)
+                agent_id = reply.get("id") if "error" not in reply else None
+                if not agent_id:
+                    return StepOutcome(
+                        blocked=reply.get("error") or "agent host sent no agent id"
+                    )
+                hook.target(agent_id=agent_id)
+                # A worktree provisioned a moment ago is not in the world yet,
+                # and the adoption links the agent to it by cwd.
+                await self.refresh_worktrees()
+                await self._adopt(_started_row(agent_id, payload))
+                # The desk join is explicit: ``_adopt`` alone does not file an
+                # agent, only the reconcile that follows one does.
+                await self._join_desk(agent_id)
+                return StepOutcome(messages=[f"Started {agent_id}."])
+
+            return Step(name="start_agent", run=run)
+
+        async def work(hook: OperationHook) -> None:
+            steps = [] if typed else [name_branch(hook)]
+            steps += [
+                open_worktree(hook),
+                Step(name="write_env", run=write_env),
+                start_agent(hook),
+            ]
+            await _run_own_steps(steps, hook)
+
+        subject = f"an agent on {launching.branch}" if launching.branch else "an agent"
+        return OperationPlan(
+            "start",
+            frozenset(
+                {f"branch:{project}/{launching.branch}"} if launching.branch else ()
+            ),
+            f"Starting {subject}",
+            f"Started {subject}",
+            "Could not start the agent",
+            work,
+            # Again, now the branch is on the desk: the node draws with its
+            # pull request at once rather than at the next poll.
+            self.refresh_worktrees,
+            project=project,
+            steps=(() if typed else ("name_branch",)) + LAUNCH_STEPS,
+            replay=frozenset(LAUNCH_STEPS),
+        )
 
     def _agent_plan(self, command: dict[str, Any]) -> OperationPlan:
         """Terminate or resume one agent, as an operation of one step."""

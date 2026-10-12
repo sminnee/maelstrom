@@ -563,9 +563,14 @@ def test_unknown_id_for_a_create_in_a_project_the_world_does_not_hold():
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"
 
 
-def test_invalid_for_a_create_with_no_title():
+def test_invalid_for_a_create_with_no_title_and_no_prose():
     world = world_with(projects=[PROJECT])
-    assert code(validate_command(world, _create(title="  "))) == "invalid"
+    assert code(validate_command(world, _create(title="  ", content=""))) == "invalid"
+
+
+def test_a_create_with_no_title_is_named_from_its_prose():
+    world = world_with(projects=[PROJECT])
+    assert validate_command(world, _create(title="", content="Do it.")) is None
 
 
 def test_invalid_for_a_create_in_a_mode_the_notebook_cannot_launch():
@@ -620,7 +625,7 @@ def test_invalid_for_a_free_agent_with_no_prompt():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_invalid_for_a_free_agent_with_no_branch():
+def test_a_free_agent_with_no_branch_is_named_from_its_prompt():
     world = world_with(projects=[PROJECT])
     cmd = {
         "type": "agent.start",
@@ -629,7 +634,7 @@ def test_invalid_for_a_free_agent_with_no_branch():
         "prompt": "Look at the logs",
         "mode": "normal",
     }
-    assert code(validate_command(world, cmd)) == "invalid"
+    assert validate_command(world, cmd) is None
 
 
 def test_invalid_for_a_free_agent_in_a_mode_the_host_cannot_start():

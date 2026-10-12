@@ -81,29 +81,30 @@ log = logging.getLogger(__name__)
 WORKTREE_WORKERS = 4
 
 
-def _refresh_env(
-    project: str, nato: str, project_path: Path, worktree_path: Path
-) -> None:
-    """Rebuild a reopened worktree's ``.env``; any failure only warns."""
+def _refresh_env(project: str, project_path: Path, setup: WorktreeSetup) -> list[str]:
+    """Rebuild an opened worktree's ``.env``, and say what it did.
+
+    A failure only warns: a bad ``.maelstrom.yaml`` or an unwritable ``.env``
+    must not refuse a launch. The lines are the launch's ``write_env`` step log.
+    """
     try:
         refresh = refresh_env(
-            JsonEnvStore(), project, nato, project_path, worktree_path
+            JsonEnvStore(), project, setup.name, project_path, setup.path
         )
-    # Broad on purpose: a bad `.maelstrom.yaml` or an unwritable `.env` must
-    # not refuse a launch.
-    except Exception as exc:  # noqa: BLE001
-        click.echo(f"Warning: .env not refreshed: {exc}", err=True)
-        return
-    for key in refresh.copy_back.added:
-        click.echo(f"Copied {key} back to {project_path / '.env'}.", err=True)
-    for conflict in refresh.copy_back.conflicts:
-        click.echo(
-            f"Warning: {conflict.key} differs from {project_path / '.env'}; "
-            "the worktree value was overwritten.",
-            err=True,
-        )
+    except Exception as exc:  # noqa: BLE001 — broad on purpose, see above
+        return [f"Warning: .env not refreshed: {exc}"]
+    lines = [
+        f"Copied {key} back to {project_path / '.env'}."
+        for key in refresh.copy_back.added
+    ]
+    lines += [
+        f"Warning: {conflict.key} differs from {project_path / '.env'}; "
+        "the worktree value was overwritten."
+        for conflict in refresh.copy_back.conflicts
+    ]
     if refresh.changed:
-        click.echo(f"Regenerated .env for {project}/{nato}.", err=True)
+        lines.append(f"Regenerated .env for {project}/{setup.name}.")
+    return lines or [".env unchanged."]
 
 
 def build_orchestrator(
@@ -154,9 +155,10 @@ def build_orchestrator(
         if setup.sync is not None and setup.sync.push_failed:
             # The rebase landed, so the launch goes ahead on the local branch.
             log.warning("open of %s/%s: %s", project, branch, setup.sync.push_message)
-        if setup.rebuilds_env:
-            _refresh_env(project, setup.name, projects_dir / project, setup.path)
         return setup
+
+    def write_env(project: str, setup: WorktreeSetup) -> list[str]:
+        return _refresh_env(project, projects_dir / project, setup)
 
     async def close_worktree(
         project: str, nato: str, path: str, *, hook: StepHook
@@ -314,6 +316,7 @@ def build_orchestrator(
         table,
         list_projects,
         open_worktree=open_worktree,
+        refresh_env=write_env,
         worktree_executor=worktree_executor,
         agents=agent_store,
         landings=landings,

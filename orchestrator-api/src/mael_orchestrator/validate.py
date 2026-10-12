@@ -706,8 +706,13 @@ def validate_command(
             return _err("invalid", "A field is null")
         if cmd.get("follows") is not None:
             return _err("invalid", "A new task is wired after it is created")
-        if not str(cmd.get("title", "")).strip():
-            return _err("invalid", "A title is required")
+        if (
+            not str(cmd.get("title", "")).strip()
+            and not str(cmd.get("content", "")).strip()
+        ):
+            # An empty title is named from the prose; with no prose there is
+            # nothing to name it from.
+            return _err("invalid", "A title or prose is required")
         mode = cmd.get("mode")
         if mode is not None and mode not in MODES:
             return _err("invalid", f"No mode {mode}")
@@ -731,8 +736,6 @@ def validate_command(
         project = cmd.get("project", "")
         if project not in world["projects"]:
             return _err("unknown_id", f"No project {project}")
-        if not str(cmd.get("branch", "")).strip():
-            return _err("invalid", "A branch is required")
         if not str(cmd.get("prompt", "")).strip():
             return _err("invalid", "A prompt is required")
         mode = cmd.get("mode")

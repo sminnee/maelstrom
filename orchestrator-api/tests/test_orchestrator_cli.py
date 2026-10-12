@@ -125,8 +125,13 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         patch("mael_orchestrator.cli.refresh_env") as refresh,
     ):
         refresh.return_value.changed = False
+        refresh.return_value.copy_back.added = []
+        refresh.return_value.copy_back.conflicts = []
         orchestrator = build_orchestrator()
         opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
+        assert orchestrator.tasks.refresh_env is not None
+        refresh.assert_not_called()
+        lines = orchestrator.tasks.refresh_env("northwind", opened)
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.table is table.return_value
@@ -149,7 +154,8 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
     assert open_wt.call_args.kwargs["run_install"] is False
     assert open_wt.call_args.kwargs["base"] == "feat/base"
-    # A reused worktree's .env is rebuilt from the parent template.
+    # The launch's write_env step rebuilds the .env from the parent template.
+    assert lines == [".env unchanged."]
     refresh.assert_called_once()
     assert refresh.call_args.args[1:] == (
         "northwind",
@@ -159,7 +165,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     )
 
 
-def test_a_failed_env_refresh_warns_and_still_opens(tmp_path, monkeypatch, capsys):
+def test_a_failed_env_refresh_is_a_warning_line_not_a_fault(tmp_path, monkeypatch):
     """A stale .env must not refuse a launch from the UI."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
     from types import SimpleNamespace
@@ -174,15 +180,15 @@ def test_a_failed_env_refresh_warns_and_still_opens(tmp_path, monkeypatch, capsy
         ),
         patch("mael_orchestrator.cli.SqliteTaskTable"),
         patch("mael_orchestrator.cli.open_state_db"),
-        patch("mael_orchestrator.cli.setup_worktree_for_branch", return_value=setup),
         patch(
             "mael_orchestrator.cli.refresh_env",
             side_effect=ValueError("bad yaml"),
         ),
     ):
-        opened = build_orchestrator().tasks.open_worktree("p", "feat/x", "")
-    assert opened is setup
-    assert "Warning: .env not refreshed: bad yaml" in capsys.readouterr().err
+        refresh_env = build_orchestrator().tasks.refresh_env
+        assert refresh_env is not None
+        lines = refresh_env("p", setup)
+    assert lines == ["Warning: .env not refreshed: bad yaml"]
 
 
 def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:

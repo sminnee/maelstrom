@@ -9,6 +9,7 @@ replies.
 import asyncio
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -956,6 +957,8 @@ def test_a_launch_the_poll_interrupts_follows_its_agent_once(harness):
                 {"type": "agent.launch", "taskId": "northwind/NORT-7"}
             )
             assert reply["ok"], reply
+            op = await world_op_ended(harness, reply["result"]["operationId"])
+            assert op["state"] == "done", op
             return (
                 harness.orch.transcript_snapshot("new1")["items"],
                 harness.orch.world["agents"]["new1"],
@@ -1470,6 +1473,18 @@ def test_a_host_refusal_maps_to_the_matching_code(harness):
     assert reply.body["error"]["code"] == "not_waiting"
 
 
+async def world_op_ended(harness, operation_id: str, timeout: float = 2.0) -> dict:
+    """The operation once it has ended, read off the world with no client."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        op = harness.orch.world["operations"][operation_id]
+        if op["state"] != "running":
+            return op
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"{operation_id} never ended: {op!r}")
+        await asyncio.sleep(0.01)
+
+
 def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     harness.add_task(
         "NORT-7",
@@ -1482,21 +1497,30 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
 
     async def scenario():
         async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                reply = await api.post("/api/tasks/northwind/NORT-7/launch")
-                # The reply follows the world changes, so every GET is current.
-                task = await api.get_json("/api/tasks/northwind/NORT-7")
-                agent = await api.get_json("/api/agents/new1")
-                desk = await api.get_json("/api/desk")
-                kinds = set()
-                for _ in range(3):
-                    kinds.add((await stream.next("change"))["data"]["kind"])
-                return reply, task, agent, desk["desk"], kinds
+            op = await operated(api, "/api/tasks/northwind/NORT-7/launch")
+            # The operation ends after the world changes, so every GET is current.
+            task = await api.get_json("/api/tasks/northwind/NORT-7")
+            agent = await api.get_json("/api/agents/new1")
+            desk = await api.get_json("/api/desk")
+            return op, task, agent, desk["desk"]
 
-    reply, task, agent, desk, kinds = run(scenario())
-    assert reply.status == 200
-    assert reply.body == {"agentId": "new1"}
+    op, task, agent, desk = run(scenario())
+    assert (op["kind"], op["state"], op["words"]) == (
+        "launch",
+        "done",
+        "Launched NORT-7",
+    )
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("open_worktree", "done"),
+        ("write_env", "done"),
+        ("start_agent", "done"),
+    ]
+    assert (op["project"], op["worktreeId"], op["taskId"], op["agentId"]) == (
+        PROJECT,
+        "northwind-alpha",
+        "northwind/NORT-7",
+        "new1",
+    )
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
     assert start["cwd"] == WORKTREE_PATH
     assert start["prompt"] == "/plan-task NORT-7\n\nDo it."
@@ -1514,7 +1538,6 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert agent["worktreeId"] == "northwind-alpha"
     # A task launched from the UI joins the desk.
     assert [e["id"] for e in desk] == ["task:northwind/NORT-7"]
-    assert kinds == {"task", "agent", "desk"}
 
 
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
@@ -1525,20 +1548,100 @@ def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
 
     async def scenario():
         async with harness.client() as api:
-            reply = await api.post("/api/tasks/northwind/NORT-7/launch")
-            return reply, await api.get_json("/api/tasks/northwind/NORT-7")
+            op = await operated(api, "/api/tasks/northwind/NORT-7/launch")
+            return op, await api.get_json("/api/tasks/northwind/NORT-7")
 
-    reply, task = run(scenario())
-    assert reply.status == 400
-    assert reply.body["error"]["code"] == "invalid"
-    assert "no such file" in reply.body["error"]["message"]
+    op, task = run(scenario())
+    assert op["state"] == "refused"
+    assert "no such file" in op["words"]
+    assert [s["state"] for s in op["steps"]] == ["done", "done", "refused"]
     assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
     assert task["status"] == "todo"
 
 
+def test_a_launch_whose_env_write_fails_rolls_the_task_back_and_fails(harness):
+    harness.add_task("NORT-7")
+
+    def refresh_env(project: str, setup: WorktreeSetup) -> list[str]:
+        raise OSError("disk full")
+
+    harness.tasks.refresh_env = refresh_env
+    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+        path=Path(WORKTREE_PATH), name="alpha", action="recycled"
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch")
+
+    op = run(scenario())
+    assert op["state"] == "failed"
+    assert op["words"] == "Could not launch: disk full"
+    assert [s["state"] for s in op["steps"]] == ["done", "failed", "pending"]
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
+def test_write_env_rebuilds_a_reopened_worktree_and_leaves_a_created_one(harness):
+    """A created worktree's ``.env`` is fresh already."""
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8")
+    written: list[tuple[str, str]] = []
+
+    def refresh_env(project: str, setup: WorktreeSetup) -> list[str]:
+        written.append((project, setup.name))
+        return ["Regenerated .env for northwind/alpha."]
+
+    harness.tasks.refresh_env = refresh_env
+    actions = iter(["recycled", "created"])
+    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+        path=Path(WORKTREE_PATH), name="alpha", action=next(actions)
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            logs = []
+            for task in ("NORT-7", "NORT-8"):
+                op = await operated(api, f"/api/tasks/northwind/{task}/launch")
+                log = await api.get_json(f"/api/operations/{op['id']}/log")
+                logs.append(next(s for s in log["steps"] if s["name"] == "write_env"))
+            return logs
+
+    recycled, created = run(scenario())
+    assert written == [(PROJECT, "alpha")]
+    assert recycled["lines"] == ["Regenerated .env for northwind/alpha."]
+    assert created["lines"] == [".env unchanged."]
+
+
+def test_a_second_launch_of_one_task_is_busy(harness):
+    harness.add_task("NORT-7")
+    entered, release = threading.Event(), threading.Event()
+
+    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+        entered.set()
+        release.wait(timeout=2)
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
+
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await api.post("/api/tasks/northwind/NORT-7/launch")
+            await asyncio.to_thread(entered.wait, 5)
+            second = await api.post("/api/tasks/northwind/NORT-7/launch")
+            release.set()
+            await ended(api, first.body["operationId"])
+            return first, second
+
+    first, second = run(scenario())
+    assert first.status == 202
+    assert second.status == 400
+    assert second.body["error"]["operationId"] == first.body["operationId"]
+
+
 def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
     """Opening a worktree fetches and rebases for seconds. On the loop, that
-    would freeze every client until the launch replies."""
+    would freeze every client until the launch ends."""
     harness.add_task("NORT-7")
     entered, release = threading.Event(), threading.Event()
     held_to_timeout: list[bool] = []
@@ -1552,13 +1655,13 @@ def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
 
     async def scenario():
         async with harness.client() as api:
-            launch = asyncio.create_task(api.post("/api/tasks/northwind/NORT-7/launch"))
+            launch = await api.post("/api/tasks/northwind/NORT-7/launch")
             assert await asyncio.to_thread(entered.wait, 5), "the open never began"
             await api.get_json("/api/agents")
             release.set()
-            return await launch
+            return await ended(api, launch.body["operationId"])
 
-    assert run(scenario()).status == 200
+    assert run(scenario())["state"] == "done"
     # The GET answered before the open was let go, not after it gave up.
     assert held_to_timeout == [False]
 
@@ -1577,11 +1680,12 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
 
     async def scenario():
         async with harness.client() as api:
-            return await api.post("/api/tasks/northwind/NORT-7/launch")
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch")
 
-    reply = run(scenario())
-    assert reply.status == 400
-    assert "rebase conflict" in reply.body["error"]["message"]
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert "rebase conflict" in op["words"]
+    assert [s["state"] for s in op["steps"]] == ["refused", "pending", "pending"]
     assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
     assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
 
@@ -1806,6 +1910,7 @@ def test_delete_is_refused_while_an_agent_runs_on_the_task(harness):
                 {"type": "agent.launch", "taskId": "northwind/NORT-7"}
             )
             assert launch["ok"], launch
+            await world_op_ended(harness, launch["result"]["operationId"])
             return await harness.orch.handle_command(
                 {"type": "task.delete", "taskId": "northwind/NORT-7"}
             )
@@ -1826,9 +1931,10 @@ def test_delete_is_allowed_once_the_agent_has_exited(harness):
     async def scenario():
         await harness.orch.start()
         try:
-            await harness.orch.handle_command(
+            launch = await harness.orch.handle_command(
                 {"type": "agent.launch", "taskId": "northwind/NORT-7"}
             )
+            await world_op_ended(harness, launch["result"]["operationId"])
             agent_id = next(iter(harness.orch.world["agents"]))
             harness.daemon.rows[agent_id]["state"] = "exited"
             await harness.orch.refresh_agents()
@@ -3925,16 +4031,21 @@ def test_linear_issues_refuses_a_project_with_no_linear_team(harness, linear):
 def test_linear_plan_writes_the_planning_task_and_files_it(harness, linear):
     async def scenario():
         async with harness.client() as api:
-            reply = await api.post(
-                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
+            op = await operated(
+                api, "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
             )
-            return reply, await api.get_json("/api/desk")
+            return op, await api.get_json("/api/desk")
 
-    reply, desk = run(scenario())
-    assert reply.status == 200
-    task_id = reply.body["taskId"]
-    # Not launched, so no agent came back.
-    assert "agentId" not in reply.body
+    op, desk = run(scenario())
+    assert (op["kind"], op["state"], op["project"]) == ("plan", "done", PROJECT)
+    assert [s["name"] for s in op["steps"]] == [
+        "read_issue",
+        "name_task",
+        "write_task",
+    ]
+    task_id = op["taskId"]
+    # Not launched, so no agent started.
+    assert op["agentId"] is None
     stored = run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1]))
     # The same task `mael linear plan` writes.
     assert stored.title == "Plan ME-1"
@@ -3954,7 +4065,8 @@ def test_linear_plan_with_launch_starts_the_planning_session(harness, linear):
         async with harness.client() as api:
             async with api.events() as stream:
                 await stream.next("reset")
-                reply = await api.post(
+                op = await operated(
+                    api,
                     "/api/linear/tasks",
                     {"project": PROJECT, "issueId": "ME-1", "launch": True},
                 )
@@ -3962,19 +4074,48 @@ def test_linear_plan_with_launch_starts_the_planning_session(harness, linear):
                 # it opens the worktree, so the create's task notice and the
                 # launch's need not coalesce into one.
                 kinds = set()
-                for _ in range(6):
+                for _ in range(12):
                     kinds.add((await stream.next("change"))["data"]["kind"])
                     if kinds >= {"task", "agent", "desk"}:
                         break
-                return reply, kinds
+                return op, kinds
 
-    reply, kinds = run(scenario())
-    assert reply.status == 200
-    assert reply.body["agentId"]
+    op, kinds = run(scenario())
+    assert op["state"] == "done", op
+    assert [s["name"] for s in op["steps"]] == [
+        "read_issue",
+        "name_task",
+        "write_task",
+        "open_worktree",
+        "write_env",
+        "start_agent",
+    ]
+    assert op["agentId"] == "new1"
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
     # The planning session runs the plan-task skill on the brief.
     assert start["prompt"].startswith("/plan-task Plan ME-1")
-    assert kinds == {"task", "agent", "desk"}
+    assert {"task", "agent", "desk"} <= kinds
+
+
+def test_a_retried_linear_plan_does_not_write_its_task_twice(harness, linear):
+    harness.daemon.replies["start"] = [{"error": "could not start claude"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await operated(
+                api,
+                "/api/linear/tasks",
+                {"project": PROJECT, "issueId": "ME-1", "launch": True},
+            )
+            reply = await api.post(f"/api/operations/{first['id']}/retry")
+            assert reply.status == 202, reply.body
+            return first, await ended(api, first["id"])
+
+    first, again = run(scenario())
+    assert first["state"] == "refused"
+    assert again["state"] == "done", again
+    assert again["taskId"] == first["taskId"]
+    assert len(run(model.list_tasks(harness.store, project=PROJECT))) == 1
 
 
 def test_linear_plan_refuses_a_project_with_no_linear_team(harness, linear):
@@ -4000,14 +4141,15 @@ def test_linear_plan_relays_why_linear_refused(harness, monkeypatch):
 
     async def scenario():
         async with harness.client() as api:
-            return await api.post(
-                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
+            return await operated(
+                api, "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1"}
             )
 
-    reply = run(scenario())
-    # A missing key is the user's to fix, so they are told rather than shown a 500.
-    assert reply.status == 400
-    assert "LINEAR_API_KEY" in reply.body["error"]["message"]
+    op = run(scenario())
+    # A missing key is the user's to fix, so they are told rather than shown a fault.
+    assert op["state"] == "refused"
+    assert "LINEAR_API_KEY" in op["words"]
+    assert run(model.list_tasks(harness.store, project=PROJECT)) == []
 
 
 def test_create_writes_the_task_with_the_fields_it_was_given_and_files_it(harness):
@@ -4064,24 +4206,32 @@ def test_create_with_launch_starts_an_agent_and_moves_the_task_in_progress(harne
                     "launch": True,
                 },
             )
-            return reply, await api.get_json("/api/desk")
+            assert reply.status == 202, reply.body
+            op = await ended(api, reply.body["operationId"])
+            return reply, op, await api.get_json("/api/desk")
 
-    reply, desk = run(scenario())
-    assert reply.status == 200
-    assert reply.body["agentId"] == "new1"
+    reply, op, desk = run(scenario())
     task_id = reply.body["taskId"]
+    assert (op["kind"], op["state"], op["taskId"], op["agentId"]) == (
+        "create",
+        "done",
+        task_id,
+        "new1",
+    )
+    # Every field was typed, so nothing is named.
+    assert [s["name"] for s in op["steps"]] == [
+        "open_worktree",
+        "write_env",
+        "start_agent",
+    ]
     stored = run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1]))
     assert stored.status == "in-progress"
     assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
     assert host_calls(harness) == ["start"]
 
 
-def test_a_create_whose_launch_fails_still_reports_the_task_it_wrote(harness):
-    """The task is written and filed; only the start failed.
-
-    The reply has to say so, or the client cannot tell this from "nothing was
-    written" and a retry writes the task a second time.
-    """
+def test_a_create_whose_launch_is_refused_keeps_the_task_it_wrote(harness):
+    """The task is written and filed before the reply; only the start failed."""
     harness.daemon.replies["start"] = [{"error": "agent ag1 has exited"}]
 
     async def scenario():
@@ -4095,14 +4245,13 @@ def test_a_create_whose_launch_fails_still_reports_the_task_it_wrote(harness):
                     "launch": True,
                 },
             )
-            return reply, await api.get_json("/api/tasks")
+            op = await ended(api, reply.body["operationId"])
+            return reply, op, await api.get_json("/api/tasks")
 
-    reply, tasks = run(scenario())
-    assert reply.status == 409
-    assert reply.body["error"]["code"] == "agent_exited"
-    # The task the create wrote is named in the refusal, so the client knows
-    # not to write it again.
-    task_id = reply.body["error"]["taskId"]
+    reply, op, tasks = run(scenario())
+    assert reply.status == 202
+    assert (op["state"], op["words"]) == ("refused", "agent ag1 has exited")
+    task_id = reply.body["taskId"]
     assert [t["id"] for t in tasks["tasks"]] == [task_id]
     assert (
         run(model.load(harness.store, PROJECT, task_id.split("/", 1)[1])).status
@@ -4123,16 +4272,149 @@ def test_create_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
     assert host_calls(harness) == []
 
 
-def test_create_with_no_title_is_refused_before_the_notebook(harness):
+def test_create_with_no_title_and_no_prose_is_refused_before_the_notebook(harness):
     async def scenario():
         async with harness.client() as api:
-            reply = await api.post("/api/tasks", {"project": PROJECT, "title": "  "})
+            reply = await api.post(
+                "/api/tasks", {"project": PROJECT, "title": "  ", "content": ""}
+            )
             return reply, await api.get_json("/api/tasks")
 
     reply, tasks = run(scenario())
     assert reply.status == 400
     assert reply.body["error"]["code"] == "invalid"
     assert tasks["tasks"] == []
+
+
+def test_create_with_empty_names_answers_at_once_then_names_them(harness_factory):
+    # Inference runs on the executor, so the gate holds it and not the loop.
+    harness = harness_factory(executor=ThreadPoolExecutor(2))
+    gate = threading.Event()
+    real_infer = harness.tasks.infer
+
+    def infer(draft):
+        assert gate.wait(timeout=5), "the gate was never opened"
+        return real_infer(draft)
+
+    harness.tasks.infer = infer
+    content = (
+        "The order export drops the last row of every page that we send to the bank\n"
+        "It has done so since the March release."
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {"project": PROJECT, "title": "", "branch": "", "content": content},
+            )
+            assert reply.status == 202, reply.body
+            task_id = reply.body["taskId"]
+            # Written and on the desk before the naming has finished.
+            written = await load_task(harness, task_id)
+            desk = await api.get_json("/api/desk")
+            gate.set()
+            op = await ended(api, reply.body["operationId"])
+            return task_id, written, desk, op
+
+    task_id, written, desk, op = run(scenario())
+    # The prose's first line, cut to 60 characters, stands in.
+    assert (
+        written.title == "The order export drops the last row of every page that we se"
+    )
+    assert written.branch == f"task/{task_id.split('/', 1)[1]}"
+    assert [e["id"] for e in desk["desk"]] == [f"task:{task_id}"]
+    assert (op["kind"], op["state"], op["taskId"]) == ("create", "done", task_id)
+    assert [s["name"] for s in op["steps"]] == ["name_task"]
+    named = run(load_task(harness, task_id))
+    assert (named.title, named.branch) == ("Export the orders", "feat/order-export")
+
+
+def test_a_create_that_names_and_launches_opens_the_branch_it_named(harness):
+    opened: list[str] = []
+
+    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+        opened.append(branch)
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
+
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "",
+                    "branch": "",
+                    "content": "Do it.",
+                    "launch": True,
+                },
+            )
+            return await ended(api, reply.body["operationId"])
+
+    op = run(scenario())
+    assert op["state"] == "done", op
+    assert [s["name"] for s in op["steps"]] == [
+        "name_task",
+        "open_worktree",
+        "write_env",
+        "start_agent",
+    ]
+    # The branch name_task wrote, not the task/<id> that stood in for it.
+    assert opened == ["feat/order-export"]
+
+
+def test_naming_keeps_a_field_the_user_edited_while_it_ran(harness_factory):
+    # Inference runs on the executor, so the gate holds it and not the loop.
+    harness = harness_factory(executor=ThreadPoolExecutor(2))
+    gate = threading.Event()
+    real_infer = harness.tasks.infer
+
+    def infer(draft):
+        assert gate.wait(timeout=5), "the gate was never opened"
+        return real_infer(draft)
+
+    harness.tasks.infer = infer
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {"project": PROJECT, "title": "", "branch": "", "content": "Do it."},
+            )
+            task_id = reply.body["taskId"]
+            await api.patch(f"/api/tasks/{task_id}", {"title": "Mine after all"})
+            gate.set()
+            await ended(api, reply.body["operationId"])
+            return task_id
+
+    named = run(load_task(harness, run(scenario())))
+    assert (named.title, named.branch) == ("Mine after all", "feat/order-export")
+
+
+def test_naming_writes_only_the_fields_the_user_left_empty(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Mine",
+                    "branch": "",
+                    "content": "Do it.",
+                },
+            )
+            await ended(api, reply.body["operationId"])
+            return reply.body["taskId"]
+
+    named = run(load_task(harness, run(scenario())))
+    assert (named.title, named.branch) == ("Mine", "feat/order-export")
+
+
+def load_task(harness, task_id: str):
+    """The notebook's task, by wire id, as a coroutine."""
+    return model.load(harness.store, *task_id.split("/", 1))
 
 
 # --- starting a free agent ---------------------------------------------------
@@ -4151,15 +4433,25 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
                     "model": "claude-opus-5",
                 },
             )
+            assert reply.status == 202, reply.body
             return (
-                reply,
+                await ended(api, reply.body["operationId"]),
                 await api.get_json("/api/desk"),
                 await api.get_json("/api/tasks"),
             )
 
-    reply, desk, tasks = run(scenario())
-    assert reply.status == 200
-    assert reply.body == {"agentId": "new1"}
+    op, desk, tasks = run(scenario())
+    assert (op["kind"], op["state"], op["agentId"], op["worktreeId"]) == (
+        "start",
+        "done",
+        "new1",
+        "northwind-alpha",
+    )
+    assert [s["name"] for s in op["steps"]] == [
+        "open_worktree",
+        "write_env",
+        "start_agent",
+    ]
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
     assert start["cwd"] == WORKTREE_PATH
     assert start["prompt"] == "Read the logs and tell me what broke."
@@ -4177,7 +4469,7 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
 def _investigate(harness, **over):
     async def scenario():
         async with harness.client() as api:
-            return await api.post(
+            reply = await api.post(
                 "/api/agents",
                 {
                     "project": PROJECT,
@@ -4188,6 +4480,9 @@ def _investigate(harness, **over):
                     **over,
                 },
             )
+            if reply.status == 202:
+                await ended(api, reply.body["operationId"])
+            return reply
 
     return run(scenario())
 
@@ -4199,7 +4494,7 @@ def test_an_investigation_sends_the_investigation_prompt_file(
 
     monkeypatch.setattr(shared_dir, "get_maelstrom_dir", lambda: tmp_path)
     reply = _investigate(harness)
-    assert reply.status == 200
+    assert reply.status == 202
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
     assert start["system_prompt_file"] == str(
         tmp_path / "agent-prompts" / "investigation.md"
@@ -4237,7 +4532,8 @@ def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
 
     async def scenario():
         async with harness.client() as api:
-            return await api.post(
+            return await operated(
+                api,
                 "/api/agents",
                 {
                     "project": PROJECT,
@@ -4247,18 +4543,18 @@ def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
                 },
             )
 
-    reply = run(scenario())
-    assert reply.status == 200
+    assert run(scenario())["state"] == "done"
     # The same path a task launch takes, with no base to seed.
     assert opened == [(PROJECT, "feat/brand-new", "")]
 
 
-def test_a_free_agent_the_host_refuses_is_answered_with_the_hosts_code(harness):
+def test_a_free_agent_the_host_refuses_ends_refused(harness):
     harness.daemon.replies["start"] = [{"error": "agent ag1 has exited"}]
 
     async def scenario():
         async with harness.client() as api:
-            reply = await api.post(
+            op = await operated(
+                api,
                 "/api/agents",
                 {
                     "project": PROJECT,
@@ -4267,13 +4563,76 @@ def test_a_free_agent_the_host_refuses_is_answered_with_the_hosts_code(harness):
                     "mode": "normal",
                 },
             )
-            return reply, await api.get_json("/api/desk")
+            return op, await api.get_json("/api/desk")
 
-    reply, desk = run(scenario())
-    assert reply.status == 409
-    assert reply.body["error"]["code"] == "agent_exited"
+    op, desk = run(scenario())
+    assert (op["state"], op["words"]) == ("refused", "agent ag1 has exited")
     # Nothing was adopted, so nothing joined the desk.
     assert desk["desk"] == []
+
+
+def test_a_free_agent_with_no_branch_names_one_from_its_prompt(harness):
+    opened: list[str] = []
+
+    def open_worktree(project: str, branch: str, base: str):
+        opened.append(branch)
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
+
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(
+                api,
+                "/api/agents",
+                {"project": PROJECT, "branch": "", "prompt": "Export the orders."},
+            )
+
+    op = run(scenario())
+    assert op["state"] == "done", op
+    assert [s["name"] for s in op["steps"]] == [
+        "name_branch",
+        "open_worktree",
+        "write_env",
+        "start_agent",
+    ]
+    assert opened == ["feat/order-export"]
+
+
+def test_a_retried_free_agent_opens_the_branch_its_first_run_named(harness):
+    harness.daemon.replies["start"] = [{"error": "could not start claude"}]
+    opened: list[str] = []
+    named: list[str] = []
+    real_infer = harness.tasks.infer
+
+    def infer(draft):
+        named.append(draft)
+        return real_infer(draft)
+
+    def open_worktree(project: str, branch: str, base: str):
+        opened.append(branch)
+        return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
+
+    harness.tasks.infer = infer
+    harness.tasks.open_worktree = open_worktree
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await operated(
+                api,
+                "/api/agents",
+                {"project": PROJECT, "branch": "", "prompt": "Export the orders."},
+            )
+            reply = await api.post(f"/api/operations/{first['id']}/retry")
+            assert reply.status == 202, reply.body
+            return first, await ended(api, first["id"])
+
+    first, again = run(scenario())
+    assert first["state"] == "refused"
+    assert again["state"] == "done", again
+    # Named once; the retry reads the branch the first run kept.
+    assert len(named) == 1
+    assert opened == ["feat/order-export", "feat/order-export"]
 
 
 def test_a_free_agent_with_no_prompt_is_refused_before_the_host(harness):
@@ -8428,7 +8787,13 @@ def test_a_task_created_with_comms_is_in_the_comm_s_task_ids_at_the_reply(harnes
         async with harness.client() as api:
             await api.post("/api/comms", {"title": "Invoice export"})
             made = await api.post(
-                "/api/tasks", {"project": PROJECT, "title": "Do it", "comms": ["c1"]}
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Do it",
+                    "branch": "feat/do-it",
+                    "comms": ["c1"],
+                },
             )
             return made, await api.get_json("/api/comms/c1")
 
