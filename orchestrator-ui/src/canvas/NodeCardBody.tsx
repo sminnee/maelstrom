@@ -41,6 +41,8 @@ import { useCardOperation, useUnitOperation } from '../console/useConsole';
 import { CommandSet } from '../ui/CommandSet';
 import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { NextChains } from '../worktrees/NextChains';
+import { useAppStore } from '../store/store';
+import { StepMeter } from '../ui/StepMeter';
 import styles from './NodeCard.module.css';
 
 /**
@@ -59,13 +61,44 @@ const SILENT_MS = 10 * 60_000;
  * `onDone` is called when Off desk has taken the node off the surface. The
  * canvas collapses the card; the narrow layout goes back to the deck list.
  */
-export function NodeCardBody({
-  node,
-  showProject = false,
-  closeControl,
-  open = true,
-  onDone,
-}: {
+export function NodeCardBody(props: NodeCardBodyProps) {
+  return props.node.operation ? <OpeningCardBody {...props} /> : <WorkCardBody {...props} />;
+}
+
+/**
+ * An **Opening node**'s card: what its operation is doing, how far it is, and
+ * a way to its log. There is no task or agent yet to show anything else of.
+ */
+function OpeningCardBody({ node, closeControl, open = true }: NodeCardBodyProps) {
+  const marked = useCardOperation(nodeUnit(node), open);
+  const openConsole = useAppStore((s) => s.openConsole);
+  const op = marked ?? node.operation!;
+  return (
+    <>
+      <header className={styles.header}>
+        <div className={styles.titleBlock}>
+          <h2 className={`${styles.title} wrap`}>{nodeTitle(node)}</h2>
+          <div className={styles.idLine} data-testid="node-id-line">
+            <span className={`${styles.id} truncate`}>{nodeIdLine(node)}</span>
+          </div>
+        </div>
+        {closeControl}
+      </header>
+      <div className={styles.status} data-state={node.progress.state}>
+        <span className={styles.dot} aria-hidden="true" />
+        <span className={`${styles.stateText} ${endedBadly(op) ? styles.ended : ''}`}>
+          {unitWords(op)}
+        </span>
+      </div>
+      <StepMeter op={op} />
+      <AppButton variant="link" onClick={() => openConsole(op.id)}>
+        Log
+      </AppButton>
+    </>
+  );
+}
+
+interface NodeCardBodyProps {
   node: GraphNode;
   /**
    * Whether the card names the node's project. The canvas never asks: the lane
@@ -77,7 +110,15 @@ export function NodeCardBody({
   /** False while the surface animates shut. */
   open?: boolean;
   onDone: () => void;
-}) {
+}
+
+function WorkCardBody({
+  node,
+  showProject = false,
+  closeControl,
+  open = true,
+  onDone,
+}: NodeCardBodyProps) {
   const { world } = useWorld();
   const transcript = useAgentStream(node.agent?.id ?? null);
   const milestones = useMilestones(node.agent?.id ?? null);

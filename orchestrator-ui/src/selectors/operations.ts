@@ -1,5 +1,5 @@
 import type { Operation, OperationKind, OperationStep } from '../protocol/entities';
-import type { AgentId, TaskId, WorktreeId } from '../protocol/ids';
+import type { AgentId, OperationId, TaskId, WorktreeId } from '../protocol/ids';
 import type { GraphNode } from './graph';
 
 /** What each kind of **Operation** is called, as the head of a line about it. */
@@ -98,7 +98,13 @@ export function filterOperations(
     (op) =>
       (filter === 'all' || (filter === 'running' ? op.state === 'running' : endedBadly(op))) &&
       (!needle ||
-        [operationLine(op), operationTarget(op).label, KIND_NAMES[op.kind], op.taskId ?? '', op.agentId ?? '']
+        [
+          operationLine(op),
+          operationTarget(op).label,
+          KIND_NAMES[op.kind],
+          op.taskId ?? '',
+          op.agentId ?? '',
+        ]
           .join(' ')
           .toLowerCase()
           .includes(needle)),
@@ -111,6 +117,7 @@ export const ENDING_KINDS: ReadonlySet<OperationKind> = new Set([
   'shelve',
   'trash',
   'delete',
+  'dismiss',
 ]);
 
 /** What each kind of operation does, as a worktree box says it while it runs. */
@@ -137,10 +144,12 @@ export const KIND_DOING: Record<OperationKind, string> = {
  */
 export type Unit =
   | { worktreeId: WorktreeId }
-  | { node: { worktreeId: WorktreeId | null; taskId: TaskId | null; agentId: AgentId | null } };
+  | { node: { worktreeId: WorktreeId | null; taskId: TaskId | null; agentId: AgentId | null } }
+  | { operationId: OperationId };
 
 /** Whether `op` acts on `unit`, whatever its state. */
 export function concerns(op: Operation, unit: Unit): boolean {
+  if ('operationId' in unit) return op.id === unit.operationId;
   if ('worktreeId' in unit) return op.worktreeId === unit.worktreeId;
   const { worktreeId, taskId, agentId } = unit.node;
   return (
@@ -180,6 +189,8 @@ export function boxWords(op: Operation): string {
 
 /** The unit a board node stands for. The canvas node and the deck row both build it here. */
 export function nodeUnit(node: GraphNode): Unit {
+  // An opening node is its operation: it has no task or agent to be found by.
+  if (node.operation) return { operationId: node.operation.id };
   return {
     node: {
       worktreeId: node.worktree?.id ?? node.agent?.worktreeId ?? null,

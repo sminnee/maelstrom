@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { deriveGraph } from './graph';
+import { deriveGraph, nodeZone } from './graph';
+import type { Operation } from '../protocol/entities';
 import { cardPr } from './cardPr';
 import { noFilters } from './filters';
 import { deskIdForAgent } from '../protocol/deskId';
@@ -479,5 +480,99 @@ describe('free agents', () => {
     });
     const graph = deriveGraph(world, unfiltered);
     expect(graph.edges).toEqual([{ id: 'T1->T2', source: 'T1', target: 'T2' }]);
+  });
+});
+
+/** An operation as the board reads it: the fields a case does not set take ordinary values. */
+function op(o: Partial<Operation> & Pick<Operation, 'id' | 'kind'>): Operation {
+  return {
+    project: 'northwind',
+    worktreeId: null,
+    taskId: null,
+    agentId: null,
+    words: 'Working',
+    state: 'running',
+    startedAt: '2026-10-12T10:00:00Z',
+    endedAt: null,
+    seen: false,
+    steps: [],
+    ...o,
+  };
+}
+
+const steps = (...names: string[]) =>
+  names.map((name) => ({
+    name,
+    words: '',
+    state: 'pending' as const,
+    startedAt: null,
+    endedAt: null,
+  }));
+
+describe('operations on the board', () => {
+  const zones = (world: ReturnType<typeof worldWith>, filters = noFilters()) =>
+    Object.fromEntries(deriveGraph(world, { filters }).nodes.map((n) => [n.id, nodeZone(n)]));
+
+  it.each<[string, Operation, Record<string, string>]>([
+    [
+      'a running start draws an opening node in the running zone',
+      op({ id: 'op1', kind: 'start', steps: steps('open_worktree', 'start_agent') }),
+      { 'op:op1': 'running' },
+    ],
+    [
+      'a plan that does not launch draws one in the not-started zone',
+      op({ id: 'op1', kind: 'plan', steps: steps('read_issue', 'name_task', 'write_task') }),
+      { 'op:op1': 'notStarted' },
+    ],
+    [
+      'a refused start the user has not seen still draws',
+      op({ id: 'op1', kind: 'start', state: 'refused' }),
+      { 'op:op1': 'running' },
+    ],
+    [
+      'a seen refused start draws nothing',
+      op({ id: 'op1', kind: 'start', state: 'refused', seen: true }),
+      {},
+    ],
+    ['a done start draws nothing', op({ id: 'op1', kind: 'start', state: 'done', seen: true }), {}],
+  ])('%s', (_name, operation, expected) => {
+    expect(zones(worldWith({ operations: [operation] }))).toEqual(expected);
+  });
+
+  it('gives way to the agent its start made, once that agent draws', () => {
+    const world = worldWith({
+      agents: [makeAgent({ id: 'new1', taskId: '', project: 'northwind' })],
+      operations: [op({ id: 'op1', kind: 'start', agentId: 'new1' })],
+    });
+    expect(Object.keys(zones(world))).toEqual(['new1']);
+  });
+
+  it('hides an opening node of another project, or under a text search', () => {
+    const world = worldWith({ operations: [op({ id: 'op1', kind: 'start' })] });
+    expect(zones(world, { ...noFilters(), project: 'maelstrom' })).toEqual({});
+    expect(zones(world, { ...noFilters(), text: 'export' })).toEqual({});
+  });
+
+  it('holds a task a running launch starts in the running zone, and no other', () => {
+    const tasks = [makeTask({ id: 'launching' }), makeTask({ id: 'naming' })];
+    const world = drawnWorld({
+      tasks,
+      operations: [
+        op({ id: 'op1', kind: 'launch', taskId: 'launching', steps: steps('start_agent') }),
+        // A create with no launch names the task and leaves it where it is.
+        op({ id: 'op2', kind: 'create', taskId: 'naming', steps: steps('name_task') }),
+      ],
+    });
+    expect(zones(world)).toEqual({ launching: 'running', naming: 'notStarted' });
+  });
+
+  it('keeps drawing a free agent a running Dismiss stops, off the desk', () => {
+    const agent = makeAgent({ id: 'ag1', taskId: '', state: 'exited', exitCode: 0 });
+    const dismissing = worldWith({
+      agents: [agent],
+      operations: [op({ id: 'op1', kind: 'dismiss', agentId: 'ag1' })],
+    });
+    expect(Object.keys(zones(dismissing))).toEqual(['ag1']);
+    expect(Object.keys(zones(worldWith({ agents: [agent] })))).toEqual([]);
   });
 });

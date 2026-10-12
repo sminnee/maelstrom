@@ -3,7 +3,6 @@ import type { Agent } from '../protocol/entities';
 import type { AgentId, RequestId } from '../protocol/ids';
 import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
 import { useApi } from './ApiProvider';
-import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
 import { runOperation, type OperationStarted } from './operations';
 import type { AgentStart } from './types';
@@ -150,15 +149,14 @@ export function useResume() {
 }
 
 /**
- * Start an agent tied to no task. It may have to open a worktree for the
- * branch first, so it takes the same long timeout a launch does.
+ * Start an agent tied to no task. Resolves when the server takes it: opening
+ * the worktree and starting the agent run on as an operation.
  */
 export function useStartAgent() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: AgentStart) =>
-      api.post<{ agentId: AgentId }>('/api/agents', vars, { timeoutMs: SLOW_CALL_TIMEOUT_MS }),
+    mutationFn: (vars: AgentStart) => api.post<OperationStarted>('/api/agents', vars),
     onSuccess: () => {
       // A new agent: no detail entry yet, and no attention it could have cleared.
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });

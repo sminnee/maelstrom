@@ -1,5 +1,5 @@
 import { deskIdForTask } from '../protocol/deskId';
-import type { Agent, DeskEntry, Project, Task, Worktree } from '../protocol/entities';
+import type { Agent, DeskEntry, Operation, Project, Task, Worktree } from '../protocol/entities';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
 import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
@@ -172,6 +172,7 @@ export function worldWith(parts: {
   documents?: Document[];
   attention?: Attention[];
   desk?: DeskEntry[];
+  operations?: Operation[];
 }): FakeWorld {
   const world = emptyFakeWorld();
   for (const p of parts.projects ?? []) world.projects[p.id] = p;
@@ -181,5 +182,6 @@ export function worldWith(parts: {
   for (const d of parts.documents ?? []) world.documents[d.id] = d;
   for (const a of parts.attention ?? []) world.attention[a.id] = a;
   for (const e of parts.desk ?? []) world.desk[e.id] = e;
+  for (const o of parts.operations ?? []) world.operations[o.id] = o;
   return world;
 }

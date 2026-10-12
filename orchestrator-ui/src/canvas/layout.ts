@@ -1,6 +1,6 @@
-import { zoneForState, ZONES, type Zone } from '../protocol/progress';
+import { ZONES, type Zone } from '../protocol/progress';
 import type { Worktree } from '../protocol/entities';
-import type { Graph } from '../selectors/graph';
+import { nodeZone, type Graph } from '../selectors/graph';
 import { assignColumns } from './columns';
 import { assignRows } from './rows';
 
@@ -77,7 +77,7 @@ export function layoutSwimlanes(graph: Graph): Layout {
   const worktreeBoxes: Record<string, WorktreeBox[]> = {};
   let laneY = 0;
 
-  const zoneOf = new Map(graph.nodes.map((n) => [n.id, zoneForState(n.progress.state)]));
+  const zoneOf = new Map(graph.nodes.map((n) => [n.id, nodeZone(n)]));
   const worktreeOf = new Map(graph.nodes.map((n) => [n.id, n.worktree]));
   const followsOf = new Map(graph.nodes.map((n) => [n.id, [] as string[]]));
   for (const edge of graph.edges) followsOf.get(edge.target)?.push(edge.source);

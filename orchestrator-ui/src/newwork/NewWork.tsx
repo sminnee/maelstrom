@@ -1,8 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { withoutRef, type Attachment } from '../api/attachments';
 import { AttachField } from '../ui/AttachField';
 import { useStartAgent } from '../api/agents';
-import { ApiError } from '../api/http';
 import { useProjects } from '../api/projects';
 import { useCreateLinearTask } from '../api/linear';
 import { useComms } from '../api/comms';
@@ -144,9 +143,6 @@ export function NewWork() {
   const projects = useProjects();
   const worktrees = useWorktrees();
   const infer = useInferTask();
-  // The same call, made by a submit to name what the user left empty. Its own
-  // mutation, so its wait shows in the footer and never on Suggest.
-  const naming = useInferTask();
   const create = useCreateTask();
   const start = useStartAgent();
   const plan = useCreateLinearTask();
@@ -194,12 +190,6 @@ export function NewWork() {
   // `useRetained` reads storage in its own initialiser, so a held bucket is
   // already here to be reused rather than replaced.
   const [bucket] = useState(() => captured.bucket || mintBucket());
-  // The fields as they are now, for a submit that reads them again after it
-  // waits on naming: the user can type while that runs, and typed values win.
-  const latest = useRef(captured);
-  useEffect(() => {
-    latest.current = captured;
-  });
   const patch = (fields: Partial<Captured>) => setCaptured((was) => ({ ...was, ...fields }));
   // A held project the world no longer has is dropped rather than carried: the
   // fallback below picks the *first* project, so a stale name would silently
@@ -269,33 +259,28 @@ export function NewWork() {
     'main';
   const investigateMode: PermissionMode = mode === 'plan' ? 'auto' : mode;
 
-  // The submits and the naming they wait on, not Suggest: Suggest is an
-  // `AppButton` and shows its own wait.
-  const busy = create.isPending || start.isPending || plan.isPending || naming.isPending;
+  // The submits, not Suggest: Suggest is an `AppButton` and shows its own wait.
+  // A submit waits only for the server to take the work: the naming and the
+  // launch run on as an operation, which the board and the console show.
+  const busy = create.isPending || start.isPending || plan.isPending;
   // The error of the kind that is showing. React Query holds a mutation's
   // error until that same mutation runs again, so a fixed precedence would
-  // let a refused start outlive the surface that raised it. A task's own
-  // surface can refuse twice — Suggest and the create — so the newer wins.
-  // The error of the kind that is showing. Suggest's inference is not here: the
-  // Suggest button says so on itself. A submit's naming is: it runs before the
-  // submit, so its refusal is the newer, and `nameEmpty` clears it when skipped.
+  // let a refused start outlive the surface that raised it. Suggest's
+  // inference is not here: the Suggest button says so on itself.
   const failure =
     showing === 'agent' || showing === 'investigate'
-      ? (naming.error ?? start.error)
+      ? start.error
       : showing === 'linear'
         ? plan.error
-        : (naming.error ?? create.error);
-  // A create whose launch failed still wrote the task, and the refusal names
-  // it. Remembering that is what stops a retry writing a second copy.
-  const [written, setWritten] = useState<string | null>(null);
+        : create.error;
 
   /**
    * Name the work from its prose: a task's title and branch, or a free agent's
    * branch. The planning level and mode stay the user's pick.
    *
-   * A button rather than a gate: a submit names what is still empty itself —
-   * see `nameEmpty` — so Suggest is for seeing the names first. The fields it
-   * fills stay editable after it, as every other field is.
+   * A button rather than a gate: the server names what a submit left empty,
+   * so Suggest is for seeing the names first. The fields it fills stay
+   * editable after it, as every other field is.
    */
   const suggest = async () => {
     const inferred = await infer.mutateAsync({ project: chosen, draft });
@@ -308,23 +293,13 @@ export function NewWork() {
     }));
   };
 
-  /**
-   * The generator's names for the draft, or none when every field it would
-   * fill is already typed. Typed values win: the caller keeps them.
-   */
-  const nameEmpty = async (fields: string[]) => {
-    if (fields.every((f) => f.trim())) {
-      naming.reset();
-      return undefined;
-    }
-    return naming.mutateAsync({ project: chosen, draft });
-  };
-
+  // Each submit closes the dialog once the server has taken the work. An
+  // empty name is sent empty: the server's operation names it, and the node
+  // draws hatched in its cell while it does.
   const startFreeAgent = async () => {
-    const inferred = await nameEmpty([branch]);
     await start.mutateAsync({
       project: chosen,
-      branch: latest.current.branch.trim() || (inferred?.branch ?? ''),
+      branch: branch.trim(),
       prompt: draft,
       mode,
       model,
@@ -350,56 +325,28 @@ export function NewWork() {
   };
 
   const planIssue = async (launch: boolean) => {
-    if (written) return;
-    try {
-      await plan.mutateAsync({ project: chosen, issueId: issue, ...(launch ? { launch } : {}) });
-    } catch (e) {
-      // As a task create: the task exists and only its launch failed, so the
-      // dialog says so and never offers to write it again.
-      const taskId = e instanceof ApiError ? e.detail.taskId : undefined;
-      // The task was written, so the prose that became it is spent -- only the
-      // launch failed.
-      if (typeof taskId === 'string') {
-        setWritten(taskId);
-        release();
-      }
-      throw e;
-    }
+    await plan.mutateAsync({ project: chosen, issueId: issue, ...(launch ? { launch } : {}) });
     release();
     close();
   };
 
   const writeTask = async (launch: boolean) => {
-    if (written) return;
-    // Named before the create, so a refused naming writes nothing.
-    const inferred = await nameEmpty([task.title, task.branch]);
-    try {
-      await create.mutateAsync({
-        project: chosen,
-        title: latest.current.title.trim() || (inferred?.title ?? ''),
-        branch: latest.current.branch.trim() || (inferred?.branch ?? ''),
-        content: task.content,
-        command: task.command,
-        mode: task.mode,
-        priority: task.priority,
-        model: task.model,
-        executeModel: task.executeModel,
-        base: task.base,
-        // `follows` is left out: a new task has nothing to follow yet, and an
-        // explicit empty list would be a needless field on the wire.
-        ...(latest.current.comms.length > 0 ? { comms: latest.current.comms } : {}),
-        ...(launch ? { launch } : {}),
-      });
-    } catch (e) {
-      // The task exists and is on the desk; only the launch failed. Keep the
-      // dialog open to say so, but never offer to write it again.
-      const taskId = e instanceof ApiError ? e.detail.taskId : undefined;
-      if (typeof taskId === 'string') {
-        setWritten(taskId);
-        release();
-      }
-      throw e;
-    }
+    await create.mutateAsync({
+      project: chosen,
+      title: task.title.trim(),
+      branch: task.branch.trim(),
+      content: task.content,
+      command: task.command,
+      mode: task.mode,
+      priority: task.priority,
+      model: task.model,
+      executeModel: task.executeModel,
+      base: task.base,
+      // `follows` is left out: a new task has nothing to follow yet, and an
+      // explicit empty list would be a needless field on the wire.
+      ...(captured.comms.length > 0 ? { comms: captured.comms } : {}),
+      ...(launch ? { launch } : {}),
+    });
     release();
     close();
   };
@@ -458,9 +405,7 @@ export function NewWork() {
 
       {failure && (
         <p className={styles.error} role="alert" data-testid="new-work-error">
-          {written
-            ? `${failure.message}. The task is saved as ${written}; start it from the canvas.`
-            : failure.message}
+          {failure.message}
         </p>
       )}
       <DialogFooter
@@ -492,7 +437,7 @@ export function NewWork() {
           // `mael linear plan` takes the issue and nothing else.
           <>
             <AppButton
-              disabled={busy || !issue.trim() || written !== null}
+              disabled={busy || !issue.trim()}
               icon={actionIcon('save')}
               onClick={() => planIssue(false)}
             >
@@ -501,7 +446,7 @@ export function NewWork() {
             <AppButton
               variant="primary"
               icon={actionIcon('start')}
-              disabled={busy || !issue.trim() || written !== null}
+              disabled={busy || !issue.trim()}
               onClick={() => planIssue(true)}
             >
               Start
@@ -512,7 +457,7 @@ export function NewWork() {
           // the submit, so both buttons sit on the one surface.
           <>
             <AppButton
-              disabled={busy || !chosen || !draft.trim() || written !== null}
+              disabled={busy || !chosen || !draft.trim()}
               icon={actionIcon('save')}
               onClick={() => writeTask(false)}
             >
@@ -521,7 +466,7 @@ export function NewWork() {
             <AppButton
               variant="primary"
               icon={actionIcon('start')}
-              disabled={busy || !chosen || !draft.trim() || written !== null}
+              disabled={busy || !chosen || !draft.trim()}
               onClick={() => writeTask(true)}
             >
               Start

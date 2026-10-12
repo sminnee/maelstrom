@@ -37,6 +37,10 @@ export interface FakeOperationSpec {
   /** The start of a fault: `Could not sync the worktree`. */
   failing: string;
   steps: FakeStep[];
+  /** What a refused or failed end undoes, as a launch puts its task back. */
+  rollback?: () => void;
+  /** Steps a retry runs again though they are done, as `OperationPlan.replay` does. */
+  replay?: string[];
 }
 
 /** The specs each server has run, so a retry runs the same steps again. */
@@ -153,6 +157,7 @@ function moveStep(
 }
 
 function end(server: FakeServer, id: OperationId, state: Operation['state'], words: string) {
+  if (state !== 'done') specs.get(server)?.get(id)?.rollback?.();
   const op = server.world.operations[id]!;
   put(server, { ...op, state, words, endedAt: now(), seen: state === 'done' });
 }
@@ -160,7 +165,9 @@ function end(server: FakeServer, id: OperationId, state: Operation['state'], wor
 /** Run each step of `spec` the operation has not done, one timer tick each. */
 function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
   const left = spec.steps.filter(
-    (s) => server.world.operations[id]!.steps.find((o) => o.name === s.name)?.state !== 'done',
+    (s) =>
+      spec.replay?.includes(s.name) ||
+      server.world.operations[id]!.steps.find((o) => o.name === s.name)?.state !== 'done',
   );
   const fault = [spec.worktreeId, spec.taskId, spec.agentId]
     .filter((unit): unit is string => !!unit)

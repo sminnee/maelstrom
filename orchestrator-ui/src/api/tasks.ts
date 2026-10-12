@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus } from '../protocol/entities';
-import type { AgentId, TaskId } from '../protocol/ids';
+import type { OperationId, TaskId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
+import type { OperationStarted } from './operations';
 import type { InferredTask, TaskCreate, TaskEdit, TaskRow } from './types';
 
 export interface TasksBody {
@@ -43,11 +44,12 @@ export function useLaunch() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
+    // Resolves when the server takes the launch: the board and the console
+    // carry the operation from there.
     mutationFn: (vars: { taskId: TaskId; model?: string }) =>
-      api.post<{ agentId: AgentId }>(
+      api.post<OperationStarted>(
         `/api/tasks/${vars.taskId}/launch`,
         vars.model ? { model: vars.model } : {},
-        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
       ),
     onSuccess: (_result, vars) => {
       invalidateTask(queryClient, vars.taskId);
@@ -128,10 +130,10 @@ export function useCreateTask() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
+    // The task is written before the reply. Naming and a launch run on as an
+    // operation, whose id the reply carries when there is one.
     mutationFn: (vars: TaskCreate) =>
-      api.post<{ taskId: TaskId; agentId?: AgentId }>('/api/tasks', vars, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      api.post<{ taskId: TaskId; operationId?: OperationId }>('/api/tasks', vars),
     onSuccess: (_result, vars) => {
       // The task is new, so there is no detail entry to invalidate — only the
       // list it joins and the desk it is filed on, both ways of saving it.

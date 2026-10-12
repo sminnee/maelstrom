@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AgentId, TaskId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
+import type { OperationStarted } from './operations';
 
 /** One issue of a project's current Linear cycle. */
 export interface LinearIssue {
@@ -42,9 +42,7 @@ export function useCreateLinearTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { project: string; issueId: string; launch?: boolean }) =>
-      api.post<{ taskId: TaskId; agentId?: AgentId }>('/api/linear/tasks', vars, {
-        timeoutMs: SLOW_CALL_TIMEOUT_MS,
-      }),
+      api.post<OperationStarted>('/api/linear/tasks', vars),
     onSuccess: (_result, vars) => {
       void queryClient.invalidateQueries({ queryKey: keys.tasks.list() });
       void queryClient.invalidateQueries({ queryKey: keys.desk() });

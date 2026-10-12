@@ -380,6 +380,28 @@ describe('the narrow layout', () => {
     expect(draft).toHaveValue('Fix the export');
   });
 
+  it('draws a task started from New work in the running zone while it launches', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ viewport: 'narrow' });
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    const dialog = screen.getByRole('dialog', { name: 'New work' });
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'What needs doing?' }),
+      'Fix the export',
+    );
+    server.stepMs = 300;
+    await user.click(within(dialog).getByRole('button', { name: 'Start' }));
+
+    // Its final cell, before an agent exists to put it there.
+    expect(zoneTab(/^Running/)).toHaveAttribute('aria-selected', 'true');
+    const id = () => Object.keys(server.world.tasks).find((t) => t.includes('/NEW-'));
+    await waitFor(() => expect(deckRows()).toContain(id()));
+    expect(
+      screen.getByTestId('deck-list').querySelector(`[data-task-id="${id()}"]`),
+    ).toHaveAttribute('data-operation', 'running');
+    expect(Object.values(server.world.agents).some((a) => a.taskId === id())).toBe(false);
+  });
+
   it('gives the document the full width, with no comment margin beside it', async () => {
     await renderApp({ viewport: 'narrow' });
     await userEvent.click(screen.getByRole('link', { name: /Plan the order export/ }));
