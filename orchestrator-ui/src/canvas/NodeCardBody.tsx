@@ -214,7 +214,7 @@ export function NodeCardBody({
           </div>
         )
       )}
-      {op?.state === 'refused' && op.kind === 'close' && (
+      {op?.state === 'refused' && op.kind === 'close' && op.worktreeId !== null && (
         <NextChains worktreeId={op.worktreeId} then={takeOffDesk} />
       )}
 

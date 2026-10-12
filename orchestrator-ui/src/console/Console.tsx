@@ -8,6 +8,7 @@ import {
   isPinned,
   isUnseen,
   operationLine,
+  operationTarget,
   type ConsoleFilter,
 } from '../selectors/operations';
 import { useAppStore } from '../store/store';
@@ -221,7 +222,7 @@ function OperationList({
         >
           <StepMeter op={op} />
           <span className={`${styles.line} truncate`}>{operationLine(op)}</span>
-          <span className={`${styles.target} truncate`}>{op.worktreeId}</span>
+          <span className={`${styles.target} truncate`}>{operationTarget(op).label}</span>
           <time className={`${styles.when} nowrap`} dateTime={op.startedAt}>
             {clockTime(op.startedAt, now)}
           </time>

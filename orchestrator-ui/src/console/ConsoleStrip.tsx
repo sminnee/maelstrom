@@ -1,6 +1,6 @@
 import { useLayoutMode, type LayoutMode } from '../layout/useLayoutMode';
 import type { Operation } from '../protocol/entities';
-import { currentStep, operationLine } from '../selectors/operations';
+import { currentStep, operationLine, operationTarget } from '../selectors/operations';
 import { useAppStore } from '../store/store';
 import { StepMeter } from '../ui/StepMeter';
 import { useOperationList, useStripOperations } from './useConsole';
@@ -48,7 +48,7 @@ function Entry({ op, onOpen }: { op: Operation; onOpen: () => void }) {
     >
       <StepMeter op={op} />
       <span className={`${styles.words} truncate`}>{operationLine(op)}</span>
-      <span className={`${styles.target} nowrap`}>{op.worktreeId}</span>
+      <span className={`${styles.target} nowrap`}>{operationTarget(op).label}</span>
       {step && <span className={`${styles.step} nowrap`}>{step.name}</span>}
     </button>
   );

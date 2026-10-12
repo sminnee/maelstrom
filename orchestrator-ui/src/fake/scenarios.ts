@@ -833,6 +833,7 @@ function seededOp(
     Partial<Operation>,
 ): Operation {
   return {
+    project: 'maelstrom',
     taskId: null,
     agentId: null,
     startedAt: o.steps[0]!.startedAt!,

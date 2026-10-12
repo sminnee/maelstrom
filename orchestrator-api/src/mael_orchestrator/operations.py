@@ -39,32 +39,62 @@ class OperationPlan:
     """
 
     kind: str
-    worktree_id: str
+    #: What the operation holds alone while it runs: ``worktree:<id>``,
+    #: ``task:<id>``, ``agent:<id>``. A second operation on any is :class:`Busy`.
+    keys: frozenset[str]
     #: What the operation reads while it runs: ``Closing alpha``.
     doing: str
     #: What it reads once done: ``Closed alpha``.
     done: str
     #: The start of what a fault reads: ``Could not close the worktree``.
     failing: str
-    work: Callable[[StepHook], Awaitable[None]]
+    work: Callable[["OperationHook"], Awaitable[None]]
     refresh: Callable[[], Awaitable[None]]
+    project: str = ""
+    #: What the operation acts on, as far as it is known at the start.
+    worktree_id: str | None = None
+    task_id: str | None = None
+    agent_id: str | None = None
+
+
+def worktree_key(worktree_id: str) -> str:
+    """The busy key of a worktree."""
+    return f"worktree:{worktree_id}"
 
 
 class Busy(Exception):
-    """Another operation runs on the worktree. ``operation_id`` names it."""
+    """Another operation holds one of the keys. ``operation_id`` names it."""
 
     def __init__(self, operation_id: str) -> None:
         super().__init__(f"Operation {operation_id} is already running here")
         self.operation_id = operation_id
 
 
-class _Hook(StepHook):
-    """Turns each step the work reports into an upsert, and skips what is done."""
+class OperationHook(StepHook):
+    """Turns each step the work reports into an upsert, and skips what is done.
+
+    :meth:`target` is the work's own: it names an id the operation learned
+    while it ran, such as the worktree a launch opened.
+    """
 
     def __init__(self, runner: "OperationRunner", id: str, skip: set[str]) -> None:
         self._runner = runner
         self._id = id
         self._skip = skip
+
+    def target(
+        self,
+        *,
+        worktree_id: str | None = None,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> None:
+        self._runner._change(
+            self._id,
+            lambda op: model.target(
+                op, worktree_id=worktree_id, task_id=task_id, agent_id=agent_id
+            ),
+        )
 
     def planned(self, names: list[str]) -> None:
         self._runner._change(self._id, lambda op: model.plan(op, names))
@@ -104,7 +134,7 @@ class OperationRunner:
         self.clock = clock
         #: The running operations, with their log and command, by id.
         self._records: dict[str, OperationRecord] = {}
-        #: Which operation runs on each worktree.
+        #: Which operation holds each busy key.
         self._busy: dict[str, str] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         #: Per operation, the last save, so saves land in the order made.
@@ -138,17 +168,25 @@ class OperationRunner:
         first step that did not finish.
 
         Raises:
-            Busy: If an operation already runs on the worktree.
+            Busy: If an operation already holds one of the plan's keys.
         """
         # No await before the claim: two requests at once must not both pass.
-        running = self._busy.get(plan.worktree_id)
-        if running is not None:
-            raise Busy(running)
+        for key in sorted(plan.keys):
+            running = self._busy.get(key)
+            if running is not None:
+                raise Busy(running)
         if again is None:
             self._last += 1
             id = f"op{self._last}"
             op = model.new_operation(
-                id, plan.kind, plan.worktree_id, plan.doing, self.clock()
+                id,
+                plan.kind,
+                plan.worktree_id,
+                plan.doing,
+                self.clock(),
+                project=plan.project,
+                task_id=plan.task_id,
+                agent_id=plan.agent_id,
             )
             record = OperationRecord(op, {}, command)
         else:
@@ -156,15 +194,16 @@ class OperationRunner:
             record = OperationRecord(op, again.log, again.command)
             id = op["id"]
         done = {s["name"] for s in op["steps"] if s["state"] == model.DONE}
-        self._busy[plan.worktree_id] = id
+        for key in plan.keys:
+            self._busy[key] = id
         self._records[id] = record
         self._change(id, lambda _op: op)
         self._tasks[id] = asyncio.create_task(
-            self._run(id, plan, _Hook(self, id, done))
+            self._run(id, plan, OperationHook(self, id, done))
         )
         return id
 
-    async def _run(self, id: str, plan: OperationPlan, hook: _Hook) -> None:
+    async def _run(self, id: str, plan: OperationPlan, hook: OperationHook) -> None:
         try:
             try:
                 await plan.work(hook)
@@ -184,7 +223,8 @@ class OperationRunner:
             self._change(id, lambda op: model.finish(op, state, words, self.clock()))
             await self._saves[id]
         finally:
-            self._busy.pop(plan.worktree_id, None)
+            for key in plan.keys:
+                self._busy.pop(key, None)
             self._records.pop(id, None)
             self._tasks.pop(id, None)
             self._saves.pop(id, None)

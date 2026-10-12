@@ -60,6 +60,7 @@ async def test_an_operation_is_stored_whole(make_store):
         "northwind-alpha",
         "Closing alpha",
         NOW,
+        project="northwind",
         task_id="northwind/t1",
         agent_id="ag1",
     )
@@ -70,6 +71,7 @@ async def test_an_operation_is_stored_whole(make_store):
         {
             "id": "op1",
             "kind": "close",
+            "project": "northwind",
             "worktreeId": "northwind-alpha",
             "taskId": "northwind/t1",
             "agentId": "ag1",
@@ -136,3 +138,16 @@ async def test_a_saved_operation_replaces_its_earlier_row(make_store):
         "Closed alpha",
         LATER,
     )
+
+
+async def test_a_row_stored_before_operations_had_a_project_reads_as_none():
+    """Only the state database holds rows an older server wrote."""
+    db = open_state_db(":memory:")
+    await db.migrate()
+    store = SqliteOperationStore(db)
+    op = operations.new_operation("op1", "close", "northwind-alpha", "Closing", NOW)
+    old = {k: v for k, v in op.items() if k != "project"}
+    await store.save(OperationRecord(old))  # type: ignore[arg-type]
+    [only] = await store.list()
+    db.close()
+    assert only["project"] == ""

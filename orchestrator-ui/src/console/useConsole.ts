@@ -4,7 +4,14 @@ import { useLayoutMode } from '../layout/useLayoutMode';
 import { useGo } from '../nav/useNav';
 import type { Operation } from '../protocol/entities';
 import type { OperationId } from '../protocol/ids';
-import { concerns, endedBadly, isUnseen, unitOperation, type Unit } from '../selectors/operations';
+import {
+  concerns,
+  endedBadly,
+  isUnseen,
+  operationTarget,
+  unitOperation,
+  type Unit,
+} from '../selectors/operations';
 import { useAppStore } from '../store/store';
 
 /** How long a done operation stays in the strip, so the operator sees it end. */
@@ -115,7 +122,8 @@ export function useGoToTarget() {
         return;
       }
       showPane('canvas');
-      go({ card: { kind: 'worktree', id: op.worktreeId } });
+      const { card } = operationTarget(op);
+      if (card) go({ card });
     },
     [narrow, go, showPane, closeConsole],
   );

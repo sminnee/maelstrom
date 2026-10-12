@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useOperationLog } from '../api/operations';
 import { useHrefFor, useLinkState } from '../nav/useNav';
 import type { Operation, OperationStep } from '../protocol/entities';
-import { operationLine } from '../selectors/operations';
+import { operationLine, operationTarget } from '../selectors/operations';
 import { clockTime, durationOf } from '../protocol/time';
 import { actionIcon, stepIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -66,14 +66,30 @@ export function OperationLog({
           <StepBlock key={step.name} step={step} lines={linesOf(step.name)} now={now} />
         ))}
       </ol>
-      {op.state === 'refused' && op.kind === 'close' && <NextChains worktreeId={op.worktreeId} />}
+      {op.state === 'refused' && op.kind === 'close' && op.worktreeId !== null && (
+        <NextChains worktreeId={op.worktreeId} />
+      )}
     </section>
   );
 }
 
-/** The worktree the operation acted on, as a link to its card. */
+/** What the operation acted on, as a link to its card when it has one. */
 function TargetLink({ op, onTarget }: { op: Operation; onTarget: () => void }) {
-  const to = useHrefFor({ card: { kind: 'worktree', id: op.worktreeId } });
+  const { label, card } = operationTarget(op);
+  if (!card) return <span className={`${styles.target} truncate`}>{label}</span>;
+  return <CardLink card={card} label={label} onTarget={onTarget} />;
+}
+
+function CardLink({
+  card,
+  label,
+  onTarget,
+}: {
+  card: NonNullable<ReturnType<typeof operationTarget>['card']>;
+  label: string;
+  onTarget: () => void;
+}) {
+  const to = useHrefFor({ card });
   const linkState = useLinkState();
   return (
     <Link
@@ -86,7 +102,7 @@ function TargetLink({ op, onTarget }: { op: Operation; onTarget: () => void }) {
         onTarget();
       }}
     >
-      {op.worktreeId}
+      {label}
     </Link>
   );
 }

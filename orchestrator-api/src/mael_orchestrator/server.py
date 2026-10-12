@@ -98,7 +98,7 @@ from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
 from .notices import notices_for
-from .operations import Busy, OperationPlan, OperationRunner
+from .operations import Busy, OperationPlan, OperationRunner, worktree_key
 from .sources import (
     CloseBlocked,
     MergeWorktreePr,
@@ -2513,12 +2513,14 @@ class Orchestrator:
             run = work(command["action"], service)
         return OperationPlan(
             op_kind,
-            worktree_id,
+            frozenset({worktree_key(worktree_id)}),
             f"{doing} {subject}",
             f"{done} {subject}",
             failing,
             run,
             refresh,
+            project=project,
+            worktree_id=worktree_id,
         )
 
     async def _run_worktree_op(

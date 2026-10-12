@@ -345,15 +345,21 @@ class Operation(TypedDict):
     """One **Operation** on the wire. See ``CONTEXT.md``, "Operation".
 
     ``kind`` names what runs: ``close``, ``shelve``, ``trash``, ``delete``,
-    ``sync``, ``merge`` or ``env``. ``state`` is ``running``, ``done``,
-    ``refused`` or ``failed``. ``words`` is what a person reads: the work while
-    it runs, and the refusal or the error once it ended badly. ``seen`` is
-    ``False`` while an operation that ended badly is **Unseen**.
+    ``sync``, ``merge``, ``env``, ``dismiss``, ``terminate``, ``resume``,
+    ``launch``, ``start``, ``create`` or ``plan``. ``state`` is ``running``,
+    ``done``, ``refused`` or ``failed``. ``words`` is what a person reads: the
+    work while it runs, and the refusal or the error once it ended badly.
+    ``seen`` is ``False`` while an operation that ended badly is **Unseen**.
+
+    ``project`` gives an **Opening node** its lane before any task, agent or
+    worktree exists. ``worktreeId``, ``taskId`` and ``agentId`` are ``None``
+    until the operation knows them: a launch learns its worktree when it opens.
     """
 
     id: str
     kind: str
-    worktreeId: str
+    project: str
+    worktreeId: str | None
     taskId: str | None
     agentId: str | None
     words: str
