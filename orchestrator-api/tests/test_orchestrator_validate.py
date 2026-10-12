@@ -1117,3 +1117,52 @@ class TestFeedback:
             "code": "invalid",
             "message": message,
         }
+
+    @pytest.mark.parametrize(
+        "element",
+        [None, {"selector": "#toolbar > button", "tag": "button"}],
+        ids=["alone", "about an element"],
+    )
+    def test_an_instruction_with_text_is_allowed(self, element):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        sent = {"type": "instruction", "text": "Make it bigger."}
+        if element is not None:
+            sent["element"] = element
+        assert validate_command(world, feedback_cmd(sent)) is None
+
+    @pytest.mark.parametrize(
+        ("over", "message"),
+        [
+            ({}, "No text to send"),
+            ({"text": " \n"}, "No text to send"),
+            ({"text": 3}, "No text to send"),
+            ({"text": "Hi", "element": "button"}, "A picked element is an object"),
+            (
+                {"text": "Hi", "element": {"tag": "p"}},
+                "A picked element has a selector",
+            ),
+            (
+                {"text": "Hi", "element": {"selector": 3}},
+                "A picked element has a selector",
+            ),
+            (
+                {"text": "Hi", "element": {"selector": " "}},
+                "A picked element has a selector",
+            ),
+        ],
+        ids=[
+            "no text",
+            "blank text",
+            "text not text",
+            "element not an object",
+            "element with no selector",
+            "selector not text",
+            "blank selector",
+        ],
+    )
+    def test_an_instruction_the_message_cannot_be_built_from_is_refused(
+        self, over, message
+    ):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        cmd = feedback_cmd({"type": "instruction", **over})
+        assert validate_command(world, cmd) == {"code": "invalid", "message": message}

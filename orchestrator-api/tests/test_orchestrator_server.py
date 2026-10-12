@@ -8558,6 +8558,22 @@ def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
     ]
 
 
+def test_an_instruction_reaches_the_agents_with_its_picked_element(harness):
+    """The text itself is the formatter's; see ``test_feedback.py``."""
+    harness.daemon.rows["ag1"] = agent_row()
+    element = {"selector": "#toolbar > button", "tag": "button"}
+
+    reply = jig_feedback(
+        harness, {"type": "instruction", "text": "Bigger.", "element": element}
+    )
+
+    assert reply["body"] == {"agentIds": ["ag1"], "refused": []}
+    text = said(harness)[0]["text"]
+    assert text.startswith("From the jig for feat/orders, about this element:\n")
+    assert "    selector: #toolbar > button\n" in text
+    assert text.endswith("\n\nBigger.")
+
+
 def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
     reply = jig_feedback(harness, monkeypatch())
 

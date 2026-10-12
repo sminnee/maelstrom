@@ -1396,13 +1396,15 @@ make the client keep the comments, and a retry would post twice to the agents th
 When every agent refuses, the reply is the first refusal.
 
 `worktree.feedback` sends **Feedback**: the `feedback` of a jig's frame, typed by its `type`. It
-has no route: the live feedback socket runs it (see "The live feedback socket"). The socket passes the body through, and `validate.py` judges it, so a new type is a validator and a formatter.
+has no route: the live feedback socket runs it (see "The live feedback socket"). The socket passes the body through, and `validate.py` judges it, so a new type is a row in each of two tables: a validator in `validate.py` and a formatter in
+`server.py`. The formatters are in `mael_domain/feedback.py`.
 The command reaches the same agents as `worktree.comment`, and answers the same reply. It refuses
 a body that is not an object, a type it does not know, and a worktree with no such agent.
 
 | Type | Fields | Message |
 |---|---|---|
 | `monkeypatch` | `css`, `note` (optional) | `format_monkeypatch` quotes the CSS and the note, and tells the agent to delete `.drafts/monkeypatch.css` when it has applied the change. Blank CSS is refused. |
+| `instruction` | `text`, `element` (optional) | `format_instruction` opens "From the jig for {branch}", lists the **Pick**'s fields when there is an `element`, then gives the text. Blank text is refused. An `element` must be an object with a non-blank string `selector`. Any other field of the wrong shape is left out, not refused. |
 
 `comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
 question.
