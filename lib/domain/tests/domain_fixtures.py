@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 from git_helpers import create_commit, run_git, setup_git_repo
 
+from mael_domain import worktree
 from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.mael_layout import MaelCmux
 
@@ -93,6 +94,26 @@ def _isolate_notebook_root(monkeypatch, tmp_path):
 def _mark_test_commands_production(monkeypatch):
     """Keep command-output tests free of the non-production warning."""
     monkeypatch.setenv("MAEL_PRODUCTION", "1")
+
+
+@pytest.fixture(autouse=True)
+def _always_fetch(monkeypatch):
+    """Make every fetch reach the remote.
+
+    Many tests fetch during setup, move origin, and then sync within seconds. A
+    fresh freshness stamp would skip that sync's fetch, so the sync would not see
+    the move. Tests of the stamp itself use ``stamp_honoured``.
+    """
+    monkeypatch.setattr(worktree, "FETCH_MAX_AGE", 0.0)
+
+
+_PRODUCTION_FETCH_MAX_AGE = worktree.FETCH_MAX_AGE
+
+
+@pytest.fixture
+def stamp_honoured(monkeypatch):
+    """Undo ``_always_fetch``: a fetch within the production window is skipped."""
+    monkeypatch.setattr(worktree, "FETCH_MAX_AGE", _PRODUCTION_FETCH_MAX_AGE)
 
 
 @pytest.fixture(autouse=True)

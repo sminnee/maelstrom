@@ -228,6 +228,65 @@ def update_local_main(project_path: Path) -> UpdateMainResult:
         return UpdateMainResult("skipped", f"Could not update {MAIN_BRANCH} ref")
 
 
+#: How old, in seconds, the last full fetch may be and still count as fresh.
+FETCH_MAX_AGE = 5.0
+#: How long a fetch may run before it is killed and the repo scope freed.
+FETCH_TIMEOUT = 60.0
+#: The errors :func:`ensure_fetched` raises, for a caller that carries on offline.
+FETCH_ERRORS = (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError)
+
+
+def _fetched_within(project_path: Path, max_age: float) -> bool:
+    """Whether the last full fetch is younger than ``max_age`` seconds."""
+    try:
+        stamp = (project_path / ".git" / "FETCH_HEAD").stat().st_mtime
+    except FileNotFoundError:
+        return False
+    return time.time() - stamp < max_age
+
+
+def ensure_fetched(
+    project_path: Path,
+    max_age: float | None = None,
+    refs: list[str] | None = None,
+    *,
+    prune: bool = False,
+) -> UpdateMainResult | None:
+    """Fetch origin and fast-forward local main, unless a fetch is fresh.
+
+    Holds the repo scope, and re-reads the freshness stamp under it, so callers
+    queued behind one fetch use it. See ``docs/dev/worktree-steps.md``.
+
+    Args:
+        max_age: Seconds a fetch stays fresh. ``None`` reads ``FETCH_MAX_AGE``;
+            ``0`` always fetches; ``math.inf`` never does.
+        refs: Fetch only these refs. A narrow fetch does not write the stamp,
+            because the stamp means every ref is fresh.
+        prune: Add ``--prune``. A caller that prunes passes ``max_age=0``, since
+            a recent fetch without prune does not satisfy it.
+
+    Returns:
+        :func:`update_local_main`'s result, or ``None`` when the fetch was skipped.
+
+    Raises:
+        subprocess.CalledProcessError: If the fetch fails.
+        subprocess.TimeoutExpired: If the fetch runs past ``FETCH_TIMEOUT``.
+        TimeoutError: If the repo scope is not free in time.
+    """
+    if max_age is None:
+        max_age = FETCH_MAX_AGE
+    if _fetched_within(project_path, max_age):
+        return None
+    with scope_lock(project_path, Scope.REPO, None):
+        if _fetched_within(project_path, max_age):
+            return None
+        args = ["git", "fetch", "origin"] + (["--prune"] if prune else [])
+        if refs:
+            args += ["--no-write-fetch-head", *refs]
+        run_cmd(args, cwd=project_path, quiet=True, timeout=FETCH_TIMEOUT)
+        return update_local_main(project_path)
+
+
 def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
     """Get modified/untracked files in worktree, excluding maelstrom-managed files.
 
