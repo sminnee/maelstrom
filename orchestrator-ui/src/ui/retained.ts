@@ -31,6 +31,11 @@ export const retainedKey = {
   reply: (agentId: string) => `${PREFIX}.reply.${agentId}`,
   /** One set of change comments per worktree: one post carries every rev's comments. */
   changeComments: (worktreeId: string) => `${PREFIX}.change-comments.${worktreeId}`,
+  /**
+   * One held answer per request, not per agent: one agent can wait on several
+   * questions, and `DecisionCard` draws one prompt for each.
+   */
+  question: (requestId: string) => `${PREFIX}.question.${requestId}`,
 };
 
 /** Whether a stored key belongs to a version other than the current one. */

@@ -208,6 +208,9 @@ release while that section is empty, and retitles it to the version it is releas
   detail. The browser's Back still goes through the nodes.
 - **A side sheet closes on a phone.** Every side sheet has a Close button. A tap on the
   backdrop closes a dialog on iOS Safari.
+- **A half-answered question survives a tab switch.** The question prompt holds the chosen
+  options, the Other text and the step, also across a reload. Answer, Decline and Decline &
+  stop clear it once they succeed.
 
 - **A plan-mode build task draws as Plan until its plan is approved.** Its card, tabs and
   document drew Build while the agent wrote the plan. They now switch to Build when you approve
