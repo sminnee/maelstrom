@@ -884,6 +884,23 @@ it before storing a value, so a record carrying one was written by hand or by an
 A refused mode does not withhold the handover, and neither does a refused model. The clear cannot
 be undone, so an agent left without the plan has no context, no brief and nothing to do.
 
+The interrupt and the clear each end with a `result`, but the agent is not done: the handover
+follows. From an allowed plan review until the handover, the normaliser sets `handing_over` and
+reports each `result` as `processing`. Without it, the UI shows an Unanswered agent for the length
+of the clear. Two events clear `handing_over`:
+
+- a user text turn other than the interrupt's `[Request interrupted by user]` note, which is the
+  handover. The clear writes no user turn: it arrives as `conversation_reset`, an `init` and a
+  `result`;
+- an `assistant` event, which means the allow was not followed by a clear. The `<synthetic>`
+  event that answers `/model` ("Set model to …") does not count: the host wrote it, and its own
+  `result` follows.
+
+An exit needs no rule: the orchestrator builds a fresh context for a revived agent.
+
+`agent-daemon/fixtures/agent_events/plan-approved.jsonl` is the recorded sequence, and
+`plan-approved-execute-model.jsonl` is the same sequence with the `/model` write.
+
 The context level is reset by hand at step 4. `context_tokens` moves on an `assistant` event or a
 `compact_boundary`, and the clear is neither: it is something the daemon did rather than something
 it read. A compact, by contrast, reports its own result — see "A compact". Without the reset

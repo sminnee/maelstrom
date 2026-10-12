@@ -183,6 +183,9 @@ class NormaliseContext:
     #: Whether the last turn ended with a ``result``. A subagent's ask can
     #: arrive after it, and its answer must not reopen the turn.
     turn_ended: bool = False
+    #: Whether a plan was approved and its handover has not arrived. See
+    #: docs/dev/agent-daemon.md, "The control socket protocol".
+    handing_over: bool = False
     #: The partial message on screen, if the agent is writing one.
     partial: PartialMessage | None = None
 
@@ -528,6 +531,10 @@ def normalise_stream_event(
                     # Says nothing the transcript does not already say, and
                     # draws as though the operator typed a raw tag.
                     continue
+                if not _interrupt_marker(text):
+                    # The approval's own interrupt writes the marker; any
+                    # other turn is the handover, or follows it.
+                    out.ctx = replace(out.ctx, handing_over=False)
                 notification = _task_notification(text)
                 if notification is not None:
                     # Unlike the echo above, this is a background command's
@@ -663,7 +670,15 @@ def normalise_stream_event(
                         tool_use_id: tool_use_id,
                     },
                 )
-        out.ctx = replace(out.ctx, turn_ended=False)
+        # An agent that speaks after an approval was not cleared, so no
+        # handover is coming. The host's own reply to `/model` is not the
+        # agent speaking.
+        synthetic = _dict(raw.get("message")).get("model") == SYNTHETIC_MODEL
+        out.ctx = replace(
+            out.ctx,
+            turn_ended=False,
+            handing_over=out.ctx.handing_over and synthetic,
+        )
         if not out.ctx.pending and agent["state"] != "processing":
             out.agent({"state": "processing"})
 
@@ -705,7 +720,9 @@ def normalise_stream_event(
         out.ctx = replace(out.ctx, turn_ended=True)
         out.agent(
             {
-                "state": _state_after_turn(out.ctx),
+                "state": (
+                    "processing" if out.ctx.handing_over else _state_after_turn(out.ctx)
+                ),
                 "costUsd": _num(raw.get("total_cost_usd")),
                 # Mirrors ``agent_model.apply_event``, so the live stream and
                 # the next world poll agree on the number.
@@ -1257,6 +1274,7 @@ class _Emitter:
                     at=self.event_ts or self.now,
                     recognised=True,
                 )
+                self.ctx = replace(self.ctx, handing_over=True)
         else:
             patch = {"decision": "allow" if allow else "deny"}
             if not allow:
@@ -1453,6 +1471,15 @@ def _compact_summary(text: str) -> bool:
 def _local_command_echo(text: str) -> bool:
     """Whether a user turn is only the host's echo of a slash command."""
     return _LOCAL_COMMAND_ECHO.match(text.strip()) is not None
+
+
+#: The model an assistant event names when the host wrote it, not the model.
+SYNTHETIC_MODEL = "<synthetic>"
+
+
+def _interrupt_marker(text: str) -> bool:
+    """Whether a user turn is the host's note that a turn was interrupted."""
+    return text.startswith("[Request interrupted by user")
 
 
 def _skill_loaded(text: str) -> str | None:
