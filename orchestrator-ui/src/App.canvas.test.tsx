@@ -24,6 +24,9 @@ import { faultKey } from './fake/operations';
  * the card's end-of-work control is found here, not in the whole card.
  */
 const commands = (card: HTMLElement) => within(within(card).getByTestId('node-commands'));
+/** A node on the board, by its task id. */
+const nodeEl = (taskId: string) =>
+  document.querySelector<HTMLElement>(`[data-task-id="${taskId}"]`);
 
 /** The labels of the open menu in `card`, in order. */
 function menuLabels(card: HTMLElement): (string | null)[] {
@@ -327,7 +330,7 @@ describe('App', () => {
     ]);
   });
 
-  it('waits on a Resume, and shows why when the host refuses it', async () => {
+  it('shows on the card why the host refused a Resume', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     exitAgent(server, 'd9a4c7f1');
@@ -339,11 +342,9 @@ describe('App', () => {
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
     await user.click(await within(card).findByRole('button', { name: 'Resume' }));
-    const alert = await within(card).findByRole('alert');
-    expect(alert.closest('button')).toHaveAttribute(
-      'title',
-      expect.stringContaining('agent d9a4c7f1 is running'),
-    );
+    // The open card holds the refusal it marks seen; the button says nothing.
+    await waitFor(() => expect(card).toHaveTextContent('agent d9a4c7f1 is running'));
+    expect(within(card).queryByRole('alert')).toBeNull();
   });
 
   it('dismisses a live agent alone in its worktree with a close, then takes it off the desk', async () => {
@@ -356,6 +357,9 @@ describe('App', () => {
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Rotate auth tokens' })).toBeNull(),
+    );
+    await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-12"]')).not.toBeInTheDocument(),
     );
     // The close stops the agent itself, so the chain sends no stop.
@@ -365,7 +369,7 @@ describe('App', () => {
     ]);
   });
 
-  it('leaves the node on the desk when the close of a Dismiss refuses, and says why', async () => {
+  it('closes the card as a Dismiss starts, and leaves the node with its refusal', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     clickNode('NORT-9');
@@ -375,22 +379,27 @@ describe('App', () => {
     expect(await dismissRuns(user, card)).toBe('…and close bravo');
     const before = server.requests.length;
     await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
-    const alert = await within(card).findByRole('alert');
-    expect(alert.closest('button')).toHaveAttribute('title', 'Worktree has uncommitted changes');
-    // The open card shows the refusal, so it marks it seen.
     await waitFor(() =>
-      expect(commandsSince(server, before)).toEqual([
-        'POST /api/desk/task:NORT-9/dismiss',
-        'POST /api/operations/op1/seen',
-      ]),
+      expect(screen.queryByRole('dialog', { name: 'Migrate to Postgres 16' })).toBeNull(),
     );
-    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(nodeEl('NORT-9')).toHaveTextContent('Worktree has uncommitted changes'),
+    );
+    // No card read the refusal, so it waits Unseen in the strip.
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-9/dismiss']);
+    expect(
+      screen
+        .getByRole('region', { name: 'Operations now' })
+        .querySelector('[data-operation-id="op1"]'),
+    ).toHaveAttribute('data-state', 'refused');
 
     // The chains that skip the refusal are Dismisses too: they end off the desk.
-    const next = within(card).getByRole('group', { name: 'Next' });
+    clickNode('NORT-9');
+    const again = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const next = within(again).getByRole('group', { name: 'Next' });
     const after = server.requests.length;
     await user.click(within(next).getByRole('button', { name: 'Shelve' }));
-    await user.click(within(card).getByRole('button', { name: 'Shelve it' }));
+    await user.click(within(again).getByRole('button', { name: 'Shelve it' }));
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
     );
@@ -411,8 +420,7 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     await user.click(within(card).getByRole('menuitem', { name: '…and take off desk' }));
-    await within(card).findByRole('alert');
-    expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+    await waitFor(() => expect(nodeEl('NORT-9')).toHaveTextContent('no such agent'));
   });
 
   it('terminates a live node with no desk entry, and has nothing to take off the desk', async () => {

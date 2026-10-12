@@ -13,8 +13,8 @@ import { type EndOfWorkProps, useEndOfWork } from './useEndOfWork';
  * agent's task, else — for a free agent — the agent itself. A task with no
  * agent still goes off the desk, so `agent` is optional.
  *
- * `onTakenOffDesk` runs once Off desk has taken the entry off the desk: the
- * card collapses, and the panel closes the session tab.
+ * `onTakenOffDesk` runs once Off desk has taken the entry off the desk, or once
+ * a Dismiss starts: the card collapses, and the panel closes the session tab.
  */
 export function AgentControls({ agent, taskId, where, onTakenOffDesk }: EndOfWorkProps) {
   const resume = useResume();

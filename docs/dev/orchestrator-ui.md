@@ -154,15 +154,18 @@ with the result, or rejects with an `ApiError` carrying the code. On success the
 invalidates the keys the command touched; the change notice invalidates them again a moment
 later, so the screen is right while the stream reconnects too. `useCreateWorktreeTerminal` is
 the exception: it writes its reply into the cached worktree, so its control turns into a link
-before the notice arrives. A command that starts an **Operation** answers `202` at once. A hook
-that must show the wait, such as Terminate or a worktree close, waits on the operation through
-`runOperation`. The launch hooks resolve on the `202`: the board and the console carry the rest.
+before the notice arrives. A command that starts an **Operation** answers `202` at once, and
+its hook resolves on the `202`. The worktree hooks, `useStop`, `useResume` and `useDismiss` share
+`useStartOperation` in `api/operations.ts`. The launch hooks post on their own. The board and
+the console carry the run.
 
 Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns
 what happens next. A handler that returns a promise puts the button in `processing`: disabled,
 busy, with a spinner. A rejection puts it in `error`: it reads "Failed", the message is its
-`title`, and a click retries. It is ready again after three seconds. So a refusal shows on the
-button that asked, and no view keeps an error of its own. The status picker
+`title`, and a click retries. It is ready again after three seconds. So a refused command shows
+on the button that asked, and no view keeps an error of its own. An **Operation** refused
+mid-run shows on the unit it marks and in the console instead — see "What an operation marks".
+The status picker
 (`ui/StatusPicker.tsx`) is the one row control that is not a button; it shows its own refusal.
 The task list's bulk bar also keeps its own error: a run over many rows can partly fail, and
 "Failed" on one button cannot say which rows or why. The
@@ -478,9 +481,11 @@ work. `worktrees/closeConfirms.ts` holds the questions, and the close control as
 Only the confirming answer sends anything. A `SplitOption` with `confirm` draws the question, in the
 style of `ui/ConfirmButton.tsx`, and holds both segments while it is open.
 
-A refused Dismiss leaves the node on the desk, and the control shows the reason in its title —
-see "Operations" in [the orchestrator server](orchestrator-server.md). The card then offers
-Shelve, Trash and Delete as Dismiss chains, so each still ends off the desk.
+The card closes as the Dismiss starts. The node stays on the board, hatched, until the server
+takes it off the desk. A refused Dismiss leaves the node on the desk with the reason as its
+status words, **Unseen** in the strip — see "Operations" in
+[the orchestrator server](orchestrator-server.md). The card, opened again, offers Shelve, Trash
+and Delete as Dismiss chains, so each still ends off the desk.
 
 The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
 desk also closes the session tab. The agent's document tabs stay open.
@@ -533,8 +538,8 @@ The node card's Terminate is the other act: it sends `agent.stop`, which runs as
 operation.
 Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
-one. It runs as a `resume` operation. `useStop` and `useResume` wait on their operation, so the
-button shows the wait and a refusal's reason.
+one. It runs as a `resume` operation. Neither button waits for its operation. A refusal shows on
+the card and in the console.
 
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
@@ -755,10 +760,12 @@ card is this area under a header. Both draw the one component, so the two cannot
 | Delete (**Remove**) | `worktree.remove` | yes |
 
 Each option starts an **Operation**. The route answers at once with the operation's id, and the
-mutation waits on the entity in `api/operations.ts`, not on the HTTP call. So the button shows
-its processing label until the operation ends, and a refusal shows the operation's words. Sync,
-Merge and the environment controls wait the same way. The fake server runs each step on a timer:
-a second in the fake mode, `OPERATION_STEP_MS` in the suite.
+button is at rest again. The `CommandSet` holds the worktree's other controls while the operation
+runs. The row, the card and the strip show its words, and a refusal's words. Sync, Merge and the
+environment controls work the same way. The controls outside a `CommandSet` (the worktree bar,
+the environment tab, the Changes tab's Sync, the session tab's agent controls and the next-step
+chains) are not held while it runs. The fake server runs each step on a timer: a second in the
+fake mode, `OPERATION_STEP_MS` in the suite.
 
 A close stops every agent in the worktree. The control is therefore held while an agent runs
 there, and each item says so. The node card's Terminate chains are the way to end live work.
