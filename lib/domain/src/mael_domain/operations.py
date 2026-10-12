@@ -31,17 +31,23 @@ INTERRUPTED_WORDS = "Server stopped during the operation"
 def new_operation(
     id: str,
     kind: str,
-    worktree_id: str,
+    worktree_id: str | None,
     words: str,
     now: str,
     *,
+    project: str = "",
     task_id: str | None = None,
     agent_id: str | None = None,
 ) -> Operation:
-    """A running operation with no steps yet."""
+    """A running operation with no steps yet.
+
+    ``worktree_id`` is ``None`` for a launch, which learns its worktree when
+    the worktree opens: see :func:`target`.
+    """
     return {
         "id": id,
         "kind": kind,
+        "project": project,
         "worktreeId": worktree_id,
         "taskId": task_id,
         "agentId": agent_id,
@@ -52,6 +58,22 @@ def new_operation(
         "seen": False,
         "steps": [],
     }
+
+
+def target(
+    op: Operation,
+    *,
+    worktree_id: str | None = None,
+    task_id: str | None = None,
+    agent_id: str | None = None,
+) -> Operation:
+    """``op`` with the ids it learned while it ran. An id not given is kept."""
+    found = {
+        "worktreeId": worktree_id,
+        "taskId": task_id,
+        "agentId": agent_id,
+    }
+    return {**op, **{k: v for k, v in found.items() if v is not None}}  # type: ignore[typeddict-item]
 
 
 def _step(name: str) -> OperationStep:

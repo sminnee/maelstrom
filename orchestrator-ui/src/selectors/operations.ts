@@ -11,6 +11,13 @@ export const KIND_NAMES: Record<OperationKind, string> = {
   sync: 'Sync',
   merge: 'Merge',
   env: 'Environment',
+  dismiss: 'Dismiss',
+  terminate: 'Terminate',
+  resume: 'Resume',
+  launch: 'Launch',
+  start: 'Start',
+  create: 'Create',
+  plan: 'Plan',
 };
 
 /** An operation that ended **Refused** or failed. */
@@ -44,6 +51,22 @@ export function operationLine(op: Operation): string {
   return `${KIND_NAMES[op.kind]} ${op.state} · ${reason}`;
 }
 
+/**
+ * What an operation acts on: its worktree, else its task, else its agent. A
+ * launch knows none of them at first, so it names its project and links nowhere.
+ */
+export function operationTarget(op: Operation): {
+  label: string;
+  card: { kind: 'worktree' | 'task' | 'agent'; id: string } | null;
+} {
+  if (op.worktreeId !== null) {
+    return { label: op.worktreeId, card: { kind: 'worktree', id: op.worktreeId } };
+  }
+  if (op.taskId !== null) return { label: op.taskId, card: { kind: 'task', id: op.taskId } };
+  if (op.agentId !== null) return { label: op.agentId, card: { kind: 'agent', id: op.agentId } };
+  return { label: op.project, card: null };
+}
+
 const newestFirst = (a: Operation, b: Operation) => b.startedAt.localeCompare(a.startedAt);
 
 /**
@@ -75,7 +98,7 @@ export function filterOperations(
     (op) =>
       (filter === 'all' || (filter === 'running' ? op.state === 'running' : endedBadly(op))) &&
       (!needle ||
-        [operationLine(op), op.worktreeId, KIND_NAMES[op.kind], op.taskId ?? '', op.agentId ?? '']
+        [operationLine(op), operationTarget(op).label, KIND_NAMES[op.kind], op.taskId ?? '', op.agentId ?? '']
           .join(' ')
           .toLowerCase()
           .includes(needle)),
@@ -99,6 +122,13 @@ export const KIND_DOING: Record<OperationKind, string> = {
   sync: 'syncing',
   merge: 'merging',
   env: 'env',
+  dismiss: 'dismissing',
+  terminate: 'terminating',
+  resume: 'resuming',
+  launch: 'launching',
+  start: 'starting',
+  create: 'creating',
+  plan: 'planning',
 };
 
 /**

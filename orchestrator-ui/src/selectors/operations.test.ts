@@ -14,6 +14,7 @@ const step = (name: string, state: OperationStep['state'], words = ''): Operatio
 function op(o: Partial<Operation> & Pick<Operation, 'id'>): Operation {
   return {
     kind: 'close',
+    project: 'acme',
     worktreeId: 'acme-alpha',
     taskId: null,
     agentId: null,

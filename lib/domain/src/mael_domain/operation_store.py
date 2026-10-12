@@ -125,7 +125,8 @@ class SqliteOperationStore(OperationStore):
 
 def _record(row: Any) -> OperationRecord:
     return OperationRecord(
-        operation=cast(Operation, json.loads(row["body"])),
+        # A row written before operations had a project reads as having none.
+        operation=cast(Operation, {"project": "", **json.loads(row["body"])}),
         log=dict(json.loads(row["log"] or "{}")),
         command=dict(json.loads(row["command"] or "{}")),
     )

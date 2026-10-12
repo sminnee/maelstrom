@@ -17,6 +17,7 @@ export interface FakeStep {
 /** What one fake operation runs, and the words it is read by. */
 export interface FakeOperationSpec {
   kind: OperationKind;
+  project?: string;
   worktreeId: WorktreeId;
   /** While it runs: `Closing alpha`. */
   doing: string;
@@ -54,6 +55,7 @@ export function startOperation(
   const op: Operation = {
     id,
     kind: spec.kind,
+    project: spec.project ?? '',
     worktreeId: spec.worktreeId,
     taskId: null,
     agentId: null,

@@ -253,8 +253,22 @@ export interface Comm {
 /** How an **Operation** stands. See `CONTEXT.md`, "Refused". */
 export type OperationState = 'running' | 'done' | 'refused' | 'failed';
 
-/** What runs as an operation. The agent and launch kinds come later. */
-export type OperationKind = 'close' | 'shelve' | 'trash' | 'delete' | 'sync' | 'merge' | 'env';
+/** What runs as an operation. */
+export type OperationKind =
+  | 'close'
+  | 'shelve'
+  | 'trash'
+  | 'delete'
+  | 'sync'
+  | 'merge'
+  | 'env'
+  | 'dismiss'
+  | 'terminate'
+  | 'resume'
+  | 'launch'
+  | 'start'
+  | 'create'
+  | 'plan';
 
 /** One **Step** of an operation. Its log lines are a separate read: `useOperationLog`. */
 export interface OperationStep {
@@ -270,7 +284,10 @@ export interface OperationStep {
 export interface Operation {
   id: OperationId;
   kind: OperationKind;
-  worktreeId: WorktreeId;
+  /** The lane an **Opening node** draws in, before any task, agent or worktree exists. */
+  project: ProjectId;
+  /** `null` until the operation knows it: a launch learns it when the worktree opens. */
+  worktreeId: WorktreeId | null;
   taskId: TaskId | null;
   agentId: AgentId | null;
   /** The work while it runs; the refusal or the error once it ended badly. */
