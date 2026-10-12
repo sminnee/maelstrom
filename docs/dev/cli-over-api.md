@@ -4,7 +4,8 @@ Most `mael` commands should call the orchestrator server, not open `state.db` th
 server is the one writer of the state it holds, and `mael_domain` belongs to the server alone. This
 note sorts every command into a class, names the API gaps, and gives the migration order.
 
-`mael task show`, `read`, `list` and `status` are the pilot. They call the server today.
+`mael task show`, `read`, `list` and `status` are the pilot. They call the server today, as do
+`mael list` and `mael list-all`.
 
 ## Why two writers fail
 
@@ -14,8 +15,8 @@ also holds state in memory, so a direct CLI write goes stale in it:
 - The server reads the desk, the agent records and the task attachments once, at start. It does
   not see a CLI write to them. Its next desk save overwrites that write.
 - The server polls tasks and comms every 2 s, so a CLI write shows late.
-- The server polls worktrees every 60 s. `mael gh create-pr` posts `/api/worktrees/refresh` to
-  make up for it.
+- The server polls worktrees every 60 s. `mael gh create-pr`, `mael git merge` and
+  `mael close --trash` post `/api/worktrees/refresh` with the changed branch to make up for it.
 
 When the server makes the write, it publishes the change at once, and nothing goes stale.
 
@@ -49,11 +50,17 @@ no domain in the package split below.
 
 | Class | Commands | Why |
 |---|---|---|
-| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch) | The state is the server's. Both sides already call the same domain function. |
-| **B. Thin after API work** | `task add/promote/load-many/next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `list`, `list-all`, `add`, `linear plan` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
+| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch) | The state is the server's. Both sides already call the same domain function. |
+| **B. Thin after API work** | `task add/promote/load-many/next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `add`, `linear plan` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
 | **C. Stays local** | `install`, `self-update`, `self-env *`, `doctor`, `cmux status`, `schedule *`, `session end/info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self-env start orchestrator` starts it. The rest use the TTY or `$EDITOR`, exec into the caller's shell, or signal the caller's parent process. |
 | **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `base/stack-tip/promote/eject`, `wiki *`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
 | **E. Already a thin client** | `agent show/say/run/approve/…` | They speak the agent daemon's wire contract. |
+
+## Done
+
+`mael list` and `mael list-all` read `GET /api/worktrees?max_age=10`. See the route table in
+[orchestrator-server.md](orchestrator-server.md). The PR state they show comes from the server's
+`PrStateCache` alone.
 
 ## API gaps
 

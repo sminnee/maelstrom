@@ -201,6 +201,9 @@ mael task list        # tasks you can start now
 mael session list     # live Claude sessions
 ```
 
+`mael list` and `mael task list` read the orchestrator server. Start one with
+`mael self-env start orchestrator`.
+
 ## 8. Close the worktree
 
 When the work has merged:

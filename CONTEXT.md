@@ -1378,6 +1378,13 @@ never a quiet `ready`. A draft pull request reads as a draft instead of its stat
 than as a spinner nothing will stop. See **Check rollup**.
 _Avoid_: PR status, merge state, CI state
 
+**Stale PR state**:
+A worktree's **PR state** as the last successful read left it, because the latest read failed,
+timed out or stood off for a GitHub rate limit. The wire marks it `prStale`, and `mael list`
+ends the cell with `(stale)`. The local columns are never stale this way: only the pull request
+read leaves the machine.
+_Avoid_: Stale (alone: a **Stale prompt** is a different thing), cached PR, old PR
+
 **Check rollup**:
 GitHub's one-word verdict on a commit's checks, read through GraphQL. The rollup needs the
 `checks=read` token permission, which GitHub no longer offers, so some repositories refuse it and
