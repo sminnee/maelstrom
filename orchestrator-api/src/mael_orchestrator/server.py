@@ -36,7 +36,11 @@ from mael_domain.attachments import attachment_urls
 from mael_domain.comm_store import CommStore, InMemoryCommStore
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
-from mael_domain.feedback import format_jig_hidden, format_monkeypatch
+from mael_domain.feedback import (
+    format_instruction,
+    format_jig_hidden,
+    format_monkeypatch,
+)
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
@@ -252,6 +256,17 @@ _ENV_WORDS = {
     "start": ("Starting", "Started"),
     "stop": ("Stopping", "Stopped"),
     "restart": ("Restarting", "Restarted"),
+}
+
+#: The message each kind of **Feedback** becomes, from the branch and the
+#: feedback. Validation has checked the fields each one reads.
+_FEEDBACK_FORMATTERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
+    "monkeypatch": lambda branch, feedback: format_monkeypatch(
+        branch, feedback["css"], feedback.get("note")
+    ),
+    "instruction": lambda branch, feedback: format_instruction(
+        branch, feedback["text"], feedback.get("element")
+    ),
 }
 
 
@@ -2253,14 +2268,13 @@ class Orchestrator:
     async def _send_feedback(self, command: dict[str, Any]) -> dict[str, Any]:
         """Send the feedback to each agent in the worktree, as one message.
 
-        A monkeypatch is the one type so far, and validation refuses the rest.
+        Validation refuses a type with no validator, and each validator has a
+        formatter in ``_FEEDBACK_FORMATTERS``.
         """
         worktree_id = command["worktreeId"]
         feedback = command["feedback"]
-        text = format_monkeypatch(
-            self.world["worktrees"][worktree_id]["branch"],
-            feedback["css"],
-            feedback.get("note"),
+        text = _FEEDBACK_FORMATTERS[feedback["type"]](
+            self.world["worktrees"][worktree_id]["branch"], feedback
         )
         return await self._say_to_worktree(worktree_id, text)
 

@@ -123,9 +123,6 @@ DISMISS_CHAINS: dict[str, str | None] = {
     "delete": "worktree.remove",
 }
 
-#: The kinds of **Feedback** the server can build a message from.
-FEEDBACK_TYPES = ("monkeypatch",)
-
 #: The three settings ``mael sync`` has, which the one sync command chooses
 #: between. ``--abort`` is implied on ``plain`` and ``squash``.
 SYNC_MODES = ("plain", "autorepair", "squash")
@@ -343,18 +340,47 @@ def _is_change_comment(comment: Any) -> bool:
     )
 
 
-def _feedback_error(feedback: Any) -> dict[str, str] | None:
-    """Whether ``feedback`` holds a type the server knows, with its fields."""
-    if not isinstance(feedback, dict):
-        return _err("invalid", "Feedback is an object")
-    if feedback.get("type") not in FEEDBACK_TYPES:
-        return _err("invalid", f"Unknown feedback type: {feedback.get('type')!r}")
+def _monkeypatch_error(feedback: dict[str, Any]) -> dict[str, str] | None:
     css = feedback.get("css")
     if not isinstance(css, str) or not css.strip():
         return _err("invalid", "No CSS to send")
     if not isinstance(feedback.get("note"), str | None):
         return _err("invalid", "A note is text")
     return None
+
+
+def _instruction_error(feedback: dict[str, Any]) -> dict[str, str] | None:
+    text = feedback.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return _err("invalid", "No text to send")
+    element = feedback.get("element")
+    if element is None:
+        return None
+    if not isinstance(element, dict):
+        return _err("invalid", "A picked element is an object")
+    selector = element.get("selector")
+    if not isinstance(selector, str) or not selector.strip():
+        return _err("invalid", "A picked element has a selector")
+    return None
+
+
+#: One validator per kind of **Feedback**, by its ``type``: the types the
+#: server can build a message from.
+_FEEDBACK_VALIDATORS = {
+    "monkeypatch": _monkeypatch_error,
+    "instruction": _instruction_error,
+}
+
+
+def _feedback_error(feedback: Any) -> dict[str, str] | None:
+    """Whether ``feedback`` holds a type the server knows, with its fields."""
+    if not isinstance(feedback, dict):
+        return _err("invalid", "Feedback is an object")
+    kind = feedback.get("type")
+    validator = _FEEDBACK_VALIDATORS.get(kind) if isinstance(kind, str) else None
+    if validator is None:
+        return _err("invalid", f"Unknown feedback type: {kind!r}")
+    return validator(feedback)
 
 
 def _worktree_error(

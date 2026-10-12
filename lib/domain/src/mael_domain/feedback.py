@@ -4,8 +4,26 @@ One formatter per Feedback type. The server picks one by the type's name; see
 ``docs/dev/orchestrator-ui.md``, "The jig".
 """
 
+from typing import Any
+
 #: Where the jig keeps the **Monkeypatch**, relative to the worktree root.
 MONKEYPATCH_PATH = ".drafts/monkeypatch.css"
+
+#: The fields of a picked element the message names, in the order it names them.
+_ELEMENT_FIELDS = (
+    "selector",
+    "tag",
+    "classes",
+    "text",
+    "components",
+    "styles",
+    "ancestors",
+    "story",
+    "url",
+)
+
+#: How a list field is joined: the components and ancestors read outward.
+_JOINS = {"classes": " ", "components": " < ", "ancestors": " < "}
 
 
 def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
@@ -29,6 +47,45 @@ def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def format_instruction(
+    branch: str, text: str, element: dict[str, Any] | None = None
+) -> str:
+    """The message that carries an **Instruction**, about the **Pick** if there is one."""
+    if element is None:
+        return f"From the jig for {branch}:\n\n{text.strip()}"
+    described = [f"    {line}" for line in _describe(element)]
+    return "\n".join(
+        [
+            f"From the jig for {branch}, about this element:",
+            *described,
+            "",
+            text.strip(),
+        ]
+    )
+
+
 def format_jig_hidden(branch: str) -> str:
     """The message that tells the agents of a worktree the user hid its **Jig**."""
     return f"The user hid the jig for {branch}."
+
+
+def _describe(element: dict[str, Any]) -> list[str]:
+    """One ``name: value`` line per field the element has.
+
+    Only the selector is validated, so a field of the wrong shape is left out
+    rather than refused.
+    """
+    lines = []
+    for name in _ELEMENT_FIELDS:
+        value = element.get(name)
+        if isinstance(value, list) and name in _JOINS:
+            value = _JOINS[name].join(str(item) for item in value)
+        elif isinstance(value, dict) and name == "styles":
+            value = "; ".join(f"{key}: {style}" for key, style in value.items())
+        elif not isinstance(value, str):
+            continue
+        if name == "text" and value:
+            value = f'"{value}"'
+        if value:
+            lines.append(f"{name}: {value}")
+    return lines
