@@ -2,9 +2,18 @@
   display: flex;
   align-items: center;
   gap: var(--u);
-  flex: 1 1 600px;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   min-width: 0;
+}
+/* Short of the room for every filter beside the menu and the readings, the
+   filters take a row of their own under them, whole, rather than wrap in among
+   them. The narrow layout keeps them in a side sheet. */
+@media (min-width: 840px) and (max-width: 1599px) {
+  .bar {
+    order: 1;
+    flex-basis: 100%;
+  }
 }
 .stack {
   display: flex;
