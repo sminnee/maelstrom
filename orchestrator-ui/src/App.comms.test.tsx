@@ -299,6 +299,67 @@ describe('the comms view', () => {
     expect(within(row('c1')!).getByTestId('comm-landing')).toHaveTextContent('uat');
   });
 
+  it('drafts an update for each comm with news, and the queue size drops to 0', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'comms' });
+    await goToComms(user);
+    expect(row('c1')).not.toHaveTextContent('draft');
+
+    // c1 queues NORT-20 and NORT-21; c2 queues NORT-22 and NORT-23.
+    await user.click(screen.getByRole('button', { name: 'Draft updates (4)' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Draft updates' })).toBeDisabled(),
+    );
+    expect(row('c1')).toHaveTextContent('draft');
+    expect(row('c2')).toHaveTextContent('draft');
+    expect(server.world.comms['c1']!.updates.map((u) => [u.id, u.state])).toEqual([
+      ['c1.1', 'sent'],
+      ['c1.2', 'draft'],
+    ]);
+  });
+
+  it('edits a draft update, saves it, and marks it sent with an edit not yet saved', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'comms' });
+    await goToComms(user);
+    await user.click(screen.getByRole('button', { name: 'Draft updates (4)' }));
+    await waitFor(() => expect(row('c1')).toHaveTextContent('draft'));
+
+    await user.click(within(row('c1')!).getByRole('button', { name: 'Order export is live' }));
+    const editor = within(await screen.findByRole('dialog', { name: 'Order export is live' }));
+    const updates = within(editor.getByRole('region', { name: 'Updates' }));
+    // Newest first: the draft over the update already sent.
+    expect(
+      [...updates.getAllByRole('listitem')].map((u) => u.getAttribute('data-update-id')),
+    ).toEqual(['c1.2', 'c1.1']);
+    expect(updates.getByText('Order export is on UAT: try it before Friday.')).toBeInTheDocument();
+
+    const text = updates.getByLabelText('c1.2');
+    await user.clear(text);
+    await user.type(text, 'Order export is live for everyone.');
+    await user.click(updates.getByRole('button', { name: 'Save update' }));
+    await waitFor(() =>
+      expect(server.world.comms['c1']!.updates[1]!.content).toBe(
+        'Order export is live for everyone.',
+      ),
+    );
+
+    // Mark sent carries the edit Save update has not written yet.
+    await waitFor(() =>
+      expect(updates.getByRole('button', { name: 'Save update' })).toBeDisabled(),
+    );
+    await user.type(text, ' CSV is under Orders.');
+    await user.click(updates.getByRole('button', { name: 'Mark sent' }));
+    const sent = 'Order export is live for everyone. CSV is under Orders.';
+    await waitFor(() =>
+      expect(server.world.comms['c1']!.updates[1]).toMatchObject({ state: 'sent', content: sent }),
+    );
+    await waitFor(() => expect(updates.queryByRole('textbox')).toBeNull());
+    expect(updates.getByText(sent)).toBeInTheDocument();
+    await waitFor(() => expect(row('c1')).not.toHaveTextContent('draft'));
+  });
+
   it('is a view on the narrow layout too', async () => {
     const user = userEvent.setup();
     await renderApp({ scenario: 'comms', viewport: 'narrow' });

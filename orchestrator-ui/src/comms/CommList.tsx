@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { useComms } from '../api/comms';
+import { useComms, useDraftUpdates } from '../api/comms';
 import { useWorld } from '../api/useWorld';
 import { useHrefFor } from '../nav/useNav';
-import { highestLanding, listComms } from '../selectors/comms';
+import { hasDraft, highestLanding, listComms, queueSize } from '../selectors/comms';
 import { noFilters } from '../selectors/filters';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -23,6 +23,8 @@ export function CommList() {
     () => listComms(comms.data?.comms ?? [], showClosed),
     [comms.data, showClosed],
   );
+  const draftUpdates = useDraftUpdates();
+  const queued = queueSize(comms.data?.comms ?? []);
 
   return (
     <div className={styles.view} data-testid="comm-list">
@@ -35,9 +37,19 @@ export function CommList() {
           />
           <span>Show closed</span>
         </label>
-        <AppButton icon={actionIcon('new')} onClick={() => setEditing({ kind: 'new' })}>
-          New comm
-        </AppButton>
+        <div className={styles.actions}>
+          <AppButton
+            icon={actionIcon('edit')}
+            disabled={queued === 0}
+            title={queued === 0 ? 'No comm has news yet' : undefined}
+            onClick={() => draftUpdates.mutateAsync()}
+          >
+            {queued === 0 ? 'Draft updates' : `Draft updates (${queued})`}
+          </AppButton>
+          <AppButton icon={actionIcon('new')} onClick={() => setEditing({ kind: 'new' })}>
+            New comm
+          </AppButton>
+        </div>
       </div>
       <table className={styles.table}>
         <thead>
@@ -67,6 +79,7 @@ export function CommList() {
                     {comm.title}
                   </button>
                   {comm.closedAt && <span className={styles.closed}> closed</span>}
+                  {hasDraft(comm) && <span className={styles.draft}> draft</span>}
                 </td>
                 <td className={`${styles.recipients} wrap`}>{comm.recipients.join(', ')}</td>
                 <td className={`${styles.count} nowrap`}>

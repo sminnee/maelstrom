@@ -8,7 +8,8 @@
 .remove {
   composes: remove from '../ui/MultiComboBox.module.css';
 }
-.tasks {
+.tasks,
+.updates {
   display: flex;
   flex-direction: column;
   gap: var(--u);
@@ -81,4 +82,27 @@
 .pair > * {
   flex: 1 1 50%;
   min-width: 0;
+}
+.updateList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.update {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+}
+.updateMeta {
+  font-family: var(--mono);
+  color: var(--fg-muted);
+}
+/* A sent update keeps the line breaks it was sent with. */
+.sent {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--fg-muted);
 }

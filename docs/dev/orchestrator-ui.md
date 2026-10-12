@@ -295,9 +295,17 @@ diff. Both pickers pass `recent` to `ui/ComboBox.tsx`: an empty field offers the
 `ui/recent.ts` holds for this browser. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
 editor, so it is disabled while the form holds unsaved edits.
 
+The toolbar's **Draft updates** button reads its count from `queueSize` in `selectors/comms.ts`:
+each open comm's distinct queued tasks. A task that feeds two comms counts once for each. At 0
+the button is disabled. A row with an unsent **Comm update** says `draft`. The editor's Updates
+section lists the comm's updates, newest first. A draft is a text area with Save update and Mark
+sent. Mark sent sends unsaved content in the same call, so an edit is never lost. A sent update
+is read-only text with its sent time.
+
 The `comm` notice invalidates per id, as `task` does: `perId(keys.comms, …)` in
 `live/changeStream.ts`. `/scenario/comms` opens the fake mode on three comms over tasks at
-each landing step.
+each landing step. `c1` holds one sent update, so it queues only the steps that update does not
+hold. The fake keeps no step rows: it reads a task's steps off its landing.
 
 The sync control is `worktrees/SyncControl.tsx`. Its main segment, "Sync", sends `plain`,
 so a conflict aborts the rebase and leaves the worktree as it was. Its menu adds "Sync & squash"

@@ -27,6 +27,21 @@ export function listComms(comms: readonly Comm[], showClosed: boolean): Comm[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 
+/**
+ * The size of the queue **Draft updates** clears: each open comm's queued tasks, counted once
+ * per comm. A task that feeds two comms is news for both.
+ */
+export function queueSize(comms: readonly Comm[]): number {
+  return comms
+    .filter((c) => !c.closedAt)
+    .reduce((n, c) => n + new Set(c.queued.map((q) => q.taskId)).size, 0);
+}
+
+/** Whether `comm` has an update not yet sent. */
+export function hasDraft(comm: Comm): boolean {
+  return comm.updates.some((u) => u.state === 'draft');
+}
+
 /** The distinct non-blank categories, sorted. Mirrors `comms.categories` in Python. */
 export function categories(comms: readonly Comm[]): string[] {
   return [...new Set(comms.map((c) => c.category).filter(Boolean))].sort();
