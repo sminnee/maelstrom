@@ -36,6 +36,7 @@ from mael_domain.attachments import attachment_urls
 from mael_domain.comm_store import CommStore, InMemoryCommStore
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
+from mael_domain.feedback import format_jig_hidden, format_monkeypatch
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
@@ -85,11 +86,7 @@ from mael_domain.task_export import TaskExporter
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree import WorktreeSetup
-from mael_domain.worktree_changes import (
-    format_change_comments,
-    format_jig_hidden,
-    format_monkeypatch,
-)
+from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_model import get_worktree_folder_name
 from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 

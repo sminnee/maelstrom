@@ -8558,24 +8558,6 @@ def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
     ]
 
 
-@pytest.mark.parametrize(
-    "note", [{}, {"note": ""}, {"note": "  "}], ids=["absent", "empty", "blank"]
-)
-def test_a_monkeypatch_without_a_note_omits_the_note_line(harness, note):
-    """The jig sends an empty note field as ``""``, not as no key."""
-    harness.daemon.rows["ag1"] = agent_row()
-
-    jig_feedback(harness, monkeypatch(**note))
-
-    assert said(harness)[0]["text"] == (
-        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
-        "\n"
-        "    .chip{padding:20px}\n"
-        "\n"
-        "Apply it in source, then delete .drafts/monkeypatch.css."
-    )
-
-
 def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
     reply = jig_feedback(harness, monkeypatch())
 
