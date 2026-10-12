@@ -639,10 +639,11 @@ are unrelated names on unrelated streams.
 _Avoid_: Generation, run id, session
 
 **Operation**:
-One slow change to the world that the orchestrator server runs in the background: a close, a
-shelve, a trash, a delete, a sync, a merge or an environment change. It is a list of **Steps**,
-each with a state and log lines. It ends `done`, **Refused** or `failed`. The state database
-keeps it, so a reload loses nothing.
+One slow change to the world that the orchestrator server runs in the background. Its kinds are
+the worktree changes (close, shelve, trash, delete, sync, merge, environment), the agent changes
+(**Dismiss**, terminate, resume), and the launch kinds (launch a task, start a free agent, create
+a task, plan a Linear issue). It is a list of **Steps**, each with a state and log lines. It ends
+`done`, **Refused** or `failed`. The state database keeps it, so a reload loses nothing.
 _Avoid_: Action (a **Step** avoids it), job (a **Task** avoids it), activity, background task
 
 **Refused**:
@@ -1059,9 +1060,18 @@ _Avoid_: Remove from desk, Hide, archive
 **Dismiss**:
 The usual end of work on a node: **stop** its agent, take it **off desk**, and close its
 worktree when it can close and no other top-level agent runs there. It is the button of the
-node card's end-of-work control. A close refuses a dirty tree or unmerged commits, so Dismiss
-fails on a branch whose PR is not merged yet, and the node stays on the desk.
+node card's end-of-work control. The server runs it as one `dismiss` **Operation**. Its chain is
+`terminate` (stop the agent, then off desk) or a worktree end — `close`, `shelve`, `trash` or
+`delete` — then off desk. A close refuses a dirty tree or unmerged commits, so Dismiss is
+**Refused** on a branch whose PR is not merged yet, and the node stays on the desk.
 _Avoid_: Done, Finish, Remove
+
+**Opening node**:
+A node that stands for work an **Operation** is starting before its agent or task exists: a
+free agent's start, or a Linear plan. It draws in its project's lane, hatched, with the
+operation's words and step meter. The node of the agent or task the operation makes takes its
+place.
+_Avoid_: Placeholder node, pending node, ghost node
 
 **Active branch**:
 A branch with a desk entry at it — a task through the notebook, an agent through its worktree.

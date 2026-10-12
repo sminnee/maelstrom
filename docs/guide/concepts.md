@@ -165,8 +165,10 @@ moving hatch and its step count while it runs, and a red mark once it refuses or
 commands wait while it runs. Opening the node's or worktree's card clears the mark.
 The top bar's "New" control starts new work without leaving the page: a task, a free agent in
 a branch's worktree, or an investigation. An investigation is a free agent on the main branch
-that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start name an empty title or branch from the prose you type. They
-use OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line otherwise.
+that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start close the dialog at once.
+The server names an empty title or branch from the prose you type, and the node draws hatched
+while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line
+otherwise.
 `uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
 from the task notebook, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and

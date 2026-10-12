@@ -94,6 +94,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Dismiss, Terminate, Resume, Launch and new work run on the server.** Each is an operation in
+  the console, with its steps and log. A reload no longer loses a Dismiss partway: the server
+  stops the agent or ends the worktree, then takes the node off the desk. New work closes as soon
+  as you press Save or Start. The server names an empty title or branch, and the node draws
+  hatched while it does. A free agent or a Linear plan draws an opening node before its agent or
+  task exists. A launch that fails shows on its node, not in the dialog.
+
 - **Edit task opens the task editor in edit mode.** The expanded card's Edit task opens the
   dialog with its fields unlocked. Delete sits on the left of the footer in view and edit mode
   alike. A read-only field has no fill and a dotted border, in a dialog too.
