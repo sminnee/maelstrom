@@ -2121,13 +2121,7 @@ def recycle_worktree(
     """
     worktree_path = worktree_path.resolve()
 
-    # Fetch latest
-    try:
-        run_git(["fetch", "origin"], cwd=worktree_path)
-        # Fast-forward local main to match origin/main
-        update_local_main(worktree_path.parent)
-    except subprocess.CalledProcessError:
-        pass  # Continue even if fetch fails (might be offline)
+    # No fetch: the caller holds the repo scope, which ensure_fetched takes too.
 
     # Check if branch exists on remote
     remote_branch = f"origin/{branch}"
@@ -2843,10 +2837,8 @@ def create_worktree(
 
     # Fetch latest from origin
     try:
-        run_git(["fetch", "origin"], cwd=project_path)
-        # Fast-forward local main to match origin/main
-        update_local_main(project_path)
-    except subprocess.CalledProcessError:
+        ensure_fetched(project_path)
+    except FETCH_ERRORS:
         # Fetch failed, but we can continue - might be offline or no remote
         pass
 
@@ -3353,6 +3345,13 @@ def setup_worktree_for_branch(
             raise ValueError(f"Could not derive worktree name from '{existing.name}'.")
         sync = _rebase_reused_worktree(existing, live=live, announce=announce)
         return WorktreeSetup(path=existing, name=name, action="reused", sync=sync)
+
+    # Fetch before the claim, which holds the repo scope that ensure_fetched
+    # takes too, and before the reads of origin/* below.
+    try:
+        ensure_fetched(project_path)
+    except FETCH_ERRORS:
+        pass  # Continue offline; the sync reports a fetch failure.
 
     store = GitConfigBaseStore(project_path)
     # Decided before anything creates the branch: a pre-existing branch keeps the
@@ -3861,7 +3860,14 @@ def rename_remote_branch(
         WorktreeError: If origin holds commits the local branch lacks.
         subprocess.CalledProcessError: If a push fails.
     """
-    run_git(["fetch", "origin", old], cwd=project_path, quiet=True, check=False)
+    # Not ensure_fetched: the caller holds the repo scope. A one-ref fetch must
+    # not write the freshness stamp.
+    run_git(
+        ["fetch", "origin", "--no-write-fetch-head", old],
+        cwd=project_path,
+        quiet=True,
+        check=False,
+    )
     on_origin = branch_exists_on_remote(project_path, old)
     if on_origin and not _is_ancestor(project_path, f"origin/{old}", of=old):
         raise WorktreeError(
@@ -4205,10 +4211,8 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
 
     # Fetch latest from origin with prune to remove stale remote refs
     try:
-        run_git(["fetch", "origin", "--prune"], cwd=project_path)
-        # Fast-forward local main to match origin/main
-        update_local_main(project_path)
-    except subprocess.CalledProcessError:
+        ensure_fetched(project_path, max_age=0, prune=True)
+    except FETCH_ERRORS:
         pass  # Continue even if fetch fails
 
     # Get all local branches

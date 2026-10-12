@@ -15,7 +15,11 @@ import pytest
 from git_helpers import run_git
 
 from mael_domain import worktree
-from mael_domain.worktree import ensure_fetched, rebase_worktree
+from mael_domain.worktree import (
+    ensure_fetched,
+    rebase_worktree,
+    setup_worktree_for_branch,
+)
 from mael_domain.worktree_steps import Scope, scope_lock
 
 
@@ -128,3 +132,16 @@ def test_a_hung_fetch_fails_the_rebase(project_with_worktree, monkeypatch):
 
     assert result.success is False
     assert "timed out" in result.message
+
+
+@pytest.mark.usefixtures("stamp_honoured")
+def test_opening_a_new_branch_fetches_once(project_with_worktree):
+    project_path, _, _ = project_with_worktree
+    _age_stamp(project_path)
+    counter = _counting_remote(project_path)
+
+    setup_worktree_for_branch(
+        project_path, project_path.name, "feat/new", run_install=False
+    )
+
+    assert _contacts(counter) == 1
