@@ -199,6 +199,11 @@ async def _run_cmd_streams(
         _kill_group(proc)
         await proc.wait()
         raise subprocess.TimeoutExpired(describe(cmd), timeout or 0) from None
+    except asyncio.CancelledError:
+        # A caller's timeout arrives as a cancel. The child must not outlive the await.
+        _kill_group(proc)
+        await asyncio.shield(proc.wait())
+        raise
     return (
         argv,
         out.decode("utf-8", "replace"),

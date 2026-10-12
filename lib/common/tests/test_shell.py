@@ -1,6 +1,7 @@
 """Tests for mael_common.shell — the closed command algebra and its two views."""
 
 import asyncio
+import os
 import subprocess
 import sys
 
@@ -263,6 +264,27 @@ class TestRunCmdAsync:
             asyncio.run(
                 run_cmd_async(RawShell("sleep 30 | cat"), quiet=True, timeout=0.3)
             )
+
+    def test_a_cancelled_run_kills_its_child(self, tmp_path):
+        """A caller's timeout cancels the await; the child must not outlive it."""
+        pidfile = tmp_path / "pid"
+
+        async def scenario():
+            run = asyncio.create_task(
+                run_cmd_async(
+                    RawShell(f"echo $$ > {pidfile}; exec sleep 30"), quiet=True
+                )
+            )
+            while not pidfile.exists() or not pidfile.read_text().strip():
+                await asyncio.sleep(0.01)
+            run.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await run
+            return int(pidfile.read_text())
+
+        pid = asyncio.run(scenario())
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
 
     def test_it_does_not_block_the_loop(self):
         """The point of the async twin: other work runs while the child does."""
