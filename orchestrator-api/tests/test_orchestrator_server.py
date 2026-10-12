@@ -28,8 +28,14 @@ from mael_daemon.agent_model import (
     AgentState,
     build_agent_row,
 )
+from mael_domain import comms as comms_model
 from mael_domain import task as model
-from mael_domain.comm_store import InMemoryCommStore
+from mael_domain.comm_store import (
+    CommItem,
+    CommUpdate,
+    InMemoryCommStore,
+    InMemoryCommUpdateStore,
+)
 from mael_domain.config import MaelstromConfig
 from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
@@ -41,6 +47,7 @@ from mael_domain.landing import (
     TrackedTask,
     tracked_tasks,
 )
+from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
 from mael_domain.operation_store import InMemoryOperationStore
 from mael_domain.protocol import HostUsage
 from mael_domain.session_discovery import LiveSessionSet
@@ -8678,6 +8685,184 @@ def test_an_env_change_that_writes_no_step_still_reaches_the_task(harness_factor
     assert after["landing"] == {"status": "merged", "envs": {"uat": "not_yet"}}
 
 
+def _comm_news_harness(harness_factory, **over):
+    """Task t1, done on merged PR 7, feeds comm c1. GitHub answers when told."""
+    signals = _MergeLater()
+    landings = over.pop("landings", None) or Landings()
+    landings.signals = signals
+    harness = harness_factory(landings=landings, **over)
+    landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
+    harness.add_task("t1", title="Ship the export", status="done", comms=["c1"])
+    run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
+    return harness, signals
+
+
+DONE = {"taskId": "northwind/t1", "step": "done"}
+MERGED = {"taskId": "northwind/t1", "step": "merged"}
+
+
+def test_a_landing_sync_that_records_a_step_publishes_the_comm_s_queue(
+    harness_factory,
+):
+    harness, signals = _comm_news_harness(harness_factory)
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            before = await api.get_json("/api/comms/c1")
+            async with api.events() as stream:
+                await stream.next("reset")
+                signals.merged = True
+                await harness.orch.refresh_worktrees()
+                await stream.change("comm", "c1")
+            return before, await api.get_json("/api/comms/c1")
+
+    before, after = run(scenario())
+    # The server's own start recorded done; GitHub had not answered about the merge.
+    assert (before["queued"], before["updates"]) == ([DONE], [])
+    assert (after["queued"], after["updates"]) == ([DONE, MERGED], [])
+
+
+def test_a_drafted_update_is_edited_then_sent_with_its_last_edit(harness_factory):
+    harness, signals = _comm_news_harness(harness_factory)
+    signals.merged = True
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            async with api.events() as stream:
+                await stream.next("reset")
+                drafted = await api.post("/api/comms/updates", {})
+                await stream.change("comm", "c1")
+                draft = await api.get_json("/api/comms/c1")
+            edited = await api.patch("/api/comms/c1/updates/c1.1", {"content": "x"})
+            sent = await api.patch(
+                "/api/comms/c1/updates/c1.1",
+                {"content": "The export shipped.", "sent": True},
+            )
+            return drafted, draft, edited, sent, await api.get_json("/api/comms/c1")
+
+    drafted, draft, edited, sent, after = run(scenario())
+    assert drafted.status == 200 and drafted.body == {"ids": ["c1.1"]}
+    update = {
+        "id": "c1.1",
+        "commId": "c1",
+        "createdAt": NOW,
+        "items": [DONE, MERGED],
+        "content": "- Ship the export — merged",
+        "state": "draft",
+        "sentAt": "",
+    }
+    assert (draft["queued"], draft["updates"]) == ([], [update])
+    assert edited.status == 200 and sent.status == 200, (edited.body, sent.body)
+    assert after["updates"] == [
+        {**update, "content": "The export shipped.", "state": "sent", "sentAt": NOW}
+    ]
+
+
+def test_a_restarted_server_queues_no_step_a_stored_update_holds(harness_factory):
+    """The first comm read is the one way a server learns what was reported."""
+    landings = Landings()
+    updates = InMemoryCommUpdateStore()
+    harness, signals = _comm_news_harness(
+        harness_factory, landings=landings, comm_updates=updates
+    )
+    signals.merged = True
+    run(comms_model.new(harness.comms, "Invoice export", now=NOW))
+    for step in ("done", "merged"):
+        run(landings.steps.add(StepEvent(PROJECT, "t1", step, 7, NOW, NOW)))
+    held = [CommItem(PROJECT, "t1", "done"), CommItem(PROJECT, "t1", "merged")]
+    run(updates.save(CommUpdate("c1.1", "c1", NOW, held, "Shipped.", "sent", NOW)))
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/comms/c1")
+
+    comm = run(scenario())
+    assert comm["queued"] == []
+    assert [(u["id"], u["items"]) for u in comm["updates"]] == [
+        ("c1.1", [DONE, MERGED])
+    ]
+
+
+class _StepStoreThatFailsOnMerged(InMemoryTaskStepStore):
+    """Writes each step, then fails the sync once it has written ``merged``."""
+
+    async def add(self, event):
+        await super().add(event)
+        if event.step == "merged":
+            raise RuntimeError("the disk is full")
+
+
+def test_a_sync_that_fails_after_writing_a_step_still_queues_it(harness_factory):
+    landings = Landings(steps=_StepStoreThatFailsOnMerged())
+    harness, signals = _comm_news_harness(harness_factory, landings=landings)
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            signals.merged = True
+            await harness.orch.refresh_worktrees()
+            return await api.get_json("/api/comms/c1")
+
+    assert run(scenario())["queued"] == [DONE, MERGED]
+
+
+def test_linking_a_task_with_steps_queues_them_for_the_comm(harness_factory):
+    harness, signals = _comm_news_harness(harness_factory)
+    signals.merged = True
+    run(model.update(harness.store, PROJECT, "t1", comms=[]))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            await harness.orch.refresh_worktrees()
+            unlinked = (await api.get_json("/api/comms/c1"))["queued"]
+            await api.patch("/api/tasks/northwind/t1", {"comms": ["c1"]})
+            return unlinked, (await api.get_json("/api/comms/c1"))["queued"]
+
+    unlinked, linked = run(scenario())
+    assert unlinked == []
+    assert [q["step"] for q in linked] == ["done", "merged"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "code"),
+    [
+        ("/api/comms/c9/updates/c9.1", {"content": "x"}, "unknown_id"),
+        ("/api/comms/c1/updates/c2.1", {"content": "x"}, "unknown_id"),
+        ("/api/comms/c2/updates/c2.1", {}, "invalid"),
+        ("/api/comms/c2/updates/c2.1", {"content": 3}, "invalid"),
+        ("/api/comms/c2/updates/c2.1", {"sent": "yes"}, "invalid"),
+        ("/api/comms/c1/updates/c1.1", {"content": "x"}, "invalid"),
+        ("/api/comms/c1/updates/c1.1", {"sent": True}, "invalid"),
+    ],
+)
+def test_the_comm_update_route_refuses_what_it_cannot_do(
+    harness_factory, path, body, code
+):
+    """c1.1 is sent and c2.1 is a draft."""
+    harness, signals = _comm_news_harness(harness_factory)
+    signals.merged = True
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "Invoice export"})
+            await api.post("/api/comms", {"title": "Release notes"})
+            await api.patch("/api/tasks/northwind/t1", {"comms": ["c1", "c2"]})
+            await harness.orch.refresh_worktrees()
+            await api.post("/api/comms/updates", {})
+            await api.patch("/api/comms/c1/updates/c1.1", {"sent": True})
+            reply = await api.patch(path, body)
+            listed = await api.get_json("/api/comms")
+            updates = [u for c in listed["comms"] for u in c["updates"]]
+            return reply, [(u["id"], u["state"]) for u in updates]
+
+    reply, updates = run(scenario())
+    assert reply.body["error"]["code"] == code
+    assert updates == [("c1.1", "sent"), ("c2.1", "draft")]
+
+
 def test_unlinking_or_deleting_a_task_leaves_the_comm_s_task_ids(harness):
     """The old side of a link: both the edit and the delete re-derive ``taskIds``."""
     harness.add_task("t1")
@@ -8847,8 +9032,6 @@ def test_an_unknown_comm_is_a_404(harness):
 
 
 def test_a_comm_written_elsewhere_reaches_the_world_on_the_poll(harness):
-    from mael_domain import comms as comms_model
-
     async def scenario():
         async with harness.client() as api:
             async with api.events() as stream:

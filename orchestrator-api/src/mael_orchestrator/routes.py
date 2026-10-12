@@ -105,6 +105,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/comms/{id}", _comm)
     app.router.add_post("/api/comms", _create_comm)
     app.router.add_patch("/api/comms/{id}", _update_comm)
+    app.router.add_post("/api/comms/updates", _draft_comm_updates)
+    app.router.add_patch("/api/comms/{id}/updates/{uid}", _update_comm_update)
     app.router.add_get("/api/agents", _agents)
     app.router.add_get("/api/agents/{id}", _agent)
     app.router.add_get("/api/agents/{id}/transcript", _transcript)
@@ -856,6 +858,26 @@ async def _create_task(request: web.Request) -> web.StreamResponse:
 
 async def _create_comm(request: web.Request) -> web.StreamResponse:
     return await _command(request, lambda body: {**body, "type": "comm.create"})
+
+
+async def _draft_comm_updates(request: web.Request) -> web.StreamResponse:
+    """**Draft updates**: one new update for each open comm with a queue."""
+    return await _command(request, lambda _body: {"type": "comm.draftUpdates"})
+
+
+async def _update_comm_update(request: web.Request) -> web.StreamResponse:
+    """Edit a draft update's ``content``, or mark it sent with ``sent: true``."""
+    comm_id = request.match_info["id"]
+    update_id = request.match_info["uid"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "comm.updateUpdate",
+            "commId": comm_id,
+            "updateId": update_id,
+            "fields": body,
+        },
+    )
 
 
 async def _update_comm(request: web.Request) -> web.StreamResponse:

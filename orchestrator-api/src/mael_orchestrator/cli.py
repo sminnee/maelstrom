@@ -23,7 +23,7 @@ from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemo
 from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
-from mael_domain.comm_store import SqliteCommStore
+from mael_domain.comm_store import SqliteCommStore, SqliteCommUpdateStore
 from mael_domain.config import MaelstromConfig
 from mael_domain.context import load_global_config
 from mael_domain.desk_store import SqliteDeskStore
@@ -347,6 +347,7 @@ def build_orchestrator(
         task_attachments=SqliteTaskAttachmentTable(state_db),
         landings=landings,
         comms=SqliteCommStore(state_db),
+        comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer

@@ -247,6 +247,29 @@ def _check_comm_fields(world: World, fields: dict[str, Any]) -> dict[str, str] |
     return None
 
 
+def _check_comm_update(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
+    """An edit of a draft's ``content``, or ``sent: true``. A sent update is fixed."""
+    comm_id = cmd.get("commId", "")
+    comm = world["comms"].get(comm_id)
+    if comm is None:
+        return _err("unknown_id", f"No comm {comm_id}")
+    update_id = cmd.get("updateId", "")
+    update = next((u for u in comm["updates"] if u["id"] == update_id), None)
+    if update is None:
+        return _err("unknown_id", f"No update {update_id}")
+    fields = cmd.get("fields") or {}
+    content, sent = fields.get("content"), fields.get("sent")
+    if content is None and sent is None:
+        return _err("invalid", "Nothing to change")
+    if content is not None and not isinstance(content, str):
+        return _err("invalid", "content is text")
+    if sent is not None and sent is not True:
+        return _err("invalid", "sent is true")
+    if update["state"] == "sent":
+        return _err("invalid", f"Update {update_id} is already sent")
+    return None
+
+
 def _check_comm_ids(world: World, held: list[str], comms: Any) -> dict[str, str] | None:
     """A task's new ``comms``: a list of ids, each naming a comm the world holds.
 
@@ -665,6 +688,12 @@ def validate_command(
         if closed is not None and not isinstance(closed, bool):
             return _err("invalid", "closed is true or false")
         return _check_comm_fields(world, fields)
+
+    if kind == "comm.draftUpdates":
+        return None
+
+    if kind == "comm.updateUpdate":
+        return _check_comm_update(world, cmd)
 
     if kind == "task.delete":
         task_id = cmd.get("taskId", "")

@@ -9,15 +9,20 @@ that take a client from the first to the second.
 
 import re
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
+from mael_domain import comms as comms_model
 from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
 from mael_domain.comm_store import Comm as DomainComm
+from mael_domain.comm_store import CommUpdate as DomainCommUpdate
+from mael_domain.landing_store import StepEvent
 from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
     Agent,
     Comm,
+    CommItem,
+    CommUpdate,
     Document,
     HostUsage,
     PrMatch,
@@ -129,8 +134,47 @@ def comm_task_ids(tasks: dict[str, Task], comm_id: str) -> list[str]:
     return sorted(t["id"] for t in tasks.values() if comm_id in t["comms"])
 
 
-def comm_entity(comm: DomainComm, task_ids: list[str]) -> Comm:
-    """The wire comm. ``task_ids`` comes from the tasks: each task names its comms."""
+def linked_tasks(tasks: dict[str, Task]) -> list[comms_model.LinkedTask]:
+    """The tasks that feed any comm, as the comm update functions read them."""
+    return [
+        comms_model.LinkedTask(
+            t["project"], t["notebookId"], t["title"], tuple(t["comms"])
+        )
+        for t in tasks.values()
+        if t["comms"]
+    ]
+
+
+def _comm_item(project: str, task_id: str, step: str) -> CommItem:
+    return {"taskId": task_key(project, task_id), "step": step}
+
+
+def comm_update_entity(update: DomainCommUpdate) -> CommUpdate:
+    """The wire comm update."""
+    return {
+        "id": update.id,
+        "commId": update.comm_id,
+        "createdAt": update.created_at,
+        "items": [_comm_item(i.project, i.task_id, i.step) for i in update.items],
+        "content": update.content,
+        "state": cast(Literal["draft", "sent"], update.state),
+        "sentAt": update.sent_at,
+    }
+
+
+def comm_entity(
+    comm: DomainComm,
+    tasks: dict[str, Task],
+    steps: list[StepEvent],
+    updates: list[DomainCommUpdate],
+) -> Comm:
+    """The wire comm. Its task links, queue and updates are derived here.
+
+    Each task names its comms, so ``taskIds`` and ``queued`` come from
+    ``tasks``. ``updates`` may hold every comm's updates.
+    """
+    own = [u for u in updates if u.comm_id == comm.id]
+    queued = comms_model.queue(comm, linked_tasks(tasks), steps, own)
     return {
         "id": comm.id,
         "title": comm.title,
@@ -140,7 +184,9 @@ def comm_entity(comm: DomainComm, task_ids: list[str]) -> Comm:
         "closedAt": comm.closed_at,
         "category": comm.category,
         "project": comm.project,
-        "taskIds": task_ids,
+        "taskIds": comm_task_ids(tasks, comm.id),
+        "queued": [_comm_item(e.project, e.task_id, e.step) for e in queued],
+        "updates": [comm_update_entity(u) for u in own],
     }
 
 

@@ -307,12 +307,36 @@ def task_row(task: Task) -> TaskRow:
     return cast(TaskRow, {k: v for k, v in task.items() if k not in TASK_DETAIL_FIELDS})
 
 
+class CommItem(TypedDict):
+    """One step a **Comm update** reports: the wire task, and the step it reached."""
+
+    taskId: str
+    step: str
+
+
+class CommUpdate(TypedDict):
+    """One **Comm update** on the wire. See ``CONTEXT.md``, "Comm update".
+
+    ``state`` is ``draft`` or ``sent``; ``sentAt`` is ``""`` while a draft.
+    """
+
+    id: str
+    commId: str
+    createdAt: str
+    items: list[CommItem]
+    content: str
+    state: Literal["draft", "sent"]
+    sentAt: str
+
+
 class Comm(TypedDict):
     """One **Comm** on the wire. See ``CONTEXT.md``, "Comm".
 
     ``taskIds`` are the wire ids of the tasks that name it in their ``comms``.
     ``closedAt`` is ``""`` while the comm is open. ``category`` is free text;
     ``project`` is the project a task made from the comm goes to, or ``""``.
+    ``queued`` are the steps of those tasks no update holds yet, and
+    ``updates`` are its updates, oldest first.
     """
 
     id: str
@@ -324,6 +348,8 @@ class Comm(TypedDict):
     category: str
     project: str
     taskIds: list[str]
+    queued: list[CommItem]
+    updates: list[CommUpdate]
 
 
 class OperationStep(TypedDict):
