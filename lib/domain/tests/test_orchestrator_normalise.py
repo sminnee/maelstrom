@@ -68,6 +68,8 @@ class Replayed:
     def __init__(self, state: ClientState) -> None:
         self.state = state
         self.transcripts: dict[str, dict] = {}
+        #: ``ag1``'s state after each raw event, as :func:`replay` fed them.
+        self.states: list[str] = []
 
     def take(self, events: list[dict]) -> None:
         for event in events:
@@ -170,6 +172,7 @@ def replay(
     agent: dict | None = None,
     read_file=None,
     files: FileRegistry | None = None,
+    stop_after=None,
 ) -> Replayed:
     """Replay ``name`` into ``agent`` (a seed idle agent by default).
 
@@ -178,6 +181,8 @@ def replay(
 
     ``read_file`` stands in for the worktree a ``<doc-file>`` tag names, and
     ``files`` for which of that worktree's files are there.
+
+    ``stop_after`` ends the replay after the first raw event it accepts.
     """
     files = files if files is not None else fake_registry()
     out_state = Replayed(seed([agent or make_agent(id="ag1", state="idle")]))
@@ -204,6 +209,9 @@ def replay(
         )
         ctx = out.ctx
         out_state.take(out.events)
+        out_state.states.append(out_state.state["world"]["agents"]["ag1"]["state"])
+        if stop_after is not None and stop_after(raw):
+            break
     out_state.ctx = ctx
     return out_state
 
@@ -710,6 +718,8 @@ def test_a_status_event_changes_the_permission_mode():
 
 
 def test_an_approved_plan_review_resumes_the_agent_and_approves_the_document():
+    """An approval with no clear after it: the agent speaks, so no handover
+    is coming, and its turn ends idle."""
     state = replay("plan-review.jsonl")
     assert agent_of(state)["state"] == "idle"
     assert agent_of(state)["pendingRequestIds"] == []
@@ -2719,3 +2729,43 @@ def test_a_link_of_another_rel_is_left_as_text():
     assert out.pr_link == ""
     [message] = items_of(replayed, "message")
     assert "<link" in message["markdown"]
+
+
+HANDOVER_OPENING = "Your plan was reviewed and approved."
+
+
+def is_handover(raw: dict) -> bool:
+    """Whether ``raw`` is the user turn ``_approve_plan`` ends on."""
+    return raw.get("type") == "user" and HANDOVER_OPENING in json.dumps(raw)
+
+
+def runs(states: list[str]) -> list[str]:
+    """``states`` with each run of one state collapsed to one entry."""
+    return [s for i, s in enumerate(states) if i == 0 or states[i - 1] != s]
+
+
+@pytest.mark.parametrize(
+    "name", ["plan-approved.jsonl", "plan-approved-execute-model.jsonl"]
+)
+def test_an_approved_plan_never_reads_idle_before_its_handover(name):
+    """No ``result`` between the approval and the handover reads idle — see
+    docs/dev/agent-daemon.md, "The control socket protocol". The execute model's
+    ``/model`` answers with an assistant event of its own."""
+    state = replay(name)
+    assert runs(state.states) == [
+        "idle",
+        "processing",
+        "awaiting-plan-review",
+        "processing",
+        "idle",
+    ]
+
+
+def test_a_handover_that_fails_before_the_agent_speaks_ends_idle():
+    """The handover ends the wait, not the agent's first word: a build turn
+    that errors at once must still read as an ended turn."""
+    state = replay("plan-approved.jsonl", stop_after=is_handover)
+    assert state.states[-1] == "processing"
+    out = normalise_stream_event(state.state, state.ctx, {"type": "result"}, NOW)
+    state.take(out.events)
+    assert agent_of(state)["state"] == "idle"
