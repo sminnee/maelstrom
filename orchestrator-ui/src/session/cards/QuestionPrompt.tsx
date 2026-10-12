@@ -1,8 +1,10 @@
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import type { Question, QuestionItem } from '../../protocol/transcript';
 import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
+import { retainedKey } from '../../ui/retained';
 import { SplitButton, type SplitOption } from '../../ui/SplitButton';
+import { useRetained } from '../../ui/useRetained';
 import styles from './cards.module.css';
 
 const OTHER = '__other__';
@@ -15,7 +17,11 @@ interface Draft {
   chosen: Record<string, string[]>;
   /** The free text per question. */
   other: Record<string, string>;
+  /** The question on screen. */
+  step: number;
 }
+
+const EMPTY: Draft = { chosen: {}, other: {}, step: 0 };
 
 /** A question's header, or the generic fallback when the agent left it blank. */
 function headerOf(q: Question): string {
@@ -52,8 +58,7 @@ export function QuestionPrompt({
   /** Interrupt the agent, which denies the question and ends the turn. */
   onDeclineAndStop?: () => Promise<unknown>;
 }) {
-  const [draft, setDraft] = useState<Draft>({ chosen: {}, other: {} });
-  const [step, setStep] = useState(0);
+  const [draft, setDraft, release] = useRetained(retainedKey.question(item.requestId), EMPTY);
   const groupId = useId();
   const answered = item.answers !== undefined && Object.keys(item.answers).length > 0;
 
@@ -64,6 +69,8 @@ export function QuestionPrompt({
   if (item.stale) return <Stale item={item} />;
 
   const questions = item.questions;
+  const { step } = draft;
+  const setStep = (n: number) => setDraft({ ...draft, step: n });
   const current = questions[step];
   if (!current) return null;
   const last = step === questions.length - 1;
@@ -85,17 +92,21 @@ export function QuestionPrompt({
     setDraft({ ...draft, chosen: { ...draft.chosen, [current.question]: withOther() } });
   const typeOther = (text: string) =>
     setDraft({
+      ...draft,
       chosen: { ...draft.chosen, [current.question]: withOther() },
       other: { ...draft.other, [current.question]: text },
     });
 
-  const submit = () => {
+  const submit = async () => {
     if (!complete) return;
     if (!last) {
       setStep(step + 1);
       return;
     }
-    return onAnswer?.(Object.fromEntries(questions.map((q) => [q.question, answerFor(draft, q)])));
+    // A rejection reaches the button and keeps the held answer. The form stays on
+    // screen until the item settles, so only storage is cleared.
+    await onAnswer?.(Object.fromEntries(questions.map((q) => [q.question, answerFor(draft, q)])));
+    release({ keepValue: true });
   };
 
   // Digit keys pick an option, except while the Other text takes the typing.
@@ -110,20 +121,24 @@ export function QuestionPrompt({
     choose(option.label);
   };
 
+  const thenRelease = (run: () => Promise<unknown>) => async () => {
+    await run();
+    release({ keepValue: true });
+  };
   const declines: SplitOption[] = onDecline
     ? [
         {
           label: 'Decline',
           icon: actionIcon('decline'),
           detail: 'The agent continues without an answer.',
-          run: onDecline,
+          run: thenRelease(onDecline),
         },
         ...(onDeclineAndStop
           ? [
               {
                 label: 'Decline & stop',
                 detail: 'Ends the turn. The agent waits for your next message.',
-                run: onDeclineAndStop,
+                run: thenRelease(onDeclineAndStop),
               },
             ]
           : []),

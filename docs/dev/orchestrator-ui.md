@@ -1292,6 +1292,10 @@ typed, so a stale value has a one-click remedy; Cancel has never meant discard o
 giving it that meaning with no undo would be a separate decision. The chat box has no Clear: a `!`
 command line releases on running, which is the one clear that is not a submit.
 
+The question prompt holds its answer too: the choices, the Other text and the step, so a tab
+switch returns the user to the question they were on. Its release keeps the form on screen until
+the answered item arrives, so a sent answer does not flash empty.
+
 **Written, not on every keystroke.** A trailing 300 ms debounce, plus a flush on two events: the
 component unmounting, and its key changing. `setItem` serialises JSON on the thread the transcript
 socket needs, so a write per keystroke is wasteful; an interval would lose the word of a user who

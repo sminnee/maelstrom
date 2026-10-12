@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -29,6 +30,17 @@ const COLUMNS: Question = {
 
 const item = (questions: Question[], answers?: Record<string, string>): QuestionItem =>
   makeQuestionItem({ questions, answers });
+
+/** Render `ui`. `remount` unmounts it and renders again, as a tab switch does. */
+function renderHeld(ui: ReactElement) {
+  let view = render(ui);
+  return {
+    remount: (next: ReactElement = ui) => {
+      view.unmount();
+      view = render(next);
+    },
+  };
+}
 
 describe('QuestionPrompt', () => {
   it('shows each option with its description and sends the chosen one on Answer', async () => {
@@ -100,6 +112,64 @@ describe('QuestionPrompt', () => {
     });
   });
 
+  it('holds the step, the choice and the Other text across an unmount', async () => {
+    const user = userEvent.setup();
+    const { remount } = renderHeld(
+      <QuestionPrompt item={item([COLUMNS, EXPORT])} onAnswer={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('checkbox', { name: /Status/ }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.type(screen.getByRole('textbox', { name: 'Other' }), 'Cap at 10k');
+    remount();
+
+    expect(screen.getByText('2 of 2')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Other' })).toHaveValue('Cap at 10k');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('checkbox', { name: /Status/ })).toBeChecked();
+  });
+
+  it('a resolved Answer clears the held answer, and leaves it on screen until the item settles', async () => {
+    const user = userEvent.setup();
+    const { remount } = renderHeld(
+      <QuestionPrompt item={item([EXPORT])} onAnswer={vi.fn(() => Promise.resolve())} />,
+    );
+    await user.click(screen.getByRole('radio', { name: /Stream/ }));
+    await user.click(screen.getByRole('button', { name: 'Answer' }));
+    // The item settles on a later refetch or stream event; until then, a reset
+    // form would read as a lost answer.
+    expect(screen.getByRole('radio', { name: /Stream/ })).toBeChecked();
+    remount();
+
+    expect(screen.getByRole('radio', { name: /Stream/ })).not.toBeChecked();
+  });
+
+  it('a rejected Answer shows the failure and keeps the held answer', async () => {
+    const user = userEvent.setup();
+    const { remount } = renderHeld(
+      <QuestionPrompt item={item([EXPORT])} onAnswer={vi.fn(() => Promise.reject(new Error()))} />,
+    );
+    await user.click(screen.getByRole('radio', { name: /Stream/ }));
+    await user.click(screen.getByRole('button', { name: 'Answer' }));
+    expect(await screen.findByRole('button', { name: 'Failed' })).toBeInTheDocument();
+    remount();
+
+    expect(screen.getByRole('radio', { name: /Stream/ })).toBeChecked();
+  });
+
+  it('another request does not see the held answer', async () => {
+    const user = userEvent.setup();
+    const { remount } = renderHeld(<QuestionPrompt item={item([EXPORT])} onAnswer={vi.fn()} />);
+    await user.click(screen.getByRole('radio', { name: /Stream/ }));
+    remount(
+      <QuestionPrompt
+        item={makeQuestionItem({ questions: [EXPORT], requestId: 'req-2' })}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('radio', { name: /Stream/ })).not.toBeChecked();
+  });
+
   it('a digit key picks that option while the prompt has focus', async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn();
@@ -151,6 +221,51 @@ describe('QuestionPrompt', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Decline & stop' }));
     expect(onDeclineAndStop).toHaveBeenCalledOnce();
     expect(onDecline).toHaveBeenCalledTimes(2);
+  });
+
+  describe.each([
+    ['Decline', () => {}],
+    [
+      'Decline & stop',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole('button', { name: 'More ways to decline' }));
+      },
+    ],
+  ] as const)('%s', (name, openMenu) => {
+    const click = async (user: ReturnType<typeof userEvent.setup>) => {
+      await openMenu(user);
+      await user.click(
+        name === 'Decline'
+          ? screen.getByRole('button', { name })
+          : screen.getByRole('menuitem', { name }),
+      );
+    };
+    const prompt = (declined: () => Promise<unknown>) => (
+      <QuestionPrompt
+        item={item([EXPORT])}
+        onAnswer={vi.fn()}
+        onDecline={name === 'Decline' ? declined : vi.fn(() => Promise.resolve())}
+        onDeclineAndStop={name === 'Decline' ? vi.fn(() => Promise.resolve()) : declined}
+      />
+    );
+
+    it('clears the held answer once it resolves', async () => {
+      const user = userEvent.setup();
+      const { remount } = renderHeld(prompt(() => Promise.resolve()));
+      await user.click(screen.getByRole('radio', { name: /Stream/ }));
+      await click(user);
+      remount();
+      expect(screen.getByRole('radio', { name: /Stream/ })).not.toBeChecked();
+    });
+
+    it('keeps the held answer when it rejects', async () => {
+      const user = userEvent.setup();
+      const { remount } = renderHeld(prompt(() => Promise.reject(new Error())));
+      await user.click(screen.getByRole('radio', { name: /Stream/ }));
+      await click(user);
+      remount();
+      expect(screen.getByRole('radio', { name: /Stream/ })).toBeChecked();
+    });
   });
 
   it('offers no decline without a handler', () => {
