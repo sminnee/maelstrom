@@ -1528,8 +1528,9 @@ Vite's dev server does this already.
 
 ## The jig
 
-The **Jig** lets the user change the live page and send **Feedback** to the agent. Its one use so
-far is a **Monkeypatch**: CSS that every page applies at once. It lives in
+The **Jig** lets the user change the live page and send **Feedback** to the agent. It has two
+uses so far: a **Monkeypatch**, CSS that every page applies at once, and an **Instruction**, free
+text about the page or about one **Pick**ed element. It lives in
 `vite-plugin-mael-jig/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
 config, so every story has the jig too. A build and a vitest run do not load it, and outside a git
 checkout it switches itself off.
@@ -1542,7 +1543,7 @@ says `visible`. Hidden, the page carries nothing of the jig: no pill, no panel a
 | Part | File | What it does |
 |---|---|---|
 | Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Keeps the provider socket, and relays its state as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
-| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the text into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. "Hide jig" asks the provider to hide it. |
+| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Runs pick mode and the prompt box. "Hide jig" asks the provider to hide it. |
 | Provider | `GET /api/live-feedback` | The orchestrator's socket. See [orchestrator-server.md](orchestrator-server.md). |
 
 **The protocol is live feedback.** The jig is its first client. `plugin.ts` documents it. Each frame is JSON:
@@ -1575,6 +1576,40 @@ See [environment.md](../reference/environment.md).
 
 CSS modules hash their class names, so a rule matches on part of the name:
 `[class*="_chip_"] { padding: 6px; }`.
+
+**Pick mode takes one press from the app.** **Pick** in the panel header starts it. An outline
+in the shadow root follows the element under the pointer. Capture-phase listeners on `window`
+run before any app listener. They stop the pointer and mouse down and up events, the `click` and
+an Esc, so the app does not act on them. The app opens menus, moves focus and starts drags on the
+down event, so the `click` alone is not enough. A click inside an SVG picks the nearest HTML
+element around it. A press on the jig's own host is let through, so the jig can never be picked,
+and its buttons still work. One pick, Esc, a second press of Pick, Close, or a hide ends the mode.
+
+The picked element shows in the panel until the user clears it with × or picks again. The jig
+describes it in these fields:
+
+| Field | What it holds |
+|---|---|
+| `selector` | A path of at most 4 levels, joined by ` > `, that never goes past `<body>`. Each level is a stable id, or the tag and class stems, with `:nth-of-type` when the level also matches a sibling. The path stops at a stable id. An id that React's `useId` makes (`_r_2_`, `:r2:`) is not stable. |
+| `tag`, `classes`, `text` | The element's tag, its class names as written, and the first 80 characters of its text. |
+| `components` | Up to 3 nearest React component names, from the dev build's `__reactFiber$*` key. Absent on a page that is not React. |
+| `styles` | Computed colour, background colour, font size and weight, line height, padding, margin, gap, border, border radius, width and height. |
+| `ancestors` | Tag and class stems of the 3 elements above it. |
+| `url`, `story` | The page URL and, under Ladle, the `?story=` value. |
+
+A class stem is the CSS-module prefix without the hash: `_chip_x9y8z_12` has the stem `_chip_`.
+The stem stays the same when the hash changes, so the selector matches after an edit.
+
+**One prompt box serves every send.** The textarea "Message to the agent" sits at the bottom of the
+panel. Each send clears it once the post succeeds. The picked element stays.
+
+| Button | Body it posts |
+|---|---|
+| Send message | `{type: "instruction", text, element?}`. `element` is the description, when there is a pick. Off while the box is empty. |
+| Send monkeypatch | `{type: "monkeypatch", css, note}`. `note` is the box's text. |
+
+The provider validates and formats each **Feedback** type. See
+[orchestrator-server.md](orchestrator-server.md), `worktree.feedback`.
 
 ## How to run it
 
