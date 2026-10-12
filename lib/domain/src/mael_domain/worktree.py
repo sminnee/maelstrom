@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -864,7 +865,7 @@ def _is_ancestor(worktree_path: Path, commit: str, of: str = "HEAD") -> bool:
 
 
 def resolve_rebase_plan(
-    worktree_path: Path, branch: str, store: BaseStore, *, skip_fetch: bool
+    worktree_path: Path, branch: str, store: BaseStore, *, fetched: bool
 ) -> tuple[BaseRef, RebasePlan]:
     """Read ``branch``'s base and decide the rebase, guarding against data loss.
 
@@ -892,7 +893,7 @@ def resolve_rebase_plan(
 
     base_exists = _ref_exists(worktree_path, f"origin/{base.branch}")
     plan = plan_rebase(base, base_exists=base_exists)
-    if plan.collapsed and skip_fetch:
+    if plan.collapsed and not fetched:
         plan = replace(plan, collapsed=False)
 
     if plan.upstream is not None and not _is_ancestor(worktree_path, plan.upstream):
@@ -902,7 +903,7 @@ def resolve_rebase_plan(
 
 def rebase_worktree(
     worktree_path: Path,
-    skip_fetch: bool = False,
+    max_age: float | None = None,
     squash: bool = True,
     abort_on_conflict: bool = False,
     store: BaseStore | None = None,
@@ -923,9 +924,10 @@ def rebase_worktree(
 
     Args:
         worktree_path: Path to the worktree directory.
-        skip_fetch: If True, skip the fetch step (useful when syncing multiple
-            worktrees that share the same repo, where fetch was already done). A
-            missing base ref is then treated as unfetched rather than deleted.
+        max_age: Passed to :func:`ensure_fetched`. ``math.inf`` skips the fetch,
+            for a caller that already fetched; a missing base ref is then
+            treated as unfetched rather than deleted. Otherwise a stacked branch
+            fetches with ``--prune`` and ``max_age=0``.
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
         abort_on_conflict: If True, on a rebase conflict run ``git rebase --abort``
@@ -945,35 +947,24 @@ def rebase_worktree(
         store if store is not None else GitConfigBaseStore(worktree_path)
     )
 
-    prune = fetch_prunes(resolved_store.read(branch))
-
-    # Fetch from origin (unless skipped)
-    if not skip_fetch:
+    fetched = max_age != math.inf
+    if fetched:
+        prune = fetch_prunes(resolved_store.read(branch))
         try:
-            # Repo-scoped, though it is issued from inside a worktree: the
-            # fetch writes the shared object store and the remote refs every
-            # other worktree rebases against, `--prune` deletes refs one may
-            # be mid-rebase on, and `update_local_main` then writes the
-            # project's own `main`. Held only for the fetch, so two worktrees
-            # rebase at once and queue only here.
-            with scope_lock(worktree_path.parent, Scope.REPO, None):
-                run_git(
-                    ["fetch", "origin"] + (["--prune"] if prune else []),
-                    cwd=worktree_path,
-                )
-                # Fast-forward local main to match origin/main
-                update_local_main(worktree_path.parent)
+            ensure_fetched(
+                worktree_path.parent, max_age=0 if prune else max_age, prune=prune
+            )
         except subprocess.CalledProcessError as e:
             return SyncResult(
                 success=False,
                 branch=branch,
                 message=f"Failed to fetch from origin: {e.stderr}",
             )
-        except TimeoutError as e:
+        except (subprocess.TimeoutExpired, TimeoutError) as e:
             return SyncResult(success=False, branch=branch, message=str(e))
 
     base, plan = resolve_rebase_plan(
-        worktree_path, branch, resolved_store, skip_fetch=skip_fetch
+        worktree_path, branch, resolved_store, fetched=fetched
     )
 
     # Get merge-base and base-tip SHA before rebasing (for conflict instructions).
@@ -1096,7 +1087,7 @@ def _record_base_after_rebase(
 
 def sync_worktree(
     worktree_path: Path,
-    skip_fetch: bool = False,
+    max_age: float | None = None,
     squash: bool = False,
     abort_on_conflict: bool = False,
     close_if_empty: bool = False,
@@ -1110,8 +1101,7 @@ def sync_worktree(
 
     Args:
         worktree_path: Path to the worktree directory.
-        skip_fetch: If True, skip the fetch step (useful when syncing multiple
-            worktrees that share the same repo, where fetch was already done).
+        max_age: Passed to :func:`rebase_worktree`.
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
         abort_on_conflict: If True, abort the rebase on conflict and restore the
@@ -1130,7 +1120,7 @@ def sync_worktree(
     """
     result = rebase_worktree(
         worktree_path,
-        skip_fetch=skip_fetch,
+        max_age=max_age,
         squash=squash,
         abort_on_conflict=abort_on_conflict,
     )
@@ -1346,7 +1336,7 @@ def _repair_conflicted_rebase(
 def rebase_worktree_with_autorepair(
     worktree_path: Path,
     *,
-    skip_fetch: bool = False,
+    max_age: float | None = None,
     squash: bool = True,
     repair_runner: Callable[[Path], subprocess.CompletedProcess] | None = None,
     announce: Callable[[str], None] = print_flushed,
@@ -1362,7 +1352,7 @@ def rebase_worktree_with_autorepair(
 
     Args:
         worktree_path: Path to the worktree directory.
-        skip_fetch: If True, skip the fetch step.
+        max_age: Passed to :func:`rebase_worktree`.
         squash: If True, autosquash ``fixup!`` commits while rebasing.
         repair_runner: Callable taking the worktree path and returning a
             ``CompletedProcess``. Defaults to the real headless session; tests
@@ -1376,7 +1366,7 @@ def rebase_worktree_with_autorepair(
     """
     first = rebase_worktree(
         worktree_path,
-        skip_fetch=skip_fetch,
+        max_age=max_age,
         squash=squash,
         abort_on_conflict=False,
     )
@@ -1402,7 +1392,7 @@ def rebase_worktree_with_autorepair(
 def sync_worktree_with_autorepair(
     worktree_path: Path,
     *,
-    skip_fetch: bool = False,
+    max_age: float | None = None,
     squash: bool = False,
     close_if_empty: bool = False,
     pre_push: bool = True,
@@ -1424,7 +1414,7 @@ def sync_worktree_with_autorepair(
 
     Args:
         worktree_path: Path to the worktree directory.
-        skip_fetch: If True, skip the fetch step.
+        max_age: Passed to :func:`rebase_worktree`.
         squash: If True, autosquash ``fixup!`` commits while rebasing.
         close_if_empty: If True, delete an empty branch and close the worktree.
         pre_push: If True, run the project's ``pre_push_cmd`` before the push.
@@ -1440,7 +1430,7 @@ def sync_worktree_with_autorepair(
     """
     first = sync_worktree(
         worktree_path,
-        skip_fetch=skip_fetch,
+        max_age=max_age,
         squash=squash,
         abort_on_conflict=False,
         close_if_empty=close_if_empty,
@@ -1457,7 +1447,7 @@ def sync_worktree_with_autorepair(
     # The rebase is done, so this second pass is a no-op rebase that pushes.
     final = sync_worktree(
         worktree_path,
-        skip_fetch=True,
+        max_age=math.inf,
         squash=squash,
         abort_on_conflict=True,
         close_if_empty=close_if_empty,

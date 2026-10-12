@@ -373,36 +373,21 @@ class TestTheProductionCallSites:
     ``scope_lock`` from ``worktree.py`` turns them red.
     """
 
-    def test_a_rebase_takes_the_repo_scope_over_its_fetch(self, monkeypatch, tmp_path):
-        """`fetch --prune` deletes refs another worktree may be mid-rebase on.
-
-        It looks worktree-local — `rebase_worktree` runs it with
-        `cwd=worktree_path` — but it writes the shared object store and then
-        `update_local_main` on the project.
-        """
+    def test_ensure_fetched_takes_the_repo_scope(self, monkeypatch, tmp_path):
         repo = tmp_path / "project"
         (repo / ".git").mkdir(parents=True)
-        worktree = repo / "project-alpha"
-        worktree.mkdir()
         held: list[bool] = []
 
-        def fake_git(args, **kwargs):
-            if args and args[0] == "fetch":
+        def fake_cmd(args, **kwargs):
+            if args[:2] == ["git", "fetch"]:
                 # A peer cannot take the repo scope while the fetch runs.
                 held.append(_repo_scope_is_taken(repo))
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        monkeypatch.setattr(worktree_mod, "run_git", fake_git)
-        monkeypatch.setattr(worktree_mod, "get_current_branch", lambda p: "feat/x")
+        monkeypatch.setattr(worktree_mod, "run_cmd", fake_cmd)
         monkeypatch.setattr(worktree_mod, "update_local_main", lambda p: None)
-        monkeypatch.setattr(
-            worktree_mod,
-            "resolve_rebase_plan",
-            lambda *a, **k: (_ for _ in ()).throw(_StopAfterFetch()),
-        )
 
-        with contextlib.suppress(_StopAfterFetch):
-            worktree_mod.rebase_worktree(worktree)
+        worktree_mod.ensure_fetched(repo, max_age=0, prune=True)
 
         assert held == [True], "the fetch ran without the repo scope held"
 
@@ -435,10 +420,6 @@ class TestTheProductionCallSites:
             worktree_mod.setup_worktree_for_branch(repo, "project", "feat/x")
 
         assert held == [True], "the claim ran without the repo scope held"
-
-
-class _StopAfterFetch(Exception):
-    """Ends the call once the assertion's subject has run."""
 
 
 class _StopAfterClaim(Exception):

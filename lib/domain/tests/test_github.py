@@ -279,7 +279,7 @@ class TestCreatePrAutorepair:
             patch("mael_domain.github.run_cmd") as run,
             patch("mael_domain.github.run_git") as git,
             patch("mael_domain.github.get_current_branch", return_value="feature/work"),
-            patch("mael_domain.github.update_local_main"),
+            patch("mael_domain.github.ensure_fetched"),
         ):
             run.return_value = subprocess.CompletedProcess(
                 args=["gh"],
@@ -334,7 +334,7 @@ class TestCreatePrAutorepair:
             patch("mael_domain.github.run_cmd") as run,
             patch("mael_domain.github.run_git") as git,
             patch("mael_domain.github.get_current_branch", return_value="feature/work"),
-            patch("mael_domain.github.update_local_main"),
+            patch("mael_domain.github.ensure_fetched"),
         ):
             run.return_value = subprocess.CompletedProcess(
                 args=["gh"],
@@ -378,9 +378,9 @@ git ls-remote origin refs/heads/feature/work | cut -f1 >> {remote_log}
 if [ "$(wc -l < {log})" -le {moves} ]; then
   main=$(git ls-remote origin refs/heads/main | cut -f1)
   c=$(git commit-tree "$(git rev-parse "$main^{{tree}}")" -p "$main" -m "main moves")
-  # Through origin, so the shared origin/main moves too, as another
-  # worktree's fetch would move it.
-  git push -q origin "$c:refs/heads/main"
+  # To the URL, not to origin, so the local origin/main stays put, as it does
+  # when a PR merges on GitHub. Only a fetch shows the move.
+  git push -q "$(git remote get-url origin)" "$c:refs/heads/main"
 fi
 exit {exit_code}
 """
@@ -489,9 +489,12 @@ class TestCreatePrRunsThePrePushCheck:
         assert r.pushes == []
         assert r.remote == r.before
 
+    @pytest.mark.usefixtures("stamp_honoured")
     def test_a_base_that_moved_during_the_check_is_rebased_and_checked_again(
         self, project_with_worktree, tmp_path
     ):
+        # The first rebase's fetch is still fresh when the retry starts, so
+        # only a forced fetch sees the move.
         r = self._run(project_with_worktree, tmp_path, moves=1)
 
         assert r.error is None
@@ -1082,7 +1085,7 @@ class TestCreatePrRegistersTheStack:
             patch("mael_domain.github.get_current_branch", return_value=branch),
             patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
             patch("mael_domain.github.run_git", side_effect=fake_run_git),
-            patch("mael_domain.github.update_local_main"),
+            patch("mael_domain.github.ensure_fetched"),
         ):
             pushed = create_pr(cwd=tmp_path)
         return pushed.url, pushed.created, calls
@@ -1166,7 +1169,7 @@ class TestCreatePrRegistersTheStack:
             patch("mael_domain.github.get_current_branch", return_value="feat/child"),
             patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
             patch("mael_domain.github.run_git"),
-            patch("mael_domain.github.update_local_main"),
+            patch("mael_domain.github.ensure_fetched"),
         ):
             url = create_pr(cwd=tmp_path).url
 
@@ -1396,7 +1399,7 @@ class TestCreatePrUsesThePrDraft:
             patch("mael_domain.github.get_current_branch", return_value=branch),
             patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
             patch("mael_domain.github.run_git", side_effect=fake_run_git),
-            patch("mael_domain.github.update_local_main"),
+            patch("mael_domain.github.ensure_fetched"),
         ):
             pushed = create_pr(cwd=tmp_path, task_id=task_id)
         return pushed, calls, bodies

@@ -15,7 +15,7 @@ import pytest
 from git_helpers import run_git
 
 from mael_domain import worktree
-from mael_domain.worktree import ensure_fetched
+from mael_domain.worktree import ensure_fetched, rebase_worktree
 from mael_domain.worktree_steps import Scope, scope_lock
 
 
@@ -117,3 +117,14 @@ def test_a_hung_remote_times_out_and_frees_the_repo_scope(
 
     with scope_lock(project_path, Scope.REPO, None, timeout=0.2):
         pass
+
+
+def test_a_hung_fetch_fails_the_rebase(project_with_worktree, monkeypatch):
+    _, worktree_path, _ = project_with_worktree
+    monkeypatch.setattr(worktree, "FETCH_TIMEOUT", 1.0)
+    _upload_pack(worktree_path.parent, "exec sleep 3 2>/dev/null")
+
+    result = rebase_worktree(worktree_path)
+
+    assert result.success is False
+    assert "timed out" in result.message

@@ -12,6 +12,7 @@ pattern (mirroring ``lib/domain/tests/test_tidy_branches.py``); CLI tests drive 
 through ``CliRunner`` with ``sync_worktree`` mocked.
 """
 
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -118,7 +119,9 @@ class TestSquashAbort:
         self._make_conflict(project_path, worktree_path, remote_path)
         head_before = _current_head(worktree_path)
 
-        result = rebase_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
+        result = rebase_worktree(
+            worktree_path, max_age=math.inf, abort_on_conflict=True
+        )
 
         assert result.success is False
         assert result.had_conflicts is True
@@ -131,7 +134,7 @@ class TestSquashAbort:
         project_path, worktree_path, remote_path = project_with_worktree
         self._make_conflict(project_path, worktree_path, remote_path)
 
-        result = rebase_worktree(worktree_path, skip_fetch=True)
+        result = rebase_worktree(worktree_path, max_age=math.inf)
 
         assert result.success is False
         assert result.had_conflicts is True
@@ -148,7 +151,9 @@ class TestSquashAbort:
         create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
         _advance_origin_main(project_path, remote_path)
 
-        result = rebase_worktree(worktree_path, skip_fetch=True, abort_on_conflict=True)
+        result = rebase_worktree(
+            worktree_path, max_age=math.inf, abort_on_conflict=True
+        )
 
         assert result.success is True
         assert result.aborted is False
@@ -171,7 +176,7 @@ class TestSyncClose:
         _push_branch(worktree_path, "feature/work")
         record_port_allocation(project_path, "alpha", 350)
 
-        result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(worktree_path, max_age=math.inf, close_if_empty=True)
 
         assert result.success is True
         assert result.closed is True
@@ -197,7 +202,7 @@ class TestSyncClose:
         # Branch empty, NOT on the remote (only main was ever pushed).
         record_port_allocation(project_path, "alpha", 350)
 
-        result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(worktree_path, max_age=math.inf, close_if_empty=True)
 
         assert result.success is True
         assert result.closed is True
@@ -219,7 +224,7 @@ class TestSyncClose:
         _push_branch(worktree_path, "feature/work")
         create_commit(worktree_path, "feature.txt", "feature\n", "Feature commit")
 
-        result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(worktree_path, max_age=math.inf, close_if_empty=True)
 
         assert result.success is True
         assert result.closed is False
@@ -242,7 +247,7 @@ class TestSyncClose:
         project_path, worktree_path, remote_path = project_with_worktree
 
         with patch("mael_domain.worktree.delete_branch", return_value=(False, False)):
-            result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
+            result = sync_worktree(worktree_path, max_age=math.inf, close_if_empty=True)
 
         assert result.success is False
         # Worktree still closed (detach already happened before the delete).
@@ -256,7 +261,7 @@ class TestSyncClose:
         _push_branch(worktree_path, "feature/work")  # so delete_remote is attempted
 
         with patch("mael_domain.worktree.delete_branch", return_value=(True, False)):
-            result = sync_worktree(worktree_path, skip_fetch=True, close_if_empty=True)
+            result = sync_worktree(worktree_path, max_age=math.inf, close_if_empty=True)
 
         assert result.success is False
         assert result.closed is True
@@ -269,7 +274,7 @@ class TestSyncClose:
         project_path, worktree_path, remote_path = project_with_worktree
         _push_branch(worktree_path, "feature/work")
 
-        result = sync_worktree(worktree_path, skip_fetch=True)
+        result = sync_worktree(worktree_path, max_age=math.inf)
 
         assert result.closed is False
         # Branch still present, not detached.
@@ -357,7 +362,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=_repairing_runner,
         )
 
@@ -393,7 +398,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=announcing_runner,
         )
 
@@ -412,7 +417,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=_repairing_runner,
             announce=lines.append,
         )
@@ -427,7 +432,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=_idle_runner,
         )
 
@@ -449,7 +454,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=failing,
         )
 
@@ -468,7 +473,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=exploding,
         )
 
@@ -493,7 +498,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=wanders,
         )
 
@@ -511,7 +516,7 @@ class TestSyncAutorepair:
 
         result = sync_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=runner,
         )
 
@@ -546,7 +551,7 @@ class TestSyncAutorepair:
         try:
             result = sync_worktree_with_autorepair(
                 worktree_path,
-                skip_fetch=True,
+                max_age=math.inf,
                 repair_runner=runner,
             )
         finally:
@@ -593,7 +598,7 @@ class TestSquashAutorepair:
 
         result = rebase_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=_repairing_runner,
         )
 
@@ -618,7 +623,7 @@ class TestSquashAutorepair:
 
         result = rebase_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=_idle_runner,
         )
 
@@ -636,7 +641,7 @@ class TestSquashAutorepair:
 
         result = rebase_worktree_with_autorepair(
             worktree_path,
-            skip_fetch=True,
+            max_age=math.inf,
             repair_runner=runner,
         )
 

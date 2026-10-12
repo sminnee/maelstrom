@@ -1597,8 +1597,7 @@ class TestCmdSyncAutorepair:
                     return_value=[MagicMock(path=wt_path, branch="feature/work")],
                 )
             )
-            stack.enter_context(patch("mael_cli.cli.run_git"))
-            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
+            stack.enter_context(patch("mael_cli.cli.ensure_fetched", return_value=None))
             plain = stack.enter_context(patch("mael_cli.cli.sync_worktree"))
             repair = stack.enter_context(
                 patch(
@@ -1631,8 +1630,7 @@ class TestCmdSyncAutorepair:
                     return_value=[MagicMock(path=wt_path, branch="feature/work")],
                 )
             )
-            stack.enter_context(patch("mael_cli.cli.run_git"))
-            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
+            stack.enter_context(patch("mael_cli.cli.ensure_fetched", return_value=None))
             plain = stack.enter_context(
                 patch(
                     "mael_cli.cli.sync_worktree",
@@ -1676,8 +1674,7 @@ class TestCmdSyncAutorepair:
                     ],
                 )
             )
-            stack.enter_context(patch("mael_cli.cli.run_git"))
-            stack.enter_context(patch("mael_domain.worktree.update_local_main"))
+            stack.enter_context(patch("mael_cli.cli.ensure_fetched", return_value=None))
             plain = stack.enter_context(
                 patch(
                     "mael_cli.cli.sync_worktree",

@@ -65,14 +65,15 @@ from .github_model import (
 )
 from .project_scaffold import scaffold_files
 from .worktree import (
+    FETCH_ERRORS,
     SyncResult,
     base_moved,
+    ensure_fetched,
     get_current_branch,
     rebase_worktree,
     rebase_worktree_with_autorepair,
     run_git,
     run_pre_push_cmd,
-    update_local_main,
 )
 from .worktree_changes import base_refs_for_diff
 from .worktree_model import REPAIRED_MESSAGE, print_flushed
@@ -609,8 +610,14 @@ def create_pr(
     # The check must see the commit that is pushed. A base that moved while it
     # ran means one more rebase, so the check runs again on the new commit.
     for attempt in range(1, PRE_PUSH_ATTEMPTS + 1):
+        # A retry fetches anew. It follows a base move, and a fetch within
+        # the freshness window would not see the move.
         rebased = _rebase_before_push(
-            cwd, squash=squash, autorepair=autorepair, announce=announce
+            cwd,
+            squash=squash,
+            autorepair=autorepair,
+            announce=announce,
+            max_age=None if attempt == 1 else 0,
         )
         if not check:
             break
@@ -660,10 +667,10 @@ def create_pr(
         raise GitHubCliMissing("gh")
 
     # Fetch current branch's remote tracking ref for --force-with-lease
-    run_cmd(["git", "fetch", "origin"], cwd=cwd, check=False, quiet=True)
-
-    # Fast-forward local main to match origin/main
-    update_local_main(cwd.parent)
+    try:
+        ensure_fetched(cwd.parent)
+    except FETCH_ERRORS:
+        pass
 
     # Push the branch
     try:
@@ -752,12 +759,15 @@ def _rebase_before_push(
     squash: bool,
     autorepair: bool,
     announce: Callable[[str], None],
+    max_age: float | None,
 ) -> SyncResult:
     """Rebase onto the branch's base without pushing; raise if it fails."""
     if autorepair:
-        result = rebase_worktree_with_autorepair(cwd, squash=squash, announce=announce)
+        result = rebase_worktree_with_autorepair(
+            cwd, max_age=max_age, squash=squash, announce=announce
+        )
     else:
-        result = rebase_worktree(cwd, squash=squash)
+        result = rebase_worktree(cwd, max_age=max_age, squash=squash)
     if not result.success:
         # An aborted rebase is restored, so the manual-resolution steps would
         # name a rebase that is no longer there. A repair that failed without
