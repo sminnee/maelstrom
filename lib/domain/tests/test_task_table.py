@@ -43,6 +43,7 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         execute_model="sonnet",
         pr_number=118,
         pr_url="https://github.com/o/r/pull/118",
+        pr_withdrawn=True,
         comms=["c3", "c7"],
         content="The prose the row carries.",
         log="- started",
@@ -81,6 +82,12 @@ class TestTaskTableContract:
         task = a_task()
         await table.save(task)
         assert await table.load("maelstrom", task.id) == task
+
+    async def test_a_withdrawal_loads_as_a_bool(self, table):
+        """SQLite hands back 1, which ``==`` cannot tell from ``True``."""
+        await table.save(a_task(pr_withdrawn=True))
+        loaded = await table.load("maelstrom", "2026-06-11.1")
+        assert loaded is not None and loaded.pr_withdrawn is True
 
     async def test_save_replaces_the_row(self, table):
         await table.save(a_task(title="First"))

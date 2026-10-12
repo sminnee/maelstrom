@@ -59,6 +59,7 @@ _SCALARS = (
     "execute_model",
     "pr_number",
     "pr_url",
+    "pr_withdrawn",
     "trigger",
     "content",
     "log",
@@ -138,6 +139,7 @@ def task_from_row(row: sqlite3.Row) -> Task:
     task.comms = list(json.loads(row["comms"] or "[]"))
     for name in _SCALARS:
         setattr(task, name, row[name])
+    task.pr_withdrawn = bool(task.pr_withdrawn)
     return task
 
 

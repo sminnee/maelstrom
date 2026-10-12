@@ -45,7 +45,7 @@ class TestRoundTrip:
         assert back == t
 
     def test_all_frontmatter_keys_emitted(self):
-        t = Task(id="x", title="t", project="p")
+        t = Task(id="x", title="t", project="p", pr_withdrawn=True)
         text = t.to_markdown()
         for key in model.FRONTMATTER_KEYS:
             assert f"\n{key}:" in "\n" + text
@@ -103,7 +103,13 @@ class TestRoundTrip:
 
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-4:] == ("pr", "pr-url", "trigger", "comms")
+        assert model.FRONTMATTER_KEYS[-5:] == (
+            "pr",
+            "pr-url",
+            "trigger",
+            "comms",
+            "pr-withdrawn",
+        )
 
     def test_comms_round_trip(self):
         # The comms a task feeds, an inline list like ``follows``.
@@ -697,6 +703,33 @@ class TestRegisterPr:
     async def test_register_on_a_missing_task(self, store):
         with pytest.raises(KeyError):
             await model.register_pr(store, "p", "nope", 1, "https://x/pull/1")
+
+    async def test_withdraw_marks_the_pr_and_keeps_it(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW)
+        await model.withdraw_pr(store, "p", a.id, now=NOW2)
+        back = await model.load(store, "p", a.id)
+        assert (back.pr_number, back.pr_withdrawn, back.updated) == (118, True, NOW2)
+
+    async def test_a_registration_clears_a_withdrawal(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW)
+        await model.withdraw_pr(store, "p", a.id, now=NOW)
+        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW2)
+        assert (await model.load(store, "p", a.id)).pr_withdrawn is False
+
+    async def test_withdraw_with_no_registered_pr_raises(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        with pytest.raises(ValueError):
+            await model.withdraw_pr(store, "p", a.id, now=NOW)
+
+    def test_a_withdrawal_round_trips_the_frontmatter(self):
+        t = Task(id="x", title="t", project="p", pr_number=118, pr_withdrawn=True)
+        assert Task.from_markdown(t.to_markdown()).pr_withdrawn is True
+
+    def test_a_ready_pr_writes_no_withdrawn_key(self):
+        t = Task(id="x", title="t", project="p", pr_number=118)
+        assert "pr-withdrawn" not in t.to_markdown()
 
     def test_the_registration_round_trips_the_frontmatter(self):
         t = Task(

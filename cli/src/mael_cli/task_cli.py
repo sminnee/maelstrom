@@ -499,6 +499,26 @@ async def register_pr(
     return task_id
 
 
+async def withdraw_pr(task_id: str | None, project: str | None = None) -> model.Task:
+    """Mark a task's Registered PR as withdrawn, and return the task.
+
+    ``task_id`` falls back to ``MAEL_TASK_ID``, and ``project`` to the cwd's.
+    The CLI path to :func:`~mael_domain.task.withdraw_pr`.
+    """
+    task_id = _resolve_task_id(task_id)
+    table = await _table()
+    try:
+        proj = resolve_project(project)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        return await model.withdraw_pr(table, proj, task_id)
+    except KeyError as exc:
+        raise click.ClickException(f"Task not found: {task_id}") from exc
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _default_parent(parent: str) -> str:
     """Default an unset ``--parent`` to the launching session's parent.
 

@@ -199,6 +199,9 @@ TASK_FIELDS = (
     # The comms the task feeds. A child inherits its parent task's list. See
     # CONTEXT.md, "Comm".
     _FieldSpec("comms", block=True),
+    # Set while the agent does more work after the push. See CONTEXT.md,
+    # "Withdrawn PR".
+    _FieldSpec("pr-withdrawn"),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -287,6 +290,8 @@ class Task:
     # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
     pr_number: int = 0
     pr_url: str = ""
+    # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
+    pr_withdrawn: bool = False
     # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
     trigger: str = ""
     # The ids of the comms this task feeds, such as ``c3``. See CONTEXT.md.
@@ -300,13 +305,17 @@ class Task:
     def to_markdown(self) -> str:
         """Render the task as markdown with YAML frontmatter.
 
-        All ten frontmatter keys are always emitted (in a fixed order), so files
-        round-trip with stable diffs. ``## Content`` always appears; ``## Log``
+        Every frontmatter key is emitted in a fixed order, so files round-trip
+        with stable diffs. ``pr-withdrawn`` is the one exception: it is written
+        only when true, so a task that was never withdrawn keeps the same file. ``## Content`` always appears; ``## Log``
         appears only when the log has entries.
         """
         lines = ["---"]
         for k in FRONTMATTER_KEYS:
-            if k in ("follows", "comms"):
+            if k == "pr-withdrawn":
+                if self.pr_withdrawn:
+                    lines.append(f"{k}: true")
+            elif k in ("follows", "comms"):
                 lines.append(f"{k}: {_dump_follows(getattr(self, k))}")
             else:
                 attr = _FRONTMATTER_ATTR.get(k, k)
@@ -351,6 +360,7 @@ class Task:
             execute_model=str(frontmatter.get("execute-model", "")),
             pr_number=_coerce_pr_number(frontmatter.get("pr")),
             pr_url=str(frontmatter.get("pr-url", "")),
+            pr_withdrawn=frontmatter.get("pr-withdrawn") is True,
             trigger=str(frontmatter.get("trigger", "")),
             comms=_coerce_follows(frontmatter.get("comms")),
             content=sections.get("content", ""),
@@ -1345,6 +1355,28 @@ async def register_pr(
     task = await load(table, project, id)
     task.pr_number = number
     task.pr_url = url
+    task.pr_withdrawn = False
+    task.updated = now if now is not None else now_iso()
+    await table.save(task)
+    return task
+
+
+async def withdraw_pr(
+    table: "TaskTable",
+    project: str,
+    id: str,
+    *,
+    now: str | None = None,
+) -> Task:
+    """Mark the task's Registered PR as withdrawn while more work is done.
+
+    The next :func:`register_pr` clears it. Raises ``ValueError`` when the task
+    has no Registered PR. See CONTEXT.md, "Withdrawn PR".
+    """
+    task = await load(table, project, id)
+    if not task.pr_number:
+        raise ValueError(f"Task {id} has no registered PR to withdraw.")
+    task.pr_withdrawn = True
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
