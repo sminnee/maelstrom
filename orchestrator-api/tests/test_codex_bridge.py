@@ -387,8 +387,14 @@ async def test_an_unanswered_request_times_out(tmp_path, caplog):
 
     with pytest.raises(CodexUnavailable, match=r"did not answer slow in 0.1s"):
         await bridge.request("slow", {})
-    # "fast" makes the fake send the late answer to "slow" too.
+    # "fast" makes the fake send the late answer to "slow" too, after the
+    # answer to "fast"; close() could stop the reader before it logs it.
     assert await bridge.request("fast", {}) == "fast-result"
+    late = "Codex answered request 2 after it timed out"
+    for _ in range(200):
+        if late in caplog.text:
+            break
+        await asyncio.sleep(0.01)
     await bridge.close()
 
-    assert "Codex answered request 2 after it timed out" in caplog.text
+    assert late in caplog.text
