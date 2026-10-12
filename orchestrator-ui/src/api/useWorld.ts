@@ -6,6 +6,7 @@ import { useAttention } from './attention';
 import { useDesk } from './desk';
 import { useDocuments } from './documents';
 import { ApiError } from './http';
+import { useOperations } from './operations';
 import { useProjects } from './projects';
 import { useTasks } from './tasks';
 import { useWorktrees } from './worktrees';
@@ -27,7 +28,7 @@ export interface WorldRead {
  * object and nothing under it re-renders.
  *
  * `ready` needs the six tables the canvas draws from. Documents are the
- * seventh: a lane can draw without them.
+ * seventh, and operations the eighth: a lane can draw without them.
  */
 export function useWorld(): WorldRead {
   const projects = useProjects();
@@ -37,6 +38,7 @@ export function useWorld(): WorldRead {
   const attention = useAttention();
   const desk = useDesk();
   const documents = useDocuments();
+  const operations = useOperations();
 
   const projectTable = useMemo(() => byId(projects.data?.projects), [projects.data]);
   const worktreeTable = useMemo(() => byId(worktrees.data?.worktrees), [worktrees.data]);
@@ -45,6 +47,7 @@ export function useWorld(): WorldRead {
   const attentionTable = useMemo(() => byId(attention.data?.attention), [attention.data]);
   const deskTable = useMemo(() => byId(desk.data?.desk), [desk.data]);
   const documentTable = useMemo(() => byId(documents.data?.documents), [documents.data]);
+  const operationTable = useMemo(() => byId(operations.data?.operations), [operations.data]);
 
   const world = useMemo<WorldView>(
     () => ({
@@ -55,8 +58,18 @@ export function useWorld(): WorldRead {
       attention: attentionTable,
       desk: deskTable,
       documents: documentTable,
+      operations: operationTable,
     }),
-    [projectTable, worktreeTable, taskTable, agentTable, attentionTable, deskTable, documentTable],
+    [
+      projectTable,
+      worktreeTable,
+      taskTable,
+      agentTable,
+      attentionTable,
+      deskTable,
+      documentTable,
+      operationTable,
+    ],
   );
 
   const required: UseQueryResult[] = [projects, worktrees, tasks, agents, attention, desk];

@@ -577,10 +577,7 @@ describe('the narrow layout', () => {
       const before = server.requests.length;
       drag(sliding('NORT-7'), -100);
       await waitFor(() => expect(deckRows()).not.toContain('NORT-7'));
-      expect(commandsSince(server, before)).toEqual([
-        'POST /api/worktrees/northwind-alpha/close',
-        'DELETE /api/desk/task:NORT-7',
-      ]);
+      expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-7/dismiss']);
     });
 
     it('gives a working row no swipe', async () => {

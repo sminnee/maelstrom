@@ -7,19 +7,20 @@ import { ConfirmButton } from '../ui/ConfirmButton';
 import { removeConfirm, shelveConfirm, trashConfirm } from './closeConfirms';
 import styles from './NextChains.module.css';
 
-type Chain = 'shelve' | 'trash' | 'delete';
+export type Chain = 'shelve' | 'trash' | 'delete';
 
 /**
  * What a refused close can do next: the closes that skip its checks, each with
- * the confirm the close control asks. `then` runs after the chosen close ends,
- * so a refused Dismiss still ends as a Dismiss: closed, then off the desk.
+ * the confirm the close control asks. `dismiss`, when given, runs the chosen
+ * close as a Dismiss chain in its place, so a refused Dismiss still ends as a
+ * Dismiss: closed, then off the desk.
  */
 export function NextChains({
   worktreeId,
-  then,
+  dismiss,
 }: {
   worktreeId: WorktreeId;
-  then?: () => Promise<unknown>;
+  dismiss?: (chain: Chain) => Promise<unknown>;
 }) {
   const worktree = useWorld().world.worktrees[worktreeId];
   const shelve = useForceCloseWorktree();
@@ -70,10 +71,7 @@ export function NextChains({
             asking={asking === chain}
             onAsk={() => setAsking(chain)}
             onDismiss={() => setAsking(null)}
-            onConfirm={async () => {
-              await run();
-              await then?.();
-            }}
+            onConfirm={() => (dismiss ? dismiss(chain) : run())}
           >
             {label}
           </ConfirmButton>

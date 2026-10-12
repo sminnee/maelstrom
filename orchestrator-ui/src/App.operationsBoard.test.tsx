@@ -105,10 +105,7 @@ describe('the card of a node under an operation', () => {
     await user.click(within(card).getByRole('button', { name: 'Shelve' }));
     await user.click(within(card).getByRole('button', { name: 'Shelve it' }));
     await waitFor(() => expect(node('MAEL-40.1')).toBeNull());
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/worktrees/maelstrom-bravo/force-close',
-      'DELETE /api/desk/task:MAEL-40.1',
-    ]);
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:MAEL-40.1/dismiss']);
   });
 });
 
@@ -229,10 +226,10 @@ describe('a deck row under an operation', () => {
 });
 
 describe('a Dismiss that runs a close', () => {
-  it('hatches the node while the close runs, then takes it off the desk', async () => {
+  it('hatches the node while the close runs, over a reload, then takes it off the desk', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { server } = await renderApp({ scenario: 'operations-board' });
+    const { server, reload } = await renderApp({ scenario: 'operations-board' });
     // Each step waits on the fake clock, so the close holds its first step.
     server.stepMs = 60_000;
     server.change({ kind: 'agent', ids: ['a1f3c9e2'] }, (w) => {
@@ -250,8 +247,13 @@ describe('a Dismiss that runs a close', () => {
     await user.click(commands.getByRole('button', { name: 'Dismiss' }));
 
     await waitFor(() => expect(node('NORT-7')).toHaveAttribute('data-operation', 'running'));
-    expect(node('NORT-7')).toHaveTextContent('Closing alpha · 1/6');
-    for (let step = 0; step < 6; step++) {
+    // The close's six steps, then off the desk: one operation.
+    expect(node('NORT-7')).toHaveTextContent('Dismissing Plan the order export · 1/7');
+
+    // The server runs the chain, so a reload keeps the hatch.
+    await reload();
+    await waitFor(() => expect(node('NORT-7')).toHaveAttribute('data-operation', 'running'));
+    for (let step = 0; step < 7; step++) {
       act(() => {
         vi.advanceTimersByTime(60_000);
       });
