@@ -23,6 +23,10 @@ A task card shows a PR only when the PR is the task's **Registered PR**. Step 6 
 you. For a PR you made another way, run `mael gh link-pr <number>` — see
 [the CLI reference](../reference/cli.md).
 
+When more work starts after step 6, the session runs `mael gh withdraw-pr` first. The card then
+draws the PR as a **Withdrawn PR**, grey and struck through, so you are not asked to review it.
+The next step 6 push makes it ready again. A CI fix inside `/watch-pr` does not withdraw.
+
 The gates run on the current base and on a clean tree, so a project can record that they passed
 on that commit. The project's pre-push check can then reuse that record.
 

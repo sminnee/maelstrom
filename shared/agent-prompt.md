@@ -67,6 +67,11 @@ Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so t
 it. The body is a PR number, `#118`, or a GitHub PR URL. `mael gh create-pr` registers its PR by
 itself, so write the tag only for a PR made another way. An agent with no task registers nothing.
 
+Before you do more work on a task whose PR is pushed, withdraw the PR, so the user is not asked
+to review it. Write `<link rel="gh-pr" withdrawn>118</link>` or run `mael gh withdraw-pr`. A CI
+fix inside `/watch-pr` does not withdraw. The next `mael gh create-pr` push makes the PR ready
+again.
+
 ## Images
 
 Use `<image src="docs/shot.png" alt="The failing dialog">` to place a picture in the message

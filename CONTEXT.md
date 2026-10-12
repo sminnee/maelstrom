@@ -202,9 +202,17 @@ The sibling tasks that share one parent, ordered by follows, merging as a single
 **Registered PR**:
 The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
 `mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
-earlier one. A task card shows its task's Registered PR only, never one its **Chain** or its
+earlier one. A registration also clears a **Withdrawn PR**. A task card shows its task's Registered PR only, never one its **Chain** or its
 branch has. The worktree table shows the branch's PR.
 _Avoid_: Linked PR, task PR
+
+**Withdrawn PR**:
+A **Registered PR** that is not ready for review, because the agent does more work on the
+task after the push. `mael gh withdraw-pr` and the **PR link tag** with a bare `withdrawn`
+attribute set it. The task keeps the PR number and URL, and the card draws the PR grey and struck
+through. The next registration, such as the next `mael gh create-pr` push, makes the PR ready
+again. Landing does not change.
+_Avoid_: Hidden PR, retracted PR, draft (a draft is GitHub's state)
 
 **Landing**:
 A task's status after `done`: `done → merged → uat → live`. Each of these is a **Landing
@@ -976,8 +984,9 @@ _Avoid_: Screenshot tag, figure, embed
 **PR link tag**:
 The marker an agent writes in the text of an ordinary message to register a PR on its task:
 `<link rel="gh-pr">118</link>`, with a PR number, `#118` or a GitHub PR URL. The server cuts it
-from the message and makes the PR the task's **Registered PR**. A **Free agent** registers
-nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
+from the message and makes the PR the task's **Registered PR**. With a bare `withdrawn`
+attribute, `<link rel="gh-pr" withdrawn>118</link>`, it marks that PR as a **Withdrawn PR**
+instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
 markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<jig>`.
 _Avoid_: PR tag, link tag
 

@@ -43,6 +43,8 @@ When the implementation is written, run this unattended sequence:
 7. Run `mael task status done`.
 8. Run `/watch-pr` until CI passes or times out.
 
+When more work starts after step 6, run `mael gh withdraw-pr` first, then run the flow again from step 1. A CI fix inside `/watch-pr` does not withdraw.
+
 When the work has a result the user can see, write a verification after step 2. Read [verification.md](verification.md).
 
 Use `--skip-pre-push` only when the user asks for an emergency push.
