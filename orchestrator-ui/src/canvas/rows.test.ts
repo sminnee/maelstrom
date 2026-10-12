@@ -218,5 +218,40 @@ describe('assignRows', () => {
         B: 1,
       });
     });
+
+    // The wire from X drops to K through column 0. Without the corridor, A fills
+    // row 1, column 0 and the wire reads as A → K.
+    it('keeps a later box out of the corridor of a wire between boxes', () => {
+      expect(
+        rowsOf([b('x', 'X', 0), b('x', 'Y', 1, 'X'), b('k', 'K', 1, 'X'), b('a', 'A', 0)]),
+      ).toEqual({ X: 0, Y: 0, K: 1, A: 2 });
+    });
+
+    it('keeps a later node off the cells between two boxes on one row', () => {
+      expect(rowsOf([b('x', 'A', 0), b('y', 'B', 2, 'A'), n('L', 1)])).toEqual({
+        A: 0,
+        B: 0,
+        L: 1,
+      });
+    });
+
+    // L follows X2 on row 1 and sits on row 0, so its wire crosses column 1 on rows 0 and 1.
+    it('reserves the corridor of a loose node that follows a boxed node', () => {
+      expect(rowsOf([b('x', 'X', 0), b('x', 'X2', 0), n('L', 2, 'X2'), n('M', 1)])).toEqual({
+        X: 0,
+        X2: 1,
+        L: 0,
+        M: 2,
+      });
+    });
+
+    // B follows A from the left, so its wire has no corridor.
+    it('reserves nothing for a wire between boxes that runs backward', () => {
+      expect(rowsOf([b('y', 'B', 0, 'A'), b('x', 'A', 2), n('L', 1)])).toEqual({
+        A: 0,
+        B: 0,
+        L: 0,
+      });
+    });
   });
 });

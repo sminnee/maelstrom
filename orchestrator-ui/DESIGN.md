@@ -497,7 +497,10 @@ Horizontal position is progress first and dependency second:
   follows edge draws backwards.
 - A task sits on the row of the task it follows, across zones; a second follower branches below.
   In a project lane a follower in another worktree box keeps its box. It sits on the row of the
-  task it follows when its box fits there, and it is never a branch.
+  task it follows when its box fits there, and it is never a branch. A follows edge between two
+  boxes, or between a box and a task with no box, reserves the cells round its wire: from the
+  followed task's column up to the column before the follower, on every row between the two.
+  No later card sits beside the wire.
   A run of followers reserves the columns it spans. A task that follows nothing fills the first
   free cell.
 - A wire another path already implies is not drawn. The board shows what gates what, not every
