@@ -94,6 +94,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **`mael list` and `mael list-all` read the orchestrator server.** They fail when
+  `orchestrator_url:` is unset or no server answers. A PR cell that ends in `(stale)` shows the
+  last known pull request, because the latest read failed, timed out or stood off for a rate
+  limit. A hung `gh` no longer holds the table. `mael --json list-all` now prints the server's
+  `Worktree` entities under each project, in camelCase: `name` is now `nato`, and `folder` is
+  now `id`. See [Reading `mael list`](docs/guide/listing.md).
+
 - **Dismiss, Terminate, Resume, Launch and new work run on the server.** Each is an operation in
   the console, with its steps and log. A reload no longer loses a Dismiss partway: the server
   stops the agent or ends the worktree, then takes the node off the desk. New work closes as soon

@@ -25,9 +25,9 @@ the database; the two below are what is left:
 
 | | Worktrees | Pull requests | Agents |
 |---|---|---|---|
-| Where a reader gets it | Re-scan git | A dict on a source object | The world |
+| Where a reader gets it | Re-scan git | `PrStateCache`, in memory | The world |
 | How a reader hears of a change | It does not | It does not | The host pushes it |
-| Who decides to refresh | A 60 s poll | The same poll, behind four guards | The agent host |
+| Who decides to refresh | A 60 s poll | The cache, on that poll and after a write | The agent host |
 | What survives a restart | Nothing | Nothing | Nothing |
 
 Three bug classes followed from the columns not sharing a row. Moving the tasks closed each one
@@ -171,6 +171,10 @@ refresher. Losing the whole table costs one slow read, never data.
 
 Worktrees and pull requests are cached. Git and GitHub own them.
 
+The **PR state** on each worktree row has one owner: the orchestrator's `PrStateCache`. It alone
+calls `gh` for it. See "The PR read comes before the rows" in
+[orchestrator-server.md](orchestrator-server.md).
+
 `pull_requests` is declared `cached=True`. It holds GitHub's answer about each
 tracked task's PR: its merge commit, and how far that commit got in each deploy environment. The
 worktree poll refreshes it, and stamps `fetched_at` on each row it read.
@@ -237,8 +241,9 @@ server's `diff_kind` is then handed rows rather than whole tables. A task write 
 request backfill travel this path identically.
 
 **A refresher contract.** A refresher says what to fetch, how often, and what it does when
-refused. The GitHub rate-limit stand-off, the worktree poll's `only_when_watched` guard and the
-desk-narrowed branch set are three writings of one idea: a refresher decides its own budget.
+refused. The rate-limit stand-off in `PrStateCache`, the worktree poll's `only_when_watched`
+guard and the desk-narrowed branch set are three writings of one idea: a refresher decides its
+own budget.
 
 **Freshness as data.** A cached row carries `fetched_at`. Staleness is a property a reader can
 see, not a question only the refresher can answer.

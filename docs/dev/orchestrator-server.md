@@ -535,10 +535,27 @@ draws a branch nobody looked up, so its pull request never appears. The agent is
 `taskId`, because the world keys agents by their own id.
 
 A branch off the desk is *not asked about*, which is not the same as *having no pull request*.
-`ListAllWorktreeSource` keeps the last pull request it saw, by project and then by branch, and
-answers from it. Read the two the same way and a live pull request would vanish from its row the
-moment the poll stopped asking about its branch. The key holds the project because branch names
-are not unique across projects — every project's `_main` sits on `main`.
+`PrStateCache` keeps the last pull request it saw, by project and then by branch, and answers
+from it. A read changes only the branches it asked about: one with an answer takes it, and one
+with none loses its entry. Read the two the same way and a live pull request would vanish from
+its row the moment the poll stopped asking about its branch. The key holds the project because
+branch names are not unique across projects — every project's `_main` sits on `main`.
+
+**The PR read comes before the rows, and is bounded.** `ListAllWorktreeSource.read` lists each
+project's branches, awaits `PrStateCache.refresh` for each project, then calls
+`build_list_all_data` with the cache's snapshot. `build_list_all_data` reads only local state.
+The PR read goes first so that `pushedCommits` sees the current PR. Each project's read has a
+30 s timeout. A caller may first wait out a read in flight, so a hung `gh` delays the rows by one
+or two timeouts. `run_cmd_async` kills the child when the await is cancelled, so a timed-out
+`gh` does not outlive the read.
+
+A read that fails, times out or stands off keeps the last known state and marks the branches it
+asked about stale. Their rows then carry `prStale: true`. Stale is per branch, so a merge's
+one-branch read does not vouch for branches an earlier failed read left old.
+
+One read per project is in flight at a time. A caller that finds one covering its branches
+awaits it. A caller that has just changed a pull request passes `after_write`: a read that began
+before the write cannot hold its result, so the caller waits it out and reads again.
 
 **The poll idles while nobody watches.** The UI never polls; it is told what changed. A read with
 no client subscribed therefore buys nothing. A client that subscribes triggers the read at once,
@@ -557,32 +574,36 @@ The floor therefore bounds the cost of a flapping stream at one read per client 
 one per interval.
 
 **An event reads straight away.** `POST /api/worktrees/refresh` is how a command says the world
-moved: `mael gh create-pr` posts to it, because the pull request it opened is in no world until
-something looks it up and the next poll is up to `WORKTREE_POLL_SECS` away. `refresh_now` skips
-the freshness floor above — that floor guards against a flapping stream, and an event is not a
-reconnect — but still honours the stand-off below, because a spent budget is spent whoever asks.
+moved. `mael gh create-pr`, `mael git merge` and `mael close --trash` post to it with
+`{project, branch}`, because the pull request they changed is in no world until something looks
+it up, and the next poll is up to `WORKTREE_POLL_SECS` away. The server first reads that
+branch's pull request with `after_write`, then the worktrees. `refresh_now` skips the freshness
+floor above: that floor guards against a flapping stream, and an event is not a reconnect. The
+stand-off below still holds, because it lives in `PrStateCache`, which every caller goes
+through.
 
 The read is scheduled, not awaited, so the route answers at once. It shells out per worktree
 across every project and takes seconds; the caller is a command holding a terminal open, and the
 UI hears the result on its own notice stream. A read already scheduled absorbs a second event
-rather than replacing it, which would leave a task nothing can cancel at stop.
+rather than replacing it, which would leave a task nothing can cancel at stop. An event that names
+a branch is not absorbed. It replaces the scheduled task, reads its pull request, then awaits the
+task it replaced. A stop that cancels it cancels the replaced task too.
 
 A read already *in flight* is waited out rather than skipped. That read chose its branches, and
 may have asked GitHub, before the event happened, so returning there would drop the news — in
 exactly the case the event exists for, a poll tick landing while `create-pr` finishes.
 
 **A refused read stands off for 10 minutes.** GitHub reports a spent budget with HTTP 200 and an
-error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`. Other read
-failures fall back to one lookup per branch; a rate limit must not, because that turns one
-refused call per project into one call per worktree and keeps the budget spent.
-
-`build_list_all_data` builds every row before it reports the refusal, so a spent budget costs the
-pull request column rather than the read. `ListAllWorktreeSource` sets `rate_limited`, and the
-server holds one stand-off deadline that both the poll and an arriving client check — the web
+error in the body, so `parse_open_prs` reads the payload and raises `RateLimited`.
+`PrStateCache` then holds one stand-off deadline. `refresh` checks it before anything else, so no
+caller reaches GitHub during it: not the poll, not an arriving client, and not an event. The web
 client retries a dropped notice stream every 30 seconds, and without the shared deadline each
-retry would ask GitHub again. The cooldown is fixed rather than read from the reset header: `gh`
-does not pass that header back, and an exhausted hourly window has been seen reporting a reset 84
-seconds away.
+retry would ask GitHub again.
+
+The local rows cost no GitHub budget, so the worktree poll keeps reading them through a
+stand-off. Only the PR state goes stale. The cooldown is fixed rather than read from the reset
+header: `gh` does not pass that header back, and an exhausted hourly window has been seen
+reporting a reset 84 seconds away.
 
 **A refused check rollup falls back to Actions.** `statusCheckRollup` needs the `checks=read`
 token permission, which GitHub no longer offers in the fine-grained PAT UI, so some repositories
@@ -613,10 +634,10 @@ is the one a user can fix.
 ### What a landing read costs
 
 The landing sync runs at the end of each worktree read, after its rows are applied and before
-the lock is released. So it shares that read's cadence, its catch-up on arrival, `refresh_now`
-and the stand-off. A worktree read that was rate-limited skips the sync. A `RateLimited` from the
-sync's merge read sets the stand-off, as the worktree read's own does. Any other failure is
-logged.
+the lock is released. So it shares that read's cadence, its catch-up on arrival and
+`refresh_now`. The sync is skipped while `PrStateCache` stands off, because it spends the same
+GraphQL budget. A `RateLimited` from the sync's merge read stands the cache off. Any other
+failure is logged.
 
 The sync reads only the pull requests that can still move. A PR is settled when it was closed
 unmerged, or when it is merged and `landed` in every environment the project's `deploy:` block
@@ -1100,7 +1121,7 @@ without waiting for the poll.
 |---|---|
 | `GET /api/projects` | `{projects: [Project]}` |
 | `GET /api/linear/issues?project=` | `{issues: [{id, title, status}]}` — the project's current Linear cycle. Refused unless the project sets `linear.team_id` |
-| `GET /api/worktrees` | `{worktrees: [Worktree]}`. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
+| `GET /api/worktrees?max_age=` | `{projects: [Project], worktrees: [Worktree]}`. With `max_age` (seconds), the route first reads every branch on disk, unless such a read finished within `max_age`. A poll's desk-only read does not count. `mael list` uses it. A `max_age` that is not a finite, non-negative number is `invalid`. `prStale` is true when the PR fields are the last known state. `appUrl` and `appRunning` are the first web port and a port probe on it. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
 | `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
@@ -1328,7 +1349,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `202 {operationId}` |
-| `POST /api/worktrees/refresh` | | `worktree.refresh` | `{}` |
+| `POST /api/worktrees/refresh` | `project`, `branch`, both optional | `worktree.refresh` | `{}` |
 | `POST /api/operations/{id}/seen` | | `operation.seen` | `{}` |
 | `POST /api/operations/{id}/retry` | | `operation.retry` | `202 {operationId}` |
 

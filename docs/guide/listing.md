@@ -12,14 +12,30 @@ mael list-all            # every project, one table
 mael --json list-all     # every project as JSON
 ```
 
+Both commands ask the orchestrator server, at `GET /api/worktrees`. They read no git and no
+GitHub themselves. When the server has not read every branch in the last 10 seconds, it does so
+before it answers, so the table is at most that old. Its own poll asks GitHub about the desk's
+branches only, so that read does not count. With no server configured or listening, the command
+fails and says so. Start one with `mael self-env start orchestrator`. A project the server does
+not know is an error, not an empty table.
+
 `mael --json list-all` is the only machine-readable form of the worktree tables.
 `mael --json list` is accepted and then ignored: it prints the same table, so a script that
 pipes it into a JSON parser fails at the parser rather than at the command.
 
-The JSON is not the table. It also carries every closed worktree, flagged by `is_closed`. A
-closed worktree's counts are placeholders rather than measurements — `dirty_files`,
-`local_commits` and `pr_number` are filled in as `0`, `0` and `null` without anything being
-measured. Skip the `is_closed` entries unless you want them.
+The JSON is the server's own wire shape, grouped by project:
+
+```json
+{"projects": [{"id": "askastro", "name": "askastro", "stackTip": "main", "hasLinear": false,
+  "worktrees": [{"id": "askastro-alpha", "nato": "alpha", "branch": "feat/x", "isClosed": false,
+    "dirtyFiles": 0, "prNumber": 1635, "prState": "ready", "prStale": false, "...": "..."}]}]}
+```
+
+The fields are the `Worktree` type in `orchestrator-ui/src/protocol/entities.ts`. The JSON is
+not the table. It also carries every closed worktree, flagged by `isClosed`. A closed
+worktree's counts are placeholders rather than measurements — `dirtyFiles`, `localCommits` and
+`prNumber` are `0`, `0` and `null` without anything being measured. Skip the `isClosed` entries
+unless you want them.
 
 ## `mael project list` — which projects exist
 
@@ -105,7 +121,7 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | `BRANCH` | The checked-out branch, or `(detached)`. A stacked branch reads `feat/child ← feat/parent` | Never blank |
 | `DIRTY FILES` | How many files `git status` reports as changed | No uncommitted changes |
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
-| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. One that asks for something says so: `#1766 failed (6)`, `running`, `conflict`. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since | No pull request and nothing pushed |
+| `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. One that asks for something says so: `#1766 failed (6)`, `running`, `conflict`. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since. `(stale)` at the end means the last PR read failed, timed out or stood off. See below | No pull request and nothing pushed |
 | `APP` | The app URL when the app runs, `*3030` when it does not | The worktree has no port allocation, or the project has no `APP`/`FRONTEND` service |
 | `SESSION` | The number of live sessions | No `claude` process runs in the worktree |
 
@@ -123,7 +139,7 @@ measured and nothing was zero.
 
 `mael list-all` prints the same columns, with a `PROJECT` column in front. Its `WORKTREE`
 column carries the folder name (`askastro-charlie`) rather than the NATO name (`charlie`). The
-JSON form gives you both, as `name` and `folder`. It also breaks the closed worktrees out per
+JSON form gives you both, as `id` and `nato`. It also breaks the closed worktrees out per
 project, one `- <project>: <names>` line each, rather than the single flat line `mael list`
 prints.
 
@@ -173,15 +189,15 @@ A branch with no open pull request falls back to a bare `(1)` — the number of 
 `origin/<branch>` that are ahead of `origin/main`. That fallback reads refs only. It does not
 look at `HEAD`, so it tells you what is on the remote, not what you have.
 
-The same fallback runs whenever `gh` cannot answer: `gh` missing, `gh` not authenticated, a
-network timeout, a rate limit. None of those is distinguishable from "this branch has no pull
-request". So on a machine without a working `gh`, every row shows the bare remote count or a
-blank, and every open pull request disappears from the table. Run `gh auth status` when the
-column looks emptier than you expect.
+When `gh` cannot answer, the server keeps the pull request it last saw and the cell ends in
+`(stale)`: `#1766 (6) (stale)`. `gh` missing, `gh` not authenticated, a read that takes more
+than 30 seconds and a spent rate limit all do this. The JSON says the same as `prStale: true`.
+A branch the server has never read a pull request for shows the bare remote count or a blank.
+When its read failed, a count ends in `(stale)` too. Run `gh auth status` when the column goes
+stale or looks emptier than you expect.
 
-The lookup asks for every open pull request in the repository at once. When that one call
-fails, each branch is retried on its own, so a single failure costs you one blank row rather
-than a blank column.
+After a rate limit, the server reads no pull request for 10 minutes. The other columns stay
+current through that time, because they read only this machine.
 
 ### `SESSION`
 
@@ -196,14 +212,14 @@ can resume.
 
 ## Where each fact comes from
 
-The command builds each row from eight sources. Most run once for the whole project. Only the
-per-worktree ones grow with the number of open worktrees.
+The orchestrator server builds each row from eight sources. Most run once for the whole
+project. Only the per-worktree ones grow with the number of open worktrees.
 
 ```
 git worktree list ──────────────────► WORKTREE, BRANCH             once per project
 one git config --get-regexp ────────► BRANCH (the ← base)          once per project
 one rev-list ───────────────────────► which worktrees are closed   once per project
-gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network
+gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network, 30 s at most
 one pgrep + lsof sweep ─────────────► SESSION (live count)         once per project
 git status ─────────────────────────► DIRTY FILES                  once per worktree
 git rev-list ───────────────────────► LOCAL COMMITS                once per open worktree
@@ -216,9 +232,9 @@ worktree still costs one
 `git status`, because the closed check must know whether the worktree is clean. It costs nothing
 else.
 
-The pull request lookup is one GraphQL query for every open pull request in the repository,
-rather than one `gh` call per branch. It is still the slowest single source, because it is the
-only one that leaves the machine.
+The pull request lookup is one GraphQL query for the branches checked out in the project's
+worktrees, rather than one `gh` call per branch. It is still the slowest single source, because it is the only one that
+leaves the machine. It runs before the local reads, and gives up after 30 seconds.
 
 ## Open and closed worktrees
 

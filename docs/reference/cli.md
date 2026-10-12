@@ -115,8 +115,8 @@ Run `mael doctor NEW` afterwards.
 | Command | Description |
 |---|---|
 | `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. A recycled or reused worktree gets its `.env` rebuilt; running services restart only when the `.env` changed. A failed rebuild stops a recycle, and only warns on a reuse. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
-| `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. See [listing.md](../guide/listing.md) for what each column means. |
-| `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Supports `mael --json list-all`. |
+| `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. Reads the orchestrator server, and fails without one or for a project it does not know. A PR cell ending in `(stale)` is the last known state. See [listing.md](../guide/listing.md) for what each column means. |
+| `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Reads the orchestrator server, and fails without one. `mael --json list-all` prints the server's `Worktree` entities, grouped by project. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
 | `mael remove TARGETS...` | Delete one or more worktrees. |
 | `mael rm TARGETS...` | Alias for `mael remove`. |
