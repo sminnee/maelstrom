@@ -312,8 +312,11 @@ describe('App', () => {
     await waitFor(() =>
       expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument(),
     );
-    // Live again, the control offers the live chains.
-    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    // Live again once the resume has ended, the control offers the live chains.
+    await waitFor(() =>
+      expect(commands(card).getByRole('button', { name: 'More actions' })).toBeEnabled(),
+    );
+    await user.click(commands(card).getByRole('button', { name: 'More actions' }));
     expect(menuLabels(card)).toEqual([
       'Terminate',
       '…and take off desk',
@@ -322,6 +325,25 @@ describe('App', () => {
       '…or trashing the branch',
       '…or ignoring the branch',
     ]);
+  });
+
+  it('waits on a Resume, and shows why when the host refuses it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    exitAgent(server, 'd9a4c7f1');
+    server.world.operationFaults[faultKey('resume', 'd9a4c7f1')] = {
+      step: 'resume_agent',
+      words: 'agent d9a4c7f1 is running',
+    };
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+
+    await user.click(await within(card).findByRole('button', { name: 'Resume' }));
+    const alert = await within(card).findByRole('alert');
+    expect(alert.closest('button')).toHaveAttribute(
+      'title',
+      expect.stringContaining('agent d9a4c7f1 is running'),
+    );
   });
 
   it('dismisses a live agent alone in its worktree with a close, then takes it off the desk', async () => {

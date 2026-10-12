@@ -18,12 +18,10 @@ import {
   useApprove,
   useDeny,
   useInterrupt,
-  useResume,
   useRun,
   useSay,
   useSetMode,
   useStartAgent,
-  useStop,
 } from './agents';
 import { ApiProvider } from './ApiProvider';
 import { usePutOnDesk, useTakeOffDesk } from './desk';
@@ -122,6 +120,9 @@ type Case = [
   invalidates: unknown[],
 ];
 
+// Terminate and resume wait on their operation, which needs the change stream
+// this harness does not open: App.canvas.test.tsx drives them through the fake.
+
 // r1 is the question and r2 the permission, so each reply names the wait it
 // suits: a reply is judged by the request it names, not the agent's state.
 const AG = { agentId: 'ag1', requestId: 'r1' };
@@ -189,7 +190,6 @@ describe('the mutation hooks', () => {
       {},
       agentKeys,
     ],
-    ['useStop', useStop, { agentId: 'ag1' }, 'POST /api/agents/ag1/stop', {}, agentKeys],
     [
       'useSetMode',
       useSetMode,
@@ -197,14 +197,6 @@ describe('the mutation hooks', () => {
       'POST /api/agents/ag1/set-mode',
       { mode: 'auto' },
       agentKeys,
-    ],
-    [
-      'useResume',
-      useResume,
-      { agentId: 'ag2' },
-      'POST /api/agents/ag2/resume',
-      {},
-      [keys.agents.list(), keys.agents.detail('ag2'), keys.attention()],
     ],
     [
       'useLaunch',

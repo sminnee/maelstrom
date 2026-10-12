@@ -5,6 +5,7 @@ import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../pro
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
+import { runOperation, type OperationStarted } from './operations';
 import type { AgentStart } from './types';
 
 export interface AgentsBody {
@@ -122,15 +123,29 @@ export function useInterrupt() {
   );
 }
 
+/**
+ * The node card's **Terminate**, as an operation. It waits for the operation
+ * to end, so the control shows the wait and a refusal's reason.
+ */
 export function useStop() {
+  const queryClient = useQueryClient();
   return useAgentMutation((api, vars: { agentId: AgentId }) =>
-    api.post(`/api/agents/${vars.agentId}/stop`),
+    runOperation(queryClient, api, () =>
+      api.post<OperationStarted>(`/api/agents/${vars.agentId}/stop`),
+    ),
   );
 }
 
+/** Start an exited agent again, as an operation. It waits as `useStop` does. */
 export function useResume() {
+  const queryClient = useQueryClient();
   return useAgentMutation((api, vars: { agentId: AgentId; text?: string }) =>
-    api.post(`/api/agents/${vars.agentId}/resume`, vars.text ? { text: vars.text } : {}),
+    runOperation(queryClient, api, () =>
+      api.post<OperationStarted>(
+        `/api/agents/${vars.agentId}/resume`,
+        vars.text ? { text: vars.text } : {},
+      ),
+    ),
   );
 }
 
