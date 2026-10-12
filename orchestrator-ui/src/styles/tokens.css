@@ -206,6 +206,8 @@
   --chip: var(--u-2);
 
   --duration-fast: 120ms;
+  /* A surface that rises into view: fast out, slow to settle. */
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 
   /*
    * Syntax colour in a diff; Shiki's CSS-variable theme names these (see

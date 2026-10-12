@@ -1259,6 +1259,10 @@ on an entry opens the console on it.
 The narrow layout drops the id and the step. The strip shows over the view only, because a
 pushed screen has one row of chrome (the One Strip Rule).
 
+The strip rises from the foot in 180ms, and the body shrinks with it, so it covers nothing. It
+sinks out in 120ms with the entries it had. Under `prefers-reduced-motion` it comes and goes at
+once.
+
 **The step meter** is one segment per step, sharing a fixed 48px. A done step is `--fg-muted`,
 the step that runs is `--fg` and breathes, and a step that refused or failed is `--danger`. A
 pending step is `--border-strong`. Under `prefers-reduced-motion` the running segment is still.
@@ -1269,6 +1273,10 @@ A drawer over the foot of the body, over the main view and the panel. It opens a
 body, and a grip on its top edge resizes it. A bare × named Close console is at its top-right,
 and the log's head wraps clear of it. The narrow screen has no ×, because its screen strip has
 Close. It takes the drawer lift and a `--border-strong` hairline on top.
+
+The drawer rises from the foot in 260ms, over the place the strip held, and drops out in 180ms.
+The strip comes back after the drawer has gone, so the two never overlap. Under
+`prefers-reduced-motion` the drawer opens and closes at once.
 
 - **Left: the list.** Newest first, with running and unseen operations pinned on top. A filter
   row heads it: Running, Problems and All as one segmented control, then a text field. A row

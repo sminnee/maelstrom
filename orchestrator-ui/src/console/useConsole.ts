@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarkSeen, useOperations } from '../api/operations';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useGo } from '../nav/useNav';
@@ -96,12 +96,16 @@ export function useStripOperations(ops: readonly Operation[]): Operation[] {
     return () => running.forEach(clearTimeout);
   }, []);
 
-  // What waits on the operator leads; the work still moving follows it.
-  return [
-    ...ops.filter(isUnseen),
-    ...ops.filter((op) => op.state === 'running'),
-    ...ops.filter((op) => op.state === 'done' && leaving.has(op.id)),
-  ];
+  // What waits on the operator leads; the work still moving follows it. One
+  // array per change, so the strip can hold the last one it showed.
+  return useMemo(
+    () => [
+      ...ops.filter(isUnseen),
+      ...ops.filter((op) => op.state === 'running'),
+      ...ops.filter((op) => op.state === 'done' && leaving.has(op.id)),
+    ],
+    [ops, leaving],
+  );
 }
 
 /**

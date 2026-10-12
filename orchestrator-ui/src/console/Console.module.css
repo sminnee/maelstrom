@@ -21,6 +21,24 @@
   border-top: 1px solid var(--border-strong);
   box-shadow: var(--shadow-drawer);
 }
+/* The drawer rises from the foot of the window, and drops back out as it
+   leaves. `#root` clips it below. */
+.console[data-layout='drawer'][data-presence='out'] {
+  transform: translateY(100%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .console[data-layout='drawer'] {
+    transition: transform 260ms var(--ease-enter);
+  }
+  .console[data-layout='drawer'][data-presence='out'] {
+    transition: transform 180ms ease-in;
+  }
+  @starting-style {
+    .console[data-layout='drawer'] {
+      transform: translateY(100%);
+    }
+  }
+}
 /* A phone: a pushed screen, so it overlaps nothing and takes no lift. The
    list over the log, the list a share of the screen. */
 .console[data-layout='screen'] {
