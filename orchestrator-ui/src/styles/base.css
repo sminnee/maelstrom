@@ -16,10 +16,13 @@ html {
 /* The app is a fixed viewport: scrolling belongs to the two inner boxes, not to
    the document. Clipping here stops a tall panel child putting a scrollbar on
    the page. `position` is part of the clip: `overflow` does not clip an absolute
-   box whose containing block is outside this box. */
+   box whose containing block is outside this box. `clip`, not `hidden`: a
+   hidden box still scrolls from script, so a focus or `scrollIntoView` into
+   the console drawer, still below the fold as it rises, would scroll the
+   whole app up. */
 #root {
   position: relative;
-  overflow: hidden;
+  overflow: clip;
 }
 /* On a phone the page never moves. See DESIGN.md, "The Still Screen Rule".
    Not on the wide layout, where `none` would also stop a trackpad's back
