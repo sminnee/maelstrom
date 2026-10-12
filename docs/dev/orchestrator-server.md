@@ -221,6 +221,17 @@ number takes its URL from the `origin` remote of the agent's worktree. A live ta
 registers. A replayed tag registers only on a task with no Registered PR: a tag the agent wrote
 while the server was down must still land, but an older tag must not undo a later `link-pr`.
 
+A bare `withdrawn` attribute sets `Normalised.pr_withdrawn`, and `server._withdraw_pr` writes it
+through `TaskSource.withdraw_pr`:
+
+```
+<link rel="gh-pr" withdrawn>118</link>
+```
+
+Only a live tag withdraws. A replayed withdrawal is history: a later push may have made the PR
+ready again. A tag that names a PR other than the Registered PR withdraws nothing, and logs a
+warning. A free agent withdraws nothing.
+
 One milestone does not wait, and the asymmetry is deliberate rather than an oversight. `planned`
 is Maelstrom's own marker, not an agent's: the normaliser mints it when a plan approval is
 allowed, and `_normalise` records it the moment it reads it. Approving a plan interrupts the

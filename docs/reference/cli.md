@@ -890,6 +890,7 @@ mael env status -w myproject._main
 |---|---|
 | `mael gh create-pr` | Create a PR for the current worktree, or push if one exists. |
 | `mael gh link-pr REF` | Register an existing PR on a task. |
+| `mael gh withdraw-pr` | Withdraw a task's Registered PR while more work is done. |
 | `mael gh read-pr [TARGET]` | Read PR status, comments and check results. |
 | `mael gh show-code [TARGET]` | Show commits and uncommitted changes for a worktree. |
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
@@ -940,6 +941,22 @@ mael gh link-pr https://github.com/acme/northwind/pull/118 --task NORT-7
 | Option | Description |
 |---|---|
 | `--task TEXT` | Task to register the PR on, in the current project. Default: `$MAEL_TASK_ID`. With neither, the command fails. |
+
+**`mael gh withdraw-pr`**
+
+Marks a task's Registered PR as a Withdrawn PR while the agent does more work after the push, so
+the user is not asked to review it. The task keeps the PR. The next registration makes the PR
+ready again: a `create-pr` push, a `link-pr`, or a PR link tag. A task with no Registered PR
+fails.
+
+```bash
+mael gh withdraw-pr
+mael gh withdraw-pr --task NORT-7
+```
+
+| Option | Description |
+|---|---|
+| `--task TEXT` | Task whose PR to withdraw, in the current project. Default: `$MAEL_TASK_ID`. With neither, the command fails. |
 
 **`mael gh read-pr`**
 

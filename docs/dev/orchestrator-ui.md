@@ -244,6 +244,11 @@ PR in its **Chain**. A free agent's card shows no PR.
   state, draft flag and colour.
 - When the numbers differ, the chip draws the number and link with no state. The branch now has
   a newer PR, and the registered one has no reading. No per-number GitHub query is made.
+- When the task's `prWithdrawn` is set, `PrChip` draws a **Withdrawn PR**: the GitHub mark and
+  the struck-through number in `--fg-muted`, with no pill and no state. It still links to the PR.
+  The `has-pr` filter still counts it, because the PR is still registered. A PR the worktree
+  reads as `merged` is never drawn withdrawn, because no registration follows a merge to clear
+  the flag.
 
 `PrChip` draws a `PrReading`, not a `Worktree`. The worktree table and the **Worktree box** pass
 `worktreePr(worktree)`, the branch's own PR: those views are about the branch, not a task.
