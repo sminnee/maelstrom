@@ -51,9 +51,15 @@ export interface RowInput {
  * every cell, empty ones included. A loose node packs as a track and fills
  * the free cells round the boxes.
  *
- * A follows edge between two boxes reserves no cell. When the two blocks are
- * not in adjacent columns, a later track can take a cell between them, and the
- * edge then draws behind that card.
+ * A follows edge between two boxes reserves the corridor round its wire: the
+ * columns from its source up to the column before its target, on every row
+ * from the source row to the target row. A loose node and a boxed node are in
+ * two boxes for this rule. The corridor is reserved as soon as both ends have
+ * a row, so later tracks and blocks stay out of it. Cards placed before that
+ * stay where they are. An edge whose target is not right of its source
+ * reserves nothing. The corridor assumes the wire `FollowsEdge` draws: out of
+ * the source's right side, down between the two cards, into the target's left
+ * side.
  */
 export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, number> {
   const columnOf = new Map(nodes.map((n) => [n.id, n.column]));
@@ -86,9 +92,14 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
     parentOf.set(id, top);
     return top;
   };
+  let wires: Wire[] = [];
   for (const node of nodes) {
     for (const id of node.follows) {
-      if (parentOf.has(id)) parentOf.set(find(id), find(node.id));
+      if (!parentOf.has(id)) continue;
+      parentOf.set(find(id), find(node.id));
+      if (boxOf.get(id) !== node.box && columnOf.get(id)! < node.column) {
+        wires.push({ source: id, target: node.id });
+      }
     }
   }
   const boxLead = new Map<string, string>();
@@ -132,6 +143,7 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
         const block = tracks.filter((t) => t.box === track.box);
         placeBlock(block, taken, rows, branchesFrom, floor ?? 0);
       }
+      wires = reserveWires(wires, taken, rows, columnOf);
       floor ??= rows.get(track.ids[0]!)!;
     }
   }
@@ -139,6 +151,11 @@ export function assignRows(nodes: readonly RowInput[]): ReadonlyMap<string, numb
 }
 
 type Taken = Map<number, Set<number>>;
+
+interface Wire {
+  source: string;
+  target: string;
+}
 
 interface Track {
   ids: string[];
@@ -190,6 +207,29 @@ function placeBlock(
   while (!fits(top)) top += 1;
   for (let row = top; row < top + height; row += 1) reserve(taken, first, last, row);
   for (const [id, row] of local) rows.set(id, top + row);
+}
+
+/**
+ * Reserve the corridor of each wire whose ends both have a row. Returns the
+ * wires that still wait for a row.
+ */
+function reserveWires(
+  wires: readonly Wire[],
+  taken: Taken,
+  rows: ReadonlyMap<string, number>,
+  columnOf: ReadonlyMap<string, number>,
+): Wire[] {
+  return wires.filter(({ source, target }) => {
+    const from = rows.get(source);
+    const to = rows.get(target);
+    if (from === undefined || to === undefined) return true;
+    const first = columnOf.get(source)!;
+    const last = columnOf.get(target)! - 1;
+    for (let row = Math.min(from, to); row <= Math.max(from, to); row += 1) {
+      reserve(taken, first, last, row);
+    }
+    return false;
+  });
 }
 
 /** Take every cell from `first` to `last` on `row`. */
