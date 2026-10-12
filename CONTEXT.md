@@ -995,7 +995,7 @@ _Avoid_: Review comment, line note, inline comment, feedback (alone)
 A dev-only overlay that a Vite plugin can put on every page of a worktree's dev server: the app
 and each Ladle story. It shows only while its **Live feedback provider** says so, which is when an agent of
 the worktree asks for it. Hidden, it puts nothing on the page. It carries changes into the page
-and **Feedback** out to the agent. A **Monkeypatch** is the first thing it does.
+and **Feedback** out to the agent: a **Monkeypatch** or an **Instruction**.
 _Avoid_: Tuner, tuning jig, inspector, devtools panel
 
 **Live feedback**:
@@ -1016,8 +1016,8 @@ _Avoid_: Jig provider, jig server, jig backend
 **Feedback**:
 A typed message from a short-lived dev asset, such as a **Jig**, to the agents of a worktree. One
 send delivers it, as one message, to every top-level agent in the worktree that has not exited.
-Its `type` names what it carries: `monkeypatch` is the one type so far. When the user hides the
-jig, the agents get a hide message in the same way.
+Its `type` names what it carries: `monkeypatch` for a **Monkeypatch**, `instruction` for an
+**Instruction**. When the user hides the jig, the agents get a hide message in the same way.
 _Avoid_: Tuning, report, event
 
 **Monkeypatch**:
@@ -1025,6 +1025,17 @@ The CSS that the user writes in the **Jig**. It is kept in `.drafts/monkeypatch.
 worktree, not in the browser, so every page of the worktree applies the same text. Send delivers
 it as **Feedback**. The agent applies it in source and deletes the file.
 _Avoid_: Tuning CSS, overrides file, tweaks
+
+**Pick**:
+The element the user clicks in the **Jig**'s pick mode, and the act of clicking it. The click goes
+to the jig, not the app. The jig describes the element by a selector, its React components and
+its computed styles. The pick stays until the user clears it or picks again.
+_Avoid_: Inspect, select
+
+**Instruction**:
+Free text that the user writes to the agents in the **Jig**'s prompt box. It goes as
+**Feedback** of type `instruction`, with the **Pick**'s description when there is one.
+_Avoid_: Prompt, command, chat message
 
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised

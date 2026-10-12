@@ -79,6 +79,11 @@ The jig is an overlay on the pages of your worktree's dev servers: the app and e
 In it, the user writes CSS that applies to the page at once, and sends it to you. It is hidden
 until you show it.
 
+The user can also send you an instruction from the jig: a message that opens "From the jig for
+{branch}". It can be about an element the user picked on the page. Then the message describes the
+element first: its `selector`, its React `components`, its computed `styles` and, under Ladle, its
+`story`. Use the components and the selector to find the element in source, then act on the text.
+
 Write `<jig show>` when you start to shape a visual detail with the user on a dev-server page.
 Write `<jig hide>` when that work is done, or when the user moves on to other work.
 

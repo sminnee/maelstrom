@@ -11,6 +11,7 @@ const emit = (event: string, data: unknown) => listeners.get(event)!(data as nev
 let requests: Request[];
 let sendReply: Response;
 let hideReply: Response;
+let failPut: boolean;
 let target: HTMLElement;
 let unmount: () => void;
 
@@ -23,7 +24,10 @@ function fakeFetch(visible: boolean) {
     const method = init?.method ?? 'GET';
     const client = new Headers(init?.headers).get('x-mael-jig-client');
     requests.push({ method, url: String(input), body: String(init?.body ?? ''), client });
-    if (method === 'PUT') return new Response(null, { status: 204 });
+    if (method === 'PUT') {
+      if (failPut) throw new TypeError('Failed to fetch');
+      return new Response(null, { status: 204 });
+    }
     if (String(input) === '/__mael/hide') return hideReply;
     if (method === 'POST') return sendReply;
     return Response.json({ css: '.chip { margin: 3px; }', visible });
@@ -40,14 +44,36 @@ function jig() {
   const root = document.querySelector('#mael-jig')?.shadowRoot;
   if (!root) throw new Error('no jig');
   return {
-    textarea: root.querySelector('textarea') as HTMLTextAreaElement,
-    note: root.querySelector('input[data-note]') as HTMLInputElement,
-    send: root.querySelector('button[data-send]') as HTMLButtonElement,
-    hide: root.querySelector('button[data-hide]') as HTMLButtonElement,
+    textarea: root.querySelector('textarea[aria-label="Monkeypatch"]') as HTMLTextAreaElement,
+    message: root.querySelector(
+      'textarea[aria-label="Message to the agent"]',
+    ) as HTMLTextAreaElement,
+    sendMessage: button(root, 'Send message'),
+    sendMonkeypatch: button(root, 'Send monkeypatch'),
+    pick: button(root, 'Pick'),
+    hide: button(root, 'Hide jig'),
+    close: button(root, 'Close'),
+    picked: root.querySelector('.picked') as HTMLElement,
+    clearPick: root.querySelector('[aria-label="Clear the picked element"]') as HTMLButtonElement,
     panel: root.querySelector('.panel') as HTMLElement,
     status: root.querySelector('.status') as HTMLElement,
   };
 }
+
+function button(root: ShadowRoot, label: string) {
+  const found = [...root.querySelectorAll('button')].find((b) => b.textContent === label);
+  if (!found) throw new Error(`no ${label} button`);
+  return found;
+}
+
+function write(message: string) {
+  const box = jig().message;
+  box.value = message;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+const posts = () =>
+  requests.filter((r) => r.url === '/__mael/feedback').map((r) => JSON.parse(r.body));
 
 function type(css: string) {
   const { textarea } = jig();
@@ -68,6 +94,7 @@ const until = async (check: () => void) => {
 
 beforeEach(() => {
   requests = [];
+  failPut = false;
   target = document.createElement('div');
   target.className = 'chip';
   document.body.append(target);
@@ -169,13 +196,13 @@ describe('the jig overlay', () => {
     );
   });
 
-  describe('send', () => {
-    it('writes the file first, then posts the CSS and the note', async () => {
+  describe('send monkeypatch', () => {
+    it('writes the file first, then posts the CSS with the message as its note', async () => {
       sendReply = Response.json({ agentIds: ['ag1', 'ag2'], refused: [] });
       type('.chip { padding: 20px; }');
-      jig().note.value = 'tighter';
+      write('tighter');
 
-      jig().send.click();
+      jig().sendMonkeypatch.click();
 
       await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
       expect(requests.slice(1).map((r) => [r.method, r.url, r.body])).toEqual([
@@ -186,23 +213,326 @@ describe('the jig overlay', () => {
           JSON.stringify({ type: 'monkeypatch', css: '.chip { padding: 20px; }', note: 'tighter' }),
         ],
       ]);
-      expect(jig().note.value).toBe('');
-      expect(jig().send.disabled).toBe(false);
+      expect(jig().message.value).toBe('');
+      expect(jig().sendMonkeypatch.disabled).toBe(false);
     });
 
-    it('shows a refusal and keeps the note', async () => {
+    it('posts once when pressed twice while the file write is pending', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      type('.chip { padding: 20px; }');
+
+      jig().sendMonkeypatch.click();
+      jig().sendMonkeypatch.click();
+
+      await until(() => expect(jig().status.textContent).toBe('Sent to 1 agent'));
+      expect(posts()).toHaveLength(1);
+    });
+
+    it('shows a failed file write, and does not post', async () => {
+      failPut = true;
+      type('.chip { padding: 20px; }');
+
+      jig().sendMonkeypatch.click();
+
+      await until(() => expect(jig().status.textContent).toMatch(/^Send failed: /));
+      expect(posts()).toEqual([]);
+    });
+
+    it('shows a refusal and keeps the message', async () => {
       sendReply = Response.json(
         { error: { code: 'invalid', message: 'No agent is running in northwind-alpha' } },
         { status: 400 },
       );
-      jig().note.value = 'tighter';
+      write('tighter');
 
-      jig().send.click();
+      jig().sendMonkeypatch.click();
 
       await until(() =>
         expect(jig().status.textContent).toBe('No agent is running in northwind-alpha'),
       );
-      expect(jig().note.value).toBe('tighter');
+      expect(jig().message.value).toBe('tighter');
+    });
+  });
+
+  describe('send message', () => {
+    it('is off until there is text to send', () => {
+      expect(jig().sendMessage.disabled).toBe(true);
+      write('  ');
+      expect(jig().sendMessage.disabled).toBe(true);
+      write('Make the header sticky.');
+      expect(jig().sendMessage.disabled).toBe(false);
+    });
+
+    it('posts the text alone as an instruction, then clears the box', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      write('Make the header sticky.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(jig().status.textContent).toBe('Sent to 1 agent'));
+      expect(posts()).toEqual([{ type: 'instruction', text: 'Make the header sticky.' }]);
+      expect(jig().message.value).toBe('');
+      expect(jig().sendMessage.disabled).toBe(true);
+    });
+  });
+
+  describe('pick', () => {
+    let appClicks: number;
+    const countClick = () => appClicks++;
+
+    beforeEach(() => {
+      appClicks = 0;
+      target.addEventListener('click', countClick);
+    });
+    afterEach(() => target.removeEventListener('click', countClick));
+
+    const click = (element: Element) =>
+      element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    it('takes the click from the app, and shows the element it picked', () => {
+      target.textContent = 'Save';
+      jig().pick.click();
+
+      click(target);
+
+      expect(appClicks).toBe(0);
+      expect(jig().picked.hidden).toBe(false);
+      expect(jig().picked.textContent).toContain('div.chip');
+      expect(jig().picked.textContent).toContain('Save');
+    });
+
+    it('ends after one pick, so the next click reaches the app', () => {
+      jig().pick.click();
+      click(target);
+      click(target);
+
+      expect(appClicks).toBe(1);
+    });
+
+    it('ends on Esc, and the app does not hear that Esc', () => {
+      let appEscapes = 0;
+      const countEscape = () => appEscapes++;
+      document.addEventListener('keydown', countEscape);
+      jig().pick.click();
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      click(target);
+
+      document.removeEventListener('keydown', countEscape);
+      expect(jig().pick.getAttribute('aria-pressed')).toBe('false');
+      expect(appEscapes).toBe(0);
+      expect(appClicks).toBe(1);
+    });
+
+    it('takes the whole press, so the app hears no pointer or mouse button', () => {
+      const heard: string[] = [];
+      const presses = ['pointerdown', 'mousedown', 'pointerup', 'mouseup'];
+      for (const type of presses) target.addEventListener(type, () => heard.push(type));
+      jig().pick.click();
+
+      for (const type of presses) {
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+      }
+
+      expect(heard).toEqual([]);
+    });
+
+    it('ends when the panel closes', () => {
+      jig().pick.click();
+      jig().close.click();
+      click(target);
+
+      expect(appClicks).toBe(1);
+    });
+
+    it('ends when the provider hides the jig', () => {
+      jig().pick.click();
+      emit('mael-jig:state', { visible: false });
+      click(target);
+
+      expect(appClicks).toBe(1);
+    });
+
+    it('ends on a second press of Pick', () => {
+      jig().pick.click();
+      jig().pick.click();
+      click(target);
+
+      expect(jig().picked.hidden).toBe(true);
+    });
+
+    it('never picks the jig itself', () => {
+      jig().pick.click();
+      click(document.querySelector('#mael-jig')!);
+
+      expect(jig().picked.hidden).toBe(true);
+      click(target);
+      expect(jig().picked.hidden).toBe(false);
+    });
+
+    it('sends the message about the picked element, and keeps the pick', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      target.textContent = `  Save   the ${'chip '.repeat(30)}`;
+      Object.assign(target, {
+        __reactFiber$x1: {
+          type: 'div',
+          return: {
+            type: function Chip() {},
+            return: {
+              type: { displayName: 'Toolbar' },
+              return: { type: function App() {}, return: { type: function Root() {} } },
+            },
+          },
+        },
+      });
+      jig().pick.click();
+      click(target);
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(posts()).toHaveLength(1));
+      const sent = posts()[0];
+      // jsdom fills in defaults for the other styles; the margin is the one the page set.
+      expect(sent).toEqual({
+        type: 'instruction',
+        text: 'Bigger.',
+        element: {
+          selector: 'div.chip',
+          tag: 'div',
+          classes: ['chip'],
+          text: 'Save the chip chip chip chip chip chip chip chip chip chip chip chip chip chip c',
+          components: ['Chip', 'Toolbar', 'App'],
+          styles: expect.objectContaining({ margin: '3px' }),
+          ancestors: ['body'],
+          url: 'http://localhost:3000/',
+        },
+      });
+      await until(() => expect(jig().message.value).toBe(''));
+      expect(jig().picked.hidden).toBe(false);
+    });
+
+    it('names a component through forwardRef and memo', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      Object.assign(target, {
+        __reactFiber$x1: {
+          type: { render: function Field() {} },
+          return: { type: { type: function Form() {} } },
+        },
+      });
+      jig().pick.click();
+      click(target);
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(posts()).toHaveLength(1));
+      expect(posts()[0].element.components).toEqual(['Field', 'Form']);
+    });
+
+    it('leaves out components on a page that is not React, and names a Ladle story', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      history.replaceState(null, '', '/?story=chip--default');
+      jig().pick.click();
+      click(target);
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(posts()).toHaveLength(1));
+      history.replaceState(null, '', '/');
+      expect(posts()[0].element).not.toHaveProperty('components');
+      expect(posts()[0].element.story).toBe('chip--default');
+    });
+
+    it('picks the element an icon sits in, not the icon', () => {
+      target.innerHTML = '<button><svg><path d="M0 0"></path></svg>Sync</button>';
+      jig().pick.click();
+
+      click(target.querySelector('path')!);
+
+      const code = jig().picked.querySelector('code')!;
+      expect(code.textContent).toBe('button "Sync"');
+      expect(code.title).toBe('div.chip > button');
+    });
+
+    it('sends a plain instruction once the pick is cleared', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      jig().pick.click();
+      click(target);
+      jig().clearPick.click();
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(posts()).toEqual([{ type: 'instruction', text: 'Bigger.' }]));
+      expect(jig().picked.hidden).toBe(true);
+    });
+
+    describe('the selector', () => {
+      let fixture: HTMLElement;
+      beforeEach(() => {
+        fixture = document.createElement('div');
+        document.body.append(fixture);
+      });
+      afterEach(() => fixture.remove());
+
+      const selectorOf = async (html: string, pick: string) => {
+        sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+        fixture.innerHTML = html;
+        jig().pick.click();
+        click(fixture.querySelector(pick)!);
+        write('x');
+        jig().sendMessage.click();
+        await until(() => expect(posts()).toHaveLength(1));
+        return posts()[0].element.selector;
+      };
+
+      it('stops at an id', async () => {
+        expect(
+          await selectorOf('<nav id="toolbar"><button class="save">S</button></nav>', 'button'),
+        ).toBe('#toolbar > button.save');
+      });
+
+      it('uses the stem of a CSS-module class, not its hash', async () => {
+        const html =
+          '<section id="s"><div class="_card_a1b2c_3"><span class="_chip_x9Y8z_12 on">c</span></div></section>';
+        expect(await selectorOf(html, 'span')).toBe(
+          '#s > div[class*="_card_"] > span[class*="_chip_"].on',
+        );
+      });
+
+      it('counts among siblings of one shape with :nth-of-type', async () => {
+        const html = '<ul id="list"><li>a</li><li>b</li><li>c</li></ul>';
+        expect(await selectorOf(html, 'li:nth-child(2)')).toBe('#list > li:nth-of-type(2)');
+      });
+
+      it.each(['_r_2_', ':r2:', '«r2»'])(
+        'passes over the id %s that React generated',
+        async (id) => {
+          const html = `<nav id="bar"><div id="${id}"><button>S</button></div></nav>`;
+          expect(await selectorOf(html, 'button')).toBe('#bar > div > button');
+        },
+      );
+
+      it('leaves :nth-of-type off when the siblings differ in class', async () => {
+        const html = '<ul id="list"><li class="a">a</li><li class="b">b</li></ul>';
+        expect(await selectorOf(html, 'li.b')).toBe('#list > li.b');
+      });
+
+      it('counts a sibling whose longer class holds the same stem', async () => {
+        const html =
+          '<ul id="list"><li class="_chip_label_abcde">a</li><li class="_chip_x9y8z">b</li></ul>';
+        expect(await selectorOf(html, 'li:nth-child(2)')).toBe(
+          '#list > li[class*="_chip_"]:nth-of-type(2)',
+        );
+      });
+
+      it('climbs at most 4 levels', async () => {
+        const html =
+          '<div class="a"><div class="b"><div class="c"><div class="d"><i class="e">x</i></div></div></div></div>';
+        expect(await selectorOf(html, 'i')).toBe('div.b > div.c > div.d > i.e');
+      });
     });
   });
 });
