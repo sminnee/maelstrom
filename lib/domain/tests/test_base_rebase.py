@@ -13,6 +13,7 @@ in this repo (every ``--fixup`` + ``mael gh create-pr --squash`` cycle rewrites 
 parent), which is what ``base_tip`` and the ``--onto`` form exist for.
 """
 
+import math
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -189,7 +190,7 @@ class TestDefaultBaseIsUnchanged:
             return real(cmd, *args, **kwargs)
 
         with patch("mael_common.shell.subprocess.run", side_effect=spy):
-            result = rebase_worktree(parent, skip_fetch=True, squash=False)
+            result = rebase_worktree(parent, max_age=math.inf, squash=False)
 
         assert result.success is True
         assert seen == [["git", "rebase", "--autostash", "origin/main"]]
@@ -202,7 +203,7 @@ class TestDefaultBaseIsUnchanged:
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "feature.txt", "feature\n", "Feature commit")
 
-        rebase_worktree(parent, skip_fetch=True, squash=False)
+        rebase_worktree(parent, max_age=math.inf, squash=False)
 
         assert GitConfigBaseStore(project_path).all() == {}
 
@@ -247,7 +248,7 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.success is True
         assert result.base == "feat/parent"
@@ -262,7 +263,7 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = self._stack(project_path, child)
 
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         parent_tip = run_git(
             project_path, "rev-parse", "origin/feat/parent"
@@ -276,12 +277,12 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         create_commit(parent, "parent2.txt", "more\n", "Parent second commit")
         _push(parent, "feat/parent")
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.success is True
         assert "Parent second commit" in _log(child)
@@ -296,11 +297,11 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         _advance_origin_main(project_path, remote_path)
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.success is True
         assert _log(child)[0] == "Child commit"
@@ -319,7 +320,7 @@ class TestStackedRebase:
         _push(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         # Review churn: the parent's commit is rewritten in place.
         (parent / "shared.txt").write_text("v2\n")
@@ -327,7 +328,7 @@ class TestStackedRebase:
         run_git(parent, "commit", "--amend", "-m", "Parent commit (reviewed)")
         _push(parent, "feat/parent", force=True)
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.success is True, result.message
         assert result.had_conflicts is False
@@ -352,12 +353,12 @@ class TestStackedRebase:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         # An extra parent commit the child picks up, so the recorded tip moves on.
         create_commit(parent, "shared.txt", "v1\nextra\n", "Parent second commit")
         _push(parent, "feat/parent")
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         # Simulate a store that stopped re-recording: pin the tip to the first value.
         store.write("feat/child", BaseRef(branch="feat/parent", tip=first_tip))
@@ -367,7 +368,7 @@ class TestStackedRebase:
         _push(parent, "feat/parent", force=True)
 
         result = rebase_worktree(
-            child, skip_fetch=True, squash=False, abort_on_conflict=True
+            child, max_age=math.inf, squash=False, abort_on_conflict=True
         )
 
         assert result.success is False
@@ -397,7 +398,7 @@ class TestBaseTipSafetyGuard:
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent", tip=orphan))
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.success is True, result.message
         assert "Child commit" in _log(child)
@@ -419,7 +420,7 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         _squash_merge_to_main(project_path, remote_path, "feat/parent")
 
@@ -439,7 +440,7 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         run_git(parent, "push", "origin", "--delete", "feat/parent")
 
@@ -449,6 +450,7 @@ class TestCollapse:
         assert result.base_collapsed is True
         assert store.read("feat/child") == BaseRef()
 
+    @pytest.mark.usefixtures("stamp_honoured")
     def test_a_stacked_sync_prunes_so_a_deleted_base_is_seen(self, project_with_stack):
         """Collapse needs pruned refs, so a stacked sync fetches with ``--prune``.
 
@@ -462,7 +464,9 @@ class TestCollapse:
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
         )
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
+        # A fresh fetch without prune must not satisfy a stacked sync.
+        run_git(project_path, "fetch", "origin")
 
         seen: list[list[str]] = []
         real = subprocess.run
@@ -477,7 +481,7 @@ class TestCollapse:
 
         assert any("--prune" in cmd for cmd in seen)
 
-    def test_skip_fetch_defers_rather_than_collapsing_on_a_missing_ref(
+    def test_a_skipped_fetch_defers_rather_than_collapsing_on_a_missing_ref(
         self, project_with_stack
     ):
         """``sync-all`` and the autorepair second pass skip the fetch.
@@ -491,12 +495,12 @@ class TestCollapse:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         # Drop the local remote-tracking ref without touching the remote.
         run_git(project_path, "update-ref", "-d", "refs/remotes/origin/feat/parent")
 
-        result = rebase_worktree(child, skip_fetch=True, squash=False)
+        result = rebase_worktree(child, max_age=math.inf, squash=False)
 
         assert result.base_collapsed is False
         assert store.read("feat/child").branch == "feat/parent"
@@ -524,7 +528,7 @@ class TestSyncWithBase:
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
 
-        result = sync_worktree(child, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(child, max_age=math.inf, close_if_empty=True)
 
         assert result.success is True, result.message
         assert result.closed is True
@@ -539,7 +543,7 @@ class TestSyncWithBase:
             "feat/child", BaseRef(branch="feat/parent")
         )
 
-        result = sync_worktree(child, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(child, max_age=math.inf, close_if_empty=True)
 
         assert result.closed is False
         assert get_current_branch(child) == "feat/child"
@@ -565,7 +569,7 @@ class TestTidyBranchesRespectsStacks:
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
         )
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
 
         results = tidy_branches(project_path)
 
@@ -617,7 +621,7 @@ class TestTidyBranchesRespectsStacks:
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
-        rebase_worktree(child, skip_fetch=True, squash=False)
+        rebase_worktree(child, max_age=math.inf, squash=False)
         recorded = store.read("feat/child")
 
         # Free both worktrees so tidy would otherwise process the branches.
@@ -640,7 +644,7 @@ class TestCloseIfEmptyProtectsABase:
             "feat/child", BaseRef(branch="feat/parent")
         )
 
-        result = sync_worktree(parent, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(parent, max_age=math.inf, close_if_empty=True)
 
         assert result.success is True, result.message
         assert result.closed is True
@@ -651,7 +655,7 @@ class TestCloseIfEmptyProtectsABase:
         """The guard is narrow: nothing stacked on it means the old behaviour holds."""
         project_path, parent, _, _ = project_with_stack
 
-        result = sync_worktree(parent, skip_fetch=True, close_if_empty=True)
+        result = sync_worktree(parent, max_age=math.inf, close_if_empty=True)
 
         assert result.closed is True
         assert "feat/parent" not in list_local_branches(project_path)

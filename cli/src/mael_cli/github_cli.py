@@ -161,9 +161,8 @@ async def gh_create_pr(
         subprocess.CalledProcessError,
     ) as e:
         # CalledProcessError is the belt to `create_pr`'s braces: it converts the
-        # git calls it makes directly, but `sync_worktree` and `update_local_main`
-        # are not bounded to GitHubError yet. A git failure must read as a
-        # message, not a traceback.
+        # git calls it makes directly, but `rebase_worktree` is not bounded to
+        # GitHubError yet. A git failure must read as a message, not a traceback.
         raise click.ClickException(str(e))
 
     # Wait for CI checks if requested

@@ -1,6 +1,7 @@
 """Command-line interface for maelstrom."""
 
 import json
+import math
 import os
 import sqlite3
 import subprocess
@@ -39,12 +40,14 @@ from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV, NotebookRootUnset
 from mael_domain.ports import get_app_url
 from mael_domain.state_db.types import StateDbError
 from mael_domain.worktree import (
+    FETCH_ERRORS,
     SyncResult,
     add_project,
     check_base_exists,
     closed_worktrees,
     create_worktree,
     current_stack_tip,
+    ensure_fetched,
     get_current_branch,
     get_local_only_commits,
     get_pushed_commit_count,
@@ -52,7 +55,6 @@ from mael_domain.worktree import (
     list_worktrees,
     rebase_worktree,
     rebase_worktree_with_autorepair,
-    run_git,
     setup_worktree_for_branch,
     sync_worktree,
     sync_worktree_with_autorepair,
@@ -1539,17 +1541,13 @@ def cmd_sync_all(project, autorepair):
     # Fetch once for all worktrees (they share the same repo)
     click.echo("Fetching from origin...")
     try:
-        run_git(["fetch", "origin"], cwd=project_path)
-    except Exception as e:
+        main_result = ensure_fetched(project_path)
+    except FETCH_ERRORS as e:
         raise click.ClickException(f"Failed to fetch from origin: {e}")
 
-    # Fast-forward local main to match origin/main
-    from mael_domain.worktree import update_local_main
-
-    main_result = update_local_main(project_path)
-    if main_result.status == "updated":
+    if main_result is not None and main_result.status == "updated":
         click.echo(f"  {main_result.message}")
-    elif main_result.status == "warning":
+    elif main_result is not None and main_result.status == "warning":
         click.echo(f"  Warning: {main_result.message}", err=True)
 
     click.echo(f"Syncing {len(worktrees)} worktree(s) with their bases...")
@@ -1569,12 +1567,12 @@ def cmd_sync_all(project, autorepair):
         if autorepair:
             result = sync_worktree_with_autorepair(
                 wt.path,
-                skip_fetch=True,
+                max_age=math.inf,
                 pre_push=False,
                 announce=click.echo,
             )
         else:
-            result = sync_worktree(wt.path, skip_fetch=True, pre_push=False)
+            result = sync_worktree(wt.path, max_age=math.inf, pre_push=False)
 
         if result.success:
             click.echo(f"  {result.message}")

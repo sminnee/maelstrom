@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import json
+import math
 import os
 import subprocess
 from functools import partial
@@ -2087,7 +2088,7 @@ class TestSyncWorktreeSquash:
         assert "fixup!" in log_before
         assert len(log_before.strip().splitlines()) == 3
 
-        result = sync_worktree(repo, skip_fetch=True, squash=True)
+        result = sync_worktree(repo, max_age=math.inf, squash=True)
         assert result.success, result.message
 
         log_after = run_git(repo, "log", "--oneline").stdout
@@ -2104,7 +2105,7 @@ class TestSyncWorktreeSquash:
         repo.mkdir()
         self._make_repo_with_fixup(repo)
 
-        result = sync_worktree(repo, skip_fetch=True, squash=False)
+        result = sync_worktree(repo, max_age=math.inf, squash=False)
         assert result.success, result.message
 
         # Plain rebase leaves the fixup! commit untouched.
@@ -2317,7 +2318,7 @@ class TestSquashWorktree:
         repo.mkdir()
         self._make_repo_with_fixup(repo)
 
-        result = rebase_worktree(repo, skip_fetch=True, squash=True)
+        result = rebase_worktree(repo, max_age=math.inf, squash=True)
         assert result.success, result.message
 
         log_after = run_git(repo, "log", "--oneline").stdout
@@ -2337,7 +2338,7 @@ class TestSquashWorktree:
         repo.mkdir()
         self._make_repo_with_fixup(repo)
 
-        result = rebase_worktree(repo, skip_fetch=True, squash=False)
+        result = rebase_worktree(repo, max_age=math.inf, squash=False)
         assert result.success, result.message
 
         # Plain rebase leaves the fixup! commit untouched.
