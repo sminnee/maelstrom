@@ -1267,19 +1267,34 @@ def test_a_wait_answered_outside_the_server_clears_in_the_world(harness):
     assert agent["waitingOn"] == ""
 
 
-def test_stop_reaches_the_host_and_marks_the_agent_exited_cleanly(harness):
+def test_terminate_is_an_operation_that_marks_the_agent_exited_cleanly(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
         async with harness.client() as api:
-            reply = await api.post("/api/agents/ag1/stop")
-            return reply, await api.get_json("/api/agents/ag1")
+            op = await operated(api, "/api/agents/ag1/stop")
+            return op, await api.get_json("/api/agents/ag1")
 
-    reply, agent = run(scenario())
-    assert reply.status == 200
+    op, agent = run(scenario())
+    assert (op["kind"], op["state"], op["agentId"]) == ("terminate", "done", "ag1")
+    assert [s["name"] for s in op["steps"]] == ["stop_agent"]
     assert {"cmd": "stop", "id": "ag1"} in harness.daemon.calls
     assert agent["state"] == "exited"
     assert agent["exitCode"] == 0
+
+
+def test_a_terminate_the_host_refuses_ends_refused_and_leaves_the_agent(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["stop"] = [{"error": "no such agent: ag1"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            op = await operated(api, "/api/agents/ag1/stop")
+            return op, await api.get_json("/api/agents/ag1")
+
+    op, agent = run(scenario())
+    assert (op["state"], op["words"]) == ("refused", "no such agent: ag1")
+    assert agent["state"] != "exited"
 
 
 def test_interrupt_reaches_the_host_and_leaves_the_agent_alive(harness):
@@ -2260,19 +2275,20 @@ def test_a_project_the_scan_misses_keeps_its_desk_entries(store):
 
 
 def test_resume_reaches_the_host_and_brings_the_agent_back_at_once(harness_factory):
-    """The card goes live on the reply, not at the next poll."""
+    """The card goes live as the operation ends, not at the next poll."""
     harness = harness_factory(agent_poll=30.0)
     harness.daemon.rows["ag1"] = agent_row(state="exited(1)")
 
     async def scenario():
         async with harness.client() as api:
             before = await api.get_json("/api/agents/ag1")
-            reply = await api.post("/api/agents/ag1/resume")
-            return before, reply, await api.get_json("/api/agents/ag1")
+            op = await operated(api, "/api/agents/ag1/resume")
+            return before, op, await api.get_json("/api/agents/ag1")
 
-    before, reply, agent = run(scenario())
+    before, op, agent = run(scenario())
     assert before["state"] == "exited"
-    assert reply.status == 200
+    assert (op["kind"], op["state"], op["agentId"]) == ("resume", "done", "ag1")
+    assert [s["name"] for s in op["steps"]] == ["resume_agent"]
     (sent,) = [call for call in harness.daemon.calls if call.get("cmd") == "resume"]
     # The daemon knows no shared dir, so the client names the prompt file.
     assert sent == {
@@ -2303,11 +2319,10 @@ def test_a_host_that_says_the_agent_is_running_refuses_the_resume(harness):
 
     async def scenario():
         async with harness.client() as api:
-            return await api.post("/api/agents/ag1/resume")
+            return await operated(api, "/api/agents/ag1/resume")
 
-    reply = run(scenario())
-    assert reply.status == 400
-    assert reply.body["error"]["code"] == "invalid"
+    op = run(scenario())
+    assert (op["state"], op["words"]) == ("refused", "agent ag1 is running")
 
 
 def test_resume_of_an_agent_the_world_does_not_know_is_refused(harness):

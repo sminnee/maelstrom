@@ -1830,10 +1830,10 @@ class Orchestrator:
             "agent.answer": self._answer,
             "agent.say": self._say,
             "agent.run": self._run_shell,
-            "agent.stop": self._stop,
+            "agent.stop": self._operate,
             "agent.interrupt": self._interrupt,
             "agent.setMode": self._set_mode,
-            "agent.resume": self._resume_agent,
+            "agent.resume": self._operate,
             "agent.launch": self._launch,
             "desk.add": self._desk_add,
             "desk.remove": self._desk_remove,
@@ -1990,16 +1990,6 @@ class Orchestrator:
             return refused
         return {"ok": True, "result": {}}
 
-    async def _stop(self, command: dict[str, Any]) -> dict[str, Any]:
-        agent_id = command["agentId"]
-        refused = await self._ask_host({"cmd": "stop", "id": agent_id})
-        if refused:
-            return refused
-        # The host drops a stopped agent, so its stream ends without a marker
-        # and the next list no longer names it: this is its clean exit.
-        await self._exit(agent_id, 0)
-        return {"ok": True, "result": {}}
-
     async def _interrupt(self, command: dict[str, Any]) -> dict[str, Any]:
         """Abandon the turn the agent is running, and leave the agent alive.
 
@@ -2008,24 +1998,6 @@ class Orchestrator:
         the turn ending.
         """
         return await self._relay({"cmd": "interrupt", "id": command["agentId"]})
-
-    async def _resume_agent(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Ask the host to start an exited agent again, under its own id.
-
-        Nothing is synthesised, unlike the reply commands: the host's own
-        ``list`` is the evidence the agent is back. The world reconciles against
-        it at once, as a launch does.
-        """
-        payload = build_resume_payload(
-            command["agentId"],
-            text=str(command.get("text", "")).strip(),
-            system_prompt_file=agent_prompt_file(),
-        )
-        refused = await self._ask_host(payload)
-        if refused:
-            return refused
-        await self.refresh_agents()
-        return {"ok": True, "result": {}}
 
     async def _launch(self, command: dict[str, Any]) -> dict[str, Any]:
         task_id = command["taskId"]
@@ -2473,9 +2445,72 @@ class Orchestrator:
 
     def _plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
         """What ``command`` runs as an operation, or the refusal when it cannot."""
-        if command["type"] == "desk.dismiss":
+        kind = command["type"]
+        if kind == "desk.dismiss":
             return self._dismiss_plan(command)
+        if kind in ("agent.stop", "agent.resume"):
+            return self._agent_plan(command)
         return self._worktree_plan(command)
+
+    def _agent_plan(self, command: dict[str, Any]) -> OperationPlan:
+        """Terminate or resume one agent, as an operation of one step."""
+        agent_id = command["agentId"]
+        agent = self.world["agents"][agent_id]
+        if command["type"] == "agent.stop":
+            kind, doing, done, failing = (
+                "terminate",
+                "Terminating",
+                "Terminated",
+                "Could not terminate",
+            )
+            step = Step(
+                name="stop_agent", run=functools.partial(self._stop_agent, agent_id)
+            )
+        else:
+            kind, doing, done, failing = (
+                "resume",
+                "Resuming",
+                "Resumed",
+                "Could not resume",
+            )
+            text = str(command.get("text", "")).strip()
+            step = Step(
+                name="resume_agent",
+                run=functools.partial(self._resume, agent_id, text),
+            )
+
+        async def work(hook: OperationHook) -> None:
+            await _run_own_steps([step], hook)
+
+        return OperationPlan(
+            kind,
+            frozenset({desk_id_for_agent(agent_id)}),
+            f"{doing} {agent_id}",
+            f"{done} {agent_id}",
+            failing,
+            work,
+            self.refresh_agents,
+            project=agent["project"],
+            steps=(step.name,),
+            # The agent's wire fields are "" when absent; the operation's are None.
+            worktree_id=agent["worktreeId"] or None,
+            task_id=agent["taskId"] or None,
+            agent_id=agent_id,
+        )
+
+    async def _resume(self, agent_id: str, text: str) -> StepOutcome:
+        """Ask the host to start an exited agent again, under its own id.
+
+        Nothing is synthesised, unlike a stop: the host's own ``list`` is the
+        evidence the agent is back, and the operation's refresh reads it.
+        """
+        payload = build_resume_payload(
+            agent_id, text=text, system_prompt_file=agent_prompt_file()
+        )
+        refused = await self._ask_host(payload)
+        if refused:
+            return StepOutcome(blocked=refused["error"]["message"])
+        return StepOutcome(messages=[f"Resumed {agent_id}."])
 
     def _unit_name(self, desk_id: str) -> str:
         """What a person calls a desk unit: its task's title, or its agent's id."""

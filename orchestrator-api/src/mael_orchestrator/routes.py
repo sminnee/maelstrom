@@ -539,7 +539,9 @@ async def _agent_command(request: web.Request) -> web.StreamResponse:
     if action is None:
         raise web.HTTPNotFound(reason=f"No agent action {request.match_info['action']}")
     agent_id = request.match_info["id"]
-    return await _command(request, lambda body: action(agent_id, body))
+    # Terminate and resume run as operations, and answer before they end.
+    status = 202 if request.match_info["action"] in ("stop", "resume") else 200
+    return await _command(request, lambda body: action(agent_id, body), status=status)
 
 
 # -- attachments --
