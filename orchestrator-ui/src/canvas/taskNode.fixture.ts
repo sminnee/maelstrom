@@ -36,6 +36,7 @@ function task(over: Partial<Task> = {}): Task {
     executeModel: '',
     prNumber: 0,
     prUrl: '',
+    prWithdrawn: false,
     content: '',
     log: [],
     created: '2026-09-07T09:00:00Z',

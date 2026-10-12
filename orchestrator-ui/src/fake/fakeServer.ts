@@ -1960,6 +1960,7 @@ function makeNewTask(
     executeModel: str('executeModel'),
     prNumber: 0,
     prUrl: '',
+    prWithdrawn: false,
     parent: '',
     follows: [],
     base: '',

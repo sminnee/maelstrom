@@ -5,12 +5,15 @@ import type { GraphNode } from './graph';
 /**
  * The PR a chip draws. `state` is `''` when the PR is not the one the
  * worktree reads, so the chip draws the number and link with no state.
+ * `withdrawn` is the task's **Withdrawn PR**: the agent is working again. A
+ * merged PR is never withdrawn.
  */
 export interface PrReading {
   number: number;
   url: string;
   state: PrState | '';
   draft: boolean;
+  withdrawn: boolean;
 }
 
 /** The node fields the choice reads. */
@@ -32,12 +35,15 @@ export function cardPr(node: CardPrFacts, worktree = node.worktree): PrReading |
   const task = node.task;
   if (!hasRegisteredPr(task)) return undefined;
   const pr = { number: task.prNumber, url: task.prUrl };
-  if (!worktree || !samePr(pr, worktree)) return { ...pr, state: '', draft: false };
+  const withdrawn = task.prWithdrawn;
+  if (!worktree || !samePr(pr, worktree)) return { ...pr, state: '', draft: false, withdrawn };
   return {
     number: pr.number,
     url: pr.url || worktree.prUrl,
     state: worktree.prState,
     draft: worktree.prDraft,
+    // A merge lands the work, and no registration follows one to clear the flag.
+    withdrawn: withdrawn && worktree.prState !== 'merged',
   };
 }
 
@@ -47,7 +53,10 @@ function samePr(pr: { number: number; url: string }, worktree: Worktree): boolea
   return !pr.url || !worktree.prUrl || pr.url === worktree.prUrl;
 }
 
-/** A worktree's own PR, read the way a chip draws it. The branch view's PR. */
+/**
+ * A worktree's own PR, read the way a chip draws it. The branch view's PR.
+ * Never withdrawn: a withdrawal is the task's, not the branch's.
+ */
 export function worktreePr(worktree: Worktree | undefined): PrReading | undefined {
   if (!worktree?.prNumber) return undefined;
   return {
@@ -55,5 +64,6 @@ export function worktreePr(worktree: Worktree | undefined): PrReading | undefine
     url: worktree.prUrl,
     state: worktree.prState,
     draft: worktree.prDraft,
+    withdrawn: false,
   };
 }

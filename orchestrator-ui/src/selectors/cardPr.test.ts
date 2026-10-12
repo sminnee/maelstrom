@@ -15,7 +15,13 @@ function node(over: Partial<CardPrFacts> = {}): CardPrFacts {
 
 describe('cardPr', () => {
   it('reads the worktree’s state when it holds the registered PR', () => {
-    expect(cardPr(node())).toEqual({ number: 42, url: URL_42, state: 'ready', draft: false });
+    expect(cardPr(node())).toEqual({
+      number: 42,
+      url: URL_42,
+      state: 'ready',
+      draft: false,
+      withdrawn: false,
+    });
   });
 
   it('shows no PR on a free agent, which has no task', () => {
@@ -33,6 +39,7 @@ describe('cardPr', () => {
       url: URL_42,
       state: '',
       draft: false,
+      withdrawn: false,
     });
   });
 
@@ -48,6 +55,19 @@ describe('cardPr', () => {
   it('takes the worktree’s URL when the registration has none', () => {
     // A bare number registered with no repo URL to build one from.
     expect(cardPr(node({ task: makeTask({ prNumber: 42, prUrl: '' }) }))?.url).toBe(URL_42);
+  });
+
+  it('reads a withdrawn PR as withdrawn, whatever the worktree reads', () => {
+    const task = makeTask({ prNumber: 42, prUrl: URL_42, prWithdrawn: true });
+    const reading = { number: 42, url: URL_42, draft: false, withdrawn: true };
+    expect(cardPr(node({ task }))).toEqual({ ...reading, state: 'ready' });
+    expect(cardPr(node({ task, worktree: undefined }))).toEqual({ ...reading, state: '' });
+  });
+
+  it('draws a merged PR as merged, though the task withdrew it', () => {
+    const task = makeTask({ prNumber: 42, prUrl: URL_42, prWithdrawn: true });
+    const worktree = makeWorktree({ prNumber: 42, prState: 'merged', prUrl: URL_42 });
+    expect(cardPr(node({ task, worktree }))?.withdrawn).toBe(false);
   });
 
   it('draws a same-numbered PR of another repo with no state', () => {

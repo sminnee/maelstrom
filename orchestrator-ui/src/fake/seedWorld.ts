@@ -105,6 +105,7 @@ export function task(spec: TaskSpec): Task {
     executeModel: '',
     prNumber: spec.prNumber ?? 0,
     prUrl: spec.prNumber ? `https://github.com/acme/${spec.project}/pull/${spec.prNumber}` : '',
+    prWithdrawn: false,
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
     log: [],
     created,

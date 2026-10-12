@@ -196,6 +196,8 @@ export interface Task {
   /** The Registered PR: its number, 0 for none, and its URL. */
   prNumber: number;
   prUrl: string;
+  /** The Registered PR is withdrawn while the agent works. See CONTEXT.md, "Withdrawn PR". */
+  prWithdrawn: boolean;
   content: string;
   log: TaskLogEntry[];
   created: string;
