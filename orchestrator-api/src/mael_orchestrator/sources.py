@@ -40,6 +40,7 @@ from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_launch import (
     LaunchBlocked,
+    LaunchPlan,
     check_not_live,
     check_synced,
     plan_launch,
@@ -65,6 +66,10 @@ log = logging.getLogger(__name__)
 #: it to the launcher. Named without a task, so work that has none — a free
 #: agent — opens a worktree through the same injected collaborator.
 OpenWorktree = Callable[[str, str, str], WorktreeSetup]
+
+#: Rebuilds an opened worktree's ``.env``, and says what it did:
+#: ``(project, setup) -> lines``. Blocking: it reads and writes files.
+RefreshEnv = Callable[[str, WorktreeSetup], list[str]]
 
 
 class CloseWorktree(Protocol):
@@ -171,19 +176,21 @@ def _rename_wire_fields(
 
 
 @dataclass(frozen=True)
-class LaunchRequest:
-    """A task moved to in-progress, and the ``start`` the agent host needs.
+class PreparedLaunch:
+    """A task moved to in-progress in its open worktree, before its agent starts.
 
-    Returned by :meth:`TaskSource.launch` once the worktree is open and the
-    task is in-progress; :meth:`TaskSource.rollback` undoes the move when the
-    host refuses the start.
+    Returned by :meth:`TaskSource.prepare_launch`. :meth:`TaskSource.finish_launch`
+    turns it into the ``start`` the agent host needs, and
+    :meth:`TaskSource.rollback` undoes the move.
     """
 
     project: str
     task_id: str
     #: The status the task had before the launch moved it, for the rollback.
     previous_status: str
-    payload: dict[str, Any]
+    setup: WorktreeSetup
+    plan: LaunchPlan
+    model_name: str | None
 
 
 @dataclass(frozen=True)
@@ -253,8 +260,10 @@ class TaskSource(Protocol):
     #: reads the whole notebook rather than a cursor the source cannot honour.
     version_is_revision: bool
 
-    async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
-        """Open the task's worktree, move it in-progress, and say what to start.
+    async def prepare_launch(
+        self, task_id: str, model_name: str | None
+    ) -> PreparedLaunch:
+        """Open the task's worktree and move the task in-progress.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -262,8 +271,16 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def rollback(self, request: LaunchRequest) -> None:
-        """Move a task the host refused to start back to where it was."""
+    async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
+        """Rebuild an opened worktree's ``.env`` when it needs it, and say what it did."""
+        ...
+
+    def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
+        """The ``start`` payload the agent host needs for a prepared launch."""
+        ...
+
+    async def rollback(self, prepared: PreparedLaunch) -> None:
+        """Move a task whose agent did not start back to where it was."""
         ...
 
     async def set_status(self, task_id: str, status: str) -> StatusMoved:
@@ -307,12 +324,18 @@ class TaskSource(Protocol):
         ...
 
     async def create(
-        self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
+        self,
+        project: str,
+        fields: dict[str, Any],
+        extra: dict[str, Any] | None = None,
+        *,
+        generate_branch: bool = True,
     ) -> str:
         """Write a new ``todo`` task and return its wire id.
 
         ``fields`` is filtered to what a client may edit; ``extra`` is the
-        server's own and is written as given.
+        server's own and is written as given. ``generate_branch=False`` writes
+        an empty branch as ``task/<id>``, for a caller that names it later.
 
         Raises:
             ValueError: If a field holds a value the notebook refuses.
@@ -416,6 +439,7 @@ class NotebookTaskSource:
         *,
         version: Callable[[], str | None] | None = None,
         open_worktree: OpenWorktree | None = None,
+        refresh_env: RefreshEnv | None = None,
         worktree_executor: Executor | None = None,
         live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
@@ -433,6 +457,7 @@ class NotebookTaskSource:
         self.projects = projects
         self._version = version
         self.open_worktree = open_worktree
+        self.refresh_env = refresh_env
         #: Where a worktree opens. ``None`` is the loop's default pool, which
         #: is still off the loop.
         self.worktree_executor = worktree_executor
@@ -550,7 +575,9 @@ class NotebookTaskSource:
         removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 
-    async def launch(self, task_id: str, model_name: str | None) -> LaunchRequest:
+    async def prepare_launch(
+        self, task_id: str, model_name: str | None
+    ) -> PreparedLaunch:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
         if self.open_worktree is None:
             raise LaunchBlocked("This server cannot open worktrees")
@@ -570,11 +597,28 @@ class NotebookTaskSource:
         setup = await self._open(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        payload = build_start_payload(
+        return PreparedLaunch(
+            task.project, task.id, task.status, setup, plan, model_name
+        )
+
+    async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
+        """Rebuild the ``.env`` of a worktree that was reused or recycled.
+
+        A created worktree's ``.env`` is fresh, and ``_main``'s is the user's own.
+        """
+        if self.refresh_env is None or not setup.rebuilds_env:
+            return [".env unchanged."]
+        return await asyncio.get_running_loop().run_in_executor(
+            self.worktree_executor, self.refresh_env, project, setup
+        )
+
+    def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
+        plan, setup = prepared.plan, prepared.setup
+        return build_start_payload(
             setup.path,
             prompt=plan.prompt,
             permission_mode=plan.permission_mode,
-            model=model_name or plan.model,
+            model=prepared.model_name or plan.model,
             execute_model=plan.execute_model,
             session_id=plan.session_id,
             env=plan.env,
@@ -582,10 +626,9 @@ class NotebookTaskSource:
             resume=self.has_transcript(setup.path, plan.session_id),
             system_prompt_file=agent_prompt_file(),
         )
-        return LaunchRequest(task.project, task.id, task.status, payload)
 
-    async def rollback(self, request: LaunchRequest) -> None:
-        await self._move(request.project, request.task_id, request.previous_status)
+    async def rollback(self, prepared: PreparedLaunch) -> None:
+        await self._move(prepared.project, prepared.task_id, prepared.previous_status)
 
     async def set_status(self, task_id: str, status: str) -> StatusMoved:
         project, notebook_id = split_task_key(task_id)
@@ -668,7 +711,12 @@ class NotebookTaskSource:
             )
 
     async def create(
-        self, project: str, fields: dict[str, Any], extra: dict[str, Any] | None = None
+        self,
+        project: str,
+        fields: dict[str, Any],
+        extra: dict[str, Any] | None = None,
+        *,
+        generate_branch: bool = True,
     ) -> str:
         """Write a new task and return its wire id.
 
@@ -685,7 +733,9 @@ class NotebookTaskSource:
         """
         wanted = _rename_wire_fields(fields, CREATABLE)
         wanted.update(extra or {})
-        task = await model.create(self.table, project=project, **wanted)
+        task = await model.create(
+            self.table, project=project, generate_branch=generate_branch, **wanted
+        )
         return task_key(project, task.id)
 
     async def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:

@@ -457,7 +457,7 @@ async def _command(
     request: web.Request,
     build: Callable[[dict[str, Any]], dict],
     *,
-    status: int = 200,
+    status: int | Callable[[dict[str, Any]], int] = 200,
 ):
     """Run the command ``build`` makes of the body, and answer its reply.
 
@@ -465,7 +465,8 @@ async def _command(
     and the host-refusal mapping apply unchanged. A refusal answers the code's
     status; a field the validator did not check being missing is the client's
     bug, answered as ``invalid``. ``status`` is the success status: ``202``
-    for a command that starts an operation and answers before it ends.
+    for a command that starts an operation and answers before it ends. It may
+    be read off the result, for a command that starts one only sometimes.
     """
     orch = await _ready(request)
     try:
@@ -483,7 +484,10 @@ async def _command(
         error = dict(reply["error"])
         code = error.pop("code")
         return error_response(code, error.pop("message"), **error)
-    return web.json_response(reply["result"], status=status)
+    result = reply["result"]
+    return web.json_response(
+        result, status=status(result) if callable(status) else status
+    )
 
 
 #: Each agent action: the command it makes, from the agent id and the body.
@@ -644,7 +648,7 @@ def _task_id(request: web.Request) -> str:
 
 
 async def _launch(request: web.Request) -> web.StreamResponse:
-    """Launch waits for the host's reply, as the socket command did."""
+    """Launch a task. It opens a worktree, so it runs as an operation."""
     task_id = _task_id(request)
     return await _command(
         request,
@@ -653,6 +657,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
             "taskId": task_id,
             **({"model": body["model"]} if body.get("model") else {}),
         },
+        status=202,
     )
 
 
@@ -685,8 +690,10 @@ async def _delete_task(request: web.Request) -> web.StreamResponse:
 
 
 async def _start_free_agent(request: web.Request) -> web.StreamResponse:
-    """Start an agent tied to no task. It may open a worktree, so it can be slow."""
-    return await _command(request, lambda body: {**body, "type": "agent.start"})
+    """Start an agent tied to no task. It may open a worktree, so it runs as an operation."""
+    return await _command(
+        request, lambda body: {**body, "type": "agent.start"}, status=202
+    )
 
 
 async def _refresh_worktrees(request: web.Request) -> web.StreamResponse:
@@ -828,12 +835,23 @@ async def _linear_issues(request: web.Request) -> web.StreamResponse:
 
 
 async def _linear_plan(request: web.Request) -> web.StreamResponse:
-    return await _command(request, lambda body: {**body, "type": "linear.plan"})
+    """Plan a Linear issue. It reads Linear and names a branch, so it runs as an operation."""
+    return await _command(
+        request, lambda body: {**body, "type": "linear.plan"}, status=202
+    )
 
 
 async def _create_task(request: web.Request) -> web.StreamResponse:
-    """Write a new task; ``launch`` starts it too, as ``mael task add --run`` does."""
-    return await _command(request, lambda body: {**body, "type": "task.create"})
+    """Write a new task; ``launch`` starts it too, as ``mael task add --run`` does.
+
+    ``202`` when naming or a launch runs on as an operation; ``200`` when the
+    write was all there was.
+    """
+    return await _command(
+        request,
+        lambda body: {**body, "type": "task.create"},
+        status=lambda result: 202 if "operationId" in result else 200,
+    )
 
 
 async def _create_comm(request: web.Request) -> web.StreamResponse:

@@ -54,6 +54,9 @@ class OperationPlan:
     #: The steps named at the start. A worktree operation names none: its
     #: sequence names its own as it starts. See :class:`ChainHook`.
     steps: tuple[str, ...] = ()
+    #: The steps a retry runs again though they are done, because what they
+    #: learned was held in memory: a launch's open worktree.
+    replay: frozenset[str] = frozenset()
     #: What the operation acts on, as far as it is known at the start.
     worktree_id: str | None = None
     task_id: str | None = None
@@ -101,6 +104,13 @@ class OperationHook(StepHook):
 
     def planned(self, names: list[str]) -> None:
         self._runner._change(self._id, lambda op: model.plan(op, names))
+
+    def remember(self, **fields: Any) -> None:
+        """Keep what a step learned on the stored command, for a retry to read.
+
+        Saved with the step's end, which always follows.
+        """
+        self._runner._records[self._id].command.update(fields)
 
     def skips(self, name: str) -> bool:
         return name in self._skip
@@ -219,6 +229,7 @@ class OperationRunner:
             record = OperationRecord(op, again.log, again.command)
             id = op["id"]
         done = {s["name"] for s in op["steps"] if s["state"] == model.DONE}
+        done -= plan.replay
         for key in plan.keys:
             self._busy[key] = id
         self._records[id] = record

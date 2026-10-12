@@ -562,7 +562,7 @@ async def test_the_board_refuses_a_non_claude_execute_model(table):
         table, lambda: [PROJECT], open_worktree=lambda *a, **k: None
     )
     with pytest.raises(LaunchBlocked, match="must be a Claude model"):
-        await source.launch(f"{PROJECT}/NORT-7", None)
+        await source.prepare_launch(f"{PROJECT}/NORT-7", None)
 
 
 async def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(table):
@@ -570,7 +570,7 @@ async def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(table):
     await model.create(table, project=PROJECT, title="x", id="NORT-7")
     source = a_source(table)
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        await source.launch(f"{PROJECT}/NORT-7", None)
+        await source.prepare_launch(f"{PROJECT}/NORT-7", None)
     assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
         await source.worktree_for(PROJECT, "feat/x")
@@ -593,15 +593,15 @@ async def test_launch_resumes_a_task_that_has_already_run(table):
     """Relaunching a stopped task must continue its session, not claim its id."""
     await model.create(table, project=PROJECT, title="x", id="NORT-7")
     source = a_launching_source(table, has_transcript=lambda path, sid: True)
-    request = await source.launch(f"{PROJECT}/NORT-7", None)
-    assert request.payload["resume"] is True
+    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
+    assert source.finish_launch(prepared)["resume"] is True
 
 
 async def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(table):
     await model.create(table, project=PROJECT, title="x", id="NORT-7")
     source = a_launching_source(table, has_transcript=lambda path, sid: False)
-    request = await source.launch(f"{PROJECT}/NORT-7", None)
-    assert request.payload["resume"] is False
+    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
+    assert source.finish_launch(prepared)["resume"] is False
 
 
 async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
@@ -614,8 +614,9 @@ async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
         return False
 
     source = a_launching_source(table, has_transcript=has_transcript)
-    request = await source.launch(f"{PROJECT}/NORT-7", None)
-    assert seen == [(Path("/w/alpha"), request.payload["session"])]
+    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
+    payload = source.finish_launch(prepared)
+    assert seen == [(Path("/w/alpha"), payload["session"])]
 
 
 # --- ListAllWorktreeSource: the terminal's link -----------------------------
