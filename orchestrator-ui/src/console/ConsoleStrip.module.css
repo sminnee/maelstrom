@@ -1,7 +1,33 @@
+/* The strip's one grid row: 1fr in the page, 0fr as it leaves, so the body
+   above shrinks as the strip rises and grows as it sinks. It clips the strip's
+   border and padding, which do not shrink. */
+.frame {
+  flex: none;
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+}
+.frame[data-presence='out'] {
+  grid-template-rows: 0fr;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .frame {
+    transition: grid-template-rows 180ms var(--ease-enter);
+  }
+  .frame[data-presence='out'] {
+    transition: grid-template-rows var(--duration-fast) ease-in;
+  }
+  @starting-style {
+    .frame {
+      grid-template-rows: 0fr;
+    }
+  }
+}
+
 /* A bar at the foot of the body: raised, a hairline on top. Side padding
    only: DESIGN.md, "Console strip". */
 .strip {
-  flex: none;
+  min-height: 0;
   display: flex;
   align-items: center;
   gap: var(--u);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { commandsSince, exitAgent, paneItem } from './test/appHelpers';
@@ -337,6 +337,109 @@ describe('the console keys', () => {
     // The fake never ran the seeded close, so it cannot run it again.
     await user.click(log().getByRole('button', { name: 'Retry' }));
     expect(await log().findByRole('alert')).toHaveTextContent(/^Retry failed: .*op4/);
+  });
+});
+
+/**
+ * Give each strip and drawer a long CSS transition, which ends when the test
+ * says so. Without it, jsdom computes no transition and every change is instant.
+ */
+function stubTransitions() {
+  const original = window.getComputedStyle;
+  window.getComputedStyle = (el, pseudo) => {
+    const style = original(el, pseudo);
+    if (!(el instanceof HTMLElement) || !el.dataset.presence) return style;
+    return new Proxy(style, {
+      get: (target, prop) => {
+        if (prop === 'transitionDuration') return '10s';
+        const value: unknown = Reflect.get(target, prop);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  };
+  /** End the transition on `el`. */
+  const end = (el: Element) => act(async () => void fireEvent.transitionEnd(el));
+  return {
+    end,
+    /** End every exit now playing. */
+    endExits: async () => {
+      for (const el of document.querySelectorAll('[data-presence="out"]')) await end(el);
+    },
+    restore: () => {
+      window.getComputedStyle = original;
+    },
+  };
+}
+
+describe('the console in motion', () => {
+  let motion: ReturnType<typeof stubTransitions>;
+  beforeEach(() => {
+    motion = stubTransitions();
+  });
+  afterEach(() => motion.restore());
+
+  it('keeps the drawer, inert, until its exit ends, then brings the strip back', async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'operations-live' });
+    await waitFor(() => expect(stripEntries()).toHaveLength(3));
+    await user.click(stripEntries()[0]!);
+    // The strip goes at once: the drawer rises over the place it held.
+    expect(strip()).toBeNull();
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(consoleRegion()).toHaveAttribute('inert');
+    expect(strip()).toBeNull();
+
+    await motion.endExits();
+    expect(consoleRegion()).toBeNull();
+    expect(stripEntries()).toHaveLength(3);
+  });
+
+  it('keeps the drawer when Ctrl-` opens it again during its exit', async () => {
+    await renderApp({ scenario: 'operations-live' });
+    ctrlBacktick();
+    const drawer = consoleRegion();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    ctrlBacktick();
+    // The transition turns back to rest, and its end keeps the same drawer.
+    await motion.end(drawer!);
+    expect(consoleRegion()).toBe(drawer);
+    expect(consoleRegion()).not.toHaveAttribute('inert');
+  });
+
+  it('gives focus back as the exit starts, not as it ends', async () => {
+    await renderApp({ scenario: 'operations-live' });
+    const desk = paneItem('Desk');
+    desk.focus();
+    ctrlBacktick(desk);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(consoleRegion()).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(desk));
+  });
+
+  it('keeps its last entry, inert, while the strip sinks out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { server } = await renderApp();
+    exitAgent(server, 'a1f3c9e2');
+    await user.click(paneItem('Worktrees'));
+    const row = () =>
+      document.querySelector('[data-worktree-id="northwind-alpha"]') as HTMLElement | null;
+    const close = within(row()!).getByRole('button', { name: 'Close' });
+    await waitFor(() => expect(close).toBeEnabled());
+    await user.click(close);
+    await waitFor(() =>
+      expect(within(strip()!).getByRole('button')).toHaveTextContent('Closed alpha'),
+    );
+
+    // The done operation's 4 seconds run out: the strip sinks with it still shown.
+    act(() => {
+      vi.advanceTimersByTime(4500);
+    });
+    expect(strip()).toHaveAttribute('inert');
+    expect(strip()).toHaveTextContent('Closed alpha');
+    await motion.endExits();
+    expect(strip()).toBeNull();
   });
 });
 

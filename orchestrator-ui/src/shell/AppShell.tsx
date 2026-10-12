@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
 import { Canvas } from '../canvas/Canvas';
@@ -17,6 +17,7 @@ import type { Pane, Side, View } from '../store/uiSlice';
 import { Console } from '../console/Console';
 import { ConsoleStrip } from '../console/ConsoleStrip';
 import { useConsoleKey } from '../console/useConsole';
+import { usePresence } from '../ui/usePresence';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
@@ -54,6 +55,9 @@ function SlotShell() {
   const { status } = useWorld();
   const consoleOpen = useAppStore((s) => s.ui.console.open);
   useConsoleKey();
+  // The drawer stays in the page while it drops out, and the strip waits for it.
+  const drawerRef = useRef<HTMLElement>(null);
+  const drawer = usePresence(consoleOpen, drawerRef);
   // The clamp also holds after a window resize, not only during a drag.
   const [, resized] = useState(0);
   useEffect(() => {
@@ -101,9 +105,9 @@ function SlotShell() {
           {/* Hidden rather than unmounted: a session tab holds its scroll
               position, window floor and pending waits across a toggle. */}
           <Panel hidden={!showing.includes('tabs')} {...slot('tabs')} />
-          {consoleOpen && <Console layout="drawer" />}
+          {drawer.mounted && <Console layout="drawer" open={!drawer.leaving} ref={drawerRef} />}
         </main>
-        <ConsoleStrip />
+        <ConsoleStrip covered={drawer.mounted} />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

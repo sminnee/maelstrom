@@ -797,8 +797,17 @@ Three rules hold the console still:
 - **A pinned row stays pinned** until the console closes. Showing an **Unseen** operation's
   log marks it seen (`POST /api/operations/{id}/seen`), and the console opens on the top row.
   A seen row stops pinning, and without the hold it would jump down the list under the pointer.
-- **Focus comes back.** The console takes focus as it opens and returns it as it closes. When
-  the element that had focus is gone, as a strip entry is, focus stays where the page leaves it.
+- **Focus comes back.** The console takes focus as it opens and returns it as the close starts.
+  When the element that had focus is gone, as a strip entry is, focus stays where the page
+  leaves it.
+
+The strip and the drawer move with CSS transitions, in their CSS modules. Each enters from
+`@starting-style`, and leaves by a transition to `data-presence="out"`. `usePresence` in
+`ui/usePresence.ts` keeps a leaving surface in the page until its `transitionend`, and the
+leaving surface is `inert`. `AppShell` holds the drawer this way, and passes the strip `covered`
+until the drawer's exit ends. Where no transition runs (reduced motion, jsdom), the surface
+unmounts at once. The strip's frame transitions `grid-template-rows` from `0fr` to `1fr`, so the
+body shrinks with it and nothing is measured.
 
 Ctrl-` is the app's one global key. `useConsoleKey` listens on the document, and each shell
 mounts it once. It ignores a key typed in a field.

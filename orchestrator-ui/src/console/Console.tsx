@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRetryOperation } from '../api/operations';
 import type { Operation } from '../protocol/entities';
 import type { OperationId } from '../protocol/ids';
@@ -35,8 +35,19 @@ const MIN_HEIGHT = 160;
 /**
  * The **Console**: every operation, and the log of the one selected. A drawer
  * over the foot of the body on a wide screen; a pushed screen on a phone.
+ *
+ * `open` false is a drawer on its way out: it takes no keys or clicks, and
+ * marks nothing seen. The shell keeps it in the page while its exit plays.
  */
-export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
+export function Console({
+  layout,
+  open = true,
+  ref,
+}: {
+  layout: 'drawer' | 'screen';
+  open?: boolean;
+  ref?: React.Ref<HTMLElement>;
+}) {
   const ops = useOperationList();
   const selectedId = useAppStore((s) => s.ui.console.selected);
   const height = useAppStore((s) => s.ui.console.height);
@@ -59,11 +70,14 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
     text,
   );
   const selected = listed.find((op) => op.id === selectedId) ?? listed[0] ?? null;
-  useMarkSeenOnShow(selected);
+  useMarkSeenOnShow(open ? selected : null);
 
   // Focus moves in as the console opens, and back out as it closes. A strip
   // entry leaves the page as the console opens, so it has nothing to return to.
-  useLayoutEffect(() => {
+  // A drawer gives focus back as its exit starts. A layout effect would not:
+  // React refocuses the list if focus moves during the commit.
+  useEffect(() => {
+    if (!open) return;
     const before = document.activeElement as HTMLElement | null;
     listRef.current?.focus();
     return () => {
@@ -73,7 +87,7 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
       if (!inConsole) return;
       if (before && before !== document.body && before.isConnected) before.focus();
     };
-  }, []);
+  }, [open]);
 
   // The selected row stays in view as the arrows move it.
   useEffect(() => {
@@ -107,12 +121,15 @@ export function Console({ layout }: { layout: 'drawer' | 'screen' }) {
 
   return (
     <section
+      ref={ref}
       id={CONSOLE_ID}
       className={styles.console}
       data-layout={layout}
       aria-label="Console"
       style={layout === 'drawer' && height !== null ? { height } : undefined}
       onKeyDown={onKeyDown}
+      data-presence={open ? 'in' : 'out'}
+      inert={!open || undefined}
     >
       {layout === 'drawer' && (
         <>
