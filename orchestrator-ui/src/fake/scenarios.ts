@@ -1135,6 +1135,28 @@ function operationsHistory(): Seed {
   return seed;
 }
 
+/** NORT-7's worktree with two commits not on main, so its Dismiss is refused at `git_close`. */
+function dismissRefused(): Seed {
+  const seed = seedWorld();
+  const alpha = seed.world.worktrees['northwind-alpha']!;
+  seed.world.worktrees[alpha.id] = { ...alpha, localCommits: 2 };
+  return seed;
+}
+
+/** NORT-7.1 ready to launch, with a fault planted on the launch's `write_env` step. */
+function launchFails(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  world.tasks['NORT-7.1'] = { ...world.tasks['NORT-7.1']!, actionable: true };
+  world.operationFaults = {
+    [faultKey('launch', 'NORT-7.1')]: {
+      step: 'write_env',
+      words: '.env is not writable: Permission denied',
+    },
+  };
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -1206,6 +1228,21 @@ export const SCENARIOS = {
   'operations-history': {
     about: 'Sixty operations over a day, so the console list scrolls.',
     build: operationsHistory,
+  },
+  dismiss: {
+    about: "NORT-7's card: its Dismiss closes alpha, then takes the node off the desk.",
+    build: seedWorld,
+    screen: at({ card: { kind: 'task', id: 'NORT-7' } }),
+  },
+  'dismiss-refused': {
+    about: "NORT-7's card: alpha has unmerged commits, so its Dismiss is refused.",
+    build: dismissRefused,
+    screen: at({ card: { kind: 'task', id: 'NORT-7' } }),
+  },
+  'launch-fails': {
+    about: "NORT-7.1's card: its launch fails writing the worktree's .env.",
+    build: launchFails,
+    screen: at({ card: { kind: 'task', id: 'NORT-7.1' } }),
   },
   'long-text': {
     about: 'Titles, ids, a branch, a commit and a comm too long for a phone.',

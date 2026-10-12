@@ -1,24 +1,35 @@
 import type { Operation, OperationKind, OperationStep } from '../protocol/entities';
-import type { OperationId, WorktreeId } from '../protocol/ids';
+import type { AgentId, OperationId, TaskId, WorktreeId } from '../protocol/ids';
 import type { FakeServer } from './fakeServer';
+
+/** The ids an operation learns while it runs, as the real `hook.target` sets them. */
+export type FakeTarget = Partial<Pick<Operation, 'worktreeId' | 'taskId' | 'agentId'>>;
 
 /**
  * One step of a fake operation. `refuse` is read when the step runs, so a
  * refusal judges the world as it is then, as the real step does. `run` is what
- * the step does to the world once it is done.
+ * the step does to the world once it is done; `target` names an id it learned.
  */
 export interface FakeStep {
   name: string;
-  lines?: string[];
+  /** Read when the step ends, as the real step reports what it found. */
+  lines?: string[] | (() => string[]);
   refuse?: () => string | undefined;
-  run?: () => void;
+  run?: (target: (ids: FakeTarget) => void) => void;
 }
+
+/** A planted fault: words alone fail the last step; `step` names the one to fail. */
+export type FakeFault = string | { step: string; words: string };
 
 /** What one fake operation runs, and the words it is read by. */
 export interface FakeOperationSpec {
   kind: OperationKind;
+  /** What it holds alone while it runs: `worktree:<id>`, `task:<id>`, `agent:<id>`. */
+  keys: string[];
   project?: string;
-  worktreeId: WorktreeId;
+  worktreeId?: WorktreeId | null;
+  taskId?: TaskId | null;
+  agentId?: AgentId | null;
   /** While it runs: `Closing alpha`. */
   doing: string;
   /** Once done: `Closed alpha`. */
@@ -33,8 +44,28 @@ const specs = new WeakMap<FakeServer, Map<OperationId, FakeOperationSpec>>();
 
 const now = () => new Date().toISOString();
 
-/** The key a fault is planted under in `world.operationFaults`. */
-export const faultKey = (kind: OperationKind, worktreeId: WorktreeId) => `${kind}:${worktreeId}`;
+/**
+ * The key a fault is planted under in `world.operationFaults`: the kind, and
+ * the worktree, task or agent the operation acts on.
+ */
+export const faultKey = (kind: OperationKind, unit: string) => `${kind}:${unit}`;
+
+/** The keys each running operation holds. A seeded one holds its worktree. */
+function heldKeys(server: FakeServer): Map<string, OperationId> {
+  const held = new Map<string, OperationId>();
+  const known = specs.get(server);
+  for (const op of Object.values(server.world.operations)) {
+    if (op.state !== 'running') continue;
+    const keys = known?.get(op.id)?.keys ?? (op.worktreeId ? [`worktree:${op.worktreeId}`] : []);
+    for (const key of keys) held.set(key, op.id);
+  }
+  return held;
+}
+
+const busyOn = (server: FakeServer, keys: string[]) => {
+  const held = heldKeys(server);
+  return keys.map((k) => held.get(k)).find((id) => id !== undefined);
+};
 
 /**
  * Start `spec` on the timer, one step per `server.stepMs`, and answer with the
@@ -46,19 +77,17 @@ export function startOperation(
   spec: FakeOperationSpec,
 ): { operationId: OperationId } | { busy: OperationId } {
   const { world } = server;
-  const running = Object.values(world.operations).find(
-    (op) => op.worktreeId === spec.worktreeId && op.state === 'running',
-  );
-  if (running) return { busy: running.id };
+  const running = busyOn(server, spec.keys);
+  if (running) return { busy: running };
   const numbers = Object.keys(world.operations).map((id) => Number(id.slice(2)));
   const id = `op${Math.max(0, ...numbers) + 1}`;
   const op: Operation = {
     id,
     kind: spec.kind,
     project: spec.project ?? '',
-    worktreeId: spec.worktreeId,
-    taskId: null,
-    agentId: null,
+    worktreeId: spec.worktreeId ?? null,
+    taskId: spec.taskId ?? null,
+    agentId: spec.agentId ?? null,
     words: spec.doing,
     state: 'running',
     startedAt: now(),
@@ -86,10 +115,8 @@ export function retryOperation(
   const spec = specs.get(server)?.get(id);
   const op = server.world.operations[id];
   if (!spec || !op) return null;
-  const running = Object.values(server.world.operations).find(
-    (o) => o.worktreeId === op.worktreeId && o.state === 'running',
-  );
-  if (running) return { busy: running.id };
+  const running = busyOn(server, spec.keys);
+  if (running) return { busy: running };
   put(server, {
     ...op,
     state: 'running',
@@ -135,7 +162,17 @@ function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
   const left = spec.steps.filter(
     (s) => server.world.operations[id]!.steps.find((o) => o.name === s.name)?.state !== 'done',
   );
-  const fault = server.world.operationFaults[faultKey(spec.kind, spec.worktreeId)];
+  const fault = [spec.worktreeId, spec.taskId, spec.agentId]
+    .filter((unit): unit is string => !!unit)
+    .map((unit) => server.world.operationFaults[faultKey(spec.kind, unit)])
+    .find((f) => f !== undefined);
+  const faultStep =
+    fault === undefined ? undefined : typeof fault === 'string' ? left.at(-1)?.name : fault.step;
+  const faultWords = typeof fault === 'string' ? fault : fault?.words;
+  const target = (ids: FakeTarget) => {
+    const op = server.world.operations[id]!;
+    put(server, { ...op, ...ids });
+  };
   const next = (i: number) => {
     const step = left[i];
     if (!step) {
@@ -144,12 +181,13 @@ function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
     }
     moveStep(server, id, step.name, { state: 'running', startedAt: now() });
     setTimeout(() => {
-      const lines = step.lines ?? [];
+      const lines = typeof step.lines === 'function' ? step.lines() : (step.lines ?? []);
       server.world.operationLogs[id]![step.name] = lines;
-      // A planted fault fails the last step, as a git error at the end would.
-      if (fault !== undefined && i === left.length - 1) {
-        moveStep(server, id, step.name, { state: 'failed', words: fault, endedAt: now() });
-        end(server, id, 'failed', `${spec.failing}: ${fault}`);
+      // A planted fault fails its step: the last, as a git error at the end
+      // would, unless it names another.
+      if (faultWords !== undefined && step.name === faultStep) {
+        moveStep(server, id, step.name, { state: 'failed', words: faultWords, endedAt: now() });
+        end(server, id, 'failed', `${spec.failing}: ${faultWords}`);
         return;
       }
       const refused = step.refuse?.();
@@ -158,7 +196,7 @@ function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
         end(server, id, 'refused', refused);
         return;
       }
-      step.run?.();
+      step.run?.(target);
       moveStep(server, id, step.name, { state: 'done', endedAt: now() });
       next(i + 1);
     }, server.stepMs);

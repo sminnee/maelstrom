@@ -34,6 +34,7 @@ import { FakeSocket } from './fakeSocket';
 import {
   retryOperation,
   startOperation,
+  type FakeFault,
   type FakeOperationSpec,
   type FakeStep,
 } from './operations';
@@ -78,10 +79,11 @@ export interface FakeWorld {
   /** Each operation's log lines by step: a separate read, as on the server. */
   operationLogs: Record<string, Record<string, string[]>>;
   /**
-   * Faults to plant, by `faultKey(kind, worktreeId)`: the operation's last step
-   * fails with these words. The fake's stand-in for git exiting non-zero.
+   * Faults to plant, by `faultKey(kind, unit)`: the operation's last step, or
+   * the step the fault names, fails with these words. The fake's stand-in for
+   * git exiting non-zero.
    */
-  operationFaults: Record<string, string>;
+  operationFaults: Record<string, FakeFault>;
 }
 
 export function emptyFakeWorld(): FakeWorld {
@@ -666,6 +668,245 @@ function command(
   const { world } = server;
   const now = () => new Date().toISOString();
 
+  // The slow worktree changes run as operations: the route answers at once with
+  // the id, and the steps move on `server.stepMs`. A refusal the real step
+  // makes is judged when its step runs, so it arrives on the operation.
+  const operate = (spec: FakeOperationSpec): Reply => {
+    const started = startOperation(server, spec);
+    if ('busy' in started) {
+      return {
+        status: 400,
+        body: {
+          error: {
+            code: 'invalid',
+            message: `Operation ${started.busy} is already running here`,
+            operationId: started.busy,
+          },
+        },
+      };
+    }
+    return { status: 202, body: started };
+  };
+  const moveWorktree = (id: string, patch: Partial<Worktree> | null) =>
+    server.change({ kind: 'worktree', ids: [id] }, (w) => {
+      if (patch === null) delete w.worktrees[id];
+      else w.worktrees[id] = { ...w.worktrees[id]!, ...patch };
+    });
+  // The real teardown stops every agent before git is asked, so a refused
+  // close has still stopped them.
+  const teardown = (id: string): FakeStep[] => [
+    { name: 'stop_env', lines: ['Stopped the environment.'] },
+    {
+      name: 'stop_agents',
+      run: () => {
+        const stopped = Object.values(world.agents).filter(
+          (a) => a.worktreeId === id && a.state !== 'exited',
+        );
+        for (const a of stopped) {
+          world.agents[a.id] = { ...a, state: 'exited', exitCode: 0, pendingRequestIds: [] };
+        }
+        if (stopped.length) server.change({ kind: 'agent', ids: stopped.map((a) => a.id) });
+      },
+    },
+    { name: 'stop_sessions' },
+  ];
+  const workspace = (worktree: Worktree): FakeStep => ({
+    name: 'close_workspace',
+    lines: [`Closed cmux workspace '${worktree.project}-${worktree.nato}'.`],
+  });
+  const closed = { isClosed: true, branch: '', base: '' };
+
+  // The end of a worktree, as each worktree route and each Dismiss chain runs it.
+  const worktreeEnds: Record<
+    'close' | 'shelve' | 'trash' | 'delete',
+    (w: Worktree) => FakeOperationSpec
+  > = {
+    close: (worktree) => {
+      const id = worktree.id;
+      return {
+        kind: 'close',
+        worktreeId: id,
+        keys: [`worktree:${id}`],
+        project: worktree.project,
+        doing: `Closing ${worktree.nato}`,
+        done: `Closed ${worktree.nato}`,
+        failing: 'Could not close the worktree',
+        steps: [
+          ...teardown(id),
+          { name: 'rescue_env_vars' },
+          {
+            name: 'git_close',
+            lines: [`Closing worktree '${worktree.nato}'...`],
+            // Both refusals the real close makes, in its order — dirty tree,
+            // then unmerged commits — with the model's own wording.
+            refuse: () => {
+              const now = world.worktrees[id]!;
+              if (now.dirtyFiles > 0) return 'Worktree has uncommitted changes';
+              if (now.localCommits > 0) {
+                return `Worktree has ${now.localCommits} commit(s) not merged to origin/main`;
+              }
+              return undefined;
+            },
+            run: () => moveWorktree(id, closed),
+          },
+          workspace(worktree),
+        ],
+      };
+    },
+    // No dirty-tree or unmerged-commit check: skipping them is what makes
+    // this a force close.
+    shelve: (worktree) => ({
+      kind: 'shelve',
+      worktreeId: worktree.id,
+      keys: [`worktree:${worktree.id}`],
+      project: worktree.project,
+      doing: `Shelving ${worktree.nato}`,
+      done: `Shelved ${worktree.nato}`,
+      failing: 'Could not close the worktree',
+      steps: [
+        ...teardown(worktree.id),
+        { name: 'rescue_env_vars' },
+        { name: 'git_close', run: () => moveWorktree(worktree.id, closed) },
+        workspace(worktree),
+      ],
+    }),
+    // Uncommitted work is committed as wip, so nothing here refuses it.
+    trash: (worktree) => ({
+      kind: 'trash',
+      worktreeId: worktree.id,
+      keys: [`worktree:${worktree.id}`],
+      project: worktree.project,
+      doing: `Trashing ${worktree.nato}`,
+      done: `Trashed ${worktree.nato}`,
+      failing: 'Could not trash the worktree',
+      steps: [
+        { name: 'guard' },
+        ...teardown(worktree.id),
+        { name: 'rescue_env_vars' },
+        { name: 'commit_wip' },
+        { name: 'close_pr' },
+        { name: 'rename_remote' },
+        { name: 'detach', run: () => moveWorktree(worktree.id, closed) },
+        { name: 'rename' },
+        workspace(worktree),
+      ],
+    }),
+    delete: (worktree) => ({
+      kind: 'delete',
+      worktreeId: worktree.id,
+      keys: [`worktree:${worktree.id}`],
+      project: worktree.project,
+      doing: `Deleting ${worktree.nato}`,
+      done: `Deleted ${worktree.nato}`,
+      failing: 'Could not remove the worktree',
+      steps: [
+        { name: 'check_dirty' },
+        ...teardown(worktree.id),
+        { name: 'git_remove', run: () => moveWorktree(worktree.id, null) },
+        workspace(worktree),
+      ],
+    }),
+  };
+  /** Why a worktree cannot end now, as `validate.py` words it; `undefined` when it can. */
+  const endRefusal = (chain: keyof typeof worktreeEnds, id: string): Reply | undefined => {
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.nato === '_main') {
+      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
+    }
+    // A closed worktree is removable: deleting a parked one is the point.
+    if (chain !== 'delete' && worktree.isClosed) {
+      return error(400, 'invalid', `Worktree ${id} is closed already`);
+    }
+    return undefined;
+  };
+
+  // A launch opens the task's worktree, writes its .env and starts its agent.
+  // The worktree is the open one on the task's branch, when the world has one.
+  const launchSteps = (taskId: () => TaskId, model = ''): FakeStep[] => {
+    let worktreeId = '';
+    return [
+      {
+        name: 'open_worktree',
+        lines: ['Reused the worktree.'],
+        run: (target) => {
+          const task = world.tasks[taskId()]!;
+          worktreeId =
+            Object.values(world.worktrees).find(
+              (w) => w.project === task.project && w.branch === task.branch && !w.isClosed,
+            )?.id ?? '';
+          server.change({ kind: 'task', ids: [task.id] }, (w) => {
+            w.tasks[task.id] = { ...task, status: 'in-progress' };
+          });
+          if (worktreeId) target({ worktreeId });
+        },
+      },
+      { name: 'write_env', lines: ['.env unchanged.'] },
+      {
+        name: 'start_agent',
+        run: (target) => {
+          const task = world.tasks[taskId()]!;
+          const agentId = `new${mint()}`;
+          world.agents[agentId] = {
+            ...makeNewAgent(agentId, {
+              taskId: task.id,
+              project: task.project,
+              model: model || task.model,
+              mode: '',
+            }),
+            worktreeId,
+          };
+          world.desk[`task:${task.id}`] ??= { id: `task:${task.id}`, addedAt: now() };
+          server.change({ kind: 'agent', ids: [agentId] });
+          server.change({ kind: 'desk', ids: [`task:${task.id}`] });
+          target({ agentId });
+        },
+      },
+    ];
+  };
+
+  const stopAgent = (agentId: AgentId): FakeStep => ({
+    name: 'stop_agent',
+    lines: [`Stopped ${agentId}.`],
+    run: () =>
+      server.change({ kind: 'agent', ids: [agentId] }, (w) => {
+        w.agents[agentId] = {
+          ...w.agents[agentId]!,
+          state: 'exited',
+          exitCode: 0,
+          pendingRequestIds: [],
+        };
+      }),
+  });
+  const revive = (agentId: AgentId) =>
+    server.change({ kind: 'agent', ids: [agentId] }, (w) => {
+      w.agents[agentId] = { ...w.agents[agentId]!, state: 'idle', exitCode: null };
+    });
+  // A live node draws with no desk entry, so there may be none to take.
+  const offDesk = (deskId: string): FakeStep => ({
+    name: 'off_desk',
+    lines: () => [deskId in world.desk ? 'Taken off the desk.' : 'Not on the desk.'],
+    run: () => {
+      if (!(deskId in world.desk)) return;
+      server.change({ kind: 'desk', ids: [deskId] }, (w) => {
+        delete w.desk[deskId];
+      });
+    },
+  });
+  /** The fake's naming, as `/api/tasks/infer` answers it: the prose's first line. */
+  const inferNames = (draft: string) => {
+    const title = draft.split('\n')[0]!.trim().slice(0, 80);
+    const slug =
+      title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .split('-')
+        .slice(0, 4)
+        .join('-') || 'task';
+    return { title, branch: `feat/${slug}` };
+  };
+
   let m = pathname.match(
     /^\/api\/agents\/([^/]+)\/(approve|deny|answer|say|run|stop|interrupt|resume|set-mode)$/,
   );
@@ -684,9 +925,20 @@ function command(
     }
     if (action === 'resume') {
       if (agent.state !== 'exited') return error(400, 'invalid', `Agent ${agentId} is running`);
-      world.agents[agentId] = { ...agent, state: 'idle', exitCode: null };
-      server.change({ kind: 'agent', ids: [agentId] });
-      return ok({});
+      return operate({
+        kind: 'resume',
+        keys: [`agent:${agentId}`],
+        project: agent.project,
+        worktreeId: agent.worktreeId || null,
+        taskId: agent.taskId || null,
+        agentId,
+        doing: `Resuming ${agentId}`,
+        done: `Resumed ${agentId}`,
+        failing: 'Could not resume',
+        steps: [
+          { name: 'resume_agent', lines: [`Resumed ${agentId}.`], run: () => revive(agentId) },
+        ],
+      });
     }
     if (agent.state === 'exited') return error(409, 'agent_exited', `Agent ${agentId} has exited`);
     if (action === 'say') {
@@ -752,9 +1004,18 @@ function command(
       return ok({});
     }
     if (action === 'stop') {
-      world.agents[agentId] = { ...agent, state: 'exited', exitCode: 0, pendingRequestIds: [] };
-      server.change({ kind: 'agent', ids: [agentId] });
-      return ok({});
+      return operate({
+        kind: 'terminate',
+        keys: [`agent:${agentId}`],
+        project: agent.project,
+        worktreeId: agent.worktreeId || null,
+        taskId: agent.taskId || null,
+        agentId,
+        doing: `Terminating ${agentId}`,
+        done: `Terminated ${agentId}`,
+        failing: 'Could not terminate',
+        steps: [stopAgent(agentId)],
+      });
     }
     // approve, deny, answer: the named wait, answered.
     const requestId = str('requestId');
@@ -920,40 +1181,16 @@ function command(
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
     if (!task.actionable) return error(400, 'invalid', `Task ${task.id} is not actionable`);
-    const agentId = `new${mint()}`;
-    world.tasks[task.id] = { ...task, status: 'in-progress' };
-    world.agents[agentId] = {
-      id: agentId,
-      parent: '',
-      description: '',
-      state: 'idle',
-      session: `sess-${agentId}`,
-      cwd: '',
-      model: str('model') ?? '',
-      permissionMode: '',
-      waitingOn: '',
-      lastMessage: '',
-      lastMessageAt: '',
-      lastNote: '',
-      lastNoteAt: '',
-      startedAt: '',
-      costUsd: 0,
-      totalTokens: 0,
-      subagentTokens: 0,
-      contextTokens: 0,
-      taskId: task.id,
+    return operate({
+      kind: 'launch',
+      keys: [`task:${task.id}`],
       project: task.project,
-      worktreeId: '',
-      exitCode: null,
-      pendingRequestIds: [],
-      pid: null,
-      backgroundShells: [],
-    };
-    world.desk[`task:${task.id}`] = { id: `task:${task.id}`, addedAt: now() };
-    server.change({ kind: 'task', ids: [task.id] });
-    server.change({ kind: 'agent', ids: [agentId] });
-    server.change({ kind: 'desk', ids: [`task:${task.id}`] });
-    return ok({ agentId });
+      taskId: task.id,
+      doing: `Launching ${task.title}`,
+      done: `Launched ${task.title}`,
+      failing: 'Could not launch',
+      steps: launchSteps(() => task.id, str('model') ?? ''),
+    });
   }
 
   m = pathname.match(/^\/api\/tasks\/(.+)\/status$/);
@@ -1043,31 +1280,27 @@ function command(
     if (!draft) return error(400, 'invalid', 'Nothing to create');
     // The real server asks a model; this reads the draft's first line, so a
     // test gets a plausible naming with no network.
-    const title = draft.split('\n')[0]!.trim().slice(0, 80);
-    const slug =
-      title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .split('-')
-        .slice(0, 4)
-        .join('-') || 'task';
-    return ok({ title, branch: `feat/${slug}`, command: '', mode: 'auto' });
+    return ok({ ...inferNames(draft), command: '', mode: 'auto' });
   }
 
   if (pathname === '/api/tasks' && method === 'POST') {
     const project = str('project') ?? '';
     if (!world.projects[project]) return notFound(`project ${project}`);
     const title = str('title')?.trim() ?? '';
-    if (!title) return error(400, 'invalid', 'A title is required');
+    const content = str('content')?.trim() ?? '';
+    if (!title && !content) return error(400, 'invalid', 'A title or prose is required');
     if (b.comms !== undefined) {
       if (!isStrings(b.comms)) return error(400, 'invalid', 'comms is a list of comm ids');
       const unknown = b.comms.find((id) => !world.comms[id]);
       if (unknown) return notFound(`comm ${unknown}`);
     }
     const taskId = `${project}/NEW-${mint()}`;
+    const unnamed = (['title', 'branch'] as const).filter((f) => !str(f)?.trim());
+    // As the server writes them: the prose's first line stands in for the
+    // title, and an empty branch is `task/<id>`, until the operation names them.
     world.tasks[taskId] = {
-      ...makeNewTask(taskId, project, title, b),
+      ...makeNewTask(taskId, project, title || content.split('\n')[0]!.slice(0, 60).trimEnd(), b),
+      branch: str('branch')?.trim() || `task/${taskId.split('/')[1]}`,
       comms: b.comms ? [...new Set(b.comms as string[])] : [],
     };
     const relinked = linkComms(world);
@@ -1075,18 +1308,32 @@ function command(
     world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
     server.change({ kind: 'task', ids: [taskId] });
     server.change({ kind: 'desk', ids: [`task:${taskId}`] });
-    if (!b.launch) return ok({ taskId });
-    const agentId = `new${mint()}`;
-    world.tasks[taskId] = { ...world.tasks[taskId]!, status: 'in-progress' };
-    world.agents[agentId] = makeNewAgent(agentId, {
-      taskId,
+    if (!unnamed.length && !b.launch) return ok({ taskId });
+    const nameTask: FakeStep = {
+      name: 'name_task',
+      run: () => {
+        const task = world.tasks[taskId]!;
+        const names = inferNames(task.content);
+        const named = Object.fromEntries(unnamed.map((f) => [f, names[f]]));
+        server.change({ kind: 'task', ids: [taskId] }, (w) => {
+          w.tasks[taskId] = { ...task, ...named };
+        });
+      },
+    };
+    const started = operate({
+      kind: 'create',
+      keys: [`task:${taskId}`],
       project,
-      model: str('model') ?? '',
-      mode: (str('mode') ?? '') as PermissionMode | '',
+      taskId,
+      doing: `Creating ${world.tasks[taskId]!.title}`,
+      done: `Created ${world.tasks[taskId]!.title}`,
+      failing: 'Could not create the task',
+      steps: [
+        ...(unnamed.length ? [nameTask] : []),
+        ...(b.launch ? launchSteps(() => taskId, str('model') ?? '') : []),
+      ],
     });
-    server.change({ kind: 'task', ids: [taskId] });
-    server.change({ kind: 'agent', ids: [agentId] });
-    return ok({ taskId, agentId });
+    return { ...started, body: { taskId, ...(started.body as object) } };
   }
 
   if (pathname === '/api/linear/tasks' && method === 'POST') {
@@ -1099,37 +1346,44 @@ function command(
     if (!issueId) return error(400, 'invalid', 'An issue is required');
     // The same task `mael linear plan` writes: the real server builds these
     // fields from the issue's brief, and this fake from its id alone.
-    const taskId = `${project}/NEW-${mint()}`;
-    world.tasks[taskId] = {
-      ...makeNewTask(taskId, project, `Plan ${issueId}`, {
-        command: 'plan-task',
-        mode: 'normal',
-        model: 'opus',
-        content: `# ${issueId}`,
-      }),
-      parent: `linear.${issueId}`,
-    };
-    world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
-    server.change({ kind: 'task', ids: [taskId] });
-    server.change({ kind: 'desk', ids: [`task:${taskId}`] });
-    if (!b.launch) return ok({ taskId });
-    const agentId = `new${mint()}`;
-    world.tasks[taskId] = { ...world.tasks[taskId]!, status: 'in-progress' };
-    world.agents[agentId] = makeNewAgent(agentId, {
-      taskId,
+    let taskId = '';
+    return operate({
+      kind: 'plan',
+      keys: [`linear:${project}/${issueId}`],
       project,
-      model: 'opus',
-      mode: 'normal',
+      doing: `Planning ${issueId}`,
+      done: `Planned ${issueId}`,
+      failing: `Could not plan ${issueId}`,
+      steps: [
+        { name: 'read_issue', lines: [`Read ${issueId}.`] },
+        { name: 'name_task' },
+        {
+          name: 'write_task',
+          run: (target) => {
+            taskId = `${project}/NEW-${mint()}`;
+            world.tasks[taskId] = {
+              ...makeNewTask(taskId, project, `Plan ${issueId}`, {
+                command: 'plan-task',
+                mode: 'normal',
+                model: 'opus',
+                content: `# ${issueId}`,
+              }),
+              parent: `linear.${issueId}`,
+            };
+            world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
+            server.change({ kind: 'task', ids: [taskId] });
+            server.change({ kind: 'desk', ids: [`task:${taskId}`] });
+            target({ taskId });
+          },
+        },
+        ...(b.launch ? launchSteps(() => taskId) : []),
+      ],
     });
-    server.change({ kind: 'task', ids: [taskId] });
-    server.change({ kind: 'agent', ids: [agentId] });
-    return ok({ taskId, agentId });
   }
 
   if (pathname === '/api/agents' && method === 'POST') {
     const project = str('project') ?? '';
     if (!world.projects[project]) return notFound(`project ${project}`);
-    if (!str('branch')?.trim()) return error(400, 'invalid', 'A branch is required');
     if (!str('prompt')?.trim()) return error(400, 'invalid', 'A prompt is required');
     // As `validate.py`.
     if (b.investigate && str('mode') === 'plan') {
@@ -1141,18 +1395,60 @@ function command(
     if (executeModel && !/^(claude:)?[A-Za-z0-9._-]+$/.test(executeModel)) {
       return error(400, 'invalid', 'An execute model must be a Claude model');
     }
-    const agentId = `new${mint()}`;
-    // A free agent carries no task: that absence is what makes it free.
-    world.agents[agentId] = makeNewAgent(agentId, {
-      taskId: '',
+    let branch = str('branch')?.trim() ?? '';
+    const typed = !!branch;
+    let worktreeId = '';
+    return operate({
+      kind: 'start',
+      keys: typed ? [`branch:${project}/${branch}`] : [],
       project,
-      model: str('model') ?? '',
-      mode: (str('mode') ?? '') as PermissionMode | '',
+      doing: typed ? `Starting an agent on ${branch}` : 'Starting an agent',
+      done: typed ? `Started an agent on ${branch}` : 'Started an agent',
+      failing: 'Could not start the agent',
+      steps: [
+        ...(typed
+          ? []
+          : [
+              {
+                name: 'name_branch',
+                run: () => {
+                  branch = inferNames(str('prompt') ?? '').branch;
+                },
+              },
+            ]),
+        {
+          name: 'open_worktree',
+          run: (target) => {
+            worktreeId =
+              Object.values(world.worktrees).find(
+                (w) => w.project === project && w.branch === branch && !w.isClosed,
+              )?.id ?? '';
+            if (worktreeId) target({ worktreeId });
+          },
+        },
+        { name: 'write_env', lines: ['.env unchanged.'] },
+        {
+          name: 'start_agent',
+          run: (target) => {
+            const agentId = `new${mint()}`;
+            // A free agent carries no task: that absence is what makes it free.
+            world.agents[agentId] = {
+              ...makeNewAgent(agentId, {
+                taskId: '',
+                project,
+                model: str('model') ?? '',
+                mode: (str('mode') ?? '') as PermissionMode | '',
+              }),
+              worktreeId,
+            };
+            world.desk[`agent:${agentId}`] = { id: `agent:${agentId}`, addedAt: now() };
+            server.change({ kind: 'agent', ids: [agentId] });
+            server.change({ kind: 'desk', ids: [`agent:${agentId}`] });
+            target({ agentId });
+          },
+        },
+      ],
     });
-    world.desk[`agent:${agentId}`] = { id: `agent:${agentId}`, addedAt: now() };
-    server.change({ kind: 'agent', ids: [agentId] });
-    server.change({ kind: 'desk', ids: [`agent:${agentId}`] });
-    return ok({ agentId });
   }
 
   if (pathname === '/api/attachments' && method === 'POST') {
@@ -1177,170 +1473,28 @@ function command(
     return ok({});
   }
 
-  // The slow worktree changes run as operations: the route answers at once with
-  // the id, and the steps move on `server.stepMs`. A refusal the real step
-  // makes is judged when its step runs, so it arrives on the operation.
-  const operate = (spec: FakeOperationSpec): Reply => {
-    const started = startOperation(server, spec);
-    if ('busy' in started) {
-      return {
-        status: 400,
-        body: {
-          error: {
-            code: 'invalid',
-            message: `Operation ${started.busy} is already running here`,
-            operationId: started.busy,
-          },
-        },
-      };
-    }
-    return { status: 202, body: started };
-  };
-  const moveWorktree = (id: string, patch: Partial<Worktree> | null) =>
-    server.change({ kind: 'worktree', ids: [id] }, (w) => {
-      if (patch === null) delete w.worktrees[id];
-      else w.worktrees[id] = { ...w.worktrees[id]!, ...patch };
-    });
-  // The real teardown stops every agent before git is asked, so a refused
-  // close has still stopped them.
-  const teardown = (id: string): FakeStep[] => [
-    { name: 'stop_env', lines: ['Stopped the environment.'] },
-    {
-      name: 'stop_agents',
-      run: () => {
-        const stopped = Object.values(world.agents).filter(
-          (a) => a.worktreeId === id && a.state !== 'exited',
-        );
-        for (const a of stopped) {
-          world.agents[a.id] = { ...a, state: 'exited', exitCode: 0, pendingRequestIds: [] };
-        }
-        if (stopped.length) server.change({ kind: 'agent', ids: stopped.map((a) => a.id) });
-      },
-    },
-    { name: 'stop_sessions' },
-  ];
-  const workspace = (worktree: Worktree): FakeStep => ({
-    name: 'close_workspace',
-    lines: [`Closed cmux workspace '${worktree.project}-${worktree.nato}'.`],
-  });
-  const closed = { isClosed: true, branch: '', base: '' };
-
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/close$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);
-    const worktree = world.worktrees[id];
-    if (!worktree) return notFound(`worktree ${id}`);
-    if (worktree.nato === '_main') {
-      return error(400, 'invalid', `${id} holds the main checkout and cannot be closed`);
-    }
-    if (worktree.isClosed) return error(400, 'invalid', `${id} is already closed`);
-    return operate({
-      kind: 'close',
-      worktreeId: id,
-      doing: `Closing ${worktree.nato}`,
-      done: `Closed ${worktree.nato}`,
-      failing: 'Could not close the worktree',
-      steps: [
-        ...teardown(id),
-        { name: 'rescue_env_vars' },
-        {
-          name: 'git_close',
-          lines: [`Closing worktree '${worktree.nato}'...`],
-          // Both refusals the real close makes, in its order — dirty tree,
-          // then unmerged commits — with the model's own wording.
-          refuse: () => {
-            const now = world.worktrees[id]!;
-            if (now.dirtyFiles > 0) return 'Worktree has uncommitted changes';
-            if (now.localCommits > 0) {
-              return `Worktree has ${now.localCommits} commit(s) not merged to origin/main`;
-            }
-            return undefined;
-          },
-          run: () => moveWorktree(id, closed),
-        },
-        workspace(worktree),
-      ],
-    });
+    return endRefusal('close', id) ?? operate(worktreeEnds.close(world.worktrees[id]!));
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/force-close$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);
-    const worktree = world.worktrees[id];
-    if (!worktree) return notFound(`worktree ${id}`);
-    if (worktree.nato === '_main') {
-      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
-    }
-    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed already`);
-    // No dirty-tree or unmerged-commit check: skipping them is what makes
-    // this a force close.
-    return operate({
-      kind: 'shelve',
-      worktreeId: id,
-      doing: `Shelving ${worktree.nato}`,
-      done: `Shelved ${worktree.nato}`,
-      failing: 'Could not close the worktree',
-      steps: [
-        ...teardown(id),
-        { name: 'rescue_env_vars' },
-        { name: 'git_close', run: () => moveWorktree(id, closed) },
-        workspace(worktree),
-      ],
-    });
+    return endRefusal('shelve', id) ?? operate(worktreeEnds.shelve(world.worktrees[id]!));
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/trash$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);
-    const worktree = world.worktrees[id];
-    if (!worktree) return notFound(`worktree ${id}`);
-    if (worktree.nato === '_main') {
-      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
-    }
-    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
-    // Uncommitted work is committed as wip, so nothing here refuses it.
-    return operate({
-      kind: 'trash',
-      worktreeId: id,
-      doing: `Trashing ${worktree.nato}`,
-      done: `Trashed ${worktree.nato}`,
-      failing: 'Could not trash the worktree',
-      steps: [
-        { name: 'guard' },
-        ...teardown(id),
-        { name: 'rescue_env_vars' },
-        { name: 'commit_wip' },
-        { name: 'close_pr' },
-        { name: 'rename_remote' },
-        { name: 'detach', run: () => moveWorktree(id, closed) },
-        { name: 'rename' },
-        workspace(worktree),
-      ],
-    });
+    return endRefusal('trash', id) ?? operate(worktreeEnds.trash(world.worktrees[id]!));
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)$/);
   if (m && method === 'DELETE') {
     const id = decodeURIComponent(m[1]!);
-    const worktree = world.worktrees[id];
-    if (!worktree) return notFound(`worktree ${id}`);
-    if (worktree.nato === '_main') {
-      return error(400, 'invalid', `${worktree.nato} holds the main checkout and cannot be closed`);
-    }
-    // A closed worktree is removable: deleting a parked one is the point.
-    return operate({
-      kind: 'delete',
-      worktreeId: id,
-      doing: `Deleting ${worktree.nato}`,
-      done: `Deleted ${worktree.nato}`,
-      failing: 'Could not remove the worktree',
-      steps: [
-        { name: 'check_dirty' },
-        ...teardown(id),
-        { name: 'git_remove', run: () => moveWorktree(id, null) },
-        workspace(worktree),
-      ],
-    });
+    return endRefusal('delete', id) ?? operate(worktreeEnds.delete(world.worktrees[id]!));
   }
 
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/sync$/);
@@ -1356,6 +1510,8 @@ function command(
     return operate({
       kind: 'sync',
       worktreeId: id,
+      keys: [`worktree:${id}`],
+      project: worktree.project,
       doing: `Syncing ${worktree.nato}`,
       done: `Synced ${worktree.nato}`,
       failing: 'Could not sync the worktree',
@@ -1391,6 +1547,8 @@ function command(
     return operate({
       kind: 'merge',
       worktreeId: id,
+      keys: [`worktree:${id}`],
+      project: worktree.project,
       doing: `Merging the pull request of ${worktree.nato}`,
       done: `Merged the pull request of ${worktree.nato}`,
       failing: 'Could not merge the pull request',
@@ -1492,6 +1650,8 @@ function command(
     return operate({
       kind: 'env',
       worktreeId: id,
+      keys: [`worktree:${id}`],
+      project: worktree.project,
       doing: `${doing} ${subject}`,
       done: `${done} ${subject}`,
       failing: 'Could not change the environment',
@@ -1517,6 +1677,59 @@ function command(
     // reply, so a test sees what the reply alone does.
     world.worktrees[id] = { ...worktree, shellUrl };
     return ok({ shellUrl });
+  }
+
+  m = pathname.match(/^\/api\/desk\/(.+)\/dismiss$/);
+  if (m && method === 'POST') {
+    const deskId = decodeURIComponent(m[1]!);
+    const [unitKind, unitId] = [
+      deskId.slice(0, deskId.indexOf(':')),
+      deskId.slice(deskId.indexOf(':') + 1),
+    ];
+    const task = unitKind === 'task' ? world.tasks[unitId] : undefined;
+    const unitAgent = unitKind === 'agent' ? world.agents[unitId] : undefined;
+    if (!task && !unitAgent) return notFound(`${unitKind} ${unitId}`);
+    const name = task?.title ?? unitId;
+    const project = task?.project ?? unitAgent!.project;
+    const chain = str('chain') ?? '';
+    const words = {
+      doing: `Dismissing ${name}`,
+      done: `Dismissed ${name}`,
+      failing: 'Could not dismiss',
+    };
+    if (chain === 'terminate') {
+      const live = Object.values(world.agents).find(
+        (a) =>
+          !a.parent &&
+          a.state !== 'exited' &&
+          (unitAgent ? a.id === unitAgent.id : a.taskId === task!.id),
+      );
+      if (!live) return error(409, 'agent_exited', `No agent is running for ${deskId}`);
+      return operate({
+        kind: 'dismiss',
+        keys: [deskId, `agent:${live.id}`],
+        project,
+        taskId: task?.id ?? null,
+        agentId: live.id,
+        ...words,
+        steps: [stopAgent(live.id), offDesk(deskId)],
+      });
+    }
+    if (!(chain in worktreeEnds)) return error(400, 'invalid', `Unknown dismiss chain: ${chain}`);
+    const end = chain as keyof typeof worktreeEnds;
+    const worktreeId = str('worktreeId') ?? '';
+    const refused = endRefusal(end, worktreeId);
+    if (refused) return refused;
+    const inner = worktreeEnds[end](world.worktrees[worktreeId]!);
+    return operate({
+      ...inner,
+      kind: 'dismiss',
+      keys: [deskId, ...inner.keys],
+      taskId: task?.id ?? null,
+      agentId: unitAgent?.id ?? null,
+      ...words,
+      steps: [...inner.steps, offDesk(deskId)],
+    });
   }
 
   if (pathname === '/api/desk' && method === 'POST') {
