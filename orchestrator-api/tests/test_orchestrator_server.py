@@ -5233,6 +5233,258 @@ def test_a_retry_is_judged_against_the_world_as_it_is_now(harness):
     assert "is closed already" in reply.body["error"]["message"]
 
 
+# -- dismiss --
+
+
+def desk_ids(harness) -> list[str]:
+    return list(harness.orch.world["desk"])
+
+
+def put_on_desk(harness, desk_id: str = "task:northwind/NORT-7") -> None:
+    harness.add_task("NORT-7")
+    run(harness.orch._add_to_desk(desk_id))
+
+
+@pytest.mark.parametrize(
+    ("chain", "attr", "kind"),
+    [
+        ("close", "close", "close"),
+        ("shelve", "force_close", "shelve"),
+        ("trash", "trash", "trash"),
+        ("delete", "remove", "delete"),
+    ],
+)
+def test_a_worktree_dismiss_ends_the_worktree_then_takes_the_node_off_the_desk(
+    harness, chain, attr, kind
+):
+    ran: list[str] = []
+    end = two_step_close(ran)
+
+    async def ending(*args, hook):
+        # Off the desk only after the worktree has ended.
+        await end(*args, hook=hook)
+        ran.append(f"on desk: {desk_ids(harness)}")
+
+    setattr(harness.worktrees, attr, ending)
+    put_on_desk(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            op = await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": chain, "worktreeId": "northwind-alpha"},
+            )
+            return op, await api.get_json("/api/desk")
+
+    op, desk = run(scenario())
+    assert op["state"] == "done", op
+    assert (op["kind"], op["worktreeId"], op["taskId"]) == (
+        "dismiss",
+        "northwind-alpha",
+        "northwind/NORT-7",
+    )
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agents", "done"),
+        ("git_close", "done"),
+        ("off_desk", "done"),
+    ]
+    assert ran == ["stop_agents", "git_close", "on desk: ['task:northwind/NORT-7']"]
+    assert desk == {"desk": []}
+    # A worktree chain sends no stop of its own: the teardown stops the agents.
+    assert not any(c.get("cmd") == "stop" for c in harness.daemon.calls)
+
+
+def test_a_terminate_dismiss_stops_the_agent_then_takes_it_off_the_desk(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/desk", lambda b: b["desk"])
+            op = await operated(
+                api, "/api/desk/agent%3Aag1/dismiss", {"chain": "terminate"}
+            )
+            return (
+                op,
+                await api.get_json("/api/agents/ag1"),
+                await api.get_json("/api/desk"),
+            )
+
+    op, agent, desk = run(scenario())
+    assert op["state"] == "done", op
+    assert (op["kind"], op["agentId"]) == ("dismiss", "ag1")
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agent", "done"),
+        ("off_desk", "done"),
+    ]
+    assert {"cmd": "stop", "id": "ag1"} in harness.daemon.calls
+    assert agent["state"] == "exited"
+    assert desk == {"desk": []}
+
+
+def test_a_terminate_dismiss_the_host_refuses_leaves_the_node_on_the_desk(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["stop"] = [{"error": "no such agent: ag1"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/desk", lambda b: b["desk"])
+            op = await operated(
+                api, "/api/desk/agent%3Aag1/dismiss", {"chain": "terminate"}
+            )
+            return op, await api.get_json("/api/desk")
+
+    op, desk = run(scenario())
+    assert (op["state"], op["words"]) == ("refused", "no such agent: ag1")
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agent", "refused"),
+        ("off_desk", "pending"),
+    ]
+    assert [e["id"] for e in desk["desk"]] == ["agent:ag1"]
+
+
+def test_a_terminate_dismiss_and_a_terminate_of_one_agent_are_busy(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    gate = asyncio.Event()
+    real_request = harness.daemon.request
+
+    async def held_stop(payload):
+        if payload.get("cmd") == "stop":
+            await gate.wait()
+        return await real_request(payload)
+
+    harness.daemon.request = held_stop
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/desk", lambda b: b["desk"])
+            first = await api.post(
+                "/api/desk/agent%3Aag1/dismiss", {"chain": "terminate"}
+            )
+            second = await api.post("/api/agents/ag1/stop")
+            gate.set()
+            await ended(api, first.body["operationId"])
+            return first, second
+
+    first, second = run(scenario())
+    assert first.status == 202, first.body
+    assert second.status == 400
+    assert second.body["error"]["operationId"] == first.body["operationId"]
+
+
+def test_a_dismiss_whose_close_refuses_leaves_the_node_on_the_desk(harness):
+    harness.worktrees.close = two_step_close([], refuse=["2 unmerged commits"])
+    put_on_desk(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            op = await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "close", "worktreeId": "northwind-alpha"},
+            )
+            return op, await api.get_json("/api/desk")
+
+    op, desk = run(scenario())
+    assert (op["state"], op["words"]) == ("refused", "2 unmerged commits")
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agents", "done"),
+        ("git_close", "refused"),
+        ("off_desk", "pending"),
+    ]
+    assert [e["id"] for e in desk["desk"]] == ["task:northwind/NORT-7"]
+
+
+def test_a_retried_dismiss_runs_on_from_the_close_that_refused(harness):
+    ran: list[str] = []
+    harness.worktrees.close = two_step_close(ran, refuse=["2 unmerged commits"])
+    put_on_desk(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "close", "worktreeId": "northwind-alpha"},
+            )
+            reply = await api.post(f"/api/operations/{first['id']}/retry")
+            assert reply.status == 202, reply.body
+            return await ended(api, first["id"]), await api.get_json("/api/desk")
+
+    op, desk = run(scenario())
+    assert ran == ["stop_agents", "git_close", "git_close"]
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agents", "done"),
+        ("git_close", "done"),
+        ("off_desk", "done"),
+    ]
+    assert desk == {"desk": []}
+
+
+def test_a_dismiss_of_a_node_with_no_desk_entry_still_ends(harness):
+    """A live node draws with no entry, so off_desk has nothing to take."""
+    harness.worktrees.close = two_step_close([])
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            op = await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "close", "worktreeId": "northwind-alpha"},
+            )
+            return op, await api.get_json(f"/api/operations/{op['id']}/log")
+
+    op, log = run(scenario())
+    assert op["state"] == "done"
+    assert log["steps"][-1] == {"name": "off_desk", "lines": ["Not on the desk."]}
+
+
+def test_a_dismiss_and_a_close_of_one_worktree_are_busy(harness):
+    gate = asyncio.Event()
+    harness.worktrees.close = two_step_close([], gate=gate)
+    put_on_desk(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await api.post(
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "close", "worktreeId": "northwind-alpha"},
+            )
+            second = await api.post("/api/worktrees/northwind-alpha/close")
+            gate.set()
+            await ended(api, first.body["operationId"])
+            return first, second
+
+    first, second = run(scenario())
+    assert first.status == 202
+    assert second.status == 400
+    assert second.body["error"]["operationId"] == first.body["operationId"]
+
+
+@pytest.mark.parametrize(
+    ("desk_id", "body", "status", "code"),
+    [
+        ("task%3Anorthwind%2FNORT-9", {"chain": "terminate"}, 404, "unknown_id"),
+        ("task%3Anorthwind%2FNORT-7", {"chain": "explode"}, 400, "invalid"),
+        ("task%3Anorthwind%2FNORT-7", {"chain": "close"}, 404, "unknown_id"),
+        # No live agent to terminate.
+        ("task%3Anorthwind%2FNORT-7", {"chain": "terminate"}, 409, "agent_exited"),
+    ],
+)
+def test_a_dismiss_the_world_cannot_take_is_refused_before_it_starts(
+    harness, desk_id, body, status, code
+):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(f"/api/desk/{desk_id}/dismiss", body)
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (status, code)
+
+
 def test_closing_a_worktree_asks_the_source_and_refreshes_the_world(harness):
     """The operation ends after the world holds the close, so a GET is current."""
     closed: list[str] = []
