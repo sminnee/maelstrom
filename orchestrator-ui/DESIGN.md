@@ -445,6 +445,9 @@ and Tabs. Each item has an anchor, left or right, and shows in the slot of its a
 draws the left-anchored items beside the brand and the right-anchored items just before New, so
 each group sits over its slot.
 
+Below 1600px the filters do not fit beside the menu and the readings. There they take a row of
+their own under the bar's controls, whole, and wrap only inside that row.
+
 Beneath the bar the body splits. The left slot takes the remaining width, and the right slot is
 resizable, with a 6px drag grip on its left edge. A click closes a slot and a shift-click moves
 an anchor; see **Slot** and **Anchor** in `CONTEXT.md`. Tabs starts on the right and the three main views start on the left, so the opening layout
