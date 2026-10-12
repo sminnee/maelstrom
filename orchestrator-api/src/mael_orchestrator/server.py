@@ -14,7 +14,7 @@ import inspect
 import logging
 import os
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from concurrent.futures import Executor
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +33,14 @@ from mael_common.util import now_iso
 from mael_domain import comms as comms_model
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
 from mael_domain.attachments import attachment_urls
-from mael_domain.comm_store import CommStore, InMemoryCommStore
+from mael_domain.comm_store import Comm as DomainComm
+from mael_domain.comm_store import (
+    CommStore,
+    CommUpdate,
+    CommUpdateStore,
+    InMemoryCommStore,
+    InMemoryCommUpdateStore,
+)
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.feedback import (
@@ -45,6 +52,7 @@ from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.landing import Landings
+from mael_domain.landing_store import StepEvent
 from mael_domain.list_all import project_repo_url
 from mael_domain.normalise import (
     DRAFT_KIND,
@@ -68,6 +76,7 @@ from mael_domain.operation_store import (
 from mael_domain.protocol import (
     HOST_ID,
     Agent,
+    Comm,
     Document,
     Host,
     HostUsage,
@@ -138,10 +147,10 @@ from .world_build import (
     agent_entity,
     attached_document_entity,
     comm_entity,
-    comm_task_ids,
     diff_kind,
     host_usage,
     link_agent,
+    linked_tasks,
     parse_agent_state,
     row_totals,
     split_task_key,
@@ -393,6 +402,7 @@ class Orchestrator:
         task_attachments: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
         comms: CommStore | None = None,
+        comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
@@ -431,6 +441,17 @@ class Orchestrator:
         self.landings = landings if landings is not None else Landings()
         #: The comms — see ``CONTEXT.md``, "Comm". Polled on the task tick.
         self.comms = comms if comms is not None else InMemoryCommStore()
+        #: Each comm's updates — see ``CONTEXT.md``, "Comm update". The server
+        #: is their one writer.
+        self.comm_updates = (
+            comm_updates if comm_updates is not None else InMemoryCommUpdateStore()
+        )
+        #: The comm rows, every task step and every comm update, held so
+        #: ``_apply`` can derive a comm without a read. See
+        #: ``docs/dev/orchestrator-server.md``, "Comm updates".
+        self._comm_rows: dict[str, DomainComm] = {}
+        self._steps: list[StepEvent] = []
+        self._comm_update_rows: dict[str, CommUpdate] = {}
         #: The comm store revision the last comm read reached, or ``None``
         #: before the first whole read.
         self._comm_cursor: int | None = None
@@ -763,7 +784,7 @@ class Orchestrator:
             return
         touched = self._comms_touched(events)
         self.state.apply(events)
-        relinked = self._relinked_comms(touched)
+        relinked = self._rederived_comms(touched)
         if relinked:
             self.state.apply(relinked)
             events = [*events, *relinked]
@@ -796,20 +817,28 @@ class Orchestrator:
                 touched.update(tasks[event["id"]]["comms"])
         return touched
 
-    def _relinked_comms(self, touched: set[str]) -> list[ServerEvent]:
-        """An upsert for each touched comm whose ``taskIds`` moved.
+    def _comm_entity(self, comm: DomainComm) -> Comm:
+        return comm_entity(
+            comm,
+            self.world["tasks"],
+            self._steps,
+            list(self._comm_update_rows.values()),
+        )
 
-        A link is a task field, so the comm's own row did not change: its
-        ``taskIds`` are derived again from the tasks the world now holds.
+    def _rederived_comms(self, comm_ids: Iterable[str]) -> list[ServerEvent]:
+        """An upsert for each named comm whose derived fields moved.
+
+        A link is a task field, a step is a landing row, and an update is its
+        own row, so the comm's own row did not change: its ``taskIds``,
+        ``queued`` and ``updates`` are derived again from what the server holds.
         """
         events: list[ServerEvent] = []
-        for comm_id in sorted(touched):
-            comm = self.world["comms"].get(comm_id)
-            if comm is None:
+        for comm_id in sorted(set(comm_ids)):
+            comm = self._comm_rows.get(comm_id)
+            if comm is None or comm_id not in self.world["comms"]:
                 continue
-            task_ids = comm_task_ids(self.world["tasks"], comm_id)
-            if task_ids != comm["taskIds"]:
-                entity = {**comm, "taskIds": task_ids}
+            entity = self._comm_entity(comm)
+            if entity != self.world["comms"][comm_id]:
                 events.append({"type": "upsert", "kind": "comm", "entity": entity})
         return events
 
@@ -935,15 +964,21 @@ class Orchestrator:
     async def refresh_comms(self, *, force: bool = False) -> None:
         """Re-read the comms that moved, and publish them.
 
-        The first read, and a forced one, read every comm. After that the poll
-        reads only the rows written since the cursor, so a comm written by
-        ``mael comms`` reaches the tab on the next tick.
+        The first read, and a forced one, read every comm, step and update.
+        After that the poll reads only the comm rows written since the cursor,
+        so a comm written by ``mael comms`` reaches the tab on the next tick.
         """
         if force or self._comm_cursor is None:
             comms = await self.comms.list()
             revision = await self.comms.revision()
-            tasks = self.world["tasks"]
-            new = {c.id: comm_entity(c, comm_task_ids(tasks, c.id)) for c in comms}
+            steps = await self.landings.steps.list()
+            updates = await self.comm_updates.list()
+            # Assigned together after the last await, so a write held while
+            # the reads ran is not thrown away with the old containers.
+            self._steps = steps
+            self._comm_update_rows = {u.id: u for u in updates}
+            self._comm_rows = {c.id: c for c in comms}
+            new = {c.id: self._comm_entity(c) for c in comms}
             self._comm_cursor = revision
             self._apply(diff_kind("comm", self.world["comms"], new))
             return
@@ -952,10 +987,31 @@ class Orchestrator:
         known = self.world["comms"]
         events: list[ServerEvent] = []
         for comm in changes.comms:
-            entity = comm_entity(comm, comm_task_ids(self.world["tasks"], comm.id))
+            self._comm_rows[comm.id] = comm
+            entity = self._comm_entity(comm)
             if known.get(comm.id) != entity:
                 events.append({"type": "upsert", "kind": "comm", "entity": entity})
         self._apply(events)
+
+    def _hold_steps(self, steps: list[StepEvent]) -> None:
+        """Hold the steps a landing sync wrote, and publish the comms they queue in."""
+        if not steps:
+            return
+        self._steps.extend(steps)
+        tasks = self.world["tasks"]
+        comm_ids = {
+            comm_id
+            for e in steps
+            for comm_id in tasks.get(wire_task_key(e.project, e.task_id), {}).get(
+                "comms", []
+            )
+        }
+        self._apply(self._rederived_comms(comm_ids))
+
+    async def _reload_steps(self) -> None:
+        """Read every step again, and publish each comm whose queue moved."""
+        self._steps = await self.landings.steps.list()
+        self._apply(self._rederived_comms(self._comm_rows))
 
     async def _refresh_landings(self) -> None:
         """Push each done tracked task whose landing moved in the sync.
@@ -1020,13 +1076,17 @@ class Orchestrator:
             rate_limited = getattr(self.worktrees, "rate_limited", False)
             if not rate_limited:
                 try:
-                    await self.landings.sync(self.clock())
+                    written = await self.landings.sync(self.clock())
                 except RateLimited:
                     rate_limited = True
                 except Exception:
                     # A landing is not worth failing the worktree read over.
                     log.exception("the landing sync failed")
+                    # It may have written steps before it failed, and the next
+                    # sync does not return them again.
+                    await self._reload_steps()
                 else:
+                    self._hold_steps(written)
                     await self._refresh_landings()
         if rate_limited:
             self._stand_off_until = (
@@ -1890,6 +1950,8 @@ class Orchestrator:
             "task.create": self._create_task,
             "comm.create": self._create_comm,
             "comm.update": self._update_comm,
+            "comm.draftUpdates": self._draft_comm_updates,
+            "comm.updateUpdate": self._update_comm_update,
             "linear.plan": self._operate,
             "agent.start": self._operate,
             "document.approve": self._approve_document,
@@ -3103,6 +3165,40 @@ class Orchestrator:
             await comms_model.reopen(self.comms, comm_id)
         await self.refresh_comms()
         return {"ok": True, "result": {}}
+
+    async def _draft_comm_updates(self, command: dict[str, Any]) -> dict[str, Any]:
+        """**Draft updates**: a new update for each open comm with a queue."""
+        made = await comms_model.draft_updates(
+            self.comms,
+            self.comm_updates,
+            self.landings.steps,
+            linked_tasks(self.world["tasks"]),
+            self.clock(),
+        )
+        self._kept_updates(made)
+        return {"ok": True, "result": {"ids": [u.id for u in made]}}
+
+    async def _update_comm_update(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Edit a draft's content; ``sent`` marks it sent."""
+        update_id = command["updateId"]
+        fields = command["fields"]
+        if fields.get("content") is not None:
+            update = await comms_model.edit_update(
+                self.comm_updates, update_id, fields["content"]
+            )
+            self._kept_updates([update])
+        if fields.get("sent") is True:
+            update = await comms_model.send_update(
+                self.comm_updates, update_id, self.clock()
+            )
+            self._kept_updates([update])
+        return {"ok": True, "result": {}}
+
+    def _kept_updates(self, updates: list[CommUpdate]) -> None:
+        """Hold the updates just written, and publish their comms."""
+        for update in updates:
+            self._comm_update_rows[update.id] = update
+        self._apply(self._rederived_comms(u.comm_id for u in updates))
 
     async def _write_task(
         self, write: Callable[..., Any], task_id: str, *args: Any

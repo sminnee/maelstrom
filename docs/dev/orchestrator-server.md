@@ -658,6 +658,28 @@ A comm's `category` and `project` are plain fields of `comm.create` and `comm.up
 is `""` or a project the world holds. The **Default project** of a category is derived in the
 client, in `selectors/comms.ts`, which mirrors `comms.default_project`.
 
+#### Comm updates
+
+A comm also carries `queued` and `updates`, and neither is a comm row. `queued` is the comm's
+queue (see **Comm update**), and `comms.queue` derives it. `updates` are the comm's rows in
+the canonical `comm_updates` table.
+
+`_apply` cannot await a read, but it derives a comm again when a task link moves. So the server
+keeps three things in memory beside the world's tasks: the comm rows, every task step, and every
+comm update. The first comm read loads all three. After that the server keeps them current
+itself, because it is the one writer of steps and updates:
+
+| Write | What the server does |
+| --- | --- |
+| A landing sync records steps | Adds them, then publishes the comms of their tasks |
+| A landing sync fails | Reads every step again, because it may have written some before it failed |
+| **Draft updates** (`comm.draftUpdates`) | Adds the updates `comms.draft_updates` wrote, then publishes their comms |
+| An edit or Mark sent (`comm.updateUpdate`) | Replaces the update, then publishes its comm |
+
+So `queued` moves on the worktree poll that records a step, not on a later comm poll.
+`comm.updateUpdate` takes `content`, `sent: true`, or both. With both, one call saves the
+content and marks the update sent. A sent update refuses either field with `invalid`.
+
 ### Agents
 
 On start the server lists the host's agents and attaches to every one. A new id in a later `list`
@@ -1073,7 +1095,7 @@ without waiting for the poll.
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
-| `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, taskIds}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
+| `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, category, project, taskIds, queued, updates}`. A queued item is `{taskId, step}`; an update is `{id, commId, createdAt, items, content, state, sentAt}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
 | `GET /api/comms/{id}` | The `Comm` |
 | `GET /api/agents` | `{agents: [Agent]}` |
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
@@ -1279,6 +1301,8 @@ check being missing, both answer 400 `invalid`.
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
+| `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |
+| `PATCH /api/comms/{id}/updates/{uid}` | any of `{content, sent: true}` | `comm.updateUpdate` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
 | `POST /api/desk/{deskId}/dismiss` | `{chain, worktreeId?}` | `desk.dismiss` | `202 {operationId}` |
