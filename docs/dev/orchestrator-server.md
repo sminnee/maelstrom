@@ -782,11 +782,22 @@ still finds it.
 
 ## Launch
 
-`agent.launch` reuses the model steps `mael task run` takes, from `task_launch.py`: the same
-session id, environment, permission mode, branch and prompt, and the same two refusals — a live
-session already holds the task, or the worktree's rebase failed. `NotebookTaskSource.launch`
-runs them, then hands the host a `start`. Neither refusal runs on the loop: the live-session sweep
-is awaited, and the worktree opens on the worktree pool.
+`agent.launch` runs as a `launch` **Operation** of three steps. It reuses the model steps `mael
+task run` takes, from `task_launch.py`: the same session id, environment, permission mode, branch
+and prompt, and the same two refusals — a live session already holds the task, or the worktree's
+rebase failed.
+
+| Step | What it does |
+|---|---|
+| `open_worktree` | `NotebookTaskSource.prepare_launch`: load, plan and check the task, open its worktree, and move it in-progress. The operation learns its `worktreeId` here. |
+| `write_env` | `NotebookTaskSource.write_env`: rebuild the worktree's `.env`, as `mael task run` does. A created worktree's `.env` is fresh, so the step says `.env unchanged.` |
+| `start_agent` | `NotebookTaskSource.finish_launch` builds the `start`; the host starts the agent. The task joins the desk, the agent is adopted, and the operation learns its `agentId`. |
+
+A refusal of either check, or a host refusal of the `start`, ends the operation `refused`. Any
+other error ends it `failed`. Either way, once the task has moved, the task goes back to the
+status it had. The task's desk id is the operation's busy key, so a second launch of a task in
+flight is refused with the running one's id. Nothing in the launch runs on the loop: the
+live-session sweep is awaited, and the worktree opens on the worktree pool.
 
 The server opens one worktree per project at a time, for a launch and a free agent alike.
 `create_worktree` picks a NATO name and adds the worktree with no scope held, so two opens in one
@@ -795,10 +806,6 @@ project could pick the same name.
 A task that has already run owns its session id, and claiming that id again is refused. So the
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
 `resume` on the `start` when it does. That is the same switch `mael task run` makes for a pane.
-
-A start the host refuses rolls the task back to the status it had. A second launch of a task
-still in flight is refused. A launched task also joins the desk, so the node the user just
-started is drawn on the canvas.
 
 A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
 does not. The canvas draws running work whether or not the desk names it, so the entry is not
@@ -814,7 +821,8 @@ after the first agent read.
 
 ## Creating work
 
-Four commands write new work.
+Four commands write new work. Three of them run as operations whose steps end with the launch
+steps above (`open_worktree`, `write_env`, `start_agent`) when they launch.
 
 - **`task.infer`** names a task from its prose, through `infer_task_names` in
   `task_metadata_generator.py`. It makes one HTTP call to OpenAI's `gpt-6-luna` and falls back to
@@ -822,32 +830,45 @@ Four commands write new work.
   blocks for up to 30 seconds — two 15-second attempts — so it runs on the executor and the UI
   shows a wait.
   `mode` comes from the inferred command through `task.mode_for_command`. Inference writes
-  nothing.
-- **`task.create`** writes the task the user edited. It is a separate call so the UI can show the
-  inferred fields first. An explicit branch makes `model.create` skip generation, so no second
-  model call runs behind the user's edit. With `launch` set it runs the launch path
-  unchanged, as `mael task add --run` does. A launch that fails leaves the task written and on
-  the desk, so the refusal names it — without that the client cannot tell the case from "nothing
-  was written", and a retry writes the task twice.
-- **`linear.plan`** plans a Linear issue: the equivalent of `mael linear plan`.
-  `linear_source.plan_fields` fetches the issue and returns the task fields the CLI would write,
-  through `integrations.linear.build_plan_task` — the CLI command calls the same function, so the
-  two cannot drift. The branch comes from `task.infer` over the same brief, not from
-  `build_plan_task`'s own generation, so the server spends one model call instead of two.
-  The fields then go through `task.create`, which files the task and launches it. `parent` and
-  `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so they reach the
-  notebook through `create`'s `extra` argument — the server's own to set, never a client's.
-- **`agent.start`** starts an agent tied to no task. `TaskSource.worktree_for` opens the branch's
-  worktree through the same collaborator a launch uses, so a branch with no worktree gets one
-  provisioned. The `start` payload carries no `session` and no `env`: the host mints its own
-  session id, and nothing exports `MAEL_TASK_*`. Those two absences are the whole definition of
-  a free agent.
+  nothing. It is the UI's Suggest, and it is not an operation.
+- **`task.create`** writes the task before it answers, so the reply carries the `taskId` and the
+  desk entry exists at once. An empty title is written as the prose's first line, cut to 60
+  characters. An empty branch is written as `task/<id>`, with `generate_branch=False`, so no model
+  call runs before the reply. When a name is empty or `launch` is set, a `create` operation runs
+  on:
+
+  | Step | When | What it does |
+  |---|---|---|
+  | `name_task` | a title or branch was empty | `task.infer` over the prose; writes only the fields the user left empty |
+  | the launch steps | `launch` | as **Launch** |
+
+  With every name typed and no launch there is no operation, and the reply is `200 {taskId}`.
+- **`linear.plan`** plans a Linear issue: the equivalent of `mael linear plan`. It runs as a
+  `plan` operation:
+
+  | Step | What it does |
+  |---|---|
+  | `read_issue` | `linear_source.plan_fields` fetches the issue and returns the fields the CLI would write, through `integrations.linear.build_plan_task`. A missing key or an unreachable API ends the operation `refused`. |
+  | `name_task` | `task.infer` over the brief names the branch, so the server spends one model call instead of two. |
+  | `write_task` | writes and files the task. The operation learns its `taskId`, and keeps it on the stored command, so a retry does not write the task twice. |
+  | the launch steps | with `launch`, as **Launch** |
+
+  `parent` and `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so
+  they reach the notebook through `create`'s `extra` argument — the server's own to set, never a
+  client's.
+- **`agent.start`** starts an agent tied to no task, as a `start` operation: `name_branch` when
+  the branch is empty, then `open_worktree`, `write_env` and `start_agent`.
+  `TaskSource.worktree_for` opens the branch's worktree through the same collaborator a launch
+  uses, so a branch with no worktree gets one provisioned. The `start` payload carries no
+  `session` and no `env`: the host mints its own session id, and nothing exports `MAEL_TASK_*`.
+  Those two absences are the whole definition of a free agent. The operation learns its
+  `agentId` at `start_agent`.
 
   `investigate: true` starts an investigation. The payload names `investigation_prompt_file()`
   in place of `agent_prompt_file()`: one file that holds the markers and the no-code rules,
   because the daemon takes one file. `validate.py` refuses `investigate` with `mode: "plan"`.
-  When a shared prompt file is missing, the server refuses the start before it opens the
-  worktree: without its rules an investigation is an ordinary free agent.
+  When a shared prompt file is missing, the server refuses the start before the operation
+  begins: without its rules an investigation is an ordinary free agent.
 
 Not built: the opencode harness, and the cmux placement the CLI does.
 
@@ -937,7 +958,8 @@ leaves a dead link until the next read; cmux ignores it.
 ## Operations
 
 Close, Shelve, Trash, Delete, Sync, Merge and Environment run as **Operations**
-(`mael_orchestrator/operations.py`). The route validates the command, starts the work as an
+(`mael_orchestrator/operations.py`), and so do **Dismiss**, Terminate, Resume and the launch
+kinds — see "Launch" and "Creating work". The route validates the command, starts the work as an
 asyncio task, and answers `202` with `{operationId}` at once. Progress reaches the client as
 `operation` change notices. The UI never waits on the HTTP call.
 
@@ -967,8 +989,32 @@ words. Any other exception ends it `failed`, with words such as `Could not close
 <error>`. Otherwise it ends `done`. The world is refreshed before the end is published, so a
 client that sees the end reads a world that holds the change.
 
-**One at a time per worktree.** A second operation on a worktree that runs one is refused
-`invalid`. The error carries `operationId`, the id of the running one.
+**Busy keys.** An `OperationPlan` holds `keys`: `worktree:<id>`, `task:<id>`, `agent:<id>`, and a
+few of their own, such as `linear:<project>/<issue>`. The task and agent keys are their desk ids.
+A second operation that wants a key a running one holds is refused `invalid`. The error carries
+`operationId`, the id of the running one. A Dismiss holds its desk id and its worktree, so a
+Dismiss and a plain close of one worktree cannot run at once.
+
+**What it acts on.** The entity carries `project`, `worktreeId`, `taskId` and `agentId`. A launch
+knows no worktree, and a free agent's start no agent, until a step opens or starts it. The step
+names it through `OperationHook.target`, which sets the field on the entity.
+
+**Composed steps.** A Dismiss of a worktree chain runs the worktree's own sequence, then its own
+`off_desk` step. The plan names `off_desk` at the start. `ChainHook` wraps the operation's hook:
+when the inner sequence names its steps, they go in front of `off_desk`. The server's own steps —
+`stop_agent`, `off_desk`, `open_worktree` and the rest — are async `worktree_steps.Step`s that
+close over the `Orchestrator`, and one `run_sequence` runs them.
+
+| Dismiss chain | Steps |
+|---|---|
+| `terminate` | `stop_agent`, `off_desk` |
+| `close`, `shelve`, `trash`, `delete` | the worktree command's own steps, then `off_desk` |
+
+A worktree chain sends no stop of its own: the teardown stops every agent in the worktree. A
+refusal of the worktree end — a close on a dirty tree or unmerged commits, a trash on a stacked
+branch or an existing `trash/<branch>` — ends the operation before `off_desk`, so the node stays
+on the desk. `off_desk` says `Not on the desk.` when the unit has no entry: a live node draws
+without one.
 
 **The record.** `OperationRecord` holds the entity, its log lines by step, and the command. The
 `operations` table in the state database keeps the newest 500, by id (`op<n>`). Each change is
@@ -982,7 +1028,9 @@ runs and leaves its rows `running`, so the next start finds them.
 **Retry.** `POST /api/operations/{id}/retry` takes a `refused` or `failed` operation and runs its
 stored command again under the same id. Each step that is `done` is skipped, so the run starts
 from the first step that did not finish. Running the whole chain again would stop an agent that
-the user resumed meanwhile. The command is validated against the world as it is now, as a new
+the user resumed meanwhile. A step that holds what it learned in memory runs again though it is
+done (`OperationPlan.replay`): the launch steps, and a Linear plan's `read_issue` and
+`name_task`. The command is validated against the world as it is now, as a new
 command would be.
 
 **Seen.** An operation that ended badly has `seen: false` until `POST /api/operations/{id}/seen`.
@@ -1219,13 +1267,13 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/say` | `{text, attachments?}` | `agent.say` | `{}` |
 | `POST /api/agents/{id}/set-mode` | `{mode}` | `agent.setMode` | `{}` |
 | `POST /api/agents/{id}/interrupt` | | `agent.interrupt` | `{}` |
-| `POST /api/agents/{id}/stop` | | `agent.stop` | `{}` |
-| `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `{}` |
-| `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `{agentId}` |
+| `POST /api/agents/{id}/stop` | | `agent.stop` | `202 {operationId}` |
+| `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
+| `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `202 {operationId}` |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
-| `POST /api/tasks` | `{project, title, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `{taskId, agentId?}` |
-| `POST /api/agents` | `{project, branch, prompt, mode, model?}` | `agent.start` | `{agentId}` |
-| `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `{taskId, agentId?}` |
+| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
+| `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
+| `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
@@ -1233,6 +1281,7 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
 | `DELETE /api/desk/{deskId}` | the desk id, URL-encoded | `desk.remove` | `{}` |
+| `POST /api/desk/{deskId}/dismiss` | `{chain, worktreeId?}` | `desk.dismiss` | `202 {operationId}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `202 {operationId}` |

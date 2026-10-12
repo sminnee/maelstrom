@@ -154,8 +154,9 @@ with the result, or rejects with an `ApiError` carrying the code. On success the
 invalidates the keys the command touched; the change notice invalidates them again a moment
 later, so the screen is right while the stream reconnects too. `useCreateWorktreeTerminal` is
 the exception: it writes its reply into the cached worktree, so its control turns into a link
-before the notice arrives. The launch call waits two minutes: the server opens the worktree
-first.
+before the notice arrives. A command that starts an **Operation** answers `202` at once. A hook
+that must show the wait, such as Terminate or a worktree close, waits on the operation through
+`runOperation`. The launch hooks resolve on the `202`: the board and the console carry the rest.
 
 Every control that sends a command is an `AppButton` (`ui/AppButton.tsx`), and the button owns
 what happens next. A handler that returns a promise puts the button in `processing`: disabled,
@@ -417,15 +418,21 @@ The task list lists tasks only. Every node card ends its commands with one end-o
 | Live agent | Terminate · …and take off desk · …and close `<nato>` · …shelving the branch · …or trashing the branch · …or ignoring the branch |
 | No live agent | Off desk · …and close `<nato>` · …shelving the branch · …or trashing the branch · …or ignoring the branch |
 
-Each item after the first continues the item above it, so the menu reads as one chain. The four
-worktree items are the close control's four options:
+Each item after the first continues the item above it, so the menu reads as one chain. Each
+chained item runs one Dismiss chain:
 
-| Item | Runs |
+| Item | Dismiss chain |
 |---|---|
-| …and close `<nato>` | `worktree.close`, then Off desk |
-| …shelving the branch | `worktree.forceClose` (Shelve), then Off desk |
-| …or trashing the branch | `worktree.trash`, then Off desk |
-| …or ignoring the branch | `worktree.remove` (**Remove**), then Off desk |
+| …and take off desk | `terminate`: stop the agent, then Off desk |
+| …and close `<nato>` | `close`: the worktree close, then Off desk |
+| …shelving the branch | `shelve`: the forced close (Shelve), then Off desk |
+| …or trashing the branch | `trash`: the trash, then Off desk |
+| …or ignoring the branch | `delete`: the **Remove**, then Off desk |
+
+Each of these items is one `POST /api/desk/{deskId}/dismiss`, with the chain and, for a
+worktree chain, the worktree id. The server runs the chain as one `dismiss` operation, so a
+reload does not lose it partway. Terminate alone is `agent.stop`, and Off desk alone is the plain
+`DELETE /api/desk/{deskId}`.
 
 Dismiss runs one item of the menu. It closes the worktree only when the worktree can close and no
 other top-level agent runs in it:
@@ -463,13 +470,9 @@ work. `worktrees/closeConfirms.ts` holds the questions, and the close control as
 Only the confirming answer sends anything. A `SplitOption` with `confirm` draws the question, in the
 style of `ui/ConfirmButton.tsx`, and holds both segments while it is open.
 
-A chain with a worktree item sends that command first and no stop, because the server stops
-every agent in the worktree. That command is also the step that can refuse: a close on a dirty
-tree or unmerged commits, a trash on a stacked branch or an existing `trash/<branch>`. Sent
-first, a refusal leaves the node on the desk, and the control shows the reason in its title. A
-live node can draw with no desk entry, so a chain skips Off desk when there is none to take.
-"…and take off desk" sends the stop first: `agent.stop` records the exit before it
-replies, so the node can go off the desk at once.
+A refused Dismiss leaves the node on the desk, and the control shows the reason in its title —
+see "Operations" in [the orchestrator server](orchestrator-server.md). The card then offers
+Shelve, Trash and Delete as Dismiss chains, so each still ends off the desk.
 
 The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
 desk also closes the session tab. The agent's document tabs stay open.
@@ -518,10 +521,12 @@ A Stop button at the right of that group sends `agent.interrupt` — see `CONTEX
 agent's button is disabled, and its title sends the user to the ask, because an interrupt would
 deny that ask and the route's reply would not say so. A question prompt offers that interrupt
 itself, as **Decline & stop**, where the label says what it does to the ask. An exited agent's title says it has gone.
-The node card's Terminate is the other act: it sends `agent.stop`.
+The node card's Terminate is the other act: it sends `agent.stop`, which runs as a `terminate`
+operation.
 Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
-one.
+one. It runs as a `resume` operation. `useStop` and `useResume` wait on their operation, so the
+button shows the wait and a refusal's reason.
 
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
@@ -798,10 +803,22 @@ worktree box and its card, the worktree table row and the deck row — reads one
 
 - A **worktree unit** (box, table row, worktree card) takes any operation on its worktree.
 - A **node unit** takes an operation that names its task or its agent, and an ending kind
-  (close, shelve, trash, delete) on its worktree. A sync does not mark a node, so it never hides
+  (close, shelve, trash, delete, dismiss) on its worktree. A sync does not mark a node, so it never hides
   a working agent.
 - The pick is the running operation, else the newest **Unseen** one. A seen or done operation
   leaves the unit clean.
+- An **Opening node** is its operation's unit: it has no task or agent to be found by.
+
+Operations also change what the board draws, in `deriveGraph`:
+
+| Case | Operation | What draws |
+|---|---|---|
+| Mid-delete | A running `dismiss` | The node it names keeps drawing after its agent stops and its desk entry goes, until the operation ends. Its zone does not move: a stopped agent stays in running. |
+| Mid-create | A running `launch`, `create` or `plan` with a `start_agent` step | The task node draws in the running zone, its final cell, before its agent exists. |
+| Opening node | A `start` or `plan`, running or **Unseen** | A node `op:<operationId>` in the operation's project lane, until its `agentId` or `taskId` names a node that draws. Its zone is running, or not started for a plan that does not launch. |
+
+The opening node's card shows the operation's words, its step meter and a Log link to the
+**Console**.
 
 The surface sets `data-operation` to the operation's state. The hatch in `styles/base.css` is
 keyed on that attribute.
@@ -1096,13 +1113,13 @@ moves. The form is one step: everything the work needs is on one surface.
 - **"Suggest"**, beside Branch, calls `useInferTask`. On a task it fills the title and branch from
   the reply; on a free agent, the branch only. It never changes the planning level or the mode:
   the user picks those, so the UI does not read the reply's command and mode. It is a button
-  rather than a gate: a submit names empty fields itself, so Suggest is for seeing the names
-  first. It is an `AppButton`, so its wait shows on the control that started it — see "Commands
+  rather than a gate: the server names the fields a submit left empty, so Suggest is for seeing
+  the names first. It is an `AppButton`, so its wait shows on the control that started it — see "Commands
   are mutations". See "Naming a task from its prose" below.
 - **A free agent** names a branch, a mode, a model and an execute model instead. The branch
   combobox offers the branches of open worktrees in the chosen project and keeps anything else
-  typed, so a branch with no worktree gets one provisioned. The branch may stay empty: Start then
-  names it from the prose. Mode and model start on `plan` — a
+  typed, so a branch with no worktree gets one provisioned. The branch may stay empty: the
+  server's `name_branch` step then names it from the prose. Mode and model start on `plan` — a
   new task's own default — and `opus`, the UI's shortlist default. Model and Execute Model sit
   side by side, the same as a task's Advanced row — defaulting the same way too, though a free
   agent has no plan to default "same as" from. "Start" runs `useStartAgent`.
@@ -1157,14 +1174,10 @@ pair no level stands for reads as N/A — see `newwork/PlanningLevelField.tsx`.
 ### Naming a task from its prose
 
 A task needs a title and a branch, and the prose field is the only one the user must fill in. So
-Save and Start first call `useInferTask` when the title or the branch is empty. A free agent's
-Start does the same when its branch is empty. Each empty field takes the reply's value; a typed
-value always wins.
+Save and Start send an empty title or branch as it is, and the server names it. A typed value
+always wins.
 
-The submit's inference is its own mutation, apart from Suggest's. So its wait shows as the footer
-spinner, and Suggest never shows a wait it did not start.
-
-The server's **Task metadata generator** does the naming — see `task.infer` in
+The server's **Task metadata generator** does the naming — see "Creating work" in
 [the orchestrator server](orchestrator-server.md). With no key the branch is a slug of the first
 line, and prose in a non-Latin script slugs to nothing, so it falls back to `feat/task`.
 
@@ -1212,11 +1225,16 @@ Where `CSS.supports` reports no anchor positioning (iOS Safari before 26, Firefo
 `useComboBoxOffer` writes `top`, `left` and `min-width` from the field's rect, then corrects `top`
 by where the offer is drawn. Its `placeByHand` docstring gives the reason.
 
-Inference, a launch and a Linear read can each take tens of seconds, so every one of these hooks
-takes `SLOW_CALL_TIMEOUT_MS`. A refusal shows in the form, which stays open holding what was
-typed — the one place besides the task list's status select where a view keeps an error of its
-own, because a dialog outlives the button's three-second window. A create whose launch failed
-says so and stops offering to write the task again.
+A submit closes the dialog as soon as the server answers. The node draws hatched in its cell
+while the operation runs. The slow work —
+naming, opening the worktree, starting the agent — runs on as an operation, so a launch failure
+is an operation state on the node, not an error in the form. Suggest's inference can take tens of
+seconds, so `useInferTask` takes `SLOW_CALL_TIMEOUT_MS`.
+
+A synchronous refusal, such as a validation error or a busy operation, shows in the form. The
+form stays open holding what was typed — the one place besides the task list's status select
+where a view keeps an error of its own, because a dialog outlives the button's three-second
+window.
 
 ## Attaching an image
 
