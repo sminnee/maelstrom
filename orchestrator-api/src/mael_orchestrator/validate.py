@@ -113,6 +113,16 @@ NEEDS_OPEN_COMMANDS = (
 #: an agent to tell, and ``agents_in_worktree`` names the same ones for all.
 RELAY_COMMANDS = ("worktree.comment", "worktree.feedback")
 
+#: What a **Dismiss** runs before the node leaves the desk: the agent's stop,
+#: or the worktree command that ends its worktree.
+DISMISS_CHAINS: dict[str, str | None] = {
+    "terminate": None,
+    "close": "worktree.close",
+    "shelve": "worktree.forceClose",
+    "trash": "worktree.trash",
+    "delete": "worktree.remove",
+}
+
 #: The kinds of **Feedback** the server can build a message from.
 FEEDBACK_TYPES = ("monkeypatch",)
 
@@ -285,6 +295,40 @@ def agents_in_worktree(world: World, worktree_id: str) -> list[Agent]:
         and not agent["parent"]
         and agent["state"] != "exited"
     ]
+
+
+def live_agent_of(world: World, desk_id: str) -> Agent | None:
+    """The running top-level agent a desk unit stands for, if it has one."""
+    entity_kind, entity_id = split_desk_id(desk_id)
+    for agent in world["agents"].values():
+        if agent["state"] == "exited" or agent.get("parent"):
+            continue
+        if (entity_kind == "agent" and agent["id"] == entity_id) or (
+            entity_kind == "task" and agent["taskId"] == entity_id
+        ):
+            return agent
+    return None
+
+
+def _dismiss_error(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
+    """Whether the world can take a **Dismiss** of one desk unit."""
+    desk_id = cmd.get("id", "")
+    try:
+        entity_kind, entity_id = split_desk_id(desk_id)
+    except ValueError:
+        return _err("unknown_id", f"Not a desk id: {desk_id}")
+    table = "tasks" if entity_kind == "task" else "agents"
+    if entity_id not in world[table]:
+        return _err("unknown_id", f"No {entity_kind} {entity_id}")
+    chain = cmd.get("chain", "")
+    if chain not in DISMISS_CHAINS:
+        return _err("invalid", f"Unknown dismiss chain: {chain}")
+    ending = DISMISS_CHAINS[chain]
+    if ending is None:
+        if live_agent_of(world, desk_id) is None:
+            return _err("agent_exited", f"No agent is running for {desk_id}")
+        return None
+    return _worktree_error(world, ending, cmd)
 
 
 def _is_change_comment(comment: Any) -> bool:
@@ -503,6 +547,9 @@ def validate_command(
         if entity_id not in world[table]:
             return _err("unknown_id", f"No {entity_kind} {entity_id}")
         return None
+
+    if kind == "desk.dismiss":
+        return _dismiss_error(world, cmd)
 
     if kind == "desk.remove":
         desk_id = cmd.get("id", "")

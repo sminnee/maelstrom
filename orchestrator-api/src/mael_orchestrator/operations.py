@@ -51,6 +51,9 @@ class OperationPlan:
     work: Callable[["OperationHook"], Awaitable[None]]
     refresh: Callable[[], Awaitable[None]]
     project: str = ""
+    #: The steps named at the start. A worktree operation names none: its
+    #: sequence names its own as it starts. See :class:`ChainHook`.
+    steps: tuple[str, ...] = ()
     #: What the operation acts on, as far as it is known at the start.
     worktree_id: str | None = None
     task_id: str | None = None
@@ -113,6 +116,26 @@ class OperationHook(StepHook):
             lambda op: model.end_step(op, end.name, end.state, end.words, now),
             lines=(end.name, list(end.lines)),
         )
+
+
+class ChainHook(OperationHook):
+    """The hook of an operation that runs a worktree sequence inside its own steps.
+
+    The plan names the operation's own steps, ``after``, at the start. When the
+    inner sequence names its steps, they are put in front of them. A sequence
+    of the operation's own steps names no new step, so its plan is the one
+    already made. A done step keeps its state, because
+    :func:`mael_domain.operations.plan` matches on name.
+    """
+
+    def __init__(self, hook: OperationHook, after: list[str]):
+        super().__init__(hook._runner, hook._id, hook._skip)
+        self._after = after
+
+    def planned(self, names: list[str]) -> None:
+        if set(names) <= set(self._after):
+            return
+        super().planned([*names, *self._after])
 
 
 class OperationRunner:
@@ -188,6 +211,8 @@ class OperationRunner:
                 task_id=plan.task_id,
                 agent_id=plan.agent_id,
             )
+            if plan.steps:
+                op = model.plan(op, list(plan.steps))
             record = OperationRecord(op, {}, command)
         else:
             op = model.restart(again.operation, plan.doing)

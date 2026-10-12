@@ -93,12 +93,19 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 from . import desk as desk_model
 from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
-from .desk import DeskTable, desk_id_for_agent, desk_id_for_task
+from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
 from .notices import notices_for
-from .operations import Busy, OperationPlan, OperationRunner, worktree_key
+from .operations import (
+    Busy,
+    ChainHook,
+    OperationHook,
+    OperationPlan,
+    OperationRunner,
+    worktree_key,
+)
 from .sources import (
     CloseBlocked,
     MergeWorktreePr,
@@ -113,9 +120,11 @@ from .transcript_log import (
     TranscriptSnapshot,
 )
 from .validate import (
+    DISMISS_CHAINS,
     WAIT_ITEM_FOR_STATE,
     agents_in_worktree,
     check_linear_project,
+    live_agent_of,
     validate_command,
 )
 from .world import WorldState
@@ -242,6 +251,13 @@ _ENV_WORDS = {
     "stop": ("Stopping", "Stopped"),
     "restart": ("Restarting", "Restarted"),
 }
+
+
+async def _run_own_steps(steps: list[Step], hook: StepHook) -> None:
+    """Run the server's own steps of an operation. A refusal ends it refused."""
+    ran = await run_sequence(steps, announce=lambda line: None, hook=hook)
+    if not ran.ok:
+        raise CloseBlocked(ran.blocked or "A step refused")
 
 
 async def _merge_as_a_step(
@@ -1821,6 +1837,7 @@ class Orchestrator:
             "agent.launch": self._launch,
             "desk.add": self._desk_add,
             "desk.remove": self._desk_remove,
+            "desk.dismiss": self._operate,
             "task.setStatus": self._set_status,
             "task.update": self._update_task,
             "task.delete": self._delete_task,
@@ -2455,7 +2472,102 @@ class Orchestrator:
         return {"ok": True, "result": {"operationId": operation_id}}
 
     def _plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
-        """What ``command`` runs as an operation, or the refusal when it cannot.
+        """What ``command`` runs as an operation, or the refusal when it cannot."""
+        if command["type"] == "desk.dismiss":
+            return self._dismiss_plan(command)
+        return self._worktree_plan(command)
+
+    def _unit_name(self, desk_id: str) -> str:
+        """What a person calls a desk unit: its task's title, or its agent's id."""
+        entity_kind, entity_id = split_desk_id(desk_id)
+        task = self.world["tasks"].get(entity_id) if entity_kind == "task" else None
+        return task["title"] if task else entity_id
+
+    def _dismiss_plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
+        """A **Dismiss**: the agent's stop or the worktree's end, then off the desk.
+
+        A worktree chain sends no stop of its own: the teardown stops the
+        agents. A refusal of the end leaves the node on the desk. Validation
+        proved the unit is in the world, and a terminate's agent is running.
+        """
+        desk_id = command["id"]
+        entity_kind, entity_id = split_desk_id(desk_id)
+        off_desk = Step(name="off_desk", run=functools.partial(self._off_desk, desk_id))
+        ending = DISMISS_CHAINS[command["chain"]]
+        hold = {desk_id}
+        agent_id = entity_id if entity_kind == "agent" else None
+        worktree_id: str | None = None
+        refresh: Callable[[], Awaitable[None]] = self.refresh_agents
+        if ending is None:
+            agent = live_agent_of(self.world, desk_id)
+            assert agent is not None  # validated
+            agent_id = agent["id"]
+            hold.add(desk_id_for_agent(agent_id))
+            steps = ["stop_agent", "off_desk"]
+            stop = Step(
+                name="stop_agent", run=functools.partial(self._stop_agent, agent_id)
+            )
+
+            async def work(hook: OperationHook) -> None:
+                await _run_own_steps([stop, off_desk], hook)
+
+        else:
+            worktree_id = command["worktreeId"]
+            inner = self._worktree_plan({"type": ending, "worktreeId": worktree_id})
+            if isinstance(inner, dict):
+                return inner
+            hold |= inner.keys
+            refresh = inner.refresh
+            steps = ["off_desk"]
+
+            async def work(hook: OperationHook) -> None:
+                chain = ChainHook(hook, ["off_desk"])
+                await inner.work(chain)
+                await _run_own_steps([off_desk], chain)
+
+        name = self._unit_name(desk_id)
+        return OperationPlan(
+            "dismiss",
+            frozenset(hold),
+            f"Dismissing {name}",
+            f"Dismissed {name}",
+            "Could not dismiss",
+            work,
+            refresh,
+            project=self._unit_project(desk_id),
+            steps=tuple(steps),
+            worktree_id=worktree_id,
+            task_id=entity_id if entity_kind == "task" else None,
+            agent_id=agent_id,
+        )
+
+    def _unit_project(self, desk_id: str) -> str:
+        """The project a desk unit belongs to."""
+        entity_kind, entity_id = split_desk_id(desk_id)
+        table = self.world["tasks"] if entity_kind == "task" else self.world["agents"]
+        entity = table.get(entity_id)
+        return str(entity.get("project") or "") if entity else ""
+
+    async def _stop_agent(self, agent_id: str) -> StepOutcome:
+        """End an agent's process. The step of a Terminate, and of its Dismiss."""
+        refused = await self._ask_host({"cmd": "stop", "id": agent_id})
+        if refused:
+            return StepOutcome(blocked=refused["error"]["message"])
+        # The host drops a stopped agent, so its stream ends without a marker
+        # and the next list no longer names it: this is its clean exit.
+        await self._exit(agent_id, 0)
+        return StepOutcome(messages=[f"Stopped {agent_id}."])
+
+    async def _off_desk(self, desk_id: str) -> StepOutcome:
+        """Take a unit off the desk. A live node draws with no entry, so there may be none."""
+        table = self.world["desk"]
+        if desk_id not in table:
+            return StepOutcome(messages=["Not on the desk."])
+        await self._set_desk(desk_model.remove(table, desk_id))
+        return StepOutcome(messages=["Taken off the desk."])
+
+    def _worktree_plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
+        """What a worktree command runs as an operation, or the refusal when it cannot.
 
         Validation proved the worktree is in the world, so its row is here.
         """

@@ -146,6 +146,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/files/{id}", _serve_file)
     app.router.add_post("/api/desk", _desk_add)
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
+    app.router.add_post("/api/desk/{desk_id:.+}/dismiss", _dismiss)
     app.router.add_post("/api/documents/{id}/approve", _approve_document)
     app.router.add_post("/api/documents/{id}/request-changes", _request_changes)
     for method, path in _NOT_IMPLEMENTED:
@@ -882,6 +883,21 @@ async def _desk_remove(request: web.Request) -> web.StreamResponse:
     # aiohttp has already decoded the match: a desk id arrives URL-encoded and lands plain.
     desk_id = request.match_info["desk_id"]
     return await _command(request, lambda body: {"type": "desk.remove", "id": desk_id})
+
+
+async def _dismiss(request: web.Request) -> web.StreamResponse:
+    """**Dismiss** a node: its chain runs as one operation, then it leaves the desk."""
+    desk_id = request.match_info["desk_id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "desk.dismiss",
+            "id": desk_id,
+            "chain": body.get("chain"),
+            **({"worktreeId": body["worktreeId"]} if "worktreeId" in body else {}),
+        },
+        status=202,
+    )
 
 
 # -- operations --
