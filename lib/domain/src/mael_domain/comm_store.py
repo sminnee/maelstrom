@@ -1,4 +1,4 @@
-"""Where comms are kept. See ``CONTEXT.md``, "Comm".
+"""Where comms and their updates are kept. See ``CONTEXT.md``, "Comm".
 
 :mod:`mael_domain.comms` decides what to write; this module only stores it.
 The tasks a comm links to are not here: each task names its comms.
@@ -15,6 +15,11 @@ from typing import Any
 from .state_db.db import StateDb
 
 COMMS = "comms"
+COMM_UPDATES = "comm_updates"
+
+#: The states of a **Comm update**. Content is edited only while a draft.
+DRAFT = "draft"
+SENT = "sent"
 
 
 @dataclass
@@ -35,6 +40,33 @@ class Comm:
     closed_at: str = ""
     category: str = ""
     project: str = ""
+
+
+@dataclass(frozen=True)
+class CommItem:
+    """One step a **Comm update** reports: a task reached ``step``."""
+
+    project: str
+    task_id: str
+    step: str
+
+
+@dataclass
+class CommUpdate:
+    """One **Comm update**. See ``CONTEXT.md``, "Comm update".
+
+    ``items`` are every step it reports, which is what keeps a step from
+    queueing twice. ``content`` is the text sent. ``sent_at`` is empty while
+    ``state`` is ``draft``.
+    """
+
+    id: str
+    comm_id: str
+    created_at: str = ""
+    items: list[CommItem] = field(default_factory=list)
+    content: str = ""
+    state: str = DRAFT
+    sent_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -169,6 +201,103 @@ class SqliteCommStore(CommStore):
         rows = await self._db.changed_since(COMMS, since)
         changed = sorted((_comm_from_row(r) for r in rows), key=lambda c: _number(c.id))
         return CommChanges(comms=changed, revision=await self._db.revision())
+
+
+def _update_order(id: str) -> tuple[int, int]:
+    """``c3.10`` sorts after ``c3.2``, and every update of ``c3`` before ``c10``'s."""
+    comm_id, n = id.rsplit(".", 1)
+    return _number(comm_id), int(n)
+
+
+class CommUpdateStore(ABC):
+    """Where comm updates are kept."""
+
+    @abstractmethod
+    async def read(self, id: str) -> CommUpdate | None:
+        """The stored update, or ``None``."""
+
+    @abstractmethod
+    async def for_comm(self, comm_id: str) -> list[CommUpdate]:
+        """One comm's updates, oldest first."""
+
+    @abstractmethod
+    async def list(self) -> list[CommUpdate]:
+        """Every update, in comm order and then oldest first."""
+
+    @abstractmethod
+    async def save(self, update: CommUpdate) -> None:
+        """Store ``update``, replacing the row with its id."""
+
+
+class InMemoryCommUpdateStore(CommUpdateStore):
+    """Comm updates for a test or a server with no state database."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, CommUpdate] = {}
+
+    async def read(self, id: str) -> CommUpdate | None:
+        found = self._rows.get(id)
+        return copy.deepcopy(found) if found else None
+
+    async def for_comm(self, comm_id: str) -> list[CommUpdate]:
+        return [u for u in await self.list() if u.comm_id == comm_id]
+
+    async def list(self) -> list[CommUpdate]:
+        return [
+            copy.deepcopy(self._rows[id])
+            for id in sorted(self._rows, key=_update_order)
+        ]
+
+    async def save(self, update: CommUpdate) -> None:
+        self._rows[update.id] = copy.deepcopy(update)
+
+
+class SqliteCommUpdateStore(CommUpdateStore):
+    """Comm updates in the state database's canonical ``comm_updates`` table."""
+
+    def __init__(self, db: StateDb) -> None:
+        self._db = db
+
+    async def read(self, id: str) -> CommUpdate | None:
+        row = await self._db.read(COMM_UPDATES, id)
+        return _update_from_row(row) if row is not None else None
+
+    async def for_comm(self, comm_id: str) -> list[CommUpdate]:
+        rows = await self._db.read_where(COMM_UPDATES, "comm_id", comm_id)
+        return sorted(map(_update_from_row, rows), key=lambda u: _update_order(u.id))
+
+    async def list(self) -> list[CommUpdate]:
+        rows = await self._db.read_all(COMM_UPDATES)
+        return sorted(map(_update_from_row, rows), key=lambda u: _update_order(u.id))
+
+    async def save(self, update: CommUpdate) -> None:
+        await self._db.upsert(
+            COMM_UPDATES,
+            update.id,
+            comm_id=update.comm_id,
+            created_at=update.created_at,
+            items=json.dumps(
+                [
+                    {"project": i.project, "task_id": i.task_id, "step": i.step}
+                    for i in update.items
+                ]
+            ),
+            content=update.content,
+            state=update.state,
+            sent_at=update.sent_at,
+        )
+
+
+def _update_from_row(row: Any) -> CommUpdate:
+    return CommUpdate(
+        id=row["id"],
+        comm_id=row["comm_id"],
+        created_at=row["created_at"],
+        items=[CommItem(**i) for i in json.loads(row["items"] or "[]")],
+        content=row["content"],
+        state=row["state"],
+        sent_at=row["sent_at"],
+    )
 
 
 def _comm_from_row(row: Any) -> Comm:

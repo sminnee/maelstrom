@@ -27,4 +27,21 @@ COMMS: tuple[Rung, ...] = (
             "ALTER TABLE comms ADD COLUMN project TEXT NOT NULL DEFAULT ''",
         )
     ),
+    Migration(
+        (
+            # One row per Comm update, keyed `<comm_id>.<n>`. `items` is a JSON
+            # list of `{project, task_id, step}`: the steps it reports. `state`
+            # is `draft` or `sent`.
+            "CREATE TABLE comm_updates ("
+            "id TEXT PRIMARY KEY, revision INTEGER NOT NULL, "
+            "comm_id TEXT NOT NULL DEFAULT '', "
+            "created_at TEXT NOT NULL DEFAULT '', "
+            "items TEXT NOT NULL DEFAULT '[]', "
+            "content TEXT NOT NULL DEFAULT '', "
+            "state TEXT NOT NULL DEFAULT 'draft', "
+            "sent_at TEXT NOT NULL DEFAULT '')",
+            "CREATE INDEX comm_updates_revision ON comm_updates (revision)",
+            "CREATE INDEX comm_updates_comm_id ON comm_updates (comm_id)",
+        )
+    ),
 )

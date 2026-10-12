@@ -230,6 +230,23 @@ Free text that groups comms of one kind, such as `release` or `support`. You pic
 category or type a new one.
 _Avoid_: tag, label, type, channel
 
+**Comm update**:
+What a **Comm** tells its recipients at one time, with the news of its linked tasks. Its id is `<comm id>.<n>`, such
+as `c3.2`. It holds the **Landing** steps it reports, its content and its state: `draft` or
+`sent`.
+- A comm's queue is the landing steps of its linked tasks that no update of the comm holds. A
+  step is held once it is in an update, so a step never queues twice for one comm.
+- A task linked late queues the steps it reached before the link. A closed comm queues nothing.
+- The content starts as one line per task, at the furthest step it queued.
+- You edit the content while the update is a draft. Mark sent records that you sent it; maelstrom
+  sends nothing itself. A sent update does not change.
+_Avoid_: flush, message, notification, digest
+
+**Draft updates**:
+The action that writes a new **Comm update** for each open comm with a non-empty queue. An unsent
+draft stays as it is: the action adds an update, it does not merge into the old one.
+_Avoid_: flush, triage, send
+
 **Default project**:
 The project a new comm in a category gets: the most common non-blank project among the comms in
 that category, closed comms included. A tie goes to the project of the newest comm. It is derived
