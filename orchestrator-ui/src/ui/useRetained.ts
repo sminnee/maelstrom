@@ -150,7 +150,7 @@ function sweep() {
 export function useRetained<T>(
   key: string | null,
   initial: T,
-): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {
+): [T, React.Dispatch<React.SetStateAction<T>>, (options?: { keepValue?: boolean }) => void] {
   // `initial` is often a fresh object literal, so it is pinned on the first
   // render: `release()` resets to what the caller first meant, not to a later
   // identity of the same shape.
@@ -234,14 +234,18 @@ export function useRetained<T>(
    *
    * One operation, not a `submitted` flag, because a re-render after a submit
    * would otherwise rewrite what was just released.
+   *
+   * `keepValue` leaves the field as it is, for a form that stays on screen
+   * until the server's echo removes it. The next edit holds again.
    */
-  const release = useCallback(() => {
+  const release = useCallback((options?: { keepValue?: boolean }) => {
     if (timer.current !== null) {
       clearTimeout(timer.current);
       timer.current = null;
     }
     const at = keyRef.current;
     if (at !== null) forget(at);
+    if (options?.keepValue === true) return;
     const fresh = initialRef.current;
     releasedValue.current = fresh;
     latest.current = fresh;
