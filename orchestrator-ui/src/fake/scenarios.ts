@@ -682,6 +682,8 @@ function prDiffers(): Seed {
  * Three comms over the seed: two open and one closed, and a done task at each
  * landing step. `c1` has reached live, `c2` only merged — one of its tasks is
  * still in progress, and one has no Registered PR, so it has no env to read.
+ * `c1` has told its recipients about NORT-20 up to UAT, so it queues NORT-20's
+ * live and every step of NORT-21; `c2` has sent nothing.
  */
 function comms(): Seed {
   const seed = seedWorld();
@@ -742,6 +744,17 @@ function comms(): Seed {
       recipients: ['#sales', 'ops@northwind.test'],
       category: 'release',
       project: 'northwind',
+      updates: [
+        {
+          id: 'c1.1',
+          commId: 'c1',
+          createdAt: T(300),
+          items: ['done', 'merged', 'uat'].map((step) => ({ taskId: 'NORT-20', step })),
+          content: 'Order export is on UAT: try it before Friday.',
+          state: 'sent',
+          sentAt: T(290),
+        },
+      ],
     }),
     comm({
       id: 'c2',

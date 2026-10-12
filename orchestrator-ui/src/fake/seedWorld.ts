@@ -1,7 +1,15 @@
 import type { Attention } from '../protocol/attention';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Document } from '../protocol/documents';
-import type { Agent, Comm, Project, Task, TaskLanding, Worktree } from '../protocol/entities';
+import type {
+  Agent,
+  Comm,
+  CommUpdate,
+  Project,
+  Task,
+  TaskLanding,
+  Worktree,
+} from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
 import { isActionable } from '../protocol/phase';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
@@ -126,10 +134,11 @@ interface CommSpec {
   createdMinutesAgo?: number;
   /** Left out for an open comm. */
   closedMinutesAgo?: number;
+  updates?: CommUpdate[];
 }
 
 /**
- * A comm with no linked tasks. The fake server derives `taskIds` from the
+ * A comm with no linked tasks. The fake server derives `taskIds` and `queued` from the
  * tasks' `comms`, as the real one does, so a seed names a link on the task.
  */
 export function comm(spec: CommSpec): Comm {
@@ -143,6 +152,8 @@ export function comm(spec: CommSpec): Comm {
     createdAt: T(spec.createdMinutesAgo ?? 600),
     closedAt: spec.closedMinutesAgo === undefined ? '' : T(spec.closedMinutesAgo),
     taskIds: [],
+    queued: [],
+    updates: spec.updates ?? [],
   };
 }
 

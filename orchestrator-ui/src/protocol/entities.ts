@@ -231,9 +231,28 @@ export interface TaskLanding {
   envs: Record<string, EnvLandingState>;
 }
 
+/** One step a **Comm update** reports: the task, and the step it reached. */
+export interface CommItem {
+  taskId: TaskId;
+  step: string;
+}
+
+/** One **Comm update**: the news a comm sends. `content` can change only while it is a draft. */
+export interface CommUpdate {
+  id: string;
+  commId: string;
+  createdAt: string;
+  items: CommItem[];
+  content: string;
+  state: 'draft' | 'sent';
+  /** `''` while a draft. */
+  sentAt: string;
+}
+
 /**
  * One **Comm**: something to tell people outside the team when work lands. `taskIds` are the
- * wire ids of the tasks whose `comms` name it, derived by the server.
+ * wire ids of the tasks whose `comms` name it, derived by the server. `queued` are the steps of
+ * those tasks no update holds yet; `updates` are its updates, oldest first.
  */
 export interface Comm {
   id: string;
@@ -248,6 +267,8 @@ export interface Comm {
   /** The project a task made from the comm goes to, or `''`. */
   project: string;
   taskIds: TaskId[];
+  queued: CommItem[];
+  updates: CommUpdate[];
 }
 
 /** How an **Operation** stands. See `CONTEXT.md`, "Refused". */

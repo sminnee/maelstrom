@@ -15,6 +15,8 @@ import type {
   Agent,
   ChangeComment,
   Comm,
+  CommItem,
+  CommUpdate,
   DeskEntry,
   FileDiff,
   Host,
@@ -51,7 +53,7 @@ export interface FakeWorld {
   documents: Record<string, Document>;
   attention: Record<string, Attention>;
   desk: Record<string, DeskEntry>;
-  /** Each comm's `taskIds` is derived from the tasks' `comms`; see `linkComms`. */
+  /** Each comm's `taskIds` and `queued` are derived from the tasks; see `deriveComms`. */
   comms: Record<string, Comm>;
   /** The agent host's reachability; `null` before the server's first poll settles. */
   host: Host | null;
@@ -240,7 +242,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
 
   const world = opts.world ?? emptyFakeWorld();
   // A seed names a link on the task alone, as the notebook stores it.
-  linkComms(world);
+  deriveComms(world);
   const server: FakeServer = {
     world,
     transcripts: opts.transcripts ?? {},
@@ -406,10 +408,10 @@ function json(status: number, body: unknown): Response {
 }
 
 /**
- * Re-derive every comm's `taskIds` from the tasks' `comms`, sorted, as the
- * server does on each apply. Returns the ids of the comms whose list moved.
+ * Re-derive every comm's `taskIds` and `queued` from the tasks, as the server does on each
+ * apply. Returns the ids of the comms that moved.
  */
-function linkComms(world: FakeWorld): string[] {
+function deriveComms(world: FakeWorld): string[] {
   const linked: Record<string, TaskId[]> = {};
   for (const task of Object.values(world.tasks)) {
     for (const id of task.comms) (linked[id] ??= []).push(task.id);
@@ -417,11 +419,51 @@ function linkComms(world: FakeWorld): string[] {
   const moved: string[] = [];
   for (const comm of Object.values(world.comms)) {
     const taskIds = (linked[comm.id] ?? []).sort();
-    if (taskIds.join('\n') === comm.taskIds.join('\n')) continue;
-    world.comms[comm.id] = { ...comm, taskIds };
+    const queued = commQueue(world, comm, taskIds);
+    if (JSON.stringify([taskIds, queued]) === JSON.stringify([comm.taskIds, comm.queued])) {
+      continue;
+    }
+    world.comms[comm.id] = { ...comm, taskIds, queued };
     moved.push(comm.id);
   }
   return moved;
+}
+
+/**
+ * The steps of `taskIds` no update of `comm` holds, as `comms.queue` reads them. The fake keeps
+ * no step rows, so a task's steps are read off its landing: `done`, `merged` past done, and
+ * each env that has landed.
+ */
+function commQueue(world: FakeWorld, comm: Comm, taskIds: TaskId[]): CommItem[] {
+  if (comm.closedAt) return [];
+  const held = new Set(comm.updates.flatMap((u) => u.items.map((i) => `${i.taskId} ${i.step}`)));
+  return taskIds.flatMap((taskId) => {
+    const landing = world.tasks[taskId]?.landing;
+    if (!landing) return [];
+    const steps = ['done'];
+    if (landing.status !== 'done') steps.push('merged');
+    for (const [env, state] of Object.entries(landing.envs)) {
+      if (state === 'landed') steps.push(env);
+    }
+    return steps.filter((step) => !held.has(`${taskId} ${step}`)).map((step) => ({ taskId, step }));
+  });
+}
+
+/** The landing steps in order, as `STEPS` in `landing_store.py`. */
+const STEPS = ['done', 'merged', 'uat', 'live'];
+
+/** One bullet per task, at its furthest step, as `comms.update_content` writes it. */
+function updateContent(world: FakeWorld, items: CommItem[]): string {
+  const furthest = new Map<TaskId, string>();
+  for (const item of items) {
+    const known = furthest.get(item.taskId);
+    if (known === undefined || STEPS.indexOf(item.step) > STEPS.indexOf(known)) {
+      furthest.set(item.taskId, item.step);
+    }
+  }
+  return [...furthest]
+    .map(([taskId, step]) => `- ${world.tasks[taskId]?.title ?? taskId} — ${step}`)
+    .join('\n');
 }
 
 /**
@@ -1254,7 +1296,7 @@ function command(
     }
     world.tasks[task.id] = { ...task, ...(b as TaskEdit & { comms?: string[] }) };
     server.change({ kind: 'task', ids: [task.id] });
-    const relinked = linkComms(world);
+    const relinked = deriveComms(world);
     if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     return ok({});
   }
@@ -1287,7 +1329,7 @@ function command(
     }
     server.change({ kind: 'task', ids: [task.id, ...rewired] });
     if (hadDeskEntry) server.change({ kind: 'desk', ids: [deskId] });
-    const relinked = linkComms(world);
+    const relinked = deriveComms(world);
     if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     return ok({});
   }
@@ -1322,7 +1364,7 @@ function command(
       branch: str('branch')?.trim() || `task/${taskId.split('/')[1]}`,
       comms: b.comms ? [...new Set(b.comms as string[])] : [],
     };
-    const relinked = linkComms(world);
+    const relinked = deriveComms(world);
     if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };
     server.change({ kind: 'task', ids: [taskId] });
@@ -1786,9 +1828,57 @@ function command(
       category: (str('category') ?? '').trim(),
       project: str('project') ?? '',
       taskIds: [],
+      queued: [],
+      updates: [],
     };
     server.change({ kind: 'comm', ids: [id] });
     return ok({ id });
+  }
+
+  if (pathname === '/api/comms/updates' && method === 'POST') {
+    const ids: string[] = [];
+    for (const comm of Object.values(world.comms)) {
+      if (comm.queued.length === 0) continue;
+      const update: CommUpdate = {
+        id: `${comm.id}.${comm.updates.length + 1}`,
+        commId: comm.id,
+        createdAt: now(),
+        items: comm.queued,
+        content: updateContent(world, comm.queued),
+        state: 'draft',
+        sentAt: '',
+      };
+      world.comms[comm.id] = { ...comm, queued: [], updates: [...comm.updates, update] };
+      ids.push(update.id);
+    }
+    const drafted = ids.map((id) => id.slice(0, id.lastIndexOf('.')));
+    if (drafted.length > 0) server.change({ kind: 'comm', ids: drafted });
+    return ok({ ids });
+  }
+
+  m = pathname.match(/^\/api\/comms\/([^/]+)\/updates\/([^/]+)$/);
+  if (m && method === 'PATCH') {
+    const comm = world.comms[m[1]!];
+    if (!comm) return notFound(`comm ${m[1]}`);
+    const update = comm.updates.find((u) => u.id === m![2]);
+    if (!update) return notFound(`update ${m[2]}`);
+    if (b.content == null && b.sent == null) return error(400, 'invalid', 'Nothing to change');
+    if (b.content != null && typeof b.content !== 'string') {
+      return error(400, 'invalid', 'content is text');
+    }
+    if (b.sent != null && b.sent !== true) return error(400, 'invalid', 'sent is true');
+    if (update.state === 'sent') {
+      return error(400, 'invalid', `Update ${update.id} is already sent`);
+    }
+    const next: CommUpdate = { ...update };
+    if (typeof b.content === 'string') next.content = b.content;
+    if (b.sent === true) Object.assign(next, { state: 'sent', sentAt: now() });
+    world.comms[comm.id] = {
+      ...comm,
+      updates: comm.updates.map((u) => (u.id === update.id ? next : u)),
+    };
+    server.change({ kind: 'comm', ids: [comm.id] });
+    return ok({});
   }
 
   m = pathname.match(/^\/api\/comms\/([^/]+)$/);
@@ -1816,6 +1906,8 @@ function command(
     if (b.closed === true && !comm.closedAt) next.closedAt = now();
     if (b.closed === false) next.closedAt = '';
     world.comms[comm.id] = next;
+    // A closed comm queues nothing, and a reopened one queues again.
+    deriveComms(world);
     server.change({ kind: 'comm', ids: [comm.id] });
     return ok({});
   }

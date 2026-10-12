@@ -55,8 +55,16 @@
   padding: 0;
   cursor: pointer;
 }
+.actions {
+  display: flex;
+  gap: var(--u);
+}
 .closed {
   color: var(--fg-faint);
+}
+/* An update waits to go out: the one row state that asks for the user. */
+.draft {
+  color: var(--attention);
 }
 .recipients {
   color: var(--fg-muted);

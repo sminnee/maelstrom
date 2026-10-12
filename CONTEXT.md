@@ -1187,7 +1187,9 @@ _Avoid_: Table view, index
 **Comms**:
 The view that lists the open **Comms** and edits them: a row per comm, with its recipients, its
 linked task count and the highest **Landing** status among its tasks. The editor links and
-unlinks tasks, and shows each linked task's landing strip. Its New task button opens New work on
+unlinks tasks, and shows each linked task's landing strip. The **Draft updates** button shows
+how many tasks the open comms queue. A row with an unsent **Comm update** says `draft`, and the
+editor lists the comm's updates, newest first. Its New task button opens New work on
 the comm's title, content and project, and the task it writes is linked to the comm. The task
 count opens Tasks with the Comm filter set. The **Task editor** links comms too. Each picker
 offers the five comms or tasks this browser viewed or linked most recently, before a search. A person works here; an agent uses

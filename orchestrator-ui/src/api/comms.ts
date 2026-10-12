@@ -61,3 +61,33 @@ export function useUpdateComm() {
     },
   });
 }
+
+/** **Draft updates**: a new update for each open comm with a queue. Answers the update ids. */
+export function useDraftUpdates() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ ids: string[] }>('/api/comms/updates', {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.comms.all() }),
+  });
+}
+
+/** What a draft update may change: its `content`, or `sent: true` once it went out. */
+export interface CommUpdateEdit {
+  content?: string;
+  sent?: true;
+}
+
+/** Edit a draft update, or mark it sent. A sent update refuses both. */
+export function useUpdateCommUpdate() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { commId: string; updateId: string; fields: CommUpdateEdit }) =>
+      api.patch(`/api/comms/${vars.commId}/updates/${vars.updateId}`, vars.fields),
+    onSuccess: (_result, vars) => {
+      void queryClient.invalidateQueries({ queryKey: keys.comms.list() });
+      void queryClient.invalidateQueries({ queryKey: keys.comms.detail(vars.commId) });
+    },
+  });
+}

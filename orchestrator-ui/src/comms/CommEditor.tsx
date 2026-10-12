@@ -1,9 +1,17 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { useComm, useComms, useCreateComm, useUpdateComm, type CommEdit } from '../api/comms';
+import {
+  useComm,
+  useComms,
+  useCreateComm,
+  useUpdateComm,
+  useUpdateCommUpdate,
+  type CommEdit,
+} from '../api/comms';
 import { useUpdateTask } from '../api/tasks';
 import type { TaskRow } from '../api/types';
 import { useWorld } from '../api/useWorld';
-import type { Comm } from '../protocol/entities';
+import type { Comm, CommUpdate } from '../protocol/entities';
+import { clockTime } from '../protocol/time';
 import { useLoc } from '../nav/useNav';
 import { useNewWork } from '../nav/useOverlays';
 import { categories, defaultProject, landingStrip } from '../selectors/comms';
@@ -14,6 +22,7 @@ import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import fieldStyles from '../ui/Dialog.module.css';
 import { useRecent } from '../ui/recent';
 import { TextArea } from '../ui/TextArea';
+import { useNow } from '../ui/useNow';
 import styles from './CommEditor.module.css';
 
 interface Draft {
@@ -236,6 +245,7 @@ function CommForm({
           }}
         />
       </div>
+      {comm && comm.updates.length > 0 && <Updates comm={comm} />}
       {comm && <LinkedTasks comm={comm} />}
       {confirming && (
         <p className={styles.confirm} role="alert">
@@ -303,6 +313,67 @@ function OpenCloseButton({
     >
       Close comm
     </AppButton>
+  );
+}
+
+/** The comm's updates, newest first. See CONTEXT.md, "Comm update". */
+function Updates({ comm }: { comm: Comm }) {
+  const now = useNow();
+  return (
+    <section className={styles.updates} aria-label="Updates">
+      <h3 className={styles.heading}>Updates</h3>
+      <ul className={styles.updateList}>
+        {[...comm.updates].reverse().map((update) => (
+          <li key={update.id} className={styles.update} data-update-id={update.id}>
+            {update.state === 'draft' ? (
+              <DraftUpdate update={update} />
+            ) : (
+              <>
+                <span className={styles.updateMeta}>
+                  {update.id} · sent {clockTime(update.sentAt, now)}
+                </span>
+                <p className={`${styles.sent} wrap`}>{update.content}</p>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DraftUpdate({ update }: { update: CommUpdate }) {
+  const write = useUpdateCommUpdate();
+  const [content, setContent] = useState(update.content);
+  const textId = useId();
+  const dirty = content !== update.content;
+  const save = (sent?: true) =>
+    write.mutateAsync({
+      commId: update.commId,
+      updateId: update.id,
+      fields: { ...(dirty ? { content } : {}), ...(sent ? { sent } : {}) },
+    });
+  return (
+    <>
+      <label className={styles.updateMeta} htmlFor={textId}>
+        {update.id}
+      </label>
+      <TextArea
+        grow
+        id={textId}
+        rows={2}
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+      />
+      <div className={styles.linkRow}>
+        <AppButton icon={actionIcon('save')} disabled={!dirty} onClick={() => save()}>
+          Save update
+        </AppButton>
+        <AppButton icon={actionIcon('send')} onClick={() => save(true)}>
+          Mark sent
+        </AppButton>
+      </div>
+    </>
   );
 }
 
