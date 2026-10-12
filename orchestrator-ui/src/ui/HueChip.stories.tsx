@@ -111,6 +111,10 @@ export const PrStates: Story = () => (
     <Row label="a PR number with no browse URL: text, not a dead link">
       <PrChip pr={worktreePr({ ...worktree('ready'), prUrl: '' })} size="large" />
     </Row>
+    <Row label="withdrawn — the agent is working again: grey, struck through, no pill">
+      <PrChip pr={{ ...worktreePr(worktree('ready'))!, withdrawn: true }} size="large" />
+      <PrChip pr={{ ...worktreePr(worktree('ready'))!, withdrawn: true }} />
+    </Row>
   </Board>
 );
 

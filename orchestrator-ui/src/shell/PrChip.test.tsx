@@ -8,6 +8,7 @@ const withPr = (over: Partial<PrReading> = {}): PrReading => ({
   url: 'https://github.com/acme/northwind/pull/118',
   state: 'ready',
   draft: false,
+  withdrawn: false,
   ...over,
 });
 
@@ -56,6 +57,20 @@ describe('PrChip', () => {
     // A registered PR the worktree no longer reads: its state is unknown.
     render(<PrChip pr={withPr({ state: '' })} />);
     expect(screen.getByRole('link', { name: 'PR #118' })).toHaveAttribute('data-tone', 'neutral');
+  });
+
+  it('names a withdrawn PR as withdrawn, and still opens it', () => {
+    render(<PrChip pr={withPr({ withdrawn: true })} />);
+    expect(screen.getByRole('link', { name: 'PR #118, withdrawn' })).toHaveAttribute(
+      'href',
+      'https://github.com/acme/northwind/pull/118',
+    );
+  });
+
+  it('draws a withdrawn PR as text where the row is already a button', () => {
+    render(<PrChip pr={withPr({ withdrawn: true })} link={false} />);
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByLabelText('PR #118, withdrawn')).toBeInTheDocument();
   });
 
   it('opens to say its state only where there is room to open', () => {

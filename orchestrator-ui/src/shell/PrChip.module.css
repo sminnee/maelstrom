@@ -1,0 +1,33 @@
+/*
+ * A withdrawn PR. The chip's height and padding, so a line does not move when
+ * a PR is withdrawn, but no border or fill: it asks for nothing.
+ */
+.withdrawn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  flex: none;
+  box-sizing: border-box;
+  height: var(--chip);
+  padding: 0 var(--u);
+  color: var(--fg-muted);
+  font-family: var(--font);
+  line-height: 1;
+  text-decoration: none;
+}
+
+.brand {
+  display: block;
+  flex: none;
+  width: var(--text-sm);
+  height: var(--text-sm);
+  opacity: 0.55;
+}
+
+.number {
+  display: block;
+  font-size: var(--text-sm);
+  line-height: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-decoration: line-through;
+}
