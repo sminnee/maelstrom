@@ -32,6 +32,13 @@ REFUSED = FullCloseResult(
 )
 
 
+@pytest.fixture(autouse=True)
+def told():
+    """The relay to the orchestrator, so no test reaches a live server."""
+    with patch("mael_cli.orchestrator_client.tell_orchestrator") as told:
+        yield told
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     """A project folder holding the worktrees ``alpha`` and ``bravo``."""
@@ -62,7 +69,7 @@ def _invoke(project: Path, args, *, results=(TRASHED,)):
     return outcome, trash, close, asyncio.run(list_tasks(table, project="myproject"))
 
 
-def test_trash_runs_the_trash_sequence_in_place_of_the_close(project):
+def test_trash_runs_the_trash_sequence_in_place_of_the_close(project, told):
     outcome, trash, close, tasks = _invoke(project, ["--trash", "myproject.alpha"])
 
     assert outcome.exit_code == 0, outcome.output
@@ -73,6 +80,10 @@ def test_trash_runs_the_trash_sequence_in_place_of_the_close(project):
     assert "Moved feature/x to trash/feature/x." in outcome.output
     # The work is set aside, not parked: nothing is left to reopen.
     assert tasks == []
+    # The trash closed the PR, so the server reads it again.
+    told.assert_called_once_with(
+        "/api/worktrees/refresh", {"project": "myproject", "branch": "feature/x"}
+    )
 
 
 def test_a_refusal_fails_the_command_and_the_next_target_still_runs(project):

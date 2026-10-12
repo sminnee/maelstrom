@@ -29,6 +29,8 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     prMergedAt: '',
     prMatch: '',
     prStale: false,
+    appUrl: '',
+    appRunning: false,
     env: { state: 'stopped', services: [] },
     sessionCount: 0,
     shellUrl: '',

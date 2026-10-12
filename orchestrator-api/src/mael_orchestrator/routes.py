@@ -9,6 +9,7 @@ nothing about the world beyond which table each route reads.
 import asyncio
 import json
 import logging
+import math
 import socket
 import ssl
 import subprocess
@@ -228,8 +229,31 @@ async def _projects(request: web.Request) -> web.Response:
 
 
 async def _worktrees(request: web.Request) -> web.Response:
+    """The world's projects and worktrees, read again first if they are old.
+
+    ``max_age`` (seconds) is for a one-shot reader such as ``mael list``. When
+    no read of every branch finished within it, the route makes one before it
+    answers. A poll asks GitHub about the desk's branches only, and a list
+    shows every branch, so a branch off the desk would otherwise show an old
+    PR state, or none.
+    """
     orch = await _ready(request)
-    return web.json_response({"worktrees": list(orch.world["worktrees"].values())})
+    max_age = request.query.get("max_age")
+    if max_age is not None:
+        try:
+            age = float(max_age)
+        except ValueError:
+            age = math.nan
+        if not math.isfinite(age) or age < 0:
+            return error_response("invalid", "max_age is a number of seconds")
+        if not orch.every_branch_read_within(age):
+            await orch.refresh_now(every_branch_within=age)
+    return web.json_response(
+        {
+            "projects": list(orch.world["projects"].values()),
+            "worktrees": list(orch.world["worktrees"].values()),
+        }
+    )
 
 
 def _open_worktree_path(orch: Orchestrator, worktree_id: str) -> Path | None:
@@ -701,12 +725,18 @@ async def _start_free_agent(request: web.Request) -> web.StreamResponse:
 async def _refresh_worktrees(request: web.Request) -> web.StreamResponse:
     """Re-read the worktrees now, because a caller changed something on GitHub.
 
-    ``mael gh create-pr`` posts here so the pull request it opened reaches the
-    canvas at once rather than at the next poll. It takes no body: the read is
-    the whole world's, because one GraphQL call already covers every branch the
-    desk names.
+    ``mael gh create-pr``, ``mael git merge`` and ``mael close --trash`` post
+    here, so the pull request they changed reaches the canvas at once rather
+    than at the next poll. The optional body ``{"project", "branch"}`` names
+    that pull request, which is read again before the worktrees are.
     """
-    return await _command(request, lambda _body: {"type": "worktree.refresh"})
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.refresh",
+            **{k: body[k] for k in ("project", "branch") if k in body},
+        },
+    )
 
 
 async def _close_worktree(request: web.Request) -> web.StreamResponse:

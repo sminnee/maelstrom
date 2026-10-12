@@ -13,12 +13,11 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from mael_cli.cli import cli, cmd_list_all, pr_display
+from mael_cli.cli import cli, pr_display
 from mael_domain.env import EnvRefresh
 from mael_domain.github_model import PrState, PrStatus, PullRequestNotMergeable
-from mael_domain.list_all import resolve_pr
 from mael_domain.project_scaffold import scaffold_files
-from mael_domain.worktree import SyncResult, WorktreeInfo, WorktreeSetup
+from mael_domain.worktree import SyncResult, WorktreeSetup
 from mael_domain.worktree_model import (
     CopyBackResult,
     UnclosableWorktreeError,
@@ -59,29 +58,12 @@ class TestNonProductionWarning:
 
     def test_warning_keeps_json_output_parseable(self, monkeypatch):
         monkeypatch.delenv("MAEL_PRODUCTION")
-        with (
-            patch("mael_cli.cli.load_global_config") as config,
-            patch("mael_domain.list_all.find_all_projects", return_value=[]),
-        ):
-            config.return_value = MagicMock(projects_dir=Path("/tmp/projects"))
+        with patch("mael_cli.cli._read_worktrees", return_value=([], [])):
             result = CliRunner().invoke(cli, ["--json", "list-all"])
 
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == {"projects": []}
         assert "Warning: non-production mael environment" in result.stderr
-
-
-class TestListAllCommand:
-    def test_invoked_without_the_root_group_prints_text_not_json(self):
-        with (
-            patch("mael_cli.cli.load_global_config") as config,
-            patch("mael_domain.list_all.find_all_projects", return_value=[]),
-        ):
-            config.return_value = MagicMock(projects_dir=Path("/tmp/projects"))
-            result = CliRunner().invoke(cmd_list_all, [])
-
-        assert result.exception is None
-        assert result.output.strip() == "No projects found."
 
 
 def _pr(number, *, commits=1, state: PrState = "ready"):
@@ -145,209 +127,6 @@ class TestPrDisplay:
         assert pr_display(_pr(42, commits=5, state=state), 0) == "#42 (5)"
 
 
-class TestResolvePr:
-    """The PR cell resolves from the batch, falling back per branch.
-
-    The batch is one GraphQL call for the repo. When it succeeds it is
-    authoritative — a branch absent from it has no open PR, and must not cost a
-    second network call. When it failed, every branch falls back, so a broken
-    ``gh`` blanks no more than it did before the batch existed.
-    """
-
-    def test_a_hit_in_the_batch_needs_no_further_call(self):
-        batch = {"feat/x": _pr(42, commits=5)}
-        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
-            assert asyncio.run(resolve_pr(batch, Path("/p"), "feat/x")) == _pr(
-                42, commits=5
-            )
-        per_branch.assert_not_called()
-
-    def test_a_miss_in_a_good_batch_is_no_pr_not_a_lookup(self):
-        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
-            assert (
-                asyncio.run(resolve_pr({"other": _pr(1)}, Path("/p"), "feat/x")) is None
-            )
-        per_branch.assert_not_called()
-
-    def test_an_empty_batch_still_answers_without_a_lookup(self):
-        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
-            assert asyncio.run(resolve_pr({}, Path("/p"), "feat/x")) is None
-        per_branch.assert_not_called()
-
-    def test_a_failed_batch_falls_back_to_the_per_branch_call(self):
-        with patch(
-            "mael_domain.list_all.get_pr_for_branch",
-            return_value=_pr(7, commits=3),
-        ) as per_branch:
-            assert asyncio.run(resolve_pr(None, Path("/p"), "feat/x")) == _pr(
-                7, commits=3
-            )
-        per_branch.assert_called_once_with(Path("/p"), "feat/x")
-
-    def test_a_detached_worktree_is_never_looked_up(self):
-        """Both PR columns key on the branch name, so there is nothing to ask."""
-        with patch("mael_domain.list_all.get_pr_for_branch") as per_branch:
-            assert asyncio.run(resolve_pr(None, Path("/p"), None)) is None
-        per_branch.assert_not_called()
-
-    def test_list_all_reads_the_batch_not_one_call_per_row(self):
-        """Guards the wiring, not just the helper.
-
-        Every other test in this file patches the per-branch call, so a revert
-        to per-row lookups would leave them all green. Here the batch answers
-        and the per-branch call raises, so the batch must be what the command
-        actually reads.
-        """
-        project_path = Path("/tmp/claude/projects/myproject")
-        mock_wt = WorktreeInfo(
-            path=project_path / "myproject-alpha",
-            branch="feat/test",
-            commit="abc123",
-            is_dirty=False,
-            commits_ahead=0,
-        )
-
-        def boom(*args, **kwargs):
-            raise AssertionError("per-branch lookup used despite a good batch")
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with (
-                patch(
-                    "mael_domain.list_all.find_all_projects",
-                    return_value=[project_path],
-                ),
-                patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
-                ),
-                patch(
-                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
-                ),
-                patch(
-                    "mael_domain.list_all.get_worktree_dirty_files_async",
-                    return_value=[],
-                ),
-                patch(
-                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
-                ),
-                patch(
-                    "mael_domain.list_all.get_open_prs",
-                    return_value={"feat/test": _pr(99, commits=7)},
-                ),
-                patch("mael_domain.list_all.get_pr_for_branch", side_effect=boom),
-                patch(
-                    "mael_domain.session_discovery.LiveSessionSet.count_for",
-                    return_value=0,
-                ),
-            ):
-                result = CliRunner().invoke(cli, ["--json", "list-all"])
-
-        assert result.exit_code == 0
-        wt = json.loads(result.output)["projects"][0]["worktrees"][0]
-        assert (wt["pr_number"], wt["pr_commits"]) == (99, 7)
-
-    def test_a_project_with_no_branches_costs_no_network_call(self):
-        """``list-all`` visits every project, most of which have nothing to ask.
-
-        The PR lookup keys on the branch name, so a project whose worktrees are
-        all detached has no question to put to GitHub. Asking anyway spends a
-        round trip per project, which is what ``list-all`` has most of.
-        """
-        project_path = Path("/tmp/claude/projects/myproject")
-        detached = WorktreeInfo(
-            path=project_path / "myproject-alpha",
-            branch="",
-            commit="abc123",
-            is_dirty=False,
-            commits_ahead=0,
-        )
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with (
-                patch(
-                    "mael_domain.list_all.find_all_projects",
-                    return_value=[project_path],
-                ),
-                patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=[detached]
-                ),
-                patch(
-                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
-                ),
-                patch(
-                    "mael_domain.list_all.get_worktree_dirty_files_async",
-                    return_value=[],
-                ),
-                patch(
-                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
-                ),
-                patch("mael_domain.list_all.get_open_prs") as batch,
-                patch(
-                    "mael_domain.session_discovery.LiveSessionSet.count_for",
-                    return_value=0,
-                ),
-            ):
-                result = CliRunner().invoke(cli, ["--json", "list-all"])
-
-        assert result.exit_code == 0
-        batch.assert_not_called()
-
-    def test_the_batch_runs_once_per_project_not_once_per_worktree(self):
-        """The whole point of batching: cost scales with projects, not rows."""
-        project_path = Path("/tmp/claude/projects/myproject")
-        worktrees = [
-            WorktreeInfo(
-                path=project_path / f"myproject-{name}",
-                branch=f"feat/{name}",
-                commit="abc123",
-                is_dirty=False,
-                commits_ahead=0,
-            )
-            for name in ("alpha", "bravo", "charlie")
-        ]
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with (
-                patch(
-                    "mael_domain.list_all.find_all_projects",
-                    return_value=[project_path],
-                ),
-                patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=worktrees
-                ),
-                patch(
-                    "mael_domain.list_all.closed_worktrees_async", return_value=set()
-                ),
-                patch(
-                    "mael_domain.list_all.get_worktree_dirty_files_async",
-                    return_value=[],
-                ),
-                patch(
-                    "mael_domain.list_all.get_local_only_commits_async", return_value=0
-                ),
-                patch("mael_domain.list_all.get_open_prs", return_value={}) as batch,
-                patch(
-                    "mael_domain.list_all.get_pushed_commit_count_async", return_value=0
-                ),
-                patch(
-                    "mael_domain.session_discovery.LiveSessionSet.count_for",
-                    return_value=0,
-                ),
-            ):
-                result = CliRunner().invoke(cli, ["--json", "list-all"])
-
-        assert result.exit_code == 0
-        assert batch.call_count == 1
-
-
 def _sync_result(**overrides) -> SyncResult:
     """A successful open-flow SyncResult, with fields overridden as needed."""
     base = SyncResult(
@@ -361,205 +140,6 @@ def _sync_result(**overrides) -> SyncResult:
 def _failed_sync(message: str, **overrides) -> SyncResult:
     """A failed open-flow SyncResult. ``had_conflicts`` picks the caller's path."""
     return _sync_result(success=False, message=message, **overrides)
-
-
-class TestListAllJson:
-    """Tests for list-all command with --json flag."""
-
-    def test_json_output_empty(self):
-        """Test JSON output when no projects found."""
-        runner = CliRunner()
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with patch("mael_domain.list_all.find_all_projects", return_value=[]):
-                result = runner.invoke(cli, ["--json", "list-all"])
-                assert result.exit_code == 0
-                data = json.loads(result.output)
-                assert data == {"projects": []}
-
-    def test_json_output_with_projects(self):
-        """Test JSON output with project data."""
-        runner = CliRunner()
-        project_path = Path("/tmp/claude/projects/myproject")
-        wt_path = project_path / "myproject-alpha"
-
-        mock_wt = WorktreeInfo(
-            path=wt_path,
-            branch="feat/test",
-            commit="abc123",
-            is_dirty=False,
-            commits_ahead=0,
-        )
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with patch(
-                "mael_domain.list_all.find_all_projects", return_value=[project_path]
-            ):
-                with patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
-                ):
-                    with patch(
-                        "mael_domain.list_all.closed_worktrees_async",
-                        return_value=set(),
-                    ):
-                        with patch(
-                            "mael_domain.list_all.get_worktree_dirty_files_async",
-                            return_value=["file.txt"],
-                        ):
-                            with patch(
-                                "mael_domain.list_all.get_local_only_commits_async",
-                                return_value=2,
-                            ):
-                                with patch(
-                                    "mael_domain.list_all.get_pr_for_branch",
-                                    return_value=_pr(42, commits=5),
-                                ):
-                                    with patch(
-                                        "mael_domain.session_discovery.LiveSessionSet.count_for",
-                                        return_value=1,
-                                    ):
-                                        result = runner.invoke(
-                                            cli, ["--json", "list-all"]
-                                        )
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert len(data["projects"]) == 1
-
-        project = data["projects"][0]
-        assert project["name"] == "myproject"
-        assert project["path"] == str(project_path)
-        assert len(project["worktrees"]) == 1
-
-        wt = project["worktrees"][0]
-        assert wt["name"] == "alpha"
-        assert wt["folder"] == "myproject-alpha"
-        assert wt["branch"] == "feat/test"
-        assert wt["is_closed"] is False
-        assert wt["dirty_files"] == 1
-        assert wt["local_commits"] == 2
-        assert wt["pr_number"] == 42
-        assert wt["pr_commits"] == 5
-        assert wt["session_count"] == 1
-
-    def test_json_output_multiple_sessions(self):
-        """A worktree with several live sessions reports the full count."""
-        runner = CliRunner()
-        project_path = Path("/tmp/claude/projects/myproject")
-        wt_path = project_path / "myproject-alpha"
-
-        mock_wt = WorktreeInfo(
-            path=wt_path,
-            branch="feat/test",
-            commit="abc123",
-            is_dirty=False,
-            commits_ahead=0,
-        )
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with patch(
-                "mael_domain.list_all.find_all_projects", return_value=[project_path]
-            ):
-                with patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
-                ):
-                    with patch(
-                        "mael_domain.list_all.closed_worktrees_async",
-                        return_value=set(),
-                    ):
-                        with patch(
-                            "mael_domain.list_all.get_worktree_dirty_files_async",
-                            return_value=[],
-                        ):
-                            with patch(
-                                "mael_domain.list_all.get_local_only_commits_async",
-                                return_value=0,
-                            ):
-                                with patch(
-                                    "mael_domain.list_all.get_pr_for_branch",
-                                    return_value=None,
-                                ):
-                                    with patch(
-                                        "mael_domain.list_all.get_pushed_commit_count_async",
-                                        return_value=0,
-                                    ):
-                                        with patch(
-                                            "mael_domain.session_discovery.LiveSessionSet.count_for",
-                                            return_value=3,
-                                        ):
-                                            result = runner.invoke(
-                                                cli, ["--json", "list-all"]
-                                            )
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        wt = data["projects"][0]["worktrees"][0]
-        assert wt["session_count"] == 3
-
-    def test_json_output_closed_worktree(self):
-        """Test JSON output for a closed worktree."""
-        runner = CliRunner()
-        project_path = Path("/tmp/claude/projects/myproject")
-        wt_path = project_path / "myproject-bravo"
-
-        mock_wt = WorktreeInfo(
-            path=wt_path,
-            branch="",
-            commit="def456",
-        )
-
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with patch(
-                "mael_domain.list_all.find_all_projects", return_value=[project_path]
-            ):
-                with patch(
-                    "mael_domain.list_all.list_worktrees_async", return_value=[mock_wt]
-                ):
-                    with patch(
-                        "mael_domain.list_all.closed_worktrees_async",
-                        return_value={wt_path},
-                    ):
-                        with patch(
-                            "mael_domain.list_all.get_worktree_dirty_files_async",
-                            return_value=[],
-                        ):
-                            with patch(
-                                "mael_domain.session_discovery.LiveSessionSet.count_for",
-                                return_value=0,
-                            ):
-                                result = runner.invoke(cli, ["--json", "list-all"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        wt = data["projects"][0]["worktrees"][0]
-        assert wt["is_closed"] is True
-        assert wt["branch"] is None
-        assert wt["dirty_files"] == 0
-        assert wt["local_commits"] == 0
-        assert wt["session_count"] == 0
-
-    def test_table_output_still_works(self):
-        """Test that table output (without --json) still works."""
-        runner = CliRunner()
-        with patch("mael_cli.cli.load_global_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                projects_dir=Path("/tmp/claude/projects")
-            )
-            with patch("mael_domain.list_all.find_all_projects", return_value=[]):
-                result = runner.invoke(cli, ["list-all"])
-                assert result.exit_code == 0
-                assert "No projects found." in result.output
 
 
 class TestRemoveMultiTarget:
@@ -2111,7 +1691,6 @@ class TestMvProjectIntegration:
         # The tasks live in the state database, so it has to exist before a
         # command reads it — the install script does this for a real
         # install, and an unmigrated database is its own (tested) refusal.
-        import asyncio
 
         from mael_domain.state_db.migrate import migrate_state_db
 
@@ -2188,7 +1767,6 @@ class TestMvProjectIntegration:
 
     def test_a_task_moves_and_is_restamped(self, tmp_path):
         """The row re-keys to the new project, and nothing is left under the old."""
-        import asyncio
 
         from mael_domain.state_db.migrate import open_state_db
         from mael_domain.task import Task

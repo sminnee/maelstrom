@@ -498,6 +498,10 @@ class Orchestrator:
         self._export_poll = export_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
+        #: Loop time the last read that asked GitHub about every branch
+        #: finished, or ``None`` before the first. ``GET /api/worktrees?max_age=``
+        #: reads against it: a poll asks about the desk's branches only.
+        self._every_branch_read_at: float | None = None
         #: Loop time the last arrival-triggered read finished, or ``None``
         #: while no client has been read for. Only arrivals are spaced by it:
         #: the poll's own tick is already spaced by its sleep. The poll
@@ -640,7 +644,7 @@ class Orchestrator:
             # refuses every read must not be asked once per reconnect.
             self._served_at = asyncio.get_running_loop().time()
 
-    async def refresh_now(self) -> None:
+    async def refresh_now(self, *, every_branch_within: float | None = None) -> None:
         """Re-read the worktrees because something changed the world.
 
         For an event rather than a tick: a pull request that was just raised is
@@ -648,7 +652,11 @@ class Orchestrator:
         skips :meth:`_kept_fresh`, which exists to stop a flapping notice stream
         reading once per reconnect — a cost guard, not a correctness one.
 
-        The PR cache honours its rate-limit stand-off whoever asks.
+        ``every_branch_within`` is for a one-shot list: the read asks GitHub
+        about every branch, not only the desk's, unless such a read finished
+        within that many seconds. That is checked again after the wait below,
+        so two lists that arrive together cost one read. The PR cache honours
+        its rate-limit stand-off whoever asks.
 
         A read already in flight is waited out rather than skipped.
         :meth:`refresh_worktrees` returns at once when its lock is held, and
@@ -664,7 +672,10 @@ class Orchestrator:
             # Wait out a read that started before this event, then read for it.
             async with self._worktree_read:
                 pass
-            await self.refresh_worktrees()
+            if every_branch_within is None:
+                await self.refresh_worktrees()
+            elif not self.every_branch_read_within(every_branch_within):
+                await self.refresh_worktrees(every_branch=True)
         except Exception:  # noqa: BLE001 — mirrors the poller's own guard
             log.exception("event-triggered read failed")
 
@@ -997,7 +1008,9 @@ class Orchestrator:
             ]
         )
 
-    async def refresh_worktrees(self, extra_branches: set[str] | None = None) -> None:
+    async def refresh_worktrees(
+        self, extra_branches: set[str] | None = None, *, every_branch: bool = False
+    ) -> None:
         """Re-read ``list-all``, one read in flight at a time.
 
         The read asks GitHub only about the branches on the desk. GraphQL is
@@ -1005,13 +1018,14 @@ class Orchestrator:
         every branch in every project is what spends it. A branch left out
         keeps the pull request the last read saw; see
         :class:`mael_orchestrator.sources.PrStateCache`. ``extra_branches`` are
-        asked about beyond the desk. A read that names some waits out one in
-        flight, which chose its branches without them.
+        asked about beyond the desk. ``every_branch`` asks about every branch
+        on disk. A read that names some, or all, waits out one in flight, which
+        chose its branches without them.
 
         The landing sync reads GitHub too, so it is skipped while the PR cache
         stands off, and a refusal it meets stands the cache off.
         """
-        if self._worktree_read.locked() and not extra_branches:
+        if self._worktree_read.locked() and not extra_branches and not every_branch:
             return
         async with self._worktree_read:
             # Read before the await; the world below is re-read after it,
@@ -1023,7 +1037,9 @@ class Orchestrator:
                 worktrees=before["worktrees"],
                 tasks=before["tasks"],
             ) | (extra_branches or set())
-            projects, worktrees = await self._run(self.worktrees.read, active)
+            projects, worktrees = await self._run(
+                self.worktrees.read, None if every_branch else active
+            )
             world = self.world
             events = diff_kind(
                 "project", world["projects"], {p["id"]: p for p in projects}
@@ -1033,6 +1049,8 @@ class Orchestrator:
             )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
+            if every_branch:
+                self._every_branch_read_at = asyncio.get_running_loop().time()
             if not self.worktrees.rate_limited:
                 try:
                     written = await self.landings.sync(self.clock())
@@ -1047,6 +1065,13 @@ class Orchestrator:
                 else:
                     self._hold_steps(written)
                     await self._refresh_landings()
+
+    def every_branch_read_within(self, max_age: float) -> bool:
+        """Whether a read of every branch finished less than ``max_age`` ago."""
+        if self._every_branch_read_at is None:
+            return False
+        age = asyncio.get_running_loop().time() - self._every_branch_read_at
+        return age < max_age
 
     # -- the desk --
 
@@ -3088,12 +3113,18 @@ class Orchestrator:
             self._apply(diff_kind("worktree", worktrees, updated))
         return {"ok": True, "result": {"shellUrl": url}}
 
-    async def _refresh_worktrees_now(self, _command: dict[str, Any]) -> dict[str, Any]:
+    async def _refresh_worktrees_now(self, command: dict[str, Any]) -> dict[str, Any]:
         """Re-read the worktrees because a caller changed something on GitHub.
 
-        ``mael gh create-pr`` is the caller: the pull request it just opened is
-        not in any world until something looks it up, and the next poll is up to
+        ``mael gh create-pr``, ``mael git merge`` and ``mael close --trash`` are
+        the callers: the pull request they changed is not in any world until
+        something looks it up, and the next poll is up to
         ``WORKTREE_POLL_SECS`` away.
+
+        A command that names a ``project`` and ``branch`` reads that branch's
+        pull request again first, after any read already in flight: one that
+        began before the write cannot hold its result. That read is never
+        absorbed by one already scheduled.
 
         The read is scheduled, not awaited. It shells out per worktree across
         every project and takes seconds, and the caller is a command holding the
@@ -3107,9 +3138,38 @@ class Orchestrator:
         Always ``ok``. The caller's own work has already succeeded, and a read
         that could not run is the server's business rather than its failure.
         """
-        if self._event_read is None or self._event_read.done():
+        branch = command.get("branch")
+        in_flight = self._event_read is not None and not self._event_read.done()
+        if branch:
+            previous = self._event_read if in_flight else None
+            self._event_read = asyncio.create_task(
+                self._read_after_write(command["project"], branch, previous)
+            )
+        elif not in_flight:
             self._event_read = asyncio.create_task(self.refresh_now())
         return {"ok": True, "result": {}}
+
+    async def _read_after_write(
+        self, project: str, branch: str, previous: asyncio.Task[None] | None
+    ) -> None:
+        """Read ``branch``'s pull request again, then the worktrees.
+
+        ``previous`` is the event read this one replaced in ``_event_read``, so
+        nothing else holds it. A stop cancels this task, and this task cancels
+        ``previous``.
+        """
+        try:
+            try:
+                await self._run(self.worktrees.refresh_prs, project, branch)
+            except Exception:  # noqa: BLE001 — the caller's write already succeeded
+                log.exception("the PR read for %s %s failed", project, branch)
+            if previous is not None:
+                await previous
+        except asyncio.CancelledError:
+            if previous is not None:
+                previous.cancel()
+            raise
+        await self.refresh_now()
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(

@@ -20,6 +20,7 @@ from mael_domain.worktree import (
 from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError, describe_commits
 
 from .json_flag import wants_json
+from .orchestrator_client import tell_pr_changed
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
@@ -324,6 +325,8 @@ def git_merge(target, close, no_squash):
         click.echo(result.message)
         if result.push_message:
             click.echo(result.push_message)
+        # The push to main merged the PR on GitHub.
+        tell_pr_changed(context.project, branch)
         return
 
     if result.had_conflicts:

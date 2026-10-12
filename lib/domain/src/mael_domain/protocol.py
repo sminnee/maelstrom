@@ -88,6 +88,11 @@ class Worktree(TypedDict):
     #: **Stale PR state**: the last PR read failed, timed out or stood off,
     #: so the ``pr*`` fields are the last known state, not the current one.
     prStale: bool
+    #: The worktree's first web-facing port as a URL, or ``""`` with none.
+    appUrl: str
+    #: Whether something listens on ``appUrl``'s port. A port probe, not the
+    #: tracked pid ``env`` reports, so it sees an app started by hand too.
+    appRunning: bool
     env: WorktreeEnv
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.

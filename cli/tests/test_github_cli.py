@@ -332,7 +332,17 @@ class TestGhCliRegistration:
             result = CliRunner().invoke(cli, ["gh", "create-pr", *args])
             assert result.exit_code != 0
 
-    def test_create_pr_tells_the_orchestrator(self):
+    @pytest.mark.parametrize(
+        ("branch", "body"),
+        [
+            # Named, so the server reads this PR again rather than trusting a
+            # read that began before the push.
+            ("feat/x", {"project": "northwind", "branch": "feat/x"}),
+            # A detached HEAD names nothing; the server reads the worktrees.
+            (None, None),
+        ],
+    )
+    def test_create_pr_tells_the_orchestrator(self, branch, body):
         """The PR is not in any world until something looks it up, and the next
         worktree poll is up to a minute away. The canvas would sit without a
         chip through exactly the moment the user is watching for one."""
@@ -343,12 +353,14 @@ class TestGhCliRegistration:
                 return_value=PushedPr("https://example/pr", 0, True),
             ),
             patch("mael_cli.github_cli._open_pr_in_cmux"),
-            patch("mael_cli.github_cli.tell_orchestrator") as told,
+            patch("mael_cli.github_cli.current_branch_or_none", return_value=branch),
+            patch("mael_cli.orchestrator_client.tell_orchestrator") as told,
         ):
             mock_ctx.return_value.worktree_path = None
+            mock_ctx.return_value.project = "northwind"
             result = CliRunner().invoke(cli, ["gh", "create-pr"])
         assert result.exit_code == 0, result.output
-        told.assert_called_once()
+        told.assert_called_once_with("/api/worktrees/refresh", body)
 
     def test_a_pr_still_succeeds_when_no_orchestrator_is_listening(
         self, tmp_path, monkeypatch

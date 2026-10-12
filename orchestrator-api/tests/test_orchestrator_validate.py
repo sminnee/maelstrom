@@ -1166,3 +1166,29 @@ class TestFeedback:
         world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
         cmd = feedback_cmd({"type": "instruction", **over})
         assert validate_command(world, cmd) == {"code": "invalid", "message": message}
+
+
+# --- worktree.refresh --------------------------------------------------------
+
+
+NORTHWIND = {"id": "northwind", "name": "northwind"}
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({}, None),
+        ({"project": "northwind", "branch": "feat/x"}, None),
+        # A half-named refresh would reach the PR read without its project.
+        ({"project": "northwind"}, "invalid"),
+        ({"branch": "feat/x"}, "invalid"),
+        ({"project": "northwind", "branch": ""}, "invalid"),
+        ({"project": 7, "branch": "feat/x"}, "invalid"),
+        ({"project": "globex", "branch": "feat/x"}, "unknown_id"),
+    ],
+)
+def test_a_refresh_names_a_known_project_and_a_branch_or_neither(body, expected):
+    world = world_with(projects=[NORTHWIND])
+    assert code(validate_command(world, {"type": "worktree.refresh", **body})) == (
+        expected
+    )

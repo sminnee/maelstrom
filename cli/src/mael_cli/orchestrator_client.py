@@ -128,14 +128,29 @@ def _refusal(exc: urllib.error.HTTPError) -> OrchestratorRefused:
         return OrchestratorRefused("invalid", f"HTTP {exc.code}", exc.code)
 
 
-def tell_orchestrator(path: str) -> None:
-    """POST to ``path`` on the configured orchestrator, and ignore the answer.
+def tell_orchestrator(path: str, body: dict[str, Any] | None = None) -> None:
+    """POST ``body`` to ``path`` on the configured orchestrator, and ignore the answer.
 
     Raises nothing. Every caller has done its real work already, and a server
     that is not configured or not listening must not turn that into a failure.
     The miss is logged at debug: a plain CLI user often runs no server.
     """
     try:
-        OrchestratorClient.from_config(timeout=NOTIFY_TIMEOUT_SECS).post(path)
+        OrchestratorClient.from_config(timeout=NOTIFY_TIMEOUT_SECS).post(path, body)
     except (OrchestratorError, ValueError) as exc:
         log.debug("no orchestrator was told %s: %s", path, exc)
+
+
+#: The route that asks an orchestrator to re-read its worktrees at once.
+REFRESH_PATH = "/api/worktrees/refresh"
+
+
+def tell_pr_changed(project: str | None, branch: str | None) -> None:
+    """Tell the orchestrator that ``branch``'s pull request changed on GitHub.
+
+    It reads that pull request again, then the worktrees. Without a project
+    and a branch, it reads the worktrees only. Raises nothing; see
+    :func:`tell_orchestrator`.
+    """
+    body = {"project": project, "branch": branch} if project and branch else None
+    tell_orchestrator(REFRESH_PATH, body)

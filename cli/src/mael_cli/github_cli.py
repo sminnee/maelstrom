@@ -28,10 +28,11 @@ from mael_domain.github_model import (
     parse_pr_ref,
 )
 from mael_domain.list_all import project_repo_url
+from mael_domain.worktree import current_branch_or_none
 from mael_domain.worktree_model import PrePushFailed
 
 from . import task_cli
-from .orchestrator_client import tell_orchestrator
+from .orchestrator_client import tell_pr_changed
 
 
 @click.group("gh", cls=AsyncGroup)
@@ -77,10 +78,6 @@ def _open_pr_in_cmux(url: str) -> None:
     cmux = MaelCmux.for_caller()
     if cmux:
         cmux.show_pr_browser(url)
-
-
-#: The route that asks an orchestrator to re-read its worktrees at once.
-REFRESH_PATH = "/api/worktrees/refresh"
 
 
 @gh.command("create-pr")
@@ -153,7 +150,7 @@ async def gh_create_pr(
         # The PR is in no world until something looks it up, and the next
         # worktree poll is up to a minute away — landing on exactly the moment
         # the user looks at the card for it. Never raises; see tell_orchestrator.
-        tell_orchestrator(REFRESH_PATH)
+        tell_pr_changed(ctx.project, current_branch_or_none(cwd))
     except (
         GitHubError,
         SyncFailed,

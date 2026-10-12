@@ -7,6 +7,7 @@ server on its own, as two processes would. So the wire is proven, not a fake.
 """
 
 import asyncio
+import json
 import os
 import threading
 from collections.abc import Iterator
@@ -17,12 +18,14 @@ import pytest
 from click.testing import CliRunner
 
 from mael_agent.agent_transport import ScriptedAsyncDaemonClient
+from mael_cli.cli import cli
 from mael_cli.task_cli import task
 from mael_domain import task as model
 from mael_domain.task_table import InMemoryTaskTable
 from mael_orchestrator.routes import build_app, serving
 from mael_orchestrator.server import Orchestrator
 from mael_orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
+from mael_orchestrator.world_build import project_entity, worktree_entity
 
 pytestmark = pytest.mark.binds_socket
 
@@ -75,10 +78,10 @@ def start_server(table, home) -> Iterator:
     """
     holder: dict = {}
 
-    def start() -> Served:
+    def start(worktrees: InMemoryWorktreeSource | None = None) -> Served:
         orch = Orchestrator(
             NotebookTaskSource(table, lambda: [PROJECT, OTHER_PROJECT]),
-            InMemoryWorktreeSource(),
+            worktrees or InMemoryWorktreeSource(),
             ScriptedAsyncDaemonClient(),
             clock=lambda: NOW,
         )
@@ -595,3 +598,124 @@ def test_read_keeps_a_hand_wrapped_log_entry_and_an_unset_branch(table, start_se
 
     assert result.output == local
     assert "  wrapped by hand." in local
+
+
+# --- mael list and mael list-all ---------------------------------------------
+
+
+def a_world() -> InMemoryWorktreeSource:
+    """A project with an open worktree whose PR state is stale and a closed
+    one, and another project with one open worktree."""
+    project = project_entity({"name": PROJECT, "stack_tip": "main"})
+    other = project_entity({"name": OTHER_PROJECT})
+    alpha = worktree_entity(
+        PROJECT,
+        {
+            "name": "alpha",
+            "path": f"/p/{PROJECT}/{PROJECT}-alpha",
+            "branch": "feat/orders",
+            "base": "main",
+            "dirty_files": 2,
+            "local_commits": 1,
+            "pr_number": 7,
+            "pr_commits": 3,
+            "pr_state": "ready",
+            "pr_stale": True,
+            "app_url": "https://dev.example:3010",
+            "app_running": True,
+            "session_count": 1,
+        },
+    )
+    bravo = worktree_entity(
+        PROJECT,
+        {"name": "bravo", "path": f"/p/{PROJECT}/{PROJECT}-bravo", "is_closed": True},
+    )
+    acme = worktree_entity(
+        OTHER_PROJECT,
+        {"name": "alpha", "path": f"/p/{OTHER_PROJECT}/{OTHER_PROJECT}-alpha"},
+    )
+    return InMemoryWorktreeSource(
+        projects=[project, other], worktrees=[alpha, bravo, acme]
+    )
+
+
+def mael(*args: str):
+    return CliRunner().invoke(cli, list(args), catch_exceptions=False)
+
+
+def test_list_all_draws_the_servers_worktrees(start_server):
+    start_server(a_world())
+
+    result = mael("list-all")
+
+    assert result.exit_code == 0, result.output
+    header, _rule, row, other = [
+        line.split() for line in result.output.splitlines()[:4]
+    ]
+    assert header[0] == "PROJECT"
+    assert row == [
+        PROJECT,
+        f"{PROJECT}-alpha",
+        "feat/orders",
+        "\u2190",
+        "main",
+        "2",
+        "1",
+        "#7",
+        "(3)",
+        "(stale)",
+        "https://dev.example:3010",
+        "1",
+    ]
+    assert other == [OTHER_PROJECT, f"{OTHER_PROJECT}-alpha", "(detached)"]
+    assert result.output.endswith(f"Closed environments:\n - {PROJECT}: bravo\n")
+
+
+def test_list_all_json_prints_the_wire_entities_by_project(start_server):
+    world = a_world()
+    start_server(world)
+
+    result = mael("--json", "list-all")
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "projects": [
+            {**world.projects[0], "worktrees": world.worktrees[:2]},
+            {**world.projects[1], "worktrees": world.worktrees[2:]},
+        ]
+    }
+
+
+def test_list_prints_one_projects_open_rows_then_the_closed_names(start_server):
+    start_server(a_world())
+
+    result = mael("list", PROJECT)
+
+    assert result.exit_code == 0, result.output
+    assert [line.split() for line in result.output.splitlines()] == [
+        ["WORKTREE", "BRANCH", "DIRTY", "FILES", "LOCAL", "COMMITS"]
+        + ["PR", "(COMMITS)", "APP", "SESSION"],
+        [result.output.splitlines()[1].strip()],
+        ["alpha", "feat/orders", "\u2190", "main", "2", "1", "#7", "(3)", "(stale)"]
+        + ["https://dev.example:3010", "1"],
+        [],
+        ["Closed", "environments:", "bravo"],
+    ]
+
+
+def test_list_of_a_project_the_server_does_not_know_says_so(start_server):
+    start_server(a_world())
+
+    result = CliRunner().invoke(cli, ["list", "globex"])
+
+    assert result.exit_code == 1
+    assert "The orchestrator knows no project 'globex'" in result.output
+
+
+def test_list_all_with_no_server_says_so(home):
+    point_config_at("http://127.0.0.1:9")
+
+    result = CliRunner().invoke(cli, ["list-all"])
+
+    assert result.exit_code == 1
+    assert "No orchestrator answered at http://127.0.0.1:9" in result.output
