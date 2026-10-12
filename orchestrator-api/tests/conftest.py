@@ -8,5 +8,6 @@ from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
     _plain_terminal,
     fake_cmux,
     migrated_notebook,
+    project_with_worktree,
     store,
 )

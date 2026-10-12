@@ -5,11 +5,10 @@ Every function here shells out, hands the raw output to a parser in
 logic — the dataclasses, the parsers, the stack walk, the errors — lives in
 ``github_model`` and needs no subprocess to exercise.
 
-Most functions shell out through ``run_cmd`` or ``run_git`` and block. The two
-the orchestrator server reads on its poll — :func:`get_open_prs` and
-:func:`get_pr_for_branch` — are coroutines over ``run_cmd_async``, so a network
-round trip does not stall the loop serving the sockets. There is one form of
-each: no blocking twin to keep in step.
+Most functions shell out through ``run_cmd`` or ``run_git`` and block. The one
+the orchestrator server reads on its poll, :func:`get_open_prs`, is a coroutine
+over ``run_cmd_async``, so a network round trip does not stall the loop serving
+the sockets. There is one form of it: no blocking twin to keep in step.
 
 ``run_cmd`` and ``run_cmd_async`` are the mock seams these functions are tested
 through; nothing wraps either, so a test can patch this module's attribute
@@ -212,37 +211,13 @@ def create_project_repo(
         raise GitHubCliMissing("gh")
 
 
-async def get_pr_for_branch(cwd: Path, branch: str) -> PrStatus | None:
-    """One branch's pull request, looked up alone when the batch call failed.
-
-    ``gh pr list`` carries no check rollup and no mergeability, so ``state``
-    comes back ``unknown`` rather than claiming a state nothing looked up. The
-    next poll re-runs the batch.
-
-    Args:
-        cwd: Working directory (must be in a git repo).
-        branch: Branch name to look up.
-
-    Returns:
-        The branch's pull request, or ``None`` when it has none.
-    """
-
-    try:
-        result = await run_cmd_async(
-            _pr_for_branch_argv(branch), cwd=cwd, quiet=True, check=False
-        )
-        return _parse_pr_for_branch(result)
-    except (ValueError, TypeError, FileNotFoundError, json.JSONDecodeError):
-        return None
-
-
 async def find_open_pr(
     cwd: Path, branch: str, token: str | None = None
 ) -> PrStatus | None:
     """``branch``'s open pull request, for a caller that must not guess.
 
-    :func:`get_pr_for_branch` reads a failed lookup as "no PR", which suits a
-    table cell. A caller about to delete the branch needs the difference.
+    A caller about to delete the branch must tell a failed lookup from "no PR",
+    so a failure raises.
 
     Raises:
         GitHubCliMissing: If ``gh`` is not installed.
@@ -459,8 +434,9 @@ async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | N
     Returns:
         Branch name -> :class:`PrStatus`, for those branches that have a pull
         request. ``{}`` when none of them does. ``None`` when the lookup failed,
-        so the caller can fall back per branch rather than render every PR as
-        absent — an empty column and a broken ``gh`` must not look the same.
+        so the caller keeps the last known state and marks it stale rather
+        than render every PR as absent — an empty column and a broken ``gh``
+        must not look the same.
     """
     if not branches:
         return {}
@@ -481,8 +457,8 @@ async def get_open_prs(cwd: Path, branches: set[str]) -> dict[str, PrStatus] | N
             run_states = await _get_run_states(cwd)
         return parse_open_prs(payload, aliases, run_states=run_states)
     except RateLimited:
-        # Distinct from the failures below, which return ``None`` and are
-        # answered per branch. The caller decides what a row shows.
+        # Distinct from the failures below, which return ``None``: a spent
+        # budget makes the caller stand off rather than ask again.
         raise
     except (ValueError, KeyError, TypeError, FileNotFoundError, json.JSONDecodeError):
         return None

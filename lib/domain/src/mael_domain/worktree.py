@@ -542,6 +542,19 @@ def get_current_branch(repo_path: Path) -> str:
     return result.stdout.strip()
 
 
+def current_branch_or_none(repo_path: Path) -> str | None:
+    """The branch ``repo_path`` has checked out, or ``None``.
+
+    ``None`` for a detached ``HEAD``, and for a path git cannot read. For a
+    caller whose own work is done and that only wants to name the branch.
+    """
+    try:
+        branch = get_current_branch(repo_path)
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return None if branch == "HEAD" else branch
+
+
 @dataclass
 class SyncResult:
     """Result of a sync operation."""

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
-from mael_domain.github_model import GitHubCommandFailed
+from mael_domain.github_model import GitHubCommandFailed, PrStatus
 from mael_domain.state_db.types import SchemaTooOldError
 from mael_domain.task import list_tasks
 from mael_domain.task_table import InMemoryTaskTable
@@ -28,7 +28,11 @@ from mael_orchestrator.cli import (
     cli,
     run_server,
 )
-from mael_orchestrator.sources import CloseBlocked, ListAllWorktreeSource
+from mael_orchestrator.sources import (
+    CloseBlocked,
+    ListAllWorktreeSource,
+    PrStateCache,
+)
 
 
 def test_serve_passes_its_flags_to_the_server():
@@ -280,31 +284,22 @@ def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
 
 
 async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> None:
-    """Give the wired source a reading that holds PR #118, ready, on feat/x,
+    """Give the wired source a PR read that holds PR #118, ready, on feat/x,
     in a worktree whose local ``HEAD`` is the PR head."""
 
     async def head_sha(_path):
         return "deadbee"
 
     monkeypatch.setattr("mael_orchestrator.sources.get_head_sha_async", head_sha)
-    row = {
-        "name": "alpha",
-        "path": "/p/alpha",
-        "branch": "feat/x",
-        "pr_number": 118,
-        "pr_commits": 1,
-        "pr_url": "",
-        "pr_state": "ready",
-        "pr_draft": False,
-        "pr_merged_at": None,
-        "pr_head_oid": "deadbee",
-    }
+    pr = PrStatus(
+        number=118, commits=1, url="", state="ready", is_draft=False, head_oid="deadbee"
+    )
 
-    async def list_all(*_args, **_kwargs):
-        return {"projects": [{"name": "northwind", "worktrees": [row]}]}
+    async def read(_cwd, _branches):
+        return {"feat/x": pr}
 
-    with patch("mael_orchestrator.sources.build_list_all_data", list_all):
-        await worktrees.read()
+    worktrees.prs = PrStateCache(read=read)
+    await worktrees.prs.refresh(Path("/p/northwind"), {"feat/x"})
 
 
 async def test_the_merge_port_merges_with_the_orchestrator_token(tmp_path, monkeypatch):

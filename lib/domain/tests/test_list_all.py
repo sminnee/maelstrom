@@ -18,8 +18,9 @@ import pytest
 import mael_domain.task
 from mael_domain.env import EnvState, ServiceState, save_env_state
 from mael_domain.env_store import JsonEnvStore
-from mael_domain.github_model import PrStatus, RateLimited
+from mael_domain.github_model import PrStatus
 from mael_domain.list_all import (
+    ProjectPrs,
     build_list_all_data,
     project_repo_url,
     repo_url_from_remote,
@@ -57,7 +58,6 @@ def test_build_list_all_data_reports_a_project_that_configures_a_linear_team(
         "linear:\n  team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7\n"
     )
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -71,7 +71,6 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     project_path, worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -127,7 +126,6 @@ def test_the_project_row_carries_its_repo_url(
         cwd=project_path,
     )
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -135,22 +133,21 @@ def test_the_project_row_carries_its_repo_url(
     assert data["projects"][0]["repo_url"] == "https://github.com/test/test-repo"
 
 
-def _row_for(project_path, pr):
-    """The one worktree row `build_list_all_data` makes when the PR batch
-    answers ``pr`` for the worktree's branch.
-
-    The batch is what is patched, not `resolve_pr`: the seam under test is the
-    whole path from a batch answer to a row, and patching `resolve_pr` would
-    step over the wiring the row depends on. `get_open_prs` keys on the branch,
-    so the batch is built after the branch is known.
-    """
+def _row_for(project_path, pr, *, stale=False):
+    """The one worktree row `build_list_all_data` makes when the PR snapshot
+    holds ``pr`` for the worktree's branch."""
     branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
-    batch = {branch: pr for branch in branches} if pr else {}
-    with (
-        patch("mael_domain.list_all.get_open_prs", return_value=batch),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
+    by_branch = {branch: pr for branch in branches} if pr else {}
+    prs = {
+        project_path.name: ProjectPrs(
+            by_branch=by_branch,
+            stale_branches=frozenset(branches if stale else ()),
+        )
+    }
+    with patch(
+        "mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0
     ):
-        data = asyncio.run(build_list_all_data(project_path.parent))
+        data = asyncio.run(build_list_all_data(project_path.parent, prs=prs))
     return data["projects"][0]["worktrees"][0]
 
 
@@ -167,8 +164,8 @@ def test_a_worktree_row_carries_its_prs_own_url(
 def test_a_pr_with_no_url_of_its_own_falls_back_to_the_repo_join(
     project_with_worktree,
 ):
-    """The per-branch fallback lookup answers a number but no URL. A row must
-    still link, rather than showing a PR the reader cannot open."""
+    """A PR read can answer a number but no URL. A row must still link, rather
+    than showing a PR the reader cannot open."""
     project_path, _worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
     run_git(
@@ -270,6 +267,17 @@ def test_a_worktree_row_carries_its_pr_state(
     assert merged["pr_merged_at"] == "2026-09-01"
 
 
+def test_a_stale_snapshot_marks_the_row_and_keeps_its_pr(
+    project_with_worktree,
+):
+    """A failed PR read keeps the last known state, and says it is old."""
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    row = _row_for(project_path, _pr(42), stale=True)
+    assert (row["pr_number"], row["pr_stale"]) == (42, True)
+    assert _row_for(project_path, _pr(42))["pr_stale"] is False
+
+
 def test_a_merged_pr_still_counts_the_pushed_commits(
     project_with_worktree,
 ):
@@ -312,7 +320,6 @@ def test_a_worktree_row_with_no_pr_carries_no_pr_url(
         cwd=project_path,
     )
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(project_path.parent))
@@ -326,7 +333,6 @@ def test_a_project_dir_that_is_not_a_git_repo_carries_no_repo_url(tmp_path):
     project_path.mkdir()
     (project_path / ".mael").touch()
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(tmp_path))
@@ -347,7 +353,6 @@ def test_a_project_with_no_remote_carries_no_repo_url(tmp_path, monkeypatch):
     (project_path / ".mael").touch()
     run_git(["init", "-q", str(project_path)])
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(tmp_path))
@@ -410,7 +415,6 @@ def test_the_project_root_is_excluded_under_a_symlinked_projects_dir(
     link = tmp_path / "link"
     link.symlink_to(project_path.parent)
     with (
-        patch("mael_domain.list_all.get_open_prs", return_value={}),
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
         data = asyncio.run(build_list_all_data(link))
@@ -480,13 +484,12 @@ def _fake_worktrees(project_path: Path, count: int) -> list[WorktreeInfo]:
 
 @contextmanager
 def _quiet_worktree_reads(**overrides):
-    """Stop a fake worktree row reaching git, ``gh``, the ports or env state files.
+    """Stop a fake worktree row reaching git, the ports or env state files.
 
     ``overrides`` names the read the test is actually about, so each test
     patches one function itself and lets the rest answer nothing.
     """
     quiet = {
-        "get_open_prs": {},
         "closed_worktrees_async": set(),
         "project_repo_url": None,
         "get_worktree_dirty_files_async": [],
@@ -569,14 +572,9 @@ def test_the_worktrees_of_a_project_are_read_at_the_same_time(tmp_path):
 def test_no_more_reads_run_at_once_than_the_cap_allows(tmp_path):
     """Two unbounded levels multiply, so both share one cap.
 
-    16 projects times 90 worktrees times three subprocesses is enough
-    concurrent work to trip ``gh`` secondary rate limits. A rate-limited
-    batch returns ``None``, and every row then falls back to the slower
-    per-branch lookup — so the failure is silent and backwards.
-
-    ``get_open_prs`` is that ``gh`` call, so the probe counts it
-    alongside a worktree read: one budget has to cover both levels, or the
-    level the cap exists for is the one still running unbounded.
+    16 projects times 90 worktrees times three subprocesses is several hundred
+    ``git`` processes at once. The probe counts a project-level read alongside
+    a worktree read: one budget has to cover both levels.
     """
     # More projects than the cap, so the project level alone can exceed it.
     for n in range(8):
@@ -588,7 +586,7 @@ def test_no_more_reads_run_at_once_than_the_cap_allows(tmp_path):
 
     with _quiet_worktree_reads(
         list_worktrees_async=four_worktrees,
-        get_open_prs=probe.answering({}),
+        project_repo_url=probe.answering(None),
         get_worktree_dirty_files_async=probe.read,
     ):
         data = asyncio.run(build_list_all_data(tmp_path, concurrency=3))
@@ -671,171 +669,3 @@ def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
 
     assert len(data["projects"]) == 4
     assert probe.peak > 1, "the store reads ran one after another"
-
-
-def _row_not_asked(project_path, *, remembered):
-    """The one worktree row `build_list_all_data` makes when the branch is
-    outside the active set, so no batch call is made for it at all.
-
-    ``remembered`` is what an earlier poll learned about the branch. The batch
-    is patched to fail the test if it is called: a branch outside the active
-    set must cost no network read.
-    """
-    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
-    by_branch = {branch: remembered for branch in branches} if remembered else {}
-    cache = {project_path.name: by_branch}
-
-    async def _never(*_args, **_kwargs):
-        raise AssertionError("a branch outside the active set was asked about")
-
-    with (
-        patch("mael_domain.list_all.get_open_prs", new=_never),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
-    ):
-        data = asyncio.run(
-            build_list_all_data(
-                project_path.parent, active_branches=set(), pr_cache=cache
-            )
-        )
-    return data["projects"][0]["worktrees"][0]
-
-
-def test_a_branch_outside_the_active_set_keeps_its_last_known_pr(
-    project_with_worktree,
-):
-    """Not asked is not the same as no PR.
-
-    A branch the poll skips must keep what the last poll learned. Reporting
-    `None` would tell the reader the PR was gone, which is worse than stale.
-    """
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-    row = _row_not_asked(project_path, remembered=_pr(42, state="ci-running"))
-    assert (row["pr_number"], row["pr_state"]) == (42, "ci-running")
-
-
-def test_a_branch_outside_the_active_set_with_nothing_remembered_has_no_pr(
-    project_with_worktree,
-):
-    """The cold case: skipped, and nothing cached. The row carries no PR, and
-    still makes no call to find that out."""
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-    row = _row_not_asked(project_path, remembered=None)
-    assert (row["pr_number"], row["pr_state"]) == (None, None)
-
-
-def test_a_rate_limited_batch_does_not_look_each_branch_up(
-    project_with_worktree,
-):
-    """The amplification guard.
-
-    A failed batch normally falls back to one lookup per branch. Doing that to
-    a rate limit turns one refused call into one call per worktree and keeps
-    the budget spent, so the rate-limited case must make no fallback call at
-    all. Asserting the row's contents would pass either way — what matters is
-    that the fallback is never reached.
-    """
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-
-    async def _rate_limited(*_args, **_kwargs):
-        raise RateLimited("GraphQL rate limit: [{'type': 'RATE_LIMIT'}]")
-
-    async def _never(*_args, **_kwargs):
-        raise AssertionError("a rate limit was answered by a per-branch lookup")
-
-    with (
-        patch("mael_domain.list_all.get_open_prs", new=_rate_limited),
-        patch("mael_domain.list_all.get_pr_for_branch", new=_never),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
-    ):
-        with pytest.raises(RateLimited):
-            asyncio.run(build_list_all_data(project_path.parent))
-
-
-def test_a_rate_limited_read_still_shows_what_the_last_one_learned(
-    project_with_worktree,
-):
-    """The rows survive the refusal.
-
-    A spent budget must not blank the PR column: the rows carry what the last
-    read learned, and the caller reads them off the error so one refused
-    project does not cost the whole world its pull requests.
-    """
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
-    cache = {project_path.name: {branch: _pr(42) for branch in branches}}
-
-    async def _rate_limited(*_args, **_kwargs):
-        raise RateLimited("spent")
-
-    with (
-        patch("mael_domain.list_all.get_open_prs", new=_rate_limited),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
-        pytest.raises(RateLimited) as caught,
-    ):
-        asyncio.run(
-            build_list_all_data(
-                project_path.parent, active_branches=branches, pr_cache=cache
-            )
-        )
-
-    data = caught.value.args[1]
-    assert data["projects"][0]["worktrees"][0]["pr_number"] == 42
-
-
-def test_an_ordinary_batch_failure_still_looks_each_branch_up(
-    project_with_worktree,
-):
-    """A missing scope or a broken `gh` is still worth a per-branch lookup: it
-    keeps one blank row rather than a blank column. Only a rate limit is not."""
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-
-    async def _failed(*_args, **_kwargs):
-        return None
-
-    with (
-        patch("mael_domain.list_all.get_open_prs", new=_failed),
-        patch("mael_domain.list_all.get_pr_for_branch", return_value=_pr(7)),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
-    ):
-        data = asyncio.run(build_list_all_data(project_path.parent))
-
-    assert data["projects"][0]["worktrees"][0]["pr_number"] == 7
-
-
-def test_one_projects_cached_pr_is_not_shown_on_another(
-    project_with_worktree,
-):
-    """Branch names are not unique across projects.
-
-    Every project's `_main` sits on `main`, so a cache keyed by branch alone
-    would answer one project's row with another project's pull request. A wrong
-    PR is worse than the stale one the cache exists to keep.
-    """
-    project_path, _worktree_path, _remote = project_with_worktree
-    (project_path / ".mael").touch()
-    branches = {wt.branch for wt in list_worktrees(project_path) if wt.branch}
-    other = {branch: _pr(99) for branch in branches}
-
-    async def _never(*_args, **_kwargs):
-        raise AssertionError("a branch outside the active set was asked about")
-
-    with (
-        patch("mael_domain.list_all.get_open_prs", new=_never),
-        patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
-    ):
-        data = asyncio.run(
-            build_list_all_data(
-                project_path.parent,
-                active_branches=set(),
-                # The cache holds the same branch names under a project that is
-                # not the one being read.
-                pr_cache={"some-other-project": other},
-            )
-        )
-
-    assert data["projects"][0]["worktrees"][0]["pr_number"] is None

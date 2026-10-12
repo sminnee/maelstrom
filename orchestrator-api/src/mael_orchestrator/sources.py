@@ -15,7 +15,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Executor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -26,9 +26,15 @@ from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
 from mael_domain import task_actions
 from mael_domain.agent_store import AgentStore
-from mael_domain.github_model import PrStatus, RateLimited, pr_from_row
+from mael_domain.github import get_open_prs
+from mael_domain.github_model import PrStatus, RateLimited
 from mael_domain.landing import Landings
-from mael_domain.list_all import build_list_all_data
+from mael_domain.list_all import (
+    ProjectPrs,
+    PrSnapshot,
+    build_list_all_data,
+    project_branches,
+)
 from mael_domain.protocol import (
     Project,
     StatusMoved,
@@ -47,7 +53,11 @@ from mael_domain.task_launch import (
 )
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
 from mael_domain.task_table import TaskTable
-from mael_domain.worktree import WorktreeSetup, get_head_sha_async
+from mael_domain.worktree import (
+    WorktreeSetup,
+    current_branch_or_none,
+    get_head_sha_async,
+)
 from mael_domain.worktree_steps import StepHook
 
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
@@ -425,11 +435,19 @@ class WorktreeSource(Protocol):
     #: Makes a worktree's terminal and returns its link, or ``None``.
     ensure_terminal: EnsureTerminal | None
 
-    #: Whether the last read had its pull request lookup refused for quota. The
-    #: rows still stand — a refused lookup costs the pull request column, not
-    #: the read — so the caller stands the next read off rather than dropping
-    #: this one.
-    rate_limited: bool
+    @property
+    def rate_limited(self) -> bool:
+        """Whether pull request reads stand off after GitHub refused one for
+        quota. The rows still read; only the PR state goes stale."""
+        ...
+
+    def stand_off(self) -> None:
+        """Stand pull request reads off, for a refusal another reader met."""
+        ...
+
+    def refresh_prs(self, project: str, branch: str) -> Awaitable[None] | None:
+        """Read ``branch``'s pull request again, because a caller changed it."""
+        ...
 
 
 class NotebookTaskSource:
@@ -807,6 +825,180 @@ class NotebookTaskSource:
         )
 
 
+#: How long the PR read stands off after GitHub refuses it for quota.
+#:
+#: Fixed rather than read from the reset time: ``gh`` does not hand that header
+#: back. Ten minutes picks up a budget freed early without the retries
+#: themselves keeping it spent.
+RATE_LIMIT_COOLDOWN_SECS = 600.0
+
+#: How long one project's PR read may take before its rows go out stale.
+PR_READ_TIMEOUT_SECS = 30.0
+
+#: Reads the pull requests of some branches: ``(project_path, branches) ->
+#: {branch: PrStatus}``, or ``None`` when the read failed. Raises
+#: :class:`~mael_domain.github_model.RateLimited` when the budget is spent.
+ReadPrs = Callable[[Path, set[str]], Awaitable[dict[str, PrStatus] | None]]
+
+
+@dataclass
+class _ProjectPrState:
+    by_branch: dict[str, PrStatus]
+    stale_branches: set[str] = field(default_factory=set)
+
+
+@dataclass
+class _Flight:
+    """One project's PR read in progress, and what it asked about."""
+
+    task: asyncio.Task[None]
+    branches: set[str]
+    #: The value of :attr:`PrStateCache._started` when this read began.
+    started: int
+
+
+class PrStateCache:
+    """The one reader of pull request state, and what it last learned.
+
+    It owns the ``gh`` call, so the worktree rows never wait on it for longer
+    than ``timeout``. It also owns the rate-limit stand-off: during one, no
+    caller reaches GitHub, whichever path it came by.
+
+    A failed, timed-out or skipped read keeps the last known state and marks
+    the branches it asked about stale. See ``docs/dev/orchestrator-server.md``.
+    """
+
+    def __init__(
+        self,
+        read: ReadPrs = get_open_prs,
+        *,
+        timeout: float = PR_READ_TIMEOUT_SECS,
+        cooldown: float = RATE_LIMIT_COOLDOWN_SECS,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        self._read = read
+        self._timeout = timeout
+        self._cooldown = cooldown
+        self._clock = clock or (lambda: asyncio.get_running_loop().time())
+        self._projects: dict[str, _ProjectPrState] = {}
+        self._in_flight: dict[str, _Flight] = {}
+        #: How many reads have begun, so an after-write caller can tell a read
+        #: that began before it from one that began after.
+        self._started = 0
+        self._stand_off_until: float | None = None
+
+    def standing_off(self) -> bool:
+        """Whether GitHub refused a read for quota and the cooldown still holds."""
+        if self._stand_off_until is None:
+            return False
+        if self._clock() >= self._stand_off_until:
+            self._stand_off_until = None
+            return False
+        return True
+
+    def stand_off(self) -> None:
+        """Stop reading for the cooldown. For a refusal another reader met."""
+        self._stand_off_until = self._clock() + self._cooldown
+        log.warning(
+            "GitHub rate limit reached; PR reads stand off for %ss", self._cooldown
+        )
+
+    def snapshot(self) -> PrSnapshot:
+        return {
+            name: ProjectPrs(
+                by_branch=dict(state.by_branch),
+                stale_branches=frozenset(state.stale_branches),
+            )
+            for name, state in self._projects.items()
+        }
+
+    def get(self, project: str, branch: str) -> PrStatus | None:
+        state = self._projects.get(project)
+        return state.by_branch.get(branch) if state else None
+
+    async def refresh(
+        self, project_path: Path, branches: set[str], *, after_write: bool = False
+    ) -> None:
+        """Read ``branches``' pull requests, unless a read in flight covers them.
+
+        ``after_write`` is for a caller that just changed a PR on GitHub. A
+        read that began before the change cannot hold its result, so the
+        caller waits that read out and reads again.
+
+        Never raises for a failed read: the branches go stale instead.
+        """
+        name = project_path.name
+        state = self._projects.setdefault(name, _ProjectPrState({}))
+        if not branches:
+            return
+        if self.standing_off():
+            state.stale_branches |= branches
+            return
+        entered = self._started
+        while (flight := self._in_flight.get(name)) is not None:
+            if flight.task.done():
+                # Cancelled before it ran, so its own cleanup never did.
+                del self._in_flight[name]
+                continue
+            covered = branches <= flight.branches and (
+                not after_write or flight.started > entered
+            )
+            # Shielded: a cancelled caller must not cancel a read others share.
+            await asyncio.shield(flight.task)
+            if covered:
+                return
+        self._started += 1
+        task = asyncio.create_task(self._read_into(state, project_path, branches))
+        self._in_flight[name] = _Flight(task, set(branches), self._started)
+        await asyncio.shield(task)
+
+    async def _read_into(
+        self, state: _ProjectPrState, project_path: Path, branches: set[str]
+    ) -> None:
+        name = project_path.name
+        try:
+            answer = await self._read_or_none(project_path, branches)
+        finally:
+            # Removed before the task completes, not in a done callback. A
+            # callback runs a loop turn later, and a waiter that finds the
+            # finished flight in between would await it without yielding,
+            # forever.
+            flight = self._in_flight.get(name)
+            if flight is not None and flight.task is asyncio.current_task():
+                del self._in_flight[name]
+        if answer is None:
+            state.stale_branches |= branches
+            return
+        # Only the branches asked about are answered. One not asked keeps its
+        # entry: its absence from ``answer`` says nothing about it.
+        for branch in branches:
+            if branch in answer:
+                state.by_branch[branch] = answer[branch]
+            else:
+                state.by_branch.pop(branch, None)
+        state.stale_branches -= branches
+
+    async def _read_or_none(
+        self, project_path: Path, branches: set[str]
+    ) -> dict[str, PrStatus] | None:
+        """The read's answer, or ``None`` when it failed, timed out or was refused."""
+        try:
+            answer = await asyncio.wait_for(
+                self._read(project_path, branches), self._timeout
+            )
+        except RateLimited:
+            self.stand_off()
+            return None
+        except Exception as exc:  # noqa: BLE001 — a failed read costs freshness only
+            log.warning(
+                "could not read the pull requests of %s: %r", project_path.name, exc
+            )
+            return None
+        if answer is None:
+            log.warning("could not read the pull requests of %s", project_path.name)
+        return answer
+
+
 class InMemoryWorktreeSource:
     """A fixed reading, editable by the test that owns it."""
 
@@ -840,8 +1032,11 @@ class InMemoryWorktreeSource:
         #: What the last read was asked about, so a test can check the poll
         #: narrowed its GitHub call rather than only what it returned.
         self.asked: set[str] | None = None
-        #: Set by a test that wants the caller to see a refused read.
+        #: Set by a test that wants the caller to see a refused read, and by
+        #: :meth:`stand_off`.
         self.rate_limited = False
+        #: Each ``(project, branch)`` a caller asked to read again after a write.
+        self.prs_refreshed: list[tuple[str, str]] = []
         #: Set by a test that needs a read to still be in flight while it does
         #: something else. The real read shells out per worktree and takes
         #: seconds; this one returns at once, so a test that cares about two
@@ -855,6 +1050,12 @@ class InMemoryWorktreeSource:
         self.reads += 1
         self.asked = active_branches
         return list(self.projects), list(self.worktrees)
+
+    def stand_off(self) -> None:
+        self.rate_limited = True
+
+    def refresh_prs(self, project: str, branch: str) -> None:
+        self.prs_refreshed.append((project, branch))
 
 
 class ListAllWorktreeSource:
@@ -877,20 +1078,17 @@ class ListAllWorktreeSource:
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
         terminal_urls: TerminalUrls = _no_terminal_urls,
+        prs: PrStateCache | None = None,
     ) -> None:
         self.projects_dir = projects_dir
         self.terminal_urls = terminal_urls
-        #: The last pull request seen, by project and then by branch, answering
-        #: the branches a read did not ask about; see
-        #: :func:`mael_domain.list_all.resolve_pr`. Keyed by project because
-        #: branch names are not unique across them.
-        self._pr_cache: dict[str, dict[str, PrStatus]] = {}
-        #: Whether the last read had its pull request lookup refused for quota.
-        #: The rows still stand; the caller stands the next read off.
-        self.rate_limited = False
+        self.prs = prs or PrStateCache()
         self.close = close
         self.force_close = force_close
-        self.trash = trash
+        self._trash = trash
+        self.trash: CloseWorktree | None = (
+            self._trash_and_refresh if trash is not None else None
+        )
         self.sync = sync
         self._merge_pr = merge_pr
         self.merge: MergeWorktreePr | None = (
@@ -900,6 +1098,32 @@ class ListAllWorktreeSource:
         self.env = env
         self.ensure_terminal = ensure_terminal
 
+    @property
+    def rate_limited(self) -> bool:
+        return self.prs.standing_off()
+
+    def stand_off(self) -> None:
+        self.prs.stand_off()
+
+    async def refresh_prs(self, project: str, branch: str) -> None:
+        await self.prs.refresh(self.projects_dir / project, {branch}, after_write=True)
+
+    async def _trash_and_refresh(
+        self, project: str, nato: str, path: str, *, hook: StepHook
+    ) -> None:
+        """Trash the worktree, then read its branch's pull request again.
+
+        The trash closes the PR. The branch is read first, because the trash
+        removes it.
+        """
+        assert self._trash is not None
+        branch = await asyncio.to_thread(current_branch_or_none, Path(path))
+        result = self._trash(project, nato, path, hook=hook)
+        if result is not None:
+            await result
+        if branch is not None:
+            await self.refresh_prs(project, branch)
+
     async def _merge(self, project: str, branch: str, path: str) -> None:
         """Merge ``branch``'s pull request at the head commit the last read saw.
 
@@ -908,7 +1132,7 @@ class ListAllWorktreeSource:
         name the commit whose state the user was shown.
         """
         assert self._merge_pr is not None
-        pr = self._pr_cache.get(project, {}).get(branch)
+        pr = self.prs.get(project, branch)
         if pr is None:
             raise CloseBlocked(f"No pull request is known for {branch}")
         # A read can land between the server's validation and here. The merge
@@ -929,24 +1153,27 @@ class ListAllWorktreeSource:
                 f"The local branch differs from PR #{pr.number}. Sync it first."
             )
         await asyncio.to_thread(self._merge_pr, path, pr.number, pr.head_oid)
+        await self.refresh_prs(project, branch)
 
     async def read(
         self, active_branches: set[str] | None = None
     ) -> tuple[list[Project], list[Worktree]]:
-        self.rate_limited = False
-        try:
-            data = await build_list_all_data(
-                self.projects_dir,
-                active_branches=active_branches,
-                pr_cache=self._pr_cache,
+        """The rows, with the PR state read first so ``pushed_commits`` sees it.
+
+        ``active_branches`` limits the PR read; ``None`` asks about every
+        branch. See :meth:`Orchestrator.refresh_worktrees`. A hung ``gh``
+        delays the rows by one or two of the cache's timeouts.
+        """
+        branches = await project_branches(self.projects_dir)
+        await asyncio.gather(
+            *(
+                self.prs.refresh(
+                    path, held if active_branches is None else held & active_branches
+                )
+                for path, held in branches.items()
             )
-        except RateLimited as refused:
-            # Only the pull request read was refused; the rows are built and
-            # carry each branch's last known pull request. Keep them, and let
-            # the caller read ``rate_limited`` to decide the next tick.
-            self.rate_limited = True
-            data = refused.args[1]
-        self._remember_prs(data)
+        )
+        data = await build_list_all_data(self.projects_dir, prs=self.prs.snapshot())
         projects = [project_entity(p) for p in data["projects"]]
         open_rows = [
             (p["name"], row["name"])
@@ -965,24 +1192,3 @@ class ListAllWorktreeSource:
             for row in p["worktrees"]
         ]
         return projects, worktrees
-
-    def _remember_prs(self, data: dict) -> None:
-        """Keep what this read learned, to answer the branches the next one
-        does not ask about.
-
-        A row with no pull request is remembered as such: forgetting it instead
-        would let a stale entry outlive a PR that really has gone.
-        """
-        for project in data["projects"]:
-            by_branch = self._pr_cache.setdefault(project["name"], {})
-            for row in project["worktrees"]:
-                branch = row.get("branch")
-                if not branch or row.get("is_closed"):
-                    # A closed row carries no pull request whether or not the
-                    # branch has one, so it says nothing worth remembering.
-                    continue
-                pr = pr_from_row(row)
-                if pr is None:
-                    by_branch.pop(branch, None)
-                else:
-                    by_branch[branch] = pr

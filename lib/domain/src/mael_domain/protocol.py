@@ -85,6 +85,9 @@ class Worktree(TypedDict):
     #: The **PR match**: ``"match"`` when the local ``HEAD`` is the PR head,
     #: ``"differ"`` when not, ``""`` with no open PR or an unknown head.
     prMatch: PrMatch
+    #: **Stale PR state**: the last PR read failed, timed out or stood off,
+    #: so the ``pr*`` fields are the last known state, not the current one.
+    prStale: bool
     env: WorktreeEnv
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
