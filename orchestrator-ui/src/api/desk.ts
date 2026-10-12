@@ -3,7 +3,7 @@ import type { DeskEntry } from '../protocol/entities';
 import type { DeskId, WorktreeId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { keys } from './keys';
-import { runOperation, type OperationStarted } from './operations';
+import { useStartOperation, type OperationStarted } from './operations';
 
 export interface DeskBody {
   desk: DeskEntry[];
@@ -41,27 +41,15 @@ export type DismissChain = 'terminate' | 'close' | 'shelve' | 'trash' | 'delete'
 
 /**
  * **Dismiss** a node: the server stops its agent or ends its worktree, then
- * takes it off the desk, as one operation. It waits for the operation to end,
- * so the control that ran it shows the wait and the reason. A worktree chain
- * names the worktree it ends.
+ * takes it off the desk, as one operation — see `useStartOperation`. A worktree
+ * chain names the worktree it ends.
  */
 export function useDismiss() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { deskId: DeskId; chain: DismissChain; worktreeId?: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(`/api/desk/${encodeURIComponent(vars.deskId)}/dismiss`, {
-          chain: vars.chain,
-          ...(vars.worktreeId ? { worktreeId: vars.worktreeId } : {}),
-        }),
-      ),
-    onSettled: () => {
-      // A refused end has still stopped agents, so the world is read either way.
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
-      void queryClient.invalidateQueries({ queryKey: keys.attention() });
-      void queryClient.invalidateQueries({ queryKey: keys.desk() });
-    },
-  });
+  return useStartOperation(
+    (api, vars: { deskId: DeskId; chain: DismissChain; worktreeId?: WorktreeId }) =>
+      api.post<OperationStarted>(`/api/desk/${encodeURIComponent(vars.deskId)}/dismiss`, {
+        chain: vars.chain,
+        ...(vars.worktreeId ? { worktreeId: vars.worktreeId } : {}),
+      }),
+  );
 }

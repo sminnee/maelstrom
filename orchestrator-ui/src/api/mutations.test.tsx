@@ -18,10 +18,12 @@ import {
   useApprove,
   useDeny,
   useInterrupt,
+  useResume,
   useRun,
   useSay,
   useSetMode,
   useStartAgent,
+  useStop,
 } from './agents';
 import { ApiProvider } from './ApiProvider';
 import { usePutOnDesk, useTakeOffDesk } from './desk';
@@ -120,9 +122,6 @@ type Case = [
   invalidates: unknown[],
 ];
 
-// Terminate and resume wait on their operation, which needs the change stream
-// this harness does not open: App.canvas.test.tsx drives them through the fake.
-
 // r1 is the question and r2 the permission, so each reply names the wait it
 // suits: a reply is judged by the request it names, not the agent's state.
 const AG = { agentId: 'ag1', requestId: 'r1' };
@@ -189,6 +188,22 @@ describe('the mutation hooks', () => {
       'POST /api/agents/ag1/interrupt',
       {},
       agentKeys,
+    ],
+    [
+      'useStop',
+      useStop,
+      { agentId: 'ag1' },
+      'POST /api/agents/ag1/stop',
+      {},
+      [keys.operations.list()],
+    ],
+    [
+      'useResume',
+      useResume,
+      { agentId: 'ag2' },
+      'POST /api/agents/ag2/resume',
+      {},
+      [keys.operations.list()],
     ],
     [
       'useSetMode',
@@ -424,12 +439,19 @@ describe('the mutation hooks', () => {
     expect(queryClient.getQueryData(keys.tasks.detail(taskId))).toBeUndefined();
   });
 
-  it('a refusal rejects with the code and the message, and invalidates nothing', async () => {
-    const { server, invalidate, wrapper } = harness();
-    server.refuse(/approve/, { status: 409, code: 'stale_request', message: 'stale' });
-    const { result } = renderHook(useApprove, { wrapper });
-    const err = await result.current.mutateAsync(AG).catch((e: unknown) => e);
-    expect(err).toMatchObject({ status: 409, code: 'stale_request', message: 'stale' });
-    expect(invalidate).not.toHaveBeenCalled();
-  });
+  // An operation's start is refused the same way: the button that asked shows it.
+  it.each<[string, () => { mutateAsync: (vars: never) => Promise<unknown> }, RegExp, unknown]>([
+    ['useApprove', useApprove, /approve/, AG],
+    ['useStop', useStop, /stop/, { agentId: 'ag1' }],
+  ])(
+    '%s: a refusal rejects with the code and the message, and invalidates nothing',
+    async (_, hook, route, vars) => {
+      const { server, invalidate, wrapper } = harness();
+      server.refuse(route, { status: 409, code: 'stale_request', message: 'stale' });
+      const { result } = renderHook(hook, { wrapper });
+      const err = await result.current.mutateAsync(vars as never).catch((e: unknown) => e);
+      expect(err).toMatchObject({ status: 409, code: 'stale_request', message: 'stale' });
+      expect(invalidate).not.toHaveBeenCalled();
+    },
+  );
 });

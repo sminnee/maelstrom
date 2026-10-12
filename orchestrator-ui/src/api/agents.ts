@@ -4,7 +4,7 @@ import type { AgentId, RequestId } from '../protocol/ids';
 import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
 import { useApi } from './ApiProvider';
 import { keys } from './keys';
-import { runOperation, type OperationStarted } from './operations';
+import { useStartOperation, type OperationStarted } from './operations';
 import type { AgentStart } from './types';
 
 export interface AgentsBody {
@@ -122,28 +122,19 @@ export function useInterrupt() {
   );
 }
 
-/**
- * The node card's **Terminate**, as an operation. It waits for the operation
- * to end, so the control shows the wait and a refusal's reason.
- */
+/** The node card's **Terminate**, as an operation. See `useStartOperation`. */
 export function useStop() {
-  const queryClient = useQueryClient();
-  return useAgentMutation((api, vars: { agentId: AgentId }) =>
-    runOperation(queryClient, api, () =>
-      api.post<OperationStarted>(`/api/agents/${vars.agentId}/stop`),
-    ),
+  return useStartOperation((api, vars: { agentId: AgentId }) =>
+    api.post<OperationStarted>(`/api/agents/${vars.agentId}/stop`),
   );
 }
 
-/** Start an exited agent again, as an operation. It waits as `useStop` does. */
+/** Start an exited agent again, as an operation. */
 export function useResume() {
-  const queryClient = useQueryClient();
-  return useAgentMutation((api, vars: { agentId: AgentId; text?: string }) =>
-    runOperation(queryClient, api, () =>
-      api.post<OperationStarted>(
-        `/api/agents/${vars.agentId}/resume`,
-        vars.text ? { text: vars.text } : {},
-      ),
+  return useStartOperation((api, vars: { agentId: AgentId; text?: string }) =>
+    api.post<OperationStarted>(
+      `/api/agents/${vars.agentId}/resume`,
+      vars.text ? { text: vars.text } : {},
     ),
   );
 }

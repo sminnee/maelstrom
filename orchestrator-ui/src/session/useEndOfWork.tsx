@@ -63,9 +63,10 @@ function nodeDeskId(agent: Agent | undefined, taskId: TaskId | undefined): DeskI
 }
 
 /**
- * Run a **Dismiss** chain on a node, then `onTakenOffDesk`. The server runs
- * the whole chain as one operation, so a reload does not lose it partway. A
- * refused Dismiss leaves the node on the desk and rejects with the reason.
+ * Start a **Dismiss** chain on a node, then run `onTakenOffDesk` at once,
+ * before the server has taken the node off the desk. The server runs the whole
+ * chain as one operation, so a reload does not lose it partway — see
+ * `docs/dev/orchestrator-ui.md`.
  */
 export function useNodeDismiss({
   agent,

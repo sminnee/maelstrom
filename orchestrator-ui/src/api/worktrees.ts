@@ -4,7 +4,7 @@ import type { WorktreeId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
-import { runOperation, type OperationStarted } from './operations';
+import { useStartOperation, type OperationStarted } from './operations';
 
 export interface WorktreesBody {
   worktrees: Worktree[];
@@ -18,162 +18,74 @@ export function useWorktrees() {
   });
 }
 
-/**
- * Close a worktree: the same close `mael close` runs, as an operation. See
- * `runOperation`.
- */
+const worktreeUrl = (worktreeId: WorktreeId, action = '') =>
+  `/api/worktrees/${encodeURIComponent(worktreeId)}${action && `/${action}`}`;
+
+/** Close a worktree: the same close `mael close` runs, as an operation. See `useStartOperation`. */
 export function useCloseWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/close`),
-      ),
-    onSuccess: () => {
-      // The close stops every agent in the worktree, which clears what they
-      // waited on. It leaves the desk as it was.
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
-      void queryClient.invalidateQueries({ queryKey: keys.attention() });
-      void queryClient.invalidateQueries({ queryKey: keys.desk() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'close')),
+  );
 }
 
 /**
  * Close a worktree without the checks the ordinary close makes. It is its own
  * call because the checks are the point of the other one: a dirty tree or an
  * unmerged commit stops a close, and this is how a user says to close anyway.
- * It tears down the same things, so it clears the same queries.
  */
 export function useForceCloseWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(
-          `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/force-close`,
-        ),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
-      void queryClient.invalidateQueries({ queryKey: keys.attention() });
-      void queryClient.invalidateQueries({ queryKey: keys.desk() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'force-close')),
+  );
 }
 
-/**
- * Trash a worktree. It tears down what a close does, so it clears the same
- * queries.
- */
+/** Trash a worktree, as an operation. */
 export function useTrashWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/trash`),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
-      void queryClient.invalidateQueries({ queryKey: keys.attention() });
-      void queryClient.invalidateQueries({ queryKey: keys.desk() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'trash')),
+  );
 }
 
 /**
- * Remove a worktree: the folder and the record both go. It stops whatever is
- * still there first, so it clears what a close clears.
+ * Remove a worktree, as an operation: the folder and the record both go.
  */
 export function useRemoveWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.delete<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}`),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
-      void queryClient.invalidateQueries({ queryKey: keys.attention() });
-      void queryClient.invalidateQueries({ queryKey: keys.desk() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId }) =>
+    api.delete<OperationStarted>(worktreeUrl(vars.worktreeId)),
+  );
 }
 
 export type SyncMode = 'plain' | 'autorepair' | 'squash';
 
-/**
- * Sync a worktree: the same `mael sync` runs, in one of its three modes, as an
- * operation. It starts and stops no agent — only the worktree's own counts move.
- */
+/** Sync a worktree: the same `mael sync` runs, in one of its three modes, as an operation. */
 export function useSyncWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId; mode: SyncMode }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/sync`, {
-          mode: vars.mode,
-        }),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId; mode: SyncMode }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'sync'), { mode: vars.mode }),
+  );
 }
 
-/**
- * Merge a worktree's pull request, as an operation. Only the worktree's own PR
- * state moves.
- */
+/** Merge a worktree's pull request, as an operation. */
 export function useMergePullRequest() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(
-          `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/merge-pr`,
-        ),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-    },
-  });
+  return useStartOperation((api, vars: { worktreeId: WorktreeId }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'merge-pr')),
+  );
 }
 
 /**
  * Start, stop or restart a worktree's dev environment, or start or stop one
- * optional `service`. Only the worktree's own `env` moves, so nothing else is
- * cleared.
+ * optional `service`, as an operation.
  */
 export function useEnvWorktree() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: {
-      worktreeId: WorktreeId;
-      action: 'start' | 'stop' | 'restart';
-      service?: string;
-    }) =>
-      runOperation(queryClient, api, () =>
-        api.post<OperationStarted>(`/api/worktrees/${encodeURIComponent(vars.worktreeId)}/env`, {
-          action: vars.action,
-          service: vars.service,
-        }),
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.worktrees() });
-    },
-  });
+  return useStartOperation(
+    (
+      api,
+      vars: { worktreeId: WorktreeId; action: 'start' | 'stop' | 'restart'; service?: string },
+    ) =>
+      api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'env'), {
+        action: vars.action,
+        service: vars.service,
+      }),
+  );
 }
 
 /**
@@ -202,11 +114,9 @@ export function useCreateWorktreeTerminal() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { worktreeId: WorktreeId }) =>
-      api.post<{ shellUrl: string }>(
-        `/api/worktrees/${encodeURIComponent(vars.worktreeId)}/terminal`,
-        undefined,
-        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
-      ),
+      api.post<{ shellUrl: string }>(worktreeUrl(vars.worktreeId, 'terminal'), undefined, {
+        timeoutMs: SLOW_CALL_TIMEOUT_MS,
+      }),
     onSuccess: ({ shellUrl }, { worktreeId }) => {
       queryClient.setQueryData<WorktreesBody>(keys.worktrees(), (body) =>
         body

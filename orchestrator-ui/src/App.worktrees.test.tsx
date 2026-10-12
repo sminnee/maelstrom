@@ -111,7 +111,7 @@ describe('the worktrees view', () => {
     expect(main.queryByRole('button', { name: 'More sync actions' })).toBeNull();
   });
 
-  it('closes a worktree, processing until the operation ends, and the row goes with it', async () => {
+  it('closes a worktree: the button rests while the row and the strip show the run', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     // Long enough that the running operation is plain to see.
@@ -122,10 +122,15 @@ describe('the worktrees view', () => {
     const close = await within(row('northwind-alpha')!).findByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
-    // The button waits on the operation entity, not on the reply.
-    expect(
-      await within(row('northwind-alpha')!).findByRole('button', { busy: true }),
-    ).toHaveTextContent('Closing…');
+    // The button shows the start alone; the row and the strip carry the run.
+    expect(await within(row('northwind-alpha')!).findByText(/^Closing alpha/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(row('northwind-alpha')!).queryByRole('button', { busy: true })).toBeNull(),
+    );
+    expect(row('northwind-alpha')).toHaveAttribute('data-operation', 'running');
+    expect(screen.getByRole('region', { name: 'Operations now' })).toHaveTextContent(
+      'Closing alpha',
+    );
     await waitFor(() => expect(row('northwind-alpha')).toBeNull(), { timeout: 2000 });
     await waitFor(() =>
       expect(server.world.operations['op1']).toMatchObject({
@@ -177,11 +182,11 @@ describe('the worktrees view', () => {
     const close = within(row('maelstrom-alpha')!).getByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
+    // The row says it, not the button: the refusal arrived on the entity, not the reply.
     await waitFor(() =>
-      expect(within(row('maelstrom-alpha')!).getByTitle(/uncommitted changes/)).toBeInTheDocument(),
+      expect(within(row('maelstrom-alpha')!).getByText(/uncommitted changes/)).toBeInTheDocument(),
     );
-    expect(row('maelstrom-alpha')).not.toBeNull();
-    // The words are the operation's: the refusal arrived on the entity, not the reply.
+    expect(within(row('maelstrom-alpha')!).queryByTitle(/uncommitted changes/)).toBeNull();
     expect(server.world.operations['op1']).toMatchObject({
       state: 'refused',
       words: 'Worktree has uncommitted changes',
@@ -197,9 +202,7 @@ describe('the worktrees view', () => {
     await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
     await waitFor(() =>
       expect(
-        within(row('northwind-alpha')!).getByTitle(
-          'Could not sync the worktree: git rebase exited 128',
-        ),
+        within(row('northwind-alpha')!).getByText(/git rebase exited 128/),
       ).toBeInTheDocument(),
     );
   });
