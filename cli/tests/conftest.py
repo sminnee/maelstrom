@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
+    _always_fetch,
     _block_real_cmux,
     _block_real_naming_model,
     _isolate_notebook_root,
@@ -14,6 +15,7 @@ from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
     fake_cmux,
     migrated_notebook,
     project_with_worktree,
+    stamp_honoured,
     state_db,
     store,
 )
