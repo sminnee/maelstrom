@@ -257,6 +257,25 @@ class TestTheTasksLadderUpgrade:
         finally:
             db.close()
 
+    async def test_an_older_database_gains_the_comm_updates_table(self, tmp_path):
+        """A database from before comm updates gains the table; a write is no news."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["comms"]
+            db.ladders["comms"] = full[:2]
+            await db.migrate()
+            assert not await db.has_table("comm_updates")
+
+            db.ladders["comms"] = full
+            await db.migrate()
+
+            before = await db.revision()
+            await db.upsert("comm_updates", "c1.1", comm_id="c1")
+            notices, _ = await db.notices_since(before)
+            assert notices == {}
+        finally:
+            db.close()
+
 
 class TestFailedMigration:
     """Slice 3: a migration that raises leaves the schema where it was."""

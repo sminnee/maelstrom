@@ -127,8 +127,15 @@ source can rebuild it once the worktree that held the file is closed. Its media 
 task's **Bucket**, which the notebook's git tree holds.
 
 The `task_steps` table is canonical too. It holds each **Landing** step a task reached, and when
-the server recorded it. GitHub could rebuild the steps, but not the record times. A comms flush
-compares against those times, so a restore that lost them would send each update again.
+the server recorded it. GitHub could rebuild the steps, but not the record times that
+`mael comms landings --since` reads.
+
+The `comm_updates` table is canonical too. A row is one **Comm update**: its comm, its content,
+its state, and in `items` a JSON list of the steps it reports. A comm's queue is the steps no
+update of that comm holds in `items`. A record time is not the watermark, because two steps
+recorded in the same second would make a time comparison drop one. A restore that lost this
+table would queue every step again. The server is the one writer, and it publishes each update
+inside its comm, so a write here is not news for a client.
 
 The `comms` table is canonical too: maelstrom alone authors a **Comm**. A comm row holds the
 title, the content, the recipients as a JSON list, and when it was created and closed. A

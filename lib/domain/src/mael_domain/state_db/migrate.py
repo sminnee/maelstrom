@@ -67,6 +67,9 @@ TABLES: dict[str, TableSpec] = {
     "task_steps": TableSpec("task_steps", notifies=False),
     # The comms the Comms view lists and edits. Canonical.
     "comms": TableSpec("comms"),
+    # The updates each comm sends. Canonical. The server publishes each one
+    # inside its comm, as it writes it, so a write here is not news.
+    "comm_updates": TableSpec("comm_updates", notifies=False),
     # The operations the console lists. The server publishes each change as
     # it makes it, so a write here is not a second piece of news.
     "operations": TableSpec("operations", notifies=False),

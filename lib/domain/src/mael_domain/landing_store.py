@@ -56,7 +56,7 @@ class StepEvent:
     """One step a task reached.
 
     ``at`` is when the step happened. ``recorded_at`` is when this row was
-    written, which is what a flush compares.
+    written.
     """
 
     project: str
