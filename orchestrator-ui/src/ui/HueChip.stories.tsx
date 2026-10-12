@@ -87,6 +87,7 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     prDraft,
     prMergedAt: '',
     prMatch: '',
+    prStale: false,
     env: { state: 'stopped', services: [] },
     shellUrl: '',
     sessionCount: 0,

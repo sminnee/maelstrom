@@ -85,6 +85,11 @@ export interface Worktree {
    * when not, `''` with no open PR or an unknown head.
    */
   prMatch: '' | 'match' | 'differ';
+  /**
+   * **Stale PR state**: the last PR read failed, timed out or stood off, so the
+   * `pr*` fields are the last known state, not the current one.
+   */
+  prStale: boolean;
   /** Absent from a server older than the UI; read it as stopped with no services. */
   env?: WorktreeEnv;
   sessionCount: number;

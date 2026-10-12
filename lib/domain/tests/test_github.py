@@ -22,7 +22,6 @@ from mael_domain.github import (
     get_open_prs,
     get_pr_checks,
     get_pr_comments,
-    get_pr_for_branch,
     get_repo_info,
     get_run_artifacts,
     get_worktree_code,
@@ -622,59 +621,6 @@ def _query_of(call):
     """The GraphQL document a ``run_cmd_async`` call carries."""
     argv = call[0][0]
     return argv[argv.index("-f") + 1]
-
-
-class TestGetPrForBranch:
-    """The per-branch fallback, for when the batch call failed.
-
-    It answers from `gh pr list`, which does not carry a check rollup, so the
-    PR it returns reads as `unknown` rather than claiming a state it never
-    looked up. A degraded row still shows a PR — better than none at all.
-    """
-
-    @staticmethod
-    def _list(payload):
-        return patch("mael_domain.github.run_cmd_async", return_value=_ok(payload))
-
-    async def test_a_branch_with_a_pr_answers_its_number_and_commit_count(self):
-        payload = json.dumps(
-            {"number": 42, "commits": 5, "url": "https://x/pull/42", "isDraft": False}
-        )
-        with self._list(payload):
-            pr = await get_pr_for_branch(Path("."), "feat/a")
-        assert pr is not None
-        assert (pr.number, pr.commits, pr.url) == (42, 5, "https://x/pull/42")
-
-    async def test_it_claims_no_state_it_did_not_look_up(self):
-        payload = json.dumps({"number": 42, "commits": 1, "url": "", "isDraft": False})
-        with self._list(payload):
-            pr = await get_pr_for_branch(Path("."), "feat/a")
-        assert pr is not None
-        assert pr.state == "unknown"
-
-    async def test_a_branch_with_no_pr_answers_nothing(self):
-        with self._list(""):
-            assert await get_pr_for_branch(Path("."), "feat/a") is None
-
-    async def test_a_failed_call_answers_nothing(self):
-        with patch(
-            "mael_domain.github.run_cmd_async",
-            return_value=SimpleNamespace(returncode=1, stdout="", stderr="boom"),
-        ):
-            assert await get_pr_for_branch(Path("."), "feat/a") is None
-
-    async def test_unparseable_output_answers_nothing(self):
-        with self._list("not json"):
-            assert await get_pr_for_branch(Path("."), "feat/a") is None
-
-    async def test_a_missing_gh_answers_nothing(self):
-        """``gh`` absent raises from the spawn, before any exit code exists.
-
-        The fallback reader degrades to a blank cell rather than failing the
-        row, as the batch reader does.
-        """
-        with patch("mael_domain.github.run_cmd_async", side_effect=FileNotFoundError):
-            assert await get_pr_for_branch(Path("."), "feat/a") is None
 
 
 class TestFindOpenPr:

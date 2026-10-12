@@ -10,20 +10,34 @@ has to read every task in every project; one that learns *which rows* moved
 reads those rows alone. Both backends answer it, so both are tested.
 """
 
+import asyncio
+import json
+import os
 from pathlib import Path
 
 import pytest
 
 from mael_domain import task as model
 from mael_domain.agent_store import SqliteAgentStore, new_agent_record
+from mael_domain.github_model import PrStatus, RateLimited
+from mael_domain.list_all import ProjectPrs
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
 from mael_domain.worktree import WorktreeSetup
-from mael_orchestrator.sources import NotebookTaskSource
+from mael_domain.worktree_steps import StepHook
+from mael_orchestrator.sources import (
+    CloseBlocked,
+    ListAllWorktreeSource,
+    NotebookTaskSource,
+    PrStateCache,
+)
 
 PROJECT = "northwind"
+
+#: The default for an argument where ``None`` is itself a value.
+_NOT_SET = object()
 
 
 @pytest.fixture(params=["memory", "sqlite"])
@@ -656,92 +670,386 @@ async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
 # --- ListAllWorktreeSource: merging a pull request --------------------------
 
 
-def _pr_row(**over) -> dict:
-    """A ``list-all`` row for alpha, carrying a ready pull request."""
-    return {
-        "name": "alpha",
-        "path": "/p/alpha",
-        "branch": "feat/orders",
-        "pr_number": 118,
-        "pr_commits": 2,
-        "pr_url": "https://github.com/acme/repo/pull/118",
-        "pr_state": "ready",
-        "pr_draft": False,
-        "pr_merged_at": None,
-        "pr_head_oid": "deadbee",
+def _ready_pr(**over):
+    """alpha's pull request, ready to merge, as the last PR read saw it."""
+    fields = {
+        "number": 118,
+        "commits": 2,
+        "url": "https://github.com/acme/repo/pull/118",
+        "state": "ready",
+        "is_draft": False,
+        "head_oid": "deadbee",
         **over,
     }
+    return PrStatus(**fields)
 
 
-async def _source_that_read(monkeypatch, rows: list[dict], merge_pr, head="deadbee"):
-    """A source that read ``rows``, in a worktree whose local ``HEAD`` is ``head``."""
+async def _source_that_read(monkeypatch, pr, merge_pr, head="deadbee"):
+    """A source whose PR read saw ``pr`` on feat/orders, in a worktree whose
+    local ``HEAD`` is ``head``. ``pr`` ``None`` is a branch with no PR."""
     from mael_orchestrator import sources
-
-    async def list_all(*_args, **_kwargs):
-        return {"projects": [{"name": PROJECT, "worktrees": rows}]}
 
     async def head_sha(_path):
         return head
 
-    monkeypatch.setattr(sources, "build_list_all_data", list_all)
     monkeypatch.setattr(sources, "get_head_sha_async", head_sha)
-    source = sources.ListAllWorktreeSource(Path("/p"), merge_pr=merge_pr)
-    await source.read()
-    return source
+    read = _GatedRead({"feat/orders": pr} if pr else {})
+    source = sources.ListAllWorktreeSource(
+        Path("/p"), merge_pr=merge_pr, prs=sources.PrStateCache(read=read)
+    )
+    await source.prs.refresh(Path("/p") / PROJECT, {"feat/orders"})
+    return source, read
 
 
 async def test_a_merge_names_the_pr_and_head_commit_the_last_read_saw(monkeypatch):
     """The head commit is not on the wire, so the source supplies it."""
     merged: list[tuple[str, int, str]] = []
-    source = await _source_that_read(
-        monkeypatch, [_pr_row()], lambda *args: merged.append(args)
+    source, read = await _source_that_read(
+        monkeypatch, _ready_pr(), lambda *args: merged.append(args)
     )
     assert source.merge is not None
+    read.answer = {"feat/orders": _ready_pr(state="merged")}
     await source.merge(PROJECT, "feat/orders", "/p/alpha")
     assert merged == [("/p/alpha", 118, "deadbee")]
+    # The merge changed the PR, so its state is read again.
+    assert source.prs.get(PROJECT, "feat/orders") == _ready_pr(state="merged")
 
 
 @pytest.mark.parametrize(
-    ("row", "head", "said"),
+    ("pr", "head", "said"),
     [
-        (
-            _pr_row(pr_number=None),
-            "deadbee",
-            "No pull request is known for feat/orders",
-        ),
+        (None, "deadbee", "No pull request is known for feat/orders"),
         # A read that landed after the server validated the command.
         (
-            _pr_row(pr_state="ci-running"),
+            _ready_pr(state="ci-running"),
             "deadbee",
             "PR #118 is not ready to merge (ci-running)",
         ),
-        (_pr_row(pr_draft=True), "deadbee", "PR #118 is not ready to merge (draft)"),
+        (_ready_pr(is_draft=True), "deadbee", "PR #118 is not ready to merge (draft)"),
         (
-            _pr_row(pr_head_oid=None),
+            _ready_pr(head_oid=""),
             "deadbee",
             "The head commit of PR #118 is not known yet",
         ),
         # A local commit made after the last read.
         (
-            _pr_row(),
+            _ready_pr(),
             "c0ffee1",
             "The local branch differs from PR #118. Sync it first.",
         ),
         # A worktree git cannot read; a sync would not help.
-        (_pr_row(), None, "The local head of PR #118's branch cannot be read"),
+        (_ready_pr(), None, "The local head of PR #118's branch cannot be read"),
     ],
 )
 async def test_a_merge_the_last_read_does_not_support_is_refused(
-    monkeypatch, row, head, said
+    monkeypatch, pr, head, said
 ):
-    from mael_orchestrator.sources import CloseBlocked
-
     merged: list[tuple] = []
-    source = await _source_that_read(
-        monkeypatch, [row], lambda *args: merged.append(args), head=head
+    source, _read = await _source_that_read(
+        monkeypatch, pr, lambda *args: merged.append(args), head=head
     )
     assert source.merge is not None
     with pytest.raises(CloseBlocked) as refused:
         await source.merge(PROJECT, "feat/orders", "/p/alpha")
     assert str(refused.value) == said
     assert merged == []
+
+
+# --- PrStateCache: the one reader of pull request state ---------------------
+
+
+def _pr(number: int, head_oid: str = "deadbee") -> PrStatus:
+    return PrStatus(
+        number=number,
+        commits=1,
+        url=f"https://github.com/acme/repo/pull/{number}",
+        state="ready",
+        is_draft=False,
+        head_oid=head_oid,
+    )
+
+
+class _GatedRead:
+    """A ``get_open_prs`` stand-in that records its calls and answers on cue.
+
+    ``answer`` is a dict, ``None`` (an ordinary failure) or an exception.
+    """
+
+    def __init__(self, answer=_NOT_SET, gate: asyncio.Event | None = None) -> None:
+        self.calls: list[set[str]] = []
+        self.answer = {} if answer is _NOT_SET else answer
+        self.gate = gate
+
+    async def __call__(self, _cwd: Path, branches: set[str]):
+        self.calls.append(set(branches))
+        if self.gate is not None:
+            await self.gate.wait()
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return None if self.answer is None else dict(self.answer)
+
+
+ACME = Path("/p/acme")
+
+
+async def test_two_refreshes_of_one_project_share_one_read():
+    gate = asyncio.Event()
+    read = _GatedRead({"feat/a": _pr(1)}, gate=gate)
+    cache = PrStateCache(read=read)
+    first = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    second = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    await asyncio.sleep(0)
+    gate.set()
+    await asyncio.gather(first, second)
+    assert read.calls == [{"feat/a"}]
+    assert cache.snapshot() == {"acme": ProjectPrs({"feat/a": _pr(1)})}
+
+
+async def test_a_refresh_the_read_in_flight_does_not_cover_reads_again():
+    gate = asyncio.Event()
+    read = _GatedRead({"feat/a": _pr(1), "feat/b": _pr(2)}, gate=gate)
+    cache = PrStateCache(read=read)
+    first = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    await asyncio.sleep(0)
+    wider = asyncio.create_task(cache.refresh(ACME, {"feat/a", "feat/b"}))
+    await asyncio.sleep(0)
+    gate.set()
+    await asyncio.gather(first, wider)
+    assert read.calls == [{"feat/a"}, {"feat/a", "feat/b"}]
+
+
+async def test_a_cancelled_caller_does_not_cancel_a_read_another_shares():
+    gate = asyncio.Event()
+    read = _GatedRead({"feat/a": _pr(1)}, gate=gate)
+    cache = PrStateCache(read=read)
+    first = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    second = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    await asyncio.sleep(0)
+    first.cancel()
+    gate.set()
+    await second
+    assert cache.get("acme", "feat/a") == _pr(1)
+
+
+async def test_a_refresh_after_a_write_reads_again_after_one_in_flight():
+    """A read that began before the write cannot hold its result."""
+    gate = asyncio.Event()
+    read = _GatedRead({"feat/a": _pr(1)}, gate=gate)
+    cache = PrStateCache(read=read)
+    poll = asyncio.create_task(cache.refresh(ACME, {"feat/a"}))
+    await asyncio.sleep(0)
+    written = asyncio.create_task(cache.refresh(ACME, {"feat/a"}, after_write=True))
+    await asyncio.sleep(0)
+    read.answer = {"feat/a": _pr(1, head_oid="c0ffee1")}
+    gate.set()
+    await asyncio.gather(poll, written)
+    assert read.calls == [{"feat/a"}, {"feat/a"}]
+    assert cache.get("acme", "feat/a") == _pr(1, head_oid="c0ffee1")
+
+
+async def test_a_refresh_during_a_stand_off_does_not_read_and_marks_stale():
+    read = _GatedRead({"feat/a": _pr(1)})
+    cache = PrStateCache(read=read)
+    await cache.refresh(ACME, {"feat/a"})
+    read.answer = RateLimited("spent")
+    await cache.refresh(ACME, {"feat/a"})
+    assert cache.standing_off()
+
+    await cache.refresh(ACME, {"feat/a"})
+
+    assert read.calls == [{"feat/a"}, {"feat/a"}]
+    # The last known state stands.
+    assert cache.snapshot() == {
+        "acme": ProjectPrs({"feat/a": _pr(1)}, stale_branches=frozenset({"feat/a"}))
+    }
+
+
+async def test_the_stand_off_ends_after_the_cooldown():
+    """A budget that refills must be picked up."""
+    now = [0.0]
+    read = _GatedRead(RateLimited("spent"))
+    cache = PrStateCache(read=read, cooldown=600.0, clock=lambda: now[0])
+    await cache.refresh(ACME, {"feat/a"})
+    now[0] = 599.0
+    assert cache.standing_off()
+    now[0] = 600.0
+    read.answer = {"feat/a": _pr(1)}
+
+    await cache.refresh(ACME, {"feat/a"})
+
+    assert read.calls == [{"feat/a"}, {"feat/a"}]
+    assert cache.snapshot() == {"acme": ProjectPrs({"feat/a": _pr(1)})}
+
+
+@pytest.mark.parametrize("failure", ["never answers", "answers None"])
+async def test_a_failed_read_keeps_the_last_state_and_marks_it_stale(failure):
+    read = _GatedRead({"feat/a": _pr(1)})
+    cache = PrStateCache(read=read, timeout=0.05)
+    await cache.refresh(ACME, {"feat/a"})
+    if failure == "never answers":
+        read.gate = asyncio.Event()  # never set
+    else:
+        read.answer = None
+
+    await cache.refresh(ACME, {"feat/a"})
+
+    assert cache.snapshot() == {
+        "acme": ProjectPrs({"feat/a": _pr(1)}, stale_branches=frozenset({"feat/a"}))
+    }
+    assert not cache.standing_off()
+
+
+async def test_a_narrow_read_leaves_the_other_branches_stale():
+    """A merge's one-branch read must not vouch for the branches a failed
+    read left old."""
+    read = _GatedRead({"feat/a": _pr(1), "feat/b": _pr(2)})
+    cache = PrStateCache(read=read)
+    await cache.refresh(ACME, {"feat/a", "feat/b"})
+    read.answer = None
+    await cache.refresh(ACME, {"feat/a", "feat/b"})
+    read.answer = {"feat/a": _pr(1)}
+
+    await cache.refresh(ACME, {"feat/a"}, after_write=True)
+
+    assert cache.snapshot()["acme"].stale_branches == {"feat/b"}
+
+
+async def test_a_read_answers_only_the_branches_it_asked_about():
+    """A branch not asked keeps its entry; one asked with no answer has no PR."""
+    read = _GatedRead({"feat/a": _pr(1), "feat/b": _pr(2)})
+    cache = PrStateCache(read=read)
+    await cache.refresh(ACME, {"feat/a", "feat/b"})
+    read.answer = {}
+
+    await cache.refresh(ACME, {"feat/a"})
+
+    assert cache.snapshot() == {"acme": ProjectPrs({"feat/b": _pr(2)})}
+
+
+async def test_one_projects_pr_is_not_answered_for_another():
+    """Every project's ``_main`` sits on ``main``."""
+    cache = PrStateCache(read=_GatedRead({"main": _pr(1)}))
+    await cache.refresh(ACME, {"main"})
+    assert cache.get("acme", "main") == _pr(1)
+    assert cache.get("globex", "main") is None
+
+
+# --- ListAllWorktreeSource: a hung gh -----------------------------------------
+
+
+_GH_ANSWER = {
+    "data": {
+        "repository": {
+            "b0": {
+                "nodes": [
+                    {
+                        "number": 7,
+                        "headRefName": "feature/work",
+                        "url": "https://github.com/acme/test-repo/pull/7",
+                        "isDraft": False,
+                        "state": "OPEN",
+                        "mergeable": "MERGEABLE",
+                        "commits": {
+                            "totalCount": 1,
+                            "nodes": [
+                                {
+                                    "commit": {
+                                        "oid": "deadbee",
+                                        "statusCheckRollup": {"state": "SUCCESS"},
+                                    }
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+    }
+}
+
+
+async def test_a_hung_gh_costs_the_rows_their_freshness_not_their_read(
+    project_with_worktree, tmp_path, monkeypatch
+):
+    """The local state still reads, and the PR keeps its last known state."""
+    project_path, worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    answer = tmp_path / "answer.json"
+    answer.write_text(json.dumps(_GH_ANSWER))
+    hang = tmp_path / "hang"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text(f"#!/bin/sh\n[ -e {hang} ] && exec sleep 3600\ncat {answer}\n")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    source = ListAllWorktreeSource(project_path.parent, prs=PrStateCache(timeout=0.5))
+    _, before = await source.read()
+    assert [(w["prNumber"], w["prStale"]) for w in before] == [(7, False)]
+
+    hang.touch()
+    (worktree_path / "new.txt").write_text("x")
+    _, after = await source.read()
+
+    [row] = after
+    assert row["dirtyFiles"] == 1
+    assert (row["prNumber"], row["prStale"]) == (7, True)
+
+
+# --- ListAllWorktreeSource: which branches the PR read asks about -------------
+
+
+async def test_the_pr_read_asks_only_about_the_active_branches(
+    project_with_worktree,
+):
+    """GraphQL is charged by node count, so the poll narrows its ask."""
+    project_path, _worktree_path, _remote = project_with_worktree
+    (project_path / ".mael").touch()
+    read = _GatedRead()
+    source = ListAllWorktreeSource(project_path.parent, prs=PrStateCache(read=read))
+
+    await source.read(active_branches=set())
+    assert read.calls == []
+
+    await source.read(active_branches={"feature/work", "feat/elsewhere"})
+    assert read.calls == [{"feature/work"}]
+
+
+# --- ListAllWorktreeSource: a trash reads its branch's PR again --------------
+
+
+async def test_a_trash_reads_the_pr_of_the_branch_it_trashed(project_with_worktree):
+    """The branch is read before the trash, which removes it."""
+    project_path, worktree_path, _remote = project_with_worktree
+    read = _GatedRead()
+    trashed: list[tuple[str, int]] = []
+
+    async def trash(project, nato, path, *, hook):
+        # How many PR reads came before the trash: none should.
+        trashed.append((nato, len(read.calls)))
+
+    source = ListAllWorktreeSource(
+        project_path.parent, trash=trash, prs=PrStateCache(read=read)
+    )
+    assert source.trash is not None
+    await source.trash("test-repo", "alpha", str(worktree_path), hook=StepHook())
+
+    assert trashed == [("alpha", 0)]
+    assert read.calls == [{"feature/work"}]
+
+
+async def test_a_refused_trash_reads_no_pr(project_with_worktree):
+    project_path, worktree_path, _remote = project_with_worktree
+    read = _GatedRead()
+
+    async def trash(project, nato, path, *, hook):
+        raise CloseBlocked("PR #7 is open")
+
+    source = ListAllWorktreeSource(
+        project_path.parent, trash=trash, prs=PrStateCache(read=read)
+    )
+    assert source.trash is not None
+    with pytest.raises(CloseBlocked):
+        await source.trash("test-repo", "alpha", str(worktree_path), hook=StepHook())
+
+    assert read.calls == []

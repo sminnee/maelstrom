@@ -180,12 +180,6 @@ AGENT_POLL_SECS = 2.0
 #: How many consecutive failed agent polls make the host unreachable. Two, so
 #: the one dropped connection a daemon restart costs does not raise the banner.
 HOST_UNREACHABLE_AFTER = 2
-#: How long the worktree poll stands off after GitHub refuses it for quota.
-#:
-#: Fixed rather than read from the reset time: ``gh`` does not hand that header
-#: back. Ten minutes picks up a budget freed early without the retries
-#: themselves keeping it spent.
-RATE_LIMIT_COOLDOWN_SECS = 600.0
 #: How long adopting an agent waits for its replayed backlog to end.
 BACKLOG_TIMEOUT_SECS = 5.0
 #: How long a subagent's stream stays attached after its last transcript
@@ -412,7 +406,6 @@ class Orchestrator:
         export_poll: float = EXPORT_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
-        rate_limit_cooldown: float = RATE_LIMIT_COOLDOWN_SECS,
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
@@ -505,11 +498,6 @@ class Orchestrator:
         self._export_poll = export_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
-        self._rate_limit_cooldown = rate_limit_cooldown
-        #: Loop time the worktree poll may read again, or ``None`` when GitHub
-        #: has not refused it. Held here rather than as a sleep inside the poll
-        #: so an arriving client honours the same stand-off.
-        self._stand_off_until: float | None = None
         #: Loop time the last arrival-triggered read finished, or ``None``
         #: while no client has been read for. Only arrivals are spaced by it:
         #: the poll's own tick is already spaced by its sleep. The poll
@@ -549,12 +537,7 @@ class Orchestrator:
         await self._load_attached()
         await self._load_desk()
         await self.operations.load()
-        try:
-            await self.refresh_worktrees()
-        except RateLimited:
-            # A spent budget must not stop the server coming up; the world is
-            # worth serving without PR state.
-            log.warning("GitHub rate limit reached; starting without PR state")
+        await self.refresh_worktrees()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
         self._started.set()
@@ -612,21 +595,6 @@ class Orchestrator:
             return
         await self.exporter.drain()
 
-    def _standing_off(self) -> bool:
-        """Whether GitHub refused the last read and the stand-off still holds.
-
-        Both the poll and an arriving client ask, so a browser reconnecting
-        cannot walk past a stand-off the poll is keeping. The web client
-        retries a dropped notice stream every 30 seconds, and each retry is a
-        new first subscriber.
-        """
-        if self._stand_off_until is None:
-            return False
-        if asyncio.get_running_loop().time() >= self._stand_off_until:
-            self._stand_off_until = None
-            return False
-        return True
-
     def _kept_fresh(self) -> bool:
         """Whether an arriving client was already read for inside the interval.
 
@@ -652,8 +620,6 @@ class Orchestrator:
             return
         if self._catch_up is not None and not self._catch_up.done():
             return
-        if self._standing_off():
-            return
         if self._kept_fresh():
             return
         self._catch_up = asyncio.create_task(self._catch_up_read())
@@ -667,8 +633,6 @@ class Orchestrator:
         """
         try:
             await self.refresh_worktrees()
-        except RateLimited:
-            log.warning("GitHub rate limit reached; serving the last known PR state")
         except Exception:  # noqa: BLE001 — mirrors the poller's own guard
             log.exception("catch-up read failed")
         finally:
@@ -684,8 +648,7 @@ class Orchestrator:
         skips :meth:`_kept_fresh`, which exists to stop a flapping notice stream
         reading once per reconnect — a cost guard, not a correctness one.
 
-        The stand-off is still honoured. A spent budget is spent whoever asks,
-        and GitHub has already refused.
+        The PR cache honours its rate-limit stand-off whoever asks.
 
         A read already in flight is waited out rather than skipped.
         :meth:`refresh_worktrees` returns at once when its lock is held, and
@@ -697,15 +660,11 @@ class Orchestrator:
         Failures are logged, never raised: the caller is an action that has
         already succeeded, and a stale chip must not fail it.
         """
-        if self._standing_off():
-            return
         try:
             # Wait out a read that started before this event, then read for it.
             async with self._worktree_read:
                 pass
             await self.refresh_worktrees()
-        except RateLimited:
-            log.warning("GitHub rate limit reached; serving the last known PR state")
         except Exception:  # noqa: BLE001 — mirrors the poller's own guard
             log.exception("event-triggered read failed")
 
@@ -726,8 +685,6 @@ class Orchestrator:
         while True:
             await asyncio.sleep(interval)
             if only_when_watched and not self.notices.watching:
-                continue
-            if only_when_watched and self._standing_off():
                 continue
             try:
                 await refresh()
@@ -1047,9 +1004,12 @@ class Orchestrator:
         charged by node count and the budget refills hourly, so asking about
         every branch in every project is what spends it. A branch left out
         keeps the pull request the last read saw; see
-        :func:`mael_domain.list_all.resolve_pr`. ``extra_branches`` are asked
-        about beyond the desk. A read that names some waits out one in flight,
-        which chose its branches without them.
+        :class:`mael_orchestrator.sources.PrStateCache`. ``extra_branches`` are
+        asked about beyond the desk. A read that names some waits out one in
+        flight, which chose its branches without them.
+
+        The landing sync reads GitHub too, so it is skipped while the PR cache
+        stands off, and a refusal it meets stands the cache off.
         """
         if self._worktree_read.locked() and not extra_branches:
             return
@@ -1073,12 +1033,11 @@ class Orchestrator:
             )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
-            rate_limited = getattr(self.worktrees, "rate_limited", False)
-            if not rate_limited:
+            if not self.worktrees.rate_limited:
                 try:
                     written = await self.landings.sync(self.clock())
                 except RateLimited:
-                    rate_limited = True
+                    self.worktrees.stand_off()
                 except Exception:
                     # A landing is not worth failing the worktree read over.
                     log.exception("the landing sync failed")
@@ -1088,14 +1047,6 @@ class Orchestrator:
                 else:
                     self._hold_steps(written)
                     await self._refresh_landings()
-        if rate_limited:
-            self._stand_off_until = (
-                asyncio.get_running_loop().time() + self._rate_limit_cooldown
-            )
-            log.warning(
-                "GitHub rate limit reached; the worktree poll stands off for %ss",
-                self._rate_limit_cooldown,
-            )
 
     # -- the desk --
 
