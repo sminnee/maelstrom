@@ -1,6 +1,6 @@
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { StrictMode } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
 import { App } from '../App';
 import type { AppRouter } from '../nav/router';
@@ -45,6 +45,8 @@ const LIST_KEYS = [
  * defaults to `wide`.
  *
  * `url` is the URL the app opens on; the returned `router` holds its history.
+ * `reload` mounts the app afresh on the same server, as a page reload does: a
+ * new query cache, a new router at the same URL, and nothing held in memory.
  */
 export async function renderApp(
   opts: {
@@ -58,7 +60,14 @@ export async function renderApp(
     /** The URL to open on: a path and a search. The desk when left out. */
     url?: string;
   } = {},
-): Promise<RenderResult & { server: FakeServer; queryClient: QueryClient; router: AppRouter }> {
+): Promise<
+  RenderResult & {
+    server: FakeServer;
+    queryClient: QueryClient;
+    router: AppRouter;
+    reload: () => Promise<void>;
+  }
+> {
   // Before the render: the layout is read on the first pass, not in an effect.
   setViewportWidth(VIEWPORTS[opts.viewport ?? 'wide']);
   // The store is a module singleton: a test must not inherit the view, the
@@ -85,13 +94,27 @@ export async function renderApp(
     <App deps={deps} />
   );
   const utils = render(tree);
-  if (opts.ready === false) return { server, queryClient, router, ...utils };
-  await waitFor(() => {
-    for (const key of LIST_KEYS) {
-      if (queryClient.getQueryState(key)?.status !== 'success') throw new Error('not loaded');
-    }
-  });
-  return { server, queryClient, router, ...utils };
+  const loaded = (client: QueryClient) =>
+    waitFor(() => {
+      for (const key of LIST_KEYS) {
+        if (client.getQueryState(key)?.status !== 'success') throw new Error('not loaded');
+      }
+    });
+  const reload = async () => {
+    const { location } = router.state;
+    utils.unmount();
+    resetToPageLoad();
+    const client = new QueryClient({ defaultOptions: queryClient.getDefaultOptions() });
+    const again = createMemoryRouter(routes, {
+      initialEntries: [`${location.pathname}${location.search}`],
+    });
+    const app = <App deps={{ ...deps, queryClient: client, router: again }} />;
+    render(opts.strict ? <StrictMode>{app}</StrictMode> : app);
+    await loaded(client);
+  };
+  if (opts.ready === false) return { server, queryClient, router, reload, ...utils };
+  await loaded(queryClient);
+  return { server, queryClient, router, reload, ...utils };
 }
 
 /** Resize the window of a mounted app, as a drag of its edge does. */

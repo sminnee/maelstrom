@@ -164,16 +164,34 @@ function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
     .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
 }
 
+/**
+ * The tasks and agents a running **Dismiss** names. They draw until it ends,
+ * so a node does not vanish when its agent stops, before it leaves the desk.
+ */
+function dismissing(world: WorldView): Set<string> {
+  const named = new Set<string>();
+  for (const op of Object.values(world.operations ?? {})) {
+    if (op.kind !== 'dismiss' || op.state !== 'running') continue;
+    if (op.taskId) named.add(op.taskId);
+    if (op.agentId) named.add(op.agentId);
+  }
+  return named;
+}
+
 /** Everything the canvas draws, derived from the world plus client state. */
 export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
-  // Drawn when it is on the desk, or its agent is live. The liveness half is
-  // what puts running work on the canvas before the server's auto-join has
-  // round-tripped, and what keeps it there if the entry is removed early.
+  // Drawn when it is on the desk, its agent is live, or a Dismiss runs on it.
+  // The liveness half is what puts running work on the canvas before the
+  // server's auto-join has round-tripped, and what keeps it there if the
+  // entry is removed early.
   const agents = agentsByTask(world);
   const attentionIndex = openAttentionIndex(world);
   const worktreeByBranch = openWorktreesByBranch(world);
+  const midDelete = dismissing(world);
   const tasks = filteredTasks(world, opts.filters)
-    .filter((t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)))
+    .filter(
+      (t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)) || midDelete.has(t.id),
+    )
     .filter((t) => allowsAgentStatus(opts.filters.agentStatus, agents.get(t.id), t));
 
   const groups = new Map<string, GraphGroup>();
@@ -217,7 +235,8 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   // through its parent's session tab.
   for (const agent of Object.values(world.agents)) {
     if (agent.taskId || agent.parent) continue;
-    if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk)) continue;
+    if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk) && !midDelete.has(agent.id))
+      continue;
     const worktree = world.worktrees[agent.worktreeId];
     if (!allowsAgent(opts.filters, agent, worktree)) continue;
     if (!allowsAgentStatus(opts.filters.agentStatus, agent, undefined)) continue;

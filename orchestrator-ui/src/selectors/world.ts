@@ -1,12 +1,13 @@
 import type { TaskRow } from '../api/types';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
-import type { Agent, DeskEntry, Project, Worktree } from '../protocol/entities';
+import type { Agent, DeskEntry, Operation, Project, Worktree } from '../protocol/entities';
 import type {
   AgentId,
   AttentionId,
   DeskId,
   DocumentId,
+  OperationId,
   ProjectId,
   TaskId,
   WorktreeId,
@@ -29,6 +30,11 @@ export interface WorldView {
   documents: Record<DocumentId, DocumentRow>;
   attention: Record<AttentionId, Attention>;
   desk: Record<DeskId, DeskEntry>;
+  /**
+   * The operations. Optional: the board reads them to draw a node an operation
+   * is deleting or creating, and nothing else needs them to draw.
+   */
+  operations?: Record<OperationId, Operation>;
 }
 
 /** A list as a table keyed by id. */

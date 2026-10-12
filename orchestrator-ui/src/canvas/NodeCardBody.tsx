@@ -36,7 +36,7 @@ import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
 import { AgentControls } from '../session/AgentControls';
-import { useTakeNodeOffDesk } from '../session/useEndOfWork';
+import { useNodeDismiss } from '../session/useEndOfWork';
 import { useCardOperation, useUnitOperation } from '../console/useConsole';
 import { CommandSet } from '../ui/CommandSet';
 import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
@@ -89,7 +89,7 @@ export function NodeCardBody({
   const op = useCardOperation(nodeUnit(node), open);
   // A sync does not mark the node, but its worktree's commands wait on it.
   const worktreeOp = useUnitOperation({ worktreeId: node.worktree?.id ?? '' });
-  const takeOffDesk = useTakeNodeOffDesk({ agent, taskId: task?.id, onTakenOffDesk: onDone });
+  const dismiss = useNodeDismiss({ agent, taskId: task?.id, onTakenOffDesk: onDone });
   // The list holds slim rows, so the brief comes from the task's detail.
   const detail = useTask(task?.id ?? null);
   const brief = detail.data?.displayContent.trim() ?? '';
@@ -214,9 +214,14 @@ export function NodeCardBody({
           </div>
         )
       )}
-      {op?.state === 'refused' && op.kind === 'close' && op.worktreeId !== null && (
-        <NextChains worktreeId={op.worktreeId} then={takeOffDesk} />
-      )}
+      {op?.state === 'refused' &&
+        (op.kind === 'close' || op.kind === 'dismiss') &&
+        op.worktreeId !== null && (
+          <NextChains
+            worktreeId={op.worktreeId}
+            dismiss={(chain) => dismiss(chain, op.worktreeId!)}
+          />
+        )}
 
       {stage && (
         <div

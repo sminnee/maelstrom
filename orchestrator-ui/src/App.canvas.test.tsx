@@ -16,6 +16,8 @@ import {
 } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
+import type { FakeServer } from './fake/fakeServer';
+import { faultKey } from './fake/operations';
 
 /**
  * The card's own commands. A follows row has an Off desk button of its own, so
@@ -28,6 +30,14 @@ function menuLabels(card: HTMLElement): (string | null)[] {
   return within(card)
     .getAllByRole('menuitem')
     .map((i) => i.getAttribute('aria-label'));
+}
+
+/** The body of each Dismiss the server was sent since `from`. */
+function dismissBodies(server: FakeServer, from: number): unknown[] {
+  return server.requests
+    .slice(from)
+    .filter((r) => r.method === 'POST' && r.path.endsWith('/dismiss'))
+    .map((r) => r.body);
 }
 
 /** The label of the end-of-work item that Dismiss runs, read from its menu. */
@@ -92,10 +102,9 @@ describe('App', () => {
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="f2c6a9d4"]')).not.toBeInTheDocument(),
     );
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/agents/f2c6a9d4/stop',
-      'DELETE /api/desk/agent:f2c6a9d4',
-    ]);
+    // One Dismiss: the server stops the agent, then takes it off the desk.
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/agent:f2c6a9d4/dismiss']);
+    expect(dismissBodies(server, before)).toEqual([{ chain: 'terminate' }]);
     expect(
       screen.queryByRole('dialog', { name: 'bravo · feat/task-index' }),
     ).not.toBeInTheDocument();
@@ -179,9 +188,9 @@ describe('App', () => {
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
     );
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/worktrees/northwind-alpha/close',
-      'DELETE /api/desk/task:NORT-7',
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-7/dismiss']);
+    expect(dismissBodies(server, before)).toEqual([
+      { chain: 'close', worktreeId: 'northwind-alpha' },
     ]);
   });
 
@@ -216,9 +225,9 @@ describe('App', () => {
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
     );
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/worktrees/northwind-alpha/trash',
-      'DELETE /api/desk/task:NORT-7',
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-7/dismiss']);
+    expect(dismissBodies(server, before)).toEqual([
+      { chain: 'trash', worktreeId: 'northwind-alpha' },
     ]);
   });
 
@@ -227,17 +236,17 @@ describe('App', () => {
       '…shelving the branch',
       'Shelve alpha? Work in progress is committed. Unmerged work gets a task to reopen it.',
       'Shelve it',
-      'POST /api/worktrees/northwind-alpha/force-close',
+      'shelve',
     ],
     [
       '…or ignoring the branch',
       'Delete alpha? The checkout goes; the branch stays.',
       'Delete it',
-      'DELETE /api/worktrees/northwind-alpha',
+      'delete',
     ],
   ])(
     'asks before %s, then runs it and takes the node off the desk',
-    async (item, question, answer, command) => {
+    async (item, question, answer, chain) => {
       const user = userEvent.setup();
       const { server } = await renderApp();
       exitAgent(server, 'a1f3c9e2');
@@ -254,7 +263,8 @@ describe('App', () => {
       await waitFor(() =>
         expect(document.querySelector('[data-task-id="NORT-7"]')).not.toBeInTheDocument(),
       );
-      expect(commandsSince(server, before)).toEqual([command, 'DELETE /api/desk/task:NORT-7']);
+      expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-7/dismiss']);
+      expect(dismissBodies(server, before)).toEqual([{ chain, worktreeId: 'northwind-alpha' }]);
     },
   );
 
@@ -326,10 +336,10 @@ describe('App', () => {
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="NORT-12"]')).not.toBeInTheDocument(),
     );
-    // The close stops the agent itself, so the card sends no stop.
-    expect(commandsSince(server, before)).toEqual([
-      'POST /api/worktrees/northwind-delta/close',
-      'DELETE /api/desk/task:NORT-12',
+    // The close stops the agent itself, so the chain sends no stop.
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-12/dismiss']);
+    expect(dismissBodies(server, before)).toEqual([
+      { chain: 'close', worktreeId: 'northwind-delta' },
     ]);
   });
 
@@ -348,25 +358,38 @@ describe('App', () => {
     // The open card shows the refusal, so it marks it seen.
     await waitFor(() =>
       expect(commandsSince(server, before)).toEqual([
-        'POST /api/worktrees/northwind-bravo/close',
+        'POST /api/desk/task:NORT-9/dismiss',
         'POST /api/operations/op1/seen',
       ]),
     );
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
+
+    // The chains that skip the refusal are Dismisses too: they end off the desk.
+    const next = within(card).getByRole('group', { name: 'Next' });
+    const after = server.requests.length;
+    await user.click(within(next).getByRole('button', { name: 'Shelve' }));
+    await user.click(within(card).getByRole('button', { name: 'Shelve it' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
+    );
+    expect(dismissBodies(server, after)).toEqual([
+      { chain: 'shelve', worktreeId: 'northwind-bravo' },
+    ]);
   });
 
-  it('sends no Off desk when the stop fails', async () => {
+  it('leaves the node on the desk when the stop of a Dismiss fails', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
-    server.refuse(/POST \/api\/agents\/d9a4c7f1\/stop$/, { status: 409, code: 'invalid' });
+    server.world.operationFaults[faultKey('dismiss', 'NORT-9')] = {
+      step: 'stop_agent',
+      words: 'no such agent',
+    };
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
-    const before = server.requests.length;
     await user.click(within(card).getByRole('menuitem', { name: '…and take off desk' }));
     await within(card).findByRole('alert');
-    expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
     expect(document.querySelector('[data-task-id="NORT-9"]')).toBeInTheDocument();
   });
 
@@ -387,11 +410,25 @@ describe('App', () => {
 
     await user.click(within(card).getByRole('button', { name: 'More actions' }));
     const before = server.requests.length;
+    server.stepMs = 300;
     await user.click(within(card).getByRole('menuitem', { name: '…and take off desk' }));
+    // Stopped, with no entry, it still draws: the Dismiss is not over.
+    await waitFor(() => expect(server.world.agents['d9a4c7f1']!.state).toBe('exited'));
     await waitFor(() =>
-      expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
+      expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute(
+        'data-state',
+        'stopped',
+      ),
     );
-    expect(commandsSince(server, before)).toEqual(['POST /api/agents/d9a4c7f1/stop']);
+    expect(document.querySelector('[data-task-id="NORT-9"]')).toHaveAttribute(
+      'data-operation',
+      'running',
+    );
+    await waitFor(
+      () => expect(document.querySelector('[data-task-id="NORT-9"]')).not.toBeInTheDocument(),
+      { timeout: 2000 },
+    );
+    expect(commandsSince(server, before)).toEqual(['POST /api/desk/task:NORT-9/dismiss']);
   });
 
   it('holds the close while another agent still runs in the worktree', async () => {

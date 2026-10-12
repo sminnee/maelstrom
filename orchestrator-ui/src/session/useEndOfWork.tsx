@@ -1,15 +1,9 @@
 import { useStop } from '../api/agents';
-import { useTakeOffDesk } from '../api/desk';
-import {
-  useCloseWorktree,
-  useForceCloseWorktree,
-  useRemoveWorktree,
-  useTrashWorktree,
-} from '../api/worktrees';
+import { useDismiss, useTakeOffDesk, type DismissChain } from '../api/desk';
 import { useWorld } from '../api/useWorld';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Agent, Worktree } from '../protocol/entities';
-import type { TaskId } from '../protocol/ids';
+import type { DeskId, TaskId } from '../protocol/ids';
 import { isLive } from '../selectors/graph';
 import { canClose, trackedAgents } from '../selectors/worktrees';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
@@ -46,10 +40,7 @@ export function useEndOfWorkLater({
   const { world } = useWorld();
   const stop = useStop();
   const takeOffDesk = useTakeNodeOffDesk({ agent, taskId, onTakenOffDesk });
-  const closeWorktree = useCloseWorktree();
-  const shelveWorktree = useForceCloseWorktree();
-  const trashWorktree = useTrashWorktree();
-  const removeWorktree = useRemoveWorktree();
+  const dismiss = useNodeDismiss({ agent, taskId, onTakenOffDesk });
   return () =>
     endOfWorkOptions({
       live: isLive(agent),
@@ -60,16 +51,37 @@ export function useEndOfWorkLater({
       // turn — see CONTEXT.md, "Interrupt".
       stop: () => stop.mutateAsync({ agentId: agent!.id }),
       takeOffDesk,
-      close: () => closeWorktree.mutateAsync({ worktreeId: where!.id }),
-      shelve: () => shelveWorktree.mutateAsync({ worktreeId: where!.id }),
-      trash: () => trashWorktree.mutateAsync({ worktreeId: where!.id }),
-      remove: () => removeWorktree.mutateAsync({ worktreeId: where!.id }),
+      // A terminate ends no worktree, so it names none.
+      dismiss: (chain) => dismiss(chain, chain === 'terminate' ? undefined : where?.id),
     });
 }
 
+/** The desk id a node is filed under: its task's, else its agent's. */
+function nodeDeskId(agent: Agent | undefined, taskId: TaskId | undefined): DeskId {
+  const task = taskId || agent?.taskId;
+  return task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
+}
+
 /**
- * The last step of each end-of-work chain: the node's desk entry goes, then
- * `onTakenOffDesk` runs. A refused close's next chains end with it too.
+ * Run a **Dismiss** chain on a node, then `onTakenOffDesk`. The server runs
+ * the whole chain as one operation, so a reload does not lose it partway. A
+ * refused Dismiss leaves the node on the desk and rejects with the reason.
+ */
+export function useNodeDismiss({
+  agent,
+  taskId,
+  onTakenOffDesk,
+}: Omit<EndOfWorkProps, 'where'>): (chain: DismissChain, worktreeId?: string) => Promise<void> {
+  const dismiss = useDismiss();
+  return async (chain, worktreeId) => {
+    await dismiss.mutateAsync({ deskId: nodeDeskId(agent, taskId), chain, worktreeId });
+    onTakenOffDesk();
+  };
+}
+
+/**
+ * **Off desk** alone, for a node with nothing left to stop or end: the node's
+ * desk entry goes, then `onTakenOffDesk` runs.
  */
 export function useTakeNodeOffDesk({
   agent,
@@ -78,9 +90,8 @@ export function useTakeNodeOffDesk({
 }: Omit<EndOfWorkProps, 'where'>): () => Promise<void> {
   const { world } = useWorld();
   const offDesk = useTakeOffDesk();
-  const task = taskId || agent?.taskId;
   return async () => {
-    const id = task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
+    const id = nodeDeskId(agent, taskId);
     // A live node draws with no desk entry, so there may be none to take.
     if (id in world.desk) await offDesk.mutateAsync({ id });
     onTakenOffDesk();
@@ -89,8 +100,8 @@ export function useTakeNodeOffDesk({
 
 /**
  * The end-of-work control's options. The default is the Dismiss chain — see
- * `CONTEXT.md`, "Dismiss". A worktree ending runs first in its chain and sends
- * no stop — see `docs/dev/orchestrator-ui.md`.
+ * `CONTEXT.md`, "Dismiss". Each chain but Terminate and Off desk is one
+ * `dismiss` operation on the server — see `docs/dev/orchestrator-ui.md`.
  */
 function endOfWorkOptions({
   live,
@@ -98,10 +109,7 @@ function endOfWorkOptions({
   others,
   stop,
   takeOffDesk,
-  close,
-  shelve,
-  trash,
-  remove,
+  dismiss,
 }: {
   live: boolean;
   where: Worktree | undefined;
@@ -109,10 +117,7 @@ function endOfWorkOptions({
   others: number;
   stop: () => Promise<unknown>;
   takeOffDesk: () => Promise<unknown>;
-  close: () => Promise<unknown>;
-  shelve: () => Promise<unknown>;
-  trash: () => Promise<unknown>;
-  remove: () => Promise<unknown>;
+  dismiss: (chain: DismissChain) => Promise<unknown>;
 }): SplitOption[] {
   const options: SplitOption[] = live
     ? [
@@ -126,10 +131,7 @@ function endOfWorkOptions({
           label: '…and take off desk',
           icon: <OffDeskIcon />,
           processing: 'Terminating…',
-          run: async () => {
-            await stop();
-            await takeOffDesk();
-          },
+          run: () => dismiss('terminate'),
         },
       ]
     : [
@@ -141,7 +143,7 @@ function endOfWorkOptions({
         },
       ];
   // Dismiss runs the close chain when it can, else the widest chain that keeps the worktree.
-  let dismiss = options.at(-1)!;
+  let byDefault = options.at(-1)!;
   if (where && canClose(where)) {
     const held = {
       icon: <OffDeskIcon />,
@@ -151,17 +153,13 @@ function endOfWorkOptions({
           ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
           : undefined,
     };
-    const thenOffDesk = (end: () => Promise<unknown>) => async () => {
-      await end();
-      await takeOffDesk();
-    };
     const closeChain: SplitOption = {
       label: `…and close ${where.nato}`,
       processing: 'Closing…',
       ...held,
-      run: thenOffDesk(close),
+      run: () => dismiss('close'),
     };
-    if (!closeChain.disabled) dismiss = closeChain;
+    if (!closeChain.disabled) byDefault = closeChain;
     options.push(
       closeChain,
       {
@@ -169,25 +167,25 @@ function endOfWorkOptions({
         processing: 'Shelving…',
         ...held,
         confirm: shelveConfirm(where),
-        run: thenOffDesk(shelve),
+        run: () => dismiss('shelve'),
       },
       {
         label: '…or trashing the branch',
         processing: 'Trashing…',
         ...held,
         confirm: trashConfirm(where),
-        run: thenOffDesk(trash),
+        run: () => dismiss('trash'),
       },
       {
         label: '…or ignoring the branch',
         processing: 'Deleting…',
         ...held,
         confirm: removeConfirm(where),
-        run: thenOffDesk(remove),
+        run: () => dismiss('delete'),
       },
     );
   }
   return options.map((o) =>
-    o === dismiss ? { ...o, isDefault: true, buttonLabel: 'Dismiss' } : o,
+    o === byDefault ? { ...o, isDefault: true, buttonLabel: 'Dismiss' } : o,
   );
 }
