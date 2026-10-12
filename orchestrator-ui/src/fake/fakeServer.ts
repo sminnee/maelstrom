@@ -821,10 +821,25 @@ function command(
     return undefined;
   };
 
+  // The steps that launch a task. They learn in memory, so a retry runs them again.
+  const LAUNCH_STEPS = ['open_worktree', 'write_env', 'start_agent'];
+  // What the last launch steps built undo on a refused or failed end.
+  let launchRollback: (() => void) | undefined;
   // A launch opens the task's worktree, writes its .env and starts its agent.
   // The worktree is the open one on the task's branch, when the world has one.
   const launchSteps = (taskId: () => TaskId, model = ''): FakeStep[] => {
     let worktreeId = '';
+    let previous: TaskStatus | null = null;
+    let started = false;
+    launchRollback = () => {
+      // The task goes back to where it was unless its agent started.
+      const task = world.tasks[taskId()];
+      if (!task || previous === null || started) return;
+      const status = previous;
+      server.change({ kind: 'task', ids: [task.id] }, (w) => {
+        w.tasks[task.id] = { ...task, status };
+      });
+    };
     return [
       {
         name: 'open_worktree',
@@ -835,6 +850,7 @@ function command(
             Object.values(world.worktrees).find(
               (w) => w.project === task.project && w.branch === task.branch && !w.isClosed,
             )?.id ?? '';
+          previous = task.status;
           server.change({ kind: 'task', ids: [task.id] }, (w) => {
             w.tasks[task.id] = { ...task, status: 'in-progress' };
           });
@@ -857,6 +873,7 @@ function command(
             worktreeId,
           };
           world.desk[`task:${task.id}`] ??= { id: `task:${task.id}`, addedAt: now() };
+          started = true;
           server.change({ kind: 'agent', ids: [agentId] });
           server.change({ kind: 'desk', ids: [`task:${task.id}`] });
           target({ agentId });
@@ -1190,6 +1207,8 @@ function command(
       done: `Launched ${task.title}`,
       failing: 'Could not launch',
       steps: launchSteps(() => task.id, str('model') ?? ''),
+      rollback: launchRollback,
+      replay: LAUNCH_STEPS,
     });
   }
 
@@ -1332,6 +1351,8 @@ function command(
         ...(unnamed.length ? [nameTask] : []),
         ...(b.launch ? launchSteps(() => taskId, str('model') ?? '') : []),
       ],
+      rollback: b.launch ? launchRollback : undefined,
+      replay: LAUNCH_STEPS,
     });
     return { ...started, body: { taskId, ...(started.body as object) } };
   }
@@ -1378,6 +1399,8 @@ function command(
         },
         ...(b.launch ? launchSteps(() => taskId) : []),
       ],
+      rollback: b.launch ? launchRollback : undefined,
+      replay: LAUNCH_STEPS,
     });
   }
 
@@ -1405,6 +1428,7 @@ function command(
       doing: typed ? `Starting an agent on ${branch}` : 'Starting an agent',
       done: typed ? `Started an agent on ${branch}` : 'Started an agent',
       failing: 'Could not start the agent',
+      replay: LAUNCH_STEPS,
       steps: [
         ...(typed
           ? []

@@ -1,8 +1,8 @@
 import type { Zone } from '../protocol/progress';
-import { ZONES, zoneForState } from '../protocol/progress';
+import { ZONES } from '../protocol/progress';
 import type { WorldView } from './world';
 import type { Filters } from './filters';
-import { deriveGraph, type GraphNode } from './graph';
+import { deriveGraph, nodeZone, type GraphNode } from './graph';
 
 export interface DeckOptions {
   filters: Filters;
@@ -32,7 +32,7 @@ export interface Deck {
 export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   const graph = deriveGraph(world, { filters: opts.filters });
   const zones: Record<Zone, GraphNode[]> = { done: [], running: [], notStarted: [] };
-  for (const node of graph.nodes) zones[zoneForState(node.progress.state)].push(node);
+  for (const node of graph.nodes) zones[nodeZone(node)].push(node);
   for (const zone of ZONES) {
     // A stable sort, so each band keeps `deriveGraph`'s order.
     zones[zone] = [...zones[zone]].sort((a, b) => callRank(a) - callRank(b));

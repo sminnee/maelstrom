@@ -72,6 +72,17 @@ describe('new work', () => {
     return written[0]!;
   }
 
+  /** The created task once `check` holds of it: its operation runs on after the dialog closes. */
+  const createdOnceItHas = (
+    server: FakeServer,
+    check: (t: ReturnType<typeof createdTask>) => void,
+  ) =>
+    waitFor(() => {
+      const task = createdTask(server);
+      check(task);
+      return task;
+    });
+
   it('offers the Linear kind only for a project that names a Linear team', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -124,7 +135,8 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    const planned = createdTask(server);
+    // The task is written by the plan's operation, after the dialog has closed.
+    const planned = await waitFor(() => createdTask(server));
     expect(planned.title).toBe('Plan MAEL-70');
     expect(planned.command).toBe('plan-task');
     expect(planned.parent).toBe('linear.MAEL-70');
@@ -143,9 +155,10 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    const planned = createdTask(server);
-    expect(planned.status).toBe('in-progress');
-    expect(Object.values(server.world.agents).some((a) => a.taskId === planned.id)).toBe(true);
+    const planned = await createdOnceItHas(server, (t) => expect(t.status).toBe('in-progress'));
+    await waitFor(() =>
+      expect(Object.values(server.world.agents).some((a) => a.taskId === planned.id)).toBe(true),
+    );
   });
 
   it('forgets the chosen issue when the project changes', async () => {
@@ -190,25 +203,44 @@ describe('new work', () => {
     expect(within(form).getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
-  it('reaches Save on the prose alone, naming the task from it', async () => {
+  it('reaches Save on the prose alone, closing at once while the server names the task', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
     await user.click(within(form).getByRole('radio', { name: 'northwind' }));
-    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    await user.type(
+      within(form).getByLabelText('What needs doing?'),
+      'The export drops a row\nOn every page.',
+    );
+    // Slow enough to see the node hatched while it is named.
+    server.stepMs = 400;
     // No Suggest pressed and nothing else typed: the prose is the whole input.
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    const created = createdTask(server);
-    // A task needs a title and a branch, and neither was typed, so the form
-    // names both through the server's inference rather than refusing the save.
-    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(true);
+    // The empty names go to the server as they are: it names them.
+    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(false);
+    const sent = server.requests.find((r) => r.method === 'POST' && r.path === '/api/tasks');
+    expect(sent?.body).toMatchObject({ title: '', branch: '' });
+    const { id } = createdTask(server);
+    await waitFor(() =>
+      expect(document.querySelector(`[data-task-id="${id}"]`)).toHaveAttribute(
+        'data-operation',
+        'running',
+      ),
+    );
+    // The prose's first line stands in while the operation names it.
+    expect(document.querySelector(`[data-task-id="${id}"]`)).toHaveTextContent(
+      'The export drops a row',
+    );
+    server.stepMs = 1;
     // The fake names a draft by its first line: these are its answers.
+    const created = await createdOnceItHas(server, (t) =>
+      expect(t.branch).toBe('feat/the-export-drops-a'),
+    );
     expect(created.title).toBe('The export drops a row');
-    expect(created.branch).toBe('feat/the-export-drops-a');
     // The prose becomes the content verbatim; naming never rewrites it.
-    expect(created.content).toBe('The export drops a row');
+    expect(created.content).toBe('The export drops a row\nOn every page.');
     expect(created.status).toBe('todo');
     // Saved work joins the desk, so what was just ordered is on the canvas.
     expect(server.world.desk[`task:${created.id}`]).toBeDefined();
@@ -302,22 +334,6 @@ describe('new work', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
   });
 
-  it('shows a refused naming and writes nothing', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    const form = await openNewWork(user);
-    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    server.refuse(/api\/tasks\/infer$/, {
-      status: 503,
-      code: 'unavailable',
-      message: 'Naming down',
-    });
-    await user.click(within(form).getByRole('button', { name: 'Save' }));
-
-    expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('Naming down');
-    expect(server.requests.some((r) => r.method === 'POST' && r.path === '/api/tasks')).toBe(false);
-  });
-
   it('shows Title above the prose field, matching the task editor', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -340,8 +356,10 @@ describe('new work', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
     // The typed title wins; only the branch, left empty, is inferred.
-    expect(createdTask(server).title).toBe('Fix the export');
-    expect(createdTask(server).branch).toBe('feat/the-export-drops-a');
+    const created = await createdOnceItHas(server, (t) =>
+      expect(t.branch).toBe('feat/the-export-drops-a'),
+    );
+    expect(created.title).toBe('Fix the export');
   });
 
   it('starts the task it creates when Start is pressed instead', async () => {
@@ -352,11 +370,10 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    const created = Object.values(server.world.tasks).find(
-      (t) => t.title === 'The export drops a row',
+    const created = await createdOnceItHas(server, (t) => expect(t.status).toBe('in-progress'));
+    await waitFor(() =>
+      expect(Object.values(server.world.agents).some((a) => a.taskId === created.id)).toBe(true),
     );
-    expect(created!.status).toBe('in-progress');
-    expect(Object.values(server.world.agents).some((a) => a.taskId === created!.id)).toBe(true);
   });
 
   it('starts a free agent on a branch, writing no task at all', async () => {
@@ -371,9 +388,9 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const free = await waitFor(() => startedAgent(server));
     // No task was written: a free agent is work with no notebook entry.
     expect(Object.keys(server.world.tasks)).toHaveLength(before);
-    const free = startedAgent(server);
     expect(free.taskId).toBe('');
     expect(server.world.desk[`agent:${free.id}`]).toBeDefined();
     // Unchosen, a free agent runs the same defaults a new task does.
@@ -381,7 +398,28 @@ describe('new work', () => {
     expect(free.model).toBe('claude:opus');
   });
 
-  it('starts a free agent with no branch typed, on the branch inference names', async () => {
+  it('draws an opening node while a free agent starts, then the agent in its place', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/orders');
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Read the logs');
+    server.stepMs = 300;
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const opening = () => document.querySelector('[data-task-id^="op:"]');
+    await waitFor(() => expect(opening()).toHaveAttribute('data-operation', 'running'));
+    expect(opening()).toHaveTextContent('Starting an agent on feat/orders');
+    server.stepMs = 1;
+    const free = await waitFor(() => startedAgent(server));
+    await waitFor(() => expect(opening()).toBeNull());
+    expect(document.querySelector(`[data-task-id="${free.id}"]`)).toBeInTheDocument();
+  });
+
+  it('starts a free agent with no branch typed, leaving the server to name it', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     const form = await openNewWork(user);
@@ -394,7 +432,8 @@ describe('new work', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
     const started = server.requests.find((r) => r.path === '/api/agents' && r.method === 'POST');
-    expect(started?.body).toMatchObject({ branch: 'feat/read-the-logs' });
+    expect(started?.body).toMatchObject({ branch: '' });
+    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(false);
   });
 
   it("starts an investigation on the _main worktree's branch, in auto or normal only", async () => {
@@ -446,32 +485,9 @@ describe('new work', () => {
     await user.click(within(form).getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
-    // The branch was typed, so nothing was left to name.
-    expect(server.requests.some((r) => r.path === '/api/tasks/infer')).toBe(false);
-    const free = startedAgent(server);
+    const free = await waitFor(() => startedAgent(server));
     expect(free.permissionMode).toBe('auto');
     expect(free.model).toBe('claude:fable');
-  });
-
-  it('never offers to write the task twice when only its launch failed', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    const form = await openNewWork(user);
-    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
-    // The task is written; the launch that follows it is refused.
-    server.refuse(/api\/tasks$/, {
-      status: 409,
-      code: 'agent_exited',
-      message: 'Agent has exited',
-      taskId: 'northwind/NEW-1',
-    });
-    await user.click(within(form).getByRole('button', { name: 'Start' }));
-
-    // The form says the task survived, and stops offering to write it again.
-    expect(await within(form).findByTestId('new-work-error')).toHaveTextContent('northwind/NEW-1');
-    expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
-    const creates = server.requests.filter((r) => r.method === 'POST' && r.path === '/api/tasks');
-    expect(creates).toHaveLength(1);
   });
 
   it('shows a refused start rather than closing on it, and still holds it once closed', async () => {

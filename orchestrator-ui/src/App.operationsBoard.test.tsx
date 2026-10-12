@@ -261,3 +261,22 @@ describe('a Dismiss that runs a close', () => {
     await waitFor(() => expect(node('NORT-7')).toBeNull());
   });
 });
+
+describe('a launch that fails', () => {
+  it('leaves the node where it was, marked failed, with its task back to todo', async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'launch-fails' });
+    clickNode('NORT-7.1');
+    const card = screen.getByRole('dialog');
+    await user.click(within(card).getByRole('button', { name: 'Launch' }));
+
+    // The node is marked failed until the open card shows the failure, which
+    // the card then holds once it marks it seen.
+    await waitFor(() => expect(node('NORT-7.1')).toHaveAttribute('data-operation', 'failed'));
+    await waitFor(() =>
+      expect(card).toHaveTextContent('Launch failed · .env is not writable: Permission denied'),
+    );
+    // Rolled back to todo, so it is ready to launch again where it was.
+    await waitFor(() => expect(node('NORT-7.1')).toHaveAttribute('data-state', 'ready'));
+  });
+});

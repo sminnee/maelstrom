@@ -2,19 +2,23 @@ import type { Attention } from '../protocol/attention';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import { isOpen } from '../protocol/attention';
 import type { TaskRow } from '../api/types';
-import type { Agent, Phase, Worktree } from '../protocol/entities';
+import type { Agent, Operation, OperationKind, Phase, Worktree } from '../protocol/entities';
 import type { WorldView } from './world';
 import type { TaskId } from '../protocol/ids';
 import { phaseForTask } from '../protocol/phase';
-import type { Progress } from '../protocol/progress';
-import { isWorking, progressOf } from '../protocol/progress';
+import type { Progress, Zone } from '../protocol/progress';
+import { isWorking, progressOf, zoneForState } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey, matchesText, searching } from './filters';
 import { byName } from './worktrees';
 import { hasRegisteredPr } from './cardPr';
 
-/** What a node stands for: a notebook task, or an agent with no task. */
-export type NodeKind = 'task' | 'freeAgent';
+/**
+ * What a node stands for: a notebook task, an agent with no task, or an
+ * **Opening node** — work an operation is starting, before its agent or task
+ * exists.
+ */
+export type NodeKind = 'task' | 'freeAgent' | 'opening';
 
 export interface GraphNode {
   /** The wire task id, or the agent id for a freeAgent. */
@@ -33,7 +37,14 @@ export interface GraphNode {
   attention: Attention[];
   /** One line under the title saying why the node needs the user, else ''. */
   reason: string;
+  /** The zone an operation holds the node in, over the one its state reads. */
+  zone?: Zone;
+  /** An opening node's operation. */
+  operation?: Operation;
 }
+
+/** The zone a node draws in: the one an operation holds it in, else its state's. */
+export const nodeZone = (node: GraphNode): Zone => node.zone ?? zoneForState(node.progress.state);
 
 export interface GraphGroup {
   /** The project's id: every lane is one project's strip. */
@@ -70,7 +81,7 @@ export interface GraphOptions {
 export function nodeTitle(node: GraphNode): string {
   if (node.task) return node.task.title;
   const { worktree } = node;
-  if (!worktree) return 'Agent';
+  if (!worktree) return node.operation?.kind === 'plan' ? 'New plan' : 'Agent';
   return worktree.branch ? `${worktree.nato} · ${worktree.branch}` : worktree.nato;
 }
 
@@ -82,6 +93,7 @@ export function nodeTitle(node: GraphNode): string {
  * An agent id is already 8 characters, so nothing here truncates.
  */
 export function nodeIdLine(node: GraphNode): string {
+  if (node.operation) return node.operation.id;
   return node.task ? node.task.notebookId : node.id;
 }
 
@@ -178,6 +190,35 @@ function dismissing(world: WorldView): Set<string> {
   return named;
 }
 
+/** The kinds that launch a task, when their steps include a launch. */
+const LAUNCH_KINDS: ReadonlySet<OperationKind> = new Set(['launch', 'create', 'plan']);
+
+/**
+ * The tasks a running launch is starting. Each draws in the running zone, its
+ * final cell, before its agent exists to put it there.
+ */
+function launching(world: WorldView): Set<string> {
+  const named = new Set<string>();
+  for (const op of Object.values(world.operations ?? {})) {
+    if (!LAUNCH_KINDS.has(op.kind) || op.state !== 'running' || !op.taskId) continue;
+    if (op.steps.some((s) => s.name === 'start_agent')) named.add(op.taskId);
+  }
+  return named;
+}
+
+/**
+ * The operations that draw an **Opening node**: a free agent's start or a
+ * Linear plan, running or ended badly and unseen, until the agent or task it
+ * made draws as a node of its own.
+ */
+function openingOperations(world: WorldView, drawn: ReadonlySet<string>): Operation[] {
+  return Object.values(world.operations ?? {})
+    .filter((op) => op.kind === 'start' || op.kind === 'plan')
+    .filter((op) => op.state === 'running' || (op.state !== 'done' && !op.seen))
+    .filter((op) => !(op.agentId && drawn.has(op.agentId)) && !(op.taskId && drawn.has(op.taskId)))
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
 /** Everything the canvas draws, derived from the world plus client state. */
 export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   // Drawn when it is on the desk, its agent is live, or a Dismiss runs on it.
@@ -188,6 +229,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   const attentionIndex = openAttentionIndex(world);
   const worktreeByBranch = openWorktreesByBranch(world);
   const midDelete = dismissing(world);
+  const midCreate = launching(world);
   const tasks = filteredTasks(world, opts.filters)
     .filter(
       (t) => deskIdForTask(t.id) in world.desk || isLive(agents.get(t.id)) || midDelete.has(t.id),
@@ -227,6 +269,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       groupId,
       attention,
       reason: attention[0]?.summary ?? '',
+      ...(midCreate.has(task.id) ? { zone: 'running' as const } : {}),
     });
   }
 
@@ -257,6 +300,40 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     if (!matchesText([agent.id, nodeTitle(node)], opts.filters)) continue;
     laneOf(groupId).nodeIds.push(agent.id);
     nodes.push(node);
+  }
+
+  // Work an operation is opening draws before it has a task or an agent of
+  // its own. A status or text filter names states and words it has none of.
+  const drawn = new Set(nodes.map((n) => n.id));
+  const plain = (opts.filters.agentStatus ?? 'all') === 'all' && !searching(opts.filters);
+  for (const op of plain && !opts.filters.comm ? openingOperations(world, drawn) : []) {
+    if (opts.filters.project && op.project !== opts.filters.project) continue;
+    const worktree = op.worktreeId ? world.worktrees[op.worktreeId] : undefined;
+    if (
+      opts.filters.branch &&
+      branchKey(op.project, worktree?.branch ?? '') !== opts.filters.branch
+    )
+      continue;
+    const id = `op:${op.id}`;
+    laneOf(op.project).nodeIds.push(id);
+    nodes.push({
+      id,
+      kind: 'opening',
+      task: undefined,
+      agent: undefined,
+      worktree,
+      progress: progressOf(undefined, undefined, []),
+      phase: null,
+      groupId: op.project,
+      attention: [],
+      reason: '',
+      // A plan that does not launch ends as a task not yet started.
+      zone:
+        op.kind === 'plan' && !op.steps.some((s) => s.name === 'start_agent')
+          ? 'notStarted'
+          : 'running',
+      operation: op,
+    });
   }
 
   // A branch, status, text or comm filter hides nodes, so a worktree with no
