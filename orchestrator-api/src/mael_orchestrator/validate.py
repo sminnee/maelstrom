@@ -811,9 +811,17 @@ def validate_command(
         return None
 
     if kind == "worktree.refresh":
-        # Nothing to check: it names no entity and carries no body. The read it
-        # asks for is the whole world's, and the server decides whether it can
-        # afford one right now.
+        # The read it asks for is the whole world's. A caller that changed one
+        # pull request names its project and branch, and needs both.
+        project, branch = cmd.get("project"), cmd.get("branch")
+        if project is None and branch is None:
+            return None
+        if not (isinstance(project, str) and project) or not (
+            isinstance(branch, str) and branch
+        ):
+            return _err("invalid", "A refresh names both a project and a branch")
+        if project not in world["projects"]:
+            return _err("unknown_id", f"No project {project}")
         return None
 
     if kind in ("operation.seen", "operation.retry"):

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from mael_cli.cli import cli
@@ -328,6 +329,13 @@ class TestGitStatusCommand:
 class TestGitMergeCommand:
     """Integration tests for mael git merge command."""
 
+    @pytest.fixture(autouse=True)
+    def told(self):
+        """The relay to the orchestrator, so no test reaches a live server."""
+        with patch("mael_cli.orchestrator_client.tell_orchestrator") as told:
+            self.told = told
+            yield told
+
     def _mock_worktree_path(self):
         wt = MagicMock()
         wt.exists.return_value = True
@@ -341,7 +349,9 @@ class TestGitMergeCommand:
     ):
         from mael_domain.worktree import SyncResult
 
-        mock_ctx.return_value = MagicMock(worktree_path=self._mock_worktree_path())
+        mock_ctx.return_value = MagicMock(
+            worktree_path=self._mock_worktree_path(), project="myproject"
+        )
         mock_branch.return_value = "feat/test"
         mock_merge.return_value = SyncResult(
             success=True,
@@ -356,6 +366,10 @@ class TestGitMergeCommand:
         assert result.exit_code == 0
         assert "Merged feat/test into main" in result.output
         assert "Pushed main to origin" in result.output
+        # The push merged the PR, so the server reads it again.
+        self.told.assert_called_once_with(
+            "/api/worktrees/refresh", {"project": "myproject", "branch": "feat/test"}
+        )
         # Defaults: squash on, close off.
         _, kwargs = mock_merge.call_args
         assert kwargs.get("squash") is True
@@ -425,6 +439,7 @@ class TestGitMergeCommand:
         runner = CliRunner()
         result = runner.invoke(cli, ["git", "merge"])
         assert result.exit_code == 1
+        self.told.assert_not_called()
         assert "Rebase encountered conflicts." in result.output
         assert "git log abc1234..def5678 --oneline" in result.output
         assert "git rebase --continue" in result.output

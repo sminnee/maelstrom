@@ -90,6 +90,10 @@ export interface Worktree {
    * `pr*` fields are the last known state, not the current one.
    */
   prStale: boolean;
+  /** The worktree's first web-facing port as a URL, or `''` with none. */
+  appUrl: string;
+  /** Whether something listens on `appUrl`'s port: a port probe, not the tracked pid. */
+  appRunning: boolean;
   /** Absent from a server older than the UI; read it as stopped with no services. */
   env?: WorktreeEnv;
   sessionCount: number;

@@ -152,6 +152,8 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "prMergedAt": "2026-09-01T10:00:00Z",
         "prMatch": "match",
         "prStale": True,
+        "appUrl": "http://localhost:3070",
+        "appRunning": True,
         "env": {
             "state": "running",
             "services": [

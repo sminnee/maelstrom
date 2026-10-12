@@ -5908,6 +5908,85 @@ def test_posting_a_refresh_reads_the_worktrees_again(harness):
     assert reads == 1
 
 
+def test_a_refresh_that_names_a_branch_reads_its_pr_again(harness):
+    """`mael git merge` names the PR it changed; the read before it is stale."""
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            reply = await api.post(
+                "/api/worktrees/refresh",
+                {"project": PROJECT, "branch": "feat/orders"},
+            )
+            assert harness.orch._event_read is not None
+            await harness.orch._event_read
+            return reply, harness.worktrees.reads - settled
+
+    reply, reads = run(scenario())
+    assert reply.status == 200
+    assert harness.worktrees.prs_refreshed == [(PROJECT, "feat/orders")]
+    assert reads == 1
+
+
+def test_a_one_shot_list_reads_every_branch_first(harness):
+    """`mael list` asks with ``max_age``. The read asks GitHub about every
+    branch, not only the desk's, or a branch off the desk has no PR state."""
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            body = await api.get_json("/api/worktrees?max_age=10")
+            return body, harness.worktrees.reads - settled
+
+    body, reads = run(scenario())
+    assert reads == 1
+    # ``None`` asks the source about every branch on disk.
+    assert harness.worktrees.asked is None
+    assert [p["id"] for p in body["projects"]] == [PROJECT]
+    assert [w["id"] for w in body["worktrees"]] == ["northwind-alpha"]
+
+
+def test_a_one_shot_list_inside_max_age_of_the_last_does_not_read(harness):
+    """A poll's desk-only read does not count; a list's every-branch read does."""
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json("/api/worktrees?max_age=600")
+            settled = harness.worktrees.reads
+            await api.get_json("/api/worktrees?max_age=600")
+            return harness.worktrees.reads - settled
+
+    assert run(scenario()) == 0
+
+
+def test_two_one_shot_lists_together_cost_one_read(harness):
+    async def scenario():
+        async with harness.client() as api:
+            gate = asyncio.Event()
+            harness.worktrees.blocked_on = gate
+            _use_slow_read(harness)
+            settled = harness.worktrees.reads
+            first = asyncio.create_task(api.get_json("/api/worktrees?max_age=600"))
+            second = asyncio.create_task(api.get_json("/api/worktrees?max_age=600"))
+            await asyncio.sleep(0.05)
+            gate.set()
+            await asyncio.gather(first, second)
+            return harness.worktrees.reads - settled
+
+    assert run(scenario()) == 1
+
+
+@pytest.mark.parametrize("max_age", ["soon", "-1", "nan"])
+def test_a_max_age_that_is_not_a_number_of_seconds_is_refused(harness, max_age):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(f"/api/worktrees?max_age={max_age}")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+
+
 def test_a_refresh_answers_without_waiting_for_the_read(harness):
     """The read shells out per worktree across every project and takes seconds.
     The caller is a command holding the user's terminal open, so it hears that
@@ -6440,6 +6519,84 @@ def test_a_second_event_does_not_orphan_the_first_read(harness_factory):
     assert first_ok and second_ok
     # The second is absorbed by the first rather than replacing it.
     assert same
+
+
+def test_an_event_naming_a_branch_is_not_absorbed_by_one_in_flight(harness_factory):
+    """The read in flight began before the write, so it cannot hold its result."""
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def scenario():
+        await harness.orch.start()
+        gate = asyncio.Event()
+        harness.worktrees.blocked_on = gate
+        _use_slow_read(harness)
+        settled = harness.worktrees.reads
+        await harness.orch.handle_command({"type": "worktree.refresh"})
+        held = harness.orch._event_read
+        await harness.orch.handle_command(
+            {"type": "worktree.refresh", "project": PROJECT, "branch": "feat/orders"}
+        )
+        replaced = harness.orch._event_read is not held
+        gate.set()
+        assert harness.orch._event_read is not None
+        await harness.orch._event_read
+        await harness.orch.stop()
+        return replaced, held.done(), harness.worktrees.reads - settled
+
+    replaced, held_done, reads = asyncio.run(scenario())
+    assert replaced and held_done
+    assert harness.worktrees.prs_refreshed == [(PROJECT, "feat/orders")]
+    assert reads == 2
+
+
+def test_a_failed_pr_read_still_reads_the_worktrees(harness_factory):
+    harness = harness_factory(worktree_poll=30.0)
+
+    def refresh_prs(project, branch):
+        raise RuntimeError("gh is broken")
+
+    harness.worktrees.refresh_prs = refresh_prs
+
+    async def scenario():
+        await harness.orch.start()
+        settled = harness.worktrees.reads
+        await harness.orch.handle_command(
+            {"type": "worktree.refresh", "project": PROJECT, "branch": "feat/orders"}
+        )
+        assert harness.orch._event_read is not None
+        await harness.orch._event_read
+        await harness.orch.stop()
+        return harness.worktrees.reads - settled
+
+    assert asyncio.run(scenario()) == 1
+
+
+def test_a_stop_cancels_the_event_read_a_named_one_replaced(harness_factory):
+    """Nothing but the named read holds the one it replaced. The stop lands
+    during the PR read, before the named read awaits the one it replaced."""
+    harness = harness_factory(worktree_poll=30.0)
+
+    async def refresh_prs(project, branch):
+        await asyncio.Event().wait()  # never set
+
+    harness.worktrees.refresh_prs = refresh_prs
+
+    async def scenario():
+        await harness.orch.start()
+        harness.worktrees.blocked_on = asyncio.Event()  # never set
+        _use_slow_read(harness)
+        await harness.orch.handle_command({"type": "worktree.refresh"})
+        held = harness.orch._event_read
+        await harness.orch.handle_command(
+            {"type": "worktree.refresh", "project": PROJECT, "branch": "feat/orders"}
+        )
+        await asyncio.sleep(0)
+        await harness.orch.stop()
+        await asyncio.sleep(0)
+        # Checked inside the loop: ``asyncio.run`` cancels what is left anyway.
+        return held is not None and held.cancelled()
+
+    assert asyncio.run(scenario())
 
 
 def test_the_poll_asks_only_about_the_branches_on_the_desk(harness):
