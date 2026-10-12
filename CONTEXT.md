@@ -111,6 +111,13 @@ writer. A step needing both takes repo first, always, so no two steps deadlock. 
 squash **Scope** below, which is an extent rather than a lock.
 _Avoid_: Lock, mutex, critical section
 
+**Freshness stamp**:
+The mtime of the project's `.git/FETCH_HEAD`: when the last full fetch of origin ended.
+`ensure_fetched` skips its fetch when the stamp is younger than the caller's maximum age. A fetch
+of named refs runs with `--no-write-fetch-head`, so it does not write the stamp. Distinct from a
+cached row's `fetched_at`. See `docs/dev/worktree-steps.md`.
+_Avoid_: Last fetched, fetch time
+
 **Dirty file**:
 A file `git status` reports as changed in a worktree, staged or unstaged. `.env` is excluded,
 because maelstrom generates it — a changed `.env` is not the agent's work.

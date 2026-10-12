@@ -83,7 +83,7 @@ work requires, and could not express a step needing two scopes.
 
 | Scope | Held by | Why |
 |---|---|---|
-| repo | a fetch, and anything writing shared refs | The worktrees share one bare `.git`. A fetch writes the object store and the remote refs every other worktree rebases against |
+| repo | `ensure_fetched`, and anything writing shared refs | The worktrees share one bare `.git`. A fetch writes the object store and the remote refs every other worktree rebases against |
 | worktree | a teardown step, a close, a remove | The index and `HEAD` belong to one checkout. A rebase and a detach at once is corruption, not slowness |
 
 A step needing both takes **repo then worktree, always in that order**, so no two steps can
@@ -92,7 +92,7 @@ deadlock against each other.
 **A step must not declare a scope the algorithm it wraps takes for itself.** `flock` is per open
 file description, so a second acquire blocks against the first even inside one thread. `git_close`
 therefore takes the worktree scope only: the `close_worktree` it wraps syncs, and that sync's fetch
-takes the repo scope at the fetch — which is the right granularity anyway, because the rest of the
+takes the repo scope in `ensure_fetched` — which is the right granularity anyway, because the rest of the
 close touches one checkout. `git_remove` takes both, because `remove_worktree_by_path` takes
 nothing of its own.
 
@@ -106,13 +106,41 @@ lock that cannot be taken must never be the reason an operation fails.
 
 ### The repo scope is easy to miss
 
-A fetch looks worktree-local. `rebase_worktree` runs `git fetch origin` with `cwd=worktree_path`,
-then calls `update_local_main(worktree_path.parent)` — writing the project's shared `main`. It is a
-repo-scoped write issued from inside a worktree. The sharp edge is `fetch --prune`, which a stacked
-branch adds and which deletes remote refs another worktree may be mid-rebase against.
+A fetch looks worktree-local, but it is a repo-scoped write. It writes the shared object store and
+the remote refs. `update_local_main` then writes the project's shared `main`. The sharp edge is
+`fetch --prune`, which a stacked branch adds. It deletes remote refs another worktree may be
+mid-rebase against.
 
-Only the rebase funnel takes the scope. The other `fetch origin` sites in `worktree.py` and
-`cli.py` do not, and `tidy_branches` prunes unconditionally — locking those is follow-up work.
+Every fetch except `add_project`'s first and `rename_remote_branch`'s (below) goes through
+`worktree.ensure_fetched`. It runs `git fetch origin` and then `update_local_main`, under the repo
+scope:
+
+1. It reads the freshness stamp. A stamp younger than `max_age` skips the fetch.
+2. It takes the repo scope.
+3. It reads the stamp again. A caller that queued behind another fetch uses that fetch.
+4. It fetches, with a 60-second timeout, then runs `update_local_main`.
+
+The freshness stamp is the mtime of the project's own `.git/FETCH_HEAD`. The fetch runs from the
+project root, because a linked worktree has its own `FETCH_HEAD` that no other caller reads.
+`max_age` defaults to `FETCH_MAX_AGE`, 5 seconds, so an open's create and sync share one fetch. A
+stacked branch's sync still fetches again, with `--prune`.
+
+| Caller | `max_age` | Why |
+|---|---|---|
+| A stacked branch's rebase, `tidy_branches` | `0`, with `prune=True` | A recent fetch without `--prune` cannot tell a deleted base from an unfetched one |
+| `create_pr`'s retry after its base moved | `0` | The first attempt's fetch is still fresh, and does not show the move |
+| sync-all's worktree syncs, the autorepair second pass | `math.inf` | The fetch already ran |
+
+A fetch narrowed to named refs runs with `--no-write-fetch-head`. The stamp means every ref is
+fresh, and a narrow fetch must not claim that.
+
+The timeout matters because the step holds the repo scope while it fetches. A hung fetch would
+otherwise hold it until each other sync in the project gives up on its lock wait.
+
+`recycle_worktree` does not fetch. Its one caller holds the repo scope for the claim, and a fetch
+inside would block on that same lock. `setup_worktree_for_branch` fetches before the claim instead.
+`rename_remote_branch` keeps its own one-ref fetch for the same reason: the `rename_remote` step
+holds the repo scope. That fetch passes `--no-write-fetch-head`, so it leaves the stamp alone.
 
 One check-then-act needs the repo scope for more than a single git call. `setup_worktree_for_branch`
 reads `find_closed_worktree` and then writes with `recycle_worktree`. Two opens in one project could
