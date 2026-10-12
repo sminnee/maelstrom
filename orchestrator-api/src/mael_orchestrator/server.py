@@ -1646,7 +1646,12 @@ class Orchestrator:
                 # second marker in one turn replaces the first, as last-wins
                 # says.
                 watch.pending_milestone = out.milestone
-        if out.pr_link:
+        if out.pr_link and out.pr_withdrawn:
+            # A replayed withdrawal is history: a later push may have made the
+            # PR ready again since.
+            if watch.caught_up.is_set():
+                await self._withdraw_pr(watch.agent_id, out.pr_link)
+        elif out.pr_link:
             await self._register_pr(
                 watch.agent_id, out.pr_link, replay=not watch.caught_up.is_set()
             )
@@ -1798,6 +1803,44 @@ class Orchestrator:
         if not reply["ok"]:
             log.warning(
                 "agent %s could not register PR #%s on %s: %s",
+                agent_id,
+                number,
+                task_id,
+                reply.get("error"),
+            )
+
+    async def _withdraw_pr(self, agent_id: str, ref: str) -> None:
+        """Withdraw the PR an agent's ``<link rel="gh-pr" withdrawn>`` named.
+
+        A free agent withdraws nothing, and nor does a tag that names a PR other
+        than the task's Registered PR. See CONTEXT.md, "Withdrawn PR".
+        """
+        agent = self.world["agents"].get(agent_id)
+        task_id = agent.get("taskId") if agent else ""
+        if not agent or not task_id:
+            return
+        task = self.world["tasks"].get(task_id)
+        if task is None:
+            log.warning(
+                "agent %s withdrew a PR on %s, which is unknown", agent_id, task_id
+            )
+            return
+        try:
+            number, _url = parse_pr_ref(ref, None)
+        except ValueError:
+            number = 0
+        if not number or number != task["prNumber"]:
+            log.warning(
+                "agent %s withdrew %r, which is not the PR registered on %s",
+                agent_id,
+                ref,
+                task_id,
+            )
+            return
+        reply = await self._write_task(self.tasks.withdraw_pr, task_id)
+        if not reply["ok"]:
+            log.warning(
+                "agent %s could not withdraw PR #%s on %s: %s",
                 agent_id,
                 number,
                 task_id,

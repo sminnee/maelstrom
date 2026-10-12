@@ -26,6 +26,11 @@ Another registers a pull request on the agent's task, by number or URL::
 
     <link rel="gh-pr">118</link>
 
+A bare ``withdrawn`` attribute marks that PR as withdrawn while more work is
+done::
+
+    <link rel="gh-pr" withdrawn>118</link>
+
 The jig marker shows or hides the agent's worktree's **Jig**::
 
     <jig show>
@@ -74,8 +79,13 @@ _MILESTONE_TAG = re.compile(
 #: ``<link``, so an unclosed HTML ``<link>`` cannot swallow a real one.
 _PR_LINK_OPENING = r'<link\b[^>]*\brel\s*=\s*"gh-pr"[^>]*>'
 _LINK_TAG = re.compile(
-    rf"{_PR_LINK_OPENING}\s*((?:(?!<link\b).)*?)\s*</link>", re.DOTALL
+    rf"({_PR_LINK_OPENING})\s*((?:(?!<link\b).)*?)\s*</link>", re.DOTALL
 )
+#: The attribute that marks the PR as withdrawn, read from the opening with its
+#: quoted values cut out. Present means withdrawn, whatever its value, as an
+#: HTML boolean attribute does. See CONTEXT.md, "Withdrawn PR".
+_WITHDRAWN = re.compile(r"\swithdrawn(?=[\s/>=])")
+_QUOTED = re.compile(r'"[^"]*"|\'[^\']*\'')
 
 #: Shows or hides the agent's worktree's jig. A verb outside the two is not a
 #: marker, and stays as text.
@@ -138,7 +148,8 @@ class TaggedMessage:
     the stage of the work the agent has just reached. ``pr_link`` follows it
     too, and is the PR number or URL the agent registered on its task. So does
     ``jig``: ``True`` to show the jig, ``False`` to hide it, ``None`` for no
-    marker.
+    marker. ``pr_withdrawn`` says whether the ``pr_link`` tag marked the PR
+    withdrawn.
     """
 
     text: str
@@ -146,6 +157,7 @@ class TaggedMessage:
     note: str = ""
     milestone: str = ""
     pr_link: str = ""
+    pr_withdrawn: bool = False
     jig: bool | None = None
 
 
@@ -204,6 +216,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         spans.append(match.span())
 
     pr_link = ""
+    pr_withdrawn = False
     # Unlike the other markers, a PR link writes to the task store, so one an
     # agent quotes in code must not register.
     quoted = spans + _code_spans(text)
@@ -211,7 +224,9 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         if any(start <= match.start() < end for start, end in quoted):
             continue
         # The last one wins: a later registration replaces the earlier.
-        pr_link = match.group(1)
+        pr_link = match.group(2)
+        opening = _QUOTED.sub('""', match.group(1))
+        pr_withdrawn = _WITHDRAWN.search(opening) is not None
         spans.append(match.span())
 
     jig: bool | None = None
@@ -243,6 +258,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         note=note,
         milestone=milestone,
         pr_link=pr_link,
+        pr_withdrawn=pr_withdrawn,
         jig=jig,
     )
 

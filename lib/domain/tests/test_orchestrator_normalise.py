@@ -2653,6 +2653,41 @@ def test_a_pr_link_tag_is_reported_beside_the_events(ref):
     assert out.pr_link == ref
 
 
+def test_a_pr_link_is_ready_unless_marked_withdrawn():
+    _, out = replay_milestone('<link rel="gh-pr">118</link>')
+    assert (out.pr_link, out.pr_withdrawn) == ("118", False)
+
+
+def test_a_withdrawn_pr_link_is_reported_withdrawn():
+    replayed, out = replay_milestone(
+        'More work.\n\n<link rel="gh-pr" withdrawn>118</link>'
+    )
+    assert (out.pr_link, out.pr_withdrawn) == ("118", True)
+    [message] = items_of(replayed, "message")
+    assert message["markdown"] == "More work."
+
+
+@pytest.mark.parametrize(
+    ("opening", "withdrawn"),
+    [
+        ('<link rel="gh-pr" withdrawn="true">', True),
+        ('<link withdrawn rel="gh-pr">', True),
+        ('<link rel="gh-pr" title="not withdrawn yet">', False),
+        ('<link rel="gh-pr" data-withdrawn>', False),
+    ],
+)
+def test_withdrawn_is_the_attribute_name_alone(opening, withdrawn):
+    _, out = replay_milestone(f"{opening}118</link>")
+    assert (out.pr_link, out.pr_withdrawn) == ("118", withdrawn)
+
+
+def test_the_last_pr_link_carries_its_own_withdrawal():
+    _, out = replay_milestone(
+        '<link rel="gh-pr" withdrawn>118</link> then <link rel="gh-pr">118</link>'
+    )
+    assert (out.pr_link, out.pr_withdrawn) == ("118", False)
+
+
 def test_the_pr_link_tag_is_cut_from_the_message_the_transcript_shows():
     replayed, _ = replay_milestone('Pushed.\n\n<link rel="gh-pr">118</link>')
     [message] = items_of(replayed, "message")

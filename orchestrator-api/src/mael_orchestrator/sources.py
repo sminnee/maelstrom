@@ -308,6 +308,15 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def withdraw_pr(self, task_id: str) -> None:
+        """Mark a task's Registered PR as withdrawn.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+            ValueError: If the task has no Registered PR.
+        """
+        ...
+
     async def delete(self, task_id: str) -> None:
         """Remove a task, and strip it from every dependent's ``follows``.
 
@@ -679,6 +688,10 @@ class NotebookTaskSource:
     async def register_pr(self, task_id: str, number: int, url: str) -> None:
         project, notebook_id = split_task_key(task_id)
         await model.register_pr(self.table, project, notebook_id, number, url)
+
+    async def withdraw_pr(self, task_id: str) -> None:
+        project, notebook_id = split_task_key(task_id)
+        await model.withdraw_pr(self.table, project, notebook_id)
 
     async def delete(self, task_id: str) -> None:
         """Remove a task from the notebook.

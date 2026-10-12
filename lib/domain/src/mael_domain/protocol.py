@@ -217,6 +217,8 @@ class Task(TypedDict):
     #: The Registered PR: its number, 0 for none, and its URL.
     prNumber: int
     prUrl: str
+    #: The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
+    prWithdrawn: bool
     content: str
     log: list[TaskLogEntry]
     created: str
@@ -259,6 +261,7 @@ class TaskRow(TypedDict):
     executeModel: str
     prNumber: int
     prUrl: str
+    prWithdrawn: bool
     created: str
     updated: str
     actionable: bool

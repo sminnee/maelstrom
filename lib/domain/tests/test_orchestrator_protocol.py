@@ -30,6 +30,7 @@ def make_task(**over):
         "executeModel": "",
         "prNumber": 0,
         "prUrl": "",
+        "prWithdrawn": False,
         "content": "",
         "log": [],
         "created": NOW,
