@@ -1,7 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -89,6 +98,7 @@ async function fakeProvider(
 }
 
 const patchFile = () => join(worktree, '.drafts', 'monkeypatch.css');
+const shots = () => join(worktree, '.drafts', 'jig');
 
 type Update = { css: string; from: string | null };
 
@@ -220,6 +230,66 @@ describe('the provider', () => {
     await start(provider.url);
 
     expect(await provider.frame('hello')).toEqual({ type: 'hello', path: realpathSync(worktree) });
+  });
+
+  it('writes a screenshot to the drafts and names the file in the feedback', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+
+    const sent = await sendFeedback({
+      type: 'instruction',
+      text: 'Bigger.',
+      screenshot: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
+    });
+
+    expect(sent.status).toBe(200);
+    const feedback = (await provider.frame('feedback')).feedback as { screenshot: string };
+    expect(feedback).toEqual({
+      type: 'instruction',
+      text: 'Bigger.',
+      screenshot: expect.stringMatching(/^shot-\d+\.jpg$/),
+    });
+    expect(readFileSync(join(shots(), feedback.screenshot))).toEqual(jpeg);
+  });
+
+  it('keeps the newest 20 screenshots', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+    mkdirSync(shots(), { recursive: true });
+    for (let n = 1; n <= 20; n++) writeFileSync(join(shots(), `shot-${n}.jpg`), 'x');
+
+    await sendFeedback({
+      type: 'instruction',
+      text: 'Bigger.',
+      screenshot: `data:image/jpeg;base64,${Buffer.from('y').toString('base64')}`,
+    });
+
+    const older = Array.from({ length: 19 }, (_, i) => `shot-${i + 2}.jpg`);
+    expect(readdirSync(shots()).sort()).toEqual(
+      expect.arrayContaining([...older, expect.stringMatching(/^shot-\d{13}\.jpg$/)]),
+    );
+    expect(readdirSync(shots())).toHaveLength(20);
+  });
+
+  it('sends the feedback without a screenshot that is not a JPEG', async () => {
+    const provider = await fakeProvider();
+    await start(provider.url);
+    await provider.frame('hello');
+
+    await sendFeedback({
+      type: 'instruction',
+      text: 'Bigger.',
+      screenshot: 'data:image/png;base64,AA',
+    });
+
+    expect((await provider.frame('feedback')).feedback).toEqual({
+      type: 'instruction',
+      text: 'Bigger.',
+    });
+    expect(existsSync(shots())).toBe(false);
   });
 
   it('shows the jig on every page when it says so', async () => {

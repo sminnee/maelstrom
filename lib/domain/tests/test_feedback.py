@@ -94,3 +94,20 @@ def test_an_element_field_of_the_wrong_shape_is_left_out(field):
     assert format_instruction("feat/orders", "Hi", element) == (
         "From the jig for feat/orders, about this element:\n    selector: p\n\nHi"
     )
+
+
+def test_an_instruction_with_a_screenshot_says_one_is_attached():
+    assert format_instruction("feat/orders", "Hi", screenshot=True) == (
+        "From the jig for feat/orders:\n\nHi\n\nA screenshot of the viewport is attached."
+    )
+
+
+def test_a_monkeypatch_with_a_screenshot_says_one_is_attached():
+    assert format_monkeypatch("feat/orders", ".chip{}", screenshot=True) == (
+        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
+        "\n"
+        "    .chip{}\n"
+        "\n"
+        "Apply it in source, then delete .drafts/monkeypatch.css.\n"
+        "A screenshot of the viewport is attached."
+    )

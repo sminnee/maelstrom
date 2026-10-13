@@ -14,6 +14,7 @@ let hideReply: Response;
 let failPut: boolean;
 let target: HTMLElement;
 let unmount: () => void;
+let capture: () => Promise<string | null>;
 
 const hot = {
   on: (event: string, callback: (data: never) => void) => listeners.set(event, callback),
@@ -37,7 +38,12 @@ function fakeFetch(visible: boolean) {
 const puts = () => requests.filter((r) => r.method === 'PUT');
 
 async function mount({ visible }: { visible: boolean }) {
-  unmount = await mountJig({ hot, fetch: fakeFetch(visible), debounceMs: 5 });
+  unmount = await mountJig({
+    hot,
+    fetch: fakeFetch(visible),
+    debounceMs: 5,
+    capture: () => capture(),
+  });
 }
 
 function jig() {
@@ -95,6 +101,7 @@ const until = async (check: () => void) => {
 beforeEach(() => {
   requests = [];
   failPut = false;
+  capture = async () => null;
   target = document.createElement('div');
   target.className = 'chip';
   document.body.append(target);
@@ -273,6 +280,34 @@ describe('the jig overlay', () => {
       expect(posts()).toEqual([{ type: 'instruction', text: 'Make the header sticky.' }]);
       expect(jig().message.value).toBe('');
       expect(jig().sendMessage.disabled).toBe(true);
+    });
+
+    it('sends a screenshot of the viewport with the text', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      capture = async () => 'data:image/jpeg;base64,/9j/';
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(posts()).toHaveLength(1));
+      expect(posts()[0]).toEqual({
+        type: 'instruction',
+        text: 'Bigger.',
+        screenshot: 'data:image/jpeg;base64,/9j/',
+      });
+    });
+
+    it('sends the text alone when the screenshot fails', async () => {
+      sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+      capture = async () => {
+        throw new Error('The canvas is tainted');
+      };
+      write('Bigger.');
+
+      jig().sendMessage.click();
+
+      await until(() => expect(jig().status.textContent).toBe('Sent to 1 agent'));
+      expect(posts()).toEqual([{ type: 'instruction', text: 'Bigger.' }]);
     });
   });
 

@@ -6,7 +6,9 @@
 //
 //   jig → provider
 //     {type: "hello", path}             the git top level, sent on each open
-//     {type: "feedback", id, feedback}  the body `POST /__mael/feedback` took
+//     {type: "feedback", id, feedback}  the body `POST /__mael/feedback` took, with
+//                                       its screenshot written to `.drafts/jig/`
+//                                       and named by file
 //     {type: "hide"}                    the user hid the jig
 //   provider → jig
 //     {type: "state", visible}          after the hello, and on each change
@@ -14,7 +16,7 @@
 //
 // The jig is shown only while the socket is open and the provider says so.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +41,9 @@ const STATE_EVENT = 'mael-jig:state';
 const BACKOFF_MS = [250, 1000, 5000];
 const CLIENT_HEADER = 'x-mael-jig-client';
 const SETTLE_MS = 80;
+/** The screenshots `.drafts/jig/` keeps. An agent reads the newest; the rest is history. */
+const KEEP_SHOTS = 20;
+const JPEG_DATA_URL = 'data:image/jpeg;base64,';
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
 export function maelJig({ providerUrl }: Options): Plugin {
@@ -90,6 +95,7 @@ export function maelJig({ providerUrl }: Options): Plugin {
       const provider = connect(usableUrl(providerUrl, server.config.logger), worktree, (visible) =>
         server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
       );
+      const shots = join(drafts, 'jig');
       server.httpServer?.once('close', provider.stop);
 
       server.middlewares.use('/__mael/monkeypatch', (req, res) => {
@@ -129,6 +135,7 @@ export function maelJig({ providerUrl }: Options): Plugin {
             }
             // Through a promise, so a throw for no socket answers 503 too.
             return Promise.resolve(feedback)
+              .then((sent) => withShotFile(sent, shots))
               .then((sent) => provider.feedback(sent))
               .then(
                 (reply) => json(res, reply.ok ? 200 : 400, reply.body),
@@ -266,6 +273,37 @@ function usableUrl(url: string | undefined, logger: { warn: (msg: string) => voi
   }
   logger.warn(`mael-jig: MAEL_FEEDBACK_URL is not a WebSocket URL (${url}), so the jig is off`);
   return undefined;
+}
+
+/**
+ * `feedback` with its screenshot written to `dir` and named by file. A
+ * screenshot that is not a JPEG data URL, or that will not write, is dropped,
+ * and the feedback goes without it.
+ */
+function withShotFile(feedback: unknown, dir: string): unknown {
+  if (typeof feedback !== 'object' || feedback === null || !('screenshot' in feedback)) {
+    return feedback;
+  }
+  const { screenshot, ...rest } = feedback as { screenshot: unknown };
+  if (typeof screenshot !== 'string' || !screenshot.startsWith(JPEG_DATA_URL)) return rest;
+  const name = `shot-${Date.now()}.jpg`;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), Buffer.from(screenshot.slice(JPEG_DATA_URL.length), 'base64'));
+    pruneShots(dir);
+  } catch {
+    return rest;
+  }
+  return { ...rest, screenshot: name };
+}
+
+/** Delete all but the newest `KEEP_SHOTS` screenshots in `dir`, by the time in the name. */
+function pruneShots(dir: string): void {
+  const stamp = (name: string) => Number(/^shot-(\d+)\.jpg$/.exec(name)?.[1]);
+  const shots = readdirSync(dir)
+    .filter((name) => !Number.isNaN(stamp(name)))
+    .sort((a, b) => stamp(b) - stamp(a));
+  for (const old of shots.slice(KEEP_SHOTS)) rmSync(join(dir, old), { force: true });
 }
 
 /** The worktree that holds `root`, or `null` outside a git checkout. */

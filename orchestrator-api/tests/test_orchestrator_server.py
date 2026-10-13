@@ -8737,6 +8737,64 @@ def test_an_instruction_reaches_the_agents_with_its_picked_element(harness):
     assert text.endswith("\n\nBigger.")
 
 
+JPEG = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b"jpeg"
+
+
+def screenshot_feedback(harness, tmp_path, shot: str) -> dict:
+    """An instruction naming ``shot``, sent by a jig in a worktree at ``tmp_path``."""
+    harness.worktrees.worktrees[0]["path"] = str(tmp_path)
+    harness.daemon.rows["ag1"] = agent_row(cwd=str(tmp_path))
+
+    async def scenario():
+        async with (
+            harness.client() as api,
+            live_feedback_socket(api, str(tmp_path)) as ws,
+        ):
+            await next_state(ws)
+            feedback = {"type": "instruction", "text": "Bigger.", "screenshot": shot}
+            await ws.send_json({"type": "feedback", "id": "f1", "feedback": feedback})
+            return await ws_next(ws, lambda m: m["type"] == "reply")
+
+    return run(scenario())
+
+
+def test_feedback_with_a_screenshot_attaches_it_from_the_jig_drafts(harness, tmp_path):
+    shots = tmp_path / ".drafts" / "jig"
+    shots.mkdir(parents=True)
+    (shots / "shot-7.jpg").write_bytes(JPEG)
+
+    reply = screenshot_feedback(harness, tmp_path, "shot-7.jpg")
+
+    assert reply["ok"] is True
+    assert said(harness) == [
+        {
+            "cmd": "say",
+            "id": "ag1",
+            "text": "From the jig for feat/orders:\n\nBigger.\n\n"
+            "A screenshot of the viewport is attached.",
+            "attachments": [{"path": str(shots / "shot-7.jpg")}],
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "content", [None, b"not an image"], ids=["gone", "not an image"]
+)
+def test_a_screenshot_the_agent_could_not_read_is_left_off(harness, tmp_path, content):
+    """The daemon refuses a whole turn over one bad attachment; the words must still go."""
+    shots = tmp_path / ".drafts" / "jig"
+    shots.mkdir(parents=True)
+    if content is not None:
+        (shots / "shot-7.jpg").write_bytes(content)
+
+    reply = screenshot_feedback(harness, tmp_path, "shot-7.jpg")
+
+    assert reply["ok"] is True
+    assert said(harness) == [
+        {"cmd": "say", "id": "ag1", "text": "From the jig for feat/orders:\n\nBigger."}
+    ]
+
+
 def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
     reply = jig_feedback(harness, monkeypatch())
 
