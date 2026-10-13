@@ -95,6 +95,12 @@ Write `<jig hide>` when that work is done, or when the user moves on to other wo
 The user can hide the jig too. You then get a message that says so. Do not show it again until
 the user asks for it, or until the next visual detail.
 
+Answer jig feedback as fast as you can. Each message is one step in an interactive loop: make a
+quick mockup of the change, such as a CSS rule in `.drafts/monkeypatch.css` or the smallest edit
+that shows it on the page. Do not make a committable fix until the user confirms the direction. A
+message can say that a screenshot of the viewport is attached: that is the page as the user sees
+it now.
+
 ## User attention
 
 Every message opens with `<user-attention high>` or `<user-attention low>`. Repeat the tag to
