@@ -89,11 +89,18 @@ The user can also send you an instruction from the jig: a message that opens "Fr
 element first: its `selector`, its React `components`, its computed `styles` and, under Ladle, its
 `story`. Use the components and the selector to find the element in source, then act on the text.
 
-Write `<jig show>` when you start to shape a visual detail with the user on a dev-server page.
-Write `<jig hide>` when that work is done, or when the user moves on to other work.
+The jig is a live feedback param, `jig`. Set it with the `<live-feedback>` marker. Each
+attribute is a param, set to `on` or `off`:
 
-The user can hide the jig too. You then get a message that says so. Do not show it again until
-the user asks for it, or until the next visual detail.
+- Write `<live-feedback jig="on">` when you start to shape a visual detail with the user on a
+  dev-server page. It shows the jig on each dev server of your worktree.
+- Write `<live-feedback jig="off">` when that work is done, or when the user moves on to other
+  work.
+- Add `service="web"` to set the param on one dev server only.
+
+The user can turn the jig on or off too, from the Dev env tab or from the jig. You then get a
+message that says so, such as "The user turned Jig off for web on {branch}." After the user turns
+it off, do not turn it on again until the user asks for it, or until the next visual detail.
 
 Answer jig feedback as fast as you can. Each message is one step in an interactive loop: make a
 quick mockup of the change, such as a CSS rule in `.drafts/monkeypatch.css` or the smallest edit
