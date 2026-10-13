@@ -188,3 +188,50 @@ describe('a split tab', () => {
     expect(within(half('left')!).getByTestId('session-tab')).toBeInTheDocument();
   });
 });
+
+describe('the live feedback switches', () => {
+  // Named by the param's label: the UI names no param.
+  const jigSwitch = () => within(tabBody()).queryByRole('switch', { name: 'Jig' });
+  const DELTA = 'northwind-delta';
+
+  async function openWeb() {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-12');
+    await fromCard(user, 'Dev env');
+    return { user, server };
+  }
+
+  it('flips a param of the service through the server', async () => {
+    const { user } = await openWeb();
+    expect(jigSwitch()).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(jigSwitch()!);
+    await waitFor(() => expect(jigSwitch()).toHaveAttribute('aria-checked', 'true'));
+
+    await user.click(jigSwitch()!);
+    await waitFor(() => expect(jigSwitch()).toHaveAttribute('aria-checked', 'false'));
+  });
+
+  it('draws none for a service that exposes no params', async () => {
+    const { server } = await openWeb();
+    expect(jigSwitch()).not.toBeNull();
+
+    server.change({ kind: 'worktree', ids: [DELTA] }, (w) => {
+      w.worktrees[DELTA]!.liveFeedback = [{ service: 'web', params: {} }];
+    });
+
+    await waitFor(() => expect(jigSwitch()).toBeNull());
+  });
+
+  it('draws none with no agent in the worktree to hear a change', async () => {
+    const { server } = await openWeb();
+    expect(jigSwitch()).not.toBeNull();
+
+    server.change({ kind: 'agent', ids: ['e5b1d8c3'] }, (w) => {
+      w.agents['e5b1d8c3']!.state = 'exited';
+    });
+
+    await waitFor(() => expect(jigSwitch()).toBeNull());
+  });
+});
