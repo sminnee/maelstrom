@@ -9,7 +9,7 @@ import { Markdown } from '../markdown/Markdown';
 import { deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
 import { driftFixLabel, driftSentence } from '../protocol/progress';
-import type { Agent, DeskEntry } from '../protocol/entities';
+import { isTerminal, type Agent, type DeskEntry } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
 import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
@@ -508,12 +508,27 @@ function UnansweredBox({
 /** The node's follows relations, each with a desk toggle. Not called a chain — see CONTEXT.md. */
 function FollowsSection({ taskId }: { taskId: string }) {
   const { world } = useWorld();
+  const [showTerminal, setShowTerminal] = useState(false);
   const { before, after } = followsReach(world.tasks, taskId);
   if (before.length === 0 && after.length === 0) return null;
+  const terminal = [...before, ...after].filter((t) => isTerminal(t.status)).length;
+  // Terminal rows fold, not drop: a row's desk toggle is how the card puts a task on the desk.
+  const shown = (tasks: TaskRow[]) =>
+    showTerminal ? tasks : tasks.filter((t) => !isTerminal(t.status));
   return (
     <div className={styles.follows} data-testid="node-follows">
-      <FollowsGroup heading="Follows" tasks={before} desk={world.desk} />
-      <FollowsGroup heading="Followed by" tasks={after} desk={world.desk} />
+      <FollowsGroup heading="Follows" tasks={shown(before)} desk={world.desk} />
+      <FollowsGroup heading="Followed by" tasks={shown(after)} desk={world.desk} />
+      {terminal > 0 && (
+        <AppButton
+          variant="link"
+          className={styles.more}
+          aria-expanded={showTerminal}
+          onClick={() => setShowTerminal((v) => !v)}
+        >
+          {showTerminal ? 'Hide done or cancelled' : `Show ${terminal} done or cancelled`}
+        </AppButton>
+      )}
     </div>
   );
 }

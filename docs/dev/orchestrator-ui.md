@@ -421,7 +421,9 @@ arriving on the transcript is still the live signal: nothing about the ledger mo
 no change notice fires, and the count of bars is what refetches the route.
 
 A task node's card lists every task its task follows and every task that follows it, direct and
-indirect, nearest first (`selectors/follows.ts`). Each row has an On desk toggle: its desk icon
+indirect, nearest first (`selectors/follows.ts`). Done and cancelled rows start folded behind a
+Show button. The fold is local state in `FollowsSection`, so it resets from card to card. Each
+row has an On desk toggle: its desk icon
 shows if the task is on the desk. The canvas draws a follows edge only when both ends are on the desk, so without this list
 the user must find each related task in the task list. The list reads `world.tasks`, which
 holds every task, so it needs no route of its own.

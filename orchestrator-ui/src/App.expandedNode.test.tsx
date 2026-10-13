@@ -1067,9 +1067,14 @@ describe('follows relations on the expanded node', () => {
   const row = (name: string, id: string) =>
     within(group(name)).getByText(id).closest('[data-on-desk]') as HTMLElement;
 
+  const showFinished = (n: number) =>
+    within(expanded()).getByRole('button', { name: `Show ${n} done or cancelled` });
+
   it('lists what the task follows and what follows it, the indirect ones too', async () => {
+    const user = userEvent.setup();
     await renderApp();
     clickNode('MAEL-40.1');
+    await user.click(showFinished(1));
     expect(within(group('Follows')).getByText('Task index cache')).toBeInTheDocument();
     // The fixture leaves MAEL-40 off the desk.
     expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'done', onDesk: false }]);
@@ -1080,6 +1085,62 @@ describe('follows relations on the expanded node', () => {
       { id: 'MAEL-52.1', status: 'todo', onDesk: true },
       { id: 'MAEL-52.2', status: 'todo', onDesk: true },
     ]);
+    // Nothing is done or cancelled, so there is nothing to show.
+    expect(within(expanded()).queryByRole('button', { name: /done or cancelled/ })).toBeNull();
+  });
+
+  it('folds done and cancelled rows behind a button, in reach order', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('MAEL-40.1');
+    // MAEL-40 is done, so its row folds, and its group with it.
+    expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
+    expect(listed('Followed by')).toEqual([{ id: 'MAEL-40.2', status: 'todo', onDesk: true }]);
+    await user.click(showFinished(1));
+    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'done', onDesk: false }]);
+    await user.click(within(expanded()).getByRole('button', { name: 'Hide done or cancelled' }));
+    expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
+
+    clickNode('MAEL-52');
+    act(() => {
+      server.change({ kind: 'task', ids: ['MAEL-52.1'] }, (w) => {
+        w.tasks['MAEL-52.1'] = { ...w.tasks['MAEL-52.1']!, status: 'cancelled' };
+      });
+    });
+    await waitFor(() =>
+      expect(listed('Followed by')).toEqual([{ id: 'MAEL-52.2', status: 'todo', onDesk: true }]),
+    );
+    await user.click(showFinished(1));
+    expect(listed('Followed by')).toEqual([
+      { id: 'MAEL-52.1', status: 'cancelled', onDesk: true },
+      { id: 'MAEL-52.2', status: 'todo', onDesk: true },
+    ]);
+  });
+
+  it('keeps the button when every row is folded', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('MAEL-52');
+    act(() => {
+      server.change({ kind: 'task', ids: ['MAEL-52.1', 'MAEL-52.2'] }, (w) => {
+        w.tasks['MAEL-52.1'] = { ...w.tasks['MAEL-52.1']!, status: 'done' };
+        w.tasks['MAEL-52.2'] = { ...w.tasks['MAEL-52.2']!, status: 'cancelled' };
+      });
+    });
+    const follows = () => within(expanded()).getByTestId('node-follows');
+    await waitFor(() => expect(within(follows()).queryByRole('group')).toBeNull());
+    await user.click(showFinished(2));
+    expect(listed('Followed by').map((r) => r.id)).toEqual(['MAEL-52.1', 'MAEL-52.2']);
+  });
+
+  it('starts each card folded', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('MAEL-40.1');
+    await user.click(showFinished(1));
+    clickNode('MAEL-40.2');
+    expect(showFinished(1)).toBeInTheDocument();
+    expect(listed('Follows').map((r) => r.id)).toEqual(['MAEL-40.1']);
   });
 
   it('puts a task off the desk on it, and the canvas draws its node', async () => {
@@ -1087,6 +1148,7 @@ describe('follows relations on the expanded node', () => {
     await renderApp();
     expect(document.querySelector('[data-task-id="MAEL-40"]')).toBeNull();
     clickNode('MAEL-40.1');
+    await user.click(showFinished(1));
     await user.click(
       within(row('Follows', 'MAEL-40')).getByRole('button', { name: 'On desk', pressed: false }),
     );
