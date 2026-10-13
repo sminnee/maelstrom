@@ -71,6 +71,13 @@ export function useMergePullRequest() {
   );
 }
 
+/** Turn **Auto-merge** on or off for a worktree's pull request, as an operation. */
+export function useSetAutoMerge() {
+  return useStartOperation((api, vars: { worktreeId: WorktreeId; on: boolean }) =>
+    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'auto-merge'), { on: vars.on }),
+  );
+}
+
 /**
  * Start, stop or restart a worktree's dev environment, or start or stop one
  * optional `service`, as an operation.

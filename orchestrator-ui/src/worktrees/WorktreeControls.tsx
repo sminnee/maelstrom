@@ -6,6 +6,7 @@ import { trackedAgents } from '../selectors/worktrees';
 import { PanelLink } from '../shell/PanelLink';
 import { PrChip } from '../shell/PrChip';
 import { CloseControl } from './CloseControl';
+import { AutoMergeControl } from './AutoMergeControl';
 import { CmuxControl } from './CmuxControl';
 import { DevEnvLinks } from './DevEnvLinks';
 import { EnvControl } from './EnvControl';
@@ -67,6 +68,7 @@ export function WorktreeCommands({
   return (
     <>
       <MergeControl worktree={worktree} />
+      <AutoMergeControl worktree={worktree} />
       <SyncControl worktree={worktree} />
       <EnvControl worktree={worktree} />
       {!(busy && busyClose === 'hide') && <CloseControl worktree={worktree} />}

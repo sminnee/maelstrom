@@ -275,7 +275,7 @@ first, because it holds the branch the others are cut from.
 Each row draws the shared worktree controls from `worktrees/WorktreeControls.tsx`.
 `WorktreeLinks` fills the links column: Changes, the dev env and cmux. The row passes it no PR,
 because the PR column draws its own chip, which the narrow layout puts by the name. `WorktreeCommands` fills
-the last column: Merge, sync, the environment control and the close control. Delete is in the
+the last column: Merge, Auto-merge, sync, the environment control and the close control. Delete is in the
 close control — see "The worktree area". `_main` is offered no close control, because it holds
 the main checkout, but it still syncs.
 
@@ -328,6 +328,14 @@ merge cannot be undone. `WorktreeCommands` draws it first, so every surface that
 worktree commands carries it: the expanded node, the narrow layout's pushed screen, the panel's
 worktree bar and the Worktrees table.
 GitHub's refusal shows as the confirming button's title, and the question stays open.
+
+The **Auto-merge** control is `worktrees/AutoMergeControl.tsx`, a switch drawn as the Jig switch
+is: a quiet button with a read-only checkbox. It draws while the PR waits (`ci-running`,
+`unknown`, `checks-unreadable`), and in any open state while auto-merge is on, so the user can
+turn it off. So a PR with auto-merge on that reads `ready` draws Merge and the switch together:
+GitHub can still hold the merge for a required review. The switch has no confirm, because
+turning it on merges nothing yet. It does not draw on a draft, or where the repository does not
+allow auto-merge. While the **PR match** is `differ` it cannot turn on.
 
 The environment control is `worktrees/EnvControl.tsx`, a split button over the env state; its
 options are listed in [the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator).
@@ -772,7 +780,7 @@ card is this area under a header. Both draw the one component, so the two cannot
 
 Each option starts an **Operation**. The route answers at once with the operation's id, and the
 button is at rest again. The `CommandSet` holds the worktree's other controls while the operation
-runs. The row, the card and the strip show its words, and a refusal's words. Sync, Merge and the
+runs. The row, the card and the strip show its words, and a refusal's words. Sync, Merge, Auto-merge and the
 environment controls work the same way. The controls outside a `CommandSet` (the worktree bar,
 the environment tab, the Changes tab's Sync, the session tab's agent controls and the next-step
 chains) are not held while it runs. The fake server runs each step on a timer: a second in the
