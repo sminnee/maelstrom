@@ -54,9 +54,8 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       ...(fakeMode ? [serveFake] : []),
-      // The jig (CONTEXT.md), on the dev server and Ladle but not under
-      // vitest, which serves no page. `mael env start` sets its provider.
-      ...(!process.env.VITEST ? [maelJig({ providerUrl: process.env.MAEL_FEEDBACK_URL })] : []),
+      // The jig (CONTEXT.md), on the dev server and Ladle.
+      maelJig(),
     ],
     server: {
       // Every interface, so the tailnet reaches the dev server and localhost

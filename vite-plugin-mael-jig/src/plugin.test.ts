@@ -12,8 +12,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createServer, type ViteDevServer } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createServer, type Plugin, type ViteDevServer } from 'vite';
 import { WebSocketServer, type WebSocket as ProviderSocket } from 'ws';
 import { maelJig } from './plugin';
 
@@ -24,12 +24,16 @@ let origin: string;
 const sockets: WebSocket[] = [];
 const closers: (() => void)[] = [];
 
-async function start(providerUrl?: string) {
+/** A dev server with the jig. An empty `providerUrl` is no provider. */
+async function start(
+  providerUrl = '',
+  { jig = () => maelJig({ providerUrl }) }: { jig?: () => Plugin } = {},
+) {
   server = await createServer({
     root: worktree,
     configFile: false,
     logLevel: 'silent',
-    plugins: [maelJig({ providerUrl })],
+    plugins: [jig()],
     server: { port: 0, host: '127.0.0.1' },
   });
   await server.listen();
@@ -37,6 +41,9 @@ async function start(providerUrl?: string) {
 }
 
 beforeEach(() => {
+  // This suite runs under vitest, where the jig switches itself off.
+  vi.stubEnv('VITEST', undefined);
+  vi.stubEnv('MAEL_FEEDBACK_URL', undefined);
   worktree = mkdtempSync(join(tmpdir(), 'mael-jig-'));
   execFileSync('git', ['init', '-q'], { cwd: worktree });
   writeFileSync(join(worktree, 'index.html'), '<html><head></head><body></body></html>');
@@ -264,6 +271,39 @@ describe('the jig plugin', () => {
     expect((await fetch(`${origin}/__mael/state`, { method: 'POST' })).status).toBe(405);
     expect((await fetch(`${origin}/__mael/feedback`)).status).toBe(405);
     expect((await fetch(`${origin}/__mael/hide`)).status).toBe(405);
+  });
+});
+
+describe('the plugin with no options', () => {
+  it('dials MAEL_FEEDBACK_URL', async () => {
+    const provider = await fakeProvider();
+    vi.stubEnv('MAEL_FEEDBACK_URL', provider.url);
+    await start('', { jig: () => maelJig() });
+
+    expect(await provider.frame('exposeParams')).toEqual({
+      type: 'exposeParams',
+      params: {
+        jig: { label: 'Jig', type: 'boolean', description: 'Show the jig on each page' },
+      },
+    });
+  });
+
+  it('stays off with an empty providerUrl, whatever MAEL_FEEDBACK_URL says', async () => {
+    const provider = await fakeProvider();
+    vi.stubEnv('MAEL_FEEDBACK_URL', provider.url);
+    await start('');
+
+    expect((await post('/__mael/hide')).status).toBe(503);
+    expect(provider.frames).toEqual([]);
+  });
+
+  it('switches off under vitest', async () => {
+    vi.stubEnv('VITEST', 'true');
+    await start('', { jig: () => maelJig() });
+
+    expect(await (await fetch(`${origin}/`)).text()).not.toContain('mael-jig');
+    // No route: Vite's SPA fallback answers with the page.
+    expect(await (await fetch(`${origin}/__mael/state`)).text()).toContain('<html>');
   });
 });
 
