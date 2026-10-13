@@ -944,68 +944,117 @@ def read_draft(path: "Path") -> Task:
     return parse_draft(path.read_text())
 
 
-async def promote_draft(
+async def _create_from_draft(
     table: "TaskTable",
     *,
     project: str,
-    path: "Path",
-    overrides: dict[str, str | None] | None = None,
-    follows: list[str] | None = None,
-    consume: bool = True,
-    draft: Task | None = None,
+    draft: Task,
+    overrides: dict[str, str | None],
+    follows: list[str],
 ) -> Task:
-    """Create the task a draft file describes, then consume the file.
+    """Create the task a parsed draft describes: one step of :func:`promote_chain`.
 
-    The one promote step, shared by ``mael task promote`` and the orchestrator's
-    approval of a task-set document. The draft's recipe fields seed the task;
-    an ``overrides`` entry that is not ``None`` wins over the file's value, so a
-    caller with no opinion passes ``None`` rather than the field's default.
-    ``follows`` is wired here, at the moment the ids it names exist.
-
-    The file is deleted only after the task is in the table: a draft that fails
-    to parse is left where the user can fix it, and nothing was created.
-
-    ``consume=False`` leaves the file for a caller that promotes a whole set in
-    one transaction and calls :func:`consume_draft` after it commits. ``draft``
-    reuses a :func:`read_draft` the caller already did.
-
-    Raises:
-        FileNotFoundError: If ``path`` names no file.
-        ValueError: If the draft does not parse (see :func:`parse_draft`).
+    The draft's recipe fields seed the task. An ``overrides`` entry that is not
+    ``None`` wins over the file's value, so a caller with no opinion passes
+    ``None`` rather than the field's default.
     """
-    if draft is None:
-        draft = read_draft(path)
-    given = overrides or {}
     fields: dict[str, Any] = {
-        name: value if (value := given.get(name)) is not None else getattr(draft, name)
+        name: value
+        if (value := overrides.get(name)) is not None
+        else getattr(draft, name)
         for name in PROMOTABLE_FIELDS
     }
-    task = await create(
+    return await create(
         table,
         project=project,
         title=draft.title,
         content=draft.content,
-        follows=list(follows or []),
+        follows=follows,
         # A draft that names comms wins; one that names none inherits them.
         comms=draft.comms or None,
         **fields,
     )
-    if consume:
-        consume_draft(path)
-    return task
 
 
-def consume_draft(path: "Path") -> None:
-    """Delete a draft whose task now exists.
+async def promote_chain(
+    table: "TaskTable",
+    *,
+    project: str,
+    paths: "list[Path]",
+    parent: str = "",
+    overrides: dict[str, str | None] | None = None,
+    follows: list[str] | None = None,
+    after: str | None = None,
+) -> list[Task]:
+    """Promote a set of drafts as one chain, in the order given.
 
-    A promoted draft left on disk gets promoted a second time, so consuming it
-    is part of promoting it — separated only so a caller promoting a set can
-    defer every deletion until the whole set is committed.
+    The first task follows ``follows`` when it is given, else ``after``, else
+    nothing. Each later task follows the one before it. With ``after`` and no
+    ``follows``, the set is a **splice**: each ``todo`` or ``blocked`` task
+    that followed ``after`` now follows the last new task. A follower that
+    already ran keeps the follows it ran with.
 
-    ``missing_ok``: a set's deletions run after its transaction commits, so a
-    file already gone must not raise and undo a promote that succeeded.
+    A task's parent is ``overrides["parent"]``, else the draft's own, else the
+    ``parent`` argument. The set is one transaction: a draft that does not
+    parse leaves nothing created, no follower moved, and no file consumed.
+
+    Raises:
+        ValueError: If a draft is missing or does not parse, which names the
+            file, or if an override is refused, which does not.
     """
-    path.unlink(missing_ok=True)
+    given = dict(overrides or {})
+    # A refused override is the caller's fault, so it fails before the loop
+    # below blames the file it was reading.
+    if (priority := given.get("priority")) is not None:
+        validate_priority(priority)
+    created: list[Task] = []
+    async with table.transact():
+        # A task outside the project, such as a stale $MAEL_TASK_ID, is not
+        # spliced after: a follow on it would block the chain for good.
+        if after and (
+            not is_safe_id(after) or await table.load(project, after) is None
+        ):
+            after = None
+        splice = follows is None and bool(after)
+        for path in paths:
+            if created:
+                wired = [created[-1].id]
+            elif follows is not None:
+                wired = list(follows)
+            else:
+                wired = [after] if after else []
+            try:
+                draft = read_draft(path)
+                task = await _create_from_draft(
+                    table,
+                    project=project,
+                    draft=draft,
+                    overrides={
+                        **given,
+                        "parent": given.get("parent") or draft.parent or parent,
+                    },
+                    follows=wired,
+                )
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"{path.name}: {exc}") from exc
+            created.append(task)
+        if splice and created:
+            new_ids = {t.id for t in created}
+            for task in await list_tasks(table, project=project):
+                waiting = task.status in (STATUS_TODO, STATUS_BLOCKED)
+                if task.id in new_ids or not waiting or after not in task.follows:
+                    continue
+                moved = [created[-1].id if f == after else f for f in task.follows]
+                await update(
+                    table, project, task.id, follows=list(dict.fromkeys(moved))
+                )
+    # Committed: a rollback cannot put a deleted draft back, so the files go
+    # only once every row exists. A promoted draft left on disk would be
+    # promoted twice. `missing_ok`: a file already gone must not raise and
+    # undo a promote that succeeded.
+    for path in paths:
+        path.unlink(missing_ok=True)
+    return created
 
 
 # --- plan-file (load-many) parsing + batch creation ---

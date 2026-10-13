@@ -318,11 +318,25 @@ class TestParseDraft:
             model.parse_draft('---\ntitle: "unclosed\n---\n\nBody.\n')
 
 
-class TestPromoteDraft:
-    """The promote step the CLI and the orchestrator share."""
+class TestPromoteChain:
+    """The promote step the CLI and the orchestrator share.
 
-    def _draft(self, tmp_path, name="d.md", **fields):
-        path = tmp_path / name
+    A draft set becomes one chain; ``after`` splices it in behind a task.
+    """
+
+    def _drafts(self, tmp_path, *titles):
+        paths = []
+        for i, title in enumerate(titles):
+            path = tmp_path / f"{i}.md"
+            path.write_text(model.draft_markdown(title=title))
+            paths.append(path)
+        return paths
+
+    async def _follows(self, store, *tasks):
+        return [(await model.load(store, "p", t.id)).follows for t in tasks]
+
+    def _draft(self, tmp_path, **fields):
+        path = tmp_path / "d.md"
         path.write_text(model.draft_markdown(**fields))
         return path
 
@@ -336,7 +350,7 @@ class TestPromoteDraft:
             pre_action="linear.in-progress",
             content="The plan body.",
         )
-        task = await model.promote_draft(store, project="p", path=path)
+        [task] = await model.promote_chain(store, project="p", paths=[path])
         loaded = await model.load(store, "p", task.id)
         assert loaded.title == "Execute: demo"
         assert loaded.command == "plan-next-step"
@@ -346,48 +360,142 @@ class TestPromoteDraft:
         assert loaded.content == "The plan body."
         assert loaded.status == model.STATUS_TODO
 
-    async def test_consumes_the_file_once_the_task_exists(self, store, tmp_path):
-        path = self._draft(tmp_path, title="T")
-        await model.promote_draft(store, project="p", path=path)
-        assert not path.exists()
-
-    async def test_an_override_wins_over_the_file(self, store, tmp_path):
-        path = self._draft(tmp_path, title="T", mode="auto")
-        task = await model.promote_draft(
-            store, project="p", path=path, overrides={"mode": "normal"}
-        )
-        assert (await model.load(store, "p", task.id)).mode == "normal"
-
-    async def test_an_override_of_none_leaves_the_file_field_alone(
-        self, store, tmp_path
+    @pytest.mark.parametrize(
+        ("override", "mode"), [("normal", "normal"), (None, "auto")]
+    )
+    async def test_an_override_that_is_not_none_wins_over_every_file(
+        self, store, tmp_path, override, mode
     ):
         # The CLI passes None for a flag the user did not give.
         path = self._draft(tmp_path, title="T", mode="auto")
-        task = await model.promote_draft(
-            store, project="p", path=path, overrides={"mode": None}
+        [task] = await model.promote_chain(
+            store, project="p", paths=[path], overrides={"mode": override}
         )
-        assert (await model.load(store, "p", task.id)).mode == "auto"
+        assert (await model.load(store, "p", task.id)).mode == mode
 
-    async def test_wires_the_follows_it_is_given(self, store, tmp_path):
-        first = await model.create(store, project="p", title="first")
-        path = self._draft(tmp_path, title="T")
-        task = await model.promote_draft(
-            store, project="p", path=path, follows=[first.id]
-        )
-        assert (await model.load(store, "p", task.id)).follows == [first.id]
-
-    async def test_a_missing_file_raises_and_creates_nothing(self, store, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            await model.promote_draft(store, project="p", path=tmp_path / "absent.md")
+    async def test_a_missing_file_names_itself_and_creates_nothing(
+        self, store, tmp_path
+    ):
+        with pytest.raises(ValueError, match="absent.md"):
+            await model.promote_chain(
+                store, project="p", paths=[tmp_path / "absent.md"]
+            )
         assert await model.list_tasks(store, project="p") == []
 
-    async def test_a_bad_draft_raises_and_leaves_the_file(self, store, tmp_path):
-        path = tmp_path / "d.md"
-        path.write_text('---\ntitle: "unclosed\n---\n\nBody.\n')
-        with pytest.raises(ValueError):
-            await model.promote_draft(store, project="p", path=path)
-        assert path.exists()
-        assert await model.list_tasks(store, project="p") == []
+    async def test_a_planner_with_no_followers_heads_the_new_chain(
+        self, store, tmp_path
+    ):
+        planner = await model.create(store, project="p", title="P")
+        n1, n2 = await model.promote_chain(
+            store,
+            project="p",
+            paths=self._drafts(tmp_path, "N1", "N2"),
+            after=planner.id,
+        )
+        assert await self._follows(store, n1, n2) == [[planner.id], [n1.id]]
+        assert [t.title for t in (n1, n2)] == ["N1", "N2"]
+
+    async def test_a_mid_chain_planner_moves_its_followers_behind_the_new_tasks(
+        self, store, tmp_path
+    ):
+        a = await model.create(store, project="p", title="A")
+        p = await model.create(store, project="p", title="P", follows=[a.id])
+        c = await model.create(store, project="p", title="C", follows=[p.id])
+        n1, n2 = await model.promote_chain(
+            store, project="p", paths=self._drafts(tmp_path, "N1", "N2"), after=p.id
+        )
+        # A -> P -> N1 -> N2 -> C
+        assert await self._follows(store, p, n1, n2, c) == [
+            [a.id],
+            [p.id],
+            [n1.id],
+            [n2.id],
+        ]
+
+    async def test_every_waiting_follower_moves_and_keeps_its_other_follows(
+        self, store, tmp_path
+    ):
+        p = await model.create(store, project="p", title="P")
+        x = await model.create(store, project="p", title="X")
+        c1 = await model.create(store, project="p", title="C1", follows=[p.id])
+        c2 = await model.create(store, project="p", title="C2", follows=[p.id, x.id])
+        # A follower that already ran stays as history recorded it.
+        ran = await model.create(store, project="p", title="Ran", follows=[p.id])
+        await model.move(store, "p", ran.id, model.STATUS_DONE)
+        _, n2 = await model.promote_chain(
+            store, project="p", paths=self._drafts(tmp_path, "N1", "N2"), after=p.id
+        )
+        assert await self._follows(store, c1, c2, ran) == [
+            [n2.id],
+            [n2.id, x.id],
+            [p.id],
+        ]
+
+    async def test_explicit_follows_wins_over_after_and_moves_no_follower(
+        self, store, tmp_path
+    ):
+        p = await model.create(store, project="p", title="P")
+        x = await model.create(store, project="p", title="X")
+        c = await model.create(store, project="p", title="C", follows=[p.id])
+        [n1] = await model.promote_chain(
+            store,
+            project="p",
+            paths=self._drafts(tmp_path, "N1"),
+            follows=[x.id],
+            after=p.id,
+        )
+        assert await self._follows(store, n1, c) == [[x.id], [p.id]]
+
+    async def test_no_after_follows_nothing(self, store, tmp_path):
+        [n1] = await model.promote_chain(
+            store, project="p", paths=self._drafts(tmp_path, "N1")
+        )
+        assert n1.follows == []
+
+    @pytest.mark.parametrize("after", ["other-project", "missing", "../x"])
+    async def test_an_after_that_names_no_task_here_is_ignored(
+        self, store, tmp_path, after
+    ):
+        # A session's $MAEL_TASK_ID names a task in its own project only.
+        other = await model.create(store, project="q", title="Q")
+        after = other.id if after == "other-project" else after
+        [n1] = await model.promote_chain(
+            store, project="p", paths=self._drafts(tmp_path, "N1"), after=after
+        )
+        assert n1.follows == []
+
+    async def test_a_refused_override_names_no_file(self, store, tmp_path):
+        # The flag is at fault, not the draft the user would go and edit.
+        with pytest.raises(ValueError) as caught:
+            await model.promote_chain(
+                store,
+                project="p",
+                paths=self._drafts(tmp_path, "N1"),
+                overrides={"priority": "urgnet"},
+            )
+        assert "urgnet" in str(caught.value)
+        assert "0.md" not in str(caught.value)
+
+    async def test_an_unparseable_draft_creates_nothing_and_moves_nothing(
+        self, store, tmp_path
+    ):
+        p = await model.create(store, project="p", title="P")
+        c = await model.create(store, project="p", title="C", follows=[p.id])
+        good, bad = self._drafts(tmp_path, "N1", "N2")
+        bad.write_text('---\ntitle: "unclosed\n---\n\nBody.\n')
+        with pytest.raises(ValueError, match="1.md"):
+            await model.promote_chain(store, project="p", paths=[good, bad], after=p.id)
+        assert [t.id for t in await model.list_tasks(store, project="p")] == [
+            p.id,
+            c.id,
+        ]
+        assert (await model.load(store, "p", c.id)).follows == [p.id]
+        assert good.exists() and bad.exists()
+
+    async def test_the_files_are_consumed_once_the_chain_exists(self, store, tmp_path):
+        paths = self._drafts(tmp_path, "N1", "N2")
+        await model.promote_chain(store, project="p", paths=paths)
+        assert not any(path.exists() for path in paths)
 
 
 # --- id allocation ---
