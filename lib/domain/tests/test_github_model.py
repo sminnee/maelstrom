@@ -563,6 +563,7 @@ class TestParseOpenPrs:
                 state="ready",
                 is_draft=False,
                 head_oid="deadbee",
+                checks_seen=True,
             )
         }
 
@@ -623,6 +624,14 @@ class TestParseOpenPrs:
         assert self._one(
             mergeable="CONFLICTING", rollup={"state": "FAILURE"}
         ).state == ("ci-failed")
+
+    def test_a_conflict_under_a_red_build_is_still_reported(self):
+        """`state` names the red build, so the conflict needs its own flag."""
+        pr = self._one(mergeable="CONFLICTING", rollup={"state": "FAILURE"})
+        assert (pr.state, pr.conflicting) == ("ci-failed", True)
+
+    def test_a_mergeable_pr_does_not_conflict(self):
+        assert self._one().conflicting is False
 
     def test_a_conflict_outranks_unknown_mergeability(self):
         """`UNKNOWN` only reads as unknown; a definite `CONFLICTING` is definite."""
@@ -799,6 +808,24 @@ class TestParseOpenPrs:
         that never stops would be worse than silence."""
         payload = self._payload([self._node(rollup=None)])
         assert parse_open_prs(payload, {"b0": "feat/a"})["feat/a"].state == "ready"
+
+    def test_no_rollup_means_no_checks_seen(self):
+        """A read just after a push sees no checks yet. It reads `ready`, so
+        only this flag tells it from a build that passed."""
+        assert self._one(rollup=None).checks_seen is False
+
+    def test_a_rollup_means_checks_seen(self):
+        assert self._one(rollup={"state": "PENDING"}).checks_seen is True
+
+    def test_an_actions_run_for_the_head_means_checks_seen(self):
+        payload = json.dumps(
+            {
+                "data": {"repository": {"b0": {"nodes": [self._node(rollup=None)]}}},
+                "errors": [{"path": ["repository", "b0", "nodes", 0, "commits"]}],
+            }
+        )
+        prs = parse_open_prs(payload, {"b0": "feat/a"}, run_states={"deadbee": "ready"})
+        assert prs["feat/a"].checks_seen is True
 
     def test_a_denied_rollup_does_not_mask_a_merged_pr(self):
         """A merged PR is done, whatever the token could not read."""
