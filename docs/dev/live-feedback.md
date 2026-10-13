@@ -3,7 +3,7 @@
 **Live feedback** connects a client in a dev server to the agents of its worktree. The client
 declares **Live feedback params**, and the orchestrator draws a switch for each one in the
 **Dev env tab**. The client also sends **Feedback** to the agents. This page tells a project how to
-write a client. The **Jig** in `orchestrator-ui/vite-plugin-mael-jig/plugin.ts` is the worked
+write a client. The **Jig** in `vite-plugin-mael-jig/src/plugin.ts` is the worked
 example.
 
 The orchestrator names nothing of a client. The world, the API and the UI carry params by name,

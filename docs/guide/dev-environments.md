@@ -202,7 +202,8 @@ On a wide or medium screen the link opens the service in a panel tab, framed in 
 orchestrator, and the tab keeps the app loaded while you read another tab. Its toolbar links to
 the same URL in a new browser tab. When an agent is in the worktree, the toolbar also has
 a switch for each param the service's Live feedback client exposes, such as "Jig", which shows or
-hides the jig. On a phone the link opens a new browser tab.
+hides the jig. [The jig](jig.md) says how to add the jig to a project. On a phone the link opens a
+new browser tab.
 
 To see the dev env beside the agent's session, shift-click the dev env tab in the panel's tab
 strip. That

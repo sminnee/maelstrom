@@ -36,6 +36,7 @@ Each component earns its place by the role it plays in the loop.
 | [Task notebook](tasks.md) | Detailed task management — what each agent is doing, in what order |
 | [Wiki](#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
 | [Dev environments](dev-environments.md) | Isolated services and ports per worktree |
+| [The jig](jig.md) | An overlay on each dev page, to change the page and send feedback to the agent |
 | [Linear / Sentry / GitHub](integrations.md) | Streamline the workflow |
 
 ### cmux — where sessions run

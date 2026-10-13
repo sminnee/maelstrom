@@ -24,6 +24,11 @@ release while that section is empty, and retitles it to the version it is releas
   switches reach the agent the same way, as External events, and the transcript draws each one
   as a labelled block rather than as something the user typed. See
   [External events](docs/dev/orchestrator-server.md#external-events).
+- **The jig in any project.** The jig's Vite plugin is the npm package `vite-plugin-mael-jig`.
+  A project adds it with `pnpm add -D vite-plugin-mael-jig` and `maelJig()` in each Vite config
+  that serves pages. It reads `MAEL_FEEDBACK_URL`, and does nothing in a build or under Vitest.
+  `mael self-update` builds `_main`'s copy and links it, so `pnpm link --global
+  vite-plugin-mael-jig` uses it in place of the release. See [the jig](docs/guide/jig.md).
 - **Live feedback params in the Dev env tab.** A Live feedback client, such as the jig, declares
   params, and the tab draws a switch for each one next to Reload while an agent is in the
   worktree. The jig's "Jig" switch shows or hides it on that service, and the agent hears of each

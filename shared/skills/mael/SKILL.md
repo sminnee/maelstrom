@@ -12,6 +12,7 @@ If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the us
 ## Reference files
 
 - Read [dev-env.md](dev-env.md) before you add or change a service, a port, a `.env` value, or a dev URL.
+- Read [jig.md](jig.md) before you add the jig to a project, or before you turn a confirmed Monkeypatch into source.
 - [verification.md](verification.md) is read from step 2 of "Completion".
 
 ## Tasks and planning
