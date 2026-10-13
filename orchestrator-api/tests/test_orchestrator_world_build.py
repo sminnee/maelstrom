@@ -127,6 +127,8 @@ LIST_ALL_ROW = {
     "pr_merged_at": "2026-09-01T10:00:00Z",
     "pr_head_oid": "a1b2c3d",
     "pr_stale": True,
+    "pr_auto_merge": True,
+    "pr_auto_merge_allowed": True,
     "head_oid": "a1b2c3d",
 }
 
@@ -152,6 +154,8 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "prMergedAt": "2026-09-01T10:00:00Z",
         "prMatch": "match",
         "prStale": True,
+        "prAutoMerge": True,
+        "prAutoMergeAllowed": True,
         "appUrl": "http://localhost:3070",
         "appRunning": True,
         "env": {

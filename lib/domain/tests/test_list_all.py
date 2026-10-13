@@ -30,7 +30,7 @@ from mael_domain.ports import record_port_allocation
 from mael_domain.worktree import WorktreeInfo, list_worktrees, run_git
 
 
-def _pr(number, *, commits=1, state="ready", merged_at="", head_oid=""):
+def _pr(number, *, commits=1, state="ready", merged_at="", head_oid="", **over):
     """A `PrStatus` for a row that only cares which PR it is."""
     return PrStatus(
         number=number,
@@ -40,6 +40,7 @@ def _pr(number, *, commits=1, state="ready", merged_at="", head_oid=""):
         is_draft=False,
         merged_at=merged_at,
         head_oid=head_oid,
+        **over,
     )
 
 
@@ -265,6 +266,8 @@ def test_a_worktree_row_carries_its_pr_state(
     )
     merged = _row_for(project_path, _pr(42, state="merged", merged_at="2026-09-01"))
     assert merged["pr_merged_at"] == "2026-09-01"
+    auto = _row_for(project_path, _pr(42, auto_merge=True, auto_merge_allowed=True))
+    assert (auto["pr_auto_merge"], auto["pr_auto_merge_allowed"]) == (True, True)
 
 
 def test_a_stale_snapshot_marks_the_row_and_keeps_its_pr(

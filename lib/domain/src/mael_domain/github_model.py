@@ -278,6 +278,10 @@ class PrStatus:
     #: as ``ready``, so a read just after a push cannot otherwise be told
     #: from a build that passed.
     checks_seen: bool = False
+    #: GitHub will merge the PR by itself when it is ready.
+    auto_merge: bool = False
+    #: The repository lets a PR turn auto-merge on.
+    auto_merge_allowed: bool = False
 
 
 def parse_pr_info(payload: str) -> PRInfo:
@@ -575,6 +579,7 @@ def _pr_status(
     *,
     rollup_readable: bool = True,
     run_states: dict[str, PrState] | None = None,
+    auto_merge_allowed: bool = False,
 ) -> PrStatus:
     """One GraphQL PR node as a :class:`PrStatus`."""
     head = _head_commit(node)
@@ -593,6 +598,8 @@ def _pr_status(
         head_oid=head_oid,
         conflicting=node.get("mergeable") == "CONFLICTING",
         checks_seen=checks_seen,
+        auto_merge=node.get("autoMergeRequest") is not None,
+        auto_merge_allowed=auto_merge_allowed,
     )
 
 
@@ -649,7 +656,10 @@ def parse_open_prs(
         nodes = (repository.get(alias) or {}).get("nodes") or []
         if node := _pick_pr(nodes):
             prs[branch] = _pr_status(
-                node, rollup_readable=rollup_readable, run_states=run_states
+                node,
+                rollup_readable=rollup_readable,
+                run_states=run_states,
+                auto_merge_allowed=bool(repository.get("autoMergeAllowed")),
             )
     return prs
 

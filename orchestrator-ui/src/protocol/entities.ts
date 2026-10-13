@@ -93,6 +93,10 @@ export interface Worktree {
    * `pr*` fields are the last known state, not the current one.
    */
   prStale: boolean;
+  /** **Auto-merge** is on: GitHub merges the PR when it is `ready`. */
+  prAutoMerge: boolean;
+  /** The repository lets a PR turn **Auto-merge** on. */
+  prAutoMergeAllowed: boolean;
   /** The worktree's first web-facing port as a URL, or `''` with none. */
   appUrl: string;
   /** Whether something listens on `appUrl`'s port: a port probe, not the tracked pid. */

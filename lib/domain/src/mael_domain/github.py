@@ -379,6 +379,7 @@ def orchestrator_token() -> str | None:
 _PR_FIELDS = """
       nodes {
         number headRefName url isDraft state mergeable mergedAt
+        autoMergeRequest { enabledAt }
         commits(last: 1) {
           totalCount
           nodes { commit { oid statusCheckRollup { state } } }
@@ -410,6 +411,7 @@ def _open_prs_query(branches: list[str]) -> tuple[str, dict[str, str]]:
     query = (
         "query($owner: String!, $repo: String!) {\n"
         "  repository(owner: $owner, name: $repo) {\n"
+        "    autoMergeAllowed\n"
         f"{fields}\n"
         "  }\n"
         "}\n"
