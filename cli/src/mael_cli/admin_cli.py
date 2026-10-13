@@ -140,6 +140,10 @@ def resolve_install_root(module_dir: Path) -> Path:
 #: The tangier SHA bucket that hashes the CLI and the libraries it bundles.
 CLI_BUCKET = "cli"
 
+#: The tangier SHA bucket that hashes the jig's Vite plugin, and its package.
+JIG_BUCKET = "jig"
+JIG_PACKAGE = "vite-plugin-mael-jig"
+
 #: The self-env service whose restart interrupts running agents.
 AGENT_DAEMON_SERVICE = "agent-daemon"
 
@@ -158,9 +162,9 @@ def cmd_self_update():
             "Please reinstall from git or use your package manager to update."
         )
 
-    # The `cli` SHA bucket before the pull. Only a change to the CLI or its
-    # libraries needs the slow reinstall.
-    cli_before = _cli_hash(repo_root)
+    # The SHA buckets before the pull. Only a change to the CLI or its
+    # libraries needs the slow reinstall, and only a change to the jig a relink.
+    before = _bucket_hashes(repo_root)
 
     # Run git pull
     click.echo(f"Updating maelstrom from {repo_root}...")
@@ -188,9 +192,10 @@ def cmd_self_update():
     # This is best-effort: the pull already landed, so a missing/failing uv must
     # warn rather than abort. Installs that aren't uv tools (plain `uv run`, a
     # system package manager) handle their own deps and simply skip this.
-    cli_after = _cli_hash(repo_root)
+    after = _bucket_hashes(repo_root)
+    cli_before = before.get(CLI_BUCKET)
     uv = shutil.which("uv")
-    if cli_before is not None and cli_before == cli_after:
+    if cli_before is not None and cli_before == after.get(CLI_BUCKET):
         # No version on either side fails open: the reinstall runs.
         click.echo("CLI unchanged; skipping its reinstall.")
     elif uv is None:
@@ -229,6 +234,13 @@ def cmd_self_update():
                 err=True,
             )
 
+    # Unlike the CLI, no hash skips: the jig is a developer override, and the
+    # npm release serves everyone else.
+    if after.get(JIG_BUCKET) is not None and before.get(JIG_BUCKET) != after.get(
+        JIG_BUCKET
+    ):
+        _link_jig(repo_root / JIG_PACKAGE)
+
     click.echo("Updating Claude Code integration...")
     messages = install_claude_integration()
     for msg in messages:
@@ -247,12 +259,42 @@ def cmd_self_update():
     click.echo("Update complete.")
 
 
-def _cli_hash(repo_root: Path) -> str | None:
-    """The `cli` SHA bucket's hash, or None when tangier cannot give one."""
+def _bucket_hashes(repo_root: Path) -> dict[str, str]:
+    """The `cli` and `jig` SHA buckets' hashes, or none when tangier cannot give them."""
     try:
-        return service_versions(repo_root, [CLI_BUCKET]).get(CLI_BUCKET)
+        return service_versions(repo_root, [CLI_BUCKET, JIG_BUCKET])
     except ServiceVersionError:
-        return None
+        return {}
+
+
+def _link_jig(package: Path) -> None:
+    """Build `_main`'s jig plugin and register it with `pnpm link --global`.
+
+    A project then runs `pnpm link --global vite-plugin-mael-jig` to use it in
+    place of the npm release. Best-effort, as the dependency sync is.
+    """
+    pnpm = shutil.which("pnpm")
+    if pnpm is None:
+        click.echo(
+            "  Warning: 'pnpm' not found; skipping the jig plugin link.", err=True
+        )
+        return
+    click.echo("Building and linking the jig plugin...")
+    for step in (
+        ["install", "--frozen-lockfile"],
+        ["run", "build"],
+        ["link", "--global"],
+    ):
+        result = subprocess.run(
+            [pnpm, *step], cwd=package, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            click.echo(result.stderr or result.stdout, err=True)
+            click.echo(
+                f"  Warning: 'pnpm {' '.join(step)}' failed; the jig plugin is not linked.",
+                err=True,
+            )
+            return
 
 
 def _update_self_env(repo_root: Path) -> None:
