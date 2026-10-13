@@ -32,6 +32,7 @@ from .document_tags import (
     DocumentTag,
     ImageTag,
     MediaRef,
+    ParamSet,
     not_shown,
     partial_text,
     read_tags,
@@ -217,10 +218,10 @@ class Normalised:
     pr_link: str = ""
     #: Whether that link marked the PR withdrawn. See CONTEXT.md, "Withdrawn PR".
     pr_withdrawn: bool = False
-    #: Whether the agent asked to show its worktree's jig (``True``) or hide it
-    #: (``False``), or ``None``. Not a :class:`ServerEvent` either: the jig's
-    #: state is the server's, and lives outside the world.
-    jig: bool | None = None
+    #: The live feedback params the agent set, in order. Not a
+    #: :class:`ServerEvent` either: the params are the server's, and live
+    #: outside the world until it writes them in.
+    feedback_params: tuple[ParamSet, ...] = ()
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -649,8 +650,8 @@ def normalise_stream_event(
                 if tagged and tagged.pr_link:
                     out.pr_link = tagged.pr_link
                     out.pr_withdrawn = tagged.pr_withdrawn
-                if tagged and tagged.jig is not None:
-                    out.jig = tagged.jig
+                if tagged and tagged.feedback_params:
+                    out.feedback_params += tagged.feedback_params
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -920,8 +921,8 @@ class _Emitter:
         #: The PR the agent registered, if it named one. Last wins.
         self.pr_link = ""
         self.pr_withdrawn = False
-        #: The jig the agent asked for, if it asked. Last wins.
-        self.jig: bool | None = None
+        #: The live feedback params the agent set. Each one applies, in order.
+        self.feedback_params: tuple[ParamSet, ...] = ()
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1392,7 +1393,7 @@ class _Emitter:
             self.milestone,
             self.pr_link,
             self.pr_withdrawn,
-            self.jig,
+            self.feedback_params,
         )
 
 

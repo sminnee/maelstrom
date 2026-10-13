@@ -26,7 +26,7 @@ from mael_daemon import agent_model
 from mael_domain import document_tags
 from mael_domain import task as task_model
 from mael_domain.attachments import attachment_urls
-from mael_domain.document_tags import read_worktree_file
+from mael_domain.document_tags import ParamSet, read_worktree_file
 from mael_domain.file_registry import FileRegistry
 from mael_domain.normalise import (
     NormaliseContext,
@@ -2313,39 +2313,28 @@ def test_a_milestone_does_not_become_what_the_agent_last_said():
     assert agent_of(replayed)["lastMessage"] == "Tests pass."
 
 
-# -- the jig marker an agent writes to show or hide the jig --
+# -- the live feedback marker an agent writes to set a param --
 
 
-@pytest.mark.parametrize(
-    ("text", "visible"),
-    [
-        ("<jig show>", True),
-        ("<jig hide>", False),
-        ("<jig show>\nThen later.\n<jig hide>", False),
-    ],
-    ids=["show", "hide", "last-wins"],
-)
-def test_a_jig_marker_is_reported_beside_the_events(text, visible):
-    _, out = replay_milestone(text)
-    assert out.jig is visible
+def test_live_feedback_markers_are_reported_beside_the_events_in_order():
+    _, out = replay_milestone(
+        '<live-feedback jig="on">\nThen later.\n<live-feedback service="web" jig="off">'
+    )
+    assert out.feedback_params == (
+        ParamSet(None, "jig", True),
+        ParamSet("web", "jig", False),
+    )
 
 
-def test_the_jig_marker_is_cut_from_the_message_the_transcript_shows():
-    replayed, _ = replay_milestone("Look at the chip.\n\n<jig show>")
+def test_the_live_feedback_marker_is_cut_from_the_message_the_transcript_shows():
+    replayed, _ = replay_milestone('Look at the chip.\n\n<live-feedback jig="on">')
     [message] = items_of(replayed, "message")
     assert message["markdown"] == "Look at the chip."
 
 
-def test_a_jig_tag_with_another_verb_is_no_marker_and_stays_as_text():
-    replayed, out = replay_milestone("<jig wave> Just talking.")
-    assert out.jig is None
-    [message] = items_of(replayed, "message")
-    assert message["markdown"] == "<jig wave> Just talking."
-
-
-def test_a_subagent_does_not_move_the_jig():
-    _, out = replay_milestone("<jig show>", parent="ag0")
-    assert out.jig is None
+def test_a_subagent_sets_no_live_feedback_param():
+    _, out = replay_milestone('<live-feedback jig="on">', parent="ag0")
+    assert out.feedback_params == ()
 
 
 # -- the milestone Maelstrom writes when the user approves a plan --
