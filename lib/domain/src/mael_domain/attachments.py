@@ -24,6 +24,15 @@ from mael_common.image import MAX_BYTES, image_extension, is_image
 from . import task_store
 
 
+def is_bare_name(value: object) -> bool:
+    """Whether ``value`` is one path segment: no separator, and not ``.`` or ``..``."""
+    return (
+        isinstance(value, str)
+        and value == Path(value).name
+        and value not in ("", ".", "..")
+    )
+
+
 def _bare_name(value: str, what: str) -> str:
     """One path segment, or a refusal.
 
@@ -33,7 +42,7 @@ def _bare_name(value: str, what: str) -> str:
     are held to one rule. Refused rather than sanitised: a caller that meant a
     path has a bug worth hearing about.
     """
-    if value != Path(value).name or value in ("", ".", ".."):
+    if not is_bare_name(value):
         raise ValueError(f"not a {what}: {value!r}")
     return value
 
