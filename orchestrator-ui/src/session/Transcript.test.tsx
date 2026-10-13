@@ -335,6 +335,28 @@ describe('Transcript', () => {
     }
   });
 
+  it('an external event renders its source and type over its body', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[
+          {
+            id: 'ev1',
+            ts: '',
+            type: 'external_event',
+            source: 'github',
+            eventType: 'pr.checks_failed',
+            attrs: { pr: '118', head: 'abc1234' },
+            markdown: 'CI failed on PR #118 at abc1234.',
+          },
+        ]}
+      />,
+    );
+    const block = screen.getByTestId('external-event');
+    expect(block).toHaveTextContent('github · pr.checks_failed');
+    expect(block).toHaveTextContent('CI failed on PR #118 at abc1234.');
+  });
+
   it('a shell command renders as a command and its output', () => {
     render(
       <Transcript

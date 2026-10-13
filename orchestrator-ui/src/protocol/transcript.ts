@@ -155,6 +155,18 @@ export interface TaskNotificationItem extends Base {
   summary: string;
 }
 
+/**
+ * A turn the server wrote to the agent from outside its conversation: an
+ * External event. `attrs` are its facts; `markdown` is what it asks.
+ */
+export interface ExternalEventItem extends Base {
+  type: 'external_event';
+  source: string;
+  eventType: string;
+  attrs: Record<string, string>;
+  markdown: string;
+}
+
 /** A shell command the host ran for a `!` line, and what it wrote. */
 export interface ShellItem extends Base {
   type: 'shell';
@@ -203,6 +215,7 @@ export type TranscriptItem =
   | GapItem
   | SkillItem
   | TaskNotificationItem
+  | ExternalEventItem
   | ShellItem
   | MilestoneItem
   | RawEventItem;
