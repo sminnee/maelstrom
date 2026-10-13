@@ -164,10 +164,14 @@ occupancy, so the guard is on the field being absent.
 `trigger` is `"manual"` or `"auto"`. Both take the same path: the field is recorded on the item,
 and nothing dispatches on it, so an autocompact nobody clicked for is reported like any other.
 
-**A refusal is shaped exactly like a success.** Too short a conversation is answered with ordinary
-assistant text, `"Not enough messages to compact."`, and then `result`/`success`. So nothing may
-read "the turn ended" as "the compact finished" — only the boundary tells the two apart. A real
-compact emits its boundary before that turn's `result`.
+**A refusal ends its turn as a success does.** Too short a conversation is answered with
+`<synthetic>` assistant text, `"Not enough messages to compact."`, and then `result`/`success`.
+So nothing may read "the turn ended" as "the compact finished". Two events tell them apart:
+
+- A real compact emits its boundary before that turn's `result`.
+- Each compact first emits `system`/`status` with `"status": "compacting"`, then a second
+  `status` with `compact_result`. That is `"success"`, or `"failed"` with the reason in
+  `compact_error`.
 
 ### The account's budget
 

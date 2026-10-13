@@ -26,7 +26,7 @@ from mael_daemon import agent_model
 from mael_domain import document_tags
 from mael_domain import task as task_model
 from mael_domain.attachments import attachment_urls
-from mael_domain.document_tags import ParamSet, read_worktree_file
+from mael_domain.document_tags import CompactRequest, ParamSet, read_worktree_file
 from mael_domain.file_registry import FileRegistry
 from mael_domain.normalise import (
     NormaliseContext,
@@ -422,6 +422,28 @@ def test_an_autocompact_nobody_clicked_for_is_marked_the_same_way():
     replayed.take(out.events)
     [item] = items_of(replayed, "compact")
     assert item["trigger"] == "auto"
+    # Beside the events too, so the server can answer a compaction request.
+    assert out.compacted == (9, 4)
+
+
+def test_a_compact_the_harness_refused_reports_why():
+    """A refusal emits no boundary, and its `result` looks like a success.
+    Only this status event says the compact failed."""
+    state = seed([make_agent(id="ag1", state="processing")])
+    out = normalise_stream_event(
+        state,
+        context_for_agent("ag1"),
+        {
+            "type": "system",
+            "subtype": "status",
+            "status": None,
+            "compact_result": "failed",
+            "compact_error": "Not enough messages to compact.",
+        },
+        NOW,
+    )
+    assert out.compact_refused == "Not enough messages to compact."
+    assert out.compacted is None
 
 
 def test_a_compact_boundary_with_no_counts_still_marks_the_boundary():
@@ -442,6 +464,8 @@ def test_a_compact_boundary_with_no_counts_still_marks_the_boundary():
     assert len(items_of(replayed, "compact")) == 1
     # Nothing said what the context now holds, so the last reading stands.
     assert agent_of(replayed)["contextTokens"] == 500
+    # Still a compact, but with no figures to report.
+    assert out.compacted == (None, None)
 
 
 def test_the_summary_a_compact_injects_folds_instead_of_filling_the_transcript():
@@ -2330,6 +2354,21 @@ def test_a_subagent_writes_no_milestone():
 def test_a_milestone_does_not_become_what_the_agent_last_said():
     replayed, _ = replay_milestone("Tests pass.\n\n<milestone>built</milestone>")
     assert agent_of(replayed)["lastMessage"] == "Tests pass."
+
+
+# -- the compaction request an agent writes to ask for a compact --
+
+
+def test_a_compaction_request_is_reported_beside_the_events():
+    replayed, out = replay_milestone(
+        'Gates pass.\n\n<compact-session min-tokens="200k">Keep the PR</compact-session>'
+    )
+    assert out.compact_request == CompactRequest(200_000, "Keep the PR")
+
+
+def test_a_subagent_writes_no_compaction_request():
+    _, out = replay_milestone('<compact-session min-tokens="200k">', parent="ag0")
+    assert out.compact_request is None
 
 
 # -- the live feedback marker an agent writes to set a param --
