@@ -1545,11 +1545,57 @@ class TestDraft:
 
 
 class TestPromote:
+    @pytest.fixture(autouse=True)
+    def _no_session(self, monkeypatch):
+        # A leaked session's $MAEL_TASK_ID would splice every promote.
+        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+        monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
+
     def _draft(self, runner, tmp_path, name="d.md", title="Execute: demo", *args):
         f = tmp_path / name
         result = runner.invoke(task_cli.task, ["draft", str(f), title, *args])
         assert result.exit_code == 0, result.output
         return f
+
+    async def _follows(self, store, *ids):
+        return [(await model.load(store, "p", i)).follows for i in ids]
+
+    async def test_promote_splices_the_files_in_after_the_session_task(
+        self, runner, store, monkeypatch, tmp_path
+    ):
+        p = await model.create(store, project="p", title="P")
+        monkeypatch.setenv("MAEL_TASK_ID", p.id)
+        d1 = self._draft(runner, tmp_path, "1.md", "N1")
+        d2 = self._draft(runner, tmp_path, "2.md", "N2")
+        result = runner.invoke(task_cli.task, ["promote", str(d1), str(d2)])
+        assert result.exit_code == 0, result.output
+        n1, n2 = result.output.split()
+        assert await self._follows(store, n1, n2) == [[p.id], [n1]]
+
+    async def test_promote_outside_a_session_chains_the_files_and_follows_nothing(
+        self, runner, store, tmp_path
+    ):
+        d1 = self._draft(runner, tmp_path, "1.md", "N1")
+        d2 = self._draft(runner, tmp_path, "2.md", "N2")
+        result = runner.invoke(task_cli.task, ["promote", str(d1), str(d2)])
+        assert result.exit_code == 0, result.output
+        n1, n2 = result.output.split()
+        assert await self._follows(store, n1, n2) == [[], [n1]]
+
+    async def test_a_follow_flag_wires_the_first_file_and_moves_no_follower(
+        self, runner, store, monkeypatch, tmp_path
+    ):
+        p = await model.create(store, project="p", title="P")
+        c = await model.create(store, project="p", title="C", follows=[p.id])
+        monkeypatch.setenv("MAEL_TASK_ID", p.id)
+        d1 = self._draft(runner, tmp_path, "1.md", "N1")
+        d2 = self._draft(runner, tmp_path, "2.md", "N2")
+        result = runner.invoke(
+            task_cli.task, ["promote", str(d1), str(d2), "--follow", c.id]
+        )
+        assert result.exit_code == 0, result.output
+        n1, n2 = result.output.split()
+        assert await self._follows(store, n1, n2, c.id) == [[c.id], [n1], [p.id]]
 
     async def test_promote_creates_todo_task_and_consumes_file(
         self, runner, store, tmp_path
@@ -1632,7 +1678,7 @@ class TestPromote:
         )
         assert result.exit_code != 0
         assert "urgnet" in result.output
-        assert str(f) not in result.output
+        assert f.name not in result.output
 
     def test_promote_missing_file_errors(self, runner, store, tmp_path):
         result = runner.invoke(task_cli.task, ["promote", str(tmp_path / "absent.md")])

@@ -407,7 +407,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 |---|---|
 | `mael task add [TITLE]` | Create a task and print its id. |
 | `mael task draft FILE [TITLE]` | Write a draft task file — a task recipe outside the notebook. |
-| `mael task promote FILE` | Create a task from a draft file, print its id, delete the file. |
+| `mael task promote FILES...` | Create one task per draft file, chained in order. Print the ids and delete the files. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
@@ -496,16 +496,21 @@ launching happen at promote time. Prints the path it wrote. It creates `FILE`'s 
 directory. Drafts belong in `.drafts/`, which `mael` gitignores.
 
 ```bash
-mael task draft .drafts/d1.md "Execute: add avatar upload" --mode auto \
+mael task draft .drafts/d1.md "Add avatar upload" --mode plan \
     --pre-action linear.in-progress
 ```
 
 **`mael task promote`**
 
-Parses a draft file, creates the task in `todo`, prints the new id, and deletes the file.
-Recipe fields come from the file; any flag given here overrides the file's value (the same
-semantics as `add --from`). On an error — missing file, bad frontmatter, no title — the file
-is left untouched and no task is created.
+Parses each draft file, creates one task per file in `todo`, prints the new ids one per line,
+and deletes the files. Each task follows the one before it. Recipe fields come from each file;
+any flag given here overrides every file's value (the same semantics as `add --from`). The set
+is one notebook write. On an error — missing file, bad frontmatter, no title — every file is
+left untouched and no task is created.
+
+With no `--follow` or `--follow-end`, the set **splices** in after `$MAEL_TASK_ID`. The first
+task follows that task, and every task that followed it now follows the last new task. With
+`MAEL_TASK_ID` unset, or naming no task in the project, the first task follows nothing.
 
 Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branch`,
 `-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
@@ -514,12 +519,12 @@ Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branc
 
 | Option | Description |
 |---|---|
-| `--follow TEXT` | Id the new task follows. Repeatable. |
-| `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
+| `--follow TEXT` | Id the first new task follows, instead of the splice. Repeatable. |
+| `--follow-end TEXT` | The first new task follows the end leaves of the given id's follows-chain, instead of the splice. Repeatable. Quote `"*"`. |
 
 ```bash
-id=$(mael task promote .drafts/d1.md --follow-end '*')  # capture the id to chain the next promote
-mael task promote .drafts/d2.md --follow "$id"
+mael task promote .drafts/d1.md .drafts/d2.md            # splice after $MAEL_TASK_ID
+mael task promote .drafts/d1.md .drafts/d2.md --follow-end '*'  # append to the parent's chain
 ```
 
 **`mael task update`**
