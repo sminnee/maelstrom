@@ -3,6 +3,7 @@
 import pytest
 
 from mael_domain.document_tags import (
+    CompactRequest,
     ParamSet,
     media_refs,
     partial_text,
@@ -99,6 +100,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ('Pushed.\n\n<link rel="gh-pr">118</link>', "Pushed."),
         ('More work.\n\n<link rel="gh-pr" withdrawn>118</link>', "More work."),
         ('Look.\n\n<live-feedback jig="on">', "Look."),
+        ('Built.\n\n<compact-session min-tokens="200k">', "Built."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
@@ -117,6 +119,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ('Before\n\n<doc-file kind="pr" filename=".drafts', "Before"),
         ("Before\n\n<user-attention lo", "Before"),
         ("Before\n\n<live-feedback ji", "Before"),
+        ("Before\n\n<compact-session min-tok", "Before"),
         ("Before\n\n</no", "Before"),
         # The renderer reads this one, so it stays once it is whole.
         ("<user-attention high>\nHello", "<user-attention high>\nHello"),
@@ -191,3 +194,62 @@ def test_a_live_feedback_marker_with_no_good_param_stays_as_text(text):
     tagged = read_tags(text, show_image=lambda _image: None)
     assert tagged.feedback_params == ()
     assert tagged.text == text
+
+
+# --- the compaction request: the agent asks for its session to compact ------
+
+
+def compact(text: str) -> CompactRequest | None:
+    return read_tags(text, show_image=lambda _image: None).compact
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        ('<compact-session min-tokens="200k">', CompactRequest(200_000)),
+        ('<compact-session min-tokens="1.5M">', CompactRequest(1_500_000)),
+        ('<compact-session min-tokens="200000">', CompactRequest(200_000)),
+        ("<compact-session>", CompactRequest(None)),
+        (
+            '<compact-session min-tokens="lots">',
+            CompactRequest(None, invalid="lots"),
+        ),
+        (
+            '<compact-session min-tokens="200k">Keep the PR number</compact-session>',
+            CompactRequest(200_000, instructions="Keep the PR number"),
+        ),
+        (
+            '<compact-session min-tokens="1m">\n<compact-session min-tokens="200k">',
+            CompactRequest(200_000),
+        ),
+    ],
+    ids=["k", "m", "plain", "absent", "invalid", "body", "last-wins"],
+)
+def test_a_compaction_request_reads_its_threshold_and_focus(text, asked):
+    assert compact(text) == asked
+
+
+def test_a_compaction_request_is_cut_from_the_text():
+    tagged = read_tags(
+        'Gates pass.\n\n<compact-session min-tokens="200k">Keep it</compact-session>',
+        show_image=lambda _image: None,
+    )
+    assert tagged.text == "Gates pass."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Write `<compact-session min-tokens="200k">` to ask.',
+        '```\n<compact-session min-tokens="200k">\n```',
+    ],
+    ids=["inline", "fenced"],
+)
+def test_a_compaction_request_quoted_in_code_is_text(text):
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert tagged.compact is None
+    assert tagged.text == text
+
+
+def test_a_message_with_no_compaction_request_reports_none():
+    assert compact("Just talking.") is None
