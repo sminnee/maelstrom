@@ -66,7 +66,26 @@ function jig() {
     clearPick: root.querySelector('[aria-label="Clear the picked element"]') as HTMLButtonElement,
     panel: root.querySelector('.panel') as HTMLElement,
     status: root.querySelector('.status') as HTMLElement,
+    title: root.querySelector('[data-title]') as HTMLElement,
+    tab: (name: string) => tab(root, name),
+    pane: (name: string) =>
+      root.querySelector(`[role="tabpanel"][aria-label="${name}"]`) as HTMLElement,
+    scopes: root.querySelector('.scope') as HTMLElement,
+    scope: (label: string) => radio(root, label),
+    askControls: button(root, 'Ask for controls'),
   };
+}
+
+function tab(root: ShadowRoot, name: string) {
+  const found = [...root.querySelectorAll('[role="tab"]')].find((t) => t.textContent === name);
+  if (!found) throw new Error(`no ${name} tab`);
+  return found as HTMLButtonElement;
+}
+
+function radio(root: ShadowRoot, label: string) {
+  const found = [...root.querySelectorAll('label')].find((l) => l.textContent?.trim() === label);
+  if (!found) throw new Error(`no ${label} choice`);
+  return found.querySelector('input') as HTMLInputElement;
 }
 
 function button(root: ShadowRoot, label: string) {
@@ -169,7 +188,11 @@ describe('the jig overlay', () => {
   });
 
   it('follows a change made elsewhere', () => {
-    emit('mael-jig:draft', { name: 'monkeypatch.css', text: '.chip { padding: 9px; }', from: null });
+    emit('mael-jig:draft', {
+      name: 'monkeypatch.css',
+      text: '.chip { padding: 9px; }',
+      from: null,
+    });
 
     expect(jig().textarea.value).toBe('.chip { padding: 9px; }');
     expect(getComputedStyle(target).paddingTop).toBe('9px');
@@ -211,6 +234,19 @@ describe('the jig overlay', () => {
     );
   });
 
+  it('opens on the Monkeypatch tab when there is no control set', () => {
+    expect(jig().title.textContent).toBe('Jig');
+    expect(jig().tab('Monkeypatch').getAttribute('aria-selected')).toBe('true');
+    expect(jig().pane('Monkeypatch').hidden).toBe(false);
+    expect(jig().pane('Controls').hidden).toBe(true);
+
+    jig().tab('Controls').click();
+
+    expect(jig().pane('Controls').hidden).toBe(false);
+    expect(jig().pane('Monkeypatch').hidden).toBe(true);
+    expect(jig().pane('Controls').textContent).toContain('No control set');
+  });
+
   describe('send monkeypatch', () => {
     it('writes the file first, then posts the CSS with the message as its note', async () => {
       sendReply = Response.json({ agentIds: ['ag1', 'ag2'], refused: [] });
@@ -220,7 +256,9 @@ describe('the jig overlay', () => {
       jig().sendMonkeypatch.click();
 
       await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
-      expect(requests.filter((r) => r.method !== 'GET').map((r) => [r.method, r.url, r.body])).toEqual([
+      expect(
+        requests.filter((r) => r.method !== 'GET').map((r) => [r.method, r.url, r.body]),
+      ).toEqual([
         ['PUT', '/__mael/drafts/monkeypatch.css', '.chip { padding: 20px; }'],
         [
           'POST',
@@ -510,6 +548,45 @@ describe('the jig overlay', () => {
 
       await until(() => expect(posts()).toEqual([{ type: 'instruction', text: 'Bigger.' }]));
       expect(jig().picked.hidden).toBe(true);
+    });
+
+    describe('ask for controls', () => {
+      it('shows the scope choice and the button only once an element is picked', () => {
+        expect(jig().scopes.hidden).toBe(true);
+        expect(jig().askControls.hidden).toBe(true);
+
+        jig().pick.click();
+        click(target);
+
+        expect(jig().scopes.hidden).toBe(false);
+        expect(jig().askControls.hidden).toBe(false);
+        expect(jig().scope('This element').checked).toBe(true);
+      });
+
+      it.each([
+        ['This element', 'element'],
+        ['Elements like this', 'similar'],
+        ['This area', 'area'],
+      ])('posts a pick for %s with the message as its note', async (choice, scope) => {
+        sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+        jig().pick.click();
+        click(target);
+        jig().scope(choice).click();
+        write('roomier');
+
+        jig().askControls.click();
+
+        await until(() => expect(jig().status.textContent).toBe('Sent to 1 agent'));
+        expect(posts()).toEqual([
+          {
+            type: 'pick',
+            scope,
+            element: expect.objectContaining({ selector: 'div.chip', tag: 'div' }),
+            note: 'roomier',
+          },
+        ]);
+        expect(jig().message.value).toBe('');
+      });
     });
 
     describe('the selector', () => {
