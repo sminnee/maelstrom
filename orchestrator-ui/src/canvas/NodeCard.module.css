@@ -321,6 +321,10 @@
 .followsRow[data-on-desk='false'] .followsTitle {
   color: var(--fg-muted);
 }
+.follows > .more {
+  justify-self: start;
+  margin-top: 0;
+}
 .running {
   font-family: var(--mono);
   font-size: var(--text-sm);

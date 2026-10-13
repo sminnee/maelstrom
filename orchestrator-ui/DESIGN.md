@@ -851,7 +851,10 @@ brief. See **Milestone bar**.
 
 A task node with follows relations gets one more band above the footer: Follows, then Followed
 by, each headed in the Now block's register. A row puts the title over the id and status, with
-its desk toggle at the right. The title of a task off the desk takes `--fg-muted`.
+its desk toggle at the right. The title of a task off the desk takes `--fg-muted`. Done and
+cancelled rows start folded behind a link button at the foot of the band: `Show 3 done or
+cancelled`, then `Hide done or cancelled`. While folded, a group with no open rows drops its
+heading.
 
 A drifting task gets its own band under the status strip: the amber caret, a sentence naming
 both the task status and what the agent is doing, and a button that applies the fix where there
