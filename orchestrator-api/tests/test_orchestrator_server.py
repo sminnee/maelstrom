@@ -37,6 +37,7 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.config import MaelstromConfig
+from mael_domain.feedback import format_controls, format_pick
 from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.landing import (
@@ -9018,6 +9019,34 @@ def test_an_instruction_reaches_the_agents_with_its_picked_element(harness):
     assert text.startswith("From the jig for feat/orders, about this element:\n")
     assert "    selector: #toolbar > button\n" in text
     assert text.endswith("\n\nBigger.")
+
+
+def test_a_pick_and_controls_reach_the_agents_with_each_field(harness):
+    """The text itself is the formatter's; see ``test_feedback.py``."""
+    harness.daemon.rows["ag1"] = agent_row()
+    element = {"selector": "main", "tag": "main"}
+    pick = {"type": "pick", "scope": "area", "element": element, "note": "roomier"}
+    changes = [{"var": "--jig-pad", "label": "Pad", "from": "4px", "to": "8px"}]
+    controls = {
+        "type": "controls",
+        "title": "Chips",
+        "changes": changes,
+        "css": ".chip { padding: var(--jig-pad); }",
+        "note": "tight",
+    }
+
+    assert jig_feedback(harness, pick)["body"]["agentIds"] == ["ag1"]
+    assert jig_feedback(harness, controls)["body"]["agentIds"] == ["ag1"]
+    assert [sent["text"] for sent in said(harness)] == [
+        format_pick("feat/orders", "area", element, "roomier"),
+        format_controls(
+            "feat/orders",
+            "Chips",
+            changes,
+            ".chip { padding: var(--jig-pad); }",
+            "tight",
+        ),
+    ]
 
 
 JPEG = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b"jpeg"

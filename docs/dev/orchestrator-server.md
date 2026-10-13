@@ -1486,6 +1486,8 @@ message goes without it.
 |---|---|---|
 | `monkeypatch` | `css`, `note` (optional) | `format_monkeypatch` quotes the CSS and the note, and tells the agent to delete `.drafts/monkeypatch.css` when it has applied the change. Blank CSS is refused. |
 | `instruction` | `text`, `element` (optional) | `format_instruction` opens "From the jig for {branch}", lists the **Pick**'s fields when there is an `element`, then gives the text. Blank text is refused. An `element` must be an object with a non-blank string `selector`. Any other field of the wrong shape is left out, not refused. |
+| `pick` | `scope`, `element`, `note` (optional) | `format_pick` says the user asks for controls for this element, elements like this or this area, by `scope` (`element`, `similar`, `area`). It lists the **Pick**'s fields, then tells the agent to write a **Control set** and wire it in the Monkeypatch. The `element` is checked as for `instruction`, and is required. |
+| `controls` | `title`, `changes`, `css` (optional), `note` (optional) | `format_controls` lists each change as `--var: from → to;`, with the label when it differs from the var. A change with no `from` reads `--var: to;  (label, was unset)`. It quotes `css` as the wiring. Then it tells the agent to apply each value, decide whether each is a token or a plain number, and delete `jig-controls.json`, `jig-values.json` and the wiring in `monkeypatch.css`. Each change needs a string `var` and `to`. An empty `changes` is refused. |
 
 `comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
 question.

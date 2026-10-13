@@ -1167,6 +1167,89 @@ class TestFeedback:
         cmd = feedback_cmd({"type": "instruction", **over})
         assert validate_command(world, cmd) == {"code": "invalid", "message": message}
 
+    @pytest.mark.parametrize("scope", ["element", "similar", "area"])
+    def test_a_pick_with_a_scope_and_an_element_is_allowed(self, scope):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        sent = {"type": "pick", "scope": scope, "element": {"selector": "p"}}
+        assert validate_command(world, feedback_cmd(sent)) is None
+
+    @pytest.mark.parametrize(
+        ("over", "message"),
+        [
+            ({"scope": None}, "A pick has a scope: element, similar or area"),
+            ({"scope": "page"}, "A pick has a scope: element, similar or area"),
+            ({"element": None}, "A picked element is an object"),
+            ({"element": {"tag": "p"}}, "A picked element has a selector"),
+            ({"note": 3}, "A note is text"),
+        ],
+        ids=["no scope", "unknown scope", "no element", "no selector", "note"],
+    )
+    def test_a_pick_the_message_cannot_be_built_from_is_refused(self, over, message):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        sent = {"type": "pick", "scope": "similar", "element": {"selector": "p"}}
+        cmd = feedback_cmd({**sent, **over})
+        assert validate_command(world, cmd) == {"code": "invalid", "message": message}
+
+    def test_controls_with_a_change_are_allowed(self):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        sent = {
+            "type": "controls",
+            "title": "Chip spacing",
+            "changes": [
+                {"var": "--jig-pad", "label": "Pad", "from": "4px", "to": "8px"},
+                {"var": "--accent", "to": "red"},
+            ],
+            "css": ".chip { padding: var(--jig-pad); }",
+            "note": "",
+        }
+        assert validate_command(world, feedback_cmd(sent)) is None
+
+    @pytest.mark.parametrize(
+        ("over", "message"),
+        [
+            ({"title": None}, "A control set has a title"),
+            ({"changes": []}, "No changes to send"),
+            ({"changes": "x"}, "No changes to send"),
+            ({"changes": ["x"]}, "A change has a var and a value"),
+            ({"changes": [{"var": "--a"}]}, "A change has a var and a value"),
+            ({"changes": [{"to": "1px"}]}, "A change has a var and a value"),
+            (
+                {"changes": [{"var": "--a", "to": "1", "from": 1}]},
+                "A change's label and from are text",
+            ),
+            (
+                {"changes": [{"var": "--a", "to": "1", "label": None}]},
+                "A change's label and from are text",
+            ),
+            ({"css": 3}, "The CSS is text"),
+            ({"note": 3}, "A note is text"),
+        ],
+        ids=[
+            "no title",
+            "no changes",
+            "changes not a list",
+            "change not an object",
+            "no to",
+            "no var",
+            "from not text",
+            "label null",
+            "css not text",
+            "note not text",
+        ],
+    )
+    def test_controls_the_message_cannot_be_built_from_are_refused(self, over, message):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        sent = {
+            "type": "controls",
+            "title": "Chips",
+            "changes": [{"var": "--a", "to": "1px"}],
+            **over,
+        }
+        assert validate_command(world, feedback_cmd(sent)) == {
+            "code": "invalid",
+            "message": message,
+        }
+
     def test_feedback_with_a_screenshot_file_name_is_allowed(self):
         world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
         assert validate_command(world, feedback_cmd(screenshot="shot-1.jpg")) is None
