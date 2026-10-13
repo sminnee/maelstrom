@@ -15,11 +15,10 @@
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    // The jig plugin's source sits in its own package, beside its own copy of
+    // vite. One copy for the whole program, or the two Plugin types clash.
+    "paths": { "vite": ["./node_modules/vite"] }
   },
-  "include": [
-    "vite.config.ts",
-    "vite-plugin-mael-jig/plugin.ts",
-    "vite-plugin-mael-jig/plugin.test.ts"
-  ]
+  "include": ["vite.config.ts", "../vite-plugin-mael-jig/src/plugin.ts"]
 }
