@@ -91,6 +91,12 @@ describe('the worktree box label', () => {
     expect(document.querySelector('[data-task-id="NORT-7"]')).not.toHaveAttribute('data-expanded');
   });
 
+  it('collapses the Worktree card on a click inside the box, away from the label', async () => {
+    await renderWithCard();
+    fireEvent.click(box('northwind-charlie'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('opens on a box that holds nodes as it does on an empty one', async () => {
     await renderApp();
     clickLabel('northwind-alpha');
