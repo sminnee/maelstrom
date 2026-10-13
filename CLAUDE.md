@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running Commands
 
-Before a PR, run the pre-PR gate: `tangier gate run lint test web --fail-fast`. On exit 3, see
+Before a PR, run the pre-PR gate: `tangier gate run lint test web jig --fail-fast`. On exit 3, see
 "Local passes" in `docs/dev/ci.md`.
 
 Use `uv run` to execute commands in the project's virtual environment:

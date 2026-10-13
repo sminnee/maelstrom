@@ -797,7 +797,7 @@ sees the commit the push publishes. Maelstrom only runs it; what it verifies is 
 _Avoid_: pre-push hook (git's own client-side hook), pre-push gates
 
 **Pre-PR gate**:
-Maelstrom's own `tangier gate run lint test web --fail-fast`, run by hand on the committed tree
+Maelstrom's own `tangier gate run lint test web jig --fail-fast`, run by hand on the committed tree
 before a PR. It is not a pre-push check: no command runs it for you.
 _Avoid_: pre-push check (for this command)
 
