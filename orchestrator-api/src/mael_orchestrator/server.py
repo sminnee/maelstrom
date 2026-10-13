@@ -44,6 +44,19 @@ from mael_domain.comm_store import (
 )
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE, ParamSet
+from mael_domain.external_event import (
+    CHANGES_COMMENTED,
+    DOCUMENT_APPROVED,
+    DOCUMENT_CHANGES_REQUESTED,
+    JIG,
+    JIG_CONTROLS,
+    JIG_MONKEYPATCH,
+    JIG_PARAM_SET,
+    JIG_PICK,
+    ORCHESTRATOR_UI,
+    ExternalEvent,
+)
+from mael_domain.external_event import render as render_event
 from mael_domain.feedback import (
     JIG_DRAFTS,
     format_controls,
@@ -283,14 +296,21 @@ _ENV_WORDS = {
     "restart": ("Restarting", "Restarted"),
 }
 
-#: The message each kind of **Feedback** becomes, from the branch and the
-#: feedback. Validation has checked the fields each one reads.
-_FEEDBACK_FORMATTERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
-    "monkeypatch": lambda branch, feedback: format_monkeypatch(
-        branch,
-        feedback["css"],
-        feedback.get("note"),
-        screenshot="screenshot" in feedback,
+#: What each kind of **Feedback** becomes, from the branch and the feedback.
+#: Validation has checked the fields each one reads. An instruction stays a
+#: plain message: the agent prompt keys on its "From the jig for" opening.
+_FEEDBACK_FORMATTERS: dict[
+    str, Callable[[str, dict[str, Any]], ExternalEvent | str]
+] = {
+    "monkeypatch": lambda branch, feedback: ExternalEvent(
+        JIG,
+        JIG_MONKEYPATCH,
+        {"branch": branch},
+        format_monkeypatch(
+            feedback["css"],
+            feedback.get("note"),
+            screenshot="screenshot" in feedback,
+        ),
     ),
     "instruction": lambda branch, feedback: format_instruction(
         branch,
@@ -298,20 +318,30 @@ _FEEDBACK_FORMATTERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
         feedback.get("element"),
         screenshot="screenshot" in feedback,
     ),
-    "pick": lambda branch, feedback: format_pick(
-        branch,
-        feedback["scope"],
-        feedback["element"],
-        feedback.get("note"),
-        screenshot="screenshot" in feedback,
+    "pick": lambda branch, feedback: ExternalEvent(
+        JIG,
+        JIG_PICK,
+        {"branch": branch},
+        format_pick(
+            branch,
+            feedback["scope"],
+            feedback["element"],
+            feedback.get("note"),
+            screenshot="screenshot" in feedback,
+        ),
     ),
-    "controls": lambda branch, feedback: format_controls(
-        branch,
-        feedback["title"],
-        feedback["changes"],
-        feedback.get("css"),
-        feedback.get("note"),
-        screenshot="screenshot" in feedback,
+    "controls": lambda branch, feedback: ExternalEvent(
+        JIG,
+        JIG_CONTROLS,
+        {"branch": branch},
+        format_controls(
+            branch,
+            feedback["title"],
+            feedback["changes"],
+            feedback.get("css"),
+            feedback.get("note"),
+            screenshot="screenshot" in feedback,
+        ),
     ),
 }
 
@@ -2299,20 +2329,20 @@ class Orchestrator:
         """
         title = document["group"]["title"]
         if created:
-            text = (
-                f"Approved {title} in the orchestrator UI, which promoted the "
-                f"drafts. The tasks now exist: {', '.join(created)}. "
-                f"Do not promote them again."
+            body = (
+                f"The user approved {title}, which promoted the drafts. The "
+                f"tasks now exist: {', '.join(created)}. Do not promote them again."
             )
         else:
-            text = f"Approved {title} in the orchestrator UI. Continue with the work."
-        refused = await self._ask_host(
-            {"cmd": "say", "id": document["agentId"], "text": text}
+            body = f"The user approved {title}. Continue with the work."
+        event = ExternalEvent(
+            ORCHESTRATOR_UI, DOCUMENT_APPROVED, {"title": title}, body
         )
-        if refused:
+        _, refusals = await self._tell([document["agentId"]], event)
+        for agent_id, refused in refusals:
             log.warning(
                 "agent %s: approval not delivered: %s",
-                document["agentId"],
+                agent_id,
                 refused["error"]["message"],
             )
 
@@ -2377,16 +2407,17 @@ class Orchestrator:
         review nobody has answered.
         """
         document = self.world["documents"][command["documentId"]]
+        title = document["group"]["title"]
         summary = str(command["summary"]).strip()
-        refused = await self._ask_host(
-            {
-                "cmd": "say",
-                "id": document["agentId"],
-                "text": f"Changes requested on {document['group']['title']}: {summary}",
-            }
+        event = ExternalEvent(
+            ORCHESTRATOR_UI,
+            DOCUMENT_CHANGES_REQUESTED,
+            {"title": title},
+            f"The user requested changes to {title}:\n\n{summary}",
         )
-        if refused:
-            return refused
+        _, refusals = await self._tell([document["agentId"]], event)
+        if refusals:
+            return refusals[0][1]
         self._settle_group(self._group_members(document), "changes-requested")
         return {"ok": True, "result": {}}
 
@@ -2396,13 +2427,16 @@ class Orchestrator:
         See orchestrator-server.md, "Commands".
         """
         worktree_id = command["worktreeId"]
-        text = format_change_comments(
-            self.world["worktrees"][worktree_id]["branch"], command["comments"]
+        event = ExternalEvent(
+            ORCHESTRATOR_UI,
+            CHANGES_COMMENTED,
+            {"branch": self.world["worktrees"][worktree_id]["branch"]},
+            format_change_comments(command["comments"]),
         )
-        return await self._say_to_worktree(worktree_id, text)
+        return await self._tell_worktree(worktree_id, event)
 
     async def _send_feedback(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Send the feedback to each agent in the worktree, as one message.
+        """Send the feedback to each agent in the worktree, as one turn.
 
         Validation refuses a type with no validator, and each validator has a
         formatter in ``_FEEDBACK_FORMATTERS``.
@@ -2413,9 +2447,9 @@ class Orchestrator:
         shot = _screenshot(worktree["path"], feedback.pop("screenshot", None))
         if shot:
             feedback["screenshot"] = shot
-        text = _FEEDBACK_FORMATTERS[feedback["type"]](worktree["branch"], feedback)
+        event = _FEEDBACK_FORMATTERS[feedback["type"]](worktree["branch"], feedback)
         attachments = [{"path": shot}] if shot else []
-        return await self._say_to_worktree(worktree_id, text, attachments)
+        return await self._tell_worktree(worktree_id, event, attachments)
 
     def live_feedback_worktree(self, path: str) -> str | None:
         """The id of the worktree a live feedback client at ``path`` serves, by real path."""
@@ -2455,11 +2489,16 @@ class Orchestrator:
         self.live_feedback.set(worktree_id, service, changed)
         branch = self.world["worktrees"][worktree_id]["branch"]
         declared = self.live_feedback.declared(worktree_id, service)
-        text = "\n".join(
-            format_param_set(branch, service, declared[name]["label"], value)
-            for name, value in changed.items()
+        event = ExternalEvent(
+            JIG,
+            JIG_PARAM_SET,
+            {"branch": branch, "service": service},
+            "\n".join(
+                format_param_set(branch, service, declared[name]["label"], value)
+                for name, value in changed.items()
+            ),
         )
-        reply = await self._say_to_worktree(worktree_id, text)
+        reply = await self._tell_worktree(worktree_id, event)
         if not reply["ok"]:
             # Through `revert`, not `set`: the service can close during the
             # say, and a change made meanwhile must stand.
@@ -2482,24 +2521,45 @@ class Orchestrator:
         }
         self._apply(diff_kind("worktree", worktrees, updated))
 
-    async def _say_to_worktree(
+    async def _tell(
         self,
-        worktree_id: str,
-        text: str,
+        agent_ids: list[str],
+        event: ExternalEvent | str,
         attachments: list[dict[str, str]] | None = None,
-    ) -> dict[str, Any]:
-        """Say ``text`` to each agent in the worktree. Ok when one agent or more took it."""
-        delivered: list[str] = []
-        refusals: list[tuple[str, dict[str, Any]]] = []
-        say: dict[str, Any] = {"cmd": "say", "text": text}
+    ) -> tuple[list[str], list[tuple[str, dict[str, Any]]]]:
+        """Say one turn to each agent, one at a time: who took it, and who refused.
+
+        The one way a server-originated turn reaches an agent. Every turn but
+        a jig instruction is an External event; see orchestrator-server.md.
+        """
+        say: dict[str, Any] = {
+            "cmd": "say",
+            "text": event if isinstance(event, str) else render_event(event),
+        }
         if attachments:
             say["attachments"] = attachments
-        for agent in agents_in_worktree(self.world, worktree_id):
-            refused = await self._ask_host({**say, "id": agent["id"]})
+        delivered: list[str] = []
+        refusals: list[tuple[str, dict[str, Any]]] = []
+        for agent_id in agent_ids:
+            refused = await self._ask_host({**say, "id": agent_id})
             if refused:
-                refusals.append((agent["id"], refused))
+                refusals.append((agent_id, refused))
             else:
-                delivered.append(agent["id"])
+                delivered.append(agent_id)
+        return delivered, refusals
+
+    async def _tell_worktree(
+        self,
+        worktree_id: str,
+        event: ExternalEvent | str,
+        attachments: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Tell each agent in the worktree. Ok when one agent or more took it."""
+        delivered, refusals = await self._tell(
+            [agent["id"] for agent in agents_in_worktree(self.world, worktree_id)],
+            event,
+            attachments,
+        )
         if not delivered:
             return refusals[0][1]
         return {

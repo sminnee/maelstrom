@@ -13,11 +13,11 @@ from mael_domain.feedback import (
 
 def test_a_monkeypatch_is_quoted_as_one_block_with_its_note():
     text = format_monkeypatch(
-        "feat/orders", ".chip { padding: 14px; }\n\n.row { gap: 4px; }\n", " tighter "
+        ".chip { padding: 14px; }\n\n.row { gap: 4px; }\n", " tighter "
     )
 
     assert text == (
-        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
+        "Monkeypatch from .drafts/monkeypatch.css:\n"
         "\n"
         "    .chip { padding: 14px; }\n"
         "\n"
@@ -31,8 +31,8 @@ def test_a_monkeypatch_is_quoted_as_one_block_with_its_note():
 @pytest.mark.parametrize("note", [None, "", "  "], ids=["absent", "empty", "blank"])
 def test_a_monkeypatch_without_a_note_omits_the_note_line(note):
     """The jig sends an empty note field as ``""``, not as no key."""
-    assert format_monkeypatch("feat/orders", ".chip{padding:20px}", note) == (
-        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
+    assert format_monkeypatch(".chip{padding:20px}", note) == (
+        "Monkeypatch from .drafts/monkeypatch.css:\n"
         "\n"
         "    .chip{padding:20px}\n"
         "\n"
@@ -109,8 +109,8 @@ def test_an_instruction_with_a_screenshot_says_one_is_attached():
 
 
 def test_a_monkeypatch_with_a_screenshot_says_one_is_attached():
-    assert format_monkeypatch("feat/orders", ".chip{}", screenshot=True) == (
-        "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
+    assert format_monkeypatch(".chip{}", screenshot=True) == (
+        "Monkeypatch from .drafts/monkeypatch.css:\n"
         "\n"
         "    .chip{}\n"
         "\n"

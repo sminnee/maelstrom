@@ -55,11 +55,11 @@ def _note(note: str | None) -> list[str]:
 
 
 def format_monkeypatch(
-    branch: str, css: str, note: str | None = None, *, screenshot: bool = False
+    css: str, note: str | None = None, *, screenshot: bool = False
 ) -> str:
-    """The one message that carries a **Monkeypatch** to the agents of a worktree."""
+    """The body of the one event that carries a **Monkeypatch** to the agents of a worktree."""
     lines = [
-        f"Monkeypatch for {branch}, from the jig ({MONKEYPATCH_PATH}):",
+        f"Monkeypatch from {MONKEYPATCH_PATH}:",
         "",
         *_quote(css),
         "",

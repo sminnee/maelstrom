@@ -435,8 +435,9 @@ describe('a document an agent tagged in its own message', () => {
     await waitFor(() => expect(chipCount()).toBe(2));
     const { agentId } = server.world.documents['doc-nort12-tasks']!;
     expect(server.transcripts[agentId]!.items.at(-1)).toMatchObject({
-      role: 'user',
-      markdown: expect.stringContaining('Approved Iteration 2'),
+      type: 'external_event',
+      eventType: 'document.approved',
+      markdown: expect.stringContaining('The user approved Iteration 2'),
     });
   });
 
