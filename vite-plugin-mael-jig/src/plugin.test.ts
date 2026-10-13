@@ -75,8 +75,11 @@ async function fakeProvider(
   const frames: Frame[] = [];
   let socket: ProviderSocket | undefined;
   let wake = () => {};
+  let hearClose = () => {};
+  const closed = new Promise<void>((resolve) => (hearClose = resolve));
   wss.on('connection', (ws) => {
     socket = ws;
+    ws.on('close', () => hearClose());
     ws.on('message', (data) => {
       const frame = JSON.parse(String(data)) as Frame;
       frames.push(frame);
@@ -100,6 +103,8 @@ async function fakeProvider(
     frame,
     send: (sent: Frame) => socket?.send(JSON.stringify(sent)),
     drop: () => socket?.terminate(),
+    /** Settles when the plugin closes its socket. */
+    closed,
   };
 }
 
@@ -325,6 +330,36 @@ describe('a dev server with a base', () => {
 
     expect(src).toMatch(/^\/app\//);
     expect((await fetch(`${origin}${src}`)).status).toBe(200);
+  });
+});
+
+describe('a dev server in middleware mode', () => {
+  const middlewareServer = (providerUrl: string) =>
+    createServer({
+      root: worktree,
+      configFile: false,
+      logLevel: 'silent',
+      appType: 'custom',
+      plugins: [maelJig({ providerUrl })],
+      server: { middlewareMode: true, hmr: false },
+    });
+
+  it('injects the client into the page', async () => {
+    server = await middlewareServer('');
+
+    const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>');
+
+    expect(html).toMatch(/<script type="module" src="[^"]*mael-jig[^"]*"><\/script>/);
+  });
+
+  it('closes the provider socket when the server closes', async () => {
+    const provider = await fakeProvider();
+    server = await middlewareServer(provider.url);
+    await provider.frame('exposeParams');
+
+    await server.close();
+
+    await provider.closed;
   });
 });
 
