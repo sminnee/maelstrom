@@ -7,4 +7,6 @@ set -e
 cd "$(dirname "$0")/.."
 uv sync --extra dev
 uv run python -m mael_domain.state_db.migrate
+# The app's dev server loads the jig plugin's source, and its dependencies.
+pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
 pnpm --dir orchestrator-ui install --frozen-lockfile

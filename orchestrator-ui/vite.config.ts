@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
-import { maelJig } from './vite-plugin-mael-jig/plugin';
+import { maelJig } from '../vite-plugin-mael-jig/src/plugin';
 
 // Under maelstrom the dev server binds the worktree's FRONTEND port, and HMR
 // its FRONTEND_HMR port, so several worktrees can serve at once.
@@ -101,28 +101,10 @@ export default defineConfig(({ command }) => {
       // for a while -- but measure first, because raising it has never once
       // fixed anything here.
       testTimeout: 30_000,
-      // The jig's plugin runs in Node against a real dev server, so it stays
-      // out of the app's jsdom and its setup file.
-      projects: [
-        {
-          extends: true,
-          test: {
-            name: 'app',
-            include: ['src/**/*.test.{ts,tsx}'],
-            environment: 'jsdom',
-            setupFiles: ['./src/test/setup.ts'],
-            css: false,
-          },
-        },
-        {
-          extends: true,
-          test: {
-            name: 'jig',
-            include: ['vite-plugin-mael-jig/**/*.test.ts'],
-            environment: 'node',
-          },
-        },
-      ],
+      environment: 'jsdom',
+      include: ['src/**/*.test.{ts,tsx}'],
+      setupFiles: ['./src/test/setup.ts'],
+      css: false,
     },
   };
 });

@@ -22,10 +22,5 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true
   },
-  "include": [
-    "src",
-    "vite-plugin-mael-jig/client.ts",
-    "vite-plugin-mael-jig/overlay.ts",
-    "vite-plugin-mael-jig/overlay.test.ts"
-  ]
+  "include": ["src"]
 }
