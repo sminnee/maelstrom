@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Agents compact their sessions at break points.** Under the agent daemon, an agent writes
+  `<compact-session min-tokens="200k">` when a build phase closes, when the gates pass, after
+  review, and after the PR is pushed. When the session holds at least that many tokens,
+  Maelstrom compacts it, so the build's context does not ride into review and the CI watch. The
+  agent always hears what happened. See
+  [External events](docs/dev/orchestrator-server.md#external-events).
 - **Agents hear about their PR.** Under the agent daemon, an agent on a task ends its turn after
   a push. Maelstrom tells it when CI fails or passes, the PR conflicts, or it merges, so
   `/watch-pr` no longer waits in a shell. Approvals, change comments, monkeypatches and jig

@@ -206,6 +206,10 @@ agent's spend at each one, so `mael agent cost` answers which stage the tokens w
 stopped agent as well as a live one. The orchestrator UI shows the same reading: a bar in the session transcript where each stage
 closed, and the latest stage on the agent's expanded card.
 
+At the break points — a build phase closed, gates passed, review finished, PR pushed — the session writes a
+`<compact-session min-tokens="200k">` marker. When the session holds 200k tokens or more,
+Maelstrom compacts it, so the build's context does not ride into review and the CI watch.
+
 ### Why the task closes at step 6, not step 7
 
 **The pull request is the completion signal.** Once it is raised, the work cannot be
