@@ -220,9 +220,11 @@ export function Canvas() {
 
   const onNodeClick = useCallback(
     (_: unknown, node: Node) => {
+      // A click on a lane, a zone or a box is a click outside the card.
       if (node.type === 'task') open(cardOf((node as TaskFlowNode).data.node));
+      else collapse();
     },
-    [open],
+    [open, collapse],
   );
 
   // Direction is followed -> follower, the way `deriveGraph` builds an edge,
@@ -293,6 +295,7 @@ export function Canvas() {
         onConnect={onConnect}
         isValidConnection={canConnect}
         onNodeClick={onNodeClick}
+        onEdgeClick={() => collapse()}
         onPaneClick={() => collapse()}
         elementsSelectable
       >

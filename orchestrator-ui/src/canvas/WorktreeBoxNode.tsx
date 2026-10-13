@@ -31,7 +31,11 @@ export function WorktreeBoxNode({ data }: NodeProps<WorktreeBoxFlowNode>) {
         className={`${styles.label} nowrap nodrag nopan`}
         title={worktree.branch || undefined}
         aria-expanded={expanded}
-        onClick={() => open({ kind: 'worktree', id: worktree.id })}
+        onClick={(e) => {
+          // A click on the box collapses the card; this one opens a card.
+          e.stopPropagation();
+          open({ kind: 'worktree', id: worktree.id });
+        }}
       >
         <span className={styles.name}>{worktree.nato}</span>{' '}
         <span className={`${styles.branch} truncate`}>{branchLabel(worktree)}</span>

@@ -882,8 +882,10 @@ why.
 
 `canvas/CanvasCard.tsx` is the shell both cards share: the viewport portal, the grow animation,
 the pan into view and the Esc handler. The canvas shows one card at a time: the location's card,
-`/desk/task/<id>` or `/desk/worktree/<id>`. Esc or a click on the pane moves to `/desk`. A card
-whose node or box no longer draws collapses with a replace, once the world has loaded.
+`/desk/task/<id>` or `/desk/worktree/<id>`. Esc, or a click on the canvas outside the card,
+moves to `/desk`. That is the pane, a wire, or a node that is not a task: a lane, a zone or a box.
+A box label stops its click, because it opens a card. A card whose node or box no longer draws
+collapses with a replace, once the world has loaded.
 
 ### The Dev env tab
 

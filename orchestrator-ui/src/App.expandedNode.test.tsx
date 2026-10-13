@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { Agent, Worktree } from './protocol/entities';
@@ -28,6 +28,33 @@ describe('the expanded node', () => {
     pressKey('Escape');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(router.state.location.pathname).toBe('/desk');
+  });
+
+  it('collapses on a click on the canvas outside it: its lane, the pane', async () => {
+    const { router } = await renderApp();
+    const outside = ['[data-testid="group-node"][data-group-id="northwind"]', '.react-flow__pane'];
+    for (const selector of outside) {
+      clickNode('NORT-7');
+      expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
+      fireEvent.click(document.querySelector(selector)!);
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(router.state.location.pathname).toBe('/desk');
+    }
+  });
+
+  it('stays open on a click inside it, in the panel, or in the top bar', async () => {
+    const { router } = await renderApp();
+    clickNode('NORT-7');
+    const card = screen.getByRole('dialog', { name: 'Plan the order export' });
+    for (const target of [
+      within(card).getByTestId('node-id-line'),
+      screen.getByTestId('panel'),
+      screen.getByTestId('top-bar'),
+    ]) {
+      fireEvent.click(target);
+      expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
+    }
+    expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument();
   });
 
   it('opens on the card the URL names, and Back collapses a card the click opened', async () => {
