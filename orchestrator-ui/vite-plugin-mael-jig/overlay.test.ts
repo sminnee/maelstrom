@@ -656,3 +656,191 @@ describe('the jig overlay', () => {
     });
   });
 });
+
+const CHIP_SET = {
+  title: 'Chip spacing',
+  controls: [
+    {
+      var: '--jig-chip-pad',
+      label: 'Chip padding',
+      kind: 'range',
+      min: 0,
+      max: 24,
+      step: 1,
+      unit: 'px',
+      from: '4px',
+    },
+    { var: '--accent', kind: 'color' },
+    { var: '--jig-align', kind: 'select', options: ['start', 'center'], from: 'start' },
+  ],
+};
+
+const WIRING = '.chip { padding: var(--jig-chip-pad); }\n.toolbar { gap: var(--jig-align); }';
+
+function controlRow(name: string) {
+  const root = document.querySelector('#mael-jig')!.shadowRoot!;
+  const row = root.querySelector(`.control[data-var="${name}"]`) as HTMLElement | null;
+  if (!row) throw new Error(`no row for ${name}`);
+  return {
+    row,
+    input: row.querySelector('input, select') as HTMLInputElement,
+    text: row.querySelector('input[type="text"]') as HTMLInputElement,
+    value: row.querySelector('output')!.textContent,
+    reset: row.querySelector('[aria-label^="Reset"]') as HTMLButtonElement,
+  };
+}
+
+function setControl(input: HTMLInputElement, value: string) {
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+const rootVar = (name: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const valuePuts = () =>
+  puts()
+    .filter((p) => p.url === '/__mael/drafts/jig-values.json')
+    .map((p) => JSON.parse(p.body));
+
+describe('a control set', () => {
+  let token: HTMLStyleElement;
+
+  beforeEach(async () => {
+    // The app's own token, from a sheet the jig did not write.
+    token = document.createElement('style');
+    token.textContent = ':root { --accent: #3366ff; }';
+    document.head.prepend(token);
+    drafts['monkeypatch.css'] = WIRING;
+    drafts['jig-controls.json'] = JSON.stringify(CHIP_SET);
+    await mount({ visible: true });
+  });
+  afterEach(() => token.remove());
+
+  it('draws a row per control on the Controls tab, under the set title', () => {
+    expect(jig().title.textContent).toBe('Chip spacing');
+    expect(jig().tab('Controls').getAttribute('aria-selected')).toBe('true');
+    expect(controlRow('--jig-chip-pad').row.textContent).toContain('Chip padding');
+    expect(controlRow('--jig-chip-pad').value).toBe('4px');
+    expect(controlRow('--accent').row.textContent).toContain('--accent');
+    expect(controlRow('--jig-align').input.localName).toBe('select');
+  });
+
+  it('starts each variable at its from, and a token at its value on the page', () => {
+    expect(rootVar('--jig-chip-pad')).toBe('4px');
+    expect(rootVar('--accent')).toBe('#3366ff');
+    expect(controlRow('--accent').text.value).toBe('#3366ff');
+  });
+
+  it('sets the variable at once as a range moves, then writes the values file', async () => {
+    setControl(controlRow('--jig-chip-pad').input, '10');
+
+    expect(rootVar('--jig-chip-pad')).toBe('10px');
+    expect(controlRow('--jig-chip-pad').value).toBe('10px');
+    await until(() => expect(valuePuts()).toEqual([{ '--jig-chip-pad': '10px' }]));
+  });
+
+  it('sets a colour from its text field', () => {
+    setControl(controlRow('--accent').text, '#ff0000');
+
+    expect(rootVar('--accent')).toBe('#ff0000');
+  });
+
+  it('resets a control to its from, and writes the values file without it', async () => {
+    setControl(controlRow('--jig-chip-pad').input, '10');
+    controlRow('--jig-chip-pad').reset.click();
+
+    expect(rootVar('--jig-chip-pad')).toBe('4px');
+    expect(controlRow('--jig-chip-pad').value).toBe('4px');
+    await until(() => expect(valuePuts().at(-1)).toEqual({}));
+  });
+
+  it('applies a value set on another page', () => {
+    emit('mael-jig:draft', {
+      name: 'jig-values.json',
+      text: JSON.stringify({ '--jig-chip-pad': '16px' }),
+      from: null,
+    });
+
+    expect(rootVar('--jig-chip-pad')).toBe('16px');
+    expect(controlRow('--jig-chip-pad').input.value).toBe('16');
+  });
+
+  it('ignores the echo of its own values write', async () => {
+    setControl(controlRow('--jig-chip-pad').input, '10');
+    await until(() => expect(valuePuts()).toHaveLength(1));
+    setControl(controlRow('--jig-chip-pad').input, '12');
+
+    emit('mael-jig:draft', {
+      name: 'jig-values.json',
+      text: JSON.stringify({ '--jig-chip-pad': '10px' }),
+      from: puts().at(-1)!.client,
+    });
+
+    expect(rootVar('--jig-chip-pad')).toBe('12px');
+  });
+
+  it('mutes a control whose wiring matches nothing on the page', () => {
+    expect(controlRow('--jig-align').row.textContent).toContain('no match on this page');
+    expect(controlRow('--jig-chip-pad').row.textContent).not.toContain('no match');
+    // A token with no rule on the page: the jig cannot tell, so it is not muted.
+    expect(controlRow('--accent').row.textContent).not.toContain('no match');
+  });
+
+  it('unmutes a control when the wiring changes to match', () => {
+    emit('mael-jig:draft', {
+      name: 'monkeypatch.css',
+      text: `${WIRING}\n@media (min-width: 1px) { div.chip { gap: var(--jig-align); } }`,
+      from: null,
+    });
+
+    expect(controlRow('--jig-align').row.textContent).not.toContain('no match');
+  });
+
+  it('redraws when the agent writes a new set', () => {
+    emit('mael-jig:draft', {
+      name: 'jig-controls.json',
+      text: JSON.stringify({ controls: [{ var: '--jig-gap', kind: 'number', from: '2px' }] }),
+      from: null,
+    });
+
+    expect(jig().title.textContent).toBe('Jig');
+    expect(controlRow('--jig-gap').value).toBe('2px');
+    expect(() => controlRow('--jig-chip-pad')).toThrow();
+    expect(rootVar('--jig-gap')).toBe('2px');
+  });
+
+  it.each([
+    ['{', 'the file is not JSON'],
+    ['{"controls": [{"kind": "range"}]}', 'control 1 has no var'],
+    ['{"controls": [{"var": "--a", "kind": "dial"}]}', 'control 1 has an unknown kind'],
+    [
+      '{"controls": [{"var": "--a", "kind": "text"}, {"var": "--a", "kind": "text"}]}',
+      'control 2 repeats --a',
+    ],
+    ['{"controls": [{"var": "--a", "kind": "select"}]}', 'control 1 has no options'],
+  ])('names the fault in an invalid file %s', (text, fault) => {
+    emit('mael-jig:draft', { name: 'jig-controls.json', text, from: null });
+
+    expect(jig().pane('Controls').textContent).toContain(fault);
+    expect(jig().pane('Controls').querySelector('.control')).toBeNull();
+  });
+});
+
+describe('a control set with values from before', () => {
+  beforeEach(async () => {
+    drafts['jig-controls.json'] = JSON.stringify(CHIP_SET);
+    drafts['jig-values.json'] = JSON.stringify({ '--jig-chip-pad': '8px', '--gone': '1px' });
+    await mount({ visible: true });
+  });
+
+  it('applies them on start, and does not write back a var the set has lost', async () => {
+    expect(rootVar('--jig-chip-pad')).toBe('8px');
+
+    setControl(controlRow('--jig-align').input, 'center');
+
+    await until(() =>
+      expect(valuePuts()).toEqual([{ '--jig-chip-pad': '8px', '--jig-align': 'center' }]),
+    );
+  });
+});
