@@ -40,3 +40,8 @@
   padding: var(--u-3);
   color: var(--fg-faint);
 }
+/* The checkbox shows the state; the button takes the press. */
+.param input {
+  margin: 0;
+  pointer-events: none;
+}

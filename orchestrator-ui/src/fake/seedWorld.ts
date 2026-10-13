@@ -317,6 +317,20 @@ export function seedWorld(): Seed {
       },
       sessionCount: 1,
       shellUrl: 'cmux://workspace/WS-DELTA/pane/PANE-DELTA',
+      // `web` runs, so its jig is connected; `ladle` is stopped.
+      liveFeedback: [
+        {
+          service: 'web',
+          params: {
+            jig: {
+              label: 'Jig',
+              type: 'boolean',
+              description: 'Show the jig on each page',
+              value: false,
+            },
+          },
+        },
+      ],
     }),
     worktree('northwind', 'echo', { isClosed: true }),
   ];

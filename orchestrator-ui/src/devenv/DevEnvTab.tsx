@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useWorld } from '../api/useWorld';
+import { useSetFeedbackParams } from '../api/liveFeedback';
 import type { Worktree } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
+import { trackedAgents } from '../selectors/worktrees';
 import { ExternalLink } from '../shell/ExternalLink';
 import { AppButton } from '../ui/AppButton';
 import { EnvControl } from '../worktrees/EnvControl';
@@ -10,7 +12,31 @@ import styles from './DevEnvTab.module.css';
 /** A dev env tab: one running web service of a worktree, framed. */
 export function DevEnvTab({ worktreeId, service }: { worktreeId: WorktreeId; service: string }) {
   const { world } = useWorld();
-  return <DevEnvView worktree={world.worktrees[worktreeId]} service={service} />;
+  const setParams = useSetFeedbackParams(worktreeId, service);
+  const worktree = world.worktrees[worktreeId];
+  // Every change needs an agent to hear it; the server turns each param off
+  // when the last one leaves.
+  const params =
+    trackedAgents(world, worktreeId).length > 0
+      ? (worktree?.liveFeedback?.find((s) => s.service === service)?.params ?? {})
+      : {};
+  const switches = Object.entries(params)
+    .filter(([, param]) => param.type === 'boolean')
+    .map(([name, param]) => ({
+      name,
+      label: param.label,
+      on: param.value,
+      onToggle: () => setParams.mutateAsync({ [name]: !param.value }),
+    }));
+  return <DevEnvView worktree={worktree} service={service} switches={switches} />;
+}
+
+/** One boolean **Live feedback param** a preview offers: its value, and the press that flips it. */
+export interface ParamSwitch {
+  name: string;
+  label: string;
+  on: boolean;
+  onToggle: () => Promise<unknown>;
 }
 
 /**
@@ -21,9 +47,12 @@ export function DevEnvTab({ worktreeId, service }: { worktreeId: WorktreeId; ser
 export function DevEnvView({
   worktree,
   service,
+  switches = [],
 }: {
   worktree: Worktree | undefined;
   service: string;
+  /** Empty where the service exposes no params, or no agent would hear a change. */
+  switches?: ParamSwitch[];
 }) {
   // Bumped by Reload: a new key is a new frame, loaded from `src` again.
   const [loads, setLoads] = useState(0);
@@ -46,6 +75,19 @@ export function DevEnvView({
             <AppButton variant="quiet" onClick={() => setLoads((n) => n + 1)}>
               Reload
             </AppButton>
+            {switches.map((param) => (
+              <AppButton
+                key={param.name}
+                variant="quiet"
+                role="switch"
+                aria-checked={param.on}
+                className={styles.param}
+                onClick={param.onToggle}
+              >
+                <input type="checkbox" checked={param.on} readOnly aria-hidden tabIndex={-1} />
+                {param.label}
+              </AppButton>
+            ))}
           </>
         )}
       </div>

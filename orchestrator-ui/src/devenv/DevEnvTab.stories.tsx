@@ -51,3 +51,18 @@ export const Stopped: Story = () => (
     <DevEnvView worktree={worktree(false)} service="web" />
   </Frame>
 );
+
+/** The switch only: the jig itself draws in the framed page, which here has none. */
+const jig = (on: boolean) => [{ name: 'jig', label: 'Jig', on, onToggle: async () => {} }];
+
+export const JigOff: Story = () => (
+  <Frame>
+    <DevEnvView worktree={worktree(true)} service="web" switches={jig(false)} />
+  </Frame>
+);
+
+export const JigOn: Story = () => (
+  <Frame>
+    <DevEnvView worktree={worktree(true)} service="web" switches={jig(true)} />
+  </Frame>
+);

@@ -1693,6 +1693,64 @@ function command(
     });
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/live-feedback\/([^/]+)\/params$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const service = decodeURIComponent(m[2]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
+    const params = b.params as Record<string, unknown> | undefined;
+    if (typeof params !== 'object' || params === null || Object.keys(params).length === 0) {
+      return error(400, 'invalid', 'No params to set');
+    }
+    const connected = worktree.liveFeedback?.find((s) => s.service === service);
+    if (!connected) return error(400, 'invalid', `${service} has no live feedback client`);
+    for (const [name, value] of Object.entries(params)) {
+      if (!(name in connected.params)) {
+        return error(400, 'invalid', `${service} exposes no param ${name}`);
+      }
+      if (typeof value !== 'boolean')
+        return error(400, 'invalid', 'A param value is true or false');
+    }
+    const agents = trackedAgents(world, id);
+    if (agents.length === 0) return error(400, 'invalid', `No agent is running in ${id}`);
+    const set = params as Record<string, boolean>;
+    const changed = Object.keys(set).filter((name) => connected.params[name]!.value !== set[name]);
+    if (changed.length === 0) return ok({});
+    const liveFeedback = worktree.liveFeedback!.map((s) =>
+      s.service !== service
+        ? s
+        : {
+            ...s,
+            params: Object.fromEntries(
+              Object.entries(s.params).map(([name, p]) => [
+                name,
+                name in set ? { ...p, value: set[name]! } : p,
+              ]),
+            ),
+          },
+    );
+    moveWorktree(id, { liveFeedback });
+    // The server's own wording is `format_param_set`.
+    const markdown = changed
+      .map(
+        (name) =>
+          `The user turned ${connected.params[name]!.label} ${set[name] ? 'on' : 'off'} for ${service} on ${worktree.branch}.`,
+      )
+      .join('\n');
+    for (const agent of agents) {
+      server.append(agent.id, {
+        id: `m${mint()}`,
+        ts: now(),
+        type: 'message',
+        role: 'user',
+        markdown,
+      });
+    }
+    return ok({});
+  }
+
   m = pathname.match(/^\/api\/worktrees\/([^/]+)\/env$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);

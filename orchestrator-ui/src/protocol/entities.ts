@@ -99,6 +99,25 @@ export interface Worktree {
   sessionCount: number;
   /** The `cmux://` link to the pane of the worktree's first terminal, or `''` with none. */
   shellUrl: string;
+  /** Absent from a server older than the UI; read it as no service connected. */
+  liveFeedback?: LiveFeedbackService[];
+}
+
+/**
+ * One dev server of the worktree with a **Live feedback** client connected,
+ * and the params it exposes, by name. Its preview draws a switch for each boolean param.
+ */
+export interface LiveFeedbackService {
+  service: string;
+  params: Record<string, LiveFeedbackParam>;
+}
+
+/** One **Live feedback param**. `boolean` is the one type the server takes. */
+export interface LiveFeedbackParam {
+  label: string;
+  type: 'boolean';
+  description: string;
+  value: boolean;
 }
 
 /** One **Dirty file**: its path and `git status`'s letter, `?` when untracked. */
