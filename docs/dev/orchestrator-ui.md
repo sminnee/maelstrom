@@ -1575,10 +1575,12 @@ Vite's dev server does this already.
 The **Jig** lets the user change the live page and send **Feedback** to the agent. It has three
 uses: a **Monkeypatch**, CSS that every page applies at once; an **Instruction**, free text about
 the page or about one **Pick**ed element; and a **Control set**, CSS variables that the agent
-offers and the user sets. It lives in
-`vite-plugin-mael-jig/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
-config, so every story has the jig too. A build and a vitest run do not load it, and outside a git
-checkout it switches itself off.
+offers and the user sets. Its Vite plugin is the npm package `vite-plugin-mael-jig`, in
+`vite-plugin-mael-jig/` at the repository root, because it serves every mael project.
+`vite.config.ts` imports its source by relative path and adds `maelJig()`, so the app's dev loop
+needs no build of the package. Ladle loads the same config, so every story has the jig too. A
+build and a vitest run do not load it, and outside a git checkout it switches itself off.
+[The jig](../guide/jig.md) says how another project adds it.
 
 **The jig is off until its param is on.** The plugin is a **Live feedback** client: it keeps one
 WebSocket open to the **Live feedback provider** at `MAEL_FEEDBACK_URL`, and exposes one param,
@@ -1587,9 +1589,23 @@ WebSocket open to the **Live feedback provider** at `MAEL_FEEDBACK_URL`, and exp
 
 | Part | File | What it does |
 |---|---|---|
-| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves the draft files at `GET`/`PUT /__mael/drafts/<name>` (see below). Watches them and sends the `mael-jig:draft` event `{name, text, from}` over HMR. Serves `GET /__mael/state`, `{visible}`. Keeps the provider socket, and relays the `jig` param as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
+| Plugin | `plugin.ts` | Injects the virtual module `virtual:mael-jig/client` into each page. Serves the draft files at `GET`/`PUT /__mael/drafts/<name>` (see below). Watches them and sends the `mael-jig:draft` event `{name, text, from}` over HMR. Serves `GET /__mael/state`, `{visible}`. Keeps the provider socket, and relays the `jig` param as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
 | Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Draws the **Control set** and writes the **Controls**' `:root` rule into a second `<style>` after it. Runs pick mode and the prompt box. "Hide jig" asks the provider to turn the `jig` param off. |
 | Provider | `GET /api/live-feedback` | The orchestrator's socket. See [orchestrator-server.md](orchestrator-server.md). |
+
+**The client is a virtual module.** A consumer's dev server serves the plugin from
+`node_modules`, or from a linked copy outside its workspace. Vite answers 403 to a `/@fs/` script
+tag outside the workspace, but it serves a file that a served module imports. So the page loads
+`/@id/__x00__virtual:mael-jig/client`, and that module imports `overlay.ts` or `overlay.js` by
+absolute path. Vite still sets its `import.meta.hot`.
+
+**The package is released on its own.** It has its own version and
+`vite-plugin-mael-jig/CHANGELOG.md`. `pnpm build` writes `dist/` with `tsconfig.build.json`, and
+npm ships only `dist/`.
+`bin/publish-jig` runs its gates and the pack smoke, then publishes and tags
+`vite-plugin-mael-jig@X.Y.Z`. The pack smoke, `pnpm smoke`, installs the packed tarball into a new
+Vite app and loads a page. It is the `web.jig-smoke` gate, so a broken build fails CI before a
+release.
 
 **The protocol is live feedback.** The jig is its first client. [live-feedback.md](live-feedback.md)
 documents the URL, the frames, the rules, and how the jig uses them.
@@ -1710,7 +1726,9 @@ mael env start                  # this worktree's own copy, on its floating port
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
 mael env start web-fake         # the fake mode, alone, on this worktree's FAKE_FRONTEND port
 cd orchestrator-ui && pnpm dev  # the web app alone, on port 5173, against localhost:8765
-cd orchestrator-ui && pnpm test # vitest: the app in jsdom, the jig in Node
+cd orchestrator-ui && pnpm test # vitest: the app, in jsdom
+pnpm --dir vite-plugin-mael-jig test   # vitest: the plugin in Node, the overlay in jsdom
+pnpm --dir vite-plugin-mael-jig smoke  # pack the plugin, and load it in a new Vite app
 cd orchestrator-ui && pnpm lint && pnpm typecheck && pnpm build
 bin/knip-check                  # dead code, both passes
 ```
@@ -1800,9 +1818,9 @@ medium layout and fails on a logged error.
 CSS and TSX file. It fails on a font size that is not a `--text-*` token, an `em` value or
 `inherit`. See "Hierarchy". Both gates share `test/sourceGate.ts`.
 
-The jig is its own vitest project, which runs in Node by default. `plugin.test.ts` starts a real
+The jig's package has two vitest projects: `plugin` in Node and `overlay` in jsdom. `plugin.test.ts` starts a real
 Vite dev server and drives `/__mael/drafts/<name>`, the HMR event and Send against a fake orchestrator.
-`overlay.test.ts` opts into jsdom, which cascades the declared values of a `<style>` rule into
+jsdom cascades the declared values of a `<style>` rule into
 `getComputedStyle` without layout. jsdom does not resolve `var()`, so a control test reads the
 variable from `:root`, not the property that the wiring sets.
 
