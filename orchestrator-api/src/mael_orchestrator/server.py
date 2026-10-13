@@ -43,7 +43,7 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
-from mael_domain.document_tags import FINAL_STAGE, ParamSet
+from mael_domain.document_tags import FINAL_STAGE, CompactRequest, ParamSet
 from mael_domain.external_event import (
     CHANGES_COMMENTED,
     DOCUMENT_APPROVED,
@@ -53,7 +53,10 @@ from mael_domain.external_event import (
     JIG_MONKEYPATCH,
     JIG_PARAM_SET,
     JIG_PICK,
+    ORCHESTRATOR,
     ORCHESTRATOR_UI,
+    SESSION_COMPACTED,
+    SESSION_NOT_COMPACTED,
     ExternalEvent,
     pr_events,
 )
@@ -204,6 +207,11 @@ BACKLOG_TIMEOUT_SECS = 5.0
 #: How long a subagent's stream stays attached after its last transcript
 #: socket closes. A tab that closes and reopens within it keeps the watch.
 CHILD_DETACH_SECS = 5.0
+
+
+def _kilo(tokens: int) -> str:
+    """A token count as the replies write it: ``123k``."""
+    return f"{round(tokens / 1000)}k"
 
 
 def _refused(code: str, message: str) -> dict[str, Any]:
@@ -447,6 +455,13 @@ class AgentWatch:
         #: on an ``assistant`` event, but the turn's tokens only reach the
         #: world when its ``result`` lands — so the snapshot waits for that.
         self.pending_milestone: Milestone | None = None
+        #: A compaction request waiting for its turn to end, for the reason a
+        #: milestone waits: the turn's last occupancy reading, and an idle
+        #: agent to send ``/compact`` to.
+        self.pending_compact: CompactRequest | None = None
+        #: ``/compact`` was sent and its outcome is not in yet. A boundary
+        #: says it compacted; a ``result`` with none first says it did not.
+        self.compacting = False
 
 
 class Cursor:
@@ -1763,6 +1778,7 @@ class Orchestrator:
             agent = self.world["agents"].get(watch.agent_id)
             if agent and agent["worktreeId"]:
                 self._apply_feedback_params(agent["worktreeId"], out.feedback_params)
+        await self._follow_compact(watch, raw, out)
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
@@ -1771,6 +1787,107 @@ class Orchestrator:
             # 0, because no tokens were spent between the two writes.
             if watch.caught_up.is_set():
                 await self._record_milestone(watch, milestone)
+
+    async def _follow_compact(
+        self, watch: AgentWatch, raw: dict[str, Any], out: Normalised
+    ) -> None:
+        """Act on a compaction request, and tell the agent how it went.
+
+        See ``docs/dev/orchestrator-server.md``, "A compaction request".
+        """
+        if out.compact_request is not None:
+            # Parked even in replay, as a milestone is: the turn may end live.
+            # Last wins: a second marker in one turn replaces the first.
+            watch.pending_compact = out.compact_request
+        if not watch.caught_up.is_set():
+            # A replayed turn end was answered by the run that read it live.
+            if raw.get("type") == "result":
+                watch.pending_compact = None
+            return
+        if watch.compacting and out.compacted is not None:
+            watch.compacting = False
+            pre, post = out.compacted
+            if pre is None or post is None:
+                event = ExternalEvent(
+                    ORCHESTRATOR, SESSION_COMPACTED, {}, "Session compacted. Continue."
+                )
+            else:
+                event = ExternalEvent(
+                    ORCHESTRATOR,
+                    SESSION_COMPACTED,
+                    {"pre": _kilo(pre), "post": _kilo(post)},
+                    f"Session compacted from {_kilo(pre)} to {_kilo(post)} tokens. "
+                    "Continue.",
+                )
+            await self._tell_of_compact(watch.agent_id, event)
+        elif watch.compacting and out.compact_refused is not None:
+            watch.compacting = False
+            await self._tell_of_compact(
+                watch.agent_id,
+                ExternalEvent(
+                    ORCHESTRATOR,
+                    SESSION_NOT_COMPACTED,
+                    {"reason": "refused"},
+                    f"Compaction did not occur: {out.compact_refused} Continue.",
+                ),
+            )
+        elif raw.get("type") == "result" and watch.pending_compact is not None:
+            request, watch.pending_compact = watch.pending_compact, None
+            await self._request_compact(watch, request)
+
+    async def _request_compact(
+        self, watch: AgentWatch, request: CompactRequest
+    ) -> None:
+        if request.invalid is not None:
+            await self._tell_of_compact(
+                watch.agent_id,
+                ExternalEvent(
+                    ORCHESTRATOR,
+                    SESSION_NOT_COMPACTED,
+                    {"reason": "invalid-threshold"},
+                    f'Could not read min-tokens="{request.invalid}", '
+                    "no compaction occurred. Continue.",
+                ),
+            )
+            return
+        agent = self.world["agents"].get(watch.agent_id)
+        if agent is None:
+            # No occupancy to read, and no agent to compact.
+            return
+        tokens = agent["contextTokens"]
+        if request.min_tokens is not None and tokens < request.min_tokens:
+            await self._tell_of_compact(
+                watch.agent_id,
+                ExternalEvent(
+                    ORCHESTRATOR,
+                    SESSION_NOT_COMPACTED,
+                    {"reason": "below-threshold"},
+                    f"Session only {_kilo(tokens)} tokens "
+                    f"(minimum {_kilo(request.min_tokens)}), "
+                    "no compaction occurred. Continue.",
+                ),
+            )
+            return
+        # A slash command, not an External event: the harness runs it only
+        # when the turn is the command and nothing else.
+        if await self._tell_of_compact(
+            watch.agent_id, f"/compact {request.instructions}".rstrip()
+        ):
+            watch.compacting = True
+
+    async def _tell_of_compact(self, agent_id: str, event: ExternalEvent | str) -> bool:
+        """Say one compaction turn to the agent; whether the host took it.
+
+        A refusal is logged, not raised: only the agent waits on it.
+        """
+        _, refusals = await self._tell([agent_id], event)
+        for _, refused in refusals:
+            log.warning(
+                "agent %s: compaction turn not delivered: %s",
+                agent_id,
+                refused["error"]["message"],
+            )
+        return not refusals
 
     async def _load_attached(self) -> None:
         """Put every attached document in the world, before any agent is read.

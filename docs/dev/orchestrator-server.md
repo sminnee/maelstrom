@@ -152,6 +152,7 @@ tag says the turn is from outside, the attributes are its facts, and the body is
 | `orchestrator-ui` | `document.approved`, `document.changes_requested`, `changes.commented` | The document and change-comment commands |
 | `jig` | `jig.monkeypatch`, `jig.pick`, `jig.controls`, `jig.param_set` | The live feedback socket and the params route |
 | `github` | `pr.watching`, `pr.checks_failed`, `pr.checks_passed`, `pr.conflict`, `pr.merged` | The PR watch |
+| `orchestrator` | `session.compacted`, `session.not_compacted` | A compaction request |
 
 **One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
 agent in turn, and answers who took it and who refused. `_tell_worktree` wraps it for the
@@ -370,6 +371,47 @@ version, and a plan is a group of one.
 
 A document is **not persisted**. It lives in the world and dies with a server restart, exactly as
 a plan document does. A document store is out of scope.
+
+### A compaction request
+
+A compaction request rides out on `Normalised.compact_request`:
+
+```
+<compact-session min-tokens="200k">Keep the PR number</compact-session>
+```
+
+`AgentWatch.pending_compact` holds it until the turn's `result`, as a milestone waits. At that
+point `contextTokens` holds the turn's last reading, and the agent is idle and can take a `say`.
+`server._follow_compact` then acts:
+
+| Condition | What the orchestrator says |
+| --- | --- |
+| `min-tokens` does not read as a count | `session.not_compacted`, `reason="invalid-threshold"` |
+| `contextTokens` below `min-tokens` | `session.not_compacted`, `reason="below-threshold"`: `Session only 123k tokens (minimum 200k), …` |
+| Otherwise | `/compact`, with the body after it, and the watch is marked `compacting` |
+
+`/compact` is a plain turn, not an External event: the harness runs a slash command only when it
+is the whole turn. The replies are External events from the `orchestrator` source.
+
+While the watch is `compacting`, the next of two events settles it:
+
+- A `compact_boundary`, which `Normalised.compacted` reports as (pre, post). The reply is
+  `session.compacted`, `pre="312k" post="41k"`. A boundary with no counts gets no figures.
+- A `status` event with `compact_result: "failed"`, which `Normalised.compact_refused` reports
+  with the reason, such as "Not enough messages to compact." The reply is
+  `session.not_compacted`, `reason="refused"`. See `docs/dev/agent-daemon.md`, "A compact".
+
+A `result` does not settle it. The harness queues turns, so the turn that ends next may be one
+queued ahead of `/compact`, such as a PR watch event.
+
+Every outcome sends a reply, because an unattended agent ends its turn after the marker and
+waits. A boundary that comes while the watch is not `compacting`, such as an autocompact, gets
+no reply: the agent did not ask.
+
+A request is parked even in replay, as a milestone is. The turn may end live after a restart,
+and the agent then waits for a reply. A turn end in replay clears the request, because the run
+that read it live acted on it. The `compacting` flag is not kept across a restart, so a restart
+between `/compact` and its outcome leaves the agent with no reply.
 
 ### Approving a task set
 
