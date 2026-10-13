@@ -29,6 +29,7 @@ from mael_agent.agent_wire import (
 from .attachments import markdown_ref
 from .document_tags import (
     MILESTONES,
+    CompactRequest,
     DocumentTag,
     ImageTag,
     MediaRef,
@@ -223,6 +224,13 @@ class Normalised:
     #: :class:`ServerEvent` either: the params are the server's, and live
     #: outside the world until it writes them in.
     feedback_params: tuple[ParamSet, ...] = ()
+    #: The compaction request the agent wrote, if any.
+    compact_request: CompactRequest | None = None
+    #: What a compact boundary reported, as (pre, post) tokens, if the event
+    #: was one. A figure the boundary did not carry is ``None``.
+    compacted: tuple[int | None, int | None] | None = None
+    #: Why the harness refused a compact, if the event says it did.
+    compact_refused: str | None = None
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -452,6 +460,10 @@ def normalise_stream_event(
             mode = _mode_of(raw)
             if mode:
                 out.agent({"permissionMode": mode})
+            # A refused compact has no boundary, and its `result` reads as a
+            # success. See docs/dev/agent-daemon.md, "A compact".
+            if raw.get("compact_result") == "failed":
+                out.compact_refused = _str(raw.get("compact_error")) or "refused"
         elif raw.get("subtype") == "compact_boundary":
             # The only event that says a compact finished, in snake_case where
             # the wire is camelCase — see docs/dev/agent-daemon.md, "A compact".
@@ -468,6 +480,7 @@ def normalise_stream_event(
                     "postTokens": _num(post),
                 }
             )
+            out.compacted = (_count(meta.get("pre_tokens")), _count(post))
             # The compact reports its own occupancy, as in ``apply_event``.
             if reported:
                 out.agent({"contextTokens": _num(post)})
@@ -665,6 +678,8 @@ def normalise_stream_event(
                     out.pr_withdrawn = tagged.pr_withdrawn
                 if tagged and tagged.feedback_params:
                     out.feedback_params += tagged.feedback_params
+                if tagged and tagged.compact:
+                    out.compact_request = tagged.compact
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -936,6 +951,11 @@ class _Emitter:
         self.pr_withdrawn = False
         #: The live feedback params the agent set. Each one applies, in order.
         self.feedback_params: tuple[ParamSet, ...] = ()
+        #: The compaction request the agent wrote. Last wins.
+        self.compact_request: CompactRequest | None = None
+        #: (pre, post) tokens, when the event was a compact boundary.
+        self.compacted: tuple[int | None, int | None] | None = None
+        self.compact_refused: str | None = None
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1407,6 +1427,9 @@ class _Emitter:
             self.pr_link,
             self.pr_withdrawn,
             self.feedback_params,
+            self.compact_request,
+            self.compacted,
+            self.compact_refused,
         )
 
 
@@ -1475,6 +1498,13 @@ def _task_notification(text: str) -> dict[str, str] | None:
         if name in fields and not fields[name]:
             fields[name] = value.strip()
     return fields if any(fields.values()) else None
+
+
+def _count(value: object) -> int | None:
+    """A token count off the wire, or ``None`` when it is not a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
 
 
 def _compact_summary(text: str) -> bool:
