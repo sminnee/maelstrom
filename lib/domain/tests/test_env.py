@@ -6,6 +6,7 @@ import signal
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
+from urllib.parse import urlencode
 
 import pytest
 
@@ -459,13 +460,14 @@ class TestFeedbackUrl:
         ],
         ids=["http", "https"],
     )
-    def test_comes_from_the_orchestrator_url(
+    def test_comes_from_the_orchestrator_url_and_names_the_worktree(
         self, home, notebook, orchestrator_url, feedback_url
     ):
         (notebook / "config.yaml").write_text(f"orchestrator_url: {orchestrator_url}\n")
         alpha = self.worktree(home, "ORCHESTRATOR_PORT=3460\n")
 
-        assert build_service_env(alpha)["MAEL_FEEDBACK_URL"] == feedback_url
+        url = build_service_env(alpha)["MAEL_FEEDBACK_URL"]
+        assert url == f"{feedback_url}?{urlencode({'path': str(alpha)})}"
 
     def test_the_worktree_env_overrides_it(self, home, notebook):
         (notebook / "config.yaml").write_text(
@@ -475,7 +477,13 @@ class TestFeedbackUrl:
 
         assert build_service_env(alpha)["MAEL_FEEDBACK_URL"] == ""
 
-    def test_is_absent_when_no_orchestrator_url_is_set(self, home, notebook):
+    def test_is_absent_when_no_orchestrator_url_is_set(
+        self, home, notebook, monkeypatch
+    ):
+        """An inherited URL names another worktree's service, so it is not passed on."""
+        monkeypatch.setenv(
+            "MAEL_FEEDBACK_URL", "ws://o:2770/api/live-feedback?path=%2Fp&service=web"
+        )
         alpha = self.worktree(home, "")
 
         assert "MAEL_FEEDBACK_URL" not in build_service_env(alpha)
@@ -3640,6 +3648,46 @@ class TestServiceEnvExpands:
             )
         child_env = spawned[0]
         assert child_env["CACHE_DIR"] == "/home/tester/.cache/p-delta"
+
+    @pytest.mark.parametrize(
+        ("base", "expected"),
+        [
+            (
+                "ws://o:2770/api/live-feedback?path=%2Fp",
+                "ws://o:2770/api/live-feedback?path=%2Fp&service={}",
+            ),
+            ("", ""),
+        ],
+        ids=["minted", "switched-off"],
+    )
+    def test_each_service_dials_live_feedback_by_its_own_name(
+        self, tmp_path, base, expected
+    ):
+        """The URL is the client's identity; under ``dev_https:`` its port is a proxy's."""
+        spawned = []
+
+        def fake_popen(argv, **kwargs):
+            spawned.append(kwargs["env"])
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        services = [
+            ResolvedService(name="web", command="serve", env={}),
+            ResolvedService(name="ladle", command="serve", env={"X": "1"}),
+        ]
+        with patch("mael_domain.env.Popen", fake_popen):
+            _spawn_services(
+                services,
+                tmp_path,
+                {"MAEL_FEEDBACK_URL": base},
+                tmp_path / "logs",
+                "2026-10-13T00:00:00+00:00",
+            )
+        assert [env["MAEL_FEEDBACK_URL"] for env in spawned] == [
+            expected.format("web"),
+            expected.format("ladle"),
+        ]
 
 
 class TestServiceLogsSurviveARestart:
