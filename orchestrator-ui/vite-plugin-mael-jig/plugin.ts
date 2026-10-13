@@ -1,20 +1,10 @@
 // The jig's dev-server half. See CONTEXT.md, "Jig", and
 // docs/dev/orchestrator-ui.md, "The jig".
 //
-// The jig talks to a **Live feedback provider**: JSON frames over one
-// WebSocket, at `MAEL_FEEDBACK_URL`.
+// The jig is a **Live feedback** client: it exposes one param, `jig`, at
+// `MAEL_FEEDBACK_URL`. The protocol is docs/dev/live-feedback.md.
 //
-//   jig → provider
-//     {type: "hello", path}             the git top level, sent on each open
-//     {type: "feedback", id, feedback}  the body `POST /__mael/feedback` took, with
-//                                       its screenshot written to `.drafts/jig/`
-//                                       and named by file
-//     {type: "hide"}                    the user hid the jig
-//   provider → jig
-//     {type: "state", visible}          after the hello, and on each change
-//     {type: "reply", id, ok, body}     one per feedback frame
-//
-// The jig is shown only while the socket is open and the provider says so.
+// The jig is shown only while the socket is open and its `jig` param is on.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -44,6 +34,10 @@ const SETTLE_MS = 80;
 /** The screenshots `.drafts/jig/` keeps. An agent reads the newest; the rest is history. */
 const KEEP_SHOTS = 20;
 const JPEG_DATA_URL = 'data:image/jpeg;base64,';
+/** The params the jig exposes. Its one param shows the jig. */
+const PARAMS = {
+  jig: { label: 'Jig', type: 'boolean', description: 'Show the jig on each page' },
+};
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
 export function maelJig({ providerUrl }: Options): Plugin {
@@ -92,7 +86,7 @@ export function maelJig({ providerUrl }: Options): Plugin {
       server.watcher.on('change', broadcast);
       server.watcher.on('unlink', broadcast);
 
-      const provider = connect(usableUrl(providerUrl, server.config.logger), worktree, (visible) =>
+      const provider = connect(usableUrl(providerUrl, server.config.logger), (visible) =>
         server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
       );
       const shots = join(drafts, 'jig');
@@ -174,7 +168,7 @@ export function maelJig({ providerUrl }: Options): Plugin {
  * The socket to the provider, kept open: it reconnects with backoff, and
  * reports the jig hidden while it is down. `onState` hears each change.
  */
-function connect(url: string | undefined, worktree: string, onState: (visible: boolean) => void) {
+function connect(url: string | undefined, onState: (visible: boolean) => void) {
   let socket: WebSocket | null = null;
   let visible = false;
   let stopped = !url;
@@ -198,7 +192,7 @@ function connect(url: string | undefined, worktree: string, onState: (visible: b
     socket = ws;
     ws.onopen = () => {
       attempt = 0;
-      ws.send(JSON.stringify({ type: 'hello', path: worktree }));
+      ws.send(JSON.stringify({ type: 'exposeParams', params: PARAMS }));
     };
     ws.onmessage = (event) => {
       // A throw here would be uncaught, and would take the dev server down.
@@ -209,7 +203,9 @@ function connect(url: string | undefined, worktree: string, onState: (visible: b
         return;
       }
       if (typeof frame !== 'object' || frame === null) return;
-      if (frame.type === 'state') show(Boolean(frame.visible));
+      if (frame.type === 'setParams' && typeof frame.params?.jig === 'boolean') {
+        show(frame.params.jig);
+      }
       if (frame.type === 'reply') {
         waiting.get(frame.id)?.resolve(frame);
         waiting.delete(frame.id);
@@ -248,7 +244,7 @@ function connect(url: string | undefined, worktree: string, onState: (visible: b
       });
     },
     hide() {
-      live().send(JSON.stringify({ type: 'hide' }));
+      live().send(JSON.stringify({ type: 'setParams', params: { jig: false } }));
     },
     stop() {
       stopped = true;
