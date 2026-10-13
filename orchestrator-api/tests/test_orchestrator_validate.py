@@ -1185,6 +1185,68 @@ class TestFeedback:
         }
 
 
+JIG_PARAM = {"label": "Jig", "type": "boolean", "description": "", "value": False}
+
+
+def feedback_world(agents: list | None = None) -> dict:
+    """A worktree whose web dev server exposes the ``jig`` param. One agent unless told."""
+    worktree = make_worktree(
+        liveFeedback=[{"service": "web", "params": {"jig": JIG_PARAM}}]
+    )
+    agents = [make_agent()] if agents is None else agents
+    return world_with(agents=agents, worktrees=[worktree])
+
+
+def set_params_cmd(service: str = "web", **params) -> dict:
+    return worktree_cmd(
+        "worktree.setFeedbackParams",
+        "northwind-alpha",
+        service=service,
+        params=params or {"jig": True},
+    )
+
+
+class TestSetFeedbackParams:
+    """A param change needs a connected service that declares it, and an agent to hear it."""
+
+    @pytest.mark.parametrize("value", [True, False], ids=["on", "off"])
+    def test_a_declared_param_on_a_connected_service_may_be_set(self, value):
+        assert validate_command(feedback_world(), set_params_cmd(jig=value)) is None
+
+    @pytest.mark.parametrize(
+        ("cmd", "message"),
+        [
+            (set_params_cmd("ladle"), "ladle has no live feedback client"),
+            (set_params_cmd(grid=True), "web exposes no param grid"),
+            (set_params_cmd(jig="yes"), "A param value is true or false"),
+            (
+                worktree_cmd(
+                    "worktree.setFeedbackParams",
+                    "northwind-alpha",
+                    service="web",
+                    params=[],
+                ),
+                "No params to set",
+            ),
+        ],
+        ids=["not-connected", "undeclared", "not-a-bool", "not-an-object"],
+    )
+    def test_a_change_the_service_cannot_take_is_refused(self, cmd, message):
+        assert validate_command(feedback_world(), cmd) == {
+            "code": "invalid",
+            "message": message,
+        }
+
+    @pytest.mark.parametrize("value", [True, False], ids=["on", "off"])
+    def test_any_change_with_no_agent_is_refused(self, value):
+        assert validate_command(
+            feedback_world(agents=[]), set_params_cmd(jig=value)
+        ) == {
+            "code": "invalid",
+            "message": "No agent is running in northwind-alpha",
+        }
+
+
 # --- worktree.refresh --------------------------------------------------------
 
 

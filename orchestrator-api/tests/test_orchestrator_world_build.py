@@ -168,6 +168,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         },
         "sessionCount": 1,
         "shellUrl": "",
+        "liveFeedback": [],
     }
 
 

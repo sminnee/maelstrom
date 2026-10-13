@@ -237,6 +237,8 @@ def worktree_entity(
         "env": row.get("env") or {"state": "stopped", "services": []},
         "sessionCount": int(row.get("session_count") or 0),
         "shellUrl": shell_url,
+        # The server overlays the live state; see ``LiveFeedbackHub``.
+        "liveFeedback": [],
     }
 
 

@@ -11,7 +11,7 @@ from typing import Any
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
 from mael_domain.attachments import is_bare_name
-from mael_domain.protocol import Agent, World
+from mael_domain.protocol import Agent, Worktree, World
 from mael_domain.worktree_model import is_worktree_closable
 
 from .desk import split_desk_id
@@ -85,6 +85,7 @@ WORKTREE_COMMANDS = (
     "worktree.createTerminal",
     "worktree.comment",
     "worktree.feedback",
+    "worktree.setFeedbackParams",
 )
 
 #: The commands that take a worktree away, which ``_main`` refuses. A sync or
@@ -108,11 +109,16 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.createTerminal",
     "worktree.comment",
     "worktree.feedback",
+    "worktree.setFeedbackParams",
 )
 
 #: The commands that relay a message to the agents in a worktree. Each needs
 #: an agent to tell, and ``agents_in_worktree`` names the same ones for all.
-RELAY_COMMANDS = ("worktree.comment", "worktree.feedback")
+RELAY_COMMANDS = (
+    "worktree.comment",
+    "worktree.feedback",
+    "worktree.setFeedbackParams",
+)
 
 #: What a **Dismiss** runs before the node leaves the desk: the agent's stop,
 #: or the worktree command that ends its worktree.
@@ -396,6 +402,23 @@ _FEEDBACK_VALIDATORS = {
 }
 
 
+def _feedback_params_error(
+    worktree: Worktree, service: Any, params: Any
+) -> dict[str, str] | None:
+    """Whether the service is connected, and exposes each param, set to a bool."""
+    if not isinstance(params, dict) or not params:
+        return _err("invalid", "No params to set")
+    connected = {s["service"]: s["params"] for s in worktree.get("liveFeedback", [])}
+    if service not in connected:
+        return _err("invalid", f"{service} has no live feedback client")
+    for name, value in params.items():
+        if name not in connected[service]:
+            return _err("invalid", f"{service} exposes no param {name}")
+        if not isinstance(value, bool):
+            return _err("invalid", "A param value is true or false")
+    return None
+
+
 def _feedback_error(feedback: Any) -> dict[str, str] | None:
     """Whether ``feedback`` holds a type the server knows, with its fields.
 
@@ -475,6 +498,12 @@ def _worktree_error(
         if error:
             return error
 
+    if kind == "worktree.setFeedbackParams":
+        error = _feedback_params_error(worktree, cmd.get("service"), cmd.get("params"))
+        if error:
+            return error
+
+    # A param change needs an agent, off as well as on: see docs/dev/live-feedback.md.
     if kind in RELAY_COMMANDS and not agents_in_worktree(world, worktree_id):
         return _err("invalid", f"No agent is running in {worktree_id}")
 

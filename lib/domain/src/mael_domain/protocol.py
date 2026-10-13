@@ -57,6 +57,29 @@ class WorktreeEnv(TypedDict):
     services: list[WorktreeServiceRow]
 
 
+class LiveFeedbackParam(TypedDict):
+    """One **Live feedback param**: the client's declaration, and its value.
+
+    ``type`` is ``"boolean"``, the one type the server takes.
+    """
+
+    label: str
+    type: str
+    description: str
+    value: bool
+
+
+class LiveFeedbackService(TypedDict):
+    """One dev server of the worktree with a **Live feedback** client connected.
+
+    ``params`` is what the client last exposed, by param name. The
+    orchestrator server writes it; ``list-all`` does not.
+    """
+
+    service: str
+    params: dict[str, LiveFeedbackParam]
+
+
 class Worktree(TypedDict):
     """One row of ``mael --json list-all``."""
 
@@ -97,6 +120,7 @@ class Worktree(TypedDict):
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
     shellUrl: str
+    liveFeedback: list[LiveFeedbackService]
 
 
 class ChangedFile(TypedDict):

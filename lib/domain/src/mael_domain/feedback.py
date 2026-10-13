@@ -78,9 +78,11 @@ def format_instruction(
     return "\n".join(lines)
 
 
-def format_jig_hidden(branch: str) -> str:
-    """The message that tells the agents of a worktree the user hid its **Jig**."""
-    return f"The user hid the jig for {branch}."
+def format_param_set(branch: str, service: str, label: str, value: bool) -> str:
+    """The message that tells the agents of a worktree the user set a **Live feedback param**."""
+    return (
+        f"The user turned {label} {'on' if value else 'off'} for {service} on {branch}."
+    )
 
 
 def _describe(element: dict[str, Any]) -> list[str]:

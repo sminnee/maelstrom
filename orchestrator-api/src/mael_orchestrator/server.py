@@ -43,12 +43,12 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
-from mael_domain.document_tags import FINAL_STAGE
+from mael_domain.document_tags import FINAL_STAGE, ParamSet
 from mael_domain.feedback import (
     JIG_DRAFTS,
     format_instruction,
-    format_jig_hidden,
     format_monkeypatch,
+    format_param_set,
 )
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
@@ -515,8 +515,8 @@ class Orchestrator:
         self._transcripts: dict[str, TranscriptLog] = {}
         self._transcript_ring = transcript_ring
         self.transcripts = TranscriptHub(ws_queue_limit, on_idle=self._transcript_idle)
-        #: Set by an agent's `<jig>` marker and by the user's hide.
-        self.live_feedback = LiveFeedbackHub()
+        #: Set by an agent's `<live-feedback>` marker, by the UI, and by the page.
+        self.live_feedback = LiveFeedbackHub(on_change=self._live_feedback_changed)
         self._child_detach = child_detach
         #: Per subagent, the detach waiting for its grace to pass.
         self._detaches: dict[str, asyncio.Task[None]] = {}
@@ -1070,8 +1070,14 @@ class Orchestrator:
             events = diff_kind(
                 "project", world["projects"], {p["id"]: p for p in projects}
             )
+            # ``list-all`` knows nothing of live feedback: the hub's state goes on top.
             events += diff_kind(
-                "worktree", world["worktrees"], {w["id"]: w for w in worktrees}
+                "worktree",
+                world["worktrees"],
+                {
+                    w["id"]: {**w, "liveFeedback": self.live_feedback.state(w["id"])}
+                    for w in worktrees
+                },
             )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
@@ -1657,12 +1663,12 @@ class Orchestrator:
             await self._register_pr(
                 watch.agent_id, out.pr_link, replay=not watch.caught_up.is_set()
             )
-        # A replayed marker is history: a restart hides every jig, and the
-        # backlog must not show one again.
-        if out.jig is not None and watch.caught_up.is_set():
+        # A replayed marker is history: a restart turns every param off, and
+        # the backlog must not turn one on again.
+        if out.feedback_params and watch.caught_up.is_set():
             agent = self.world["agents"].get(watch.agent_id)
             if agent and agent["worktreeId"]:
-                self.live_feedback.set(agent["worktreeId"], out.jig)
+                self._apply_feedback_params(agent["worktreeId"], out.feedback_params)
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
@@ -1950,6 +1956,11 @@ class Orchestrator:
         if watch:
             watch.ctx = out.ctx
         self._apply(out.events)
+        # A param left on with no agent to hear it could not be turned off:
+        # every change needs an agent.
+        worktree_id = agent["worktreeId"]
+        if worktree_id and not agents_in_worktree(self.world, worktree_id):
+            self.live_feedback.clear(worktree_id)
         # After the state says exited, so the guard above closes the door on a
         # second `_exit`. `_exit` has four callers and the stream task and the
         # poll loop run concurrently: closing the ledger before the flip would
@@ -2011,6 +2022,7 @@ class Orchestrator:
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
             "worktree.feedback": self._send_feedback,
+            "worktree.setFeedbackParams": self._set_feedback_params,
             "worktree.refresh": self._refresh_worktrees_now,
             "operation.seen": self._mark_seen,
             "operation.retry": self._retry,
@@ -2389,23 +2401,69 @@ class Orchestrator:
         return await self._say_to_worktree(worktree_id, text, attachments)
 
     def live_feedback_worktree(self, path: str) -> str | None:
-        """The id of the worktree a jig at ``path`` serves, by real path."""
+        """The id of the worktree a live feedback client at ``path`` serves, by real path."""
         real = os.path.realpath(path)
         for worktree in self.world["worktrees"].values():
             if os.path.realpath(worktree["path"]) == real:
                 return worktree["id"]
         return None
 
-    async def hide_jig(self, worktree_id: str) -> None:
-        """The user hid the worktree's jig: hide it everywhere, and tell its agents.
+    def _apply_feedback_params(
+        self, worktree_id: str, sets: tuple[ParamSet, ...]
+    ) -> None:
+        """Apply the params an agent's markers set. The agent set them, so nobody is told."""
+        for param in sets:
+            if param.service is None:
+                self.live_feedback.set_everywhere(worktree_id, param.name, param.value)
+            else:
+                self.live_feedback.set(
+                    worktree_id, param.service, {param.name: param.value}
+                )
 
-        The agents hear it whether or not the jig was shown, and a refusal is
-        nobody's to answer: the jig is gone either way.
+    async def _set_feedback_params(self, command: dict[str, Any]) -> dict[str, Any]:
+        """The user set live feedback params, from the UI or the page. The agents hear of it.
+
+        A set to the current value changes nothing and tells nobody. A change
+        no agent took is undone, so the reply and the params agree.
         """
-        self.live_feedback.set(worktree_id, False)
-        if agents_in_worktree(self.world, worktree_id):
-            branch = self.world["worktrees"][worktree_id]["branch"]
-            await self._say_to_worktree(worktree_id, format_jig_hidden(branch))
+        worktree_id, service = command["worktreeId"], command["service"]
+        current = self.live_feedback.values(worktree_id, service)
+        changed = {
+            name: value
+            for name, value in command["params"].items()
+            if current[name] != value
+        }
+        if not changed:
+            return {"ok": True, "result": {}}
+        self.live_feedback.set(worktree_id, service, changed)
+        branch = self.world["worktrees"][worktree_id]["branch"]
+        declared = self.live_feedback.declared(worktree_id, service)
+        text = "\n".join(
+            format_param_set(branch, service, declared[name]["label"], value)
+            for name, value in changed.items()
+        )
+        reply = await self._say_to_worktree(worktree_id, text)
+        if not reply["ok"]:
+            # Through `revert`, not `set`: the service can close during the
+            # say, and a change made meanwhile must stand.
+            self.live_feedback.revert(
+                worktree_id, service, {name: current[name] for name in changed}, changed
+            )
+        return reply
+
+    def _live_feedback_changed(self, worktree_id: str) -> None:
+        """Write the hub's state for one worktree into its row."""
+        worktrees = self.world["worktrees"]
+        if worktree_id not in worktrees:
+            return
+        updated = {
+            **worktrees,
+            worktree_id: {
+                **worktrees[worktree_id],
+                "liveFeedback": self.live_feedback.state(worktree_id),
+            },
+        }
+        self._apply(diff_kind("worktree", worktrees, updated))
 
     async def _say_to_worktree(
         self,
