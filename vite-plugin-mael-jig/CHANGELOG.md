@@ -11,6 +11,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-13
+
 ### Added
 
 - **The first release.** `maelJig()` in a Vite config shows the jig on each page of the dev

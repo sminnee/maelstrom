@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-mael-jig",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The maelstrom jig: a Vite dev-server overlay that sends CSS and instructions to the agent in the worktree",
   "license": "MIT",
   "repository": {
