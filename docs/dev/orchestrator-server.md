@@ -232,7 +232,7 @@ messages untouched already, so it carries no document payload and learns nothing
 One document tag, read by `document_tags.read_tags`:
 
 ```
-<doc-file kind="tasks" filename=".drafts/iter1.md, .drafts/tail.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/1.md, .drafts/2.md" title="Task set">
 ```
 
 Every document is a file. `<doc-file>` names files the server reads, comma-separated, and each
@@ -425,15 +425,15 @@ group. So approving a member of a group whose members are all `tasks` documents 
 group stays the verdict alone. A `source` names a registry id, so the paths come back from the
 registry that validated them when the tag was read — see "The file registry". A member with no id
 was unreadable, and refuses the promote with its path.
-The first task follows the end of its parent's child-chain — `--follow-end '*'`, as the skill
-wires it by hand — and each later one follows the one before, so the chain lands as the document
-listed it. The reply carries the created ids,
+The set **splices** in after the planning task — see `CONTEXT.md`, "Splice". The document's
+`taskId` names the planning task in the world. Its notebook id plays the part `$MAEL_TASK_ID`
+plays for `mael task promote`. A free agent has no task, so its set follows nothing. The reply carries the created ids,
 because an approve that reports nothing reads as an approve that did nothing.
 
 The head is **not** launched: the task list and node cards already offer Launch. The agent is told
 what was created, so a session that planned the chain does not promote it a second time.
 
-`NotebookTaskSource.promote` is the storage-layer step, over `task.promote_draft` — the same
+`NotebookTaskSource.promote` is the storage-layer step, over `task.promote_chain` — the same
 function `mael task promote` calls, so the CLI stays canonical and this is a second surface onto
 it, not a reimplementation. Three things make the failure path safe:
 
@@ -445,8 +445,8 @@ it, not a reimplementation. Three things make the failure path safe:
 - **One store.** A task's prose is in its row, so there is no second place a rolled-back write
   can survive in. That is what the cache beside the notebook used to cost, and why promote had
   to work around it.
-- **Deferred deletion.** `promote_draft(consume=False)` leaves each file, and the set is deleted
-  only once the transaction commits. A rollback restores the rows but cannot restore a deleted
+- **Deferred deletion.** `promote_chain` leaves each file in place, and deletes the set only
+  once the transaction commits. A rollback restores the rows but cannot restore a deleted
   file, so deleting as it went would leave the user a half-deleted plan.
 
 The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
