@@ -9,6 +9,8 @@ import html
 import re
 from dataclasses import dataclass, field
 
+from .github_model import PrStatus
+
 GITHUB = "github"
 JIG = "jig"
 ORCHESTRATOR_UI = "orchestrator-ui"
@@ -70,3 +72,77 @@ def parse(text: str) -> ExternalEvent | None:
     if not source or not type_:
         return None
     return ExternalEvent(source, type_, attrs, match[2].strip())
+
+
+@dataclass(frozen=True)
+class PrLedger:
+    """What the agents of a PR were last told, so nothing is told twice."""
+
+    state: str
+    conflicting: bool
+    told_failed_oid: str
+    told_green_oid: str
+
+
+#: States whose checks are green. A conflict or an unknown mergeability is
+#: read only after the checks, so the checks passed.
+_GREEN = frozenset({"ready", "conflict", "unknown"})
+
+
+def pr_events(
+    pr: PrStatus, told: PrLedger | None, withdrawn: bool
+) -> tuple[list[ExternalEvent], PrLedger]:
+    """The events ``pr`` is news for, and the ledger after them.
+
+    ``told`` is ``None`` the first time the PR is seen. A **Withdrawn PR** hears
+    of its merge only, but its ledger still moves, so registering it again
+    replays nothing.
+    """
+    number, short = pr.number, pr.head_oid[:7]
+    failed_oid = told.told_failed_oid if told else ""
+    green_oid = told.told_green_oid if told else ""
+    events: list[ExternalEvent] = []
+
+    def add(type_: str, body: str, *, head: bool = False) -> None:
+        attrs = {"pr": str(number), **({"head": short} if head else {})}
+        events.append(ExternalEvent(GITHUB, type_, attrs, body))
+
+    if pr.state == "merged":
+        if told is None or told.state != "merged":
+            add(
+                PR_MERGED,
+                f"PR #{number} has merged. The work is done: run `mael session end`.",
+            )
+    else:
+        if told is None:
+            add(
+                PR_WATCHING,
+                f"Maelstrom will tell you when CI on PR #{number} fails or passes, "
+                "when it conflicts, and when it merges. End your turn after the "
+                "push; do not wait on CI.",
+            )
+        if pr.state == "ci-failed" and pr.head_oid != failed_oid:
+            failed_oid = pr.head_oid
+            add(
+                PR_CHECKS_FAILED,
+                f"CI failed on PR #{number} at {short}. Investigate with "
+                "`mael gh read-pr` and `mael gh check-log <run> --failed-only`, "
+                "fix the failures, commit fixups, and run `mael sync`.",
+                head=True,
+            )
+        if pr.state in _GREEN and pr.checks_seen and pr.head_oid != green_oid:
+            green_oid = pr.head_oid
+            add(
+                PR_CHECKS_PASSED,
+                f"CI passed on PR #{number} at {short}. No action needed.",
+                head=True,
+            )
+        if pr.conflicting and not (told and told.conflicting):
+            add(
+                PR_CONFLICT,
+                f"PR #{number} conflicts with its base. Run `mael sync`, resolve "
+                "the conflicts, and continue the rebase.",
+            )
+        if withdrawn:
+            events = []
+    return events, PrLedger(pr.state, pr.conflicting, failed_oid, green_oid)
