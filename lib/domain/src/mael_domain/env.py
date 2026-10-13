@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from string import Template
 from subprocess import DEVNULL, STDOUT, Popen
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from mael_common.util import now_iso, sanitise_child_env
 
@@ -404,8 +405,8 @@ def live_feedback_url() -> str | None:
     """Where the notebook's orchestrator serves as a **Live feedback provider**.
 
     The ``orchestrator_url:`` the notebook names, as a WebSocket URL. The
-    agents run under that orchestrator, whichever worktree's dev server the jig
-    is on. ``None`` when no URL is set.
+    agents run under that orchestrator, whichever worktree's dev server the
+    client is in. ``None`` when no URL is set.
     """
     url = context.load_global_config().orchestrator_url
     if not url:
@@ -415,13 +416,23 @@ def live_feedback_url() -> str | None:
     return f"{ws_scheme}://{rest.rstrip('/')}/api/live-feedback"
 
 
+def _with_query(url: str, **params: str) -> str:
+    """``url`` with ``params`` added to its query. The query it holds is kept."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [*parse_qsl(parts.query, keep_blank_values=True), *params.items()]
+    )
+    return urlunsplit(parts._replace(query=query))
+
+
 def build_service_env(worktree_path: Path) -> dict[str, str]:
     """Build the environment dict for spawned services.
 
     Starts with the current process environment, minus the variables no child
-    should inherit, adds ``MAEL_FEEDBACK_URL``, and overlays the worktree's .env
-    file. The overlay runs last, so the .env wins over both: it can restore a
-    stripped variable, and an empty ``MAEL_FEEDBACK_URL`` switches the jig off.
+    should inherit, adds ``MAEL_FEEDBACK_URL`` with the worktree's ``path``, and
+    overlays the worktree's .env file. The overlay runs last, so the .env wins
+    over both: it can restore a stripped variable, and an empty
+    ``MAEL_FEEDBACK_URL`` switches **Live feedback** off.
 
     The dev variables go in beneath the ``.env``, so a ``.env`` written before
     one of them existed still expands ``${DEV_SCHEME}`` in a service's ``env:``.
@@ -431,9 +442,12 @@ def build_service_env(worktree_path: Path) -> dict[str, str]:
     """
     env = sanitise_child_env(os.environ)
     env.update(dev_env_vars())
+    # The URL names a worktree and a service, so an inherited one names
+    # another's: a `mael env start` run from inside a service would pass it on.
+    env.pop("MAEL_FEEDBACK_URL", None)
     feedback_url = live_feedback_url()
     if feedback_url:
-        env["MAEL_FEEDBACK_URL"] = feedback_url
+        env["MAEL_FEEDBACK_URL"] = _with_query(feedback_url, path=str(worktree_path))
     env.update(read_env_file(worktree_path))
     if env.get("DEV_SCHEME") != "https":
         for key in TLS_ENV_VARS:
@@ -581,7 +595,8 @@ def _spawn_services(
 
     Each service is started via ``sh -c`` in a new session, with
     stdout/stderr redirected to a log file. A service's own ``env`` overrides are
-    merged onto the base ``env`` for its spawn only (not mutating the caller's).
+    merged onto the base ``env`` for its spawn only (not mutating the caller's),
+    with the service's name added to a non-empty ``MAEL_FEEDBACK_URL``.
     ``${VAR}`` references in those overrides are expanded against the base env, so
     a value like ``PGHOST: ${DB_HOST}`` resolves to the dynamic host var that
     phase 1 injected (unknown vars are left intact, matching shell behaviour).
@@ -590,10 +605,16 @@ def _spawn_services(
     service_states = []
 
     for svc in services:
-        svc_env = env
+        # The URL is the live feedback client's identity, so it names the
+        # service: the client dials it as it is.
+        svc_env = dict(env)
+        if env.get("MAEL_FEEDBACK_URL"):
+            svc_env["MAEL_FEEDBACK_URL"] = _with_query(
+                env["MAEL_FEEDBACK_URL"], service=svc.name
+            )
         if svc.env:
             expanded = {k: Template(v).safe_substitute(env) for k, v in svc.env.items()}
-            svc_env = {**env, **expanded}
+            svc_env = {**svc_env, **expanded}
         log_file = log_dir / f"{svc.name}.log"
         _roll_over_if_large(log_file)
         # Appended, not truncated: a service is usually restarted right after
