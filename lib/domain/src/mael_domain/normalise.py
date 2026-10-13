@@ -40,6 +40,7 @@ from .document_tags import (
     replace_media,
     stays_within,
 )
+from .external_event import parse as parse_external_event
 from .file_registry import FileRegistry
 from .protocol import (
     Agent,
@@ -537,7 +538,19 @@ def normalise_stream_event(
                     # other turn is the handover, or follows it.
                     out.ctx = replace(out.ctx, handing_over=False)
                 notification = _task_notification(text)
-                if notification is not None:
+                if (event := parse_external_event(text)) is not None:
+                    # The server wrote it, so it is not drawn as the user's
+                    # words. The agent acts on it, so the turn started.
+                    out.append(
+                        {
+                            "type": "external_event",
+                            "source": event.source,
+                            "eventType": event.type,
+                            "attrs": event.attrs,
+                            "markdown": event.body,
+                        }
+                    )
+                elif notification is not None:
                     # Unlike the echo above, this is a background command's
                     # only trace, so it folds rather than dropping. No
                     # `continue`: the agent acts on it, so the turn started.
