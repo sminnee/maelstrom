@@ -19,6 +19,9 @@ export const TASK_STATUSES = [
   'template',
 ] as const satisfies readonly TaskStatus[];
 
+/** Whether the task's work is over: done or cancelled. */
+export const isTerminal = (status: TaskStatus) => status === 'done' || status === 'cancelled';
+
 export type TaskMode = PermissionMode;
 
 export interface Project {
