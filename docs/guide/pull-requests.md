@@ -363,6 +363,14 @@ GitHub refuses the merge when a push landed after the orchestrator last read the
 Wait for the new commit's checks, then merge again. The merge closes no worktree and moves no
 task. GitHub deletes the branch when the repository has "Automatically delete head branches" on.
 
+A pull request whose checks still run shows an **Auto-merge** switch in place of **Merge**.
+Click it, and GitHub rebase-merges the pull request when its checks pass. A push after the click
+is not merged: GitHub merges only the head commit you saw. Click the switch again to turn it off.
+While the pull request differs, the switch cannot turn on until you sync.
+The switch stays while auto-merge is on, so you can turn it off after a red build. It does not
+show on a draft, or when the repository does not allow auto-merge. To allow it, turn on "Allow
+auto-merge" in the repository's GitHub settings.
+
 The orchestrator merges with `github.orchestrator_token`. Unset, it merges with the token it
 inherits, which can be an agent token without merge rights. See
 [configuration.md](../reference/configuration.md#api-keys).

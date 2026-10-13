@@ -1,0 +1,5 @@
+/* The checkbox shows the state; the button takes the click. */
+.switch input {
+  margin: 0;
+  pointer-events: none;
+}

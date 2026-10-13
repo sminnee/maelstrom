@@ -1631,6 +1631,34 @@ function command(
     });
   }
 
+  m = pathname.match(/^\/api\/worktrees\/([^/]+)\/auto-merge$/);
+  if (m && method === 'POST') {
+    const id = decodeURIComponent(m[1]!);
+    const worktree = world.worktrees[id];
+    if (!worktree) return notFound(`worktree ${id}`);
+    const on = (body as { on?: unknown } | undefined)?.on;
+    // Refuses as `validate.py` does, in brief.
+    if (typeof on !== 'boolean') return error(400, 'invalid', 'on must be true or false');
+    if (on && worktree.prMatch === 'differ') {
+      return error(
+        400,
+        'invalid',
+        `The local branch differs from PR #${worktree.prNumber}. Sync it first.`,
+      );
+    }
+    const word = on ? 'on' : 'off';
+    return operate({
+      kind: 'autoMerge',
+      worktreeId: id,
+      keys: [`worktree:${id}`],
+      project: worktree.project,
+      doing: `Turning ${word} auto-merge for the pull request of ${worktree.nato}`,
+      done: `Turned ${word} auto-merge for the pull request of ${worktree.nato}`,
+      failing: 'Could not change auto-merge on the pull request',
+      steps: [{ name: 'auto_merge', run: () => moveWorktree(id, { prAutoMerge: on }) }],
+    });
+  }
+
   m = pathname.match(/^\/api\/operations\/([^/]+)\/seen$/);
   if (m && method === 'POST') {
     const id = decodeURIComponent(m[1]!);

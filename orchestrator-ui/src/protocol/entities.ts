@@ -319,6 +319,7 @@ export type OperationKind =
   | 'delete'
   | 'sync'
   | 'merge'
+  | 'autoMerge'
   | 'env'
   | 'dismiss'
   | 'terminate'
