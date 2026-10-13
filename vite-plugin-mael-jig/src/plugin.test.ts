@@ -27,12 +27,13 @@ const closers: (() => void)[] = [];
 /** A dev server with the jig. An empty `providerUrl` is no provider. */
 async function start(
   providerUrl = '',
-  { jig = () => maelJig({ providerUrl }) }: { jig?: () => Plugin } = {},
+  { jig = () => maelJig({ providerUrl }), base }: { jig?: () => Plugin; base?: string } = {},
 ) {
   server = await createServer({
     root: worktree,
     configFile: false,
     logLevel: 'silent',
+    base,
     plugins: [jig()],
     server: { port: 0, host: '127.0.0.1' },
   });
@@ -251,9 +252,17 @@ describe('the jig plugin', () => {
     expect(await page.next()).toEqual({ name: 'monkeypatch.css', text: '', from: null });
   });
 
-  it('injects the overlay into the page', async () => {
+  it('injects the client into the page, and serves it from outside the root', async () => {
     const html = await (await fetch(`${origin}/`)).text();
-    expect(html).toMatch(/<script type="module" src="[^"]*client\.ts"><\/script>/);
+    const src = /<script type="module" src="([^"]*mael-jig[^"]*)"><\/script>/.exec(html)?.[1];
+    expect(src).toBeDefined();
+
+    // The root is a temp dir, outside the package, as a linked copy is.
+    const client = await fetch(`${origin}${src}`);
+    expect(client.status).toBe(200);
+    const overlay = /import \{ mountJig \} from "([^"]+)"/.exec(await client.text())?.[1];
+    expect(overlay).toBeDefined();
+    expect((await fetch(`${origin}${overlay}`)).status).toBe(200);
   });
 
   it('reads the jig hidden with no provider', async () => {
@@ -304,6 +313,18 @@ describe('the plugin with no options', () => {
     expect(await (await fetch(`${origin}/`)).text()).not.toContain('mael-jig');
     // No route: Vite's SPA fallback answers with the page.
     expect(await (await fetch(`${origin}/__mael/state`)).text()).toContain('<html>');
+  });
+});
+
+describe('a dev server with a base', () => {
+  it('injects the client under the base', async () => {
+    await start('', { base: '/app/' });
+
+    const html = await (await fetch(`${origin}/app/`)).text();
+    const src = /<script type="module" src="([^"]*mael-jig[^"]*)"><\/script>/.exec(html)?.[1];
+
+    expect(src).toMatch(/^\/app\//);
+    expect((await fetch(`${origin}${src}`)).status).toBe(200);
   });
 });
 

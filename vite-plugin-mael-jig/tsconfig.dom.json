@@ -4,7 +4,7 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["vite/client"],
+    "types": [],
     "skipLibCheck": true,
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -19,5 +19,5 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["src/client.ts", "src/overlay.ts", "src/overlay.test.ts"]
+  "include": ["src/overlay.ts", "src/overlay.test.ts"]
 }

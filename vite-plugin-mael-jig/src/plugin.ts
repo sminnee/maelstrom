@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
@@ -50,7 +50,11 @@ const DRAFTS: Record<string, { writable: boolean }> = {
   'jig-values.json': { writable: true },
   'jig-controls.json': { writable: false },
 };
-const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
+/** The module each page loads. Virtual, not a `/@fs/` path, so a linked copy serves: see docs/dev/orchestrator-ui.md, "The jig". */
+const CLIENT_ID = 'virtual:mael-jig/client';
+const SELF = fileURLToPath(import.meta.url);
+/** The overlay beside this file: `.ts` in the source, `.js` in the build. */
+const OVERLAY = join(dirname(SELF), `overlay${extname(SELF)}`);
 
 export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options = {}): Plugin {
   // vitest serves no page, so a consumer's config needs no guard.
@@ -60,6 +64,7 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
   let drafts = '';
   // The last PUT to each file, so a watcher event it caused names its page.
   const lastWrites = new Map<string, { text: string; from: string }>();
+  let base = '/';
 
   /** The draft file name of `path`, or `undefined` when the jig does not serve it. */
   const draftName = (path: string) => {
@@ -78,6 +83,24 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
   return {
     name: 'mael-jig',
     apply: 'serve',
+    // The overlay's one dependency is plain ESM. Pre-bundled, it would be
+    // looked up from the consumer's root, where pnpm does not hoist it.
+    config() {
+      return { optimizeDeps: { exclude: ['modern-screenshot'] } };
+    },
+    configResolved(config) {
+      base = config.base;
+    },
+    resolveId(id) {
+      if (id === CLIENT_ID) return `\0${CLIENT_ID}`;
+    },
+    load(id) {
+      if (id !== `\0${CLIENT_ID}`) return;
+      return [
+        `import { mountJig } from ${JSON.stringify(OVERLAY)};`,
+        'if (import.meta.hot) void mountJig({ hot: import.meta.hot });',
+      ].join('\n');
+    },
     configureServer(server) {
       const worktree = gitToplevel(server.config.root);
       if (!worktree) {
@@ -203,7 +226,9 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
     },
     transformIndexHtml() {
       if (!drafts) return;
-      return [{ tag: 'script', attrs: { type: 'module', src: `/@fs${CLIENT}` }, injectTo: 'body' }];
+      // Vite's URL for a `\0` module id. Vite does not add the base to a plugin's tag.
+      const src = `${base}@id/__x00__${CLIENT_ID}`;
+      return [{ tag: 'script', attrs: { type: 'module', src }, injectTo: 'body' }];
     },
   };
 }
