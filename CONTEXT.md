@@ -1029,8 +1029,8 @@ A dev-only overlay that a Vite plugin can put on every page of a worktree's dev 
 and each Ladle story. It is a **Live feedback** client with one **Live feedback param**, `jig`. It
 shows only while that param is on: an agent of the worktree turns it on, or the user turns on its
 switch in the **Dev env tab**. Hidden, it puts nothing on the page. It carries changes into the page and **Feedback** out to the agent: a
-**Monkeypatch** or an **Instruction**, each with a screenshot of the viewport when the capture
-works.
+**Monkeypatch**, an **Instruction**, a request for a **Control set** for the **Pick**, or the values of
+the **Controls**. Each goes with a screenshot of the viewport when the capture works.
 _Avoid_: Tuner, tuning jig, inspector, devtools panel
 
 **Live feedback**:
@@ -1062,14 +1062,16 @@ _Avoid_: Capability, flag, toggle
 A typed message from a **Live feedback** client, such as the **Jig**, to the agents of a worktree. One
 send delivers it, as one message, to every top-level agent in the worktree that has not exited.
 Its `type` names what it carries: `monkeypatch` for a **Monkeypatch**, `instruction` for an
-**Instruction**. When the user sets a **Live feedback param**, the agents get a message that
+**Instruction**, `pick` for a request for a **Control set** for the **Pick**, and `controls` for the
+values the user set on each **Control**. When the user sets a **Live feedback param**, the agents get a message that
 says so in the same way.
 _Avoid_: Tuning, report, event
 
 **Monkeypatch**:
 The CSS that the user writes in the **Jig**. It is kept in `.drafts/monkeypatch.css` in the
 worktree, not in the browser, so every page of the worktree applies the same text. Send delivers
-it as **Feedback**. The agent applies it in source and deletes the file.
+it as **Feedback**. The agent applies it in source and deletes the file. The agent also writes
+the wiring of each **Control** there.
 _Avoid_: Tuning CSS, overrides file, tweaks
 
 **Pick**:
@@ -1082,6 +1084,16 @@ _Avoid_: Inspect, select
 Free text that the user writes to the agents in the **Jig**'s prompt box. It goes as
 **Feedback** of type `instruction`, with the **Pick**'s description when there is one.
 _Avoid_: Prompt, command, chat message
+
+**Control set**:
+The **Controls** an agent writes to `.drafts/jig-controls.json` when a **Pick** asks for them.
+The **Jig** draws them on its Controls tab. The jig only reads the file.
+_Avoid_: Tuning panel, knobs
+
+**Control**:
+One CSS variable that the user sets in the **Jig**, with a slider, a number, a colour, a choice or
+text. The agent wires the variable in the **Monkeypatch**, so one control can drive several
+properties. The values are kept in `.drafts/jig-values.json`, so every page shares them.
 
 **Attention item**:
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
