@@ -38,6 +38,12 @@ set on each one that exposes it::
     <live-feedback jig="on">
     <live-feedback service="web" jig="off">
 
+The compaction request asks the orchestrator to compact the agent's session
+when it holds at least ``min-tokens``. A body focuses the summary::
+
+    <compact-session min-tokens="200k">
+    <compact-session min-tokens="200k">Keep the PR number</compact-session>
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -97,6 +103,18 @@ _QUOTED = re.compile(r'"[^"]*"|\'[^\']*\'')
 _LIVE_FEEDBACK_TAG = re.compile(r'<live-feedback((?:\s+\w+\s*=\s*"[^"]*")*)\s*>')
 _PARAM_VALUES = {"on": True, "off": False}
 
+#: Asks for the session to compact. Self-closing, or with a body that focuses
+#: the summary. The body may not cross another opening, so two bare markers
+#: and a later close do not read as one.
+_COMPACT_TAG = re.compile(
+    rf"<compact-session\b{_ATTRIBUTES}>"
+    r"(?:((?:(?!<compact-session\b).)*?)</compact-session>)?",
+    re.DOTALL,
+)
+_MIN_TOKENS = re.compile(r'\bmin-tokens\s*=\s*"([^"]*)"')
+_TOKEN_COUNT = re.compile(r"(\d+(?:\.\d+)?)([km]?)", re.IGNORECASE)
+_TOKEN_UNITS = {"": 1, "k": 1_000, "m": 1_000_000}
+
 #: The stages the task-completion flow passes through, in order. A name outside
 #: this set is recorded as written and flagged, so a typo is visible rather than
 #: silently costing a snapshot.
@@ -151,6 +169,21 @@ class ParamSet:
 
 
 @dataclass(frozen=True)
+class CompactRequest:
+    """The agent asked for its session to compact.
+
+    ``min_tokens`` is the occupancy below which nothing happens, or ``None``
+    to compact whatever the size. ``instructions`` focus the summary.
+    ``invalid`` is a ``min-tokens`` value that did not read as a count: the
+    request does nothing, and the reply says why.
+    """
+
+    min_tokens: int | None
+    instructions: str = ""
+    invalid: str | None = None
+
+
+@dataclass(frozen=True)
 class TaggedMessage:
     """A message split into the text the transcript shows and the tags it carried.
 
@@ -166,6 +199,8 @@ class TaggedMessage:
 
     ``feedback_params`` is every param the live feedback markers set, in the
     order they were written. Each one applies, so none replaces another.
+
+    ``compact`` is the compaction request the message carried. Last wins.
     """
 
     text: str
@@ -175,6 +210,7 @@ class TaggedMessage:
     pr_link: str = ""
     pr_withdrawn: bool = False
     feedback_params: tuple[ParamSet, ...] = ()
+    compact: CompactRequest | None = None
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -257,6 +293,15 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
             feedback_params.extend(sets)
             spans.append(match.span())
 
+    compact: CompactRequest | None = None
+    # This marker acts outside the transcript too.
+    quoted = spans + _code_spans(text)
+    for match in _COMPACT_TAG.finditer(text):
+        if any(start <= match.start() < end for start, end in quoted):
+            continue
+        compact = _compact_request(match.group(1), match.group(2) or "")
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a tag already cut is that tag's text.
@@ -281,7 +326,27 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         pr_link=pr_link,
         pr_withdrawn=pr_withdrawn,
         feedback_params=tuple(feedback_params),
+        compact=compact,
     )
+
+
+def _compact_request(attributes: str, body: str) -> CompactRequest:
+    instructions = body.strip()
+    found = _MIN_TOKENS.search(attributes)
+    if found is None:
+        return CompactRequest(None, instructions)
+    count = parse_token_count(found.group(1))
+    if count is None:
+        return CompactRequest(None, instructions, invalid=found.group(1))
+    return CompactRequest(count, instructions)
+
+
+def parse_token_count(raw: str) -> int | None:
+    """``200k``, ``1.5m`` or ``200000`` as a count of tokens, else ``None``."""
+    match = _TOKEN_COUNT.fullmatch(raw.strip())
+    if match is None:
+        return None
+    return round(float(match.group(1)) * _TOKEN_UNITS[match.group(2).lower()])
 
 
 def _param_sets(attributes: dict[str, str]) -> list[ParamSet]:
@@ -306,6 +371,7 @@ _MARKER_NAMES = (
     "milestone",
     "link",
     "live-feedback",
+    "compact-session",
     "user-attention",
 )
 #: The markers whose body is not prose: nothing of one shows until it closes.
