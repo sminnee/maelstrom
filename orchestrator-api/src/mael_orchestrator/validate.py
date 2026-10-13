@@ -11,6 +11,7 @@ from typing import Any
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
 from mael_domain.attachments import is_bare_name
+from mael_domain.feedback import SCOPES
 from mael_domain.protocol import Agent, Worktree, World
 from mael_domain.worktree_model import is_worktree_closable
 
@@ -384,8 +385,11 @@ def _instruction_error(feedback: dict[str, Any]) -> dict[str, str] | None:
     if not isinstance(text, str) or not text.strip():
         return _err("invalid", "No text to send")
     element = feedback.get("element")
-    if element is None:
-        return None
+    return None if element is None else _element_error(element)
+
+
+def _element_error(element: Any) -> dict[str, str] | None:
+    """Whether a picked element has the selector the message names it by."""
     if not isinstance(element, dict):
         return _err("invalid", "A picked element is an object")
     selector = element.get("selector")
@@ -394,11 +398,45 @@ def _instruction_error(feedback: dict[str, Any]) -> dict[str, str] | None:
     return None
 
 
+def _pick_error(feedback: dict[str, Any]) -> dict[str, str] | None:
+    if feedback.get("scope") not in SCOPES:
+        return _err("invalid", "A pick has a scope: element, similar or area")
+    if error := _element_error(feedback.get("element")):
+        return error
+    if not isinstance(feedback.get("note"), str | None):
+        return _err("invalid", "A note is text")
+    return None
+
+
+def _controls_error(feedback: dict[str, Any]) -> dict[str, str] | None:
+    if not isinstance(feedback.get("title"), str):
+        return _err("invalid", "A control set has a title")
+    changes = feedback.get("changes")
+    if not isinstance(changes, list) or not changes:
+        return _err("invalid", "No changes to send")
+    for change in changes:
+        if not isinstance(change, dict) or not all(
+            isinstance(change.get(key), str) for key in ("var", "to")
+        ):
+            return _err("invalid", "A change has a var and a value")
+        if not all(
+            isinstance(change[k], str) for k in ("label", "from") if k in change
+        ):
+            return _err("invalid", "A change's label and from are text")
+    if not isinstance(feedback.get("css"), str | None):
+        return _err("invalid", "The CSS is text")
+    if not isinstance(feedback.get("note"), str | None):
+        return _err("invalid", "A note is text")
+    return None
+
+
 #: One validator per kind of **Feedback**, by its ``type``: the types the
 #: server can build a message from.
 _FEEDBACK_VALIDATORS = {
     "monkeypatch": _monkeypatch_error,
     "instruction": _instruction_error,
+    "pick": _pick_error,
+    "controls": _controls_error,
 }
 
 

@@ -103,6 +103,8 @@ when the worktree has no agent, off as well as on.
 |---|---|
 | `monkeypatch` | `css`, `note` (optional) |
 | `instruction` | `text`, `element` (optional) |
+| `pick` | `scope`, `element`, `note` (optional) |
+| `controls` | `title`, `changes`, `css` (optional), `note` (optional) |
 
 Any type can carry a `screenshot`: the name of a file the client wrote to `.drafts/jig/`. See
 [orchestrator-server.md](orchestrator-server.md), "Commands", for how each type becomes a

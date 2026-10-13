@@ -46,9 +46,11 @@ from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE, ParamSet
 from mael_domain.feedback import (
     JIG_DRAFTS,
+    format_controls,
     format_instruction,
     format_monkeypatch,
     format_param_set,
+    format_pick,
 )
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import RateLimited, parse_pr_ref
@@ -294,6 +296,21 @@ _FEEDBACK_FORMATTERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
         branch,
         feedback["text"],
         feedback.get("element"),
+        screenshot="screenshot" in feedback,
+    ),
+    "pick": lambda branch, feedback: format_pick(
+        branch,
+        feedback["scope"],
+        feedback["element"],
+        feedback.get("note"),
+        screenshot="screenshot" in feedback,
+    ),
+    "controls": lambda branch, feedback: format_controls(
+        branch,
+        feedback["title"],
+        feedback["changes"],
+        feedback.get("css"),
+        feedback.get("note"),
         screenshot="screenshot" in feedback,
     ),
 }
