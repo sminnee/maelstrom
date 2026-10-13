@@ -135,6 +135,9 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
+    app.router.add_post(
+        "/api/worktrees/{id}/live-feedback/{service}/params", _set_feedback_params
+    )
     app.router.add_delete("/api/worktrees/{id}", _remove_worktree)
     app.router.add_get("/api/operations", _operations)
     app.router.add_get("/api/operations/{id}/log", _operation_log)
@@ -843,6 +846,21 @@ async def _comment_on_changes(request: web.Request) -> web.StreamResponse:
     )
 
 
+async def _set_feedback_params(request: web.Request) -> web.StreamResponse:
+    """Set live feedback params on one dev server of the worktree."""
+    worktree_id = request.match_info["id"]
+    service = request.match_info["service"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.setFeedbackParams",
+            "worktreeId": worktree_id,
+            "service": service,
+            "params": body.get("params"),
+        },
+    )
+
+
 async def _infer_task(request: web.Request) -> web.StreamResponse:
     """Name a task from its prose. Slow: it calls the task metadata generator."""
     return await _command(
@@ -1179,33 +1197,27 @@ async def _until_closed(ws: web.WebSocketResponse) -> None:
 async def _live_feedback_socket(request: web.Request) -> web.WebSocketResponse:
     """A **Live feedback** socket: this server as its provider.
 
-    The client, a jig, opens with a hello naming its git top level; a path the
-    world holds no worktree at is closed ``4404``. Then the socket carries the
-    worktree's jig state out, and the jig's feedback and hide in. The protocol
-    is documented in ``docs/dev/orchestrator-ui.md``, "The jig".
+    The URL's ``path`` and ``service`` name the client's worktree and dev
+    server. A path the world holds no worktree at, or no service, is closed
+    ``4404``. Then the socket carries the service's params both ways, and the
+    client's feedback in. The protocol is documented in
+    ``docs/dev/live-feedback.md``.
     """
     orch = await _ready(request)
     ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
     await ws.prepare(request)
-    hello = await _next_frame(ws)
-    worktree_id = (
-        orch.live_feedback_worktree(str(hello.get("path", "")))
-        if hello is not None
-        else None
-    )
-    if worktree_id is None:
+    worktree_id = orch.live_feedback_worktree(request.query.get("path", ""))
+    service = request.query.get("service", "")
+    if not request.query.get("path") or worktree_id is None or not service:
         await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
         return ws
     request.app[SOCKETS].add(ws)
     try:
-        with orch.live_feedback.subscribe(worktree_id) as states:
-            await ws.send_json(
-                {"type": "state", "visible": orch.live_feedback.visible(worktree_id)}
-            )
-            pushing = asyncio.create_task(_push_live_feedback_states(ws, states))
+        with orch.live_feedback.subscribe(worktree_id, service) as changes:
+            pushing = asyncio.create_task(_push_live_feedback_params(ws, changes))
             try:
                 while (frame := await _next_frame(ws)) is not None:
-                    await _live_feedback_frame(orch, ws, worktree_id, frame)
+                    await _live_feedback_frame(orch, ws, worktree_id, service, frame)
             finally:
                 await _stop(pushing)
     finally:
@@ -1214,20 +1226,38 @@ async def _live_feedback_socket(request: web.Request) -> web.WebSocketResponse:
 
 
 async def _live_feedback_frame(
-    orch: Orchestrator, ws: web.WebSocketResponse, worktree_id: str, frame: dict
+    orch: Orchestrator,
+    ws: web.WebSocketResponse,
+    worktree_id: str,
+    service: str,
+    frame: dict,
 ) -> None:
-    """Act on one frame from a jig. A type this server does not know is ignored.
+    """Act on one frame from a client. A type this server does not know is ignored.
 
     A fault is logged and, for feedback, answered, as ``_command`` answers it:
     one bad frame must not close the socket every page of a dev server shares.
     """
     kind = frame.get("type")
-    if kind not in ("hide", "feedback"):
+    if kind == "exposeParams":
+        orch.live_feedback.expose(worktree_id, service, frame.get("params"))
+        return
+    if kind == "setParams":
+        reply = await orch.handle_command(
+            {
+                "type": "worktree.setFeedbackParams",
+                "worktreeId": worktree_id,
+                "service": service,
+                "params": frame.get("params"),
+            }
+        )
+        if not reply["ok"]:
+            # Refused: the page's params follow the stored values again.
+            values = orch.live_feedback.values(worktree_id, service)
+            await ws.send_json({"type": "setParams", "params": values})
+        return
+    if kind != "feedback":
         return
     try:
-        if kind == "hide":
-            await orch.hide_jig(worktree_id)
-            return
         reply = await orch.handle_command(
             {
                 "type": "worktree.feedback",
@@ -1237,8 +1267,6 @@ async def _live_feedback_frame(
         )
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
         log.exception("live feedback frame %s failed", kind)
-        if kind == "hide":
-            return
         reply = {"ok": False, "error": {"code": "invalid", "message": repr(exc)}}
     body = reply["result"] if reply["ok"] else {"error": reply["error"]}
     await ws.send_json(
@@ -1246,12 +1274,11 @@ async def _live_feedback_frame(
     )
 
 
-async def _push_live_feedback_states(
-    ws: web.WebSocketResponse, states: asyncio.Queue
+async def _push_live_feedback_params(
+    ws: web.WebSocketResponse, changes: asyncio.Queue
 ) -> None:
     while True:
-        visible = await states.get()
-        await ws.send_json({"type": "state", "visible": visible})
+        await ws.send_json({"type": "setParams", "params": await changes.get()})
 
 
 async def _next_frame(ws: web.WebSocketResponse) -> dict | None:

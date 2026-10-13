@@ -2,7 +2,11 @@
 
 import pytest
 
-from mael_domain.feedback import format_instruction, format_monkeypatch
+from mael_domain.feedback import (
+    format_instruction,
+    format_monkeypatch,
+    format_param_set,
+)
 
 
 def test_a_monkeypatch_is_quoted_as_one_block_with_its_note():
@@ -110,4 +114,12 @@ def test_a_monkeypatch_with_a_screenshot_says_one_is_attached():
         "\n"
         "Apply it in source, then delete .drafts/monkeypatch.css.\n"
         "A screenshot of the viewport is attached."
+    )
+
+
+@pytest.mark.parametrize(("value", "word"), [(True, "on"), (False, "off")])
+def test_a_param_set_names_the_param_by_its_label_and_the_service(value, word):
+    assert (
+        format_param_set("feat/orders", "web", "Jig", value)
+        == f"The user turned Jig {word} for web on feat/orders."
     )

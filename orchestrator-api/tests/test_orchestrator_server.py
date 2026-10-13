@@ -57,6 +57,7 @@ from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
+from mael_orchestrator.live_feedback import LiveFeedbackHub
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
 from mael_orchestrator.sources import (
@@ -8562,17 +8563,53 @@ def test_comments_every_agent_refuses_answer_the_first_refusal(harness):
 
 # --- live feedback --------------------------------------------------------------
 
+JIG = {"jig": {"label": "Jig", "type": "boolean", "description": "Show the jig"}}
+
 
 @asynccontextmanager
-async def live_feedback_socket(api: Api, path: str = WORKTREE_PATH):
-    """A jig's socket, past its hello. The state that answers it is the caller's to read."""
-    async with api.session.ws_connect("/api/live-feedback") as ws:
-        await ws.send_json({"type": "hello", "path": path})
+async def live_feedback_socket(
+    api: Api,
+    path: str | None = WORKTREE_PATH,
+    service: str | None = "web",
+    params: dict | None = JIG,
+):
+    """A client's socket at its URL, past its ``exposeParams`` when it sends one."""
+    query = {k: v for k, v in {"path": path, "service": service}.items() if v}
+    async with api.session.ws_connect("/api/live-feedback", params=query) as ws:
+        if params is not None:
+            await ws.send_json({"type": "exposeParams", "params": params})
         yield ws
 
 
-async def next_state(ws) -> bool:
-    return (await ws_next(ws, lambda m: m["type"] == "state"))["visible"]
+async def live_feedback_of(api: Api) -> list:
+    worktrees = (await api.get_json("/api/worktrees"))["worktrees"]
+    return next(w for w in worktrees if w["id"] == "northwind-alpha")["liveFeedback"]
+
+
+def jig_values(live_feedback: list) -> dict[str, bool]:
+    """Each service's ``jig`` value, from the world's ``liveFeedback``."""
+    return {s["service"]: s["params"]["jig"]["value"] for s in live_feedback}
+
+
+async def set_params(api: Api, service: str = "web", **params):
+    return await api.post(
+        f"/api/worktrees/northwind-alpha/live-feedback/{service}/params",
+        {"params": params},
+    )
+
+
+async def next_params(ws) -> dict:
+    return (await ws_next(ws, lambda m: m["type"] == "setParams"))["params"]
+
+
+async def re_exposed(ws) -> dict:
+    """The values a socket holds now: an ``exposeParams`` answers with them.
+
+    The next ``setParams`` it hears is that answer only when nothing else was
+    sent it first, so this also proves a change did not reach it.
+    """
+    await ws.send_json({"type": "exposeParams", "params": JIG})
+    return await next_params(ws)
 
 
 def jig_feedback(harness, feedback: dict) -> dict:
@@ -8580,7 +8617,7 @@ def jig_feedback(harness, feedback: dict) -> dict:
 
     async def scenario():
         async with harness.client() as api, live_feedback_socket(api) as ws:
-            await next_state(ws)
+            await next_params(ws)
             await ws.send_json({"type": "feedback", "id": "f1", "feedback": feedback})
             return await ws_next(ws, lambda m: m["type"] == "reply")
 
@@ -8591,99 +8628,345 @@ def monkeypatch(css: str = ".chip{padding:20px}", **over) -> dict:
     return {"type": "monkeypatch", "css": css, **over}
 
 
-def test_a_jig_is_told_its_worktree_hides_it_until_an_agent_asks(harness):
-    async def scenario():
-        async with harness.client() as api, live_feedback_socket(api) as ws:
-            return await ws_next(ws)
-
-    assert run(scenario()) == {"type": "state", "visible": False}
-
-
-def test_a_jig_marker_shows_the_jig_and_leaves_the_transcript(harness):
-    harness.daemon.rows["ag1"] = agent_row()
+def test_an_exposing_client_lists_its_params_in_the_world_until_it_closes(harness):
+    """A declaration of a type the server does not take is left out."""
+    params = {**JIG, "size": {"label": "Size", "type": "number"}}
 
     async def scenario():
-        async with harness.client() as api:
-            async with (
-                api.transcript_stream("ag1") as transcript,
-                live_feedback_socket(api) as ws,
-            ):
-                await ws_next(transcript)
-                assert await next_state(ws) is False
-                harness.daemon.push("ag1", tag_event("Look at the chip.\n\n<jig show>"))
-                message = await ws_next(transcript, is_event("transcript.append"))
-                return await next_state(ws), message["event"]["item"]
+        async with harness.client() as api, api.events() as stream:
+            await stream.next("reset")
+            before = await live_feedback_of(api)
+            async with live_feedback_socket(api, params=params) as ws:
+                first = await next_params(ws)
+                await stream.change("worktree", "northwind-alpha")
+                during = await live_feedback_of(api)
+            await stream.change("worktree", "northwind-alpha")
+            return before, first, during, await live_feedback_of(api)
 
-    visible, item = run(scenario())
-    assert visible is True
-    assert item["markdown"] == "Look at the chip."
+    before, first, during, after = run(scenario())
+    assert before == []
+    assert first == {"jig": False}
+    assert during == [
+        {
+            "service": "web",
+            "params": {
+                "jig": {
+                    "label": "Jig",
+                    "type": "boolean",
+                    "description": "Show the jig",
+                    "value": False,
+                }
+            },
+        }
+    ]
+    assert after == []
 
 
-def test_a_hide_reaches_every_jig_of_the_worktree_and_its_agents(harness):
+@pytest.mark.parametrize(
+    ("path", "service"),
+    [("/elsewhere", "web"), (WORKTREE_PATH, None), (None, "web")],
+    ids=["unknown-path", "no-service", "no-path"],
+)
+def test_a_client_url_naming_no_known_worktree_and_service_is_closed_4404(
+    harness, path, service
+):
+    async def scenario():
+        async with (
+            harness.client() as api,
+            live_feedback_socket(api, path, service, params=None) as ws,
+        ):
+            message = await asyncio.wait_for(ws.receive(), 2.0)
+            return message.type, ws.close_code
+
+    assert run(scenario()) == (aiohttp.WSMsgType.CLOSE, 4404)
+
+
+def test_the_user_sets_a_param_on_one_service_and_every_agent_hears(harness):
     harness.daemon.rows["ag1"] = agent_row()
     harness.daemon.rows["ag2"] = agent_row("ag2")
 
     async def scenario():
-        async with harness.client() as api:
-            async with (
-                live_feedback_socket(api) as one,
-                live_feedback_socket(api) as two,
-            ):
-                await next_state(one)
-                await next_state(two)
-                harness.daemon.push("ag1", tag_event("<jig show>"))
-                assert await next_state(one) is True
-                assert await next_state(two) is True
-                await one.send_json({"type": "hide"})
-                states = await next_state(one), await next_state(two)
-                await wait_until(lambda: len(said(harness)) >= 2)
-                return states
+        async with (
+            harness.client() as api,
+            live_feedback_socket(api, service="web") as web,
+            live_feedback_socket(api, service="ladle") as ladle,
+        ):
+            await next_params(web)
+            await next_params(ladle)
+            reply = await set_params(api, "web", jig=True)
+            return (
+                reply,
+                await next_params(web),
+                await re_exposed(ladle),
+                jig_values(await live_feedback_of(api)),
+            )
 
-    assert run(scenario()) == (False, False)
-    text = "The user hid the jig for feat/orders."
+    reply, web, ladle, world = run(scenario())
+    assert reply.status == 200
+    assert web == {"jig": True}
+    assert ladle == {"jig": False}
+    assert world == {"ladle": False, "web": True}
+    text = "The user turned Jig on for web on feat/orders."
     assert said(harness) == [
         {"cmd": "say", "id": "ag1", "text": text},
         {"cmd": "say", "id": "ag2", "text": text},
     ]
 
 
-def test_a_hide_with_no_agent_in_the_worktree_still_hides_the_jig(harness):
+def test_a_param_change_with_no_agent_is_refused_and_tells_nobody(harness):
+    """The other refusals are ``validate.py``'s; see ``TestSetFeedbackParams``."""
+
     async def scenario():
         async with harness.client() as api, live_feedback_socket(api) as ws:
-            await next_state(ws)
-            harness.orch.live_feedback.set("northwind-alpha", True)
-            assert await next_state(ws) is True
-            await ws.send_json({"type": "hide"})
-            return await next_state(ws)
+            await next_params(ws)
+            return await set_params(api, jig=False)
 
-    assert run(scenario()) is False
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["message"] == "No agent is running in northwind-alpha"
     assert said(harness) == []
 
 
-def test_a_jig_marker_in_the_replayed_backlog_shows_nothing(harness):
-    """A restart hides every jig, and re-reading the backlog must not undo that."""
+def test_setting_a_param_to_its_value_tells_the_agents_nothing(harness):
     harness.daemon.rows["ag1"] = agent_row()
-    harness.daemon.backlog["ag1"] = [tag_event("<jig show>")]
+
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            await set_params(api, jig=True)
+            return await set_params(api, jig=True)
+
+    assert run(scenario()).status == 200
+    assert len(said(harness)) == 1
+
+
+def test_a_change_no_agent_takes_is_undone(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]
+
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            reply = await set_params(api, jig=True)
+            return reply, jig_values(await live_feedback_of(api))
+
+    reply, world = run(scenario())
+    assert reply.status == 409
+    assert world == {"web": False}
+
+
+def test_the_page_turns_a_param_off_and_the_agents_hear(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            await set_params(api, jig=True)
+            await next_params(ws)
+            await ws.send_json({"type": "setParams", "params": {"jig": False}})
+            heard = await next_params(ws)
+            await wait_until(lambda: len(said(harness)) >= 2)
+            return heard, jig_values(await live_feedback_of(api))
+
+    heard, world = run(scenario())
+    assert heard == {"jig": False}
+    assert world == {"web": False}
+    assert said(harness)[-1] == {
+        "cmd": "say",
+        "id": "ag1",
+        "text": "The user turned Jig off for web on feat/orders.",
+    }
+
+
+def test_a_page_change_with_no_agent_gets_the_stored_values_back(harness):
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            harness.orch.live_feedback.set("northwind-alpha", "web", {"jig": True})
+            assert await next_params(ws) == {"jig": True}
+            await ws.send_json({"type": "setParams", "params": {"jig": False}})
+            return await next_params(ws)
+
+    assert run(scenario()) == {"jig": True}
+    assert said(harness) == []
+
+
+@pytest.mark.parametrize(
+    ("marker", "expected"),
+    [
+        ('<live-feedback jig="on">', {"web": True, "ladle": True}),
+        ('<live-feedback service="web" jig="on">', {"web": True, "ladle": False}),
+    ],
+    ids=["every-service", "one-service"],
+)
+def test_a_live_feedback_marker_sets_the_param_and_leaves_the_transcript(
+    harness, marker, expected
+):
+    harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
         async with harness.client() as api:
-            await transcript_of(api)
-            async with live_feedback_socket(api) as ws:
-                return await next_state(ws)
+            async with (
+                api.transcript_stream("ag1") as transcript,
+                live_feedback_socket(api, service="web") as web,
+                live_feedback_socket(api, service="ladle") as ladle,
+            ):
+                await ws_next(transcript)
+                await next_params(web)
+                await next_params(ladle)
+                harness.daemon.push("ag1", tag_event(f"Look at the chip.\n\n{marker}"))
+                message = await ws_next(transcript, is_event("transcript.append"))
+                heard = {
+                    "web": (await next_params(web))["jig"],
+                    "ladle": (await re_exposed(ladle))["jig"],
+                }
+                return heard, message["event"]["item"]
 
-    assert run(scenario()) is False
+    heard, item = run(scenario())
+    assert heard == expected
+    assert item["markdown"] == "Look at the chip."
+    assert said(harness) == []
 
 
-def test_a_jig_at_a_path_the_orchestrator_does_not_know_is_closed_4404(harness):
+async def replayed(api: Api, markdown: str) -> None:
+    """Wait until ag1's transcript holds a message reading ``markdown``."""
+    for _ in range(200):
+        items = (await transcript_of(api))["items"]
+        if any(i.get("markdown") == markdown for i in items):
+            return
+        await asyncio.sleep(0.01)
+    raise TimeoutError(f"no message {markdown!r}")
+
+
+def test_a_live_feedback_marker_in_the_replayed_backlog_sets_nothing(harness):
+    """A restart turns every param off, and re-reading the backlog must not undo that.
+
+    The socket is open before the replay, so a marker the guard let through
+    would reach it.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = []
+
     async def scenario():
-        async with (
-            harness.client() as api,
-            live_feedback_socket(api, "/elsewhere") as ws,
-        ):
-            message = await asyncio.wait_for(ws.receive(), 2.0)
-            return message.type, ws.close_code
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            await transcript_of(api)
+            # The agent dies and is resumed: the host replays its window,
+            # which now holds the marker, to the re-attach.
+            harness.daemon.backlog["ag1"] = [
+                tag_event('Replayed.\n\n<live-feedback jig="on">')
+            ]
+            harness.daemon.rows["ag1"]["state"] = "exited(1)"
+            await harness.orch.refresh_agents()
+            harness.daemon.rows["ag1"]["state"] = "idle"
+            await harness.orch.refresh_agents()
+            await replayed(api, "Replayed.")
+            attaches = len([c for c in harness.daemon.calls if c["cmd"] == "attach"])
+            return attaches, await re_exposed(ws)
 
-    assert run(scenario()) == (aiohttp.WSMsgType.CLOSE, 4404)
+    attaches, values = run(scenario())
+    # The revive really did re-attach and replay, or this proves nothing.
+    assert attaches == 2
+    assert values == {"jig": False}
+
+
+def test_the_last_agent_leaving_turns_every_param_off(harness):
+    """Else a param stays on with no agent to hear it, and no change may turn it off.
+
+    The ladle client is down when the last agent leaves, so it hears nothing
+    then, and must still come back off.
+    """
+    from mael_agent.agent_wire import AGENT_EXITED
+
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2")
+
+    async def exit_agent(api, agent_id):
+        harness.daemon.rows[agent_id]["state"] = "exited(0)"
+        harness.daemon.push(agent_id, {"type": AGENT_EXITED, "exit_code": 0})
+        harness.daemon.end_stream(agent_id)
+        await wait_until(
+            lambda: harness.orch.world["agents"][agent_id]["state"] == "exited"
+        )
+
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as web:
+            await next_params(web)
+            async with live_feedback_socket(api, service="ladle") as ladle:
+                await next_params(ladle)
+                await set_params(api, "ladle", jig=True)
+                await next_params(ladle)
+            await set_params(api, jig=True)
+            await next_params(web)
+            await exit_agent(api, "ag1")
+            one_left = jig_values(await live_feedback_of(api))
+            await exit_agent(api, "ag2")
+            heard = await next_params(web)
+            async with live_feedback_socket(api, service="ladle") as ladle:
+                return one_left, heard, await next_params(ladle)
+
+    one_left, heard, ladle = run(scenario())
+    assert one_left == {"web": True}
+    assert heard == {"jig": False}
+    assert ladle == {"jig": False}
+
+
+def test_a_reconnecting_client_gets_its_stored_values(harness):
+    """A dev server reconnects on each restart, and must not lose its params."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with live_feedback_socket(api) as ws:
+                await next_params(ws)
+                await set_params(api, jig=True)
+                await next_params(ws)
+            async with live_feedback_socket(api) as again:
+                return await next_params(again)
+
+    assert run(scenario()) == {"jig": True}
+
+
+def test_a_service_is_listed_until_its_last_socket_closes():
+    hub = LiveFeedbackHub(on_change=lambda _w: None)
+
+    with hub.subscribe("w", "web"):
+        hub.expose("w", "web", JIG)
+        with hub.subscribe("w", "web"):
+            pass
+        held = hub.state("w")
+
+    assert [s["service"] for s in held] == ["web"]
+    assert hub.state("w") == []
+
+
+def test_a_refused_change_is_undone_after_its_service_closed():
+    """The say can outlast the socket; the next connect must not get the change back."""
+    hub = LiveFeedbackHub(on_change=lambda _w: None)
+    with hub.subscribe("w", "web"):
+        hub.expose("w", "web", JIG)
+        hub.set("w", "web", {"jig": True})
+
+    hub.revert("w", "web", {"jig": False}, {"jig": True})
+
+    with hub.subscribe("w", "web") as queue:
+        hub.expose("w", "web", JIG)
+        assert queue.get_nowait() == {"jig": False}
+
+
+def test_a_worktree_read_keeps_the_live_feedback_state(harness):
+    """``list-all`` knows nothing of live feedback, so a read must not reset it."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api, live_feedback_socket(api) as ws:
+            await next_params(ws)
+            await set_params(api, jig=True)
+            await next_params(ws)
+            await api.post("/api/worktrees/refresh")
+            return jig_values(await live_feedback_of(api))
+
+    assert run(scenario()) == {"web": True}
 
 
 def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
@@ -8750,7 +9033,7 @@ def screenshot_feedback(harness, tmp_path, shot: str) -> dict:
             harness.client() as api,
             live_feedback_socket(api, str(tmp_path)) as ws,
         ):
-            await next_state(ws)
+            await next_params(ws)
             feedback = {"type": "instruction", "text": "Bigger.", "screenshot": shot}
             await ws.send_json({"type": "feedback", "id": "f1", "feedback": feedback})
             return await ws_next(ws, lambda m: m["type"] == "reply")
