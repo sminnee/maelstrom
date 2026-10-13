@@ -1219,6 +1219,9 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_p
             raise SystemExit(1)
         if result.push_message:
             click.echo(result.push_message)
+        if result.pushed:
+            # The push moved the PR's head; the read is what tells its agent.
+            tell_pr_changed(ctx.project, result.branch)
         return
 
     # Handle conflicts. An aborted rebase is restored, so the manual-resolution
@@ -1522,6 +1525,8 @@ def cmd_sync_all(project, autorepair):
                 click.echo(f"  {result.push_message}", err=result.push_failed)
             if result.push_failed:
                 refused.append(display_name)
+            if result.pushed:
+                tell_pr_changed(project_name, result.branch)
             click.echo()
             continue
 
@@ -1607,6 +1612,8 @@ def cmd_tidy_branches(project):
     # Categorize results
     deleted = [r for r in results if r.action == "deleted"]
     pushed = [r for r in results if r.action == "pushed"]
+    for r in pushed:
+        tell_pr_changed(ctx.project, r.branch)
     rebased = [r for r in results if r.action == "rebased"]
     conflicts = [r for r in results if r.action == "skipped_conflicts"]
     checked_out = [r for r in results if r.action == "skipped_checked_out"]
