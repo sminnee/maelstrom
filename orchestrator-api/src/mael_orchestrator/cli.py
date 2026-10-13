@@ -35,6 +35,7 @@ from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
+from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
@@ -349,6 +350,7 @@ def build_orchestrator(
         comms=SqliteCommStore(state_db),
         comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
+        pr_ledger=SqlitePrLedgerStore(state_db),
         # The one drainer. A CLI write queues its export and exits, so the
         # server is what writes the tree — which is also what leaves one writer
         # against the notebook's git repo rather than a process per command.
