@@ -322,20 +322,30 @@ def merge_pr(
         GitHubCliMissing: If ``gh`` is not installed.
         GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
     """
+    _run_pr_merge(
+        merge_pr_argv(number, head_oid), "merge the pull request", cwd=cwd, token=token
+    )
+
+
+def _run_pr_merge(
+    argv: list[str], action: str, *, cwd: Path, token: str | None
+) -> None:
+    """Run one ``gh pr merge`` argv, with its refusals as :class:`GitHubError`.
+
+    Raises:
+        GitHubCliMissing: If ``gh`` is not installed.
+        GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
+    """
     try:
         run_cmd(
-            merge_pr_argv(number, head_oid),
-            cwd=cwd,
-            quiet=True,
-            env=token_env(token),
-            timeout=MERGE_TIMEOUT_SECS,
+            argv, cwd=cwd, quiet=True, env=token_env(token), timeout=MERGE_TIMEOUT_SECS
         )
     except subprocess.CalledProcessError as e:
-        raise GitHubCommandFailed("merge the pull request", e.stderr)
+        raise GitHubCommandFailed(action, e.stderr)
     except subprocess.TimeoutExpired:
         raise GitHubCommandFailed(
-            "merge the pull request",
-            f"gh did not answer in {MERGE_TIMEOUT_SECS} s. The merge may still land.",
+            action,
+            f"gh did not answer in {MERGE_TIMEOUT_SECS} s. The change may still land.",
         )
     except FileNotFoundError:
         raise GitHubCliMissing("gh")
@@ -355,6 +365,40 @@ def merge_pr_argv(number: int, head_oid: str) -> list[str]:
         "--match-head-commit",
         head_oid,
     ]
+
+
+def set_auto_merge(
+    number: int, *, cwd: Path, head_oid: str, on: bool, token: str | None = None
+) -> None:
+    """Turn GitHub's auto-merge on or off for pull request ``number``.
+
+    On, GitHub rebase-merges the pull request when it is ready. It merges only
+    ``head_oid``: a push after the caller's read is not merged unseen.
+
+    Args:
+        number: The pull request.
+        cwd: A directory inside the repository.
+        head_oid: The head commit the caller saw. Read only when ``on``.
+        on: ``True`` to turn auto-merge on, ``False`` to turn it off.
+        token: A GitHub token to act with. ``None`` uses the ``gh`` login.
+
+    Raises:
+        GitHubCliMissing: If ``gh`` is not installed.
+        GitHubCommandFailed: If ``gh`` refused, or did not answer in time.
+    """
+    _run_pr_merge(
+        _auto_merge_argv(number, head_oid, on=on),
+        "turn on auto-merge" if on else "turn off auto-merge",
+        cwd=cwd,
+        token=token,
+    )
+
+
+def _auto_merge_argv(number: int, head_oid: str, *, on: bool) -> list[str]:
+    """The ``gh pr merge`` argv that turns auto-merge on or off for ``number``."""
+    if not on:
+        return ["gh", "pr", "merge", str(number), "--disable-auto"]
+    return [*merge_pr_argv(number, head_oid), "--auto"]
 
 
 def orchestrator_token() -> str | None:
