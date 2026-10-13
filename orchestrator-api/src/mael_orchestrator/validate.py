@@ -12,6 +12,7 @@ from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
 from mael_domain.attachments import is_bare_name
 from mael_domain.feedback import SCOPES
+from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
 from mael_domain.protocol import Agent, Worktree, World
 from mael_domain.worktree_model import is_worktree_closable
 
@@ -82,6 +83,7 @@ WORKTREE_COMMANDS = (
     "worktree.remove",
     "worktree.sync",
     "worktree.mergePr",
+    "worktree.autoMerge",
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
@@ -106,6 +108,7 @@ NEEDS_OPEN_COMMANDS = (
     "worktree.trash",
     "worktree.sync",
     "worktree.mergePr",
+    "worktree.autoMerge",
     "worktree.env",
     "worktree.createTerminal",
     "worktree.comment",
@@ -457,6 +460,37 @@ def _feedback_params_error(
     return None
 
 
+def _auto_merge_error(
+    worktree_id: str, worktree: Worktree, on: Any
+) -> dict[str, str] | None:
+    """Why **Auto-merge** cannot turn ``on`` or off here, or ``None`` when it can.
+
+    Off has fewer rules than on: it is the way out of a PR whose build went red
+    or which conflicts after the user turned auto-merge on.
+    """
+    if not worktree.get("prNumber"):
+        return _err("invalid", f"Worktree {worktree_id} has no pull request")
+    if worktree.get("prDraft"):
+        return _err("invalid", "The pull request is a draft")
+    if not worktree.get("prAutoMergeAllowed"):
+        return _err("invalid", "The repository does not allow auto-merge")
+    if not isinstance(on, bool):
+        return _err("invalid", "on must be true or false")
+    if not on:
+        return None
+    state = worktree.get("prState")
+    if state == "ready":
+        return _err("invalid", "The pull request is ready. Merge it instead.")
+    if state not in AUTO_MERGE_WAITING_STATES:
+        return _err("invalid", f"The pull request is not waiting ({state})")
+    if worktree.get("prMatch") == "differ":
+        return _err(
+            "invalid",
+            f"The local branch differs from PR #{worktree['prNumber']}. Sync it first.",
+        )
+    return None
+
+
 def _feedback_error(feedback: Any) -> dict[str, str] | None:
     """Whether ``feedback`` holds a type the server knows, with its fields.
 
@@ -520,6 +554,11 @@ def _worktree_error(
                 f"The local branch differs from PR #{worktree['prNumber']}. "
                 "Sync it first.",
             )
+
+    if kind == "worktree.autoMerge":
+        error = _auto_merge_error(worktree_id, worktree, cmd.get("on"))
+        if error:
+            return error
 
     if kind == "worktree.comment":
         comments = cmd.get("comments")

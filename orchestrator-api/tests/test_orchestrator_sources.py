@@ -684,9 +684,10 @@ def _ready_pr(**over):
     return PrStatus(**fields)
 
 
-async def _source_that_read(monkeypatch, pr, merge_pr, head="deadbee"):
+async def _source_that_read(monkeypatch, pr, merge_pr=None, head="deadbee", **ports):
     """A source whose PR read saw ``pr`` on feat/orders, in a worktree whose
-    local ``HEAD`` is ``head``. ``pr`` ``None`` is a branch with no PR."""
+    local ``HEAD`` is ``head``. ``pr`` ``None`` is a branch with no PR.
+    ``ports`` are the source's other callables."""
     from mael_orchestrator import sources
 
     async def head_sha(_path):
@@ -695,7 +696,7 @@ async def _source_that_read(monkeypatch, pr, merge_pr, head="deadbee"):
     monkeypatch.setattr(sources, "get_head_sha_async", head_sha)
     read = _GatedRead({"feat/orders": pr} if pr else {})
     source = sources.ListAllWorktreeSource(
-        Path("/p"), merge_pr=merge_pr, prs=sources.PrStateCache(read=read)
+        Path("/p"), merge_pr=merge_pr, prs=sources.PrStateCache(read=read), **ports
     )
     await source.prs.refresh(Path("/p") / PROJECT, {"feat/orders"})
     return source, read
@@ -753,6 +754,75 @@ async def test_a_merge_the_last_read_does_not_support_is_refused(
         await source.merge(PROJECT, "feat/orders", "/p/alpha")
     assert str(refused.value) == said
     assert merged == []
+
+
+@pytest.mark.parametrize("on", [True, False])
+async def test_auto_merge_names_the_pr_and_head_commit_the_last_read_saw(
+    monkeypatch, on
+):
+    asked: list[tuple[str, int, str, bool]] = []
+    source, read = await _source_that_read(
+        monkeypatch,
+        _ready_pr(state="ci-running", auto_merge=not on),
+        auto_merge=lambda *args: asked.append(args),
+    )
+    assert source.auto_merge is not None
+    read.answer = {"feat/orders": _ready_pr(state="ci-running", auto_merge=on)}
+    await source.auto_merge(PROJECT, "feat/orders", "/p/alpha", on)
+    assert asked == [("/p/alpha", 118, "deadbee", on)]
+    # The request changed the PR, so its state is read again.
+    assert source.prs.get(PROJECT, "feat/orders").auto_merge is on
+
+
+@pytest.mark.parametrize(
+    ("pr", "head", "said"),
+    [
+        (None, "deadbee", "No pull request is known for feat/orders"),
+        # A read that landed after the server validated the command.
+        (_ready_pr(), "deadbee", "PR #118 is not waiting (ready)"),
+        (
+            _ready_pr(state="ci-running", is_draft=True),
+            "deadbee",
+            "PR #118 is not waiting (draft)",
+        ),
+        (
+            _ready_pr(state="ci-running", head_oid=""),
+            "deadbee",
+            "The head commit of PR #118 is not known yet",
+        ),
+        # A local commit made after the last read.
+        (
+            _ready_pr(state="ci-running"),
+            "c0ffee1",
+            "The local branch differs from PR #118. Sync it first.",
+        ),
+    ],
+)
+async def test_auto_merge_on_the_last_read_does_not_support_is_refused(
+    monkeypatch, pr, head, said
+):
+    asked: list[tuple] = []
+    source, _read = await _source_that_read(
+        monkeypatch, pr, head=head, auto_merge=lambda *args: asked.append(args)
+    )
+    assert source.auto_merge is not None
+    with pytest.raises(CloseBlocked) as refused:
+        await source.auto_merge(PROJECT, "feat/orders", "/p/alpha", True)
+    assert str(refused.value) == said
+    assert asked == []
+
+
+async def test_auto_merge_off_checks_nothing_the_last_read_said(monkeypatch):
+    """Off is the way out of any state, so a red build, an unknown head or a
+    local commit does not trap it."""
+    asked: list[tuple] = []
+    pr = _ready_pr(state="ci-failed", head_oid="", auto_merge=True)
+    source, _read = await _source_that_read(
+        monkeypatch, pr, head="c0ffee1", auto_merge=lambda *args: asked.append(args)
+    )
+    assert source.auto_merge is not None
+    await source.auto_merge(PROJECT, "feat/orders", "/p/alpha", False)
+    assert asked == [("/p/alpha", 118, "", False)]
 
 
 # --- PrStateCache: the one reader of pull request state ---------------------

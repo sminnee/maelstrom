@@ -143,7 +143,6 @@ from .operations import (
 )
 from .sources import (
     CloseBlocked,
-    MergeWorktreePr,
     PreparedLaunch,
     TaskSource,
     WorktreeSource,
@@ -270,6 +269,15 @@ _OPERATION_COMMANDS: dict[str, tuple[str, str, str, str, str, str]] = {
         "Merged",
         "Could not merge the pull request",
     ),
+    # The words are the direction's: see _AUTO_MERGE_WORDS.
+    "worktree.autoMerge": (
+        "autoMerge",
+        "auto_merge",
+        "This server cannot auto-merge pull requests",
+        "",
+        "",
+        "Could not change auto-merge on the pull request",
+    ),
     # The words are the action's: see _ENV_WORDS.
     "worktree.env": (
         "env",
@@ -298,6 +306,12 @@ def _screenshot(worktree_path: str, name: Any) -> str | None:
         return None
     return str(path) if len(data) <= MAX_BYTES and is_image(data) else None
 
+
+#: What an auto-merge operation reads, by direction: while it runs, and once done.
+_AUTO_MERGE_WORDS = {
+    True: ("Turning on auto-merge for", "Turned on auto-merge for"),
+    False: ("Turning off auto-merge for", "Turned off auto-merge for"),
+}
 
 #: What an environment operation reads, by action: while it runs, and once done.
 _ENV_WORDS = {
@@ -393,27 +407,27 @@ async def _run_own_steps(steps: list[Step], hook: StepHook) -> None:
         raise CloseBlocked(ran.blocked or "A step refused")
 
 
-async def _merge_as_a_step(
-    merge: MergeWorktreePr, project: str, branch: str, path: str, hook: StepHook
+async def _github_call_as_a_step(
+    name: str, call: Callable[[], Awaitable[None]], hook: StepHook
 ) -> None:
-    """Merge a pull request as an operation of one step.
+    """Run one GitHub call on a pull request as an operation of one step.
 
-    A merge is one GitHub call, not a sequence. It is still a step, so the
-    console reads it as it reads every other operation.
+    A merge or an auto-merge change is one call, not a sequence. It is still a
+    step, so the console reads it as it reads every other operation.
     """
 
-    async def merge_pr() -> StepOutcome:
+    async def step() -> StepOutcome:
         try:
-            await merge(project, branch, path)
+            await call()
         except CloseBlocked as exc:
             return StepOutcome(blocked=str(exc))
         return StepOutcome()
 
     ran = await run_sequence(
-        [Step(name="merge_pr", run=merge_pr)], announce=lambda line: None, hook=hook
+        [Step(name=name, run=step)], announce=lambda line: None, hook=hook
     )
     if not ran.ok:
-        raise CloseBlocked(ran.blocked or "The merge did not finish")
+        raise CloseBlocked(ran.blocked or "GitHub did not answer")
 
 
 def _totals_of(agent: Agent) -> tuple[int, int, float]:
@@ -2234,6 +2248,7 @@ class Orchestrator:
             "worktree.remove": self._operate,
             "worktree.sync": self._operate,
             "worktree.mergePr": self._operate,
+            "worktree.autoMerge": self._operate,
             "worktree.env": self._operate,
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
@@ -3446,8 +3461,15 @@ class Orchestrator:
             run, refresh = work(command["mode"]), sync_refresh
         elif kind == "worktree.mergePr":
             subject = f"the pull request of {nato}"
-            run = lambda hook: _merge_as_a_step(  # noqa: E731
-                fn, project, row["branch"], path, hook
+            run = lambda hook: _github_call_as_a_step(  # noqa: E731
+                "merge_pr", lambda: fn(project, row["branch"], path), hook
+            )
+        elif kind == "worktree.autoMerge":
+            subject = f"the pull request of {nato}"
+            on = command["on"]
+            doing, done = _AUTO_MERGE_WORDS[on]
+            run = lambda hook: _github_call_as_a_step(  # noqa: E731
+                "auto_merge", lambda: fn(project, row["branch"], path, on), hook
             )
         elif kind == "worktree.env":
             service = command.get("service")

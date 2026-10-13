@@ -132,6 +132,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/worktrees/{id}/trash", _trash_worktree)
     app.router.add_post("/api/worktrees/{id}/sync", _sync_worktree)
     app.router.add_post("/api/worktrees/{id}/merge-pr", _merge_worktree_pr)
+    app.router.add_post("/api/worktrees/{id}/auto-merge", _auto_merge_worktree_pr)
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
@@ -802,6 +803,20 @@ async def _merge_worktree_pr(request: web.Request) -> web.StreamResponse:
     return await _command(
         request,
         lambda _body: {"type": "worktree.mergePr", "worktreeId": worktree_id},
+        status=202,
+    )
+
+
+async def _auto_merge_worktree_pr(request: web.Request) -> web.StreamResponse:
+    """Turn **Auto-merge** on or off for a worktree's pull request: ``{on}``."""
+    worktree_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "worktree.autoMerge",
+            "worktreeId": worktree_id,
+            "on": body.get("on"),
+        },
         status=202,
     )
 
