@@ -585,6 +585,25 @@ def test_a_notification_asks_the_agent_for_something_so_it_starts_a_turn():
     assert agent_of(state)["state"] == "processing"
 
 
+def test_an_external_event_draws_as_one_item_and_starts_a_turn():
+    """The server wrote it, not the user, so it is not drawn as their message."""
+    text = (
+        '<external-event source="github" type="pr.checks_failed" pr="118" '
+        'head="abc1234">\nCI failed on PR #118.\n</external-event>'
+    )
+    state = replay_turn(text)
+    assert items_of(state, "message") == []
+    [item] = items_of(state, "external_event")
+    assert {k: v for k, v in item.items() if k not in ("id", "ts")} == {
+        "type": "external_event",
+        "source": "github",
+        "eventType": "pr.checks_failed",
+        "attrs": {"pr": "118", "head": "abc1234"},
+        "markdown": "CI failed on PR #118.",
+    }
+    assert agent_of(state)["state"] == "processing"
+
+
 def test_a_notification_either_side_of_a_message_does_not_take_the_message_with_it():
     """The match must not span from the first tag to the last.
 
