@@ -928,3 +928,23 @@ describe('a control set with values from before', () => {
     );
   });
 });
+
+describe('a draft heard while the jig loads', () => {
+  it('is newer than what the load reads, so the load does not replace it', async () => {
+    drafts['monkeypatch.css'] = '.chip { margin: 1px; }';
+    drafts['jig-controls.json'] = JSON.stringify(CHIP_SET);
+    drafts['jig-values.json'] = JSON.stringify({ '--jig-chip-pad': '8px' });
+    const mounting = mountJig({ hot, fetch: fakeFetch(true), debounceMs: 5 });
+
+    emit('mael-jig:draft', { name: 'monkeypatch.css', text: '.chip { margin: 2px; }', from: null });
+    emit('mael-jig:draft', {
+      name: 'jig-values.json',
+      text: JSON.stringify({ '--jig-chip-pad': '12px' }),
+      from: null,
+    });
+    unmount = await mounting;
+
+    expect(jig().textarea.value).toBe('.chip { margin: 2px; }');
+    expect(rootVar('--jig-chip-pad')).toBe('12px');
+  });
+});

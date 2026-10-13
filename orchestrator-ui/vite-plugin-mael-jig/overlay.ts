@@ -657,7 +657,10 @@ export async function mountJig({
     settle();
   };
 
+  // A draft event during the first load is newer than what the load reads.
+  const heardDrafts = new Set<string>();
   hot.on('mael-jig:draft', ({ name, text, from }) => {
+    heardDrafts.add(name);
     if (from !== client) {
       if (name === 'monkeypatch.css') {
         textarea.value = text;
@@ -811,11 +814,13 @@ export async function mountJig({
     fetch('/__mael/state').then((reply) => reply.json()),
   ]);
   textarea.readOnly = false;
-  textarea.value = css;
-  apply(css);
-  values = parseValues(valuesText);
+  if (!heardDrafts.has('monkeypatch.css')) {
+    textarea.value = css;
+    apply(css);
+  }
+  if (!heardDrafts.has('jig-values.json')) values = parseValues(valuesText);
   if (!heard) attach(state.visible);
-  drawControls(controlsText);
+  if (!heardDrafts.has('jig-controls.json')) drawControls(controlsText);
 
   return () => {
     monkeypatch.cancel();
