@@ -59,6 +59,7 @@ from mael_domain.shared_dir import agent_prompt_file
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
+from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
 from mael_orchestrator.live_feedback import LiveFeedbackHub
@@ -8717,9 +8718,7 @@ CHANGE_COMMENT = make_change_comment(body="close the file")
 COMMENT_TEXT = (
     '<external-event source="orchestrator-ui" type="changes.commented" '
     'branch="feat/orders">\n'
-    "src/read.py line 13 (uncommitted):\n"
-    "> +    return f.read()\n"
-    "close the file\n"
+    f"{format_change_comments([CHANGE_COMMENT])}\n"
     "</external-event>"
 )
 
