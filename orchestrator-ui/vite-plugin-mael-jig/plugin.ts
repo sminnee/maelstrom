@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
@@ -24,8 +24,8 @@ interface Reply {
   body: unknown;
 }
 
-/** The custom HMR event that carries the file to every page. */
-const UPDATE_EVENT = 'mael-jig:monkeypatch';
+/** The custom HMR event that carries a draft file to every page. */
+const DRAFT_EVENT = 'mael-jig:draft';
 /** The custom HMR event that tells every page whether to draw the jig. */
 const STATE_EVENT = 'mael-jig:state';
 const BACKOFF_MS = [250, 1000, 5000];
@@ -38,18 +38,33 @@ const JPEG_DATA_URL = 'data:image/jpeg;base64,';
 const PARAMS = {
   jig: { label: 'Jig', type: 'boolean', description: 'Show the jig on each page' },
 };
+/**
+ * The files in `.drafts/` the jig serves, and whether a page may write each.
+ * The agent writes the control set, so the jig only reads it.
+ */
+const DRAFTS: Record<string, { writable: boolean }> = {
+  'monkeypatch.css': { writable: true },
+  'jig-values.json': { writable: true },
+  'jig-controls.json': { writable: false },
+};
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
 export function maelJig({ providerUrl }: Options): Plugin {
   // Empty until the server starts, and for good when it runs outside a git
   // checkout: the jig is a convenience, so it switches off rather than stop the server.
-  let file = '';
-  // The last PUT, so a watcher event it caused names its page.
-  let lastWrite: { css: string; from: string } | null = null;
+  let drafts = '';
+  // The last PUT to each file, so a watcher event it caused names its page.
+  const lastWrites = new Map<string, { text: string; from: string }>();
 
-  const read = () => {
+  /** The draft file name of `path`, or `undefined` when the jig does not serve it. */
+  const draftName = (path: string) => {
+    if (!drafts || dirname(path) !== drafts) return undefined;
+    const name = basename(path);
+    return Object.hasOwn(DRAFTS, name) ? name : undefined;
+  };
+  const read = (name: string) => {
     try {
-      return readFileSync(file, 'utf8');
+      return readFileSync(join(drafts, name), 'utf8');
     } catch {
       return '';
     }
@@ -64,23 +79,27 @@ export function maelJig({ providerUrl }: Options): Plugin {
         server.config.logger.warn('mael-jig: not in a git checkout, so the jig is off');
         return;
       }
-      const drafts = join(worktree, '.drafts');
-      file = join(drafts, 'monkeypatch.css');
+      drafts = join(worktree, '.drafts');
       // The directory, not the file: a file that does not exist yet is not watched.
       mkdirSync(drafts, { recursive: true });
       server.watcher.add(drafts);
       // Read a moment after the last event, not at it. A write truncates the file
       // first, so an event can see it empty, and the watcher drops a second
       // `change` that follows within 50 ms: the pages would keep the empty read.
-      let settle: ReturnType<typeof setTimeout> | undefined;
+      const settles = new Map<string, ReturnType<typeof setTimeout>>();
       const broadcast = (changed: string) => {
-        if (changed !== file) return;
-        clearTimeout(settle);
-        settle = setTimeout(() => {
-          const css = read();
-          const from = lastWrite?.css === css ? lastWrite.from : null;
-          server.ws.send({ type: 'custom', event: UPDATE_EVENT, data: { css, from } });
-        }, SETTLE_MS);
+        const name = draftName(changed);
+        if (!name) return;
+        clearTimeout(settles.get(name));
+        settles.set(
+          name,
+          setTimeout(() => {
+            const text = read(name);
+            const last = lastWrites.get(name);
+            const from = last?.text === text ? last.from : null;
+            server.ws.send({ type: 'custom', event: DRAFT_EVENT, data: { name, text, from } });
+          }, SETTLE_MS),
+        );
       };
       server.watcher.on('add', broadcast);
       server.watcher.on('change', broadcast);
@@ -92,25 +111,45 @@ export function maelJig({ providerUrl }: Options): Plugin {
       const shots = join(drafts, 'jig');
       server.httpServer?.once('close', provider.stop);
 
-      server.middlewares.use('/__mael/monkeypatch', (req, res) => {
+      // Mounted under the prefix, so `req.url` is the rest: `/<name>`, still encoded.
+      server.middlewares.use('/__mael/drafts', (req, res) => {
+        const name = (req.url ?? '').replace(/^\//, '').split('?')[0]!;
+        const draft = Object.hasOwn(DRAFTS, name) ? DRAFTS[name] : undefined;
+        if (!draft) {
+          json(res, 404, { error: { message: `The jig serves no draft ${name}` } });
+          return;
+        }
         if (req.method === 'GET') {
-          json(res, 200, { css: read(), visible: provider.visible() });
+          res.setHeader('content-type', 'text/plain; charset=utf-8');
+          res.end(read(name));
           return;
         }
         if (req.method !== 'PUT') {
           json(res, 405, { error: { message: `${req.method} is not allowed` } });
           return;
         }
+        if (!draft.writable) {
+          json(res, 405, { error: { message: `${name} is read only` } });
+          return;
+        }
         void body(req)
-          .then((css) => {
-            lastWrite = { css, from: String(req.headers[CLIENT_HEADER] ?? '') };
+          .then((text) => {
+            lastWrites.set(name, { text, from: String(req.headers[CLIENT_HEADER] ?? '') });
             // Again on each write: `.drafts/` can be cleaned away under a running server.
             mkdirSync(drafts, { recursive: true });
-            writeFileSync(file, css);
+            writeFileSync(join(drafts, name), text);
             res.statusCode = 204;
             res.end();
           })
           .catch((error: unknown) => json(res, 500, { error: { message: String(error) } }));
+      });
+
+      server.middlewares.use('/__mael/state', (req, res) => {
+        if (req.method !== 'GET') {
+          json(res, 405, { error: { message: `${req.method} is not allowed` } });
+          return;
+        }
+        json(res, 200, { visible: provider.visible() });
       });
 
       server.middlewares.use('/__mael/feedback', (req, res) => {
@@ -153,12 +192,12 @@ export function maelJig({ providerUrl }: Options): Plugin {
         }
       });
     },
-    // The file is not a module, so nothing reloads for it: the event above is the update.
+    // A draft is not a module, so nothing reloads for it: the event above is the update.
     handleHotUpdate({ file: changed }) {
-      if (changed === file) return [];
+      if (draftName(changed)) return [];
     },
     transformIndexHtml() {
-      if (!file) return;
+      if (!drafts) return;
       return [{ tag: 'script', attrs: { type: 'module', src: `/@fs${CLIENT}` }, injectTo: 'body' }];
     },
   };
