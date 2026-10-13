@@ -1167,6 +1167,23 @@ class TestFeedback:
         cmd = feedback_cmd({"type": "instruction", **over})
         assert validate_command(world, cmd) == {"code": "invalid", "message": message}
 
+    def test_feedback_with_a_screenshot_file_name_is_allowed(self):
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, feedback_cmd(screenshot="shot-1.jpg")) is None
+
+    @pytest.mark.parametrize(
+        "name",
+        ["../secret.jpg", "a/b.jpg", "..", "", 3],
+        ids=["up", "separator", "dot-dot", "empty", "not text"],
+    )
+    def test_a_screenshot_that_is_not_a_bare_file_name_is_refused(self, name):
+        """The server joins it under ``.drafts/jig/``; a path would reach outside."""
+        world = world_with(agents=[make_agent()], worktrees=[make_worktree()])
+        assert validate_command(world, feedback_cmd(screenshot=name)) == {
+            "code": "invalid",
+            "message": "A screenshot is a file name",
+        }
+
 
 # --- worktree.refresh --------------------------------------------------------
 

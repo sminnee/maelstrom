@@ -10,6 +10,7 @@ from typing import Any
 
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
+from mael_domain.attachments import is_bare_name
 from mael_domain.protocol import Agent, World
 from mael_domain.worktree_model import is_worktree_closable
 
@@ -396,13 +397,20 @@ _FEEDBACK_VALIDATORS = {
 
 
 def _feedback_error(feedback: Any) -> dict[str, str] | None:
-    """Whether ``feedback`` holds a type the server knows, with its fields."""
+    """Whether ``feedback`` holds a type the server knows, with its fields.
+
+    A ``screenshot`` is optional for every type. It names a file the jig wrote
+    under ``.drafts/jig/``, and the server joins it to that directory, so a
+    separator or a ``..`` would reach outside it.
+    """
     if not isinstance(feedback, dict):
         return _err("invalid", "Feedback is an object")
     kind = feedback.get("type")
     validator = _FEEDBACK_VALIDATORS.get(kind) if isinstance(kind, str) else None
     if validator is None:
         return _err("invalid", f"Unknown feedback type: {kind!r}")
+    if "screenshot" in feedback and not is_bare_name(feedback["screenshot"]):
+        return _err("invalid", "A screenshot is a file name")
     return validator(feedback)
 
 

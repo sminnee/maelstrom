@@ -1,5 +1,6 @@
 // The jig's overlay: the `Jig` pill and its panel. See docs/dev/orchestrator-ui.md,
 // "The jig".
+import { domToJpeg } from 'modern-screenshot';
 
 interface Update {
   css: string;
@@ -15,6 +16,8 @@ interface Options {
   hot: Hot;
   fetch?: typeof fetch;
   debounceMs?: number;
+  /** A JPEG data URL of what the user sees, or `null` for none. */
+  capture?: () => Promise<string | null>;
 }
 
 const STYLE = `
@@ -210,6 +213,23 @@ function describeElement(element: Element): Picked {
 }
 
 /**
+ * The viewport as the user sees it, without the jig, as a JPEG data URL. At
+ * scale 1 and quality 0.8 it stays well under the agent host's 5 MB cap.
+ */
+function captureViewport(host: Element): Promise<string> {
+  const { innerWidth: width, innerHeight: height, scrollX, scrollY } = window;
+  return domToJpeg(document.documentElement, {
+    width,
+    height,
+    scale: 1,
+    quality: 0.8,
+    filter: (node) => node !== host,
+    // The page is drawn whole, so it is moved up and left by the scroll.
+    style: { transform: `translate(${-scrollX}px, ${-scrollY}px)`, transformOrigin: '0 0' },
+  });
+}
+
+/**
  * Mount the jig on the page. It draws nothing until the provider shows it.
  * The promise holds the function that takes it off again.
  */
@@ -217,6 +237,7 @@ export async function mountJig({
   hot,
   fetch = window.fetch.bind(window),
   debounceMs = 300,
+  capture,
 }: Options): Promise<() => void> {
   // Not `crypto.randomUUID`: a page served over plain http on the tailnet is not
   // a secure context, and has none.
@@ -233,6 +254,7 @@ export async function mountJig({
 
   const host = document.createElement('div');
   host.id = 'mael-jig';
+  const shoot = capture ?? (() => captureViewport(host));
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = PANEL;
 
@@ -396,10 +418,12 @@ export async function mountJig({
     try {
       // The provider's message names the file, so it must hold what was typed.
       if (pending) await write();
+      // A screenshot is a help, not a need: a failed one sends the words alone.
+      const screenshot = await shoot().catch(() => null);
       const reply = await fetch('/__mael/feedback', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(feedback),
+        body: JSON.stringify(screenshot ? { ...feedback, screenshot } : feedback),
       });
       const body = await reply.json();
       if (reply.ok) {

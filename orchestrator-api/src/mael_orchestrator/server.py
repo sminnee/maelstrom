@@ -29,6 +29,7 @@ from mael_agent.agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
+from mael_common.image import MAX_BYTES, is_image
 from mael_common.util import now_iso
 from mael_domain import comms as comms_model
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
@@ -44,6 +45,7 @@ from mael_domain.comm_store import (
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
 from mael_domain.document_tags import FINAL_STAGE
 from mael_domain.feedback import (
+    JIG_DRAFTS,
     format_instruction,
     format_jig_hidden,
     format_monkeypatch,
@@ -254,6 +256,24 @@ _OPERATION_COMMANDS: dict[str, tuple[str, str, str, str, str, str]] = {
     ),
 }
 
+
+def _screenshot(worktree_path: str, name: Any) -> str | None:
+    """The path of the jig's screenshot ``name``, or ``None`` when it is no usable image.
+
+    The daemon refuses a whole turn over one bad attachment, so a screenshot
+    it would refuse is left off here, and the words go alone. Validation holds
+    ``name`` to one path segment.
+    """
+    if name is None:
+        return None
+    path = Path(worktree_path) / JIG_DRAFTS / name
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return str(path) if len(data) <= MAX_BYTES and is_image(data) else None
+
+
 #: What an environment operation reads, by action: while it runs, and once done.
 _ENV_WORDS = {
     "start": ("Starting", "Started"),
@@ -265,10 +285,16 @@ _ENV_WORDS = {
 #: feedback. Validation has checked the fields each one reads.
 _FEEDBACK_FORMATTERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
     "monkeypatch": lambda branch, feedback: format_monkeypatch(
-        branch, feedback["css"], feedback.get("note")
+        branch,
+        feedback["css"],
+        feedback.get("note"),
+        screenshot="screenshot" in feedback,
     ),
     "instruction": lambda branch, feedback: format_instruction(
-        branch, feedback["text"], feedback.get("element")
+        branch,
+        feedback["text"],
+        feedback.get("element"),
+        screenshot="screenshot" in feedback,
     ),
 }
 
@@ -2353,11 +2379,14 @@ class Orchestrator:
         formatter in ``_FEEDBACK_FORMATTERS``.
         """
         worktree_id = command["worktreeId"]
-        feedback = command["feedback"]
-        text = _FEEDBACK_FORMATTERS[feedback["type"]](
-            self.world["worktrees"][worktree_id]["branch"], feedback
-        )
-        return await self._say_to_worktree(worktree_id, text)
+        feedback = dict(command["feedback"])
+        worktree = self.world["worktrees"][worktree_id]
+        shot = _screenshot(worktree["path"], feedback.pop("screenshot", None))
+        if shot:
+            feedback["screenshot"] = shot
+        text = _FEEDBACK_FORMATTERS[feedback["type"]](worktree["branch"], feedback)
+        attachments = [{"path": shot}] if shot else []
+        return await self._say_to_worktree(worktree_id, text, attachments)
 
     def live_feedback_worktree(self, path: str) -> str | None:
         """The id of the worktree a jig at ``path`` serves, by real path."""
@@ -2378,14 +2407,20 @@ class Orchestrator:
             branch = self.world["worktrees"][worktree_id]["branch"]
             await self._say_to_worktree(worktree_id, format_jig_hidden(branch))
 
-    async def _say_to_worktree(self, worktree_id: str, text: str) -> dict[str, Any]:
+    async def _say_to_worktree(
+        self,
+        worktree_id: str,
+        text: str,
+        attachments: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """Say ``text`` to each agent in the worktree. Ok when one agent or more took it."""
         delivered: list[str] = []
         refusals: list[tuple[str, dict[str, Any]]] = []
+        say: dict[str, Any] = {"cmd": "say", "text": text}
+        if attachments:
+            say["attachments"] = attachments
         for agent in agents_in_worktree(self.world, worktree_id):
-            refused = await self._ask_host(
-                {"cmd": "say", "id": agent["id"], "text": text}
-            )
+            refused = await self._ask_host({**say, "id": agent["id"]})
             if refused:
                 refusals.append((agent["id"], refused))
             else:

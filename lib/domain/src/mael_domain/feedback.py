@@ -9,6 +9,12 @@ from typing import Any
 #: Where the jig keeps the **Monkeypatch**, relative to the worktree root.
 MONKEYPATCH_PATH = ".drafts/monkeypatch.css"
 
+#: Where the jig writes each screenshot it sends, relative to the worktree root.
+JIG_DRAFTS = ".drafts/jig"
+
+#: The line a message ends with when the jig sent a screenshot with it.
+SCREENSHOT_LINE = "A screenshot of the viewport is attached."
+
 #: The fields of a picked element the message names, in the order it names them.
 _ELEMENT_FIELDS = (
     "selector",
@@ -26,7 +32,9 @@ _ELEMENT_FIELDS = (
 _JOINS = {"classes": " ", "components": " < ", "ancestors": " < "}
 
 
-def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
+def format_monkeypatch(
+    branch: str, css: str, note: str | None = None, *, screenshot: bool = False
+) -> str:
     """The one message that carries a **Monkeypatch** to the agents of a worktree.
 
     The CSS is indented as a block, so a rule that holds a blank line stays
@@ -44,24 +52,30 @@ def format_monkeypatch(branch: str, css: str, note: str | None = None) -> str:
     if note and note.strip():
         lines.append(f"Note: {note.strip()}")
     lines.append(f"Apply it in source, then delete {MONKEYPATCH_PATH}.")
+    if screenshot:
+        lines.append(SCREENSHOT_LINE)
     return "\n".join(lines)
 
 
 def format_instruction(
-    branch: str, text: str, element: dict[str, Any] | None = None
+    branch: str,
+    text: str,
+    element: dict[str, Any] | None = None,
+    *,
+    screenshot: bool = False,
 ) -> str:
     """The message that carries an **Instruction**, about the **Pick** if there is one."""
     if element is None:
-        return f"From the jig for {branch}:\n\n{text.strip()}"
-    described = [f"    {line}" for line in _describe(element)]
-    return "\n".join(
-        [
+        lines = [f"From the jig for {branch}:"]
+    else:
+        lines = [
             f"From the jig for {branch}, about this element:",
-            *described,
-            "",
-            text.strip(),
+            *(f"    {line}" for line in _describe(element)),
         ]
-    )
+    lines += ["", text.strip()]
+    if screenshot:
+        lines += ["", SCREENSHOT_LINE]
+    return "\n".join(lines)
 
 
 def format_jig_hidden(branch: str) -> str:
