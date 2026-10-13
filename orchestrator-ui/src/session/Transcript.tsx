@@ -55,6 +55,7 @@ function registerOf(item: TranscriptItem): 'machinery' | 'prose' {
     case 'system':
     case 'gap':
     case 'task_notification':
+    case 'external_event':
     case 'milestone':
       return 'machinery';
     case 'message': {
@@ -348,6 +349,19 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
         <div className={styles.note} data-testid="task-notification">
           {item.status}
           {item.summary && ` · ${item.summary}`}
+        </div>
+      );
+    case 'external_event':
+      // Not folded: change comments and requested changes are the user's own
+      // words, and the agent acts on every one.
+      return (
+        <div className={styles.externalEvent} data-testid="external-event">
+          <div className={styles.skillHead}>
+            <span className={styles.skillLabel}>
+              {item.source} · {item.eventType}
+            </span>
+          </div>
+          <Markdown source={item.markdown} />
         </div>
       );
     case 'raw_event':

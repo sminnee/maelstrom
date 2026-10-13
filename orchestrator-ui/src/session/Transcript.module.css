@@ -203,6 +203,14 @@
      appears. */
   --fg-recessed: var(--fg-muted);
 }
+/* An External event: the open skill's sunken block, never folded. */
+.externalEvent {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  --fg-recessed: var(--fg-muted);
+}
 .skillHead {
   display: flex;
   gap: var(--u);

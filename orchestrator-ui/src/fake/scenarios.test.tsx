@@ -106,6 +106,7 @@ const ITEM_TYPES = all<TranscriptItem['type']>({
   gap: true,
   skill: true,
   task_notification: true,
+  external_event: true,
   shell: true,
   milestone: true,
   raw_event: true,

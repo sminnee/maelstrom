@@ -619,6 +619,17 @@ function transcript(): Seed {
       decision: 'approve',
     },
     { ...base(), type: 'task_notification', status: 'completed', summary: 'The test run finished' },
+    {
+      ...base(),
+      type: 'external_event',
+      source: 'github',
+      eventType: 'pr.checks_failed',
+      attrs: { pr: '118', head: 'abc1234' },
+      markdown:
+        'CI failed on PR #118 at abc1234. Investigate with `mael gh read-pr` and ' +
+        '`mael gh check-log <run> --failed-only`, fix the failures, commit fixups, and run ' +
+        '`mael sync`.',
+    },
     { ...base(), type: 'compact', trigger: 'auto', preTokens: 168_000, postTokens: 21_000 },
     { ...base(), type: 'compact_summary', markdown: 'The reader now restamps on a full scan.' },
     { ...base(), type: 'gap', droppedEvents: 12 },
