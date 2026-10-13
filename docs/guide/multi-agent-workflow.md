@@ -33,56 +33,59 @@ A draft is inert: it becomes a real task only when it is promoted into the noteb
 
 ### Drafts become tasks
 
-Each draft is a task file with its recipe in the frontmatter and the execute session's plan
-in the body (abridged — `mael task draft` emits every frontmatter key):
+Each draft is a task file with its recipe in the frontmatter and a short brief in the body
+(abridged — `mael task draft` emits every frontmatter key). A plan is 1–5 such tasks. Each one
+opens in plan mode, and its session writes the detailed plan:
 
 ```markdown
 ---
-title: "Execute: PROJ-123 — add the upload endpoint"
-mode: auto
+title: "PROJ-123: add the upload endpoint"
+mode: plan
 pre-action: linear.in-progress
 ---
 
 ## Content
 
-# PROJ-123: Avatar upload — Iteration 1
-
-Overall goal, iteration scope, seams under test, verification…
+- Goal: a user can upload an avatar.
+- In scope: the endpoint and its storage.
+- Out of scope: cropping (task 2).
+- Read: docs/adr/0012-avatar-storage.md.
 ```
 
 Two rules do most of the work here:
 
-- **Set the mode on every draft.** New tasks default to plan mode, so an execute draft that
-  omits `mode: auto` re-plans instead of running its plan.
+- **Set the mode on every draft.** `mode: plan` on each task, `mode: normal` on a
+  `plan-next-step` tail.
 - **Leave `branch:` unset on every draft.** Tasks inherit their parent's branch. That default
-  keeps every iteration on one branch, accumulating into a **single pull request** that merges
+  keeps every task on one branch, accumulating into a **single pull request** that merges
   as a whole. Setting `branch:` opts a task out into its own worktree and PR — right for
-  genuinely unrelated work, wrong for splitting one task's iterations.
+  genuinely unrelated work, wrong for splitting one chain.
 
 ### Approval promotes the drafts
 
-When you approve the plan, the session promotes each draft in dependency order, closes its
-own planning task, and launches the head:
+When you approve the plan, the session promotes every draft in one call, closes its own
+planning task, and launches the head:
 
 ```bash
-mael task promote .drafts/iter1.md --follow-end '*'   # create the head; prints its id
-mael task promote .drafts/tail.md --follow <that id>  # multi-session only
+mael task promote .drafts/1.md .drafts/2.md        # create the tasks; prints their ids
 mael task status done                               # close the planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
 mael session end                                    # stop the planning session
 ```
 
-Promotion consumes each draft file and wires the chain (`--follow` / `--follow-end`) at the
-moment ids exist. The head follows the planning task, so closing the planning task is what
-makes the head actionable. `--parent` scopes the launch to this chain, and `next --run`
-prints the id it launches.
+Promotion consumes each draft file and wires the chain at the moment ids exist. With no follow
+flag, the set [splices](planning.md#expanding-a-chain-mid-way) in after the planning task, so
+the head follows it. Closing the planning task is what makes
+the head actionable. `--parent` scopes the launch to this chain, and `next --run` prints the
+id it launches.
 
 The head runs in its own session, so the planning session has no work left. It ends itself. The
 worktree stays in place — the head usually reuses it, because it inherits the same branch.
 
 ## 2. Chain
 
-The promoted head runs in a **separate** session. That session owns the implementation.
+The promoted head runs in a **separate** session. It opens in plan mode, writes the detailed
+plan, and builds it once you approve.
 
 Advance the chain with:
 
@@ -90,21 +93,21 @@ Advance the chain with:
 mael task next --run
 ```
 
-Each `plan-next-step` task plans one more increment and re-queues itself, until the work is
-done.
+A task whose plan finds more than one session's work drafts the rest as tasks and promotes
+them. They splice in after it, so the chain grows in the middle. A `plan-next-step` tail, when
+the plan has one, drafts the next tasks once the earlier ones are done.
 
 ### Slice vertically
 
-Each iteration should be a **vertical slice**: an end-to-end cut through every layer it
-touches, shipping its own tests and delivering behaviour a user can see. Aim for up to
-~2000 lines. [Planning](planning.md#slice-vertically) explains why a slice can be large.
+Each task should be a **vertical slice**: an end-to-end cut through every layer it touches,
+shipping its own tests and delivering behaviour a user can see.
+[Planning](planning.md#slice-vertically) explains why a slice can be large.
 
-Layer-shaped iterations — "the back-end API", "then the front end", "then the e2e tests" —
-are an antipattern. A plan whose iterations are named after layers has been sliced the wrong
-way. Re-cut it. Tests ship with the slice they cover; there are no test-only iterations.
+Layer-shaped tasks — "the back-end API", "then the front end", "then the e2e tests" — are an
+antipattern. A plan whose tasks are named after layers has been sliced the wrong way. Re-cut
+it. Tests ship with the slice they cover; there are no test-only tasks.
 
-Aim for three iterations or fewer per task. More than that usually means the slices are too
-thin or sliced by layer.
+A shape has at most five tasks. See [The shape of a plan](planning.md#the-shape-of-a-plan).
 
 ### Build test-first, at agreed seams
 

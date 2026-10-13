@@ -74,6 +74,9 @@ mael task add "Append after my siblings" --follow-end '*'
 `--follow-end '*'` means "append after the current leaf of my parent's child-chain". Always
 quote the `*`: unquoted it is a YAML alias, and `"\*"` is a bad escape. Both fail to parse.
 
+`mael task promote` with no follow flag **splices** instead. See [Drafts and
+promotion](#drafts-and-promotion).
+
 ### Dotted ids express lineage
 
 Dots in an **id** capture nesting, independently of grouping:
@@ -151,9 +154,9 @@ is how planning sessions hand work off — the draft is sculpted first, then pro
 approval. See [planning.md](planning.md).
 
 ```bash
-mael task draft .drafts/d1.md "Execute: add avatar upload" --mode auto \
+mael task draft .drafts/d1.md "Add avatar upload" --mode plan \
     --pre-action linear.in-progress          # write the draft file
-mael task promote .drafts/d1.md --follow-end '*'  # create the task, print its id, delete the file
+mael task promote .drafts/d1.md .drafts/d2.md   # create the tasks, print their ids, delete the files
 ```
 
 `draft` takes the same recipe flags as `add` (`--command`, `--mode`, `--model`,
@@ -162,10 +165,16 @@ file with the identity fields (`id`, `project`, `created`, `follows`) empty, and
 overwrite an existing file unless you pass `--force`. Edit the file freely — the `## Content`
 section becomes the task's content.
 
-`promote` parses the file, creates the task in `todo`, prints the new id, and deletes the
-file. Chain wiring happens here: `--follow <id>` and `--follow-end '*'` resolve at promote
-time, when the ids exist. Any recipe flag overrides the file's value. On an error — missing
-file, bad frontmatter, no title — the file is left untouched and no task is created.
+`promote` takes one or more files. It parses each, creates the tasks in `todo`, prints the new
+ids one per line, and deletes the files. Each task follows the one before it. Chain wiring
+happens here, when the ids exist:
+
+- With no follow flag, the set splices in after `$MAEL_TASK_ID`. Outside a task session, the
+  first task follows nothing.
+- `--follow <id>` and `--follow-end '*'` wire the first task instead, and move no other task.
+
+Any recipe flag overrides every file's value. The set is one notebook write. On an error —
+missing file, bad frontmatter, no title — every file is left untouched and no task is created.
 
 ## Bulk chains with load-many
 

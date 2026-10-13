@@ -18,6 +18,15 @@ release while that section is empty, and retitles it to the version it is releas
   Maelstrom compacts it, so the build's context does not ride into review and the CI watch. The
   agent always hears what happened. See
   [External events](docs/dev/orchestrator-server.md#external-events).
+- **Planners name the work, and tasks plan it.** `/plan-task` drafts 1–5 short plan-mode tasks
+  instead of one detailed execute plan and a `plan-next-step` tail. Each task writes its own
+  detailed plan in plan mode. A design doc carries shared context, and a tail is only for work
+  whose remainder is unclear. See [Planning](docs/guide/planning.md).
+- **`mael task promote` takes several drafts and splices them.** With no follow flag, the set goes
+  in after `$MAEL_TASK_ID`, and the tasks that followed it now follow the last new task. A task in
+  the middle of a chain can add work without forking the chain. Approving a task set in the
+  orchestrator UI does the same, after the planning task. See
+  [Expanding a chain mid-way](docs/guide/planning.md#expanding-a-chain-mid-way).
 - **Agents hear about their PR.** Under the agent daemon, an agent on a task ends its turn after
   a push. Maelstrom tells it when CI fails or passes, the PR conflicts, or it merges, so
   `/watch-pr` no longer waits in a shell. Approvals, change comments, monkeypatches and jig
