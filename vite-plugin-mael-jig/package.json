@@ -29,6 +29,7 @@
     "lint": "eslint . && prettier --check . && knip",
     "format": "prettier --write .",
     "typecheck": "tsc -b",
+    "smoke": "node scripts/pack-smoke.mjs",
     "prepublishOnly": "pnpm run build"
   },
   "peerDependencies": {

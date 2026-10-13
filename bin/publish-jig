@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Publish vite-plugin-mael-jig, the jig's Vite plugin, to npm.
+
+Usage: bin/publish-jig [--minor|--major] [--dry-run]
+
+Requires NPM_TOKEN in the environment or in .env, and a non-empty Unreleased
+section in vite-plugin-mael-jig/CHANGELOG.md.
+
+The package has its own version, not the CLI's. The first release is
+``--minor``, from 0.0.0 to 0.1.0.
+
+The steps and their order follow bin/publish: rebase, gates, version,
+changelog, commit, publish, tag, push. The tag is ``vite-plugin-mael-jig@X.Y.Z``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import date
+from pathlib import Path
+
+PACKAGE = Path("vite-plugin-mael-jig")
+MANIFEST = PACKAGE / "package.json"
+CHANGELOG = PACKAGE / "CHANGELOG.md"
+NAME = "vite-plugin-mael-jig"
+UNRELEASED_HEADING = "## [Unreleased]"
+
+
+def load_token_from_env_file() -> None:
+    env_file = Path(".env")
+    if not env_file.exists():
+        return
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("NPM_TOKEN="):
+            os.environ.setdefault("NPM_TOKEN", line.split("=", 1)[1].strip().strip("\"'"))
+
+
+def current_version() -> str:
+    match = re.search(r'^  "version": "(.+?)"', MANIFEST.read_text(encoding="utf-8"), re.MULTILINE)
+    if not match:
+        sys.exit(f"Error: could not find version in {MANIFEST}")
+    return match.group(1)
+
+
+def bump(version: str, part: str) -> str:
+    major, minor, patch = (int(x) for x in version.split("."))
+    if part == "major":
+        return f"{major + 1}.0.0"
+    if part == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def write_version(old: str, new: str) -> None:
+    MANIFEST.write_text(
+        MANIFEST.read_text(encoding="utf-8").replace(f'"version": "{old}"', f'"version": "{new}"', 1),
+        encoding="utf-8",
+    )
+
+
+def require_release_notes() -> None:
+    """Refuse a release whose Unreleased section is empty, as bin/publish does."""
+    text = CHANGELOG.read_text(encoding="utf-8")
+    if UNRELEASED_HEADING not in text:
+        sys.exit(f"Error: {CHANGELOG} has no '{UNRELEASED_HEADING}' heading")
+    body = re.split(r"^## ", text.split(UNRELEASED_HEADING, 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
+    if not body.strip():
+        sys.exit(f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first.")
+
+
+def retitle_unreleased(new: str, released_on: str) -> None:
+    text = CHANGELOG.read_text(encoding="utf-8")
+    CHANGELOG.write_text(
+        text.replace(UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1),
+        encoding="utf-8",
+    )
+
+
+def run(*command: str) -> None:
+    try:
+        subprocess.run(command, check=True)
+    except FileNotFoundError:
+        sys.exit(f"Error: {command[0]} is not on PATH")
+
+
+def require_clean_worktree() -> None:
+    result = subprocess.run(("git", "status", "--porcelain"), check=True, capture_output=True, text=True)
+    if result.stdout.strip():
+        sys.exit("Error: working tree is not clean. Commit or stash first.")
+
+
+def publish() -> None:
+    """Publish with NPM_TOKEN, through a throwaway npmrc, so the user's own login is not used."""
+    with tempfile.NamedTemporaryFile("w", suffix=".npmrc") as npmrc:
+        npmrc.write("//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n")
+        npmrc.flush()
+        run("pnpm", "--dir", str(PACKAGE), "publish", "--access", "public", "--userconfig", npmrc.name)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=f"Publish {NAME} to npm")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--minor", action="store_true", help="bump the minor version")
+    group.add_argument("--major", action="store_true", help="bump the major version")
+    parser.add_argument("--dry-run", action="store_true", help="run the gates and the pack smoke; do not publish or tag")
+    args = parser.parse_args()
+
+    if not MANIFEST.exists():
+        sys.exit("Error: run from the repository root")
+
+    load_token_from_env_file()
+    if not args.dry_run and not os.environ.get("NPM_TOKEN"):
+        sys.exit("Error: NPM_TOKEN is not set (environment or .env)")
+
+    require_clean_worktree()
+    if not args.dry_run:
+        run("mael", "sync", "--abort")
+    require_release_notes()
+
+    old = current_version()
+    new = bump(old, "major" if args.major else "minor" if args.minor else "patch")
+    print(f"{NAME} {old} -> {new}")
+
+    # The package's gates, then the pack smoke.
+    run("pnpm", "--dir", str(PACKAGE), "install", "--frozen-lockfile")
+    for script in ("lint", "typecheck", "test", "smoke"):
+        run("pnpm", "--dir", str(PACKAGE), script)
+
+    if args.dry_run:
+        print("Dry run: the gates and the pack smoke pass. Nothing is published.")
+        return 0
+
+    write_version(old, new)
+    retitle_unreleased(new, date.today().isoformat())
+    run("git", "add", str(MANIFEST), str(CHANGELOG))
+    run("git", "commit", "-m", f"chore: release {NAME}@{new}")
+
+    try:
+        publish()
+    except subprocess.CalledProcessError:
+        print(f"Publish failed. Rolling back the release commit for {new}.", file=sys.stderr)
+        try:
+            run("git", "reset", "--hard", "HEAD~1")
+        except subprocess.CalledProcessError:
+            print(
+                f"Rollback failed. The release commit for {new} is still present.\n"
+                "Remove it with: git reset --hard HEAD~1",
+                file=sys.stderr,
+            )
+        return 1
+
+    tag = f"{NAME}@{new}"
+    try:
+        run("git", "tag", tag)
+        run("git", "push")
+        run("git", "push", "origin", tag)
+    except subprocess.CalledProcessError:
+        print(
+            f"{tag} is published to npm, but the push failed. The release commit and tag are "
+            f"local only.\nFinish with: git push && git push origin {tag}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Published, tagged and pushed {tag}.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
