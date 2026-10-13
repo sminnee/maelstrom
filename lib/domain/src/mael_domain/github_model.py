@@ -255,6 +255,15 @@ def is_open_pr(pr: "PrStatus | None") -> bool:
     return pr is not None and pr.state != "merged"
 
 
+#: The PR states **Auto-merge** can turn on in: GitHub has not yet said the PR
+#: is ready, and has not said it will not be. A ``ready`` PR merges now instead.
+AUTO_MERGE_WAITING_STATES: tuple[PrState, ...] = (
+    "ci-running",
+    "unknown",
+    "checks-unreadable",
+)
+
+
 @dataclass(frozen=True)
 class PrStatus:
     """A branch's pull request, and how close it is to merging.

@@ -28,6 +28,7 @@ from mael_domain.github import (
     merge_pr,
     orchestrator_token,
     read_pr,
+    set_auto_merge,
     wait_for_merge,
 )
 from mael_domain.github_model import (
@@ -713,6 +714,41 @@ class TestMergePr:
             with pytest.raises(GitHubCommandFailed, match="did not answer"):
                 merge_pr(42, cwd=Path("."), head_oid="deadbee")
         assert run.call_args.kwargs["timeout"] == 100
+
+
+class TestSetAutoMerge:
+    def test_turning_it_on_rebase_merges_the_commit_the_caller_saw(self):
+        """GitHub merges when the PR is ready, but not a head pushed since."""
+        with patch("mael_domain.github.run_cmd") as run:
+            set_auto_merge(42, cwd=Path("."), head_oid="deadbee", on=True)
+        assert run.call_args.args[0] == [
+            "gh",
+            "pr",
+            "merge",
+            "42",
+            "--rebase",
+            "--match-head-commit",
+            "deadbee",
+            "--auto",
+        ]
+
+    def test_turning_it_off_disables_the_request(self):
+        with patch("mael_domain.github.run_cmd") as run:
+            set_auto_merge(42, cwd=Path("."), head_oid="deadbee", on=False)
+        assert run.call_args.args[0] == ["gh", "pr", "merge", "42", "--disable-auto"]
+
+    def test_a_token_reaches_gh_as_its_own_login(self):
+        with patch("mael_domain.github.run_cmd") as run:
+            set_auto_merge(42, cwd=Path("."), head_oid="d", on=True, token="ghp_o")
+        assert run.call_args.kwargs["env"] == {"GH_TOKEN": "ghp_o"}
+
+    def test_a_refusal_carries_what_github_said(self):
+        refused = subprocess.CalledProcessError(
+            1, "gh", stderr="Auto merge is not allowed for this repository"
+        )
+        with patch("mael_domain.github.run_cmd", side_effect=refused):
+            with pytest.raises(GitHubCommandFailed, match="not allowed"):
+                set_auto_merge(42, cwd=Path("."), head_oid="deadbee", on=True)
 
 
 class TestOrchestratorToken:
