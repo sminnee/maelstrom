@@ -37,7 +37,12 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.config import MaelstromConfig
-from mael_domain.external_event import ExternalEvent
+from mael_domain.external_event import (
+    ORCHESTRATOR,
+    SESSION_COMPACTED,
+    SESSION_NOT_COMPACTED,
+    ExternalEvent,
+)
 from mael_domain.external_event import parse as parse_external_event
 from mael_domain.feedback import format_controls, format_pick
 from mael_domain.github_model import PrStatus, RateLimited
@@ -7404,6 +7409,260 @@ def test_the_ledger_outlives_the_server(store, tmp_path):
         assert events_said(second) == ["pr.merged"]
     finally:
         db.close()
+
+
+# --- the compaction request ---------------------------------------------------
+
+
+COMPACT_TAG = 'Gates pass.\n\n<compact-session min-tokens="200k">'
+
+
+def compact_boundary(pre: int, post: int) -> dict:
+    """The event that says a compact finished, as the host streams one."""
+    return {
+        "type": "system",
+        "subtype": "compact_boundary",
+        "compact_metadata": {
+            "trigger": "manual",
+            "pre_tokens": pre,
+            "post_tokens": post,
+        },
+    }
+
+
+def compact_failed(error: str) -> dict:
+    """The status event that says the harness refused a compact."""
+    return {
+        "type": "system",
+        "subtype": "status",
+        "status": None,
+        "compact_result": "failed",
+        "compact_error": error,
+    }
+
+
+def said_texts(harness) -> list[str | ExternalEvent]:
+    """Each turn said to ag1: an External event, or ``/compact`` as written."""
+    return [
+        parse_external_event(c["text"]) or c["text"]
+        for c in harness.daemon.calls
+        if c["cmd"] == "say"
+    ]
+
+
+def not_compacted(reason: str, body: str) -> ExternalEvent:
+    return ExternalEvent(ORCHESTRATOR, SESSION_NOT_COMPACTED, {"reason": reason}, body)
+
+
+async def after_message(harness, text: str) -> None:
+    """Push one more message and wait for it: what came before is handled."""
+    harness.daemon.push("ag1", tag_event(text))
+    await wait_until(
+        lambda: any(
+            i["type"] == "message" and i["markdown"] == text
+            for i in harness.orch.transcript_log("ag1").items
+        )
+    )
+
+
+def ask_to_compact(harness, tag: str, *after: dict) -> list[str]:
+    """The agent writes ``tag`` and ends its turn; what the orchestrator said."""
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(tag))
+                harness.daemon.push("ag1", end_turn())
+                for event in after:
+                    harness.daemon.push("ag1", event)
+                await after_message(harness, "Continuing.")
+                return said_texts(harness)
+
+    return run(scenario())
+
+
+def test_a_session_below_the_threshold_is_not_compacted(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=123_400)
+
+    assert ask_to_compact(harness, COMPACT_TAG) == [
+        not_compacted(
+            "below-threshold",
+            "Session only 123k tokens (minimum 200k), no compaction occurred. "
+            "Continue.",
+        )
+    ]
+
+
+def test_a_session_over_the_threshold_compacts_once_its_turn_ends(harness):
+    """Not on the marker: the turn's last reading and an idle agent come at
+    ``result``."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(COMPACT_TAG))
+                await after_message(harness, "Still in the turn.")
+                before = said_texts(harness)
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: said_texts(harness) != [])
+                return before, said_texts(harness)
+
+    before, after = run(scenario())
+    assert before == []
+    assert after == ["/compact"]
+
+
+def test_a_request_with_no_threshold_compacts_whatever_the_size(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=5_000)
+
+    assert ask_to_compact(harness, "<compact-session>") == ["/compact"]
+
+
+def test_a_request_body_focuses_the_compact(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+    tag = '<compact-session min-tokens="200k">Keep the PR number</compact-session>'
+
+    assert ask_to_compact(harness, tag) == ["/compact Keep the PR number"]
+
+
+def test_an_unreadable_threshold_says_so_and_does_not_compact(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    assert ask_to_compact(harness, '<compact-session min-tokens="lots">') == [
+        not_compacted(
+            "invalid-threshold",
+            'Could not read min-tokens="lots", no compaction occurred. Continue.',
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("after", "reply"),
+    [
+        (
+            [compact_boundary(312_400, 41_000), end_turn()],
+            ExternalEvent(
+                ORCHESTRATOR,
+                SESSION_COMPACTED,
+                {"pre": "312k", "post": "41k"},
+                "Session compacted from 312k to 41k tokens. Continue.",
+            ),
+        ),
+        # Too short a conversation: the harness says so, and no boundary comes.
+        (
+            [compact_failed("Not enough messages to compact."), end_turn()],
+            not_compacted(
+                "refused",
+                "Compaction did not occur: Not enough messages to compact. Continue.",
+            ),
+        ),
+    ],
+    ids=["compacted", "refused"],
+)
+def test_the_agent_is_told_how_the_compact_went(harness, after, reply):
+    """The reply always comes, so an unattended agent carries on."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    assert ask_to_compact(harness, COMPACT_TAG, *after) == ["/compact", reply]
+
+
+def test_a_turn_queued_ahead_of_the_compact_does_not_settle_it(harness):
+    """Its `result` lands while the compact waits, and says nothing about it."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    assert ask_to_compact(
+        harness, COMPACT_TAG, end_turn(), compact_boundary(312_000, 41_000)
+    ) == [
+        "/compact",
+        ExternalEvent(
+            ORCHESTRATOR,
+            SESSION_COMPACTED,
+            {"pre": "312k", "post": "41k"},
+            "Session compacted from 312k to 41k tokens. Continue.",
+        ),
+    ]
+
+
+def test_a_compact_nobody_asked_for_gets_no_reply(harness):
+    """An autocompact, or one from the UI's button: the agent did not ask."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", compact_boundary(312_000, 41_000))
+                harness.daemon.push("ag1", end_turn())
+                await after_message(harness, "Continuing.")
+                return said_texts(harness)
+
+    assert run(scenario()) == []
+
+
+@pytest.mark.parametrize(
+    ("tokens", "compacts"), [(199_999, False), (200_000, True)], ids=["under", "at"]
+)
+def test_the_threshold_is_the_least_a_session_compacts_at(harness, tokens, compacts):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=tokens)
+
+    said = ask_to_compact(harness, COMPACT_TAG)
+    assert (said == ["/compact"]) is compacts
+
+
+def test_the_last_request_of_a_turn_wins(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(COMPACT_TAG))
+                harness.daemon.push(
+                    "ag1", tag_event('<compact-session min-tokens="1m">')
+                )
+                harness.daemon.push("ag1", end_turn())
+                await after_message(harness, "Continuing.")
+                return said_texts(harness)
+
+    [said] = run(scenario())
+    assert said.attrs == {"reason": "below-threshold"}
+
+
+def test_a_request_whose_turn_ends_after_a_restart_is_answered(harness):
+    """The marker is in the backlog, but the turn ends live: the agent waits."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+    harness.daemon.backlog["ag1"] = [tag_event(COMPACT_TAG)]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await after_message(harness, "Still in the turn.")
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: said_texts(harness) != [])
+                return said_texts(harness)
+
+    assert run(scenario()) == ["/compact"]
+
+
+def test_a_replayed_compaction_request_does_nothing(harness):
+    """The run that first read it acted on it, so the next live turn end
+    does not act on it again."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+    harness.daemon.backlog["ag1"] = [tag_event(COMPACT_TAG), end_turn()]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", end_turn())
+                await after_message(harness, "Continuing.")
+                return said_texts(harness)
+
+    assert run(scenario()) == []
 
 
 # ---------------------------------------------------------------------------

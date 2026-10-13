@@ -626,7 +626,7 @@ _Avoid_: Skill message, skill prompt
 **External event**:
 A user turn the orchestrator server writes to an agent from outside its conversation, in the
 `<external-event source=… type=…>` envelope. The source says where it came from: `orchestrator-ui`,
-`jig` or `github`. The type says what happened, such as `document.approved` or
+`jig`, `github` or `orchestrator`. The type says what happened, such as `document.approved` or
 `pr.checks_failed`. The attributes are its facts, and the body is what the agent is to do. The
 transcript draws it apart from the user's words, as it does a **Loaded skill** and a **Task
 notification**. See `docs/dev/orchestrator-server.md`, "External events".
@@ -962,6 +962,15 @@ write one. One of the markers, with the
 **Document tag**, the **Image tag**, the **Note**, the **PR link tag** and `<live-feedback>`. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
+
+**Compaction request**:
+An agent's request to compact its own session, written as `<compact-session min-tokens="200k">`
+at the end of an ordinary message. The agent cannot compact itself, but it knows where the break
+points are. When the turn ends, the orchestrator compacts the session if its **context occupancy**
+is at least `min-tokens`. A body becomes the compact's focus instructions. The orchestrator always
+replies, so an unattended agent continues. See `docs/dev/orchestrator-server.md`, "A compaction
+request".
+_Avoid_: Auto-compact (that is the harness's own), self-compact
 
 **Milestone snapshot**:
 What a driven agent had spent when it reached a milestone: its own tokens, its subagents' tokens,

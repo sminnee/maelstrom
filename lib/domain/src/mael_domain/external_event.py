@@ -13,6 +13,7 @@ from .github_model import PrStatus
 
 GITHUB = "github"
 JIG = "jig"
+ORCHESTRATOR = "orchestrator"
 ORCHESTRATOR_UI = "orchestrator-ui"
 
 DOCUMENT_APPROVED = "document.approved"
@@ -27,6 +28,8 @@ PR_CHECKS_FAILED = "pr.checks_failed"
 PR_CHECKS_PASSED = "pr.checks_passed"
 PR_CONFLICT = "pr.conflict"
 PR_MERGED = "pr.merged"
+SESSION_COMPACTED = "session.compacted"
+SESSION_NOT_COMPACTED = "session.not_compacted"
 
 _TAG = "external-event"
 
