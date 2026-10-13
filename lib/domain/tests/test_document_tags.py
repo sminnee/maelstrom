@@ -2,7 +2,13 @@
 
 import pytest
 
-from mael_domain.document_tags import media_refs, partial_text, replace_media
+from mael_domain.document_tags import (
+    ParamSet,
+    media_refs,
+    partial_text,
+    read_tags,
+    replace_media,
+)
 
 
 def targets(markdown: str) -> list[str]:
@@ -92,7 +98,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ("Built.\n\n<milestone>built</milestone>", "Built."),
         ('Pushed.\n\n<link rel="gh-pr">118</link>', "Pushed."),
         ('More work.\n\n<link rel="gh-pr" withdrawn>118</link>', "More work."),
-        ("Look.\n\n<jig show>", "Look."),
+        ('Look.\n\n<live-feedback jig="on">', "Look."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
@@ -110,7 +116,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ("Before\n\n<doc-", "Before"),
         ('Before\n\n<doc-file kind="pr" filename=".drafts', "Before"),
         ("Before\n\n<user-attention lo", "Before"),
-        ("Before\n\n<jig sh", "Before"),
+        ("Before\n\n<live-feedback ji", "Before"),
         ("Before\n\n</no", "Before"),
         # The renderer reads this one, so it stays once it is whole.
         ("<user-attention high>\nHello", "<user-attention high>\nHello"),
@@ -127,3 +133,61 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
 )
 def test_a_partial_message_shows_no_marker_and_no_half_tag(so_far, shown):
     assert partial_text(so_far) == shown
+
+
+# --- the live feedback marker: the agent sets a param -----------------------
+
+
+def feedback_params(text: str) -> tuple[ParamSet, ...]:
+    return read_tags(text, show_image=lambda _image: None).feedback_params
+
+
+@pytest.mark.parametrize(
+    ("text", "sets"),
+    [
+        ('<live-feedback jig="on">', [ParamSet(None, "jig", True)]),
+        ('<live-feedback jig="off">', [ParamSet(None, "jig", False)]),
+        (
+            '<live-feedback service="web" jig="on">',
+            [ParamSet("web", "jig", True)],
+        ),
+        (
+            '<live-feedback jig="on" grid="off">',
+            [ParamSet(None, "jig", True), ParamSet(None, "grid", False)],
+        ),
+        (
+            '<live-feedback jig="on">\nLater.\n<live-feedback service="ladle" jig="off">',
+            [ParamSet(None, "jig", True), ParamSet("ladle", "jig", False)],
+        ),
+    ],
+    ids=["on", "off", "one-service", "several-params", "in-order"],
+)
+def test_a_live_feedback_marker_sets_each_param_it_names(text, sets):
+    assert list(feedback_params(text)) == sets
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<live-feedback jig="maybe"> Just talking.',
+        '<live-feedback jig="on" grid="maybe"> Just talking.',
+        '<live-feedback service="web"> Just talking.',
+        '<live-feedback service="" jig="on"> Just talking.',
+        '<live-feedback dark-mode="on"> Just talking.',
+        "<live-feedback> Just talking.",
+        'Write `<live-feedback jig="on">` to show it.',
+    ],
+    ids=[
+        "bad-value",
+        "one-bad-value",
+        "no-param",
+        "empty-service",
+        "not-a-word",
+        "bare",
+        "quoted-in-code",
+    ],
+)
+def test_a_live_feedback_marker_with_no_good_param_stays_as_text(text):
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert tagged.feedback_params == ()
+    assert tagged.text == text

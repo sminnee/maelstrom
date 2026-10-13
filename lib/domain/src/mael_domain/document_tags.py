@@ -31,9 +31,12 @@ done::
 
     <link rel="gh-pr" withdrawn>118</link>
 
-The jig marker shows or hides the agent's worktree's **Jig**::
+The live feedback marker sets a **Live feedback param** on the dev servers of
+the agent's worktree. ``service`` names one dev server; with none, the param is
+set on each one that exposes it::
 
-    <jig show>
+    <live-feedback jig="on">
+    <live-feedback service="web" jig="off">
 
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
@@ -87,9 +90,12 @@ _LINK_TAG = re.compile(
 _WITHDRAWN = re.compile(r"\swithdrawn(?=[\s/>=])")
 _QUOTED = re.compile(r'"[^"]*"|\'[^\']*\'')
 
-#: Shows or hides the agent's worktree's jig. A verb outside the two is not a
-#: marker, and stays as text.
-_JIG_TAG = re.compile(r"<jig\s+(show|hide)\s*>")
+#: Sets live feedback params. Each attribute but ``service`` is a param, set
+#: ``on`` or ``off``. A tag with another value, with no param, or with an
+#: attribute that is not a bare word, such as ``dark-mode``, is not a marker,
+#: and stays as text.
+_LIVE_FEEDBACK_TAG = re.compile(r'<live-feedback((?:\s+\w+\s*=\s*"[^"]*")*)\s*>')
+_PARAM_VALUES = {"on": True, "off": False}
 
 #: The stages the task-completion flow passes through, in order. A name outside
 #: this set is recorded as written and flagged, so a typo is visible rather than
@@ -136,6 +142,15 @@ class ImageTag:
 
 
 @dataclass(frozen=True)
+class ParamSet:
+    """One live feedback param an agent set: on one service, or with ``None`` on each."""
+
+    service: str | None
+    name: str
+    value: bool
+
+
+@dataclass(frozen=True)
 class TaggedMessage:
     """A message split into the text the transcript shows and the tags it carried.
 
@@ -146,10 +161,11 @@ class TaggedMessage:
     carried none. A note replaces rather than accumulates, so this is the
     latest one the message held. ``milestone`` follows the same rule, and names
     the stage of the work the agent has just reached. ``pr_link`` follows it
-    too, and is the PR number or URL the agent registered on its task. So does
-    ``jig``: ``True`` to show the jig, ``False`` to hide it, ``None`` for no
-    marker. ``pr_withdrawn`` says whether the ``pr_link`` tag marked the PR
-    withdrawn.
+    too, and is the PR number or URL the agent registered on its task.
+    ``pr_withdrawn`` says whether the ``pr_link`` tag marked the PR withdrawn.
+
+    ``feedback_params`` is every param the live feedback markers set, in the
+    order they were written. Each one applies, so none replaces another.
     """
 
     text: str
@@ -158,7 +174,7 @@ class TaggedMessage:
     milestone: str = ""
     pr_link: str = ""
     pr_withdrawn: bool = False
-    jig: bool | None = None
+    feedback_params: tuple[ParamSet, ...] = ()
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -229,12 +245,17 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         pr_withdrawn = _WITHDRAWN.search(opening) is not None
         spans.append(match.span())
 
-    jig: bool | None = None
-    for match in _JIG_TAG.finditer(text):
-        if any(start <= match.start() < end for start, end in spans):
+    feedback_params: list[ParamSet] = []
+    # Like a PR link, this marker acts outside the transcript, so one an agent
+    # quotes in code must not set anything.
+    quoted = spans + _code_spans(text)
+    for match in _LIVE_FEEDBACK_TAG.finditer(text):
+        if any(start <= match.start() < end for start, end in quoted):
             continue
-        jig = match.group(1) == "show"
-        spans.append(match.span())
+        sets = _param_sets(_attributes(match.group(1)))
+        if sets:
+            feedback_params.extend(sets)
+            spans.append(match.span())
 
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
@@ -259,8 +280,21 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         milestone=milestone,
         pr_link=pr_link,
         pr_withdrawn=pr_withdrawn,
-        jig=jig,
+        feedback_params=tuple(feedback_params),
     )
+
+
+def _param_sets(attributes: dict[str, str]) -> list[ParamSet]:
+    """The params one live feedback marker sets, or none when one value is bad."""
+    service = attributes.pop("service", None)
+    if service == "" or not attributes:
+        return []
+    if any(value not in _PARAM_VALUES for value in attributes.values()):
+        return []
+    return [
+        ParamSet(service, name, _PARAM_VALUES[value])
+        for name, value in attributes.items()
+    ]
 
 
 #: Every marker an agent writes in a message. The last is read by the
@@ -271,7 +305,7 @@ _MARKER_NAMES = (
     "note",
     "milestone",
     "link",
-    "jig",
+    "live-feedback",
     "user-attention",
 )
 #: The markers whose body is not prose: nothing of one shows until it closes.
