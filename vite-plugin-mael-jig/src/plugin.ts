@@ -65,6 +65,7 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
   // The last PUT to each file, so a watcher event it caused names its page.
   const lastWrites = new Map<string, { text: string; from: string }>();
   let base = '/';
+  let stopProvider = () => {};
 
   /** The draft file name of `path`, or `undefined` when the jig does not serve it. */
   const draftName = (path: string) => {
@@ -137,7 +138,7 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
         server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
       );
       const shots = join(drafts, 'jig');
-      server.httpServer?.once('close', provider.stop);
+      stopProvider = provider.stop;
 
       // Mounted under the prefix, so `req.url` is the rest: `/<name>`, still encoded.
       server.middlewares.use('/__mael/drafts', (req, res) => {
@@ -219,6 +220,10 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
           json(res, 503, { error: { message: message(error) } });
         }
       });
+    },
+    // Vite runs this as the server closes, in middleware mode too, which has no httpServer.
+    closeBundle() {
+      stopProvider();
     },
     // A draft is not a module, so nothing reloads for it: the event above is the update.
     handleHotUpdate({ file: changed }) {
