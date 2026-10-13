@@ -55,6 +55,7 @@ from mael_domain.external_event import (
     JIG_PICK,
     ORCHESTRATOR_UI,
     ExternalEvent,
+    pr_events,
 )
 from mael_domain.external_event import render as render_event
 from mael_domain.feedback import (
@@ -66,7 +67,7 @@ from mael_domain.feedback import (
     format_pick,
 )
 from mael_domain.file_registry import FileRegistry
-from mael_domain.github_model import RateLimited, parse_pr_ref
+from mael_domain.github_model import PrStatus, RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.landing import Landings
 from mael_domain.landing_store import StepEvent
@@ -90,6 +91,7 @@ from mael_domain.operation_store import (
     OperationRecord,
     OperationStore,
 )
+from mael_domain.pr_ledger_store import InMemoryPrLedgerStore, PrLedgerStore
 from mael_domain.protocol import (
     HOST_ID,
     Agent,
@@ -471,6 +473,7 @@ class Orchestrator:
         comms: CommStore | None = None,
         comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
+        pr_ledger: PrLedgerStore | None = None,
         exporter: TaskExporter | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
@@ -523,6 +526,19 @@ class Orchestrator:
         self._comm_cursor: int | None = None
         #: Bumped on every comm change published; the comm list's ETag.
         self.comm_revision = 0
+        #: What each Registered PR's agents were last told. See
+        #: orchestrator-server.md, "External events".
+        self.pr_ledger = pr_ledger if pr_ledger is not None else InMemoryPrLedgerStore()
+        #: The Registered PRs that had a recipient at the last world change, so
+        #: a new one is checked against what the cache already holds.
+        self._watched_prs: set[str] = set()
+        #: One PR check at a time, so two reads cannot both tell the same news.
+        self._pr_watch_lock = asyncio.Lock()
+        #: Registered PRs a read found closed without a merge. GitHub stops
+        #: answering for one, so only this keeps the poll from waiting on it.
+        self._closed_prs: set[str] = set()
+        #: The PR checks in flight, kept so a stop can cancel them.
+        self._pr_watches: set[asyncio.Task[None]] = set()
         #: Writes the markdown export, or ``None`` when this server keeps none.
         #: A task write queues its export whatever runs; the server is what
         #: drains the queue, so a build without one simply lets it grow.
@@ -614,6 +630,8 @@ class Orchestrator:
         await self._load_attached()
         await self._load_desk()
         await self.operations.load()
+        if self.worktrees.prs is not None:
+            self.worktrees.prs.on_change = self._pr_changed
         await self.refresh_worktrees()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
@@ -626,7 +644,7 @@ class Orchestrator:
                 self._poll(
                     self._worktree_poll,
                     self.refresh_worktrees,
-                    only_when_watched=True,
+                    when=self._worktree_read_wanted,
                 )
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
@@ -637,18 +655,29 @@ class Orchestrator:
             )
 
     async def stop(self) -> None:
+        # First: a shielded PR read outlives its cancelled caller, and must not
+        # start a watch after the gather below.
+        if self.worktrees.prs is not None:
+            self.worktrees.prs.on_change = None
         watching = [w.task for w in self._watches.values() if w.task is not None]
         detaching = list(self._detaches.values())
         reading = [
             task for task in (self._catch_up, self._event_read) if task is not None
         ]
-        for task in [*self._pollers, *watching, *detaching, *reading]:
+        for task in [
+            *self._pollers,
+            *watching,
+            *detaching,
+            *reading,
+            *self._pr_watches,
+        ]:
             task.cancel()
         await asyncio.gather(
             *self._pollers,
             *watching,
             *detaching,
             *reading,
+            *self._pr_watches,
             return_exceptions=True,
         )
         self._pollers = []
@@ -757,23 +786,39 @@ class Orchestrator:
         interval: float,
         refresh: Callable[[], Any],
         *,
-        only_when_watched: bool = False,
+        when: Callable[[], bool] | None = None,
     ) -> None:
         """Run ``refresh`` every ``interval`` seconds, forever.
 
-        ``only_when_watched`` holds the tick back while no client is
-        subscribed: the UI never polls on its own, so a read nobody hears buys
-        nothing. :meth:`_watch_arrived` reads on arrival, so a client that
-        comes mid-interval does not wait for the next tick.
+        ``when`` holds a tick back while it answers false. See
+        :meth:`_worktree_read_wanted`.
         """
         while True:
             await asyncio.sleep(interval)
-            if only_when_watched and not self.notices.watching:
+            if when is not None and not when():
                 continue
             try:
                 await refresh()
             except Exception:  # noqa: BLE001 — a poller must outlive one bad read
                 log.exception("refresh failed")
+
+    def _worktree_read_wanted(self) -> bool:
+        """Whether the worktree tick should read.
+
+        While a client watches, or while an agent waits on a PR that has not
+        merged. The UI never polls on its own, so with neither a read buys
+        nothing. :meth:`_watch_arrived` reads on arrival, so a client that
+        comes mid-interval does not wait for the next tick.
+        """
+        if self.notices.watching:
+            return True
+        recipients = self._pr_recipients()
+        if not recipients:
+            return False
+        done = self._closed_prs | {
+            pr.url for pr in self._cached_prs() if pr.state == "merged"
+        }
+        return any(url not in done for url in recipients)
 
     async def _run(self, fn: Callable[..., Any], *args: Any) -> Any:
         """Run source work off the loop, when it blocks and an executor was given.
@@ -831,6 +876,8 @@ class Orchestrator:
             events = [*events, *relinked]
         self._record_transcripts(events)
         notices = notices_for(events)
+        if "task" in notices or "agent" in notices:
+            self._watch_new_prs()
         if "task" in notices:
             self.task_revision += 1
         if "comm" in notices:
@@ -2572,6 +2619,97 @@ class Orchestrator:
                 ],
             },
         }
+
+    # -- the PR watch --
+
+    def _pr_recipients(self) -> dict[str, tuple[list[str], bool]]:
+        """Each Registered PR whose task has a live top-level agent.
+
+        By PR URL: the agents, and whether the PR is withdrawn. A free agent
+        has no task, so it hears nothing.
+        """
+        world = self.world
+        found: dict[str, tuple[list[str], bool]] = {}
+        for agent in world["agents"].values():
+            if agent["parent"] or agent["state"] == "exited" or not agent["taskId"]:
+                continue
+            task = world["tasks"].get(agent["taskId"])
+            if task is None or not task["prUrl"]:
+                continue
+            agent_ids, _ = found.setdefault(task["prUrl"], ([], task["prWithdrawn"]))
+            agent_ids.append(agent["id"])
+        return found
+
+    def _cached_prs(self) -> list[PrStatus]:
+        """Every PR the cache holds, whatever its project or branch."""
+        prs = self.worktrees.prs
+        if prs is None:
+            return []
+        return [pr for p in prs.snapshot().values() for pr in p.by_branch.values()]
+
+    def _watch_new_prs(self) -> None:
+        """Check a PR that just gained a recipient against what the cache holds.
+
+        The cache tells only of a change, so a PR registered after its last
+        read, or one whose agents were read after it at start, is checked here.
+        """
+        urls = set(self._pr_recipients())
+        new, self._watched_prs = urls - self._watched_prs, urls
+        if not new:
+            return
+        for pr in self._cached_prs():
+            if pr.url in new:
+                self._schedule_pr_watch(pr)
+
+    def _pr_changed(
+        self, project: str, branch: str, before: PrStatus | None, after: PrStatus | None
+    ) -> None:
+        """The cache's listener. The check runs off the read, so a slow ``say``
+        never holds a read in flight.
+
+        The read asks for open and merged PRs only, so a PR that leaves the
+        answer was closed without a merge.
+        """
+        if after is None:
+            if before is not None:
+                self._closed_prs.add(before.url)
+            return
+        self._closed_prs.discard(after.url)
+        self._schedule_pr_watch(after)
+
+    def _schedule_pr_watch(self, pr: PrStatus) -> None:
+        task = asyncio.create_task(self._pr_watch(pr))
+        self._pr_watches.add(task)
+        task.add_done_callback(self._pr_watches.discard)
+
+    async def _pr_watch(self, pr: PrStatus) -> None:
+        """Tell ``pr``'s agents what is news in it, and write the ledger.
+
+        The ledger moves whether or not an agent took the event, so a resumed
+        agent is not flooded with old news. A PR with no recipient moves
+        nothing: :meth:`_watch_new_prs` checks it when one arrives.
+        """
+        try:
+            async with self._pr_watch_lock:
+                found = self._pr_recipients().get(pr.url)
+                if found is None:
+                    return
+                agent_ids, withdrawn = found
+                told = await self.pr_ledger.read(pr.url)
+                events, ledger = pr_events(pr, told, withdrawn)
+                if ledger != told:
+                    await self.pr_ledger.save(pr.url, ledger)
+                for event in events:
+                    _, refusals = await self._tell(agent_ids, event)
+                    for agent_id, refused in refusals:
+                        log.warning(
+                            "agent %s: %s not delivered: %s",
+                            agent_id,
+                            event.type,
+                            refused["error"]["message"],
+                        )
+        except Exception:  # noqa: BLE001 — nothing awaits this task
+            log.exception("the PR watch failed for %s", pr.url)
 
     def _settle_group(self, members: list[Document], status: str) -> None:
         """Move every member, and retire the items that asked for the review.

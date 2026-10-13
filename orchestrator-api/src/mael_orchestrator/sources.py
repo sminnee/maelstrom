@@ -445,6 +445,12 @@ class WorktreeSource(Protocol):
         """Stand pull request reads off, for a refusal another reader met."""
         ...
 
+    @property
+    def prs(self) -> "PrStateCache | None":
+        """The PR cache the rows read from, or ``None`` on a source with none.
+        The server listens on it for the PR watch."""
+        ...
+
     def refresh_prs(self, project: str, branch: str) -> Awaitable[None] | None:
         """Read ``branch``'s pull request again, because a caller changed it."""
         ...
@@ -839,6 +845,8 @@ PR_READ_TIMEOUT_SECS = 30.0
 #: {branch: PrStatus}``, or ``None`` when the read failed. Raises
 #: :class:`~mael_domain.github_model.RateLimited` when the budget is spent.
 ReadPrs = Callable[[Path, set[str]], Awaitable[dict[str, PrStatus] | None]]
+#: A PR change: project, branch, the entry before the read, the entry after.
+PrChange = Callable[[str, str, PrStatus | None, PrStatus | None], None]
 
 
 @dataclass
@@ -886,6 +894,9 @@ class PrStateCache:
         #: that began before it from one that began after.
         self._started = 0
         self._stand_off_until: float | None = None
+        #: Told of each branch whose PR a read moved: ``(project, branch,
+        #: before, after)``. One listener, set by the server once it exists.
+        self.on_change: PrChange | None = None
 
     def standing_off(self) -> bool:
         """Whether GitHub refused a read for quota and the cooldown still holds."""
@@ -971,12 +982,23 @@ class PrStateCache:
             return
         # Only the branches asked about are answered. One not asked keeps its
         # entry: its absence from ``answer`` says nothing about it.
+        moved: list[tuple[str, PrStatus | None, PrStatus | None]] = []
         for branch in branches:
-            if branch in answer:
-                state.by_branch[branch] = answer[branch]
+            before = state.by_branch.get(branch)
+            after = answer.get(branch)
+            if after is not None:
+                state.by_branch[branch] = after
             else:
                 state.by_branch.pop(branch, None)
+            if before != after:
+                moved.append((branch, before, after))
         state.stale_branches -= branches
+        if self.on_change is not None:
+            for branch, before, after in moved:
+                try:
+                    self.on_change(name, branch, before, after)
+                except Exception:  # noqa: BLE001 — a listener must not fail the read
+                    log.exception("PR change listener failed for %s", branch)
 
     async def _read_or_none(
         self, project_path: Path, branches: set[str]
@@ -1014,8 +1036,12 @@ class InMemoryWorktreeSource:
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
+        prs: PrStateCache | None = None,
     ) -> None:
         self.projects = list(projects or [])
+        #: A real cache over a fake read, for a test of the PR watch. A read
+        #: refreshes it for each project's open worktree branches.
+        self.prs = prs
         self.worktrees = list(worktrees or [])
         self.close = close
         self.force_close = force_close
@@ -1046,16 +1072,41 @@ class InMemoryWorktreeSource:
 
     def read(
         self, active_branches: set[str] | None = None
-    ) -> tuple[list[Project], list[Worktree]]:
+    ) -> (
+        tuple[list[Project], list[Worktree]]
+        | Awaitable[tuple[list[Project], list[Worktree]]]
+    ):
         self.reads += 1
         self.asked = active_branches
-        return list(self.projects), list(self.worktrees)
+        rows = list(self.projects), list(self.worktrees)
+        if self.prs is None:
+            return rows
+        return self._read_prs(self.prs, active_branches, rows)
+
+    async def _read_prs(
+        self,
+        prs: PrStateCache,
+        active_branches: set[str] | None,
+        rows: tuple[list[Project], list[Worktree]],
+    ) -> tuple[list[Project], list[Worktree]]:
+        held: dict[str, set[str]] = {}
+        for worktree in self.worktrees:
+            if not worktree["isClosed"]:
+                held.setdefault(worktree["project"], set()).add(worktree["branch"])
+        for project, branches in held.items():
+            if active_branches is not None:
+                branches &= active_branches
+            await prs.refresh(Path(project), branches)
+        return rows
 
     def stand_off(self) -> None:
         self.rate_limited = True
 
-    def refresh_prs(self, project: str, branch: str) -> None:
+    def refresh_prs(self, project: str, branch: str) -> Awaitable[None] | None:
         self.prs_refreshed.append((project, branch))
+        if self.prs is None:
+            return None
+        return self.prs.refresh(Path(project), {branch}, after_write=True)
 
 
 class ListAllWorktreeSource:

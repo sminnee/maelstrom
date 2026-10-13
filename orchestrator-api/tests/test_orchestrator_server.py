@@ -40,7 +40,7 @@ from mael_domain.config import MaelstromConfig
 from mael_domain.external_event import ExternalEvent
 from mael_domain.external_event import parse as parse_external_event
 from mael_domain.feedback import format_controls, format_pick
-from mael_domain.github_model import RateLimited
+from mael_domain.github_model import PrStatus, RateLimited
 from mael_domain.integrations.errors import IntegrationError
 from mael_domain.landing import (
     Deploy,
@@ -52,6 +52,7 @@ from mael_domain.landing import (
 )
 from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
 from mael_domain.operation_store import InMemoryOperationStore
+from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file
@@ -67,6 +68,7 @@ from mael_orchestrator.sources import (
     CloseBlocked,
     InMemoryWorktreeSource,
     NotebookTaskSource,
+    PrStateCache,
 )
 from mael_orchestrator.world_build import split_task_key
 
@@ -7200,6 +7202,202 @@ def test_a_replayed_milestone_is_not_recorded_twice(harness):
     rows, items = run(scenario())
     assert rows == []
     assert items == []
+
+
+# --- the PR watch ------------------------------------------------------------
+
+
+def a_pr(state: str, head: str = "aaa1111", **over) -> PrStatus:
+    fields = {
+        "number": 118,
+        "commits": 1,
+        "url": PR_URL,
+        "state": state,
+        "is_draft": False,
+        "head_oid": head,
+        "checks_seen": True,
+    }
+    fields.update(over)
+    return PrStatus(**fields)
+
+
+class ScriptedPrs:
+    """A ``get_open_prs`` stand-in: ``answer`` is GitHub's current word."""
+
+    def __init__(self, answer: dict[str, PrStatus]) -> None:
+        self.answer = answer
+        self.reads = 0
+
+    async def __call__(self, _path: Path, branches: set[str]):
+        self.reads += 1
+        return {b: pr for b, pr in self.answer.items() if b in branches}
+
+
+def a_watched_pr(harness, state: str = "ci-running", **task_fields) -> ScriptedPrs:
+    """ag1 on NORT-7, whose Registered PR is #118 on the worktree's branch."""
+    an_agent_on_a_task(harness, **task_fields)
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL))
+    prs = ScriptedPrs({"feat/orders": a_pr(state)})
+    harness.worktrees.prs = PrStateCache(read=prs)
+    return prs
+
+
+def events_said(harness, agent_id: str = "ag1") -> list[str]:
+    """The External event types said to ``agent_id``, in order."""
+    return [
+        event.type
+        for c in said(harness)
+        if c["id"] == agent_id and (event := parse_external_event(c["text"]))
+    ]
+
+
+def test_a_moving_pr_tells_the_agent_on_its_task(harness):
+    """No client watches, so this also proves the poll ticks for a recipient."""
+    prs = a_watched_pr(harness)
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            prs.answer = {"feat/orders": a_pr("ci-failed")}
+            await wait_until(lambda: len(events_said(harness)) == 2)
+            reads = prs.reads
+            await wait_until(lambda: prs.reads >= reads + 3)
+
+    run(scenario())
+    assert events_said(harness) == ["pr.watching", "pr.checks_failed"]
+    failed = parse_external_event(said(harness)[-1]["text"])
+    assert failed is not None
+    assert failed.attrs == {"pr": "118", "head": "aaa1111"}
+
+
+def test_a_free_agent_and_another_tasks_agent_hear_nothing(harness):
+    prs = a_watched_pr(harness)
+    harness.add_task("NORT-8")
+    harness.daemon.rows["ag2"] = agent_row(
+        "ag2", session=model.session_id_for(PROJECT, "NORT-8")
+    )
+    harness.daemon.rows["ag3"] = agent_row("ag3")
+    nort7 = model.session_id_for(PROJECT, "NORT-7")
+    harness.daemon.rows["ag1.1"] = agent_row("ag1.1", parent="ag1", session=nort7)
+    harness.daemon.rows["ag4"] = agent_row("ag4", state="exited", session=nort7)
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            prs.answer = {"feat/orders": a_pr("merged")}
+            await wait_until(lambda: len(events_said(harness)) == 2)
+
+    run(scenario())
+    assert {c["id"] for c in said(harness)} == {"ag1"}
+
+
+def test_a_withdrawn_pr_hears_of_its_merge_only(harness):
+    prs = a_watched_pr(harness)
+    run(model.withdraw_pr(harness.store, PROJECT, "NORT-7"))
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: prs.reads >= 3)
+            prs.answer = {"feat/orders": a_pr("ci-failed")}
+            reads = prs.reads
+            await wait_until(lambda: prs.reads >= reads + 3)
+            prs.answer = {"feat/orders": a_pr("merged")}
+            await wait_until(lambda: events_said(harness) != [])
+
+    run(scenario())
+    assert events_said(harness) == ["pr.merged"]
+
+
+@pytest.mark.parametrize("ending", ["merged", "closed"])
+def test_the_poll_stops_for_a_pr_that_is_done(harness, ending):
+    """With no browser, only an agent waiting on PR news keeps the poll
+    reading. A merged or closed PR has no more news, and every read spends
+    GitHub quota."""
+    prs = a_watched_pr(harness)
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            prs.answer = {"feat/orders": a_pr("merged")} if ending == "merged" else {}
+            reads = prs.reads
+            await wait_until(lambda: prs.reads > reads)
+            settled = prs.reads
+            await asyncio.sleep(0.2)
+            return prs.reads - settled
+
+    assert run(scenario()) == 0
+
+
+def test_a_pr_registered_after_its_read_is_told_from_the_cache(harness_factory):
+    """create-pr reads the PR before the notebook names it, so the task's
+    agent gains a recipient with nothing left to read."""
+    harness = harness_factory(worktree_poll=60.0)
+    an_agent_on_a_task(harness)
+    prs = ScriptedPrs({"feat/orders": a_pr("ci-running")})
+    harness.worktrees.prs = PrStateCache(read=prs)
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/agents/ag1", lambda b: b["taskId"])
+            await api.post(
+                "/api/worktrees/refresh", {"project": PROJECT, "branch": "feat/orders"}
+            )
+            await wait_until(lambda: harness.worktrees.prs.get(PROJECT, "feat/orders"))
+            await asyncio.sleep(0.1)  # the refresh's own worktree read
+            reads = prs.reads
+            await model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL)
+            harness.version += 1
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            return prs.reads - reads
+
+    assert run(scenario()) == 0
+
+
+def test_a_refresh_after_a_write_tells_without_waiting_for_the_poll(harness_factory):
+    harness = harness_factory(worktree_poll=60.0)
+    a_watched_pr(harness, state="ci-failed")
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/agents/ag1", lambda b: b["taskId"])
+            assert events_said(harness) == []
+            await api.post(
+                "/api/worktrees/refresh", {"project": PROJECT, "branch": "feat/orders"}
+            )
+            await wait_until(lambda: len(events_said(harness)) == 2)
+
+    run(scenario())
+    assert events_said(harness) == ["pr.watching", "pr.checks_failed"]
+
+
+def test_the_ledger_outlives_the_server(store, tmp_path):
+    """A restart repeats no transition, and tells one made while it was down."""
+    from mael_domain.state_db.migrate import open_state_db
+
+    db = open_state_db(tmp_path / "state.db")
+    run(db.migrate())
+
+    first = Harness(store, pr_ledger=SqlitePrLedgerStore(db))
+    prs = a_watched_pr(first, state="ci-failed")
+
+    async def told(harness, count: int):
+        async with harness.client():
+            await wait_until(lambda: len(events_said(harness)) >= count)
+            await asyncio.sleep(0.1)  # five polls: room for a repeat to show
+
+    try:
+        run(told(first, 2))
+        assert events_said(first) == ["pr.watching", "pr.checks_failed"]
+
+        # The PR merges while no server runs.
+        prs.answer = {"feat/orders": a_pr("merged")}
+        second = Harness(store, pr_ledger=SqlitePrLedgerStore(db))
+        second.daemon.rows["ag1"] = first.daemon.rows["ag1"]
+        second.worktrees.prs = PrStateCache(read=prs)
+        run(told(second, 1))
+        assert events_said(second) == ["pr.merged"]
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------

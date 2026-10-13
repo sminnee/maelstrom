@@ -926,6 +926,49 @@ async def test_a_read_answers_only_the_branches_it_asked_about():
     assert cache.snapshot() == {"acme": ProjectPrs({"feat/b": _pr(2)})}
 
 
+def _listening(cache: PrStateCache) -> list[tuple]:
+    heard: list[tuple] = []
+    cache.on_change = lambda *change: heard.append(change)
+    return heard
+
+
+async def test_on_change_hears_each_branch_whose_pr_moved():
+    read = _GatedRead({"feat/a": _pr(1), "feat/b": _pr(2)})
+    cache = PrStateCache(read=read)
+    heard = _listening(cache)
+    await cache.refresh(ACME, {"feat/a", "feat/b"})
+    assert sorted(heard) == [
+        ("acme", "feat/a", None, _pr(1)),
+        ("acme", "feat/b", None, _pr(2)),
+    ]
+    heard.clear()
+    read.answer = {"feat/a": _pr(1, head_oid="c0ffee1"), "feat/b": _pr(2)}
+
+    await cache.refresh(ACME, {"feat/a", "feat/b"})
+
+    assert heard == [("acme", "feat/a", _pr(1), _pr(1, head_oid="c0ffee1"))]
+
+
+@pytest.mark.parametrize("failure", ["never answers", "answers None", "rate limited"])
+async def test_on_change_hears_nothing_from_a_read_that_failed(failure):
+    """Stale PR state is no news: the entry did not change."""
+    read = _GatedRead({"feat/a": _pr(1)})
+    cache = PrStateCache(read=read, timeout=0.05)
+    await cache.refresh(ACME, {"feat/a"})
+    heard = _listening(cache)
+    if failure == "never answers":
+        read.gate = asyncio.Event()
+    elif failure == "answers None":
+        read.answer = None
+    else:
+        read.answer = RateLimited("spent")
+
+    await cache.refresh(ACME, {"feat/a"})
+    await cache.refresh(ACME, {"feat/a"})  # stood off, when rate limited
+
+    assert heard == []
+
+
 async def test_one_projects_pr_is_not_answered_for_another():
     """Every project's ``_main`` sits on ``main``."""
     cache = PrStateCache(read=_GatedRead({"main": _pr(1)}))
