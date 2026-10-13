@@ -352,6 +352,8 @@ def format_change_comments(comments: list[ChangeComment]) -> str:
                 [
                     f"{comment['path']} {span} ({_rev_label(comment['rev'])}):",
                     *quoted,
+                    # A line right after a quote continues it in markdown.
+                    "",
                     comment["body"].strip(),
                 ]
             )

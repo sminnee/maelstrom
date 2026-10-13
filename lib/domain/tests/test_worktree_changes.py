@@ -291,10 +291,12 @@ def test_a_range_names_both_ends_and_comments_are_set_apart():
         "src/read.py lines 13-14 (uncommitted):\n"
         "> +    with open(path) as f:\n"
         "> +        return f.read()\n"
+        "\n"
         "close the file on error too\n"
         "\n"
         "b.py line 2 (uncommitted):\n"
         ">  x\n"
+        "\n"
         "why"
     )
 
