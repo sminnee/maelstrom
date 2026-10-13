@@ -258,6 +258,31 @@ class TestTheTasksLadderUpgrade:
         finally:
             db.close()
 
+    async def test_an_older_database_gains_the_pr_events_ledger(self, tmp_path):
+        """The PR watch's ledger: the server's bookkeeping, so a write is no news."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders.pop("pr_events")
+            await db.migrate()
+            assert not await db.has_table("pr_events")
+
+            db.ladders["pr_events"] = full
+            await db.migrate()
+
+            before = await db.revision()
+            await db.upsert(
+                "pr_events",
+                "https://github.com/acme/repo/pull/7",
+                state="ci-failed",
+                conflicting=0,
+                told_failed_oid="abc1234",
+                told_green_oid="",
+            )
+            notices, _ = await db.notices_since(before)
+            assert notices == {}
+        finally:
+            db.close()
+
     async def test_an_older_database_gains_the_comm_updates_table(self, tmp_path):
         """A database from before comm updates gains the table; a write is no news."""
         db = open_state_db(tmp_path / "state.db")
