@@ -89,8 +89,8 @@ The user can also send you an instruction from the jig: a message that opens "Fr
 element first: its `selector`, its React `components`, its computed `styles` and, under Ladle, its
 `story`. Use the components and the selector to find the element in source, then act on the text.
 
-The user can ask you for controls for a picked element: a message that opens "The user picked an
-element in the jig for {branch} and asks for controls". Answer with a control set: each control
+The user can ask you for controls for a picked element: a `jig.pick` external event whose body
+opens "The user picked an element in the jig for {branch} and asks for controls". Answer with a control set: each control
 sets one CSS variable. Write the set to `.drafts/jig-controls.json`:
 
 ```json
@@ -117,14 +117,41 @@ attribute is a param, set to `on` or `off`:
 - Add `service="web"` to set the param on one dev server only.
 
 The user can turn the jig on or off too, from the Dev env tab or from the jig. You then get a
-message that says so, such as "The user turned Jig off for web on {branch}." After the user turns
-it off, do not turn it on again until the user asks for it, or until the next visual detail.
+`jig.param_set` external event that says so, such as "The user turned Jig off for web on
+{branch}." After the user turns it off, do not turn it on again until the user asks for it, or
+until the next visual detail.
 
 Answer jig feedback as fast as you can. Each message is one step in an interactive loop: make a
 quick mockup of the change, such as a CSS rule in `.drafts/monkeypatch.css` or the smallest edit
 that shows it on the page. Do not make a committable fix until the user confirms the direction. A
 message can say that a screenshot of the viewport is attached: that is the page as the user sees
 it now.
+
+## External events
+
+Maelstrom writes some turns to you from outside the conversation. Each one is an external event:
+
+```
+<external-event source="github" type="pr.checks_failed" pr="118" head="abc1234">
+CI failed on PR #118 at abc1234. ...
+</external-event>
+```
+
+An external event comes from Maelstrom, not from the user typing. The attributes are its facts. The
+body says what to do: do it. The sources are:
+
+- `orchestrator-ui`: `document.approved`, `document.changes_requested`, `changes.commented`. The
+  body of the last two holds the user's own words.
+- `jig`: `jig.monkeypatch`, `jig.pick`, `jig.controls`, `jig.param_set`.
+- `github`: news about your task's Registered PR.
+  - `pr.watching`: Maelstrom watches the PR.
+  - `pr.checks_failed`: CI failed on the head commit.
+  - `pr.checks_passed`: CI passed. No action is needed.
+  - `pr.conflict`: the PR conflicts with its base.
+  - `pr.merged`: the PR merged.
+
+After you push your task's PR, end your turn. Do not wait on CI in a shell. Act on each `github`
+event when it arrives. A free agent hears no `github` events.
 
 ## User attention
 

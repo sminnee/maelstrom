@@ -303,11 +303,15 @@ there, `mael task reconcile --fix` finds the task and closes it.
 
 This loops autonomously until CI passes:
 
-1. `mael gh read-pr --wait` — run in the background. Exit 0 = pass, 1 = fail, 2 = timeout.
-2. **Pass** — report and stop.
+1. **Wait for CI.** An agent on a task under the agent daemon ends its turn. Maelstrom watches the
+   task's Registered PR and writes it a `github` external event when CI fails or passes, the PR
+   conflicts, or it merges. Any other agent runs `mael gh read-pr --wait` in the background
+   instead. Exit 0 = pass, 1 = fail, 2 = timeout.
+2. **Pass or merge** — report and stop.
 3. **Timeout** — report and stop. Do not spin; re-run `/watch-pr` to resume.
 4. **Fail** — fix *every* failure, whether or not this PR caused it. Do not skip one because
    it looks pre-existing or flaky.
+5. **Conflict** — run `mael sync` and resolve the rebase.
 
 Investigating a failure:
 

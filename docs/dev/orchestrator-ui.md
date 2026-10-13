@@ -660,6 +660,10 @@ reader — see [orchestrator-server.md](orchestrator-server.md#a-shell-command).
 notification draws as a bare line instead of a fold, because the fold keeps only its status and
 summary and leaves no body to hide — see
 [orchestrator-server.md](orchestrator-server.md#a-task-notification).
+An **External event** draws as a sunken block labelled `source · type`, with its body as
+markdown. It does not fold: a change comment or a request for changes is the user's own words,
+and the agent acts on every event — see
+[orchestrator-server.md](orchestrator-server.md#external-events).
 
 A decision shows the last three things the agent said, then the prompt. A question
 follows AskUserQuestion's shape; `session/cards/QuestionPrompt.tsx` says why every answer

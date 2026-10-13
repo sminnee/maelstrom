@@ -10,11 +10,13 @@ metadata:
 
 Load `mael` first. An open PR for the current branch is required. Run this loop without waiting for the user:
 
-1. Run `mael gh read-pr --wait; echo "EXIT_CODE=$?"` in the background. Read the printed exit code, not the background completion status.
-2. On pass, report green and stop. On timeout, report it and stop.
-3. On failure, inspect `mael gh read-pr` and `mael gh check-log <run-id> --failed-only`. Download artifacts when needed. Reproduce where practical and run project gates.
+1. Wait for the CI result:
+   - When `MAEL_HARNESS_TYPE` is `daemon` and you work on a task, end your turn. Maelstrom sends a `github` external event when CI moves. Do not run `read-pr --wait`.
+   - Otherwise, such as for a free agent, run `mael gh read-pr --wait; echo "EXIT_CODE=$?"` in the background. Read the printed exit code, not the background completion status.
+2. On pass (`pr.checks_passed`, or exit 0), report green and stop. On timeout, report it and stop. On `pr.merged`, stop.
+3. On failure (`pr.checks_failed`, or a failing exit), inspect `mael gh read-pr` and `mael gh check-log <run-id> --failed-only`. Download artifacts when needed. Reproduce where practical and run project gates.
 4. Fix every reported failure. Commit a PR-caused failure as `git commit --fixup <sha>` against its story commit. Commit an unrelated failure as a standalone `chore:`.
-5. Run `mael sync` in the background. It runs the project's `pre_push_cmd` before the push. When the check fails, nothing is pushed: fix the failure and run step 5 again. Resolve any rebase conflict, then return to step 1.
+5. Run `mael sync` in the background. It runs the project's `pre_push_cmd` before the push. When the check fails, nothing is pushed: fix the failure and run step 5 again. Resolve any rebase conflict, then return to step 1. On `pr.conflict`, run step 5 too.
 
 Stay on the current branch. Do not run `/present` or close the task here. Stop only on pass, timeout, or a failure you cannot resolve; report the blocker.
 

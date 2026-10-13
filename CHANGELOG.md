@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Agents hear about their PR.** Under the agent daemon, an agent on a task ends its turn after
+  a push. Maelstrom tells it when CI fails or passes, the PR conflicts, or it merges, so
+  `/watch-pr` no longer waits in a shell. Approvals, change comments, monkeypatches and jig
+  switches reach the agent the same way, as External events, and the transcript draws each one
+  as a labelled block rather than as something the user typed. See
+  [External events](docs/dev/orchestrator-server.md#external-events).
 - **Live feedback params in the Dev env tab.** A Live feedback client, such as the jig, declares
   params, and the tab draws a switch for each one next to Reload while an agent is in the
   worktree. The jig's "Jig" switch shows or hides it on that service, and the agent hears of each

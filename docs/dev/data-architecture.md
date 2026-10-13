@@ -241,7 +241,7 @@ server's `diff_kind` is then handed rows rather than whole tables. A task write 
 request backfill travel this path identically.
 
 **A refresher contract.** A refresher says what to fetch, how often, and what it does when
-refused. The rate-limit stand-off in `PrStateCache`, the worktree poll's `only_when_watched`
+refused. The rate-limit stand-off in `PrStateCache`, the worktree poll's `_worktree_read_wanted`
 guard and the desk-narrowed branch set are three writings of one idea: a refresher decides its
 own budget.
 

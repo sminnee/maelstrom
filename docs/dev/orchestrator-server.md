@@ -132,6 +132,95 @@ nested in another child cannot win over the real one. Roughly one turn in fiftee
 `status`; one naming neither field is not worth a row, and falls back to a message. The turn still
 moves the agent to `processing`, unlike a shell pair — the agent acts on a notification.
 
+## External events
+
+An **External event** is a turn the server writes to an agent from outside its conversation. One
+envelope carries every one, so neither the agent nor the transcript reads it as the user typing:
+
+```
+<external-event source="github" type="pr.checks_failed" pr="118" head="abc1234">
+CI failed on PR #118 at abc1234. Investigate with `mael gh read-pr` and ...
+</external-event>
+```
+
+Claude already reads an XML block such as `<task-notification>` as injected by the harness. The
+tag says the turn is from outside, the attributes are its facts, and the body is one instruction.
+`mael_domain/external_event.py` holds `render`, `parse` and every source and type.
+
+| Source | Types | Sent by |
+|---|---|---|
+| `orchestrator-ui` | `document.approved`, `document.changes_requested`, `changes.commented` | The document and change-comment commands |
+| `jig` | `jig.monkeypatch`, `jig.pick`, `jig.controls`, `jig.param_set` | The live feedback socket and the params route |
+| `github` | `pr.watching`, `pr.checks_failed`, `pr.checks_passed`, `pr.conflict`, `pr.merged` | The PR watch |
+
+**One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
+agent in turn, and answers who took it and who refused. `_tell_worktree` wraps it for the
+commands that reach every agent in a worktree. Each call site keeps its own refusal policy:
+
+- Approval logs the refusal.
+- A param set undoes its change.
+- Changes requested refuses before it settles the group.
+- Change comments and monkeypatch return the worktree reply.
+
+A jig instruction is the one turn that stays a plain message, because the agent prompt keys on its
+"From the jig for" opening.
+
+**The transcript.** The normaliser tests a user turn with `parse` before it tests for a task
+notification. A match is one `external_event` item carrying `source`, `eventType`, `attrs` and the
+body as `markdown`, and it starts the turn. `parse` takes only a turn that is one envelope and
+nothing else, so prose that quotes the envelope stays a message.
+
+### The PR watch
+
+The PR watch tells an agent about its task's **Registered PR**. Registering the PR is the opt-in.
+The recipients are the live top-level agents of the task whose Registered PR it is, so a free
+agent hears nothing.
+
+`PrStateCache` has one listener, `on_change`. `_read_into` calls it for each branch whose
+`PrStatus` the read moved, with the entries before and after. A failed, timed-out or stood-off read
+changes no entry, so **Stale PR state** never sends an event. The server sets the listener in
+`start`, because `cli.py` builds the cache before the `Orchestrator` exists. A later outside
+source follows the same shape: a callback on the source, and a pure "change to events" function.
+
+`pr_events` is that function for GitHub. It reads the `PrStatus` (state, head commit, conflict, and
+whether a check answered) against the ledger, and returns the events and the next ledger:
+
+| Event | When |
+|---|---|
+| `pr.watching` | The PR is first seen. A PR first seen red or conflicting also gets that news, because the cache calls back on a change only |
+| `pr.checks_failed` | `ci-failed` on a head commit not yet told failed |
+| `pr.checks_passed` | Checks green, a check answered, and a head commit not yet told green. A repo with no CI never gets it |
+| `pr.conflict` | `conflicting` turns true. It is apart from `state`, which names a red build first |
+| `pr.merged` | The PR merges. It suppresses every other event |
+
+`checks_seen` stops a false pass. `_pr_state` reads a missing rollup as `ready`, and a read just
+after a push sees no checks yet.
+
+A **Withdrawn PR** hears of its merge only. Its agent is still working and will push again, so
+news about the old head is noise. The ledger still moves, so nothing replays when `create-pr`
+registers the PR again.
+
+**The ledger** is the `pr_events` table in the state database, keyed by PR URL, behind
+`PrLedgerStore`. It moves before the tell, whether or not an agent takes the event, so a resumed
+agent is not flooded with old news. The cost: a tell that is refused, or cut off by a stop, is not
+retried. A restart repeats nothing, and still tells a change made while it was down: the cache
+starts empty, so the first read reports every branch as new, and the ledger decides what is news.
+
+**The poll stops for a PR that is done.** A merged PR has no more news. The read asks for open
+and merged PRs only, so a PR closed without a merge leaves the cache; `_pr_changed` sees `after`
+go to `None` and records it closed. Either way `_worktree_read_wanted` stops counting it. `stop`
+drops the listener first, because a shielded read outlives its cancelled caller.
+
+**Two triggers.** The listener checks a PR that a read moved. A world change checks a PR that
+just gained a recipient, against what the cache already holds: `create-pr` registers its PR in the
+notebook after its own read, and at start the agents are read after the worktrees. Both schedule
+`_pr_watch` off the read, so a slow `say` never holds a read in flight. One lock serialises the
+checks, so two reads cannot tell the same news.
+
+**Fast acknowledgement.** A live `<link rel="gh-pr">` tag reads its branch's PR at once, as
+`POST /api/worktrees/refresh` does. Every maelstrom push re-reads too; see "A write reads straight
+away".
+
 ## A tagged document
 
 An agent puts a document in front of the user by writing a marker in the text of an ordinary
@@ -493,7 +582,7 @@ snapshot and its first live one.
 | Source | How | Interval |
 |---|---|---|
 | Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
-| Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching | 60 s |
+| Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching or an agent waits on PR news | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
 | Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached. Each done tracked task is then read again, and the ones whose landing moved are pushed | with the worktree read |
 | Comms | Read the `comms` rows written since the last read. A comm's `taskIds` are derived from the world's tasks | 2 s, on the task tick |
@@ -559,7 +648,9 @@ before the write cannot hold its result, so the caller waits it out and reads ag
 
 **The poll idles while nobody watches.** The UI never polls; it is told what changed. A read with
 no client subscribed therefore buys nothing. A client that subscribes triggers the read at once,
-so the first paint is current rather than up to a minute old.
+so the first paint is current rather than up to a minute old. The PR watch is the exception: while
+a live agent's task has a **Registered PR** that has not merged, the poll ticks with no client, so
+the agent hears CI news without a browser open. See "External events".
 
 Only a browser counts as a watcher. The web client dials `GET /api/events` directly rather than
 through the dev server's `/api` proxy, which would otherwise hold a stream open with no page —
@@ -573,19 +664,31 @@ once — `start` reads before it serves anyone, and the poll reads for whoever i
 The floor therefore bounds the cost of a flapping stream at one read per client turnover, not at
 one per interval.
 
-**An event reads straight away.** `POST /api/worktrees/refresh` is how a command says the world
-moved. `mael gh create-pr`, `mael git merge` and `mael close --trash` post to it with
-`{project, branch}`, because the pull request they changed is in no world until something looks
-it up, and the next poll is up to `WORKTREE_POLL_SECS` away. The server first reads that
-branch's pull request with `after_write`, then the worktrees. `refresh_now` skips the freshness
-floor above: that floor guards against a flapping stream, and an event is not a reconnect. The
+**A write reads straight away.** `POST /api/worktrees/refresh` is how a command says the world
+moved. The rule: every maelstrom path that changes a PR's branch on GitHub, or merges it, re-reads
+that branch with `after_write`. The pull request it changed is in no world until something looks
+it up, and the next poll is up to `WORKTREE_POLL_SECS` away. With the PR watch, that re-read is
+also what tells the agent. These paths follow the rule:
+
+| Path | How it re-reads |
+|---|---|
+| `mael gh create-pr`, `mael git merge`, `mael close --trash` | `tell_pr_changed` posts `{project, branch}` |
+| `mael sync`, `mael sync-all`, `mael tidy-branches` | `tell_pr_changed`, for each branch the command pushed |
+| The server's sync operation | `refresh_prs` after the sync. Every mode pushes |
+| The server's merge and trash | `ListAllWorktreeSource._merge` and `_trash_and_refresh` |
+
+A raw `git push` an agent runs is not covered; the poll picks it up.
+
+On a post, the server first reads the named branch's pull request with `after_write`, then the
+worktrees. `refresh_now` skips the freshness floor above: that floor guards against a flapping
+stream, and a write is not a reconnect. The
 stand-off below still holds, because it lives in `PrStateCache`, which every caller goes
 through.
 
 The read is scheduled, not awaited, so the route answers at once. It shells out per worktree
 across every project and takes seconds; the caller is a command holding a terminal open, and the
-UI hears the result on its own notice stream. A read already scheduled absorbs a second event
-rather than replacing it, which would leave a task nothing can cancel at stop. An event that names
+UI hears the result on its own notice stream. A read already scheduled absorbs a second write
+rather than replacing it, which would leave a task nothing can cancel at stop. A write that names
 a branch is not absorbed. It replaces the scheduled task, reads its pull request, then awaits the
 task it replaced. A stop that cancels it cancels the replaced task too.
 
@@ -1300,7 +1403,8 @@ the rules. This section covers the server's side.
 | `{type: "feedback", id, feedback}` | Runs `worktree.feedback`, then answers `{type: "reply", id, ok, body}`. `body` is `{agentIds, refused}`, or `{error}`. |
 
 **A change goes through one method.** `_set_feedback_params` serves the route and the page. It
-sets the hub, then says `format_param_set` to each agent in the worktree as one message. It undoes
+sets the hub, then tells one `jig.param_set` External event, its body built by
+`format_param_set`, to each agent in the worktree. It undoes
 a change no agent takes with `revert`, which writes the stored value even when the service has
 closed in the meantime.
 
@@ -1454,9 +1558,9 @@ instead would flip its status, retire the attention item pointing the user at it
 child blocked on a control request nobody could now answer. The UI draws no review bar on a plan
 document for the same reason — its decision card answers the wait.
 
-`worktree.comment` posts **Change comments**. `format_change_comments` builds one message from
-the list, and the server sends it as a `say` to each top-level agent in the worktree that has not
-exited. `agents_in_worktree` in `validate.py` selects them. The server quotes the lines the
+`worktree.comment` posts **Change comments**. `format_change_comments` builds the body of one
+`changes.commented` **External event** from the list, and the server tells it to each top-level
+agent in the worktree that has not exited. `agents_in_worktree` in `validate.py` selects them. The server quotes the lines the
 client sent and does not read git, because the diff the user commented on can be stale.
 
 The command refuses an empty list, a comment that lacks a field of the message, a comment with
@@ -1484,10 +1588,10 @@ message goes without it.
 
 | Type | Fields | Message |
 |---|---|---|
-| `monkeypatch` | `css`, `note` (optional) | `format_monkeypatch` quotes the CSS and the note, and tells the agent to delete `.drafts/monkeypatch.css` when it has applied the change. Blank CSS is refused. |
-| `instruction` | `text`, `element` (optional) | `format_instruction` opens "From the jig for {branch}", lists the **Pick**'s fields when there is an `element`, then gives the text. Blank text is refused. An `element` must be an object with a non-blank string `selector`. Any other field of the wrong shape is left out, not refused. |
-| `pick` | `scope`, `element`, `note` (optional) | `format_pick` says the user asks for controls for this element, elements like this or this area, by `scope` (`element`, `similar`, `area`). It lists the **Pick**'s fields, then tells the agent to write a **Control set** and wire it in the Monkeypatch. The `element` is checked as for `instruction`, and is required. |
-| `controls` | `title`, `changes`, `css` (optional), `note` (optional) | `format_controls` lists each change as `--var: from → to;`, with the label when it differs from the var. A change with no `from` reads `--var: to;  (label, was unset)`. It quotes `css` as the wiring. Then it tells the agent to apply each value, decide whether each is a token or a plain number, and delete `jig-controls.json`, `jig-values.json` and the wiring in `monkeypatch.css`. Each change needs a string `var` and `to`. An empty `changes` is refused. |
+| `monkeypatch` | `css`, `note` (optional) | A `jig.monkeypatch` External event. `format_monkeypatch` quotes the CSS and the note, and tells the agent to delete `.drafts/monkeypatch.css` when it has applied the change. Blank CSS is refused. |
+| `instruction` | `text`, `element` (optional) | A plain message: the agent prompt keys on its "From the jig for" opening. `format_instruction` opens "From the jig for {branch}", lists the **Pick**'s fields when there is an `element`, then gives the text. Blank text is refused. An `element` must be an object with a non-blank string `selector`. Any other field of the wrong shape is left out, not refused. |
+| `pick` | `scope`, `element`, `note` (optional) | A `jig.pick` External event. `format_pick` says the user asks for controls for this element, elements like this or this area, by `scope` (`element`, `similar`, `area`). It lists the **Pick**'s fields, then tells the agent to write a **Control set** and wire it in the Monkeypatch. The `element` is checked as for `instruction`, and is required. |
+| `controls` | `title`, `changes`, `css` (optional), `note` (optional) | A `jig.controls` External event. `format_controls` lists each change as `--var: from → to;`, with the label when it differs from the var. A change with no `from` reads `--var: to;  (label, was unset)`. It quotes `css` as the wiring. Then it tells the agent to apply each value, decide whether each is a token or a plain number, and delete `jig-controls.json`, `jig-values.json` and the wiring in `monkeypatch.css`. Each change needs a string `var` and `to`. An empty `changes` is refused. |
 
 `comment.add` and `comment.resolve` still answer 501 — an anchored selection has its own storage
 question.
