@@ -6,7 +6,7 @@ what it does when the upstream refuses; a reader never triggers one. See
 
 Three guards the orchestrator server writes by hand today are one idea: the
 GitHub rate-limit stand-off becomes :func:`refused`, the worktree poll's
-``only_when_watched`` becomes :meth:`Refresher.wanted`, and the desk-narrowed
+``_worktree_read_wanted`` becomes :meth:`Refresher.wanted`, and the desk-narrowed
 branch set becomes :meth:`Refresher.scope`.
 
 ``_kept_fresh`` stays outside the contract. It spaces reads an arrival

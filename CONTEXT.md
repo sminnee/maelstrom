@@ -623,6 +623,15 @@ The turn opens with `Base directory for this skill:`, which is the only mark the
 carries.
 _Avoid_: Skill message, skill prompt
 
+**External event**:
+A user turn the orchestrator server writes to an agent from outside its conversation, in the
+`<external-event source=… type=…>` envelope. The source says where it came from: `orchestrator-ui`,
+`jig` or `github`. The type says what happened, such as `document.approved` or
+`pr.checks_failed`. The attributes are its facts, and the body is what the agent is to do. The
+transcript draws it apart from the user's words, as it does a **Loaded skill** and a **Task
+notification**. See `docs/dev/orchestrator-server.md`, "External events".
+_Avoid_: notification (that is **Task notification**), nudge, ping, alert, event (alone)
+
 **Shell command**:
 A command the agent host runs on the user's behalf, asked for with a `!` line in teleport or in
 the orchestrator UI. The host runs it in the agent's working directory, then gives the agent the

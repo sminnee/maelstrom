@@ -51,7 +51,7 @@ Use `--skip-pre-push` only when the user asks for an emergency push.
 
 Run waits in the background and read their body, not only exit status.
 
-`mael gh read-pr --wait` can report success before substantive CI starts, or hide its exit status through a pipe or background shell. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
+Outside the daemon, `mael gh read-pr --wait` can report success before real CI starts, or hide its exit status through a pipe. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
 
 End a finished session with `mael session end`. Close a task before ending its session.
 

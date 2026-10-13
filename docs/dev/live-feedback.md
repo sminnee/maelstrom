@@ -85,8 +85,8 @@ other attribute is a param, set to `on` or `off`. A marker with another value st
 Live feedback is the dev env and the agent talking to each other. So the server refuses a change
 when the worktree has no agent, off as well as on.
 
-- A change from the user, in the UI or in the page, goes to each agent as one message: "The user
-  turned Jig on for web on feat/x."
+- A change from the user, in the UI or in the page, goes to each agent as one `jig.param_set`
+  External event: "The user turned Jig on for web on feat/x."
 - A change no agent takes is undone.
 - A set to the current value changes nothing and tells nobody.
 - A refused `setParams` from the page is answered with the stored values, so the page follows them.
@@ -107,8 +107,8 @@ when the worktree has no agent, off as well as on.
 | `controls` | `title`, `changes`, `css` (optional), `note` (optional) |
 
 Any type can carry a `screenshot`: the name of a file the client wrote to `.drafts/jig/`. See
-[orchestrator-server.md](orchestrator-server.md), "Commands", for how each type becomes a
-message.
+[orchestrator-server.md](orchestrator-server.md), "Commands", for how each type reaches the
+agent.
 
 ## The jig as a client
 
