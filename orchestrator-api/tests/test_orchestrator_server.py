@@ -8047,6 +8047,135 @@ def test_a_server_that_cannot_merge_pull_requests_says_so(harness):
     assert "cannot merge pull requests" in reply.body["error"]["message"]
 
 
+def _give_alpha_a_waiting_pr(harness, **over) -> None:
+    """Put a pull request whose checks still run on the alpha row."""
+    _give_alpha_a_pr(
+        harness, **{"prState": "ci-running", "prAutoMergeAllowed": True, **over}
+    )
+
+
+def _record_auto_merge(harness) -> list[tuple[str, str, str, bool]]:
+    """Give the source an auto-merge that records what it was asked."""
+    asked: list[tuple[str, str, str, bool]] = []
+
+    async def auto_merge(project: str, branch: str, path: str, on: bool) -> None:
+        asked.append((project, branch, path, on))
+
+    harness.worktrees.auto_merge = auto_merge
+    return asked
+
+
+@pytest.mark.parametrize(
+    ("on", "words"),
+    [
+        (True, "Turned on auto-merge for the pull request of alpha"),
+        (False, "Turned off auto-merge for the pull request of alpha"),
+    ],
+)
+def test_auto_merge_asks_the_source_and_refreshes_the_world(harness, on, words):
+    asked = _record_auto_merge(harness)
+    _give_alpha_a_waiting_pr(harness, prAutoMerge=not on)
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            op = await operated(
+                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": on}
+            )
+            return op, harness.worktrees.reads > settled
+
+    op, reread = run(scenario())
+    assert (op["state"], op["kind"], op["words"]) == ("done", "autoMerge", words)
+    assert asked == [(PROJECT, "feat/orders", WORKTREE_PATH, on)]
+    assert reread
+
+
+@pytest.mark.parametrize(
+    ("pr", "body", "said"),
+    [
+        ({"prNumber": None}, {"on": True}, "no pull request"),
+        ({"prDraft": True}, {"on": True}, "is a draft"),
+        ({"prAutoMergeAllowed": False}, {"on": True}, "does not allow auto-merge"),
+        ({}, {"on": "yes"}, "on must be true or false"),
+        ({}, {}, "on must be true or false"),
+        ({"prState": "ready"}, {"on": True}, "Merge it instead"),
+        ({"prState": "ci-failed"}, {"on": True}, "not waiting (ci-failed)"),
+        ({"prMatch": "differ"}, {"on": True}, "differs from PR #118. Sync it"),
+    ],
+)
+def test_auto_merge_the_pr_does_not_support_is_refused(harness, pr, body, said):
+    asked = _record_auto_merge(harness)
+    _give_alpha_a_waiting_pr(harness, **pr)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/worktrees/northwind-alpha/auto-merge", body)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert said in reply.body["error"]["message"]
+    assert asked == []
+
+
+@pytest.mark.parametrize(
+    "pr",
+    [
+        {"prState": "ci-failed"},
+        {"prState": "conflict"},
+        {"prState": "ready"},
+        {"prMatch": "differ"},
+    ],
+)
+def test_auto_merge_turns_off_in_any_open_state(harness, pr):
+    """Off is the way out of a PR that will not reach ready by itself."""
+    asked = _record_auto_merge(harness)
+    _give_alpha_a_waiting_pr(harness, prAutoMerge=True, **pr)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(
+                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": False}
+            )
+
+    assert run(scenario())["state"] == "done"
+    assert [on for *_, on in asked] == [False]
+
+
+def test_a_refused_auto_merge_says_what_github_said_and_still_refreshes(harness):
+    async def auto_merge(project: str, branch: str, path: str, on: bool) -> None:
+        raise CloseBlocked("Auto merge is not allowed for this repository")
+
+    harness.worktrees.auto_merge = auto_merge
+    _give_alpha_a_waiting_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            settled = harness.worktrees.reads
+            op = await operated(
+                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": True}
+            )
+            return op, harness.worktrees.reads > settled
+
+    op, reread = run(scenario())
+    assert op["state"] == "refused"
+    assert "Auto merge is not allowed" in op["words"]
+    assert reread
+
+
+def test_a_server_that_cannot_auto_merge_says_so(harness):
+    _give_alpha_a_waiting_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/worktrees/northwind-alpha/auto-merge", {"on": True}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot auto-merge pull requests" in reply.body["error"]["message"]
+
+
 def _point_alpha_at_a_repo(harness, path: Path) -> str:
     """Give the alpha row a real repo with one dirty file and one commit ahead.
 

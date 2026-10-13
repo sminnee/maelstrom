@@ -268,6 +268,19 @@ def build_orchestrator(
             log.warning("merge of PR %d in %s refused: %s", number, path, exc)
             raise CloseBlocked(str(exc)) from exc
 
+    def auto_merge_worktree_pr(path: str, number: int, head_oid: str, on: bool) -> None:
+        try:
+            github.set_auto_merge(
+                number,
+                cwd=Path(path),
+                head_oid=head_oid,
+                on=on,
+                token=github.orchestrator_token(),
+            )
+        except GitHubError as exc:
+            log.warning("auto-merge of PR %d in %s refused: %s", number, path, exc)
+            raise CloseBlocked(str(exc)) from exc
+
     async def env_worktree(
         project: str,
         nato: str,
@@ -330,6 +343,7 @@ def build_orchestrator(
         remove=remove_worktree,
         sync=sync_worktree,
         merge_pr=merge_worktree_pr,
+        auto_merge=auto_merge_worktree_pr,
         env=env_worktree,
         ensure_terminal=ensure_worktree_terminal,
         terminal_urls=terminal_urls,

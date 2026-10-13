@@ -27,7 +27,11 @@ from mael_domain import task as model
 from mael_domain import task_actions
 from mael_domain.agent_store import AgentStore
 from mael_domain.github import get_open_prs
-from mael_domain.github_model import PrStatus, RateLimited
+from mael_domain.github_model import (
+    AUTO_MERGE_WAITING_STATES,
+    PrStatus,
+    RateLimited,
+)
 from mael_domain.landing import Landings
 from mael_domain.list_all import (
     ProjectPrs,
@@ -117,6 +121,16 @@ MergeWorktreePr = Callable[[str, str, str], Awaitable[None]]
 #: Merges one pull request, if its head is still the commit named:
 #: ``(path, number, head_oid) -> None``. Blocking: it waits on GitHub.
 MergePr = Callable[[str, int, str], None]
+
+#: Turns **Auto-merge** on or off for one worktree's pull request:
+#: ``(project, branch, path, on) -> None``. Raises :class:`CloseBlocked` with
+#: GitHub's refusal.
+AutoMergeWorktreePr = Callable[[str, str, str, bool], Awaitable[None]]
+
+#: Turns **Auto-merge** on or off for one pull request:
+#: ``(path, number, head_oid, on) -> None``. On pins it to ``head_oid``.
+#: Blocking: it waits on GitHub.
+SetAutoMerge = Callable[[str, int, str, bool], None]
 
 #: Removes one worktree outright: ``(project, nato, path, *, hook) -> None``.
 #: The close parks a worktree for reuse; this deletes the checkout.
@@ -425,6 +439,9 @@ class WorktreeSource(Protocol):
 
     #: Merges a worktree's pull request, or ``None`` on a source that cannot.
     merge: MergeWorktreePr | None
+
+    #: Turns **Auto-merge** on or off, or ``None`` on a source that cannot.
+    auto_merge: AutoMergeWorktreePr | None
 
     #: Removes a worktree, or ``None`` on a source that cannot.
     remove: RemoveWorktree | None
@@ -1037,6 +1054,7 @@ class InMemoryWorktreeSource:
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
         prs: PrStateCache | None = None,
+        auto_merge: AutoMergeWorktreePr | None = None,
     ) -> None:
         self.projects = list(projects or [])
         #: A real cache over a fake read, for a test of the PR watch. A read
@@ -1048,6 +1066,7 @@ class InMemoryWorktreeSource:
         self.trash = trash
         self.sync = sync
         self.merge = merge
+        self.auto_merge = auto_merge
         self.remove = remove
         self.env = env
         self.ensure_terminal = ensure_terminal
@@ -1125,6 +1144,7 @@ class ListAllWorktreeSource:
         trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
         merge_pr: MergePr | None = None,
+        auto_merge: SetAutoMerge | None = None,
         remove: RemoveWorktree | None = None,
         env: EnvWorktree | None = None,
         ensure_terminal: EnsureTerminal | None = None,
@@ -1144,6 +1164,10 @@ class ListAllWorktreeSource:
         self._merge_pr = merge_pr
         self.merge: MergeWorktreePr | None = (
             self._merge if merge_pr is not None else None
+        )
+        self._set_auto_merge = auto_merge
+        self.auto_merge: AutoMergeWorktreePr | None = (
+            self._auto_merge if auto_merge is not None else None
         )
         self.remove = remove
         self.env = env
@@ -1205,6 +1229,36 @@ class ListAllWorktreeSource:
             )
         await asyncio.to_thread(self._merge_pr, path, pr.number, pr.head_oid)
         await self.refresh_prs(project, branch)
+
+    async def _auto_merge(self, project: str, branch: str, path: str, on: bool) -> None:
+        """Turn **Auto-merge** on or off at the head commit the last read saw.
+
+        As :meth:`_merge`: the number and the commit come from this source's
+        own reading, and on checks them again, because a read can land after
+        validation. GitHub then merges that commit only, not a later push. Off
+        checks nothing: it is the way out of any state.
+        """
+        assert self._set_auto_merge is not None
+        pr = self.prs.get(project, branch)
+        if pr is None:
+            raise CloseBlocked(f"No pull request is known for {branch}")
+        if on:
+            await self._check_auto_merge_on(pr, path)
+        await asyncio.to_thread(self._set_auto_merge, path, pr.number, pr.head_oid, on)
+        await self.refresh_prs(project, branch)
+
+    @staticmethod
+    async def _check_auto_merge_on(pr: PrStatus, path: str) -> None:
+        """Refuse to turn **Auto-merge** on where the held reading does not allow it."""
+        state = "draft" if pr.is_draft else pr.state
+        if state not in AUTO_MERGE_WAITING_STATES:
+            raise CloseBlocked(f"PR #{pr.number} is not waiting ({state})")
+        if not pr.head_oid:
+            raise CloseBlocked(f"The head commit of PR #{pr.number} is not known yet")
+        if await get_head_sha_async(Path(path)) != pr.head_oid:
+            raise CloseBlocked(
+                f"The local branch differs from PR #{pr.number}. Sync it first."
+            )
 
     async def read(
         self, active_branches: set[str] | None = None

@@ -681,7 +681,7 @@ _Avoid_: Generation, run id, session
 
 **Operation**:
 One slow change to the world that the orchestrator server runs in the background. Its kinds are
-the worktree changes (close, shelve, trash, delete, sync, merge, environment), the agent changes
+the worktree changes (close, shelve, trash, delete, sync, merge, auto-merge, environment), the agent changes
 (**Dismiss**, terminate, resume), and the launch kinds (launch a task, start a free agent, create
 a task, plan a Linear issue). It is a list of **Steps**, each with a state and log lines. It ends
 `done`, **Refused** or `failed`. The state database keeps it, so a reload loses nothing.
@@ -1420,6 +1420,12 @@ never a quiet `ready`. A draft pull request reads as a draft instead of its stat
 `checks-unreadable` and `unknown` part on whether waiting helps, so the first reads quiet rather
 than as a spinner nothing will stop. See **Check rollup**.
 _Avoid_: PR status, merge state, CI state
+
+**Auto-merge**:
+GitHub's own request to merge a pull request when its **PR state** reaches `ready`. Maelstrom
+pins it to the head commit the user saw, so a later push is not merged. The repository must
+allow it.
+_Avoid_: Merge when ready, auto-land, queued merge
 
 **Stale PR state**:
 A worktree's **PR state** as the last successful read left it, because the latest read failed,

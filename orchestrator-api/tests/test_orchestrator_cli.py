@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
-from mael_domain.github_model import GitHubCommandFailed, PrStatus
+from mael_domain.github_model import GitHubCommandFailed, PrState, PrStatus
 from mael_domain.state_db.types import SchemaTooOldError
 from mael_domain.task import list_tasks
 from mael_domain.task_table import InMemoryTaskTable
@@ -283,8 +283,10 @@ def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
         _force_close(worktrees, had_unmerged_work=True)
 
 
-async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> None:
-    """Give the wired source a PR read that holds PR #118, ready, on feat/x,
+async def _read_a_ready_pr(
+    worktrees: ListAllWorktreeSource, monkeypatch, state: PrState = "ready"
+) -> None:
+    """Give the wired source a PR read that holds PR #118, ``state``, on feat/x,
     in a worktree whose local ``HEAD`` is the PR head."""
 
     async def head_sha(_path):
@@ -292,7 +294,7 @@ async def _read_a_ready_pr(worktrees: ListAllWorktreeSource, monkeypatch) -> Non
 
     monkeypatch.setattr("mael_orchestrator.sources.get_head_sha_async", head_sha)
     pr = PrStatus(
-        number=118, commits=1, url="", state="ready", is_draft=False, head_oid="deadbee"
+        number=118, commits=1, url="", state=state, is_draft=False, head_oid="deadbee"
     )
 
     async def read(_cwd, _branches):
@@ -315,6 +317,20 @@ async def test_the_merge_port_merges_with_the_orchestrator_token(tmp_path, monke
         await worktrees.merge("northwind", "feat/x", "/p/alpha")
     merge_pr.assert_called_once_with(
         118, cwd=Path("/p/alpha"), head_oid="deadbee", token="ghp_merge"
+    )
+
+
+async def test_the_auto_merge_port_uses_the_orchestrator_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "mael_orchestrator.cli.github.orchestrator_token", lambda: "ghp_merge"
+    )
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    await _read_a_ready_pr(worktrees, monkeypatch, state="ci-running")
+    assert worktrees.auto_merge is not None
+    with patch("mael_orchestrator.cli.github.set_auto_merge") as set_auto_merge:
+        await worktrees.auto_merge("northwind", "feat/x", "/p/alpha", True)
+    set_auto_merge.assert_called_once_with(
+        118, cwd=Path("/p/alpha"), head_oid="deadbee", on=True, token="ghp_merge"
     )
 
 

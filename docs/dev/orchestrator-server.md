@@ -1132,6 +1132,13 @@ sequence and takes no worktree scope, because it does not touch the checkout.
 - The `list-all` row carries the head commit as `pr_head_oid`, because the cache refills from
   those rows. It also carries the local `HEAD` as `head_oid`. `world_build.py` compares the two
   into `prMatch`, and does not copy either sha to the wire.
+- `worktree.autoMerge` is an eighth optional callable, `WorktreeSource.auto_merge`, with the
+  same shape. Its body is `{on}`. `validate.py` needs a PR that is not a draft, in a repository
+  that allows **Auto-merge**. To turn it on, the **PR state** must be one that waits, and the
+  **PR match** must not be `differ`. Turning it off has no state rule. It runs
+  `gh pr merge <n> --auto --rebase --match-head-commit <oid>`, or `--disable-auto`.
+- The PR read asks `autoMergeRequest` on each PR and `autoMergeAllowed` on the repository. The
+  wire carries them as `prAutoMerge` and `prAutoMergeAllowed`.
 - A sync re-reads with the synced branch added to the active branches, so GitHub is asked for
   its new head even when the branch is not on the desk. That re-read waits out a read already in
   flight, because the read in flight chose its branches without the synced one.
@@ -1156,7 +1163,7 @@ leaves a dead link until the next read; cmux ignores it.
 
 ## Operations
 
-Close, Shelve, Trash, Delete, Sync, Merge and Environment run as **Operations**
+Close, Shelve, Trash, Delete, Sync, Merge, Auto-merge and Environment run as **Operations**
 (`mael_orchestrator/operations.py`), and so do **Dismiss**, Terminate, Resume and the launch
 kinds — see "Launch" and "Creating work". The route validates the command, starts the work as an
 asyncio task, and answers `202` with `{operationId}` at once. Progress reaches the client as
@@ -1504,6 +1511,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/auto-merge` | `on` | `worktree.autoMerge` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
