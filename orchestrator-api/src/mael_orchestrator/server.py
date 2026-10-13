@@ -1910,6 +1910,11 @@ class Orchestrator:
                 task_id,
                 reply.get("error"),
             )
+        elif worktree is not None and not replay:
+            # Read the PR now, so the watch's first event lands within a read.
+            await self._refresh_worktrees_now(
+                {"project": worktree["project"], "branch": worktree["branch"]}
+            )
 
     async def _withdraw_pr(self, agent_id: str, ref: str) -> None:
         """Withdraw the PR an agent's ``<link rel="gh-pr" withdrawn>`` named.
@@ -3302,7 +3307,9 @@ class Orchestrator:
             await self.refresh_tasks(force=True)
 
         async def sync_refresh() -> None:
-            # A sync moves the branch, and starts and stops no agent.
+            # A sync moves the branch, and starts and stops no agent. Every
+            # mode pushes, so the PR is read after the write.
+            await self._run(self.worktrees.refresh_prs, project, row["branch"])
             await self.refresh_worktrees(extra_branches={row["branch"]})
 
         def work(*args: Any) -> Callable[[StepHook], Awaitable[None]]:

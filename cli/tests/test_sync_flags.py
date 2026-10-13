@@ -31,6 +31,8 @@ from mael_domain.task_launch import LaunchBlocked, check_synced
 from mael_domain.worktree import (
     CloseResult,
     SyncResult,
+    TidyBranchResult,
+    WorktreeInfo,
     close_worktree,
     detach_and_free_ports,
     get_current_branch,
@@ -1110,6 +1112,22 @@ class TestSyncCli:
             result = runner.invoke(cli, ["sync", "myproject.alpha", *args])
         return result, mock_sync
 
+    @pytest.mark.parametrize("pushed", [True, False])
+    def test_a_sync_that_pushed_tells_the_orchestrator(self, pushed):
+        """The push moved the PR's head; the next read is what tells its agent."""
+        synced = SyncResult(
+            success=True, branch="feature/work", message="Synced.", pushed=pushed
+        )
+        with patch("mael_cli.orchestrator_client.tell_orchestrator") as told:
+            result, _ = self._run([], synced)
+        assert result.exit_code == 0, result.output
+        calls = [c.args for c in told.call_args_list]
+        expected = (
+            "/api/worktrees/refresh",
+            {"project": "myproject", "branch": "feature/work"},
+        )
+        assert calls == ([expected] if pushed else [])
+
     def test_abort_on_conflict_short_message(self):
         sync_result = SyncResult(
             success=False,
@@ -1627,3 +1645,62 @@ class TestPromoteAndEjectCli:
         assert result.exit_code == 0
         assert store.read("feat/urgent") == BaseRef()
         assert store.read("feat/child").branch == "feat/urgent"
+
+
+# ---------------------------------------------------------------------------
+# sync-all and tidy-branches tell the orchestrator about each branch they pushed
+# ---------------------------------------------------------------------------
+
+
+def _project_ctx(tmp_path: Path) -> MagicMock:
+    ctx = MagicMock()
+    ctx.project = "myproject"
+    ctx.project_path = tmp_path
+    return ctx
+
+
+def _told(told: MagicMock) -> list[tuple]:
+    return [c.args for c in told.call_args_list]
+
+
+def test_sync_all_tells_the_orchestrator_of_each_branch_it_pushed(tmp_path):
+    worktrees = [
+        WorktreeInfo(path=tmp_path / "myproject-alpha", branch="feat/a", commit="a"),
+        WorktreeInfo(path=tmp_path / "myproject-bravo", branch="feat/b", commit="b"),
+    ]
+    results = [
+        SyncResult(success=True, branch="feat/a", message="Pushed.", pushed=True),
+        SyncResult(success=True, branch="feat/b", message="Up to date."),
+    ]
+    store = MagicMock()
+    store.all.return_value = {}
+    with (
+        patch("mael_cli.cli.resolve_context", return_value=_project_ctx(tmp_path)),
+        patch("mael_cli.cli.list_worktrees", return_value=worktrees),
+        patch("mael_cli.cli.GitConfigBaseStore", return_value=store),
+        patch("mael_cli.cli.ensure_fetched", return_value=None),
+        patch("mael_cli.cli.sync_worktree", side_effect=results),
+        patch("mael_cli.orchestrator_client.tell_orchestrator") as told,
+    ):
+        result = CliRunner().invoke(cli, ["sync-all", "myproject"])
+    assert result.exit_code == 0, result.output
+    assert _told(told) == [
+        ("/api/worktrees/refresh", {"project": "myproject", "branch": "feat/a"})
+    ]
+
+
+def test_tidy_branches_tells_the_orchestrator_of_each_branch_it_pushed(tmp_path):
+    results = [
+        TidyBranchResult(branch="feat/a", action="pushed", success=True, message=""),
+        TidyBranchResult(branch="feat/b", action="rebased", success=True, message=""),
+    ]
+    with (
+        patch("mael_cli.cli.resolve_context", return_value=_project_ctx(tmp_path)),
+        patch("mael_cli.cli.tidy_branches", return_value=results),
+        patch("mael_cli.orchestrator_client.tell_orchestrator") as told,
+    ):
+        result = CliRunner().invoke(cli, ["tidy-branches", "myproject"])
+    assert result.exit_code == 0, result.output
+    assert _told(told) == [
+        ("/api/worktrees/refresh", {"project": "myproject", "branch": "feat/a"})
+    ]

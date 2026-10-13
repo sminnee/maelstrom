@@ -6876,9 +6876,12 @@ def test_a_pr_link_tag_registers_the_pr_on_the_agents_task(harness):
                     "ag1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>')
                 )
                 await wait_until(lambda: pr_of(harness)[0] != 0)
+                await wait_until(lambda: harness.worktrees.prs_refreshed)
 
     run(scenario())
     assert pr_of(harness) == (118, PR_URL)
+    # Read at once, so the PR watch's first event lands within a read.
+    assert harness.worktrees.prs_refreshed == [(PROJECT, "feat/orders")]
 
 
 def test_a_replayed_pr_link_registers_on_a_task_with_none(harness):
@@ -6893,6 +6896,8 @@ def test_a_replayed_pr_link_registers_on_a_task_with_none(harness):
 
     run(scenario())
     assert pr_of(harness) == (118, PR_URL)
+    # A replayed tag is history: the poll reads it, not an after-write read.
+    assert harness.worktrees.prs_refreshed == []
 
 
 def test_a_replayed_pr_link_does_not_replace_a_registration(harness):
@@ -7627,6 +7632,8 @@ def test_syncing_a_worktree_passes_the_mode_and_refreshes_the_world(harness):
     assert reread
     # The desk is empty, so only the sync puts the branch in the read.
     assert harness.worktrees.asked == {"feat/orders"}
+    # The sync pushed, so the PR is read after the write, as create-pr's is.
+    assert harness.worktrees.prs_refreshed == [(PROJECT, "feat/orders")]
 
 
 def test_a_sync_with_no_mode_autorepairs(harness):
