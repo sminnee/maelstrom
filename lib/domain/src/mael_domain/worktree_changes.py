@@ -334,13 +334,13 @@ def _read_header_line(file: FileDiff, line: str) -> None:
         file["path"] = line.removeprefix("+++ b/").removesuffix("\t")
 
 
-def format_change_comments(branch: str, comments: list[ChangeComment]) -> str:
-    """The one message that carries ``comments`` to the agents of a worktree.
+def format_change_comments(comments: list[ChangeComment]) -> str:
+    """The body of the one event that carries ``comments`` to the agents of a worktree.
 
     Each comment quotes the rows the user selected, so it stays readable when
     the lines have moved since.
     """
-    blocks = [f"Comments on the changes in {branch}, from the orchestrator UI:"]
+    blocks: list[str] = []
     for comment in comments:
         start, end = comment["startLine"], comment["endLine"]
         span = f"line {start}" if start == end else f"lines {start}-{end}"

@@ -37,6 +37,8 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.config import MaelstromConfig
+from mael_domain.external_event import ExternalEvent
+from mael_domain.external_event import parse as parse_external_event
 from mael_domain.feedback import format_controls, format_pick
 from mael_domain.github_model import RateLimited
 from mael_domain.integrations.errors import IntegrationError
@@ -2558,7 +2560,12 @@ def test_approve_moves_the_document_to_approved_and_tells_the_agent(doc_harness)
     assert said == {
         "cmd": "say",
         "id": "ag1",
-        "text": "Approved Iteration 1 in the orchestrator UI. Continue with the work.",
+        "text": (
+            '<external-event source="orchestrator-ui" type="document.approved" '
+            'title="Iteration 1">\n'
+            "The user approved Iteration 1. Continue with the work.\n"
+            "</external-event>"
+        ),
     }
 
 
@@ -2743,7 +2750,12 @@ def test_approving_one_member_settles_the_whole_group(doc_harness):
     assert attention["attention"] == []
     # One click, one message, naming the group.
     [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
-    assert said["text"].startswith("Approved Notes in the orchestrator UI.")
+    assert parse_external_event(said["text"]) == ExternalEvent(
+        "orchestrator-ui",
+        "document.approved",
+        {"title": "Notes"},
+        "The user approved Notes. Continue with the work.",
+    )
 
 
 def test_request_changes_settles_the_group_and_relays_once(doc_harness):
@@ -2764,7 +2776,12 @@ def test_request_changes_settles_the_group_and_relays_once(doc_harness):
     assert reply.status == 200
     assert [d["status"] for d in docs["documents"]] == ["changes-requested"] * 3
     [said] = [c for c in harness.daemon.calls if c["cmd"] == "say"]
-    assert said["text"] == "Changes requested on Notes: Merge b into a"
+    assert said["text"] == (
+        '<external-event source="orchestrator-ui" '
+        'type="document.changes_requested" title="Notes">\n'
+        "The user requested changes to Notes:\n\nMerge b into a\n"
+        "</external-event>"
+    )
 
 
 def test_a_superseded_member_is_left_alone(doc_harness):
@@ -8493,11 +8510,12 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
 CHANGE_COMMENT = make_change_comment(body="close the file")
 
 COMMENT_TEXT = (
-    "Comments on the changes in feat/orders, from the orchestrator UI:\n"
-    "\n"
+    '<external-event source="orchestrator-ui" type="changes.commented" '
+    'branch="feat/orders">\n'
     "src/read.py line 13 (uncommitted):\n"
     "> +    return f.read()\n"
-    "close the file"
+    "close the file\n"
+    "</external-event>"
 )
 
 
@@ -8707,7 +8725,12 @@ def test_the_user_sets_a_param_on_one_service_and_every_agent_hears(harness):
     assert web == {"jig": True}
     assert ladle == {"jig": False}
     assert world == {"ladle": False, "web": True}
-    text = "The user turned Jig on for web on feat/orders."
+    text = (
+        '<external-event source="jig" type="jig.param_set" branch="feat/orders" '
+        'service="web">\n'
+        "The user turned Jig on for web on feat/orders.\n"
+        "</external-event>"
+    )
     assert said(harness) == [
         {"cmd": "say", "id": "ag1", "text": text},
         {"cmd": "say", "id": "ag2", "text": text},
@@ -8775,7 +8798,12 @@ def test_the_page_turns_a_param_off_and_the_agents_hear(harness):
     assert said(harness)[-1] == {
         "cmd": "say",
         "id": "ag1",
-        "text": "The user turned Jig off for web on feat/orders.",
+        "text": (
+            '<external-event source="jig" type="jig.param_set" branch="feat/orders" '
+            'service="web">\n'
+            "The user turned Jig off for web on feat/orders.\n"
+            "</external-event>"
+        ),
     }
 
 
@@ -8992,14 +9020,17 @@ def test_a_monkeypatch_reaches_every_top_level_agent_in_the_worktree(harness):
             "cmd": "say",
             "id": "ag1",
             "text": (
-                "Monkeypatch for feat/orders, from the jig (.drafts/monkeypatch.css):\n"
+                '<external-event source="jig" type="jig.monkeypatch" '
+                'branch="feat/orders">\n'
+                "Monkeypatch from .drafts/monkeypatch.css:\n"
                 "\n"
                 "    .chip { padding: 14px; }\n"
                 "\n"
                 "    .row { gap: 4px; }\n"
                 "\n"
                 "Note: tighter\n"
-                "Apply it in source, then delete .drafts/monkeypatch.css."
+                "Apply it in source, then delete .drafts/monkeypatch.css.\n"
+                "</external-event>"
             ),
         }
     ]
@@ -9037,14 +9068,25 @@ def test_a_pick_and_controls_reach_the_agents_with_each_field(harness):
 
     assert jig_feedback(harness, pick)["body"]["agentIds"] == ["ag1"]
     assert jig_feedback(harness, controls)["body"]["agentIds"] == ["ag1"]
-    assert [sent["text"] for sent in said(harness)] == [
-        format_pick("feat/orders", "area", element, "roomier"),
-        format_controls(
-            "feat/orders",
-            "Chips",
-            changes,
-            ".chip { padding: var(--jig-pad); }",
-            "tight",
+    branch = {"branch": "feat/orders"}
+    assert [parse_external_event(sent["text"]) for sent in said(harness)] == [
+        ExternalEvent(
+            "jig",
+            "jig.pick",
+            branch,
+            format_pick("feat/orders", "area", element, "roomier"),
+        ),
+        ExternalEvent(
+            "jig",
+            "jig.controls",
+            branch,
+            format_controls(
+                "feat/orders",
+                "Chips",
+                changes,
+                ".chip { padding: var(--jig-pad); }",
+                "tight",
+            ),
         ),
     ]
 

@@ -1171,13 +1171,15 @@ function command(
       return error(400, 'invalid', 'Say what should change, or leave a comment');
     }
     if (!approving) {
-      // Request changes is a relay: the agent hears the summary as a message.
+      // Request changes is a relay: the agent hears the summary as an event.
       server.append(doc.agentId, {
         id: `m${mint()}`,
         ts: now(),
-        type: 'message',
-        role: 'user',
-        markdown: `Changes requested on ${doc.group.title}: ${str('summary')}`,
+        type: 'external_event',
+        source: 'orchestrator-ui',
+        eventType: 'document.changes_requested',
+        attrs: { title: doc.group.title },
+        markdown: `The user requested changes to ${doc.group.title}:\n\n${str('summary')}`,
       });
     }
     // The verdict settles every current member of the clicked document's group.
@@ -1208,12 +1210,14 @@ function command(
       server.append(doc.agentId, {
         id: `m${mint()}`,
         ts: now(),
-        type: 'message',
-        role: 'user',
+        type: 'external_event',
+        source: 'orchestrator-ui',
+        eventType: 'document.approved',
+        attrs: { title: doc.group.title },
         markdown: taskIds.length
-          ? `Approved ${doc.group.title} in the orchestrator UI, which promoted the drafts. ` +
+          ? `The user approved ${doc.group.title}, which promoted the drafts. ` +
             `The tasks now exist: ${taskIds.join(', ')}. Do not promote them again.`
-          : `Approved ${doc.group.title} in the orchestrator UI. Continue with the work.`,
+          : `The user approved ${doc.group.title}. Continue with the work.`,
       });
     }
     const ids = new Set(members.map((d) => d.id));
@@ -1669,11 +1673,8 @@ function command(
     const agents = trackedAgents(world, id);
     if (agents.length === 0) return error(400, 'invalid', `No agent is running in ${id}`);
     // The server's own wording is `format_change_comments`; the fake states
-    // the result, one user turn per agent.
-    const markdown = [
-      `Comments on the changes in ${worktree.branch}, from the orchestrator UI:`,
-      ...comments.map((c) => `${c.path}: ${c.body}`),
-    ].join('\n\n');
+    // the result, one event per agent.
+    const markdown = comments.map((c) => `${c.path}: ${c.body}`).join('\n\n');
     const refused = agents.filter((a) => a.id in server.hostRefuses);
     const told = agents.filter((a) => !(a.id in server.hostRefuses));
     // As the server does: the first refusal when nobody took the message.
@@ -1682,8 +1683,10 @@ function command(
       server.append(agent.id, {
         id: `m${mint()}`,
         ts: now(),
-        type: 'message',
-        role: 'user',
+        type: 'external_event',
+        source: 'orchestrator-ui',
+        eventType: 'changes.commented',
+        attrs: { branch: worktree.branch },
         markdown,
       });
     }
@@ -1743,8 +1746,10 @@ function command(
       server.append(agent.id, {
         id: `m${mint()}`,
         ts: now(),
-        type: 'message',
-        role: 'user',
+        type: 'external_event',
+        source: 'jig',
+        eventType: 'jig.param_set',
+        attrs: { branch: worktree.branch, service },
         markdown,
       });
     }

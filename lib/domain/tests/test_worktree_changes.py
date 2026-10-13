@@ -277,7 +277,6 @@ async def test_a_sha_outside_the_branch_is_refused(repo):
 
 def test_a_range_names_both_ends_and_comments_are_set_apart():
     text = format_change_comments(
-        "feat/work",
         [
             make_change_comment(
                 endLine=14,
@@ -289,8 +288,6 @@ def test_a_range_names_both_ends_and_comments_are_set_apart():
         ],
     )
     assert text == (
-        "Comments on the changes in feat/work, from the orchestrator UI:\n"
-        "\n"
         "src/read.py lines 13-14 (uncommitted):\n"
         "> +    with open(path) as f:\n"
         "> +        return f.read()\n"
@@ -304,7 +301,6 @@ def test_a_range_names_both_ends_and_comments_are_set_apart():
 
 def test_an_old_side_range_says_its_numbers_are_the_old_ones():
     text = format_change_comments(
-        "feat/work",
         [
             make_change_comment(
                 side="old",
@@ -327,5 +323,5 @@ def test_an_old_side_range_says_its_numbers_are_the_old_ones():
     ],
 )
 def test_each_rev_has_its_label(rev, label):
-    text = format_change_comments("feat/work", [make_change_comment(rev=rev)])
+    text = format_change_comments([make_change_comment(rev=rev)])
     assert f"src/read.py line 13 {label}:\n" in text
