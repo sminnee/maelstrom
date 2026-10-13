@@ -95,8 +95,9 @@ same, so CI reuses an old record and never runs the gate on the new content. A c
 
 ## SHA buckets
 
-`pipeline.toml` also holds four SHA buckets: `web`, `orchestrator`, `agent-daemon` and `cli`. Its
-comments say how each `depends` list is chosen. A SHA bucket named after a service gives that
+`pipeline.toml` also holds five SHA buckets: `web`, `orchestrator`, `agent-daemon`, `cli` and
+`jig`. Its comments say how each `depends` list is chosen. `mael self-update` reads the `cli` and
+`jig` buckets to decide whether to reinstall the CLI and relink the jig plugin. A SHA bucket named after a service gives that
 service its [service version](../guide/dev-environments.md#service-versions). Tests and READMEs
 are excluded from the SHA buckets, so a test-only change restarts nothing.
 

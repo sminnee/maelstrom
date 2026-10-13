@@ -64,7 +64,9 @@ def _run_self_update(
     *,
     run_results,
     which_uv="/usr/bin/uv",
+    which_pnpm="/usr/bin/pnpm",
     cli_versions=None,
+    jig_versions=None,
     changes=(),
     install_error=None,
     restart_error=None,
@@ -75,20 +77,32 @@ def _run_self_update(
     then the ``uv tool install`` sync when it runs. ``cli_versions`` is the
     `cli` SHA bucket's hash before and after the pull, or an exception for a
     failed hash. Without it there is no hash, so the reinstall fails open.
+    ``jig_versions`` is the same for the `jig` bucket. Without it the jig
+    link does not run, and adds nothing to ``run_results``.
     """
+
+    def hashes(cli, jig):
+        if isinstance(cli, Exception):
+            return cli
+        return {k: v for k, v in (("cli", cli), ("jig", jig)) if v is not None}
+
     versions = (
         {"return_value": {}}
-        if cli_versions is None
+        if cli_versions is None and jig_versions is None
         else {
             "side_effect": [
-                v if isinstance(v, Exception) else {"cli": v} for v in cli_versions
+                hashes(cli, jig)
+                for cli, jig in zip(
+                    cli_versions or [None, None], jig_versions or [None, None]
+                )
             ]
         }
     )
+    tools = {"uv": which_uv, "pnpm": which_pnpm}
     with (
         patch("mael_cli.admin_cli.resolve_install_root", return_value=ROOT),
         patch("mael_cli.admin_cli.Path.exists", return_value=True),
-        patch("mael_cli.admin_cli.shutil.which", return_value=which_uv),
+        patch("mael_cli.admin_cli.shutil.which", side_effect=tools.get),
         patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
         patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
         patch("mael_cli.admin_cli._write_daemon_root_shim", return_value=""),
@@ -232,6 +246,83 @@ class TestSelfUpdateRestartsOnlyWhatChanged:
         )
         assert "web: w1 → w2" in update.result.output
         assert "agent daemon" not in update.result.output
+
+
+class TestSelfUpdateLinksTheJig:
+    """A pull that moves the jig plugin builds `_main`'s copy and links it.
+
+    Then `pnpm link --global vite-plugin-mael-jig` in a project uses it in
+    place of the npm release.
+    """
+
+    def test_a_moved_jig_is_built_and_linked(self):
+        update = _run_self_update(
+            cli_versions=["c1", "c1"],
+            jig_versions=["j1", "j2"],
+            run_results=[_ok(), _ok(), _ok(), _ok()],
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        steps = update.run.call_args_list[1:]
+        assert [c.args[0] for c in steps] == [
+            ["/usr/bin/pnpm", "install", "--frozen-lockfile"],
+            ["/usr/bin/pnpm", "run", "build"],
+            ["/usr/bin/pnpm", "link", "--global"],
+        ]
+        assert {c.kwargs["cwd"] for c in steps} == {ROOT / "vite-plugin-mael-jig"}
+
+    def test_a_new_jig_bucket_is_linked(self):
+        """The first update after `[jig]` lands has no hash before the pull."""
+        update = _run_self_update(
+            cli_versions=["c1", "c1"],
+            jig_versions=[None, "j2"],
+            run_results=[_ok(), _ok(), _ok(), _ok()],
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        assert update.run.call_count == 4  # pull, install, build, link
+
+    def test_no_hash_after_the_pull_skips_the_link(self):
+        update = _run_self_update(
+            cli_versions=["c1", "c1"], jig_versions=["j1", None], run_results=[_ok()]
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        assert update.run.call_count == 1  # git pull only
+
+    def test_an_unmoved_jig_is_not_linked(self):
+        update = _run_self_update(
+            cli_versions=["c1", "c1"], jig_versions=["j1", "j1"], run_results=[_ok()]
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        assert update.run.call_count == 1  # git pull only
+
+    def test_warns_and_skips_the_link_when_pnpm_is_missing(self):
+        update = _run_self_update(
+            which_pnpm=None,
+            cli_versions=["c1", "c1"],
+            jig_versions=["j1", "j2"],
+            run_results=[_ok()],
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        assert update.run.call_count == 1
+        assert "'pnpm' not found" in update.result.output
+        assert "Update complete." in update.result.output
+
+    def test_a_failed_build_warns_and_does_not_link(self):
+        update = _run_self_update(
+            cli_versions=["c1", "c1"],
+            jig_versions=["j1", "j2"],
+            run_results=[_ok(), _ok(), _fail(stderr="tsc error")],
+        )
+
+        assert update.result.exit_code == 0, update.result.output
+        assert update.run.call_count == 3  # pull, install, build: no link
+        assert "tsc error" in update.result.output
+        assert "the jig plugin is not linked" in update.result.output
+        assert "Update complete." in update.result.output
 
 
 class TestResolveInstallRoot:
