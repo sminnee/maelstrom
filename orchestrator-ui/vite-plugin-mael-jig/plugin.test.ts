@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -18,8 +17,7 @@ import { createServer, type ViteDevServer } from 'vite';
 import { WebSocketServer, type WebSocket as ProviderSocket } from 'ws';
 import { maelJig } from './plugin';
 
-// As `mkdtemp` names it. On macOS that is under `/var`, whose real path is
-// `/private/var`, so a lookup by path must compare real paths.
+// As `mkdtemp` names it.
 let worktree: string;
 let server: ViteDevServer;
 let origin: string;
@@ -225,17 +223,22 @@ describe('the jig plugin', () => {
 });
 
 describe('the provider', () => {
-  it('is greeted with the worktree path', async () => {
+  it('is told the jig param on each open', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
 
-    expect(await provider.frame('hello')).toEqual({ type: 'hello', path: realpathSync(worktree) });
+    expect(await provider.frame('exposeParams')).toEqual({
+      type: 'exposeParams',
+      params: {
+        jig: { label: 'Jig', type: 'boolean', description: 'Show the jig on each page' },
+      },
+    });
   });
 
   it('writes a screenshot to the drafts and names the file in the feedback', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 
     const sent = await sendFeedback({
@@ -257,7 +260,7 @@ describe('the provider', () => {
   it('keeps the newest 20 screenshots', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     mkdirSync(shots(), { recursive: true });
     for (let n = 1; n <= 20; n++) writeFileSync(join(shots(), `shot-${n}.jpg`), 'x');
 
@@ -277,7 +280,7 @@ describe('the provider', () => {
   it('sends the feedback without a screenshot that is not a JPEG', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
 
     await sendFeedback({
       type: 'instruction',
@@ -295,10 +298,10 @@ describe('the provider', () => {
   it('shows the jig on every page when it says so', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
 
-    provider.send({ type: 'state', visible: true });
+    provider.send({ type: 'setParams', params: { jig: true } });
 
     expect(await page.next()).toEqual({ visible: true });
     expect(await monkeypatchGet()).toEqual({ css: '', visible: true });
@@ -307,9 +310,9 @@ describe('the provider', () => {
   it('hides the jig when its socket goes down', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
-    provider.send({ type: 'state', visible: true });
+    provider.send({ type: 'setParams', params: { jig: true } });
     await page.next();
 
     provider.drop();
@@ -318,15 +321,15 @@ describe('the provider', () => {
     expect(await monkeypatchGet()).toEqual({ css: '', visible: false });
   });
 
-  it('reconnects, greets the provider again and follows its state', async () => {
+  it('reconnects, exposes the jig again and follows its value', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
 
     provider.drop();
-    await provider.frame('hello', 2);
-    provider.send({ type: 'state', visible: true });
+    await provider.frame('exposeParams', 2);
+    provider.send({ type: 'setParams', params: { jig: true } });
 
     expect(await page.next()).toEqual({ visible: true });
   });
@@ -334,7 +337,7 @@ describe('the provider', () => {
   it('answers 503 when the provider goes away before it replies', async () => {
     const provider = await fakeProvider(null);
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
 
     const sent = sendFeedback({ css: '.chip{padding:20px}' });
     await provider.frame('feedback');
@@ -346,7 +349,7 @@ describe('the provider', () => {
   it('relays feedback and answers with the reply', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
     const feedback = { type: 'monkeypatch', css: '.chip{padding:20px}', note: 'tighter' };
 
     const sent = await sendFeedback(feedback);
@@ -364,7 +367,7 @@ describe('the provider', () => {
     const refusal = { error: { code: 'invalid', message: 'No agent is running in x' } };
     const provider = await fakeProvider({ ok: false, body: refusal });
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
 
     const sent = await sendFeedback({ css: '.chip{padding:20px}' });
 
@@ -372,12 +375,15 @@ describe('the provider', () => {
     expect(await sent.json()).toEqual(refusal);
   });
 
-  it('sends a hide', async () => {
+  it('sends a hide as the jig param turned off', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
-    await provider.frame('hello');
+    await provider.frame('exposeParams');
 
     expect((await post('/__mael/hide')).status).toBe(204);
-    expect(await provider.frame('hide')).toEqual({ type: 'hide' });
+    expect(await provider.frame('setParams')).toEqual({
+      type: 'setParams',
+      params: { jig: false },
+    });
   });
 });
