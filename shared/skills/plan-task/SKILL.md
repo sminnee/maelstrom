@@ -9,33 +9,23 @@ metadata:
 
 # Plan task
 
-Load `planning` first. Read the brief from the initial prompt. Research the relevant code and patterns before drafting. This session plans only; do not implement.
+Load `planning` first. Read the brief from the initial prompt. This session plans only; do not implement.
 
-Classify work as one execute session (about 2,000 new lines or less) or a short chain. A slice can be a substantial piece of work. Do not split work only to make the PR small: `/present` re-cuts the commits into one story commit per decision. Confirm a material classification choice with the user. Make each execute step a tested, independently mergeable vertical slice. Keep all steps on the inherited branch. Do not set `post-action: linear.done`.
-
-Research before drafting. Use one to three read-only explorers when they help. A slice includes its tests and public behaviour; never make layer-only or test-only iterations. Name the public seams and any test re-cut in each execute draft. Ask before a chain longer than three slices.
-
-Create an execute draft early:
-
-```bash
-mael task draft .drafts/iter1.md "Execute: <ID> — <description>" --mode auto --pre-action linear.in-progress
-```
-
-When an execute draft plans before it builds, give it `--execute-model <alias>` so it switches
-model once the user approves its plan. Confirm the alias with the user. Use Claude aliases only.
-
-For remaining work, add a normal-mode `plan-next-step` tail draft using this session's model. Each execute draft must name context, implementation steps, files, public **Seams under test**, and verification. A tail states what remains and what should already be done.
-
-Sculpt the drafts with the user. On approval, set Linear to planned when applicable, promote drafts in order, close this planning task, launch the head scoped to `$MAEL_TASK_PARENT`, then end the session:
+1. **Research.** Read the relevant code and patterns. Use one to three read-only explorers when they help.
+2. **Choose the bites.** Split the work into 1–5 plan-mode tasks, each a piece a single session can plan and build. Do not split work only to make the PR small: `/present` re-cuts the commits into one story commit per decision. Keep every task on the inherited branch. Confirm a material split with the user.
+3. **Shared design.** When the tasks share design context, write the ADR or design doc that `planning` describes, or make writing it the first task's first bullet.
+4. **Draft.** One draft per task, in the shape `planning` gives. Do not set `post-action: linear.done`.
+5. **Tail, only when needed.** When it is genuinely unclear what remains after the named tasks, add a normal-mode `plan-next-step` tail draft using this session's model. Its content states what remains and what the named tasks will have done.
+6. **Sculpt.** Edit the drafts with the user until they approve.
+7. **Promote, close, launch, end.** Set Linear to planned when the brief is Linear-backed. Then:
 
 ```bash
-mael task promote .drafts/iter1.md --follow-end '*'
-mael task promote .drafts/tail.md --follow <iter1-id> # if needed
+mael task promote .drafts/1.md .drafts/2.md   # every draft, in chain order
 mael task status done
 mael task next --run --parent "$MAEL_TASK_PARENT"
 mael session end
 ```
 
-UI approval already promotes drafts; use its ids and skip only the promotion commands. On rejection, delete drafts. Aim for three or fewer slices; ask before creating a longer chain.
+UI approval already promotes the drafts; use its ids and skip only the promote command. On rejection, delete the drafts.
 
-The `## Content` body is the execute session's plan. A multi-session head also states the overall goal and architecture. Its tail must state remaining work and the completed-state summary; it is not a placeholder. Set Linear to planned before promotion when the brief is Linear-backed. Do not write a plan body to Linear.
+Do not write a plan body to Linear.

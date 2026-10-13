@@ -17,9 +17,11 @@ If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the us
 
 ## Tasks and planning
 
-`mael task` is the plan of record. A chain shares its parent, branch, and PR. `--follow` and `--follow-end '*'` set order. Planning sessions draft and promote tasks; execute tasks implement their content without a skill. Use `mael task next --run` to advance.
+`mael task` is the plan of record. A chain shares its parent, branch, and PR. `--follow` and `--follow-end '*'` set order. Planning sessions draft and promote tasks; each task plans its own content in plan mode, then builds it. Use `mael task next --run` to advance.
 
-Use `mode: auto` for execute tasks and `mode: normal` for planning. Keep execute tasks' `branch:` unset. For cross-project patterns, run `mael wiki list` before work and update or add the applicable page afterwards.
+When a plan-mode task's plan finds more than one session's work, name the extra tasks in the plan. After plan approval, draft them as plan-mode tasks (load `planning`), promote them with `mael task promote FILES...` and no follow flags, then build this session's part. They splice in after this task. Skip `planning`'s close-launch-end step.
+
+Use `mode: plan` for tasks and `mode: normal` for a `plan-next-step` tail. Keep every task's `branch:` unset. For cross-project patterns, run `mael wiki list` before work and update or add the applicable page afterwards.
 
 `$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the notebook holds the plan. Do not write the plan into Linear.
 
