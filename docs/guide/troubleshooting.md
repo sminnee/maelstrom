@@ -121,9 +121,10 @@ sandbox: run `uv run mael-agent-daemon status` from a maelstrom checkout. Then r
 
 ## Tasks
 
-### An execute task re-planned instead of implementing
+### A task re-planned when it should have run its content
 
-Its draft omitted `--mode auto`. New tasks default to plan mode.
+Plan mode is the default, and drafted tasks use it on purpose. A task whose content is already a
+full plan needs `mode: auto`:
 
 ```bash
 mael task update <id> --mode auto

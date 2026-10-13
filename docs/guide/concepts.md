@@ -214,8 +214,8 @@ Planning session (normal mode, in a cmux workspace)
 mael task promote <draft>…  →  mael task status done  →  mael task next --run
    │
    ▼
-Execute session (auto mode, own worktree, own ports)
-   │  implement → sync → commit + gates → /code-review → /present
+Task session (plan mode, own worktree, own ports)
+   │  plan → implement → sync → commit + gates → /code-review → /present
    ▼
 mael gh create-pr --squash            →   mael task status done   →   /watch-pr
    │
@@ -231,13 +231,13 @@ agents in flight.
 
 - **One PR per parent.** `parent` groups; `follows` orders; dot-ids express lineage.
 - **Leave `branch:` unset on drafts.** Tasks inherit their parent's branch, so every
-  iteration accumulates into one pull request.
+  task in a chain accumulates into one pull request.
 - **Drafts become tasks.** A draft is inert until it is promoted into the chain.
 - **Sessions run in cmux workspaces.** `--here` is the local escape hatch.
 - **Close preserves, remove deletes.** `mael close --force` discards nothing.
   `mael close --trash` sets unmerged work aside as `trash/<branch>`.
   `mael close --discard` removes dirty files but keeps branch commits and ignored files.
-- **Vertical slices.** Never layer-shaped iterations.
+- **Vertical slices.** Never layer-shaped tasks.
 - **The pull request is the completion signal.** Close the task as soon as it is pushed.
 
 ## Next

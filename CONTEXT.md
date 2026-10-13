@@ -199,6 +199,14 @@ _Avoid_: Gate, condition
 **Chain**:
 The sibling tasks that share one parent, ordered by follows, merging as a single pull request.
 
+**Splice**:
+A promote that puts a **Task set** after one task in a chain. The first new task follows that
+task, and every task that followed it now follows the last new task. `A → P → C` spliced after
+`P` becomes `A → P → N1 → N2 → C`. A promote with no follow flag splices after `$MAEL_TASK_ID`,
+and approving a task set splices after the planning task. A task can thus expand the middle of
+its own chain without forking it.
+_Avoid_: Insert, rewire
+
 **Registered PR**:
 The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
 `mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
