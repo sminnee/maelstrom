@@ -361,7 +361,9 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
               {item.source} · {item.eventType}
             </span>
           </div>
-          <Markdown source={item.markdown} />
+          <div className={styles.externalEventBody}>
+            <Markdown source={item.markdown} />
+          </div>
         </div>
       );
     case 'raw_event':

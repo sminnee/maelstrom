@@ -211,6 +211,10 @@
   color: var(--fg-muted);
   --fg-recessed: var(--fg-muted);
 }
+/* The label is padded by `.skillHead`; the body matches it. */
+.externalEventBody {
+  padding: 0 var(--u);
+}
 .skillHead {
   display: flex;
   gap: var(--u);
