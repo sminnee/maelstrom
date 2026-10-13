@@ -1,6 +1,6 @@
 ---
 name: plan-next-step
-description: Plan one concrete step of a multi-session chain and re-queue the remaining work. Runs in a mael planning session. Invoked as `/plan-next-step`.
+description: Plan the next tasks of a multi-session chain when what remains was unclear. Runs in a mael planning session. Invoked as `/plan-next-step`.
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: false
@@ -9,28 +9,20 @@ metadata:
 
 # Plan next step
 
-Load `planning` first. The initial prompt contains remaining work and the expected completed state. Verify both against the branch, task status, and relevant files. This session plans only; do not implement or write to Linear.
+Load `planning` first. The initial prompt says what remains. Verify it against the branch, task status, and relevant files. This session plans only; do not implement or write to Linear.
 
-Use the prompt as the plan of record, then reconcile it with commits, status, diffs, and source. Plan the top item, not a reconstruction of the whole task.
-
-Plan the top remaining item as a substantial, tested vertical slice. Do not split work only to make the PR small: `/present` re-cuts the commits into one story commit per decision. Finish all remaining work when it fits one execute session. Re-cut layer-shaped work into vertical slices. The execute draft must describe implementation, public **Seams under test**, verification, and any required test re-cut.
-
-Create `.drafts/step.md` in auto mode with `linear.in-progress`. If work remains, create a normal-mode `plan-next-step` tail on the inherited branch and update it with the reduced remaining list and expanded completed-state summary. Do not set `post-action: linear.done`.
-
-After approval, promote the step, then the tail if present; close this planner; launch the step scoped to `$MAEL_TASK_PARENT`; and end the session:
+1. Reconcile the prompt with commits, status, diffs, and source.
+2. Draft 1–3 plan-mode tasks for what remains, in the shape `planning` gives. Do not set `post-action: linear.done`. Keep `branch:` unset.
+3. When it is still genuinely unclear what remains after them, add a normal-mode `plan-next-step` tail draft using this planner's model. Its content states what remains.
+4. After approval, promote, close this planner, launch the head, and end the session:
 
 ```bash
-mael task promote .drafts/step.md --follow-end '*'
-mael task promote .drafts/tail.md --follow <step-id> # if needed
+mael task promote .drafts/1.md .drafts/2.md   # every draft, in chain order
 mael task status done
 mael task next --run --parent "$MAEL_TASK_PARENT"
 mael session end
 ```
 
-UI approval already promoted drafts. On rejection, delete them. If no work remains after this step, create no tail.
+UI approval already promoted the drafts. On rejection, delete them. When no work remains, draft nothing and say so.
 
-Set the tail model to this planner's model.
-When a step plans before it builds, give its draft `--execute-model <alias>` and confirm the alias with the user. Use Claude aliases only.
-Its `## Remaining work` removes the planned step and its completed-state summary adds that step.
-Keep `branch:` unset.
-Confirm the launched id is the step just promoted; a blocked chain requires `mael task list`, not a different task launch.
+Confirm the launched id is the first task just promoted. A blocked chain requires `mael task list`, not a different task launch.

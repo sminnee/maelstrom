@@ -20,7 +20,7 @@ revision.
 A document is always a file. Write it under `.drafts/`, then show it with `<doc-file>`:
 
 ```
-<doc-file kind="tasks" filename=".drafts/first.md, .drafts/next.md" title="Iteration 1">
+<doc-file kind="tasks" filename=".drafts/1.md, .drafts/2.md" title="Task set">
 ```
 
 - `kind` is `tasks`, `pr`, `review`, `verification`, or `other`. An unknown value is `other`.
