@@ -271,6 +271,13 @@ class PrStatus:
     merged_at: str = ""
     #: The head commit the state describes; ``""`` where the read did not ask.
     head_oid: str = ""
+    #: GitHub says the PR conflicts with its base. Apart from ``state``,
+    #: which names a red build first and so hides a conflict under it.
+    conflicting: bool = False
+    #: A check answered for the head commit. ``state`` reads a missing rollup
+    #: as ``ready``, so a read just after a push cannot otherwise be told
+    #: from a build that passed.
+    checks_seen: bool = False
 
 
 def parse_pr_info(payload: str) -> PRInfo:
@@ -570,6 +577,12 @@ def _pr_status(
     run_states: dict[str, PrState] | None = None,
 ) -> PrStatus:
     """One GraphQL PR node as a :class:`PrStatus`."""
+    head = _head_commit(node)
+    rollup = head.get("statusCheckRollup") or {}
+    head_oid = head.get("oid") or ""
+    checks_seen = rollup.get("state") is not None or (
+        not rollup_readable and head_oid in (run_states or {})
+    )
     return PrStatus(
         number=int(node["number"]),
         commits=int(node["commits"]["totalCount"]),
@@ -577,7 +590,9 @@ def _pr_status(
         state=_pr_state(node, rollup_readable=rollup_readable, run_states=run_states),
         is_draft=bool(node.get("isDraft")),
         merged_at=node.get("mergedAt") or "",
-        head_oid=_head_commit(node).get("oid") or "",
+        head_oid=head_oid,
+        conflicting=node.get("mergeable") == "CONFLICTING",
+        checks_seen=checks_seen,
     )
 
 
