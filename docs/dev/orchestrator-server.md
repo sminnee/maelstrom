@@ -1285,25 +1285,38 @@ A subagent's stream and a Codex agent carry no partial message.
 
 ## The live feedback socket
 
-`GET /api/live-feedback` is a WebSocket that makes this server a **Live feedback provider**. The
-**Jig** is its one client so far. `orchestrator-ui/vite-plugin-mael-jig/plugin.ts` documents the
-protocol, and [orchestrator-ui.md](orchestrator-ui.md), "The jig", lists the frames.
+`GET /api/live-feedback` is a WebSocket that makes this server a **Live feedback provider**.
+[live-feedback.md](live-feedback.md) documents the protocol: the URL, the frames, the params and
+the rules. This section covers the server's side.
 
-The first frame is a `hello` with the jig's git top level. The server finds the worktree whose
-real path matches, and answers its `state`. A path that no worktree has closes the socket `4404`.
+**The URL names the client.** The socket reads `path` and `service` from its query.
+`live_feedback_worktree` finds the worktree whose real path matches. An unknown path, or no
+`service`, closes the socket `4404`.
 
 | Frame in | What the server does |
 |---|---|
+| `{type: "exposeParams", params}` | Stores the declarations, and answers `setParams` with the stored values. |
+| `{type: "setParams", params}` | Runs `worktree.setFeedbackParams`. A refusal answers `setParams` with the stored values. |
 | `{type: "feedback", id, feedback}` | Runs `worktree.feedback`, then answers `{type: "reply", id, ok, body}`. `body` is `{agentIds, refused}`, or `{error}`. |
-| `{type: "hide"}` | Hides the jig, and says `format_jig_hidden` to each agent in the worktree. |
 
-**An agent shows the jig with a marker.** `<jig show>` and `<jig hide>` in an agent's message set
-the state of the agent's worktree. `read_tags` cuts the marker from the transcript, as it cuts a
-milestone. Each socket of that worktree hears the change as a `state` frame.
+**A change goes through one method.** `_set_feedback_params` serves the route and the page. It
+sets the hub, then says `format_param_set` to each agent in the worktree as one message. It undoes
+a change no agent takes with `revert`, which writes the stored value even when the service has
+closed in the meantime.
 
-**The state is held in memory.** `LiveFeedbackHub` in `live_feedback.py` holds the set of shown worktrees. A restart
-hides every jig. A marker in a replayed backlog changes nothing, so the restart does not show a
-jig again. The socket pings every 20 s, as a transcript socket does.
+**An agent sets a param with a marker.** `read_tags` cuts `<live-feedback>` from the transcript,
+as it cuts a milestone, and returns a `ParamSet` for each param. All of them apply, in order. A
+marker with no `service` calls `set_everywhere`. The agent set it, so nobody is told.
+
+**The last agent turns every param off.** `_exit` calls `live_feedback.clear` when the worktree has
+no agent left.
+
+**The state is held in memory.** `LiveFeedbackHub` in `live_feedback.py` keys its state by
+worktree and service: the subscribers, the newest declarations, and the values. The values outlive
+the socket. Its `on_change` writes `liveFeedback` into the worktree's row, and a worktree read
+lays the same state over each row it reads. A restart turns every param off. A marker in a
+replayed backlog changes nothing, so the restart does not turn one on again. The socket pings
+every 20 s, as a transcript socket does.
 
 ## Commands
 
@@ -1348,6 +1361,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
+| `POST /api/worktrees/{id}/live-feedback/{service}/params` | `params`, by name | `worktree.setFeedbackParams` | `{agentIds, refused}`, or `{}` for no change |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `202 {operationId}` |
 | `POST /api/worktrees/refresh` | `project`, `branch`, both optional | `worktree.refresh` | `{}` |
 | `POST /api/operations/{id}/seen` | | `operation.seen` | `{}` |
@@ -1456,6 +1470,17 @@ has no route: the live feedback socket runs it (see "The live feedback socket").
 `server.py`. The formatters are in `mael_domain/feedback.py`.
 The command reaches the same agents as `worktree.comment`, and answers the same reply. It refuses
 a body that is not an object, a type it does not know, and a worktree with no such agent.
+
+`worktree.setFeedbackParams` sets **Live feedback params** on one service. It refuses a service
+with no client connected, a param the service does not expose, a value that is not a bool, and a
+worktree with no agent. The last rule holds for off as well as on.
+
+Any type can carry a `screenshot`: the name of a file that the jig wrote to `.drafts/jig/`. The
+name must be one path segment, because the server joins it to that directory. The server sends
+the file to each agent as an attachment of the `say`, and the message ends "A screenshot of the
+viewport is attached." The daemon refuses a whole turn over a bad attachment, so the server first
+reads the file. A file that is gone, is not an image, or is over the size cap is left off, and the
+message goes without it.
 
 | Type | Fields | Message |
 |---|---|---|

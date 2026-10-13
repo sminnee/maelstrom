@@ -921,7 +921,7 @@ directory and nothing outside it. Each file becomes one document, and the files 
 A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
 what raises an attention item.
 One of the markers, with the **Image tag**, the **Note**, the **Milestone**, the **PR link
-tag** and `<jig>`. The names carry
+tag** and `<live-feedback>`. The names carry
 nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
 
@@ -939,7 +939,7 @@ replaces the one before it. The expanded card shows it in place of the agent's l
 is whatever prose happened to end a turn. A message carrying no note leaves the standing one
 alone, and a subagent writes none. The card still dates its block from the last message, because
 silence means the agent said nothing, and a note is not speech. One of the markers, with the
-**Document tag**, the **Image tag**, the **Milestone**, the **PR link tag** and `<jig>`.
+**Document tag**, the **Image tag**, the **Milestone**, the **PR link tag** and `<live-feedback>`.
 _Avoid_: Status, Progress (that is a node's state), Activity
 
 **Milestone**:
@@ -950,7 +950,7 @@ and flagged, never dropped. The marker is cut from the message and writes a **mi
 snapshot**; the latest one in a message wins, as a note does. `planned` is Maelstrom's own: it is
 written when the user approves a plan, because the approval clears the agent before it could
 write one. One of the markers, with the
-**Document tag**, the **Image tag**, the **Note**, the **PR link tag** and `<jig>`. A subagent writes none.
+**Document tag**, the **Image tag**, the **Note**, the **PR link tag** and `<live-feedback>`. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
 
@@ -978,7 +978,7 @@ The marker an agent writes in the text of an ordinary message to show the user a
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
 may not show, or one that is not there, leaves prose saying so, never a broken picture. One of the
-markers, with the **Document tag**, the **Note**, the **Milestone**, the **PR link tag** and `<jig>`.
+markers, with the **Document tag**, the **Note**, the **Milestone**, the **PR link tag** and `<live-feedback>`.
 _Avoid_: Screenshot tag, figure, embed
 
 **PR link tag**:
@@ -987,7 +987,7 @@ The marker an agent writes in the text of an ordinary message to register a PR o
 from the message and makes the PR the task's **Registered PR**. With a bare `withdrawn`
 attribute, `<link rel="gh-pr" withdrawn>118</link>`, it marks that PR as a **Withdrawn PR**
 instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
-markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<jig>`.
+markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<live-feedback>`.
 _Avoid_: PR tag, link tag
 
 **User attention**:
@@ -1026,31 +1026,44 @@ _Avoid_: Review comment, line note, inline comment, feedback (alone)
 
 **Jig**:
 A dev-only overlay that a Vite plugin can put on every page of a worktree's dev server: the app
-and each Ladle story. It shows only while its **Live feedback provider** says so, which is when an agent of
-the worktree asks for it. Hidden, it puts nothing on the page. It carries changes into the page
-and **Feedback** out to the agent: a **Monkeypatch** or an **Instruction**.
+and each Ladle story. It is a **Live feedback** client with one **Live feedback param**, `jig`. It
+shows only while that param is on: an agent of the worktree turns it on, or the user turns on its
+switch in the **Dev env tab**. Hidden, it puts nothing on the page. It carries changes into the page and **Feedback** out to the agent: a
+**Monkeypatch** or an **Instruction**, each with a screenshot of the viewport when the capture
+works.
 _Avoid_: Tuner, tuning jig, inspector, devtools panel
 
 **Live feedback**:
-The two-way channel between the agents of a worktree and a dev asset on its pages, such as a
-**Jig**. The agents tell the asset when to show. The asset sends **Feedback** back. The jig is one
-use of it, so the channel and its socket are named for the feedback, not for the jig.
-_Avoid_: Jig protocol, jig channel
+The two-way channel between the agents of a worktree and a client in one of its dev servers, such
+as the **Jig**. The client declares **Live feedback params**, and either side sets them. The
+client sends **Feedback** to the agents. The jig is one client, so the channel, its socket, its
+API and the world name nothing of the jig.
+_Avoid_: Jig protocol, jig channel, feedback channel
 
 **Live feedback provider**:
-The service that a dev asset connects to for **Live feedback**, over one socket at
-`MAEL_FEEDBACK_URL`. It finds the asset's worktree, tells the asset when to show, and takes its
+The service that a client connects to for **Live feedback**, over one socket at
+`MAEL_FEEDBACK_URL`. That URL names the client's worktree and dev server, so the client dials it
+as it is and sends no identity of its own. The provider keeps each dev server's params, and takes
 **Feedback** to the agents. The orchestrator that `orchestrator_url:` names is the one provider so
-far. An MCP server could be another. An agent shows the jig with `<jig show>` and hides it with
-`<jig hide>`, one of the markers with the **Document tag**, the **Image tag**, the **Note**, the
-**Milestone** and the **PR link tag**.
+far. An MCP server could be another.
 _Avoid_: Jig provider, jig server, jig backend
 
+**Live feedback param**:
+A named value that a **Live feedback** client declares, such as the **Jig**'s `jig`. Each dev
+server keeps its own value, and the value outlives the client's socket. `boolean` is the one type.
+The **Dev env tab** draws a switch for each, named by its label. Every change needs an agent in
+the worktree, and the agents hear of each change the user makes. When the last agent leaves,
+every param turns off. An agent sets one with `<live-feedback jig="on">`, or on one dev server
+with `<live-feedback service="web" jig="off">`. That marker is one of the markers with the
+**Document tag**, the **Image tag**, the **Note**, the **Milestone** and the **PR link tag**.
+_Avoid_: Capability, flag, toggle
+
 **Feedback**:
-A typed message from a short-lived dev asset, such as a **Jig**, to the agents of a worktree. One
+A typed message from a **Live feedback** client, such as the **Jig**, to the agents of a worktree. One
 send delivers it, as one message, to every top-level agent in the worktree that has not exited.
 Its `type` names what it carries: `monkeypatch` for a **Monkeypatch**, `instruction` for an
-**Instruction**. When the user hides the jig, the agents get a hide message in the same way.
+**Instruction**. When the user sets a **Live feedback param**, the agents get a message that
+says so in the same way.
 _Avoid_: Tuning, report, event
 
 **Monkeypatch**:
@@ -1321,8 +1334,8 @@ _Avoid_: Diff view, diff browser, code tab
 
 **Dev env tab**:
 A panel tab that frames one running web service of a worktree, such as its app or Ladle. Its
-toolbar has a reload button and an **External link** to the same URL. A stopped service shows the
-worktree's env control and no frame. The frame stays loaded while another tab is in view.
+toolbar has a reload button, an **External link** to the same URL and a switch for each
+**Live feedback param** the service exposes, such as the **Jig**'s. A stopped service shows the worktree's env control and no frame. The frame stays loaded while another tab is in view.
 _Avoid_: Preview tab, browser tab
 
 **Split tab**:

@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Live feedback params in the Dev env tab.** A Live feedback client, such as the jig, declares
+  params, and the tab draws a switch for each one next to Reload while an agent is in the
+  worktree. The jig's "Jig" switch shows or hides it on that service, and the agent hears of each
+  change. Each param turns off when the last agent leaves. Each send from the jig carries a
+  screenshot of the viewport, and the agent answers with a quick mockup first. A project can write
+  its own client: see [Live feedback](docs/dev/live-feedback.md).
 - **The orchestrator writes to GitHub with its own token.** Set `github.orchestrator_token` in
   `~/.maelstrom/config.yaml`. The UI's Merge, Sync, Close, Force close and Trash use it, and so
   does a launch from the UI. So a merge works in any project. Agents keep the token they
@@ -69,10 +75,11 @@ release while that section is empty, and retitles it to the version it is releas
   open worktree after you turn it on. See
   [Serve over HTTPS](docs/guide/dev-environments.md#serve-over-https).
 
-- **The jig shows only when an agent asks for it.** An agent writes `<jig show>` while it shapes a
-  visual detail with you, and `<jig hide>` after. Until then a dev-server page carries no pill and
+- **An agent shows the jig with a marker.** An agent writes `<live-feedback jig="on">`
+  while it shapes a visual detail with you, and `<live-feedback jig="off">` after. Until then a dev-server page carries no pill and
   no panel. "Hide jig" in the panel hides it and tells the agent. `mael env start` points each
-  service at the orchestrator that `orchestrator_url:` names, through `MAEL_FEEDBACK_URL`.
+  service at the orchestrator that `orchestrator_url:` names, through `MAEL_FEEDBACK_URL`. The
+  URL names the worktree and the service.
 - **Set unmerged work aside with `mael close --trash`.** The branch moves to `trash/<branch>`,
   locally and on origin, its open PR closes with a comment, and the worktree closes. Uncommitted
   changes are committed first. The orchestrator's end-of-work control offers the same as

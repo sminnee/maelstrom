@@ -882,8 +882,15 @@ whose node or box no longer draws collapses with a replace, once the world has l
 ### The Dev env tab
 
 `devenv/DevEnvTab.tsx` draws the **Dev env tab**: a toolbar with the service name, its URL as an
-external link and a reload button, over an iframe of the URL. A service with a URL is web-facing,
-so `Worktree.env.services[]` is all the tab reads.
+external link, a reload button and a switch for each **Live feedback param** of the service, over
+an iframe of the URL. A service with a URL is web-facing, so `Worktree.env.services[]` gives the
+tab its frame.
+
+**The Dev env tab draws the params.** `DevEnvTab` finds the tab's service in
+`worktree.liveFeedback`, and draws a switch after Reload for each boolean param, named by its
+label. The UI names no param, so the jig's switch is "Jig" because the plugin says so. The switches
+show only while the worktree has an agent, because every change needs one. A press runs
+`useSetFeedbackParams`, and the switch follows the world's change notice.
 
 The frame stays mounted while another tab is in view, so the framed app keeps its state.
 `panel/Panel.tsx` draws the active tab and the split tab through `TabBody`. It also draws every
@@ -1564,26 +1571,25 @@ text about the page or about one **Pick**ed element. It lives in
 config, so every story has the jig too. A build and a vitest run do not load it, and outside a git
 checkout it switches itself off.
 
-**The jig is off until a provider shows it.** The plugin keeps one WebSocket open to the
-**Live feedback provider** at `MAEL_FEEDBACK_URL`. The jig draws only while that socket is open and the provider
-says `visible`. Hidden, the page carries nothing of the jig: no pill, no panel and no Monkeypatch
+**The jig is off until its param is on.** The plugin is a **Live feedback** client: it keeps one
+WebSocket open to the **Live feedback provider** at `MAEL_FEEDBACK_URL`, and exposes one param,
+`jig`. The jig draws only while that socket is open and the param is on. Hidden, the page carries nothing of the jig: no pill, no panel and no Monkeypatch
 `<style>`.
 
 | Part | File | What it does |
 |---|---|---|
-| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Keeps the provider socket, and relays its state as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
-| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Runs pick mode and the prompt box. "Hide jig" asks the provider to hide it. |
+| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Keeps the provider socket, and relays the `jig` param as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
+| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Runs pick mode and the prompt box. "Hide jig" asks the provider to turn the `jig` param off. |
 | Provider | `GET /api/live-feedback` | The orchestrator's socket. See [orchestrator-server.md](orchestrator-server.md). |
 
-**The protocol is live feedback.** The jig is its first client. `plugin.ts` documents it. Each frame is JSON:
+**The protocol is live feedback.** The jig is its first client. [live-feedback.md](live-feedback.md)
+documents the URL, the frames, the rules, and how the jig uses them.
 
-| Direction | Frame | When |
-|---|---|---|
-| jig → provider | `{type: "hello", path}` | On each open. `path` is the git top level. |
-| jig → provider | `{type: "feedback", id, feedback}` | On Send. `feedback` is the body the page posted. |
-| jig → provider | `{type: "hide"}` | On "Hide jig". |
-| provider → jig | `{type: "state", visible}` | After the hello, and on each change. |
-| provider → jig | `{type: "reply", id, ok, body}` | Once for each feedback frame. |
+**Each send carries a screenshot.** Before the post, the overlay captures the viewport without
+the jig, with `modern-screenshot`, as a JPEG data URL. A capture that fails, or a file that will
+not write, sends the feedback without one. The plugin writes the image to `.drafts/jig/shot-<ms>.jpg`, keeps the newest 20, and
+puts the file name in the frame. The image stays off the socket, because it can pass the server's
+4 MB frame limit, and the agent reads the file from the worktree.
 
 The plugin reconnects with backoff, and reports `visible: false` while the socket is down. A send
 or a hide with no open socket answers 503. A feedback reply answers 200 when `ok`, else 400, with
