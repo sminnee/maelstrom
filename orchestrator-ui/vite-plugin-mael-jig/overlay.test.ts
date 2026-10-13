@@ -15,6 +15,8 @@ let failPut: boolean;
 let target: HTMLElement;
 let unmount: () => void;
 let capture: () => Promise<string | null>;
+/** The draft files the fake serves, by name. */
+let drafts: Record<string, string>;
 
 const hot = {
   on: (event: string, callback: (data: never) => void) => listeners.set(event, callback),
@@ -31,7 +33,8 @@ function fakeFetch(visible: boolean) {
     }
     if (String(input) === '/__mael/hide') return hideReply;
     if (method === 'POST') return sendReply;
-    return Response.json({ css: '.chip { margin: 3px; }', visible });
+    if (String(input) === '/__mael/state') return Response.json({ visible });
+    return new Response(drafts[String(input).replace('/__mael/drafts/', '')] ?? '');
   };
 }
 
@@ -102,6 +105,7 @@ beforeEach(() => {
   requests = [];
   failPut = false;
   capture = async () => null;
+  drafts = { 'monkeypatch.css': '.chip { margin: 3px; }' };
   target = document.createElement('div');
   target.className = 'chip';
   document.body.append(target);
@@ -165,7 +169,7 @@ describe('the jig overlay', () => {
   });
 
   it('follows a change made elsewhere', () => {
-    emit('mael-jig:monkeypatch', { css: '.chip { padding: 9px; }', from: null });
+    emit('mael-jig:draft', { name: 'monkeypatch.css', text: '.chip { padding: 9px; }', from: null });
 
     expect(jig().textarea.value).toBe('.chip { padding: 9px; }');
     expect(getComputedStyle(target).paddingTop).toBe('9px');
@@ -176,7 +180,11 @@ describe('the jig overlay', () => {
     await until(() => expect(puts()).toHaveLength(1));
     type('.chip { padding: 12px; }');
 
-    emit('mael-jig:monkeypatch', { css: '.chip { padding: 1px; }', from: puts()[0]!.client });
+    emit('mael-jig:draft', {
+      name: 'monkeypatch.css',
+      text: '.chip { padding: 1px; }',
+      from: puts()[0]!.client,
+    });
 
     expect(jig().textarea.value).toBe('.chip { padding: 12px; }');
   });
@@ -212,8 +220,8 @@ describe('the jig overlay', () => {
       jig().sendMonkeypatch.click();
 
       await until(() => expect(jig().status.textContent).toBe('Sent to 2 agents'));
-      expect(requests.slice(1).map((r) => [r.method, r.url, r.body])).toEqual([
-        ['PUT', '/__mael/monkeypatch', '.chip { padding: 20px; }'],
+      expect(requests.filter((r) => r.method !== 'GET').map((r) => [r.method, r.url, r.body])).toEqual([
+        ['PUT', '/__mael/drafts/monkeypatch.css', '.chip { padding: 20px; }'],
         [
           'POST',
           '/__mael/feedback',

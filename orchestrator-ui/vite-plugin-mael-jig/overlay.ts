@@ -2,13 +2,15 @@
 // "The jig".
 import { domToJpeg } from 'modern-screenshot';
 
-interface Update {
-  css: string;
+/** A draft file changed: its name, its text, and the page that wrote it, if one did. */
+interface Draft {
+  name: string;
+  text: string;
   from: string | null;
 }
 
 interface Hot {
-  on(event: 'mael-jig:monkeypatch', callback: (data: Update) => void): void;
+  on(event: 'mael-jig:draft', callback: (data: Draft) => void): void;
   on(event: 'mael-jig:state', callback: (data: { visible: boolean }) => void): void;
 }
 
@@ -318,7 +320,7 @@ export async function mountJig({
   const write = () => {
     clearTimeout(pending);
     pending = undefined;
-    return fetch('/__mael/monkeypatch', {
+    return fetch('/__mael/drafts/monkeypatch.css', {
       method: 'PUT',
       headers: { 'x-mael-jig-client': client },
       body: textarea.value,
@@ -330,10 +332,10 @@ export async function mountJig({
     pending = setTimeout(write, debounceMs);
   });
 
-  hot.on('mael-jig:monkeypatch', ({ css, from }) => {
-    if (from === client) return;
-    textarea.value = css;
-    apply(css);
+  hot.on('mael-jig:draft', ({ name, text, from }) => {
+    if (name !== 'monkeypatch.css' || from === client) return;
+    textarea.value = text;
+    apply(text);
   });
 
   let picked: Picked | undefined;
@@ -450,11 +452,14 @@ export async function mountJig({
 
   // Read-only until the file loads, or the load would replace what the user typed.
   textarea.readOnly = true;
-  const loaded = await (await fetch('/__mael/monkeypatch')).json();
+  const [css, state] = await Promise.all([
+    fetch('/__mael/drafts/monkeypatch.css').then((reply) => reply.text()),
+    fetch('/__mael/state').then((reply) => reply.json()),
+  ]);
   textarea.readOnly = false;
-  textarea.value = loaded.css;
-  apply(loaded.css);
-  if (!heard) attach(loaded.visible);
+  textarea.value = css;
+  apply(css);
+  if (!heard) attach(state.visible);
 
   return () => {
     clearTimeout(pending);

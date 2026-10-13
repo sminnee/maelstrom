@@ -95,10 +95,10 @@ async function fakeProvider(
   };
 }
 
-const patchFile = () => join(worktree, '.drafts', 'monkeypatch.css');
+const draftFile = (name: string) => join(worktree, '.drafts', name);
 const shots = () => join(worktree, '.drafts', 'jig');
 
-type Update = { css: string; from: string | null };
+type Draft = { name: string; text: string; from: string | null };
 
 /** A page's HMR socket, once Vite has greeted it. `next()` is the next event of `name`. */
 async function hmrSocket<T>(name: string) {
@@ -125,89 +125,132 @@ async function hmrSocket<T>(name: string) {
 }
 
 /**
- * A page's HMR socket, once the watcher has seen the monkeypatch file.
- * `next()` is the next `mael-jig:monkeypatch` after that. The file must not
+ * A page's HMR socket, once the watcher has seen the draft file `name`.
+ * `next()` is the next `mael-jig:draft` after that. The file must not
  * exist yet, and does not exist after.
  *
  * The watcher picks up `.drafts/` a moment after the server starts, and a
  * change before then raises no event. So the page writes a marker until one
  * comes back, rather than sleeping for a guess at the moment.
  */
-async function hmrPage() {
-  const { events: updates, next } = await hmrSocket<Update>('mael-jig:monkeypatch');
+async function hmrPage(name = 'monkeypatch.css') {
+  const { events: drafts, next } = await hmrSocket<Draft>('mael-jig:draft');
   const marker = '/* watched */';
-  while (!updates.some((u) => u.css === marker)) {
-    writeFileSync(patchFile(), marker);
+  while (!drafts.some((d) => d.name === name && d.text === marker)) {
+    writeFileSync(draftFile(name), marker);
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  rmSync(patchFile());
-  for (let update = await next(); update.css !== ''; update = await next());
+  rmSync(draftFile(name));
+  for (let draft = await next(); draft.name !== name || draft.text !== ''; draft = await next());
   return { next };
 }
 
-const put = (css: string, client = 'c1') =>
-  fetch(`${origin}/__mael/monkeypatch`, {
+const put = (name: string, text: string, client = 'c1') =>
+  fetch(`${origin}/__mael/drafts/${name}`, {
     method: 'PUT',
     headers: { 'x-mael-jig-client': client },
-    body: css,
+    body: text,
   });
 
 const post = (path: string, body = '') => fetch(`${origin}${path}`, { method: 'POST', body });
 
 const sendFeedback = (body: unknown) => post('/__mael/feedback', JSON.stringify(body));
 
-const monkeypatchGet = async () => (await fetch(`${origin}/__mael/monkeypatch`)).json();
+const draftGet = async (name: string) => (await fetch(`${origin}/__mael/drafts/${name}`)).text();
+
+const stateGet = async () => (await fetch(`${origin}/__mael/state`)).json();
 
 describe('the jig plugin', () => {
   beforeEach(() => start());
 
-  it('writes a PUT to the monkeypatch file and reads it back', async () => {
-    expect((await put('.chip { padding: 14px; }')).status).toBe(204);
-    expect(readFileSync(patchFile(), 'utf8')).toBe('.chip { padding: 14px; }');
+  it.each(['monkeypatch.css', 'jig-values.json'])(
+    'writes a PUT to the draft file %s and reads it back',
+    async (name) => {
+      expect((await put(name, 'some text')).status).toBe(204);
+      expect(readFileSync(draftFile(name), 'utf8')).toBe('some text');
 
-    expect(await monkeypatchGet()).toEqual({ css: '.chip { padding: 14px; }', visible: false });
+      expect(await draftGet(name)).toBe('some text');
+    },
+  );
+
+  it('reads an absent file as no text', async () => {
+    expect(await draftGet('monkeypatch.css')).toBe('');
   });
 
-  it('reads an absent file as no CSS', async () => {
-    expect(await monkeypatchGet()).toEqual({ css: '', visible: false });
+  it('reads the control set the agent wrote, and refuses a PUT to it', async () => {
+    mkdirSync(join(worktree, '.drafts'), { recursive: true });
+    writeFileSync(draftFile('jig-controls.json'), '{"controls":[]}');
+
+    const refused = await put('jig-controls.json', '{}');
+
+    expect(refused.status).toBe(405);
+    expect(await refused.json()).toEqual({
+      error: { message: 'jig-controls.json is read only' },
+    });
+    expect(await draftGet('jig-controls.json')).toBe('{"controls":[]}');
+  });
+
+  it.each(['notes.md', '..%2Fsecret', 'jig', ''])('refuses the draft name %j', async (name) => {
+    expect((await fetch(`${origin}/__mael/drafts/${name}`)).status).toBe(404);
+    expect((await put(name, 'x')).status).toBe(404);
   });
 
   it('writes the file after .drafts is cleaned away under the running server', async () => {
     rmSync(join(worktree, '.drafts'), { recursive: true });
 
-    expect((await put('.chip{padding:2px}')).status).toBe(204);
-    expect(readFileSync(patchFile(), 'utf8')).toBe('.chip{padding:2px}');
+    expect((await put('monkeypatch.css', '.chip{padding:2px}')).status).toBe(204);
+    expect(readFileSync(draftFile('monkeypatch.css'), 'utf8')).toBe('.chip{padding:2px}');
   });
 
-  it('sends every page the file when someone else changes it', async () => {
+  it.each(['monkeypatch.css', 'jig-values.json', 'jig-controls.json'])(
+    'sends every page the draft %s when someone else changes it',
+    async (name) => {
+      const page = await hmrPage(name);
+
+      writeFileSync(draftFile(name), 'new text');
+
+      expect(await page.next()).toEqual({ name, text: 'new text', from: null });
+    },
+  );
+
+  it('sends no event for another file in .drafts', async () => {
     const page = await hmrPage();
 
-    writeFileSync(patchFile(), '.row { gap: 4px; }');
+    writeFileSync(draftFile('pr.md'), 'x');
+    writeFileSync(draftFile('monkeypatch.css'), 'after');
 
-    expect(await page.next()).toEqual({ css: '.row { gap: 4px; }', from: null });
+    expect(await page.next()).toEqual({ name: 'monkeypatch.css', text: 'after', from: null });
   });
 
   it('names the page that wrote the file, so that page can ignore the echo', async () => {
-    const page = await hmrPage();
+    const page = await hmrPage('jig-values.json');
 
-    await put('.chip{padding:20px}');
+    await put('jig-values.json', '{"pad":"10px"}');
 
-    expect(await page.next()).toEqual({ css: '.chip{padding:20px}', from: 'c1' });
+    expect(await page.next()).toEqual({
+      name: 'jig-values.json',
+      text: '{"pad":"10px"}',
+      from: 'c1',
+    });
   });
 
-  it('sends no CSS when the agent deletes the file', async () => {
+  it('sends no text when the agent deletes the file', async () => {
     const page = await hmrPage();
-    writeFileSync(patchFile(), '.chip{padding:20px}');
-    expect((await page.next()).css).toBe('.chip{padding:20px}');
+    writeFileSync(draftFile('monkeypatch.css'), '.chip{padding:20px}');
+    expect((await page.next()).text).toBe('.chip{padding:20px}');
 
-    rmSync(patchFile());
+    rmSync(draftFile('monkeypatch.css'));
 
-    expect(await page.next()).toEqual({ css: '', from: null });
+    expect(await page.next()).toEqual({ name: 'monkeypatch.css', text: '', from: null });
   });
 
   it('injects the overlay into the page', async () => {
     const html = await (await fetch(`${origin}/`)).text();
     expect(html).toMatch(/<script type="module" src="[^"]*client\.ts"><\/script>/);
+  });
+
+  it('reads the jig hidden with no provider', async () => {
+    expect(await stateGet()).toEqual({ visible: false });
   });
 
   it('refuses a send and a hide when no provider is set', async () => {
@@ -216,7 +259,9 @@ describe('the jig plugin', () => {
   });
 
   it('refuses a method each route does not take', async () => {
-    expect((await fetch(`${origin}/__mael/monkeypatch`, { method: 'DELETE' })).status).toBe(405);
+    const draft = `${origin}/__mael/drafts/monkeypatch.css`;
+    expect((await fetch(draft, { method: 'DELETE' })).status).toBe(405);
+    expect((await fetch(`${origin}/__mael/state`, { method: 'POST' })).status).toBe(405);
     expect((await fetch(`${origin}/__mael/feedback`)).status).toBe(405);
     expect((await fetch(`${origin}/__mael/hide`)).status).toBe(405);
   });
@@ -304,7 +349,7 @@ describe('the provider', () => {
     provider.send({ type: 'setParams', params: { jig: true } });
 
     expect(await page.next()).toEqual({ visible: true });
-    expect(await monkeypatchGet()).toEqual({ css: '', visible: true });
+    expect(await stateGet()).toEqual({ visible: true });
   });
 
   it('hides the jig when its socket goes down', async () => {
@@ -318,7 +363,7 @@ describe('the provider', () => {
     provider.drop();
 
     expect(await page.next()).toEqual({ visible: false });
-    expect(await monkeypatchGet()).toEqual({ css: '', visible: false });
+    expect(await stateGet()).toEqual({ visible: false });
   });
 
   it('reconnects, exposes the jig again and follows its value', async () => {
