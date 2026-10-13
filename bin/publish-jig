@@ -100,8 +100,8 @@ def publish() -> None:
     with tempfile.NamedTemporaryFile("w", suffix=".npmrc") as npmrc:
         npmrc.write("//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n")
         npmrc.flush()
-        run("pnpm", "--dir", str(PACKAGE), "publish", "--access", "public", "--userconfig", npmrc.name)
-
+        env = {**os.environ, "npm_config_userconfig": npmrc.name}
+        subprocess.run(("pnpm", "--dir", str(PACKAGE), "publish", "--access", "public"), check=True, env=env)
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Publish {NAME} to npm")
