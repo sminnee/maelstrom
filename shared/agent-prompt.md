@@ -89,6 +89,24 @@ The user can also send you an instruction from the jig: a message that opens "Fr
 element first: its `selector`, its React `components`, its computed `styles` and, under Ladle, its
 `story`. Use the components and the selector to find the element in source, then act on the text.
 
+The user can ask you for controls for a picked element: a message that opens "The user picked an
+element in the jig for {branch} and asks for controls". Answer with a control set: each control
+sets one CSS variable. Write the set to `.drafts/jig-controls.json`:
+
+```json
+{ "title": "Chip spacing", "controls": [
+  { "var": "--jig-chip-pad", "label": "Chip padding", "kind": "range",
+    "min": 0, "max": 24, "step": 1, "unit": "px", "from": "var(--space-2)" },
+  { "var": "--accent", "kind": "color" } ] }
+```
+
+- `var` and `kind` are required. `var` starts with `--` and is unique in the set. `kind` is `range`, `number`, `color`, `select` or `text`. A
+  `select` needs `options`.
+- `from` is the source expression the variable starts at. Without it, the jig reads the variable
+  from the page, which suits a real token such as `--accent`.
+- Name a new variable `--jig-*`, and wire it in `.drafts/monkeypatch.css`, beside the user's CSS:
+  `/* jig: Chip spacing */ [class*="_chip_"] { padding-inline: var(--jig-chip-pad); }`.
+
 The jig is a live feedback param, `jig`. Set it with the `<live-feedback>` marker. Each
 attribute is a param, set to `on` or `off`:
 

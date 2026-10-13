@@ -1564,9 +1564,10 @@ Vite's dev server does this already.
 
 ## The jig
 
-The **Jig** lets the user change the live page and send **Feedback** to the agent. It has two
-uses so far: a **Monkeypatch**, CSS that every page applies at once, and an **Instruction**, free
-text about the page or about one **Pick**ed element. It lives in
+The **Jig** lets the user change the live page and send **Feedback** to the agent. It has three
+uses: a **Monkeypatch**, CSS that every page applies at once; an **Instruction**, free text about
+the page or about one **Pick**ed element; and a **Control set**, CSS variables that the agent
+offers and the user sets. It lives in
 `vite-plugin-mael-jig/`, and `vite.config.ts` adds it to the dev server. Ladle loads the same
 config, so every story has the jig too. A build and a vitest run do not load it, and outside a git
 checkout it switches itself off.
@@ -1578,8 +1579,8 @@ WebSocket open to the **Live feedback provider** at `MAEL_FEEDBACK_URL`, and exp
 
 | Part | File | What it does |
 |---|---|---|
-| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves `GET`/`PUT /__mael/monkeypatch` on `.drafts/monkeypatch.css`. Watches the file and sends the `mael-jig:monkeypatch` event over HMR. Keeps the provider socket, and relays the `jig` param as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
-| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Runs pick mode and the prompt box. "Hide jig" asks the provider to turn the `jig` param off. |
+| Plugin | `plugin.ts` | Injects `client.ts` into each page. Serves the draft files at `GET`/`PUT /__mael/drafts/<name>` (see below). Watches them and sends the `mael-jig:draft` event `{name, text, from}` over HMR. Serves `GET /__mael/state`, `{visible}`. Keeps the provider socket, and relays the `jig` param as the `mael-jig:state` event. Turns `POST /__mael/feedback` and `POST /__mael/hide` into frames. |
+| Overlay | `overlay.ts` | While visible, draws the `Jig` pill and the panel in a shadow root, so app CSS does not reach it. Writes the Monkeypatch into one `<style>` at the end of `<head>` on each keystroke, then `PUT`s it after 300 ms. Draws the **Control set** and writes the **Controls**' `:root` rule into a second `<style>` after it. Runs pick mode and the prompt box. "Hide jig" asks the provider to turn the `jig` param off. |
 | Provider | `GET /api/live-feedback` | The orchestrator's socket. See [orchestrator-server.md](orchestrator-server.md). |
 
 **The protocol is live feedback.** The jig is its first client. [live-feedback.md](live-feedback.md)
@@ -1595,14 +1596,23 @@ The plugin reconnects with backoff, and reports `visible: false` while the socke
 or a hide with no open socket answers 503. A feedback reply answers 200 when `ok`, else 400, with
 `body` as it came.
 
-**The file is the shared state.** Each page applies the file when it loads and when the event
+**The files are the shared state.** The plugin serves three files in `.drafts/`:
+
+| File | Written by | Holds |
+|---|---|---|
+| `monkeypatch.css` | the jig and the agent | The **Monkeypatch**, and the wiring of each **Control**. |
+| `jig-controls.json` | the agent | The **Control set**. A page `PUT` answers 405. |
+| `jig-values.json` | the jig | `{var: value}`, the value the user set on each **Control**. |
+
+A deleted file reads as empty text. Each page applies each file when it loads and when the event
 arrives, so the app, every story and an edit by the agent stay in step. The event names the page
 that wrote the file, and that page ignores it. Otherwise an echo of an older write would replace
 what the user typed since.
 
-**The jig's `<style>` stays last in `<head>`.** Vite appends a module's `<style>` when the module
-loads or hot-updates. A `MutationObserver` moves the jig's element back to the end, so a monkeypatch
-rule wins a tie of specificity.
+**The jig's two `<style>` elements stay last in `<head>`.** Vite appends a module's `<style>` when
+the module loads or hot-updates. A `MutationObserver` moves the jig's elements back to the end, so
+a monkeypatch rule wins a tie of specificity. The controls `<style>` comes last, so its `:root`
+rule beats the app's own value for a token.
 
 **`MAEL_FEEDBACK_URL` points at the notebook's orchestrator.** The agents run under the
 orchestrator that `orchestrator_url:` names, not under the worktree's own dev orchestrator.
@@ -1635,6 +1645,42 @@ describes it in these fields:
 A class stem is the CSS-module prefix without the hash: `_chip_x9y8z_12` has the stem `_chip_`.
 The stem stays the same when the hash changes, so the selector matches after an edit.
 
+**A control sets one CSS variable.** The agent writes the **Control set** and wires each variable
+in the Monkeypatch:
+
+```json
+{ "title": "Chip spacing", "controls": [
+  { "var": "--jig-chip-pad", "label": "Chip padding", "kind": "range",
+    "min": 0, "max": 24, "step": 1, "unit": "px", "from": "var(--space-2)" },
+  { "var": "--accent", "kind": "color" },
+  { "var": "--jig-align", "kind": "select", "options": ["start", "center"], "from": "start" } ] }
+```
+
+```css
+/* jig: Chip spacing */
+[class*="_chip_"] { padding-inline: var(--jig-chip-pad); padding-block: calc(var(--jig-chip-pad) / 2); }
+```
+
+A variable rather than a selector and a property lets one control drive several properties, part
+of a shorthand, or a `calc()`. A reader of the Monkeypatch sees how each control is wired.
+
+- `var` and `kind` are required, and `var` is unique in the set. `kind` is `range`, `number`,
+  `color`, `select` or `text`. A `select` needs `options`. `label` defaults to `var`.
+- Each control starts at its `from`. Without one, the jig reads the variable from `:root` with its
+  own rule off. That suits a token the app defines.
+- The `:root` rule holds each set value, or the `from` of an unset control. Reset × removes the
+  value, so the variable goes back to its start.
+- An invalid file shows its fault in place of the controls, such as "control 2 repeats --a".
+
+A control whose wiring matches nothing on the page is muted, with "no match on this page". The
+jig walks `document.styleSheets` for style rules that read `var(<name>`, and tries each selector
+with its pseudo-classes dropped. A sheet that is cross-origin is skipped. A variable with no rule
+at all is not muted: the app's own CSS can live where the jig cannot read it.
+
+**The panel has two tabs.** Controls is the default when a set exists, Monkeypatch otherwise. A new
+set from the agent selects Controls. The title is the set's `title`, or "Jig". A pick adds a scope
+choice: This element (`element`), Elements like this (`similar`) or This area (`area`).
+
 **One prompt box serves every send.** The textarea "Message to the agent" sits at the bottom of the
 panel. Each send clears it once the post succeeds. The picked element stays.
 
@@ -1642,6 +1688,8 @@ panel. Each send clears it once the post succeeds. The picked element stays.
 |---|---|
 | Send message | `{type: "instruction", text, element?}`. `element` is the description, when there is a pick. Off while the box is empty. |
 | Send monkeypatch | `{type: "monkeypatch", css, note}`. `note` is the box's text. |
+| Ask for controls | `{type: "pick", scope, element, note}`. Shown when there is a pick. |
+| Send controls | `{type: "controls", title, changes, css, note}`. Each change is `{var, label, from?, to}`, where `from` is the control's start. `css` is the Monkeypatch, so the message quotes the wiring. Off until a value differs from its start. |
 
 The provider validates and formats each **Feedback** type. See
 [orchestrator-server.md](orchestrator-server.md), `worktree.feedback`.
@@ -1745,9 +1793,10 @@ CSS and TSX file. It fails on a font size that is not a `--text-*` token, an `em
 `inherit`. See "Hierarchy". Both gates share `test/sourceGate.ts`.
 
 The jig is its own vitest project, which runs in Node by default. `plugin.test.ts` starts a real
-Vite dev server and drives `/__mael/monkeypatch`, the HMR event and Send against a fake orchestrator.
+Vite dev server and drives `/__mael/drafts/<name>`, the HMR event and Send against a fake orchestrator.
 `overlay.test.ts` opts into jsdom, which cascades the declared values of a `<style>` rule into
-`getComputedStyle` without layout.
+`getComputedStyle` without layout. jsdom does not resolve `var()`, so a control test reads the
+variable from `:root`, not the property that the wiring sets.
 
 A view that scrolls sideways is not tested either, because jsdom lays nothing out. It is checked
 in a browser on the `long-text` fake scenario at 390px wide: Tasks, Comms, Changes, the node
