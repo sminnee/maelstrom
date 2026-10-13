@@ -72,7 +72,7 @@ class TestARefusedCommandWritesNothing:
         draft.write_text("# A draft\n")
         before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
 
-        assert main(["task", "promote", str(draft)]) == 1
+        assert main(["task", "promote", "--project", "p", str(draft)]) == 1
 
         after = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
         assert after == before

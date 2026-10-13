@@ -1041,11 +1041,11 @@ def task_draft(
 
 
 @task.command("promote")
-@click.argument("file")
+@click.argument("files", nargs=-1, required=True)
 @click.option("-p", "--project", default=None, help="Project name (default: from cwd).")
 @block_task_options(distinguish_unset=True)
 async def task_promote(
-    file: str,
+    files: tuple[str, ...],
     project: str | None,
     command: str | None,
     mode: str | None,
@@ -1060,38 +1060,40 @@ async def task_promote(
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
 ) -> None:
-    """Create a task from a draft file, then delete the file.
+    """Create one task per draft file, chained in order, then delete the files.
 
-    The draft's recipe fields seed the task; any flag given here overrides the
-    file's value (same semantics as ``add --from``). --follow/--follow-end wire
-    the chain at this moment, when the ids they reference exist. Prints the new
-    task's id. A draft that fails to parse is left untouched with no task
-    created; the file is deleted only after the task exists in the store.
+    The draft's recipe fields seed each task; any flag given here overrides
+    every file's value (same semantics as ``add --from``). Each task follows
+    the one before it. With no --follow/--follow-end, the set splices in after
+    ``$MAEL_TASK_ID``: the first task follows it, and the tasks that followed
+    it now follow the last new task. --follow/--follow-end wire the first task
+    instead and move nothing. Prints the new ids, one per line. A draft that
+    fails to parse leaves every file untouched with no task created.
     """
-    path = Path(file)
-    # The parent decides which chain a `--follow-end '*'` appends to, so the
-    # draft is read before the follows are resolved, and handed to the promote
-    # rather than read again. The draft's own parent is the fallback, and an
-    # unset flag defaults as `add` does.
-    try:
-        draft = task_model.read_draft(path)
-    except FileNotFoundError:
-        raise click.ClickException(f"Draft file not found: {file}")
-    except ValueError as e:
-        raise click.ClickException(f"{file}: {e}")
+    paths = [Path(file) for file in files]
     proj = resolve_project(project)
     table = await _table()
-    effective_parent = _default_parent(parent if parent is not None else draft.parent)
-    resolved = list(follows)
-    for end_id in follow_ends:
-        resolved.extend(
-            await task_model._resolve_follow_end(table, proj, end_id, effective_parent)
-        )
+    wired: list[str] | None = None
+    if follows or follow_ends:
+        # The first draft's parent decides which chain a `--follow-end '*'`
+        # appends to, so it is read before the follows are resolved.
+        try:
+            first = task_model.read_draft(paths[0])
+        except (OSError, ValueError) as e:
+            raise click.ClickException(f"{paths[0].name}: {e}")
+        first_parent = _default_parent(parent or first.parent)
+        wired = list(follows)
+        for end_id in follow_ends:
+            wired.extend(
+                await task_model._resolve_follow_end(table, proj, end_id, first_parent)
+            )
+        wired = list(dict.fromkeys(wired))
     try:
-        created = await task_model.promote_draft(
+        created = await task_model.promote_chain(
             table,
             project=proj,
-            path=path,
+            paths=paths,
+            parent=_default_parent(""),
             overrides={
                 "command": command,
                 "mode": mode,
@@ -1100,18 +1102,17 @@ async def task_promote(
                 "base": base,
                 "priority": priority,
                 "branch": branch,
-                "parent": effective_parent,
+                "parent": parent,
                 "pre_action": pre_action,
                 "post_action": post_action,
             },
-            follows=list(dict.fromkeys(resolved)),
-            draft=draft,
+            follows=wired,
+            after=os.environ.get("MAEL_TASK_ID") or None,
         )
-    # The draft already parsed, so what reaches here is a flag the notebook
-    # refuses — not the file's fault, and not to be blamed on it.
     except ValueError as e:
         raise click.ClickException(str(e))
-    click.echo(created.id)
+    for task in created:
+        click.echo(task.id)
 
 
 @task.command("load-many")
