@@ -61,6 +61,20 @@ milestone in a message wins.
 
 Maelstrom writes `planned` itself when the user approves a plan. Do not write it.
 
+## Session compaction
+
+Use `<compact-session min-tokens="200k">` to ask Maelstrom to compact your session. Write it as
+the last part of a message at a break point in the work, then end your turn.
+
+Maelstrom reads your context size when the turn ends. Below `min-tokens`, it does not compact.
+Without `min-tokens`, it always compacts. Either way, it sends you a message that says what
+happened. Continue the work when that message comes.
+
+- `200k` is the usual threshold. `1.5m` and `200000` also work.
+- A body focuses the summary:
+  `<compact-session min-tokens="200k">Keep the PR number</compact-session>`.
+- The latest marker in a message wins.
+
 ## PR links
 
 Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so the task card shows

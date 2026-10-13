@@ -15,6 +15,8 @@ Work one vertical slice at a time:
 4. Make the smallest production change that turns it green.
 5. Repeat.
 
+When the system prompt teaches `<compact-session>`, write `<compact-session min-tokens="200k">` and end your turn after a group of slices that closes a build phase. Do not write it after each slice.
+
 Write `<milestone>built</milestone>` when the last slice is written and the project's
 gates pass.
 
