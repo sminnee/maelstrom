@@ -49,6 +49,14 @@ button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
 .picked button { padding: 0 6px; }
 .outline { position: fixed; pointer-events: none; box-sizing: border-box;
   border: 2px solid #3d5afe; background: rgb(61 90 254 / 0.12); }
+[hidden] { display: none !important; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid #4a4a55; }
+.tabs button { border: none; border-radius: 6px 6px 0 0; background: none; color: #a0a0aa; }
+.tabs button[aria-selected='true'] { background: #2b2b33; color: inherit; }
+[role='tabpanel'] { display: flex; flex-direction: column; gap: 6px; }
+.empty { color: #a0a0aa; }
+.scope { display: flex; gap: 10px; border: none; margin: 0; padding: 0; }
+.scope label { display: flex; gap: 4px; align-items: center; }
 `;
 
 const PANEL = `
@@ -56,16 +64,28 @@ const PANEL = `
 <button class="pill" data-toggle>Jig</button>
 <div class="outline" hidden></div>
 <div class="panel" hidden>
-  <div class="row"><strong>Jig</strong>
+  <div class="row"><strong data-title>Jig</strong>
     <span><button data-pick aria-pressed="false">Pick</button>
       <button data-hide>Hide jig</button> <button data-close>Close</button></span></div>
-  <textarea spellcheck="false" aria-label="Monkeypatch" placeholder="Monkeypatch CSS"></textarea>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="Controls" aria-selected="false">Controls</button>
+    <button role="tab" data-tab="Monkeypatch" aria-selected="true">Monkeypatch</button></div>
+  <div role="tabpanel" aria-label="Controls" hidden>
+    <div class="controls"></div>
+    <p class="empty">No control set. Pick an element, then press Ask for controls.</p></div>
+  <div role="tabpanel" aria-label="Monkeypatch">
+    <textarea spellcheck="false" aria-label="Monkeypatch" placeholder="Monkeypatch CSS"></textarea>
+    <div class="row"><span></span><button data-send-monkeypatch>Send monkeypatch</button></div></div>
   <div class="picked" hidden><code></code>
     <button data-clear-pick aria-label="Clear the picked element">×</button></div>
+  <fieldset class="scope" hidden>
+    <label><input type="radio" name="scope" value="element" checked> This element</label>
+    <label><input type="radio" name="scope" value="similar"> Elements like this</label>
+    <label><input type="radio" name="scope" value="area"> This area</label></fieldset>
   <textarea data-message aria-label="Message to the agent"
     placeholder="Message to the agent"></textarea>
   <div class="row"><span class="status" role="status"></span>
-    <span><button data-send-monkeypatch>Send monkeypatch</button>
+    <span><button data-ask-controls hidden>Ask for controls</button>
       <button data-send-message>Send message</button></span></div>
 </div>
 `;
@@ -271,6 +291,17 @@ export async function mountJig({
   const pickButton = $<HTMLButtonElement>('[data-pick]');
   const outline = $<HTMLDivElement>('.outline');
   const pickedRow = $<HTMLDivElement>('.picked');
+  const scopes = $<HTMLFieldSetElement>('.scope');
+  const askControls = $<HTMLButtonElement>('[data-ask-controls]');
+
+  const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  const selectTab = (name: string) => {
+    for (const tab of tabs) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+    for (const pane of root.querySelectorAll<HTMLElement>('[role="tabpanel"]')) {
+      pane.hidden = pane.getAttribute('aria-label') !== name;
+    }
+  };
+  for (const tab of tabs) tab.addEventListener('click', () => selectTab(tab.dataset.tab!));
 
   const show = (open: boolean) => {
     if (!open) endPick();
@@ -341,7 +372,7 @@ export async function mountJig({
   let picked: Picked | undefined;
   const showPicked = (element: Element | undefined) => {
     picked = element && describeElement(element);
-    pickedRow.hidden = !picked;
+    pickedRow.hidden = scopes.hidden = askControls.hidden = !picked;
     if (element && picked) {
       const code = pickedRow.querySelector('code')!;
       code.textContent = `${label(element)}${picked.text ? ` "${picked.text}"` : ''}`;
@@ -408,6 +439,7 @@ export async function mountJig({
   const settle = () => {
     sendMonkeypatch.disabled = sending;
     sendMessage.disabled = sending || !message.value.trim();
+    askControls.disabled = sending;
   };
   message.addEventListener('input', settle);
   settle();
@@ -449,6 +481,10 @@ export async function mountJig({
   sendMessage.addEventListener('click', () =>
     send({ type: 'instruction', text: message.value, ...(picked && { element: picked }) }),
   );
+  askControls.addEventListener('click', () => {
+    const scope = scopes.querySelector<HTMLInputElement>('input:checked')!.value;
+    void send({ type: 'pick', scope, element: picked, note: message.value });
+  });
 
   // Read-only until the file loads, or the load would replace what the user typed.
   textarea.readOnly = true;
