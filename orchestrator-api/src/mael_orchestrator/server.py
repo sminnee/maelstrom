@@ -2563,25 +2563,26 @@ class Orchestrator:
             paths.append(found)
         try:
             created = await self._run(
-                self.tasks.promote, project, paths, self._chain_parent(document)
+                self.tasks.promote, project, paths, *self._planning_task(document)
             )
         except ValueError as exc:
             return [], _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
         return created, None
 
-    def _chain_parent(self, document: Document) -> str:
-        """The parent the promoted tasks join, as ``$MAEL_TASK_PARENT`` decides it.
+    def _planning_task(self, document: Document) -> tuple[str, str | None]:
+        """The parent the set joins and the task it splices after.
 
-        A planning session chains what it creates under its own parent, or
-        under itself when it has none, so the whole chain shares one branch and
-        one PR. The document names the planning task, so the server reads the
-        same answer off the world.
+        The server's reading of ``$MAEL_TASK_PARENT`` and ``$MAEL_TASK_ID``. A
+        planning session chains what it creates under its own parent, or under
+        itself when it has none, so the whole chain shares one branch and one
+        PR. The set splices in after the planning task. A free agent has no
+        task, so its set joins no parent and follows nothing.
         """
         task = self.world["tasks"].get(document["taskId"])
         if task is None:
-            return ""
-        return task["parent"] or task["notebookId"]
+            return "", None
+        return task["parent"] or task["notebookId"], task["notebookId"]
 
     async def _request_changes(self, command: dict[str, Any]) -> dict[str, Any]:
         """Send the review group back, and relay the summary to the agent once.

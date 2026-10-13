@@ -5224,6 +5224,41 @@ def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
     assert [t.parent for t in created] == ["linear.NORT-9"]
 
 
+def test_a_mid_chain_planner_s_set_splices_in_after_it(notebook_harness):
+    """A -> P -> C, approved from P, becomes A -> P -> N1 -> N2 -> C."""
+    harness = notebook_harness
+    harness.add_task("NORT-1", title="A")
+    harness.add_task("NORT-2", title="P", follows=["NORT-1"])
+    harness.add_task("NORT-3", title="C", follows=["NORT-2"])
+    harness.daemon.rows["ag1"] = agent_row(
+        cwd=str(harness.worktree), session=model.session_id_for(PROJECT, "NORT-2")
+    )
+    write_draft(harness, "draft-one.md", "N1")
+    write_draft(harness, "draft-two.md", "N2")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await until(api, "/api/agents", lambda b: b["agents"][0]["taskId"])
+                _, reply = await approve_tasks(
+                    api, stream, harness, "draft-one.md", "draft-two.md"
+                )
+                return reply
+
+    reply = run(scenario())
+    assert reply.status == 200, reply.body
+    tasks = run(model.list_tasks(harness.store, project=PROJECT))
+    title = {t.id: t.title for t in tasks}
+    assert {t.title: [title[f] for f in t.follows] for t in tasks} == {
+        "A": [],
+        "P": ["A"],
+        "N1": ["P"],
+        "N2": ["N1"],
+        "C": ["N2"],
+    }
+
+
 def test_a_draft_that_names_its_own_parent_keeps_it(notebook_harness):
     """A planning session that named a parent meant it, as through the CLI."""
     harness = notebook_harness

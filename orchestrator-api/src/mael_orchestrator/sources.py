@@ -386,10 +386,13 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
+    async def promote(
+        self, project: str, paths: list[Path], parent: str, after: str | None
+    ) -> list[str]:
         """Create one task per draft file, chained in the order given.
 
-        The whole set is one notebook write: a draft that will not parse
+        The set splices in after ``after``, the planning task's notebook id,
+        or follows nothing when it is ``None``. The whole set is one notebook write: a draft that will not parse
         leaves nothing created and no file consumed. Returns the wire ids, in
         the order the drafts were listed.
 
@@ -792,48 +795,18 @@ class NotebookTaskSource:
         )
         return task_key(project, task.id)
 
-    async def promote(self, project: str, paths: list[Path], parent: str) -> list[str]:
-        """Promote every draft in one transaction, wiring the chain as it goes.
+    async def promote(
+        self, project: str, paths: list[Path], parent: str, after: str | None
+    ) -> list[str]:
+        """Promote every draft as one chain, spliced in after ``after``.
 
-        The first task follows the end of its parent's child-chain, exactly as
-        ``mael task promote --follow-end '*'`` wires it; each later one follows
-        the task before it. See ``docs/dev/orchestrator-server.md``,
-        "Approving a task set".
+        The same step as ``mael task promote`` with no follow flag. See
+        ``docs/dev/orchestrator-server.md``, "Approving a task set".
         """
-        created: list[str] = []
-        async with self.table.transact():
-            for path in paths:
-                follows = (
-                    [created[-1]]
-                    if created
-                    else await model._resolve_follow_end(
-                        self.table, project, "*", parent
-                    )
-                )
-                try:
-                    # The draft's own parent wins, as it does through the
-                    # CLI: a planning session that named one meant it.
-                    draft = model.read_draft(path)
-                    # The files are consumed after the block, not here: a
-                    # rollback puts the rows back but cannot put a deleted
-                    # draft back, and a half-deleted set leaves the user with
-                    # no plan to fix.
-                    task = await model.promote_draft(
-                        self.table,
-                        project=project,
-                        path=path,
-                        overrides={"parent": draft.parent or parent},
-                        draft=draft,
-                        follows=follows,
-                        consume=False,
-                    )
-                except (OSError, ValueError) as exc:
-                    raise ValueError(f"{path.name}: {exc}") from exc
-                created.append(task.id)
-        # Committed: every draft is now a row, so the files can go.
-        for path in paths:
-            model.consume_draft(path)
-        return [task_key(project, task_id) for task_id in created]
+        created = await model.promote_chain(
+            self.table, project=project, paths=paths, parent=parent, after=after
+        )
+        return [task_key(project, task.id) for task in created]
 
     async def _move(
         self,
