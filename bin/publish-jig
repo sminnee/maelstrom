@@ -96,12 +96,16 @@ def require_clean_worktree() -> None:
 
 
 def publish() -> None:
-    """Publish with NPM_TOKEN, through a throwaway npmrc, so the user's own login is not used."""
+    """Stage the release with NPM_TOKEN, through a throwaway npmrc, so the user's own login is not used.
+
+    The token is stage-only: the version goes live after `npm stage approve`, which asks for 2FA.
+    """
+
     with tempfile.NamedTemporaryFile("w", suffix=".npmrc") as npmrc:
         npmrc.write("//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n")
         npmrc.flush()
         env = {**os.environ, "npm_config_userconfig": npmrc.name}
-        subprocess.run(("pnpm", "--dir", str(PACKAGE), "publish", "--access", "public"), check=True, env=env)
+        subprocess.run(("npm", "stage", "publish", "--access", "public"), check=True, env=env, cwd=PACKAGE)
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Publish {NAME} to npm")
