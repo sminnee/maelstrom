@@ -84,6 +84,7 @@ const PANEL = `
     <button role="tab" data-tab="Monkeypatch" aria-selected="true">Monkeypatch</button></div>
   <div role="tabpanel" aria-label="Controls" hidden>
     <div class="controls"></div>
+    <div class="row" data-controls-send><span></span><button data-send-controls>Send controls</button></div>
     <p class="empty">No control set. Pick an element, then press Ask for controls.</p></div>
   <div role="tabpanel" aria-label="Monkeypatch">
     <textarea spellcheck="false" aria-label="Monkeypatch" placeholder="Monkeypatch CSS"></textarea>
@@ -380,7 +381,7 @@ export async function mountJig({
 
   const style = document.createElement('style');
   style.dataset.maelJig = '';
-  // The controls go after the Monkeypatch: the `:root` rule sets what the wiring reads.
+  // The controls go last, so their `:root` rule beats the app's own value for a token.
   const controlsStyle = document.createElement('style');
   controlsStyle.dataset.maelJig = 'controls';
   const keepLast = () => {
@@ -412,6 +413,7 @@ export async function mountJig({
   const pickedRow = $<HTMLDivElement>('.picked');
   const scopes = $<HTMLFieldSetElement>('.scope');
   const askControls = $<HTMLButtonElement>('[data-ask-controls]');
+  const sendControls = $<HTMLButtonElement>('[data-send-controls]');
 
   const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
   const selectTab = (name: string) => {
@@ -522,6 +524,20 @@ export async function mountJig({
     });
     controlsStyle.textContent = declarations.length ? `:root {\n${declarations.join('\n')}\n}` : '';
   };
+  const changes = () =>
+    (controlSet?.controls ?? []).flatMap((control) => {
+      const to = values[control.var];
+      const start = starts[control.var];
+      if (to === undefined || to === start) return [];
+      return [
+        {
+          var: control.var,
+          label: control.label ?? control.var,
+          ...(start && { from: start }),
+          to,
+        },
+      ];
+    });
   const current = (control: Control) => values[control.var] ?? starts[control.var] ?? '';
   const rootValue = (name: string) =>
     getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -576,7 +592,7 @@ export async function mountJig({
       }
       input.addEventListener('input', () => setValue(control, `${input.value}${unit}`, input));
       sync = (except) => {
-        // A `from` such as `var(--space-2)` has no number: the page has resolved it.
+        // A `from` such as `var(--space-2)` has no number, so fall back to the page's computed value.
         const number = [current(control), rootValue(control.var)]
           .map(parseFloat)
           .find(Number.isFinite);
@@ -619,6 +635,7 @@ export async function mountJig({
     controlSet = typeof parsed === 'string' ? null : parsed;
     title.textContent = controlSet?.title ?? 'Jig';
     controlsNote.hidden = !!controlSet;
+    $<HTMLDivElement>('[data-controls-send]').hidden = !controlSet;
     controlsNote.textContent =
       typeof parsed === 'string'
         ? `The control set is not valid: ${parsed}.`
@@ -651,6 +668,7 @@ export async function mountJig({
         values = parseValues(text);
         applyControls();
         for (const sync of syncs) sync();
+        settle();
       }
     }
     markMatches();
@@ -727,6 +745,7 @@ export async function mountJig({
     sendMonkeypatch.disabled = sending;
     sendMessage.disabled = sending || !message.value.trim();
     askControls.disabled = sending;
+    sendControls.disabled = sending || !changes().length;
   };
   message.addEventListener('input', settle);
   settle();
@@ -767,6 +786,15 @@ export async function mountJig({
   );
   sendMessage.addEventListener('click', () =>
     send({ type: 'instruction', text: message.value, ...(picked && { element: picked }) }),
+  );
+  sendControls.addEventListener('click', () =>
+    send({
+      type: 'controls',
+      title: controlSet?.title ?? 'Jig',
+      changes: changes(),
+      css: textarea.value,
+      note: message.value,
+    }),
   );
   askControls.addEventListener('click', () => {
     const scope = scopes.querySelector<HTMLInputElement>('input:checked')!.value;

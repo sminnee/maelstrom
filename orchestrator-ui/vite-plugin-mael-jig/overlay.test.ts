@@ -73,6 +73,7 @@ function jig() {
     scopes: root.querySelector('.scope') as HTMLElement,
     scope: (label: string) => radio(root, label),
     askControls: button(root, 'Ask for controls'),
+    sendControls: button(root, 'Send controls'),
   };
 }
 
@@ -245,6 +246,17 @@ describe('the jig overlay', () => {
     expect(jig().pane('Controls').hidden).toBe(false);
     expect(jig().pane('Monkeypatch').hidden).toBe(true);
     expect(jig().pane('Controls').textContent).toContain('No control set');
+  });
+
+  it('switches to the Controls tab when the agent writes a set', () => {
+    emit('mael-jig:draft', {
+      name: 'jig-controls.json',
+      text: JSON.stringify({ controls: [{ var: '--jig-gap', kind: 'text', from: '2px' }] }),
+      from: null,
+    });
+
+    expect(jig().tab('Controls').getAttribute('aria-selected')).toBe('true');
+    expect(jig().pane('Controls').hidden).toBe(false);
   });
 
   describe('send monkeypatch', () => {
@@ -797,6 +809,41 @@ describe('a control set', () => {
     expect(controlRow('--jig-align').row.textContent).not.toContain('no match');
   });
 
+  it('matches wiring on a pseudo-class or pseudo-element by the element alone', () => {
+    emit('mael-jig:draft', {
+      name: 'monkeypatch.css',
+      text: `${WIRING}\ndiv.chip:hover::before { gap: var(--jig-align); }`,
+      from: null,
+    });
+
+    expect(controlRow('--jig-align').row.textContent).not.toContain('no match');
+  });
+
+  it('takes its overrides off the page when the agent deletes the set', () => {
+    setControl(controlRow('--jig-chip-pad').input, '10');
+
+    emit('mael-jig:draft', { name: 'jig-controls.json', text: '', from: null });
+
+    expect(rootVar('--jig-chip-pad')).toBe('');
+    expect(jig().pane('Controls').querySelector('.control')).toBeNull();
+    expect(jig().pane('Controls').textContent).toContain('No control set');
+  });
+
+  it('sends a change with no start without a from', async () => {
+    sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+    emit('mael-jig:draft', {
+      name: 'jig-controls.json',
+      text: JSON.stringify({ controls: [{ var: '--jig-new', kind: 'text' }] }),
+      from: null,
+    });
+    setControl(controlRow('--jig-new').input, '6px');
+
+    jig().sendControls.click();
+
+    await until(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].changes).toEqual([{ var: '--jig-new', label: '--jig-new', to: '6px' }]);
+  });
+
   it('redraws when the agent writes a new set', () => {
     emit('mael-jig:draft', {
       name: 'jig-controls.json',
@@ -810,8 +857,45 @@ describe('a control set', () => {
     expect(rootVar('--jig-gap')).toBe('2px');
   });
 
+  it('keeps Send controls off until a value differs from its start', () => {
+    const send = jig().sendControls;
+    expect(send.disabled).toBe(true);
+
+    setControl(controlRow('--jig-chip-pad').input, '4');
+    expect(send.disabled).toBe(true);
+
+    setControl(controlRow('--jig-chip-pad').input, '10');
+    expect(send.disabled).toBe(false);
+  });
+
+  it('sends each changed value from its start, with the wiring and the note', async () => {
+    sendReply = Response.json({ agentIds: ['ag1'], refused: [] });
+    setControl(controlRow('--jig-chip-pad').input, '10');
+    setControl(controlRow('--accent').text, '#ff0000');
+    write('keep it tight');
+
+    jig().sendControls.click();
+
+    await until(() => expect(jig().status.textContent).toBe('Sent to 1 agent'));
+    expect(posts()).toEqual([
+      {
+        type: 'controls',
+        title: 'Chip spacing',
+        changes: [
+          { var: '--jig-chip-pad', label: 'Chip padding', from: '4px', to: '10px' },
+          { var: '--accent', label: '--accent', from: '#3366ff', to: '#ff0000' },
+        ],
+        css: WIRING,
+        note: 'keep it tight',
+      },
+    ]);
+    expect(jig().message.value).toBe('');
+  });
+
   it.each([
     ['{', 'the file is not JSON'],
+    ['[]', 'the file has no controls list'],
+    ['{"controls": [{"var": "chip-pad", "kind": "text"}]}', 'control 1 has no var'],
     ['{"controls": [{"kind": "range"}]}', 'control 1 has no var'],
     ['{"controls": [{"var": "--a", "kind": "dial"}]}', 'control 1 has an unknown kind'],
     [
