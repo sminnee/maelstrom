@@ -535,17 +535,11 @@ class TestParseOpenPrs:
         return node
 
     @staticmethod
-    def _payload(*per_branch):
-        """One aliased connection per branch, in the order they were asked."""
-        return json.dumps(
-            {
-                "data": {
-                    "repository": {
-                        f"b{i}": {"nodes": nodes} for i, nodes in enumerate(per_branch)
-                    }
-                }
-            }
-        )
+    def _payload(*per_branch, **repo):
+        """One aliased connection per branch, in the order they were asked.
+        ``repo`` adds repository-level fields."""
+        connections = {f"b{i}": {"nodes": nodes} for i, nodes in enumerate(per_branch)}
+        return json.dumps({"data": {"repository": {**connections, **repo}}})
 
     def _one(self, **over):
         """The `PrStatus` for a single branch carrying a single PR."""
@@ -629,6 +623,19 @@ class TestParseOpenPrs:
         """`state` names the red build, so the conflict needs its own flag."""
         pr = self._one(mergeable="CONFLICTING", rollup={"state": "FAILURE"})
         assert (pr.state, pr.conflicting) == ("ci-failed", True)
+
+    def test_a_pr_with_an_auto_merge_request_says_so(self):
+        request = {"enabledAt": "2026-10-13T09:00:00Z"}
+        assert self._one(autoMergeRequest=request).auto_merge is True
+        assert self._one(autoMergeRequest=None).auto_merge is False
+
+    def test_each_pr_carries_whether_the_repo_allows_auto_merge(self):
+        """GitHub answers this per repository; each PR carries it so the UI can
+        hide a toggle that would only be refused."""
+        for allowed in (True, False):
+            payload = self._payload([self._node()], autoMergeAllowed=allowed)
+            pr = parse_open_prs(payload, {"b0": "feat/a"})["feat/a"]
+            assert pr.auto_merge_allowed is allowed
 
     def test_a_mergeable_pr_does_not_conflict(self):
         assert self._one().conflicting is False

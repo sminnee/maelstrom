@@ -778,6 +778,16 @@ class TestGetOpenPrs:
         for field in ("url", "isDraft", "state", "mergeable", "statusCheckRollup"):
             assert field in query
 
+    async def test_the_query_asks_for_auto_merge_on_the_pr_and_the_repo(self):
+        """Without these the switch never draws, and nothing says why."""
+        with patch(
+            "mael_domain.github.run_cmd_async", return_value=_ok(_graphql_page({}))
+        ) as run:
+            await get_open_prs(Path("."), {"feat/a"})
+        query = _query_of(run.call_args)
+        assert "autoMergeRequest" in query
+        assert "autoMergeAllowed" in query
+
     def test_the_query_and_its_aliases_are_one_value(self):
         """The alias is how an answer finds its branch. Handing the caller the
         document and the mapping together is what stops the two enumerations

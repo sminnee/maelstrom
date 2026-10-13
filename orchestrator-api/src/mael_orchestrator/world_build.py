@@ -232,6 +232,8 @@ def worktree_entity(
         "prMergedAt": row.get("pr_merged_at") or "",
         "prMatch": _pr_match(row),
         "prStale": bool(row.get("pr_stale")),
+        "prAutoMerge": bool(row.get("pr_auto_merge")),
+        "prAutoMergeAllowed": bool(row.get("pr_auto_merge_allowed")),
         "appUrl": row.get("app_url") or "",
         "appRunning": bool(row.get("app_running")),
         "env": row.get("env") or {"state": "stopped", "services": []},

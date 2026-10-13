@@ -111,6 +111,10 @@ class Worktree(TypedDict):
     #: **Stale PR state**: the last PR read failed, timed out or stood off,
     #: so the ``pr*`` fields are the last known state, not the current one.
     prStale: bool
+    #: **Auto-merge** is on: GitHub merges the PR when it is ``ready``.
+    prAutoMerge: bool
+    #: The repository lets a PR turn **Auto-merge** on.
+    prAutoMergeAllowed: bool
     #: The worktree's first web-facing port as a URL, or ``""`` with none.
     appUrl: str
     #: Whether something listens on ``appUrl``'s port. A port probe, not the
