@@ -57,6 +57,18 @@ button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
 .empty { color: #a0a0aa; }
 .scope { display: flex; gap: 10px; border: none; margin: 0; padding: 0; }
 .scope label { display: flex; gap: 4px; align-items: center; }
+.controls { display: flex; flex-direction: column; gap: 4px; }
+.control { display: grid; grid-template-columns: 110px 1fr 64px auto; gap: 6px;
+  align-items: center; }
+.control > label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.control > span { display: flex; gap: 4px; min-width: 0; }
+.control input, .control select { min-width: 0; flex: 1; }
+.control input[type='color'] { flex: none; width: 28px; padding: 0; }
+.control output { color: #a0a0aa; overflow: hidden; text-overflow: ellipsis; }
+.control button { padding: 0 6px; }
+.control.muted { opacity: 0.5; }
+.control small { grid-column: 1 / -1; color: #a0a0aa; }
+.control small:empty { display: none; }
 `;
 
 const PANEL = `
@@ -234,6 +246,107 @@ function describeElement(element: Element): Picked {
   return picked;
 }
 
+const KINDS = ['range', 'number', 'color', 'select', 'text'] as const;
+
+/** One CSS variable the user sets in the jig. */
+interface Control {
+  var: string;
+  kind: (typeof KINDS)[number];
+  label?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  options?: string[];
+  /** The source expression the variable starts at. */
+  from?: string;
+}
+
+/** The controls an agent wrote to `.drafts/jig-controls.json`. */
+interface ControlSet {
+  title?: string;
+  controls: Control[];
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The control set in `text`, `null` for an empty file, or the fault that makes it invalid. */
+function parseControls(text: string): ControlSet | string | null {
+  if (!text.trim()) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return 'the file is not JSON';
+  }
+  if (!isObject(data) || !Array.isArray(data.controls)) return 'the file has no controls list';
+  const seen = new Set<string>();
+  for (const [index, control] of data.controls.entries()) {
+    const n = index + 1;
+    if (!isObject(control) || typeof control.var !== 'string' || !control.var.startsWith('--')) {
+      return `control ${n} has no var`;
+    }
+    if (!KINDS.includes(control.kind as Control['kind'])) return `control ${n} has an unknown kind`;
+    if (seen.has(control.var)) return `control ${n} repeats ${control.var}`;
+    seen.add(control.var);
+    const { options } = control;
+    if (control.kind === 'select' && !(Array.isArray(options) && options.length)) {
+      return `control ${n} has no options`;
+    }
+  }
+  return data as unknown as ControlSet;
+}
+
+/** The values in `text`, by var: anything that is not a string value is left out. */
+function parseValues(text: string): Record<string, string> {
+  try {
+    const data: unknown = JSON.parse(text);
+    if (!isObject(data)) return {};
+    return Object.fromEntries(
+      Object.entries(data).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+// A pseudo-class or pseudo-element: `:hover`, `::before`, `:nth-of-type(2)`. Each
+// one is dropped before the match, so a match errs towards "it matches".
+const PSEUDO = /::?[\w-]+(?:\([^)]*\))?/g;
+
+/** Whether a style rule that reads `name` matches an element, or `undefined` for no rule. */
+function wiringMatches(name: string, skip: CSSStyleSheet | null): boolean | undefined {
+  const reads = new RegExp(`var\\(\\s*${name.replace(/[^\w-]/g, '\\$&')}\\s*[,)]`);
+  const selectors: string[] = [];
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of rules) {
+      if (rule instanceof CSSStyleRule && reads.test(rule.style.cssText)) {
+        selectors.push(rule.selectorText);
+      }
+      if ('cssRules' in rule) walk((rule as CSSGroupingRule).cssRules);
+    }
+  };
+  for (const sheet of document.styleSheets) {
+    if (sheet === skip) continue;
+    try {
+      walk(sheet.cssRules);
+    } catch {
+      // A cross-origin sheet does not let the page read its rules.
+    }
+  }
+  if (!selectors.length) return undefined;
+  return selectors.some((selector) => {
+    try {
+      return !!document.querySelector(selector.replace(PSEUDO, '') || '*');
+    } catch {
+      return true;
+    }
+  });
+}
+
 /**
  * The viewport as the user sees it, without the jig, as a JPEG data URL. At
  * scale 1 and quality 0.8 it stays well under the agent host's 5 MB cap.
@@ -267,8 +380,14 @@ export async function mountJig({
 
   const style = document.createElement('style');
   style.dataset.maelJig = '';
+  // The controls go after the Monkeypatch: the `:root` rule sets what the wiring reads.
+  const controlsStyle = document.createElement('style');
+  controlsStyle.dataset.maelJig = 'controls';
   const keepLast = () => {
-    if (document.head.lastElementChild !== style) document.head.append(style);
+    const head = document.head;
+    if (head.lastElementChild !== controlsStyle || controlsStyle.previousElementSibling !== style) {
+      head.append(style, controlsStyle);
+    }
   };
   // Vite appends a module's `<style>` when it loads or hot-updates, which would
   // put the app's rule after this one and win a tie of specificity.
@@ -323,6 +442,7 @@ export async function mountJig({
       endPick();
       observer.disconnect();
       style.remove();
+      controlsStyle.remove();
       host.remove();
     }
   };
@@ -347,26 +467,193 @@ export async function mountJig({
     style.textContent = css;
   };
 
-  let pending: ReturnType<typeof setTimeout> | undefined;
-  const write = () => {
-    clearTimeout(pending);
-    pending = undefined;
-    return fetch('/__mael/drafts/monkeypatch.css', {
-      method: 'PUT',
-      headers: { 'x-mael-jig-client': client },
-      body: textarea.value,
-    });
+  /** A debounced write of one draft file, with the text `text` gives when it runs. */
+  const writer = (name: string, text: () => string) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      return fetch(`/__mael/drafts/${name}`, {
+        method: 'PUT',
+        headers: { 'x-mael-jig-client': client },
+        body: text(),
+      });
+    };
+    return {
+      flush,
+      schedule: () => {
+        clearTimeout(timer);
+        timer = setTimeout(flush, debounceMs);
+      },
+      cancel: () => clearTimeout(timer),
+      pending: () => timer !== undefined,
+    };
   };
+
+  const monkeypatch = writer('monkeypatch.css', () => textarea.value);
   textarea.addEventListener('input', () => {
     apply(textarea.value);
-    clearTimeout(pending);
-    pending = setTimeout(write, debounceMs);
+    monkeypatch.schedule();
   });
 
+  const controlsPane = $<HTMLDivElement>('.controls');
+  const controlsNote = $<HTMLParagraphElement>('.empty');
+  const title = $<HTMLElement>('[data-title]');
+  let controlSet: ControlSet | null = null;
+  /** The value the user set on each control, by var. */
+  let values: Record<string, string> = {};
+  /** Where each control starts: its `from`, or the value the page gave it at load. */
+  let starts: Record<string, string> = {};
+  /** Redraws each row's inputs and value, but the input the user is typing in. */
+  const syncs: ((except?: Element) => void)[] = [];
+
+  const known = () =>
+    Object.fromEntries(
+      (controlSet?.controls ?? [])
+        .filter((control) => control.var in values)
+        .map((control) => [control.var, values[control.var]!]),
+    );
+  const valuesFile = writer('jig-values.json', () => JSON.stringify(known(), null, 2));
+
+  const applyControls = () => {
+    const declarations = (controlSet?.controls ?? []).flatMap((control) => {
+      const value = values[control.var] ?? control.from;
+      return value ? [`  ${control.var}: ${value};`] : [];
+    });
+    controlsStyle.textContent = declarations.length ? `:root {\n${declarations.join('\n')}\n}` : '';
+  };
+  const current = (control: Control) => values[control.var] ?? starts[control.var] ?? '';
+  const rootValue = (name: string) =>
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const markMatches = () => {
+    for (const row of controlsPane.querySelectorAll<HTMLElement>('.control')) {
+      const muted = wiringMatches(row.dataset.var!, controlsStyle.sheet) === false;
+      row.classList.toggle('muted', muted);
+      row.querySelector('small')!.textContent = muted ? 'no match on this page' : '';
+    }
+  };
+
+  const setValue = (control: Control, value: string | undefined, source?: Element) => {
+    if (value === undefined) delete values[control.var];
+    else values[control.var] = value;
+    applyControls();
+    for (const sync of syncs) sync(source);
+    valuesFile.schedule();
+    settle();
+  };
+
+  const drawControl = (control: Control) => {
+    const name = control.label ?? control.var;
+    const row = document.createElement('div');
+    row.className = 'control';
+    row.dataset.var = control.var;
+    const label = document.createElement('label');
+    label.textContent = name;
+    label.title = control.var;
+    const inputs = document.createElement('span');
+    const output = document.createElement('output');
+    const reset = document.createElement('button');
+    reset.textContent = '×';
+    reset.setAttribute('aria-label', `Reset ${name}`);
+    reset.addEventListener('click', () => setValue(control, undefined));
+    const note = document.createElement('small');
+    row.append(label, inputs, output, reset, note);
+
+    const unit = control.unit ?? '';
+    const make = (tag: 'input' | 'select', type?: string) => {
+      const input = document.createElement(tag);
+      if (input instanceof HTMLInputElement && type) input.type = type;
+      input.setAttribute('aria-label', name);
+      inputs.append(input);
+      return input;
+    };
+    let sync: (except?: Element) => void;
+    if (control.kind === 'range' || control.kind === 'number') {
+      const input = make('input', control.kind) as HTMLInputElement;
+      for (const key of ['min', 'max', 'step'] as const) {
+        if (control[key] !== undefined) input[key] = String(control[key]);
+      }
+      input.addEventListener('input', () => setValue(control, `${input.value}${unit}`, input));
+      sync = (except) => {
+        // A `from` such as `var(--space-2)` has no number: the page has resolved it.
+        const number = [current(control), rootValue(control.var)]
+          .map(parseFloat)
+          .find(Number.isFinite);
+        if (except !== input && number !== undefined) input.value = String(number);
+      };
+    } else if (control.kind === 'color') {
+      const picker = make('input', 'color') as HTMLInputElement;
+      const text = make('input', 'text') as HTMLInputElement;
+      for (const input of [picker, text]) {
+        input.addEventListener('input', () => setValue(control, input.value, input));
+      }
+      sync = (except) => {
+        const value = current(control);
+        if (except !== picker && /^#[\da-f]{6}$/i.test(value)) picker.value = value;
+        if (except !== text) text.value = value;
+      };
+    } else if (control.kind === 'select') {
+      const select = make('select') as HTMLSelectElement;
+      for (const option of control.options ?? []) select.add(new Option(option));
+      select.addEventListener('input', () => setValue(control, select.value, select));
+      sync = () => {
+        select.value = current(control);
+      };
+    } else {
+      const input = make('input', 'text') as HTMLInputElement;
+      input.addEventListener('input', () => setValue(control, input.value, input));
+      sync = (except) => {
+        if (except !== input) input.value = current(control);
+      };
+    }
+    syncs.push((except) => {
+      sync(except);
+      output.textContent = current(control);
+    });
+    return row;
+  };
+
+  const drawControls = (text: string) => {
+    const parsed = parseControls(text);
+    controlSet = typeof parsed === 'string' ? null : parsed;
+    title.textContent = controlSet?.title ?? 'Jig';
+    controlsNote.hidden = !!controlSet;
+    controlsNote.textContent =
+      typeof parsed === 'string'
+        ? `The control set is not valid: ${parsed}.`
+        : 'No control set. Pick an element, then press Ask for controls.';
+    // A control with no `from` starts where the page has it, without the jig's override.
+    controlsStyle.textContent = '';
+    starts = Object.fromEntries(
+      (controlSet?.controls ?? []).map((control) => [
+        control.var,
+        control.from ?? rootValue(control.var),
+      ]),
+    );
+    applyControls();
+    syncs.length = 0;
+    controlsPane.replaceChildren(...(controlSet?.controls ?? []).map(drawControl));
+    for (const sync of syncs) sync();
+    markMatches();
+    if (parsed !== null) selectTab('Controls');
+    settle();
+  };
+
   hot.on('mael-jig:draft', ({ name, text, from }) => {
-    if (name !== 'monkeypatch.css' || from === client) return;
-    textarea.value = text;
-    apply(text);
+    if (from !== client) {
+      if (name === 'monkeypatch.css') {
+        textarea.value = text;
+        apply(text);
+      } else if (name === 'jig-controls.json') {
+        drawControls(text);
+      } else if (name === 'jig-values.json') {
+        values = parseValues(text);
+        applyControls();
+        for (const sync of syncs) sync();
+      }
+    }
+    markMatches();
   });
 
   let picked: Picked | undefined;
@@ -451,7 +738,7 @@ export async function mountJig({
     status.textContent = 'Sending…';
     try {
       // The provider's message names the file, so it must hold what was typed.
-      if (pending) await write();
+      if (monkeypatch.pending()) await monkeypatch.flush();
       // A screenshot is a help, not a need: a failed one sends the words alone.
       const screenshot = await shoot().catch(() => null);
       const reply = await fetch('/__mael/feedback', {
@@ -488,17 +775,23 @@ export async function mountJig({
 
   // Read-only until the file loads, or the load would replace what the user typed.
   textarea.readOnly = true;
-  const [css, state] = await Promise.all([
-    fetch('/__mael/drafts/monkeypatch.css').then((reply) => reply.text()),
+  const draft = (name: string) => fetch(`/__mael/drafts/${name}`).then((reply) => reply.text());
+  const [css, controlsText, valuesText, state] = await Promise.all([
+    draft('monkeypatch.css'),
+    draft('jig-controls.json'),
+    draft('jig-values.json'),
     fetch('/__mael/state').then((reply) => reply.json()),
   ]);
   textarea.readOnly = false;
   textarea.value = css;
   apply(css);
+  values = parseValues(valuesText);
   if (!heard) attach(state.visible);
+  drawControls(controlsText);
 
   return () => {
-    clearTimeout(pending);
+    monkeypatch.cancel();
+    valuesFile.cancel();
     attach(false);
   };
 }
