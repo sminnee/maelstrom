@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     restoreMocks: true,
     unstubGlobals: true,
+    unstubEnvs: true,
     testTimeout: 30_000,
     // The plugin runs in Node against a real dev server; the overlay runs in jsdom.
     projects: [

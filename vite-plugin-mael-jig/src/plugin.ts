@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 interface Options {
-  /** The live feedback provider's WebSocket URL. Unset or empty, the jig is off. */
+  /**
+   * The live feedback provider's WebSocket URL. Empty, the jig is off.
+   * Defaults to `MAEL_FEEDBACK_URL`, which `mael env start` sets.
+   */
   providerUrl?: string;
 }
 
@@ -49,7 +52,9 @@ const DRAFTS: Record<string, { writable: boolean }> = {
 };
 const CLIENT = join(dirname(fileURLToPath(import.meta.url)), 'client.ts');
 
-export function maelJig({ providerUrl }: Options): Plugin {
+export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options = {}): Plugin {
+  // vitest serves no page, so a consumer's config needs no guard.
+  if (process.env.VITEST) return { name: 'mael-jig' };
   // Empty until the server starts, and for good when it runs outside a git
   // checkout: the jig is a convenience, so it switches off rather than stop the server.
   let drafts = '';
