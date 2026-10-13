@@ -24,7 +24,7 @@ skills and hooks in place if you want to use maelstrom on itself.
 Run the pre-PR gate before you open a PR:
 
 ```bash
-tangier gate run lint test web --fail-fast
+tangier gate run lint test web jig --fail-fast
 ```
 
 `pipeline.toml` defines the gates. When `gate run` exits 3, or warns `gate records stay local`,

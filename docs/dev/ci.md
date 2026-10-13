@@ -1,6 +1,6 @@
 # CI gates
 
-Maelstrom's CI runs four gates: `test`, `lint`, `e2e` and `web`. [tangier](https://github.com/sminnee/tangier)
+Maelstrom's CI runs five gates: `test`, `lint`, `e2e`, `web` and `jig`. [tangier](https://github.com/sminnee/tangier)
 defines them in `pipeline.toml` at the repository root. A gate whose content already has a record
 does not run again in CI, so a push after a local run costs CI almost nothing. `e2e` accepts only
 a record from CI.
@@ -9,7 +9,12 @@ a record from CI.
 
 `pipeline.toml` holds each gate's command and gate scope. `web` is a group of five members:
 `web.lint`, `web.typecheck`, `web.knip`, `web.test` and `web.build`. Each member keeps its own
-record, so a lint failure does not rerun the build.
+record, so a lint failure does not rerun the build. `jig` is a group of four members for the jig's
+Vite plugin in `vite-plugin-mael-jig/`: `jig.lint`, `jig.typecheck`, `jig.test` and `jig.smoke`.
+
+The web dev server loads the plugin's source, so `vite-plugin-mael-jig/**` is in the `web` gate
+scope too. The `jig` gate scope holds the plugin alone, so a change to `orchestrator-ui/` does not
+rerun the pack smoke, which installs from the network.
 
 A **gate scope** is the set of files a gate reads. tangier hashes the commands and the gate
 scope's content into a gate key. A pass is recorded under that key as a git ref under
@@ -19,8 +24,8 @@ its commit.
 ## How CI uses them
 
 `.github/workflows/test.yml` has a `gates` job first. It runs
-`tangier gate github-outputs` and emits `<gate>-run` for each gate. The `test`, `lint` and `web`
-jobs run only when their output is not `false`:
+`tangier gate github-outputs` and emits `<gate>-run` for each gate. The `test`, `lint`, `web` and
+`jig` jobs run only when their output is not `false`:
 
 - A gate whose gate scope the diff does not touch is `not-needed`. Its job is skipped.
 - A gate whose content has a record is `verified`. Its job is skipped.
@@ -35,9 +40,10 @@ parent: the tip of the base branch. The diff from it is the PR's change.
 job has `contents: write`. `gate run` skips the suite when the content is `not-needed`, or CI has
 already passed it.
 
-The detection fails open. When the `gates` step fails, it sets no output, and the `test`, `lint`
-and `web` jobs run. A job skipped by its `if:` reports success, so the required checks `test`,
-`lint` and `web` are always satisfied. `e2e` always runs.
+The detection fails open. When the `gates` step fails, it sets no output, and the `test`, `lint`,
+`web` and `jig` jobs run. A job skipped by its `if:` reports success, so the required checks
+`test`, `lint` and `web` are always satisfied. `jig` is not a required check until branch
+protection names it. `e2e` always runs.
 
 Every gate job runs its gate through `uvx tangier`, so each one needs PyPI to serve tangier. CI
 installs the latest release, not a pinned version. When the fetch fails, the jobs fail red. They
@@ -49,7 +55,7 @@ Commit your work, then run the pre-PR gate on the clean tree before you open a P
 after any rebase:
 
 ```bash
-tangier gate run lint test web --fail-fast
+tangier gate run lint test web jig --fail-fast
 ```
 
 `e2e` runs in CI only.

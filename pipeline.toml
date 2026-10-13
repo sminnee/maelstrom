@@ -49,6 +49,26 @@ cmd = "pnpm --dir orchestrator-ui test"
 [gate.web.build]
 cmd = "pnpm --dir orchestrator-ui build"
 
+# The jig's Vite plugin, its own npm package. Its own gate, so a UI-only change
+# does not rerun the pack smoke, which installs from the network. Its lint runs
+# knip too.
+[gate.jig]
+scope = ["jig-gate-inputs", "ci-inputs"]
+
+[gate.jig.lint]
+cmd = "pnpm --dir vite-plugin-mael-jig lint"
+
+[gate.jig.typecheck]
+cmd = "pnpm --dir vite-plugin-mael-jig typecheck"
+
+[gate.jig.test]
+cmd = "pnpm --dir vite-plugin-mael-jig test"
+
+# Builds and packs the plugin, and loads the tarball into a new Vite app, so a
+# build that breaks what npm would ship fails before a release.
+[gate.jig.smoke]
+cmd = "pnpm --dir vite-plugin-mael-jig smoke"
+
 # --------------------------------------------------------------------------
 # Gate inputs. These carry no `sha`, so they version nothing.
 # --------------------------------------------------------------------------
@@ -77,12 +97,17 @@ paths = [
 [web-gate-inputs]
 paths = [
   "orchestrator-ui/**",
+  # The dev server loads the jig plugin's source.
+  "vite-plugin-mael-jig/**",
   "bin/**",
   # The UI's wire types and normaliser goldens come from these.
   "lib/domain/src/mael_domain/protocol.py",
   "lib/domain/src/mael_domain/normalise.py",
   "lib/domain/fixtures/normalised/**",
 ]
+
+[jig-gate-inputs]
+paths = ["vite-plugin-mael-jig/**"]
 
 # A change to how CI runs reruns every gate.
 [ci-inputs]
@@ -106,7 +131,13 @@ exclude = [
   "**/*.test.tsx",
   "**/*.stories.tsx",
 ]
+depends = "jig"
 sha = true
+
+# The jig's Vite plugin. Not a service: the web dev server loads its source.
+[jig]
+paths = "vite-plugin-mael-jig/**"
+exclude = ["**/*.test.ts", "**/README.md", "vite-plugin-mael-jig/CHANGELOG.md"]
 
 [orchestrator]
 paths = "orchestrator-api/**"

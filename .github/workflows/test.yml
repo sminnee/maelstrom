@@ -19,6 +19,7 @@ jobs:
       test-run: ${{ steps.gates.outputs.test-run }}
       lint-run: ${{ steps.gates.outputs.lint-run }}
       web-run: ${{ steps.gates.outputs.web-run }}
+      jig-run: ${{ steps.gates.outputs.jig-run }}
     steps:
       # The gates diff from the merge base. `blob:none` fetches commits and
       # trees only.
@@ -134,10 +135,15 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: orchestrator-ui/pnpm-lock.yaml
+          cache-dependency-path: |
+            orchestrator-ui/pnpm-lock.yaml
+            vite-plugin-mael-jig/pnpm-lock.yaml
 
+      # The app's dev server and typecheck load the jig plugin's source, so both packages install.
       - name: Install dependencies
-        run: pnpm --dir orchestrator-ui install --frozen-lockfile
+        run: |
+          pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+          pnpm --dir orchestrator-ui install --frozen-lockfile
 
       - name: Lint
         run: uvx tangier gate run web.lint --read-only --base HEAD^1
@@ -157,3 +163,46 @@ jobs:
       - name: Build
         if: ${{ !cancelled() }}
         run: uvx tangier gate run web.build --read-only --base HEAD^1
+
+  # One step for each member of `[gate.jig]`: the jig's Vite plugin.
+  jig:
+    needs: gates
+    if: ${{ !cancelled() && needs.gates.outputs.jig-run != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 20
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          package_json_file: vite-plugin-mael-jig/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: vite-plugin-mael-jig/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+
+      - name: Lint
+        run: uvx tangier gate run jig.lint --read-only --base HEAD^1
+
+      - name: Typecheck
+        if: ${{ !cancelled() }}
+        run: uvx tangier gate run jig.typecheck --read-only --base HEAD^1
+
+      - name: Test
+        if: ${{ !cancelled() }}
+        run: uvx tangier gate run jig.test --read-only --base HEAD^1
+
+      - name: Pack smoke
+        if: ${{ !cancelled() }}
+        run: uvx tangier gate run jig.smoke --read-only --base HEAD^1
