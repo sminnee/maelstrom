@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
+import { createLogger, createServer, type Logger, type Plugin, type ViteDevServer } from 'vite';
 import { WebSocketServer, type WebSocket as ProviderSocket } from 'ws';
 import { maelJig } from './plugin';
 
@@ -31,10 +31,12 @@ async function start(
   {
     jig = () => maelJig({ providerUrl }),
     base,
+    customLogger,
     https,
   }: {
     jig?: () => Plugin;
     base?: string;
+    customLogger?: Logger;
     https?: { key: string; cert: string };
   } = {},
 ) {
@@ -42,6 +44,7 @@ async function start(
     root: worktree,
     configFile: false,
     logLevel: 'silent',
+    customLogger,
     base,
     plugins: [jig()],
     server: { port: 0, host: '127.0.0.1', https },
@@ -502,6 +505,33 @@ describe('the provider', () => {
     });
   });
 
+  it('warns once when it refuses the URL, and keeps trying', async () => {
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    await once(wss, 'listening');
+    closers.push(() => wss.close());
+    let dials = 0;
+    let wake = () => {};
+    wss.on('connection', (ws) => {
+      dials++;
+      wake();
+      ws.close(4403, 'unauthorised');
+    });
+    const logger = createLogger('silent');
+    const warn = vi.spyOn(logger, 'warn');
+
+    await start(`ws://127.0.0.1:${(wss.address() as AddressInfo).port}/api/live-feedback`, {
+      customLogger: logger,
+    });
+    while (dials < 3) await new Promise<void>((resolve) => (wake = resolve));
+
+    expect(warn.mock.calls).toEqual([
+      [
+        'mael-jig: the live feedback provider refused this URL; ' +
+          'run `mael env restart` for this service',
+      ],
+    ]);
+  });
+
   it('writes a screenshot to the drafts and names the file in the feedback', async () => {
     const provider = await fakeProvider();
     await start(provider.url);
@@ -588,9 +618,11 @@ describe('the provider', () => {
     expect(await stateGet()).toEqual({ visible: false });
   });
 
-  it('reconnects, exposes the jig again and follows its value', async () => {
+  it('reconnects without a warning, exposes the jig again and follows its value', async () => {
     const provider = await fakeProvider();
-    await start(provider.url);
+    const logger = createLogger('silent');
+    const warn = vi.spyOn(logger, 'warn');
+    await start(provider.url, { customLogger: logger });
     await provider.frame('exposeParams');
     const page = await hmrSocket<{ visible: boolean }>('mael-jig:state');
 
@@ -599,6 +631,8 @@ describe('the provider', () => {
     provider.send({ type: 'setParams', params: { jig: true } });
 
     expect(await page.next()).toEqual({ visible: true });
+    // Only a 4403 means the URL needs a restart; a dropped socket does not.
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('answers 503 when the provider goes away before it replies', async () => {
