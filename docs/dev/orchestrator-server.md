@@ -1490,8 +1490,9 @@ A subagent's stream and a Codex agent carry no partial message.
 the rules. This section covers the server's side.
 
 **The URL names the client.** The socket reads `path` and `service` from its query.
-`live_feedback_worktree` finds the worktree whose real path matches. An unknown path, or no
-`service`, closes the socket `4404`.
+No `path` or no `service` closes the socket `4404`. Then a `sig` that
+`live_feedback_key.verify` refuses closes it `4403`. Then `live_feedback_worktree` finds the
+worktree whose real path matches, and an unknown path closes it `4404`.
 
 | Frame in | What the server does |
 |---|---|

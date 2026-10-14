@@ -22,6 +22,7 @@ from typing import Any
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
+from mael_domain.live_feedback_key import verify
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import (
@@ -46,6 +47,7 @@ SHUTDOWN_SECS = 1.0
 HEARTBEAT_SECS = 20.0
 
 #: Close codes a transcript or live feedback socket uses; the client reads them.
+CLOSE_UNAUTHORISED = 4403
 CLOSE_UNKNOWN_ID = 4404
 CLOSE_LAGGING = 4409
 
@@ -1315,17 +1317,27 @@ async def _live_feedback_socket(request: web.Request) -> web.WebSocketResponse:
     """A **Live feedback** socket: this server as its provider.
 
     The URL's ``path`` and ``service`` name the client's worktree and dev
-    server. A path the world holds no worktree at, or no service, is closed
-    ``4404``. Then the socket carries the service's params both ways, and the
-    client's feedback in. The protocol is documented in
-    ``docs/dev/live-feedback.md``.
+    server. No path or no service is closed ``4404``; then a ``sig`` that does
+    not verify is closed ``4403``; then a path the world holds no worktree at
+    is closed ``4404``. Then the
+    socket carries the service's params both ways, and the client's feedback
+    in. The protocol is documented in ``docs/dev/live-feedback.md``.
     """
     orch = await _ready(request)
     ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
     await ws.prepare(request)
-    worktree_id = orch.live_feedback_worktree(request.query.get("path", ""))
+    path = request.query.get("path", "")
     service = request.query.get("service", "")
-    if not request.query.get("path") or worktree_id is None or not service:
+    if not path or not service:
+        await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
+        return ws
+    # Before the worktree lookup: an unsigned caller must not learn which paths
+    # are real.
+    if not verify(path, service, request.query.get("sig", "")):
+        await ws.close(code=CLOSE_UNAUTHORISED, message=b"unauthorised")
+        return ws
+    worktree_id = orch.live_feedback_worktree(path)
+    if worktree_id is None:
         await ws.close(code=CLOSE_UNKNOWN_ID, message=b"unknown_id")
         return ws
     request.app[SOCKETS].add(ws)
