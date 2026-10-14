@@ -465,7 +465,10 @@ export async function mountJig({
   // The jig goes when the provider says it has, not before.
   $<HTMLButtonElement>('[data-hide]').addEventListener('click', async () => {
     try {
-      const reply = await fetch('/__mael/hide', { method: 'POST' });
+      const reply = await fetch('/__mael/hide', {
+        method: 'POST',
+        headers: { 'x-mael-jig-client': client },
+      });
       if (!reply.ok) status.textContent = (await reply.json()).error?.message ?? 'Hide failed';
     } catch (error) {
       status.textContent = `Hide failed: ${String(error)}`;
@@ -772,7 +775,7 @@ export async function mountJig({
       const screenshot = await shoot().catch(() => null);
       const reply = await fetch('/__mael/feedback', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-mael-jig-client': client },
         body: JSON.stringify(screenshot ? { ...feedback, screenshot } : feedback),
       });
       const body = await reply.json();
