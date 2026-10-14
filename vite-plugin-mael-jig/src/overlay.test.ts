@@ -218,7 +218,11 @@ describe('the jig overlay', () => {
     jig().hide.click();
 
     await until(() =>
-      expect(requests.at(-1)).toMatchObject({ method: 'POST', url: '/__mael/hide' }),
+      expect(requests.at(-1)).toMatchObject({
+        method: 'POST',
+        url: '/__mael/hide',
+        client: expect.any(String),
+      }),
     );
     expect(document.querySelector('#mael-jig')).not.toBeNull();
   });
@@ -278,6 +282,10 @@ describe('the jig overlay', () => {
           JSON.stringify({ type: 'monkeypatch', css: '.chip { padding: 20px; }', note: 'tighter' }),
         ],
       ]);
+      // The plugin refuses a write without the page's client header.
+      expect(new Set(requests.filter((r) => r.method !== 'GET').map((r) => r.client))).toEqual(
+        new Set([puts()[0]!.client]),
+      );
       expect(jig().message.value).toBe('');
       expect(jig().sendMonkeypatch.disabled).toBe(false);
     });
