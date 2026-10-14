@@ -32,6 +32,8 @@ const DRAFT_EVENT = 'mael-jig:draft';
 /** The custom HMR event that tells every page whether to draw the jig. */
 const STATE_EVENT = 'mael-jig:state';
 const BACKOFF_MS = [250, 1000, 5000];
+/** The provider's close code for a URL `mael env start` did not sign. */
+const CLOSE_UNAUTHORISED = 4403;
 const CLIENT_HEADER = 'x-mael-jig-client';
 const SETTLE_MS = 80;
 /** The screenshots `.drafts/jig/` keeps. An agent reads the newest; the rest is history. */
@@ -134,8 +136,11 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
       server.watcher.on('change', broadcast);
       server.watcher.on('unlink', broadcast);
 
-      const provider = connect(usableUrl(providerUrl, server.config.logger), (visible) =>
-        server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
+      const { logger } = server.config;
+      const provider = connect(
+        usableUrl(providerUrl, logger),
+        (visible) => server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
+        logger,
       );
       const shots = join(drafts, 'jig');
       stopProvider = provider.stop;
@@ -249,8 +254,14 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
  * The socket to the provider, kept open: it reconnects with backoff, and
  * reports the jig hidden while it is down. `onState` hears each change.
  */
-function connect(url: string | undefined, onState: (visible: boolean) => void) {
+function connect(
+  url: string | undefined,
+  onState: (visible: boolean) => void,
+  logger: { warn: (msg: string) => void },
+) {
   let socket: WebSocket | null = null;
+  // Once, not on each retry: a URL the provider refuses stays refused until a restart.
+  let warned = false;
   let visible = false;
   let stopped = !url;
   let attempt = 0;
@@ -292,8 +303,15 @@ function connect(url: string | undefined, onState: (visible: boolean) => void) {
         waiting.delete(frame.id);
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       socket = null;
+      if (event.code === CLOSE_UNAUTHORISED && !warned) {
+        warned = true;
+        logger.warn(
+          'mael-jig: the live feedback provider refused this URL; ' +
+            'run `mael env restart` for this service',
+        );
+      }
       show(false);
       for (const { reject } of waiting.values())
         reject(new Error('The live feedback provider went away'));

@@ -11,6 +11,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **A refused provider URL warns once.** When the provider closes the socket with `4403`, the
+  plugin logs that the service needs `mael env restart`.
+
 ### Fixed
 
 - **A page's styles no longer leak into the jig.** A page rule such as `* { color: … }` matched
