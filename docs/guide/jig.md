@@ -74,7 +74,8 @@ does. That call injects the jig's client.
 4. Turn the switch on. The `Jig` pill shows on the page.
 
 When the switch does not show, the dev server did not reach the orchestrator. Check that
-`MAEL_FEEDBACK_URL` is set in the service's environment.
+`MAEL_FEEDBACK_URL` is set in the service's environment. When the dev server's log says the
+provider refused this URL, run `mael env restart <service>`.
 
 When the switch is on and the pill does not show, check that the page loads
 `/@id/__x00__virtual:mael-jig/client`.
