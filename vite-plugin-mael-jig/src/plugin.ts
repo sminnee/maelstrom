@@ -140,6 +140,13 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
       const shots = join(drafts, 'jig');
       stopProvider = provider.stop;
 
+      // Before the routes: a page on another origin must not write a draft or reach the agent.
+      server.middlewares.use('/__mael', (req, res, next) => {
+        const refusal = foreignRequest(req);
+        if (refusal) json(res, 403, { error: { message: refusal } });
+        else next();
+      });
+
       // Mounted under the prefix, so `req.url` is the rest: `/<name>`, still encoded.
       server.middlewares.use('/__mael/drafts', (req, res) => {
         const name = (req.url ?? '').replace(/^\//, '').split('?')[0]!;
@@ -374,6 +381,34 @@ function pruneShots(dir: string): void {
     .filter((name) => !Number.isNaN(stamp(name)))
     .sort((a, b) => stamp(b) - stamp(a));
   for (const old of shots.slice(KEEP_SHOTS)) rmSync(join(dir, old), { force: true });
+}
+
+/**
+ * Why a state-changing request did not come from the overlay, or `undefined`
+ * when it may have. The jig header makes a cross-origin request preflight,
+ * and Vite's CORS lets other localhost origins through a preflight, so
+ * `Origin` must name this server too. A request with no `Origin` is not from
+ * a browser page: any host that reaches the server is trusted.
+ */
+function foreignRequest(req: IncomingMessage): string | undefined {
+  if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+  if (!req.headers[CLIENT_HEADER]) return `A ${req.method} needs the ${CLIENT_HEADER} header`;
+  const from = req.headers.origin;
+  // HTTP/2, which Vite serves over HTTPS, names the host in `:authority` and sends no `Host`.
+  const host = req.headers.host ?? req.headers[':authority'];
+  if (from === undefined) return undefined;
+  const fromHost = originHost(from);
+  if (fromHost !== undefined && fromHost === host) return undefined;
+  return `A ${req.method} from ${from} is refused`;
+}
+
+/** The `host[:port]` of an `Origin` value, or `undefined` for `null` and junk. */
+function originHost(origin: string): string | undefined {
+  try {
+    return new URL(origin).host || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The worktree that holds `root`, or `null` outside a git checkout. */

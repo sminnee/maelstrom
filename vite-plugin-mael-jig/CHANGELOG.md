@@ -11,6 +11,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Security
+
+- **A page on another origin cannot reach the agents.** The plugin refuses a `POST` or `PUT` to
+  `/__mael/*` that lacks the jig's `x-mael-jig-client` header, or whose `Origin` is not the dev
+  server. Before, any page in the browser could send feedback to the agents or write
+  `.drafts/monkeypatch.css`.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

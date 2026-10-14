@@ -45,6 +45,20 @@ The plugin needs Vite 6 or later. It needs no options and no guard:
 has `orchestrator_url:`. See [environment.md](../reference/environment.md). To set the URL in the
 config, pass `maelJig({ providerUrl })`.
 
+## Who can send
+
+The jig's routes under `/__mael/` write draft files and send feedback to the agents. The plugin
+refuses a `POST` or `PUT` from a browser page on another origin. It needs the overlay's
+`x-mael-jig-client` header. A request that sends an `Origin` must send the dev server's own.
+
+The plugin trusts any host that can reach the dev server. Such a host can load the page, so a
+token in the page would not stop it. Bind `server.host` only where trusted hosts reach it, or
+limit it with the tailnet ACL.
+
+A DNS-rebinding page sends an `Origin` that matches its `Host`, so the `Origin` check does not
+stop it. Over HTTP, `server.allowedHosts` stops it: never set it to `true`. Over HTTPS, Vite
+skips that check, and the certificate stops it instead.
+
 ## A server in middleware mode
 
 An Express or other Node server can run Vite in middleware mode. The plugin works there too. The
