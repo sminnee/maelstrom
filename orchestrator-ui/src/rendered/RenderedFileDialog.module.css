@@ -1,0 +1,65 @@
+/* `Dialog` sizes its box for 100 columns. A whole file wants the screen.
+   Only on a wide screen: below 839px `Dialog` is the whole screen already. */
+@media (min-width: 840px) {
+  .box {
+    width: min(1200px, 100%);
+    height: calc(100% - 40px);
+  }
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.plugin {
+  align-self: center;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.note {
+  margin: 0;
+  padding: var(--u) var(--u-2);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* The modes: one filled control, as the top bar's views are. */
+.modes {
+  display: flex;
+  box-sizing: border-box;
+  height: var(--control);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-control);
+}
+.mode {
+  min-height: 0;
+  padding: 0 var(--u);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font);
+  font-size: var(--text-control);
+}
+.mode:first-child {
+  padding-left: var(--control-pad);
+}
+.mode:last-child {
+  padding-right: var(--control-pad);
+}
+.mode + .mode {
+  border-left: 1px solid var(--bg-raised);
+}
+.mode:hover:not(:disabled) {
+  color: var(--fg);
+}
+.mode[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--bg-control-hover);
+}
+.mode:disabled {
+  color: var(--fg-faint);
+}

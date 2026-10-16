@@ -21,6 +21,7 @@ import {
   useWorktreeDiff,
 } from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
+import { RenderedFileDialog } from '../rendered/RenderedFileDialog';
 import type {
   BranchCommit,
   ChangeComment,
@@ -243,6 +244,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
           <Files
             // A new rev opens at the top, not at the last rev's scroll position.
             key={rev}
+            worktreeId={worktreeId}
             flat={!!chrome}
             rev={diff.data.rev}
             held={held}
@@ -485,6 +487,7 @@ function emptyText(rev: string | null, base: string): string {
  * sticks.
  */
 const Files = memo(function Files({
+  worktreeId,
   flat,
   rev,
   held,
@@ -502,6 +505,7 @@ const Files = memo(function Files({
   listOpen,
   onListOpen,
 }: {
+  worktreeId: WorktreeId;
   flat: boolean;
   rev: string;
   held: HeldComments;
@@ -551,6 +555,9 @@ const Files = memo(function Files({
   }, [held.comments, rev, openId]);
   const open = held.open?.rev === rev ? held.open : null;
   const editLocked = openHoldsText(held);
+  // One dialog for the tab. `setViewing` keeps its identity, so opening a view
+  // changes no prop of a `FileBlock` and draws no row again.
+  const [viewing, setViewing] = useState<FileDiff | null>(null);
   return (
     <div
       className={styles.scroll}
@@ -592,7 +599,7 @@ const Files = memo(function Files({
           </div>
           <ul id={listId} className={styles.list} aria-label="Files" hidden={!listOpen}>
             {files.map((f) => (
-              <li key={f.path}>
+              <li key={f.path} className={styles.entryRow}>
                 <button type="button" className={styles.entry} onClick={() => scrollToFile(f.path)}>
                   <span className={styles.status} data-status={f.status}>
                     {STATUS_LETTER[f.status]}
@@ -602,6 +609,7 @@ const Files = memo(function Files({
                   </span>
                   <Counts add={f.additions} remove={f.deletions} />
                 </button>
+                <ViewButton file={f} onView={setViewing} />
               </li>
             ))}
           </ul>
@@ -613,6 +621,7 @@ const Files = memo(function Files({
           <FileBlock
             key={f.path}
             file={f}
+            onView={setViewing}
             rows={rows.get(f.path) ?? NO_ROWS}
             comments={here ?? NO_COMMENTS_HERE}
             open={open?.path === f.path ? open : null}
@@ -625,9 +634,33 @@ const Files = memo(function Files({
           />
         );
       })}
+      {viewing && (
+        <RenderedFileDialog
+          worktreeId={worktreeId}
+          rev={rev}
+          file={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 });
+
+/** Opens the Rendered view of a file. A binary file has none. */
+function ViewButton({ file, onView }: { file: FileDiff; onView: (file: FileDiff) => void }) {
+  // A binary file keeps the button's place, so the counts line up.
+  if (file.binary) return <span className={styles.view} aria-hidden="true" />;
+  return (
+    <AppButton
+      icon={actionIcon('view')}
+      variant="quiet"
+      className={styles.view}
+      aria-label={`View ${file.path}`}
+      title="View"
+      onClick={() => onView(file)}
+    />
+  );
+}
 
 function Counts({ add, remove }: { add: number; remove: number }) {
   return (
@@ -682,6 +715,7 @@ function Hunk({
 /** One file: its head and its rows, with its comments below their lines. */
 const FileBlock = memo(function FileBlock({
   file,
+  onView,
   rows,
   comments,
   open,
@@ -692,6 +726,7 @@ const FileBlock = memo(function FileBlock({
   holdFile,
 }: {
   file: FileDiff;
+  onView: (file: FileDiff) => void;
   /** Every row of the file, across its hunks. A selection counts rows in this list. */
   rows: DiffRowData[];
   /** The added comments on this file in the rev in view, less the one in the open box. */
@@ -774,6 +809,7 @@ const FileBlock = memo(function FileBlock({
           {file.oldPath ? `${file.oldPath} → ${path}` : path}
         </span>
         <Counts add={file.additions} remove={file.deletions} />
+        <ViewButton file={file} onView={onView} />
       </h3>
       {file.binary ? (
         <p className={styles.note}>Binary file, not shown.</p>

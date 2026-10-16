@@ -134,6 +134,12 @@
   /* Each line holds a control, so neither is lower than one. */
   --title-h: max(2.25rem, calc(var(--control) + var(--u)));
   --stats-h: max(1.75rem, var(--control));
+  /* The eye that opens a file's Rendered view, and the inset that puts the
+     file list's columns under the file heads': the file's margin, its
+     border, and its head's padding. */
+  --view-size: 22px;
+  --view-gap: var(--u-half);
+  --head-inset: calc(var(--u-2) * 2 + 1px);
 }
 .scroll[data-commit='false'] {
   --title-h: 0px;
@@ -156,6 +162,8 @@
 .statsLine {
   top: var(--title-h);
   height: var(--stats-h);
+  /* The counts sit in the list's count column, left of the eyes. */
+  padding-inline: var(--u-2) calc(var(--head-inset) + var(--u) + var(--view-gap) + var(--view-size));
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
@@ -239,12 +247,19 @@
   padding: var(--u-half) 0;
   border-bottom: 1px solid var(--border);
 }
-.entry {
+.entryRow {
   display: flex;
   align-items: center;
   gap: var(--u);
-  width: 100%;
-  padding: 0 var(--u-2);
+  padding-inline: var(--head-inset);
+}
+.entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: none;
@@ -291,6 +306,28 @@
   font-family: var(--mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+}
+/* A small circle that hangs over the line, so it sets no row's height. A
+   binary file's empty one keeps the place, so the counts line up. */
+.view {
+  flex-shrink: 0;
+  align-self: center;
+  width: var(--view-size);
+  height: var(--view-size);
+  min-width: 0;
+  min-height: 0;
+  /* Centred on a 2u line, so it hangs over the line's edges. */
+  margin-block: calc((var(--u-2) - var(--view-size)) / 2);
+  margin-inline-start: var(--view-gap);
+  padding: 0;
+}
+.view > svg {
+  width: 14px;
+  height: 14px;
+}
+.view:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-control));
+  color: var(--accent);
 }
 .status {
   width: 1ch;

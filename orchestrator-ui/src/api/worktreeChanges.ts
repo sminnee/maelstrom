@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChangeComment, FileDiff, WorktreeChanges } from '../protocol/entities';
+import type { ChangeComment, FileDiff, FileVersions, WorktreeChanges } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
 import type { WorktreeId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
@@ -34,6 +34,25 @@ export function useWorktreeDiff(worktreeId: WorktreeId, rev: string | null) {
         signal,
       }),
     enabled: rev !== null,
+  });
+}
+
+/**
+ * One file whole, on each side of `rev`, for the Rendered view. `oldPath`
+ * names the old side of a rename.
+ */
+export function useWorktreeFile(
+  worktreeId: WorktreeId,
+  rev: string,
+  path: string,
+  oldPath: string | null,
+) {
+  const api = useApi();
+  const query = new URLSearchParams({ rev, path });
+  if (oldPath) query.set('oldPath', oldPath);
+  return useQuery({
+    queryKey: keys.worktreeChanges.file(worktreeId, rev, path, oldPath),
+    queryFn: ({ signal }) => api.get<FileVersions>(`${base(worktreeId)}/file?${query}`, { signal }),
   });
 }
 

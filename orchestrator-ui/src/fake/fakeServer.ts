@@ -73,9 +73,18 @@ export interface FakeWorld {
    * Each worktree's changes and diffs, keyed by worktree id and then by rev.
    * Beside `milestones` for the same reason: the real server reads them from
    * git on each request rather than from the world it polls. An open worktree
-   * with no entry reads as clean, with no commits ahead of `main`.
+   * with no entry reads as clean, with no commits ahead of `main`. `files`
+   * holds the Rendered view's versions, by rev and then by path; a file with
+   * none reads as binary.
    */
-  changes: Record<string, { changes: WorktreeChanges; diffs: Record<string, FileDiff[]> }>;
+  changes: Record<
+    string,
+    {
+      changes: WorktreeChanges;
+      diffs: Record<string, FileDiff[]>;
+      files?: Record<string, Record<string, { old: string | null; new: string | null }>>;
+    }
+  >;
   /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
   operations: Record<string, Operation>;
   /** Each operation's log lines by step: a separate read, as on the server. */
@@ -535,7 +544,7 @@ function read(path: string, server: FakeServer): Reply {
       steps: op.steps.map((s) => ({ name: s.name, lines: lines[s.name] ?? [] })),
     });
   }
-  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff)$/);
+  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff|file)$/);
   if (wt) {
     const id = decodeURIComponent(wt[1]!);
     if (!world.worktrees[id] || world.worktrees[id]!.isClosed) {
@@ -550,6 +559,11 @@ function read(path: string, server: FakeServer): Reply {
     const known =
       rev === 'uncommitted' || rev === 'branch' || entry.changes.commits.some((c) => c.sha === rev);
     if (!known) return notFound(`rev ${rev} on this branch`);
+    if (wt[2] === 'file') {
+      const path = params.get('path') ?? '';
+      const versions = entry.files?.[rev]?.[path] ?? { old: null, new: null };
+      return ok({ rev, path, ...versions, truncated: false });
+    }
     return ok({ rev, files: entry.diffs[rev] ?? [] });
   }
   if (pathname === '/api/tasks') {
