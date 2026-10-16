@@ -192,6 +192,19 @@ class FileDiff(TypedDict):
     hunks: list[DiffHunk]
 
 
+class FileVersions(TypedDict):
+    """``GET /api/worktrees/{id}/file``: one file on each side of a rev."""
+
+    rev: str
+    path: str
+    #: ``None`` when the file is added, binary, or past the size cap.
+    old: str | None
+    #: ``None`` when the file is deleted, binary, or past the size cap.
+    new: str | None
+    #: A side passed the size cap, so its text was dropped.
+    truncated: bool
+
+
 class ChangeComment(TypedDict):
     """One comment of ``POST /api/worktrees/{id}/comments``. See CONTEXT.md."""
 

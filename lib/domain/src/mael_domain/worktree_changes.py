@@ -5,9 +5,11 @@ in ``docs/dev/orchestrator-server.md``, "A worktree's changes".
 """
 
 import asyncio
+import os
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 from .base_store import GitConfigBaseStore
 from .protocol import (
@@ -17,6 +19,7 @@ from .protocol import (
     DiffHunk,
     DiffLine,
     FileDiff,
+    FileVersions,
     WorktreeChanges,
 )
 from .worktree import get_current_branch, run_git_async
@@ -28,6 +31,10 @@ BRANCH = "branch"
 #: Lines kept per file. A lockfile past this is marked truncated rather than
 #: sent whole, so one generated file cannot freeze the panel.
 MAX_LINES_PER_FILE = 5000
+
+#: Bytes kept per side of a file's versions. A side past this is dropped and
+#: marked truncated, as a diff past :data:`MAX_LINES_PER_FILE` is.
+MAX_FILE_BYTES = 1_000_000
 
 # Diff output in one shape whatever the user's config says: no colour, no
 # external diff or textconv, the a/ b/ prefixes the parser reads, and paths
@@ -57,6 +64,10 @@ _RECORD = "\x1e"
 
 class UnknownRev(LookupError):
     """A rev that is none of ``uncommitted``, ``branch`` or a commit on the branch."""
+
+
+class BadPath(ValueError):
+    """A path that is absolute or climbs out of the worktree."""
 
 
 def base_refs_for_diff(cwd: Path) -> list[str]:
@@ -106,6 +117,85 @@ async def read_diff(path: Path, rev: str) -> list[FileDiff]:
     if not any(c["sha"] == rev for c in commits):
         raise UnknownRev(rev)
     return await _diff(path, [f"{rev}^", rev])
+
+
+async def read_file_versions(
+    path: Path, rev: str, file: str, old_file: str | None = None
+) -> FileVersions:
+    """``file`` before and after ``rev``, read whole.
+
+    ``old_file`` names the old side of a rename. Raises :class:`UnknownRev` and
+    :class:`BadPath`.
+    """
+    old_file = old_file or file
+    for name in (file, old_file):
+        parts = PurePosixPath(name).parts
+        if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
+            raise BadPath(name)
+    if rev == UNCOMMITTED:
+        old = await _blob(path, f"HEAD:{old_file}")
+        new = await asyncio.to_thread(_worktree_file, path, file)
+    else:
+        _, merge_base = await _merge_base(path)
+        if rev == BRANCH:
+            # No base: the branch has no commits of its own, so both sides are HEAD.
+            old_ref = merge_base or "HEAD"
+            new_ref = "HEAD"
+        else:
+            commits = await _commits(path, merge_base) if merge_base else []
+            if not any(c["sha"] == rev for c in commits):
+                raise UnknownRev(rev)
+            old_ref, new_ref = f"{rev}^", rev
+        old = await _blob(path, f"{old_ref}:{old_file}")
+        new = await _blob(path, f"{new_ref}:{file}")
+    return {
+        "rev": rev,
+        "path": file,
+        "old": old.text,
+        "new": new.text,
+        "truncated": old.too_large or new.too_large,
+    }
+
+
+class _Side(NamedTuple):
+    """One side of a file: its text, or ``None`` when missing, binary or too large."""
+
+    text: str | None = None
+    too_large: bool = False
+
+
+async def _blob(path: Path, spec: str) -> _Side:
+    """The blob ``<ref>:<path>`` names. The size is read first, so a large blob is never read."""
+    size = await run_git_async(
+        [*_GIT_OPTIONS, "cat-file", "-s", spec], cwd=path, quiet=True, check=False
+    )
+    if size.returncode != 0:
+        return _Side()
+    if int(size.stdout) > MAX_FILE_BYTES:
+        return _Side(too_large=True)
+    result = await run_git_async(
+        [*_GIT_OPTIONS, "cat-file", "blob", spec], cwd=path, quiet=True
+    )
+    return _text(result.stdout)
+
+
+def _worktree_file(root: Path, file: str) -> _Side:
+    target = root / file
+    try:
+        if target.is_symlink():
+            # git stores a link as its target path, so the view shows the same.
+            return _Side(os.readlink(target))
+        if not target.resolve().is_relative_to(root.resolve()):
+            return _Side()
+        if target.stat().st_size > MAX_FILE_BYTES:
+            return _Side(too_large=True)
+        return _text(target.read_bytes().decode("utf-8", "replace"))
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+        return _Side()
+
+
+def _text(text: str) -> _Side:
+    return _Side() if "\0" in text else _Side(text)
 
 
 async def _merge_base(path: Path) -> tuple[str, str]:

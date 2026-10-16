@@ -9,11 +9,14 @@ from agent_fixtures import make_change_comment
 from git_helpers import create_commit, run_git, setup_git_repo, setup_origin_main
 
 from mael_domain.worktree_changes import (
+    MAX_FILE_BYTES,
     MAX_LINES_PER_FILE,
+    BadPath,
     UnknownRev,
     format_change_comments,
     list_changes,
     read_diff,
+    read_file_versions,
 )
 
 
@@ -270,6 +273,106 @@ async def test_a_sha_outside_the_branch_is_refused(repo):
 
     with pytest.raises(UnknownRev):
         await read_diff(repo, on_main)
+
+
+# -- file versions ------------------------------------------------------------
+
+
+async def test_uncommitted_versions_are_head_and_the_worktree_file(repo):
+    (repo / "readme.md").write_text("one\nTWO\nthree\n")
+
+    assert await read_file_versions(repo, "uncommitted", "readme.md") == {
+        "rev": "uncommitted",
+        "path": "readme.md",
+        "old": "one\ntwo\nthree\n",
+        "new": "one\nTWO\nthree\n",
+        "truncated": False,
+    }
+
+
+async def test_branch_versions_are_the_merge_base_and_head(repo):
+    create_commit(repo, "readme.md", "one\n", "feat: shorten")
+    create_commit(repo, "added.txt", "a\n", "feat: add")
+    (repo / "readme.md").write_text("dirty\n")
+
+    readme = await read_file_versions(repo, "branch", "readme.md")
+    added = await read_file_versions(repo, "branch", "added.txt")
+
+    assert (readme["old"], readme["new"]) == ("one\ntwo\nthree\n", "one\n")
+    assert (added["old"], added["new"]) == (None, "a\n")
+
+
+async def test_commit_versions_are_its_parent_and_itself(repo):
+    create_commit(repo, "readme.md", "one\n", "feat: shorten")
+    second = create_commit(repo, "readme.md", "uno\n", "feat: translate")
+
+    versions = await read_file_versions(repo, second, "readme.md")
+
+    assert (versions["old"], versions["new"]) == ("one\n", "uno\n")
+
+
+async def test_a_deleted_file_has_no_new_side_and_a_rename_reads_its_old_path(repo):
+    create_commit(repo, "gone.txt", "g\n", "feat: gone")
+    run_git(repo, "rm", "-q", "gone.txt")
+    run_git(repo, "mv", "readme.md", "README.md")
+
+    renamed = await read_file_versions(
+        repo, "uncommitted", "README.md", old_file="readme.md"
+    )
+    deleted = await read_file_versions(repo, "uncommitted", "gone.txt")
+
+    assert (renamed["old"], renamed["new"]) == ("one\ntwo\nthree\n",) * 2
+    assert (deleted["old"], deleted["new"]) == ("g\n", None)
+
+
+async def test_a_sha_outside_the_branch_has_no_versions(repo):
+    on_main = run_git(repo, "rev-parse", "main").stdout.strip()
+
+    with pytest.raises(UnknownRev):
+        await read_file_versions(repo, on_main, "readme.md")
+
+
+@pytest.mark.parametrize("bad", ["../outside.txt", "/etc/passwd", "a/../../b"])
+async def test_a_path_outside_the_worktree_is_refused(repo, bad):
+    with pytest.raises(BadPath):
+        await read_file_versions(repo, "uncommitted", bad)
+    with pytest.raises(BadPath):
+        await read_file_versions(repo, "uncommitted", "readme.md", old_file=bad)
+
+
+async def test_a_side_past_the_size_cap_or_binary_drops_its_text(repo):
+    create_commit(repo, "image.bin", "\x89PNG\x00\x01", "feat: image")
+    create_commit(repo, "big.txt", "x" * (MAX_FILE_BYTES + 1), "feat: big")
+    (repo / "readme.md").write_text("x" * (MAX_FILE_BYTES + 1))
+
+    big = await read_file_versions(repo, "uncommitted", "readme.md")
+    committed_big = await read_file_versions(repo, "branch", "big.txt")
+    binary = await read_file_versions(repo, "branch", "image.bin")
+
+    assert (big["old"], big["new"], big["truncated"]) == (
+        "one\ntwo\nthree\n",
+        None,
+        True,
+    )
+    assert (committed_big["new"], committed_big["truncated"]) == (None, True)
+    assert (binary["old"], binary["new"], binary["truncated"]) == (None, None, False)
+
+
+async def test_a_symlink_reads_as_its_target_and_is_never_followed_out(
+    repo, tmp_path_factory
+):
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "secret").write_text("secret\n")
+    (repo / "link").symlink_to(outside / "secret")
+    (repo / "dir").symlink_to(outside)
+
+    link = await read_file_versions(repo, "uncommitted", "link")
+    through_dir = await read_file_versions(repo, "uncommitted", "dir/secret")
+    under_a_file = await read_file_versions(repo, "uncommitted", "readme.md/x")
+
+    assert link["new"] == str(outside / "secret")
+    assert through_dir["new"] is None
+    assert under_a_file["new"] is None
 
 
 # -- change comments ----------------------------------------------------------

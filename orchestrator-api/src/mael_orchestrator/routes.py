@@ -23,7 +23,13 @@ from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
-from mael_domain.worktree_changes import UnknownRev, list_changes, read_diff
+from mael_domain.worktree_changes import (
+    BadPath,
+    UnknownRev,
+    list_changes,
+    read_diff,
+    read_file_versions,
+)
 
 from .hubs import Lagging
 from .server import Orchestrator
@@ -99,6 +105,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/worktrees", _worktrees)
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
     app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
+    app.router.add_get("/api/worktrees/{id}/file", _worktree_file)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
@@ -300,6 +307,32 @@ async def _worktree_diff(request: web.Request) -> web.Response:
     # A branch diff runs to megabytes, so it is dumped off the loop and compressed.
     body = await asyncio.to_thread(_dumps_by_item, {"rev": rev}, "files", files)
     response = web.json_response(text=body)
+    response.enable_compression()
+    return response
+
+
+async def _worktree_file(request: web.Request) -> web.Response:
+    """One file whole, on each side of a rev, for the Rendered view."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    file = request.query.get("path", "")
+    if not rev or not file:
+        return error_response("invalid", "Name a rev and a path")
+    try:
+        versions = await read_file_versions(
+            path, rev, file, request.query.get("oldPath") or None
+        )
+    except BadPath as exc:
+        return error_response("invalid", f"Path {exc} is outside the worktree")
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    response = web.json_response(versions)
     response.enable_compression()
     return response
 
