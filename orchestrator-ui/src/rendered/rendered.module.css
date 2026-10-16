@@ -1,0 +1,171 @@
+/* The Rendered view's plugins. Add and remove keep the diff rows' hues. */
+
+.note {
+  margin: 0;
+  padding: var(--u) var(--u-2);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* -- Text ----------------------------------------------------------------- */
+
+.text {
+  padding: var(--u) 0;
+}
+/* Where Changes only drops unchanged lines. */
+.gap {
+  height: 1px;
+  margin: var(--u) 0;
+  background: var(--border);
+}
+
+/* -- Gherkin -------------------------------------------------------------- */
+
+.feature {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-2);
+  padding: var(--u-2);
+  max-width: var(--measure-prose);
+}
+.summary {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.featureName,
+.name {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--u);
+  font-size: var(--text-control);
+}
+.keyword {
+  color: var(--fg-muted);
+  font-weight: var(--weight-semibold);
+}
+.oldName {
+  color: var(--danger);
+}
+.badge {
+  margin-left: auto;
+  padding: 0 var(--u);
+  border-radius: var(--radius-pill);
+  background: var(--bg-control);
+  color: var(--fg-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.description {
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+/* A scenario, a background or a rule: a card whose edge carries its change. */
+.block,
+.rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+  padding: var(--u) var(--u-2);
+  border: 1px solid var(--border);
+  border-left-width: var(--u-half);
+  border-radius: var(--radius);
+}
+.rule {
+  gap: var(--u);
+}
+/* Scoped under a local class: a bare attribute selector is global, and every
+   diff row in the app carries `data-kind`. */
+:is(.block, .rule)[data-change='added'] {
+  border-left-color: var(--ok);
+}
+:is(.block, .rule)[data-change='removed'] {
+  border-left-color: var(--danger);
+}
+:is(.block, .rule):is([data-change='modified'], [data-change='renamed']) {
+  border-left-color: var(--accent);
+}
+:is(.block, .rule)[data-change='added'] > .name .badge {
+  color: var(--ok);
+}
+:is(.block, .rule)[data-change='removed'] > .name .badge {
+  color: var(--danger);
+}
+
+.step {
+  display: flex;
+  gap: var(--u);
+  padding: 0 var(--u-half);
+  border-radius: var(--radius-sm);
+}
+.sign {
+  width: 1ch;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  color: var(--fg-faint);
+}
+.feature [data-kind='add'] {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+.feature [data-kind='remove'] {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.feature [data-kind='add'] > .sign {
+  color: var(--ok);
+}
+.feature [data-kind='remove'] > .sign {
+  color: var(--danger);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u-half);
+}
+.tag {
+  padding: 0 var(--u-half);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.examples {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+  margin-top: var(--u);
+}
+.table {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.table th,
+.table td {
+  padding: 0 var(--u);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.table td.sign {
+  border: 0;
+  padding: 0;
+}
+.docString {
+  margin: var(--u-half) 0 0;
+  padding: var(--u-half) var(--u);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
