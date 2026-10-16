@@ -32,6 +32,8 @@ export const keys = {
     changes: (worktreeId: string) => ['worktreeChanges', worktreeId, 'changes'] as const,
     diff: (worktreeId: string, rev: string) =>
       ['worktreeChanges', worktreeId, 'diff', rev] as const,
+    file: (worktreeId: string, rev: string, path: string, oldPath: string | null) =>
+      ['worktreeChanges', worktreeId, 'file', rev, path, oldPath] as const,
   },
   documents: {
     all: () => ['documents'] as const,

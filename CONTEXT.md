@@ -1370,6 +1370,20 @@ over its **Base**, or the whole branch as one diff. The expanded node's `Changes
 The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 
+**Rendered view**:
+A dialog over the **Changes tab** that draws one whole file of the rev in view, by its **Renderer
+plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none. It has three
+modes: **Final** draws the new file, **Whole file** draws the whole file with the changes marked,
+and **Changes only** draws the changed parts alone. It opens on Changes only. Final is disabled
+for a deleted file.
+_Avoid_: Preview, document, file viewer
+
+**Renderer plugin**:
+One way the **Rendered view** draws a file, chosen by the file's path. The text plugin draws
+lines in syntax colour, and draws any file no other plugin claims. The Gherkin plugin draws a
+`.feature` file as its scenarios, and falls back to text when a side does not parse.
+_Avoid_: Viewer, formatter, previewer
+
 **Dev env tab**:
 A panel tab that frames one running web service of a worktree, such as its app or Ladle. Its
 toolbar has a reload button, an **External link** to the same URL and a switch for each

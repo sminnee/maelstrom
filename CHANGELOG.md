@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The Changes tab draws a file whole.** The eye on a file's head or in the file list opens the
+  Rendered view in three modes: Final, Whole file and Changes only. A `.feature` file draws as its
+  scenarios, with each added, changed, renamed and removed scenario marked. See
+  [The Rendered view](docs/dev/orchestrator-ui.md#the-rendered-view).
 - **Agents compact their sessions at break points.** Under the agent daemon, an agent writes
   `<compact-session min-tokens="200k">` when a build phase closes, when the gates pass, after
   review, and after the PR is pushed. When the session holds at least that many tokens,

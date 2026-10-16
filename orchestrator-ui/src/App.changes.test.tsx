@@ -313,7 +313,7 @@ describe('the Changes tab', () => {
   it('scrolls to a file when its entry in the file list is clicked', async () => {
     const { panel } = await openChanges();
     const files = within(panel).getByRole('list', { name: 'Files' });
-    await userEvent.click(within(files).getByRole('button', { name: /auth\/rotate\.py/ }));
+    await userEvent.click(within(files).getByRole('button', { name: /^A ?auth\/rotate\.py/ }));
     const block = within(panel).getByRole('region', { name: 'auth/rotate.py' });
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(block);
@@ -441,6 +441,10 @@ describe('the Changes tab', () => {
     expect(region('logo.png')).toHaveTextContent('Binary file, not shown.');
     expect(region('pnpm-lock.yaml')).toHaveTextContent('The rest is cut.');
     expect(region('auth/keys.py')).toHaveTextContent('auth/secrets.py → auth/keys.py');
+    // A binary file has nothing to render; every other file has a View.
+    expect(within(region('logo.png')).queryByRole('button', { name: /^View/ })).toBeNull();
+    for (const path of ['pnpm-lock.yaml', 'auth/keys.py'])
+      expect(within(region(path)).getByRole('button', { name: `View ${path}` })).toBeVisible();
   });
 
   it('draws a known language in syntax colour, and an unknown one or a long line plain', async () => {
@@ -574,6 +578,132 @@ describe('the Changes tab', () => {
     expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull();
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(region);
+  });
+});
+
+describe('the Rendered view', () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
+  const PLACE = `  Scenario: Place an order
+    Given a cart with 2 items
+    Then I see a receipt
+`;
+  const CANCEL = `  Scenario: Cancel an order
+    Given a placed order
+    Then it is refunded
+`;
+  const FEATURE = (place: string) => `Feature: Checkout\n\n${place}\n${CANCEL}`;
+
+  /** Open the tab on two uncommitted files, a `.py` and a `.feature`, with their versions. */
+  async function openWithVersions(feature: { old: string; new: string }) {
+    return openChanges((c) => {
+      c.diffs.uncommitted = [file('auth/tokens.py', 'tokens'), file('specs/checkout.feature', 'x')];
+      c.files = {
+        uncommitted: {
+          'auth/tokens.py': {
+            old: `${lines(10)}\nold tokens\n`,
+            new: `${lines(10)}\nnew tokens\n`,
+          },
+          'specs/checkout.feature': feature,
+        },
+      };
+    });
+  }
+
+  async function view(panel: HTMLElement, path: string) {
+    const head = await within(panel).findByRole('region', { name: path });
+    await userEvent.click(within(head).getByRole('button', { name: `View ${path}` }));
+    return screen.findByRole('dialog', { name: `${path}, rendered` });
+  }
+
+  const mode = (dialog: HTMLElement, name: string) =>
+    userEvent.click(within(dialog).getByRole('button', { name }));
+  const kinds = (dialog: HTMLElement) =>
+    within(dialog)
+      .getAllByTestId('diff-row')
+      .map((row) => row.getAttribute('data-kind'));
+
+  it('draws a text file as lines, in each mode', async () => {
+    const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(PLACE) });
+    const dialog = await view(panel, 'auth/tokens.py');
+    expect(within(dialog).getByRole('button', { name: 'Changes only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(dialog).getByText('Text', { exact: true })).toBeInTheDocument();
+
+    // Changes only: the change and three lines of context above it.
+    await waitFor(() =>
+      expect(kinds(dialog)).toEqual(['context', 'context', 'context', 'remove', 'add']),
+    );
+    await mode(dialog, 'Whole file');
+    expect(kinds(dialog)).toHaveLength(12);
+    await mode(dialog, 'Final');
+    expect(kinds(dialog)).toEqual(Array(11).fill('context'));
+    expect(within(dialog).getAllByTestId('diff-row').at(-1)).toHaveTextContent('11 new tokens');
+  });
+
+  it('draws a feature file as scenarios, in each mode', async () => {
+    const edited = PLACE.replace('2 items', '3 items');
+    const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(edited) });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    const scenario = (name: string) =>
+      within(dialog).queryByRole('region', { name: `Scenario: ${name}` });
+    const steps = () =>
+      within(dialog)
+        .getAllByTestId('feature-step')
+        .map((s) => `${s.getAttribute('data-kind')} ${s.textContent}`);
+
+    // Changes only: the feature's head, a count, and the changed scenario alone.
+    await within(dialog).findByTestId('feature-view');
+    expect(within(dialog).getByText('Scenarios', { exact: true })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('Feature: Checkout');
+    expect(dialog).toHaveTextContent('Scenarios: 0 added, 1 changed, 0 removed');
+    expect(scenario('Cancel an order')).toBeNull();
+    expect(scenario('Place an order')).toHaveTextContent('Changed');
+    expect(steps()).toEqual([
+      'remove -Given a cart with 2 items',
+      'add +Given a cart with 3 items',
+      'context  Then I see a receipt',
+    ]);
+
+    await mode(dialog, 'Whole file');
+    expect(scenario('Cancel an order')).not.toBeNull();
+    expect(steps()).toHaveLength(5);
+
+    await mode(dialog, 'Final');
+    expect(steps()).toEqual([
+      'context  Given a cart with 3 items',
+      'context  Then I see a receipt',
+      'context  Given a placed order',
+      'context  Then it is refunded',
+    ]);
+    expect(dialog).not.toHaveTextContent('Changed');
+  });
+
+  it('falls back to text for a feature file that does not parse, and closes on ×', async () => {
+    const { panel } = await openWithVersions({
+      old: FEATURE(PLACE),
+      new: 'Given a step before any feature\n',
+    });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    expect(await within(dialog).findByRole('status')).toHaveTextContent(
+      'Not valid Gherkin, so shown as text: (1:1)',
+    );
+    expect(kinds(dialog)).toContain('add');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: /rendered/ })).toBeNull();
+  });
+
+  it('opens a deleted file on its removed side, with Final disabled', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [file('specs/checkout.feature', 'x', { status: 'deleted' })];
+      c.files = { uncommitted: { 'specs/checkout.feature': { old: FEATURE(PLACE), new: null } } };
+    });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    expect(within(dialog).getByRole('button', { name: 'Final' })).toBeDisabled();
+    await within(dialog).findByTestId('feature-view');
+    expect(dialog).toHaveTextContent('Scenarios: 0 added, 0 changed, 2 removed');
   });
 });
 
@@ -875,6 +1005,19 @@ describe('change comments', () => {
       // One draw for each of the two rows the drag reached, of the six in view.
       expect(draws.count).toBe(2);
       await user.pointer({ keys: '[/MouseLeft]' });
+    });
+
+    it('draws no row of the tab when a Rendered view opens', async () => {
+      const { panel } = await openChanges();
+      await settled(panel);
+
+      draws.count = 0;
+      const files = within(panel).getByRole('list', { name: 'Files' });
+      await userEvent.click(within(files).getByRole('button', { name: 'View auth/tokens.py' }));
+      // The fake has no versions for this file, so the view draws no row of its own.
+      const dialog = await screen.findByRole('dialog', { name: 'auth/tokens.py, rendered' });
+      await within(dialog).findByText('Binary file, not shown.');
+      expect(draws.count).toBe(0);
     });
 
     it('draws no row for a world change', async () => {

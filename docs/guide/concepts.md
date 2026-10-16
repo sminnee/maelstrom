@@ -147,7 +147,9 @@ correct the page they used if it turns out to be wrong. See
 `orchestrator-ui/` holds a web app that shows every agent as a node on one canvas, with edges for
 the work each node unblocks, and captures your checkpoints in the tool: plan approval, questions,
 permissions, document feedback. A worktree's Changes tab shows its changes. You can comment on
-lines there and post the comments to the agents in that worktree. A worktree's dev env
+lines there and post the comments to the agents in that worktree. The eye on a file's head or in the file list draws
+the whole file: Final shows the new file, Whole file marks the changes in it, and Changes only
+shows the changed parts. A `.feature` file draws as its scenarios, not as lines. A worktree's dev env
 opens in a tab too. A shift-click on a tab shows it beside the tab you have open. Desk shows the work on your
 desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project, branch and Search filters apply
 to both views. On a phone, the Filters button holds them, or swipe in from the right edge. Swipe a row left to Launch a task that can start, or to Dismiss ended work. Drag a side sheet right to close it. Tasks opens on live work. It also edits a task: its status, title, content and more.

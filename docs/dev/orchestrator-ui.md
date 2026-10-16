@@ -994,6 +994,39 @@ A diff can hold more than 1000 rows, so a state change must not draw them all. `
 A new object or function in a prop of one of these components makes every row draw again. The
 "row draws" tests in `App.changes.test.tsx` count the draws.
 
+#### The Rendered view
+
+A **View** button, an eye, sits on the head of each file that is not binary and on its row in
+the file list. It opens the **Rendered view**, `rendered/RenderedFileDialog.tsx`, which reads the
+file route only while it is open. The dialog is portalled to the body, because the file's head is
+sticky and clips what sits inside it. `Files` holds the open file and draws the one dialog. Each
+`FileBlock` gets the state's setter, whose identity holds, so opening a view draws no row again.
+
+The dialog asks `rendererFor(path)` in `rendered/plugins.ts` for a **Renderer plugin**. A plugin
+is a `RendererPlugin` from `rendered/plugin.ts`:
+
+| Field | Purpose |
+|---|---|
+| `id` | A stable name, which tests read |
+| `label` | Named in the dialog's head, such as "Scenarios" |
+| `matches(path)` | Whether the plugin draws this path |
+| `View` | A component that takes `old`, `new`, `mode` and `path` |
+
+`rendererFor` tries each plugin in `PLUGINS` in order, and falls back to `textPlugin`. To add a
+file type, write a plugin and add one entry to `PLUGINS`. A side is `null` when the file is
+added, deleted, binary or past the size cap; the dialog handles a file with both sides `null`, so
+a plugin draws at least one.
+
+`TextView` is the text plugin. It diffs the two sides with `editToDiffRows` and draws the rows
+with `HighlightedRows`. Changes only keeps each changed row and the 3 rows of context around it.
+
+The Gherkin plugin is in `rendered/gherkin/`. `parseFeature` wraps `@cucumber/gherkin`, and
+`diffFeature` matches the two sides' children by kind and name. A removed child next to an
+added one of the same kind is a rename. Steps, example rows, tags and description lines diff
+as lists. Final diffs the new side against itself, so every row draws as context.
+`FeatureView.stories.tsx` draws each mode from `feature.fixture.ts`, which the fake `changes`
+scenario also serves.
+
 #### Change comments
 
 The user selects lines, writes a **Change comment** on them, and posts every comment in one

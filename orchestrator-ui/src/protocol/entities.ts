@@ -184,6 +184,18 @@ export interface FileDiff {
   hunks: DiffHunk[];
 }
 
+/** `GET /api/worktrees/{id}/file`: one file whole, on each side of a rev. */
+export interface FileVersions {
+  rev: string;
+  path: string;
+  /** `null` when the file is added, binary, or past the size cap. */
+  old: string | null;
+  /** `null` when the file is deleted, binary, or past the size cap. */
+  new: string | null;
+  /** A side passed the size cap, so its text was dropped. */
+  truncated: boolean;
+}
+
 /** One comment of `POST /api/worktrees/{id}/comments`. See CONTEXT.md, "Change comment". */
 export interface ChangeComment {
   /** Made by the client, which keys its own list on it. */

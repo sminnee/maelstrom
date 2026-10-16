@@ -14,6 +14,7 @@ import {
   CircleDot,
   CirclePlay,
   ExternalLink,
+  Eye,
   FoldVertical,
   Folder,
   FolderMinus,
@@ -95,6 +96,7 @@ const ICONS = {
   terminal: SquareTerminal,
   terminate: OctagonX,
   unlink: Link2Off,
+  view: Eye,
 } satisfies Record<string, LucideIcon>;
 
 export type ActionVerb = keyof typeof ICONS;

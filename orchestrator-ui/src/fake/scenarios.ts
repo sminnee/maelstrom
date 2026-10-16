@@ -1,3 +1,4 @@
+import { NEW_FEATURE, OLD_FEATURE } from '../rendered/gherkin/feature.fixture';
 import type { Attention, AttentionKind } from '../protocol/attention';
 import { deskIdForTask } from '../protocol/deskId';
 import type { DocumentKind, DocumentStatus } from '../protocol/documents';
@@ -366,6 +367,21 @@ const diff = (path: string, over: Partial<FileDiff> = {}): FileDiff => ({
 const CHANGES_SHA = 'c0ffee1234567890c0ffee1234567890c0ffee12';
 const CHANGES_LATER_SHA = 'decade1234567890decade1234567890decade12';
 
+/** `auth/tokens.py` on each side, as its diff in the `changes` scenario reads. */
+const OLD_TOKENS = `from clock import clock
+
+
+def rotate(token):
+    now = clock()
+    if token.expiry < now:
+        return refresh(token)
+    return token
+`;
+const NEW_TOKENS = OLD_TOKENS.replace(
+  '    if token.expiry < now:\n',
+  '    if token.expiry <= now:\n        log.info("rotating %s", token.id)\n',
+);
+
 /** NORT-12's worktree with dirty files and two commits, covering every diff status. */
 function changes(): Seed {
   const seed = seedWorld();
@@ -376,6 +392,7 @@ function changes(): Seed {
     diff('auth/expiry.py', { status: 'renamed', oldPath: 'auth/ttl.py' }),
     diff('docs/tokens.png', { binary: true, additions: 0, deletions: 0, hunks: [] }),
     diff('auth/fixtures/tokens.json', { truncated: true, additions: 4200 }),
+    diff('specs/rotation.feature', { additions: 12, deletions: 6 }),
   ];
   seed.world.worktrees['northwind-delta']!.dirtyFiles = 2;
   seed.world.changes['northwind-delta'] = {
@@ -412,6 +429,16 @@ function changes(): Seed {
       [CHANGES_SHA]: every,
       [CHANGES_LATER_SHA]: every.slice(0, 1),
     },
+    // The Rendered view's versions, on each rev that lists these files.
+    files: Object.fromEntries(
+      ['branch', CHANGES_SHA].map((rev) => [
+        rev,
+        {
+          'specs/rotation.feature': { old: OLD_FEATURE, new: NEW_FEATURE },
+          'auth/tokens.py': { old: OLD_TOKENS, new: NEW_TOKENS },
+        },
+      ]),
+    ),
   };
   return seed;
 }
