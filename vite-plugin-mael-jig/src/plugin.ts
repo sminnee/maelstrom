@@ -32,6 +32,8 @@ const DRAFT_EVENT = 'mael-jig:draft';
 /** The custom HMR event that tells every page whether to draw the jig. */
 const STATE_EVENT = 'mael-jig:state';
 const BACKOFF_MS = [250, 1000, 5000];
+/** The provider's close code for a URL `mael env start` did not sign. */
+const CLOSE_UNAUTHORISED = 4403;
 const CLIENT_HEADER = 'x-mael-jig-client';
 const SETTLE_MS = 80;
 /** The screenshots `.drafts/jig/` keeps. An agent reads the newest; the rest is history. */
@@ -134,11 +136,21 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
       server.watcher.on('change', broadcast);
       server.watcher.on('unlink', broadcast);
 
-      const provider = connect(usableUrl(providerUrl, server.config.logger), (visible) =>
-        server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
+      const { logger } = server.config;
+      const provider = connect(
+        usableUrl(providerUrl, logger),
+        (visible) => server.ws.send({ type: 'custom', event: STATE_EVENT, data: { visible } }),
+        logger,
       );
       const shots = join(drafts, 'jig');
       stopProvider = provider.stop;
+
+      // Before the routes: a page on another origin must not write a draft or reach the agent.
+      server.middlewares.use('/__mael', (req, res, next) => {
+        const refusal = foreignRequest(req);
+        if (refusal) json(res, 403, { error: { message: refusal } });
+        else next();
+      });
 
       // Mounted under the prefix, so `req.url` is the rest: `/<name>`, still encoded.
       server.middlewares.use('/__mael/drafts', (req, res) => {
@@ -242,8 +254,14 @@ export function maelJig({ providerUrl = process.env.MAEL_FEEDBACK_URL }: Options
  * The socket to the provider, kept open: it reconnects with backoff, and
  * reports the jig hidden while it is down. `onState` hears each change.
  */
-function connect(url: string | undefined, onState: (visible: boolean) => void) {
+function connect(
+  url: string | undefined,
+  onState: (visible: boolean) => void,
+  logger: { warn: (msg: string) => void },
+) {
   let socket: WebSocket | null = null;
+  // Once, not on each retry: a URL the provider refuses stays refused until a restart.
+  let warned = false;
   let visible = false;
   let stopped = !url;
   let attempt = 0;
@@ -285,8 +303,15 @@ function connect(url: string | undefined, onState: (visible: boolean) => void) {
         waiting.delete(frame.id);
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       socket = null;
+      if (event.code === CLOSE_UNAUTHORISED && !warned) {
+        warned = true;
+        logger.warn(
+          'mael-jig: the live feedback provider refused this URL; ' +
+            'run `mael env restart` for this service',
+        );
+      }
       show(false);
       for (const { reject } of waiting.values())
         reject(new Error('The live feedback provider went away'));
@@ -374,6 +399,34 @@ function pruneShots(dir: string): void {
     .filter((name) => !Number.isNaN(stamp(name)))
     .sort((a, b) => stamp(b) - stamp(a));
   for (const old of shots.slice(KEEP_SHOTS)) rmSync(join(dir, old), { force: true });
+}
+
+/**
+ * Why a state-changing request did not come from the overlay, or `undefined`
+ * when it may have. The jig header makes a cross-origin request preflight,
+ * and Vite's CORS lets other localhost origins through a preflight, so
+ * `Origin` must name this server too. A request with no `Origin` is not from
+ * a browser page: any host that reaches the server is trusted.
+ */
+function foreignRequest(req: IncomingMessage): string | undefined {
+  if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+  if (!req.headers[CLIENT_HEADER]) return `A ${req.method} needs the ${CLIENT_HEADER} header`;
+  const from = req.headers.origin;
+  // HTTP/2, which Vite serves over HTTPS, names the host in `:authority` and sends no `Host`.
+  const host = req.headers.host ?? req.headers[':authority'];
+  if (from === undefined) return undefined;
+  const fromHost = originHost(from);
+  if (fromHost !== undefined && fromHost === host) return undefined;
+  return `A ${req.method} from ${from} is refused`;
+}
+
+/** The `host[:port]` of an `Origin` value, or `undefined` for `null` and junk. */
+function originHost(origin: string): string | undefined {
+  try {
+    return new URL(origin).host || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The worktree that holds `root`, or `null` outside a git checkout. */
