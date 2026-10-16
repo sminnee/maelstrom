@@ -1276,6 +1276,7 @@ without waiting for the poll.
 | `GET /api/worktrees?max_age=` | `{projects: [Project], worktrees: [Worktree]}`. With `max_age` (seconds), the route first reads every branch on disk, unless such a read finished within `max_age`. A poll's desk-only read does not count. `mael list` uses it. A `max_age` that is not a finite, non-negative number is `invalid`. `prStale` is true when the PR fields are the last known state. `appUrl` and `appRunning` are the first web port and a port probe on it. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
 | `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
+| `GET /api/worktrees/{id}/file?rev=&path=&oldPath=` | `FileVersions`: `{rev, path, old, new, truncated}`, one file whole on each side of a rev, for the **Rendered view**. Compressed |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
@@ -1294,7 +1295,7 @@ without waiting for the poll.
 
 ### A worktree's changes
 
-The two changes routes are **Pass-through** (see [data-architecture.md](data-architecture.md)).
+The three changes routes are **Pass-through** (see [data-architecture.md](data-architecture.md)).
 Each request runs git in the worktree, with `--no-optional-locks`, so a read never takes the
 index lock from an agent's commit. `mael_domain.worktree_changes` holds the reads and the diff
 parser.
@@ -1312,14 +1313,29 @@ base has merged and been pruned. `base` in the reply is the branch that resolved
 the uncommitted diff hold **Dirty files** only. `commits` is oldest first, the order the work was
 done in.
 
-Both routes answer 404 `unknown_id` for a worktree the world does not hold, and for a **Closed**
-worktree, which has a detached HEAD and so no branch. The diff route also answers 404 for a sha
+The routes answer 404 `unknown_id` for a worktree the world does not hold, and for a **Closed**
+worktree, which has a detached HEAD and so no branch. The diff and file routes also answer 404 for a sha
 that is not in `commits`, so the route cannot read arbitrary history, and 400 `invalid` with no
 `rev`. A git read that fails answers 400 `invalid` with git's message, never an empty diff.
 
 A file keeps its first 5,000 lines. A longer file is marked `truncated: true`, and its
 `additions` and `deletions` still count every line. A binary file is marked `binary: true` and
 has no hunks.
+
+The file route reads one file whole, so the **Rendered view** can draw more than a hunk's
+context. Each rev names an old side and a new side:
+
+| Rev | Old side | New side |
+|---|---|---|
+| `uncommitted` | `HEAD:<oldPath>` | The file in the working tree |
+| `branch` | `<merge-base>:<oldPath>` | `HEAD:<path>` |
+| A commit sha | `<sha>^:<oldPath>` | `<sha>:<path>` |
+
+`oldPath` names the old side of a rename, and defaults to `path`. A side the rev does not hold
+is `null`: the old side of an added file, the new side of a deleted one. A side with a NUL byte
+is binary and is `null`. A side past 1 MB is `null`, and the reply sets `truncated: true`. The
+route answers 400 `invalid` with no `rev` or no `path`, and for a path that is absolute or holds
+`..`.
 
 The task list ships every task as a slim row and the client filters. The list already filters in
 memory, and a server-side filter would fragment the client's cache.
