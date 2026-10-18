@@ -17,19 +17,42 @@ function resize(viewport: ReturnType<typeof fakeViewport>, height: number) {
 }
 const nextFrame = () => vi.advanceTimersToNextFrame();
 
+/** An element in the page, a textarea unless named. */
+function field(tag = 'textarea', attrs: Record<string, string> = {}) {
+  const el = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
+  document.body.append(el);
+  return el;
+}
+
+// The tracker listens on the shared document, so each test stops its own.
+const stops: Array<() => void> = [];
+
+/** Track an 844px viewport, with `focused` focused first. */
+function track(focused?: HTMLElement) {
+  focused?.focus();
+  const root = document.createElement('div');
+  const viewport = fakeViewport(844);
+  const stop = trackVisualViewport(root, viewport);
+  stops.push(stop);
+  return { root, viewport, stop };
+}
+
+/** Track while a textarea has the focus, so the keyboard is open. */
+const editing = () => track(field());
+
 describe('trackVisualViewport', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
   });
   afterEach(() => {
+    stops.splice(0).forEach((stop) => stop());
     vi.useRealTimers();
+    document.body.replaceChildren();
   });
 
-  it('writes the visible top and height, and follows the keyboard', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    const stop = trackVisualViewport(root, viewport);
-    // At once, so the first paint has it.
+  it('writes the visible top and height while a field has the focus, and follows the keyboard', () => {
+    const { root, viewport, stop } = editing();
     expect(vvh(root)).toBe('844px');
     expect(vvt(root)).toBe('0px');
 
@@ -50,9 +73,7 @@ describe('trackVisualViewport', () => {
   });
 
   it('writes once for every event in one frame, with the last height', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    trackVisualViewport(root, viewport);
+    const { root, viewport } = editing();
     const set = vi.spyOn(root.style, 'setProperty');
 
     resize(viewport, 700);
@@ -67,9 +88,7 @@ describe('trackVisualViewport', () => {
   });
 
   it('writes whole pixels, as iOS reports a fraction', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    trackVisualViewport(root, viewport);
+    const { root, viewport } = editing();
 
     viewport.offsetTop = 119.6;
     resize(viewport, 507.6);
@@ -79,9 +98,7 @@ describe('trackVisualViewport', () => {
   });
 
   it('drops a write still waiting for its frame when it stops', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    const stop = trackVisualViewport(root, viewport);
+    const { root, viewport, stop } = editing();
 
     resize(viewport, 508);
     stop();
@@ -90,9 +107,7 @@ describe('trackVisualViewport', () => {
   });
 
   it('ignores a height of 0, which iOS reports for a moment', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    trackVisualViewport(root, viewport);
+    const { root, viewport } = editing();
 
     resize(viewport, 0);
     nextFrame();
@@ -100,9 +115,7 @@ describe('trackVisualViewport', () => {
   });
 
   it('holds still while the page is pinch-zoomed, so the zoom pans over a still app', () => {
-    const root = document.createElement('div');
-    const viewport = fakeViewport(844);
-    trackVisualViewport(root, viewport);
+    const { root, viewport } = editing();
 
     viewport.scale = 2;
     resize(viewport, 422);
@@ -113,6 +126,57 @@ describe('trackVisualViewport', () => {
     resize(viewport, 844);
     nextFrame();
     expect(vvh(root)).toBe('844px');
+  });
+
+  it('clears them when the field loses the focus, with no further viewport event', () => {
+    const notes = field();
+    const { root, viewport } = track(notes);
+    resize(viewport, 508);
+    nextFrame();
+
+    notes.blur();
+    nextFrame();
+    expect(vvh(root)).toBe('');
+    expect(vvt(root)).toBe('');
+  });
+
+  it('keeps them when the focus moves from one field to the next in one frame', () => {
+    const title = field();
+    const notes = field();
+    const { root, viewport } = track(title);
+    resize(viewport, 508);
+    nextFrame();
+
+    title.blur();
+    // The check waits for the frame, so the gap between the two fields does not clear them.
+    expect(vvh(root)).toBe('508px');
+    notes.focus();
+    nextFrame();
+    expect(vvh(root)).toBe('508px');
+  });
+
+  it('leaves them unset while nothing has the focus, so the CSS fallback applies', () => {
+    const { root, viewport } = track();
+    expect(vvh(root)).toBe('');
+
+    resize(viewport, 508);
+    nextFrame();
+    expect(vvh(root)).toBe('');
+    expect(vvt(root)).toBe('');
+  });
+
+  it('leaves them unset while a control that takes no text has the focus', () => {
+    const { root, viewport } = track(field('input', { type: 'checkbox' }));
+    resize(viewport, 508);
+    nextFrame();
+    expect(vvh(root)).toBe('');
+  });
+
+  it('follows the viewport while a frame has the focus, as it cannot see the field inside', () => {
+    const { root, viewport } = track(field('iframe'));
+    resize(viewport, 508);
+    nextFrame();
+    expect(vvh(root)).toBe('508px');
   });
 
   it('leaves it unset with no visual viewport, so the CSS fallback applies', () => {
