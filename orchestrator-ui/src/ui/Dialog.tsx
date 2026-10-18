@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { actionIcon } from './actionIcons';
 import styles from './Dialog.module.css';
 
@@ -60,6 +60,17 @@ export function Dialog({
     if (el && !el.open) el.showModal();
   }, []);
 
+  // Blur the focused field while it is still attached: a removed field fires
+  // no blur, and iOS then keeps the keyboard's height. See DESIGN.md, "The
+  // Still Screen Rule". A layout-effect cleanup runs before React removes the node.
+  useLayoutEffect(
+    () => () => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && box.current?.contains(focused)) focused.blur();
+    },
+    [],
+  );
+
   useEffect(() => {
     // Where focus was before the dialog took it. Restoring it on the way out
     // is what lets a keyboard user carry on from where they were, rather than
@@ -72,7 +83,8 @@ export function Dialog({
     // screen reader reads the dialog from its start.
     box.current?.focus({ preventScroll: true });
     return () => {
-      // A field removed while focused fires no blur in every browser.
+      // The blur above ends the reveal already. This is the fallback, for a
+      // reveal whose field no longer has the focus.
       reveals.current?.abort();
       if (opener instanceof HTMLElement && opener.isConnected)
         opener.focus({ preventScroll: true });

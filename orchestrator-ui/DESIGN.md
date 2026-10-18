@@ -568,7 +568,8 @@ shrinks the app from the bottom and the app ends on the keyboard. It is not fixe
 `bottom: 0`: on iOS the keyboard shrinks the visual viewport, not the layout viewport, so the
 bottom of the layout viewport is behind the keyboard. `html` and `body` take the same height, so
 iOS has no document to scroll toward a field. A modal dialog is outside `#root`, so it anchors to
-`--vvt` and `--vvh` itself. iOS scrolls toward a focused field before the keyboard shrinks the
+`--vvt` and `--vvh` itself. A dialog blurs its focused field before it leaves the DOM, because a
+removed field fires no blur. iOS scrolls toward a focused field before the keyboard shrinks the
 box, so a dialog scrolls itself to its focused field once more, a frame after each resize. The
 document has `overscroll-behavior: none`, each full-screen scroller has `contain`, and a double
 tap does not zoom. Pinch zoom stays: while the page is zoomed `--vvh` holds, so the zoom pans
