@@ -199,14 +199,16 @@ describe('the focused field', () => {
 /** A focused textarea fills a narrow dialog; the CSS is in `Dialog.module.css`. */
 describe('leaving a focused textarea', () => {
   function editor() {
-    render(
+    const view = render(
       <Dialog label="Test" onClose={() => {}}>
         <label>
           Notes <textarea />
         </label>
       </Dialog>,
     );
-    return screen.getByRole('textbox', { name: 'Notes' });
+    return Object.assign(screen.getByRole('textbox', { name: 'Notes' }), {
+      unmount: view.unmount,
+    });
   }
   // Hidden until CSS shows it for a focused textarea, which jsdom cannot.
   const leave = () => screen.getByLabelText('Done editing');
@@ -225,6 +227,27 @@ describe('leaving a focused textarea', () => {
     notes.focus();
     await user.pointer({ keys: '[MouseLeft>]', target: leave() });
     expect(notes).toHaveFocus();
+  });
+
+  it('blurs the field when the dialog goes, so iOS closes the keyboard as on a normal blur', () => {
+    const notes = editor();
+    const blurred = vi.fn();
+    notes.addEventListener('blur', blurred);
+    notes.focus();
+    notes.unmount();
+    expect(blurred).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a field outside the dialog focused when the dialog goes', () => {
+    const notes = editor();
+    const outside = document.body.appendChild(document.createElement('textarea'));
+    const blurred = vi.fn();
+    outside.addEventListener('blur', blurred);
+    outside.focus();
+    notes.unmount();
+    expect(blurred).not.toHaveBeenCalled();
+    expect(outside).toHaveFocus();
+    outside.remove();
   });
 });
 
