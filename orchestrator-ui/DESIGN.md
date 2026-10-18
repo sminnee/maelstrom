@@ -563,7 +563,10 @@ does not hold the brand, so the brand is hidden visually and kept for a screen r
 
 **The Still Screen Rule.** The app is the visible area and does not move.
 `layout/visualViewport.ts` writes the visual viewport's height to `--vvh` and its top to
-`--vvt`, once a frame at most. `#root` is fixed at `--vvt` and `--vvh`, so a soft keyboard
+`--vvt`, once a frame at most, while a field has the focus. While no field has the focus, it
+clears them, and the CSS falls back to `100dvh` and `0px`. The keyboard is open only while a
+field has the focus. So the app returns to the full height when the keyboard closes, even when
+iOS sends no last viewport event. `#root` is fixed at `--vvt` and `--vvh`, so a soft keyboard
 shrinks the app from the bottom and the app ends on the keyboard. It is not fixed to
 `bottom: 0`: on iOS the keyboard shrinks the visual viewport, not the layout viewport, so the
 bottom of the layout viewport is behind the keyboard. `html` and `body` take the same height, so
@@ -1118,7 +1121,7 @@ therefore scopes its fill and border to editable fields, as `ui/Dialog.module.cs
 
 A multi-line field grows to fit its text (`ui/TextArea` with `grow`), and its container scrolls.
 A field with no scrolling container, such as the conversation input or a review dock field, caps
-at half the visible height and scrolls itself. The visible height is `--vvh`: `main.tsx` writes
+at half the visible height and scrolls itself. The visible height is `--vvh`: `layout/visualViewport.ts` writes
 the visual viewport's height there, because a soft keyboard does not shrink `dvh`. On a phone the
 conversation input may take the visible height less four controls.
 
