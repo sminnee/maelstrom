@@ -164,6 +164,10 @@ The state channel. These never decorate; each one means one thing.
 - **Clear Green** (`--ok`): finished and correct. Deliberately quiet — done work should recede.
   A cancelled task never takes it: cancelled work is terminal but not a success, so it draws
   the faint neutral dot instead.
+- **A diff's changed part** (`--diff-modified`, `--diff-renamed`): a rule or scenario that is
+  neither added nor removed. A neutral, not a hue: a change does not call the operator and cannot
+  be clicked, so it takes neither Alert Amber nor Signal Blue. Its mark, • or →, tells the two
+  apart. Add and remove keep Clear Green and Fault Rose, as the diff rows do.
 - **Console amber and rose are never paired for emphasis.** Two loud channels at once is
   the operator failing to know which to deal with.
 

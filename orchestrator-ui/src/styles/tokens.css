@@ -85,6 +85,11 @@
   --unanswered: var(--hue-unanswered);
   --danger: var(--hue-danger);
   --ok: var(--hue-ok);
+  /* A diff's changed part, beside add (`--ok`) and remove (`--danger`). A
+     change neither calls the operator nor can be clicked, so it takes no state
+     hue: its mark (• or →) tells the two apart. */
+  --diff-modified: var(--fg-muted);
+  --diff-renamed: var(--fg-muted);
   --phase-shape: var(--hue-shape);
   --phase-plan: var(--hue-plan);
   --phase-build: var(--hue-build);
