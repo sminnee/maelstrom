@@ -12,7 +12,7 @@ import {
 /** What happened to a scenario, a background or a rule between the two sides. */
 export type Change = 'added' | 'removed' | 'modified' | 'renamed' | 'unchanged';
 
-/** One item of a list diffed as a whole: a step, a tag, a table row, a description line. */
+/** One item of a list diffed as a whole: a step, a tag, a table row, a description paragraph. */
 export interface Diffed<T> {
   kind: DiffRowKind;
   item: T;
@@ -48,6 +48,8 @@ export interface RuleDiff extends Head {
 }
 
 export interface FeatureDiff {
+  /** `added` or `removed` when one side is `null`: the whole file is new or deleted. */
+  change: 'added' | 'removed' | 'unchanged';
   keyword: string;
   name: string;
   description: Diffed<string>[];
@@ -87,9 +89,10 @@ export function diffFeature(
     else if (child.change !== 'unchanged') counts.changed++;
   }
   return {
+    change: oldText === null ? 'added' : newText === null ? 'removed' : 'unchanged',
     keyword: shown?.keyword ?? 'Feature',
     name: shown?.name ?? '',
-    description: diffList(lines(a?.description), lines(b?.description)),
+    description: diffList(paragraphs(a?.description), paragraphs(b?.description), wordsKey),
     tags: diffList(a?.tags ?? [], b?.tags ?? []),
     children,
     counts,
@@ -206,7 +209,7 @@ function diffExamples(olds: Examples[], news: Examples[]): ExamplesDiff[] {
 /** The head of a child: what its own name, tags and description say. */
 function diffHead(a: Block | Rule | null, b: Block | Rule | null, renamed: boolean): Head {
   const shown = (b ?? a)!;
-  const description = diffList(lines(a?.description), lines(b?.description));
+  const description = diffList(paragraphs(a?.description), paragraphs(b?.description), wordsKey);
   const tags = diffList(a?.tags ?? [], b?.tags ?? []);
   return {
     change: !a ? 'added' : !b ? 'removed' : renamed ? 'renamed' : 'unchanged',
@@ -250,4 +253,22 @@ function diffList<T>(olds: readonly T[], news: readonly T[], key: (x: T) => stri
 const changed = (d: Diffed<unknown>) => d.kind !== 'context';
 const stepKey = (s: Step) => JSON.stringify([s.keyword.trim(), s.text, s.table, s.docString]);
 const cellsKey = (row: string[]) => JSON.stringify(row);
-const lines = (text: string | undefined) => (text ? text.split('\n') : []);
+
+/**
+ * A description as its paragraphs: split on blank lines, each line trimmed
+ * of its indent. The lines stay, so a markdown list or table keeps its shape;
+ * markdown draws a soft wrap as a space.
+ */
+const paragraphs = (text: string | undefined) =>
+  (text ?? '')
+    .split(/\n\s*\n/)
+    .map((p) =>
+      p
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .filter(Boolean);
+/** A paragraph's words, so a paragraph wrapped again is no change. */
+const wordsKey = (paragraph: string) => paragraph.replace(/\s+/g, ' ');
