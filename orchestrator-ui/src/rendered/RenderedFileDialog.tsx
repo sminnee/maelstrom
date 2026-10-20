@@ -5,9 +5,10 @@ import type { FileDiff } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { Dialog, DialogHeader } from '../ui/Dialog';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import type { Mode } from './plugin';
+import type { DisplayOption, Mode } from './plugin';
 import { rendererFor } from './plugins';
 import styles from './RenderedFileDialog.module.css';
+import { TextView } from './TextView';
 
 const MODES: { mode: Mode; label: string }[] = [
   { mode: 'final', label: 'Final' },
@@ -15,9 +16,11 @@ const MODES: { mode: Mode; label: string }[] = [
   { mode: 'changes', label: 'Changes only' },
 ];
 
+const RAW: DisplayOption = { id: 'raw', label: 'Raw' };
+
 /**
  * The **Rendered view**: one file of a rev, drawn whole by its renderer plugin,
- * in one of three modes.
+ * in one of three modes and, for a plugin with displays, one of them or Raw.
  *
  * Portalled to the body, as `ImageLightbox` is: a file's head is sticky and
  * clips what sits inside it.
@@ -34,12 +37,16 @@ export function RenderedFileDialog({
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('changes');
+  const [display, setDisplay] = useState<string | null>(null);
   const versions = useWorktreeFile(worktreeId, rev, file.path, file.oldPath);
   const plugin = rendererFor(file.path);
   const deleted = file.status === 'deleted';
   // Final has nothing to draw for a deleted file.
   const shown = deleted && mode === 'final' ? 'changes' : mode;
   const data = versions.data;
+  const displays = plugin.displays && [...plugin.displays, RAW];
+  const shownDisplay = displays?.find((d) => d.id === display)?.id ?? displays?.[0]?.id;
+  const Draw = shownDisplay === RAW.id ? TextView : plugin.View;
   return createPortal(
     <Dialog
       label={`${file.path}, rendered`}
@@ -48,7 +55,14 @@ export function RenderedFileDialog({
       className={styles.box}
     >
       <DialogHeader title={file.path} onClose={onClose}>
-        <span className={styles.plugin}>{plugin.label}</span>
+        {displays && (
+          <SegmentedControl
+            label="Display"
+            items={displays}
+            pressed={shownDisplay}
+            onPress={setDisplay}
+          />
+        )}
         <SegmentedControl<Mode>
           label="Mode"
           items={MODES.map(({ mode: m, label }) => ({
@@ -74,9 +88,18 @@ export function RenderedFileDialog({
         ) : (
           <>
             {data.truncated && (
-              <p className={styles.note}>One side is too large to show, so it reads as empty.</p>
+              <p className={styles.note}>
+                One version is too large to show, so it is drawn as empty.
+              </p>
             )}
-            <plugin.View old={data.old} new={data.new} mode={shown} path={file.path} />
+            <Draw
+              old={data.old}
+              new={data.new}
+              mode={shown}
+              display={shownDisplay}
+              truncated={data.truncated}
+              path={file.path}
+            />
           </>
         )}
       </div>
