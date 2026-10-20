@@ -591,7 +591,8 @@ describe('the Rendered view', () => {
     Given a placed order
     Then it is refunded
 `;
-  const FEATURE = (place: string) => `Feature: Checkout\n\n${place}\n${CANCEL}`;
+  const FEATURE = (place: string) =>
+    `Feature: Checkout\n  A cart becomes an order\n  at checkout.\n\n  An order can be cancelled.\n\n${place}\n${CANCEL}`;
 
   /** Open the tab on two uncommitted files, a `.py` and a `.feature`, with their versions. */
   async function openWithVersions(feature: { old: string; new: string }) {
@@ -617,10 +618,37 @@ describe('the Rendered view', () => {
 
   const mode = (dialog: HTMLElement, name: string) =>
     userEvent.click(within(dialog).getByRole('button', { name }));
+  const showDisplay = (dialog: HTMLElement, name: string) =>
+    userEvent.click(
+      within(within(dialog).getByRole('group', { name: 'Display' })).getByRole('button', { name }),
+    );
   const kinds = (dialog: HTMLElement) =>
     within(dialog)
       .getAllByTestId('diff-row')
       .map((row) => row.getAttribute('data-kind'));
+  const scenario = (within_: HTMLElement, name: string) =>
+    within(within_).queryByRole('region', { name: `Scenario: ${name}` });
+  const steps = (dialog: HTMLElement) =>
+    within(dialog)
+      .getAllByTestId('feature-step')
+      .map((s) => `${s.getAttribute('data-kind')} ${s.textContent}`);
+  /** Each contents link, after its change mark's name when it has one. */
+  const contents = (dialog: HTMLElement) =>
+    within(within(dialog).getByRole('navigation', { name: 'Contents' }))
+      .getAllByRole('link')
+      .map((link) =>
+        [link.previousElementSibling?.getAttribute('aria-label'), link.textContent]
+          .filter(Boolean)
+          .join(' '),
+      );
+
+  const scrolled = vi.fn();
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrolled;
+  });
+  afterEach(() => {
+    scrolled.mockReset();
+  });
 
   it('draws a text file as lines, in each mode', async () => {
     const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(PLACE) });
@@ -629,7 +657,8 @@ describe('the Rendered view', () => {
       'aria-pressed',
       'true',
     );
-    expect(within(dialog).getByText('Text', { exact: true })).toBeInTheDocument();
+    // The text plugin draws one way, so it has no Display control.
+    expect(within(dialog).queryByRole('group', { name: 'Display' })).toBeNull();
 
     // Changes only: the change and three lines of context above it.
     await waitFor(() =>
@@ -646,38 +675,64 @@ describe('the Rendered view', () => {
     const edited = PLACE.replace('2 items', '3 items');
     const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(edited) });
     const dialog = await view(panel, 'specs/checkout.feature');
-    const scenario = (name: string) =>
-      within(dialog).queryByRole('region', { name: `Scenario: ${name}` });
-    const steps = () =>
-      within(dialog)
-        .getAllByTestId('feature-step')
-        .map((s) => `${s.getAttribute('data-kind')} ${s.textContent}`);
 
     // Changes only: the feature's head, a count, and the changed scenario alone.
     await within(dialog).findByTestId('feature-view');
-    expect(within(dialog).getByText('Scenarios', { exact: true })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Formatted' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(dialog).toHaveTextContent('Feature: Checkout');
     expect(dialog).toHaveTextContent('Scenarios: 0 added, 1 changed, 0 removed');
-    expect(scenario('Cancel an order')).toBeNull();
-    expect(scenario('Place an order')).toHaveTextContent('Changed');
-    expect(steps()).toEqual([
+    expect(scenario(dialog, 'Cancel an order')).toBeNull();
+    expect(scenario(dialog, 'Place an order')).toHaveTextContent('Changed');
+    expect(steps(dialog)).toEqual([
       'remove -Given a cart with 2 items',
       'add +Given a cart with 3 items',
       'context  Then I see a receipt',
     ]);
+    // The description: one paragraph per blank-line block.
+    expect(within(dialog).getByText('A cart becomes an order at checkout.').tagName).toBe('P');
+    expect(within(dialog).getByText('An order can be cancelled.').tagName).toBe('P');
+
+    // The contents list the scenarios shown, each with its change, and a link
+    // scrolls to its heading.
+    expect(contents(dialog)).toEqual(['Changed Place an order']);
+    await userEvent.click(within(dialog).getByRole('link', { name: 'Place an order' }));
+    expect(scrolled.mock.contexts).toEqual([
+      within(dialog).getByRole('heading', { name: /Scenario: Place an order/ }),
+    ]);
 
     await mode(dialog, 'Whole file');
-    expect(scenario('Cancel an order')).not.toBeNull();
-    expect(steps()).toHaveLength(5);
+    expect(scenario(dialog, 'Cancel an order')).not.toBeNull();
+    expect(steps(dialog)).toHaveLength(5);
+    expect(contents(dialog)).toEqual(['Changed Place an order', 'Cancel an order']);
 
     await mode(dialog, 'Final');
-    expect(steps()).toEqual([
+    expect(steps(dialog)).toEqual([
       'context  Given a cart with 3 items',
       'context  Then I see a receipt',
       'context  Given a placed order',
       'context  Then it is refunded',
     ]);
     expect(dialog).not.toHaveTextContent('Changed');
+  });
+
+  it('draws a feature file as its lines in Raw', async () => {
+    const edited = PLACE.replace('2 items', '3 items');
+    const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(edited) });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    await within(dialog).findByTestId('feature-view');
+    await showDisplay(dialog, 'Raw');
+    expect(within(dialog).queryByTestId('feature-view')).toBeNull();
+    const changed = within(dialog)
+      .getAllByTestId('diff-row')
+      .filter((row) => row.getAttribute('data-kind') !== 'context')
+      .map((row) => `${row.getAttribute('data-kind')} ${row.textContent}`);
+    expect(changed).toEqual([
+      expect.stringMatching(/^remove .*Given a cart with 2 items$/),
+      expect.stringMatching(/^add .*Given a cart with 3 items$/),
+    ]);
   });
 
   it('falls back to text for a feature file that does not parse, and closes on ×', async () => {
@@ -693,6 +748,23 @@ describe('the Rendered view', () => {
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: /rendered/ })).toBeNull();
+  });
+
+  it('reads a side past the size cap as empty, not as a new file', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [file('specs/checkout.feature', 'x')];
+      c.files = {
+        uncommitted: {
+          'specs/checkout.feature': { old: null, new: FEATURE(PLACE), truncated: true },
+        },
+      };
+    });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    expect(within(dialog).getByText(/One version is too large to show/)).toBeInTheDocument();
+    expect(await within(dialog).findByTestId('feature-view')).toHaveAttribute(
+      'data-change',
+      'unchanged',
+    );
   });
 
   it('opens a deleted file on its removed side, with Final disabled', async () => {

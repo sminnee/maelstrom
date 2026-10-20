@@ -1382,7 +1382,8 @@ _Avoid_: Preview, document, file viewer
 **Renderer plugin**:
 One way the **Rendered view** draws a file, chosen by the file's path. The text plugin draws
 lines in syntax colour, and draws any file no other plugin claims. The Gherkin plugin draws a
-`.feature` file as its scenarios, and falls back to text when a side does not parse.
+`.feature` file as a markdown document of its rules and scenarios, and falls back to text when a
+side does not parse.
 _Avoid_: Viewer, formatter, previewer
 
 **Dev env tab**:

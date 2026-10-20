@@ -1,4 +1,4 @@
-import { NEW_FEATURE, OLD_FEATURE } from '../rendered/gherkin/feature.fixture';
+import { ADDED_FEATURE, NEW_FEATURE, OLD_FEATURE } from '../rendered/gherkin/feature.fixture';
 import type { Attention, AttentionKind } from '../protocol/attention';
 import { deskIdForTask } from '../protocol/deskId';
 import type { DocumentKind, DocumentStatus } from '../protocol/documents';
@@ -393,6 +393,7 @@ function changes(): Seed {
     diff('docs/tokens.png', { binary: true, additions: 0, deletions: 0, hunks: [] }),
     diff('auth/fixtures/tokens.json', { truncated: true, additions: 4200 }),
     diff('specs/rotation.feature', { additions: 12, deletions: 6 }),
+    diff('specs/reminders.feature', { status: 'added', additions: 33, deletions: 0 }),
   ];
   seed.world.worktrees['northwind-delta']!.dirtyFiles = 2;
   seed.world.changes['northwind-delta'] = {
@@ -435,6 +436,7 @@ function changes(): Seed {
         rev,
         {
           'specs/rotation.feature': { old: OLD_FEATURE, new: NEW_FEATURE },
+          'specs/reminders.feature': { old: null, new: ADDED_FEATURE },
           'auth/tokens.py': { old: OLD_TOKENS, new: NEW_TOKENS },
         },
       ]),

@@ -82,7 +82,10 @@ export interface FakeWorld {
     {
       changes: WorktreeChanges;
       diffs: Record<string, FileDiff[]>;
-      files?: Record<string, Record<string, { old: string | null; new: string | null }>>;
+      files?: Record<
+        string,
+        Record<string, { old: string | null; new: string | null; truncated?: boolean }>
+      >;
     }
   >;
   /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
@@ -562,7 +565,7 @@ function read(path: string, server: FakeServer): Reply {
     if (wt[2] === 'file') {
       const path = params.get('path') ?? '';
       const versions = entry.files?.[rev]?.[path] ?? { old: null, new: null };
-      return ok({ rev, path, ...versions, truncated: false });
+      return ok({ rev, path, truncated: false, ...versions });
     }
     return ok({ rev, files: entry.diffs[rev] ?? [] });
   }
