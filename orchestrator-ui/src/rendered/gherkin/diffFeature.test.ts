@@ -168,10 +168,38 @@ ${rows}`;
     expect(outline(added)).toEqual(['added Place an order']);
     expect(added.name).toBe('Orders');
     expect(added.counts).toEqual({ added: 1, changed: 0, removed: 0 });
+    expect(added.change).toBe('added');
 
     const deleted = diffed(feature(PLACE), null);
     expect(outline(deleted)).toEqual(['removed Place an order']);
     expect(deleted.name).toBe('Orders');
+    expect(deleted.change).toBe('removed');
+    expect(diffed(feature(PLACE), feature(PLACE)).change).toBe('unchanged');
+  });
+
+  it('diffs a description as paragraphs, so a re-wrap is no change and a list keeps its lines', () => {
+    const described = (second: string) =>
+      `Feature: Orders\n  An order holds a cart\n  and its payment.\n  \n  ${second}\n`;
+    const same = diffed(described('- paid\n  - shipped'), described('- paid\n  - shipped'));
+    expect(same.description).toEqual([
+      { kind: 'context', item: 'An order holds a cart\nand its payment.' },
+      { kind: 'context', item: '- paid\n- shipped' },
+    ]);
+
+    const rewrapped = diffed(
+      `Feature: Orders\n  An order holds\n  a cart and its payment.\n`,
+      `Feature: Orders\n  An order holds a cart\n  and its payment.\n`,
+    );
+    expect(rewrapped.description).toEqual([
+      { kind: 'context', item: 'An order holds a cart\nand its payment.' },
+    ]);
+
+    const edited = diffed(described('- paid\n  - shipped'), described('- paid\n  - settled'));
+    expect(edited.description).toEqual([
+      { kind: 'context', item: 'An order holds a cart\nand its payment.' },
+      { kind: 'remove', item: '- paid\n- shipped' },
+      { kind: 'add', item: '- paid\n- settled' },
+    ]);
   });
 
   it('returns the parse error of a broken side', () => {
