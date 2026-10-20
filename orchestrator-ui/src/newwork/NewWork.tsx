@@ -10,6 +10,7 @@ import { useWorld } from '../api/useWorld';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { DEFAULT_MODEL, UNSET_MODEL } from '../protocol/models';
+import type { PlanningFields } from '../protocol/planningLevel';
 import { fieldsForLevel } from '../protocol/planningLevel';
 import { projectsInView } from '../selectors/projectsInView';
 import type { TaskDraft } from '../tasklist/TaskFields';
@@ -58,6 +59,12 @@ type Kind = 'task' | 'agent' | 'investigate' | 'linear';
 const DEFAULT_LEVEL_FIELDS = fieldsForLevel('regular');
 
 /**
+ * Where a Linear issue's planning radios start: `high`, which is what
+ * `mael linear plan` writes with no flags.
+ */
+const LINEAR_LEVEL_FIELDS = fieldsForLevel('high');
+
+/**
  * Everything the dialog captures, and the whole of what it holds.
  *
  * One value rather than a key per field, because the prose, its attachments and
@@ -92,6 +99,12 @@ interface Captured {
   taskBase: string;
   /** The comms a task is linked to as it is written: set by a comm's New task. */
   comms: string[];
+  /**
+   * A Linear issue's planning level. Apart from the task's, because the two
+   * kinds start at different levels.
+   */
+  linearCommand: string;
+  linearMode: PermissionMode;
   /** The prose the last comm seed wrote, so the next seed can tell it from the user's own. */
   seededDraft: string;
 }
@@ -122,6 +135,8 @@ const initialCaptured: Captured = {
   taskExecuteModel: UNSET_MODEL,
   taskBase: '',
   comms: [],
+  linearCommand: LINEAR_LEVEL_FIELDS.command,
+  linearMode: LINEAR_LEVEL_FIELDS.mode,
   seededDraft: '',
 };
 
@@ -325,7 +340,13 @@ export function NewWork() {
   };
 
   const planIssue = async (launch: boolean) => {
-    await plan.mutateAsync({ project: chosen, issueId: issue, ...(launch ? { launch } : {}) });
+    await plan.mutateAsync({
+      project: chosen,
+      issueId: issue,
+      command: captured.linearCommand,
+      mode: captured.linearMode,
+      ...(launch ? { launch } : {}),
+    });
     release();
     close();
   };
@@ -369,6 +390,11 @@ export function NewWork() {
         hasLinear={hasLinear}
         issue={issue}
         setIssue={(next) => patch({ issue: next })}
+        linearCommand={captured.linearCommand}
+        linearMode={captured.linearMode}
+        setLinearLevel={(fields) =>
+          patch({ linearCommand: fields.command, linearMode: fields.mode })
+        }
         draft={draft}
         setDraft={setDraft}
         branch={branch}
@@ -434,7 +460,6 @@ export function NewWork() {
             Start
           </AppButton>
         ) : showing === 'linear' ? (
-          // `mael linear plan` takes the issue and nothing else.
           <>
             <AppButton
               disabled={busy || !issue.trim()}
@@ -489,6 +514,9 @@ function Capture({
   hasLinear,
   issue,
   setIssue,
+  linearCommand,
+  linearMode,
+  setLinearLevel,
   draft,
   setDraft,
   branch,
@@ -522,6 +550,9 @@ function Capture({
   hasLinear: boolean;
   issue: string;
   setIssue: (issue: string) => void;
+  linearCommand: string;
+  linearMode: PermissionMode;
+  setLinearLevel: (fields: PlanningFields) => void;
   draft: string;
   setDraft: (draft: string) => void;
   branch: string;
@@ -582,7 +613,12 @@ function Capture({
         ))}
       </fieldset>
 
-      {kind === 'linear' && <LinearFields project={project} issue={issue} setIssue={setIssue} />}
+      {kind === 'linear' && (
+        <>
+          <LinearFields project={project} issue={issue} setIssue={setIssue} />
+          <PlanningLevelField command={linearCommand} mode={linearMode} onChange={setLinearLevel} />
+        </>
+      )}
 
       {/* Title first, matching the task editor's order — see
           `tasklist/TaskFields.tsx`. */}

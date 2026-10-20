@@ -3,6 +3,7 @@ import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
 import type { OperationStarted } from './operations';
+import type { PlanningFields } from '../protocol/planningLevel';
 
 /** One issue of a project's current Linear cycle. */
 export interface LinearIssue {
@@ -35,14 +36,16 @@ export function useLinearIssues(project: string) {
  * Plan a Linear issue: the equivalent of `mael linear plan`.
  *
  * Writes the planning task and, with `launch`, starts it — so it invalidates
- * exactly what {@link useCreateTask} does.
+ * exactly what {@link useCreateTask} does. `command` and `mode` set the
+ * planning level; without them the server writes High.
  */
 export function useCreateLinearTask() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { project: string; issueId: string; launch?: boolean }) =>
-      api.post<OperationStarted>('/api/linear/tasks', vars),
+    mutationFn: (
+      vars: { project: string; issueId: string; launch?: boolean } & Partial<PlanningFields>,
+    ) => api.post<OperationStarted>('/api/linear/tasks', vars),
     onSuccess: (_result, vars) => {
       void queryClient.invalidateQueries({ queryKey: keys.tasks.list() });
       void queryClient.invalidateQueries({ queryKey: keys.desk() });

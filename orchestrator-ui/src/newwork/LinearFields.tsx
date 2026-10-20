@@ -6,11 +6,11 @@ import dialog from '../ui/Dialog.module.css';
 import styles from './NewWork.module.css';
 
 /**
- * Step 1 for the Linear kind: which issue to plan, and nothing else.
+ * Step 1 for the Linear kind: which issue to plan.
  *
- * Planning an issue is `mael linear plan`, which takes only the issue — the
- * brief, the branch, the command and the mode all come from it. So there is one
- * field here, against the three a free agent needs.
+ * Planning an issue is `mael linear plan`. The brief and the branch come from
+ * the issue. The planning level is the one other choice, and `NewWork` shows it
+ * beside this field.
  */
 export function LinearFields({
   project,
