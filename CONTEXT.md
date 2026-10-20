@@ -1375,7 +1375,8 @@ A dialog over the **Changes tab** that draws one whole file of the rev in view, 
 plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none. It has three
 modes: **Final** draws the new file, **Whole file** draws the whole file with the changes marked,
 and **Changes only** draws the changed parts alone. It opens on Changes only. Final is disabled
-for a deleted file.
+for a deleted file. A plugin can also offer displays, such as the Gherkin plugin's Formatted and
+Per scenario; every such plugin also has Raw, the text plugin's lines.
 _Avoid_: Preview, document, file viewer
 
 **Renderer plugin**:
