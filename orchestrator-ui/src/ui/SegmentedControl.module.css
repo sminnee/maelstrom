@@ -1,0 +1,46 @@
+/* One filled control: a pill of segments, the pressed one raised. The top
+   bar's views compose these classes, since its segments are links. */
+.group {
+  display: flex;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--control);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-control);
+}
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 var(--u);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font);
+  font-size: var(--text-control);
+  text-decoration: none;
+}
+/* The two ends meet the curve of the group. */
+.segment:first-child {
+  padding-left: var(--control-pad);
+}
+.segment:last-child {
+  padding-right: var(--control-pad);
+}
+.segment + .segment {
+  border-left: 1px solid var(--bg-raised);
+}
+.segment:hover:not(:disabled) {
+  color: var(--fg);
+}
+.segment[aria-pressed='true'],
+.segment[aria-current='true'] {
+  color: var(--fg);
+  background: var(--bg-control-hover);
+}
+.segment:disabled {
+  color: var(--fg-faint);
+}

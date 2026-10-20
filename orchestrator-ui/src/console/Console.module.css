@@ -92,40 +92,6 @@
   border-bottom: 1px solid var(--border);
 }
 /* The three filters are one filled control, as the top bar's menu is. */
-.segments {
-  display: flex;
-  flex: none;
-  height: var(--control);
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--bg-control);
-}
-.segment {
-  min-height: 0;
-  padding: 0 var(--u);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: var(--text-control);
-}
-.segment:first-child {
-  padding-left: var(--control-pad);
-}
-.segment:last-child {
-  padding-right: var(--control-pad);
-}
-.segment + .segment {
-  border-left: 1px solid var(--bg-raised);
-}
-.segment:hover {
-  color: var(--fg);
-}
-.segment[aria-pressed='true'] {
-  color: var(--fg);
-  background: var(--bg-control-hover);
-}
 .search {
   flex: 1;
   min-width: 0;

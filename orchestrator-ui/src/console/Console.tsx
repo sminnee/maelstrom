@@ -13,6 +13,7 @@ import {
 } from '../selectors/operations';
 import { useAppStore } from '../store/store';
 import { actionIcon } from '../ui/actionIcons';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import { OperationLog } from './OperationLog';
 import { useTick } from './useTick';
 import { clockTime } from '../protocol/time';
@@ -146,19 +147,12 @@ export function Console({
       )}
       <div className={styles.side}>
         <div className={styles.filters}>
-          <div className={styles.segments} role="group" aria-label="Show">
-            {FILTERS.map(({ filter: f, label }) => (
-              <button
-                key={f}
-                type="button"
-                className={`${styles.segment} nowrap`}
-                aria-pressed={filter === f}
-                onClick={() => setFilter(f)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Show"
+            items={FILTERS.map(({ filter: f, label }) => ({ id: f, label }))}
+            pressed={filter}
+            onPress={setFilter}
+          />
           <input
             type="search"
             className={styles.search}
