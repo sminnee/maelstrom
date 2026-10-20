@@ -10,6 +10,8 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* A plugin can size a sticky part against the body: 100cqh is its height. */
+  container-type: size;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }

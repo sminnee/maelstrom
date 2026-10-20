@@ -1008,24 +1008,45 @@ is a `RendererPlugin` from `rendered/plugin.ts`:
 | Field | Purpose |
 |---|---|
 | `id` | A stable name, which tests read |
-| `label` | Named in the dialog's head, such as "Scenarios" |
 | `matches(path)` | Whether the plugin draws this path |
-| `View` | A component that takes `old`, `new`, `mode` and `path` |
+| `displays` | Optional. The ways the plugin draws its file, the first the default |
+| `View` | A component that takes `old`, `new`, `mode`, `display`, `truncated` and `path` |
 
 `rendererFor` tries each plugin in `PLUGINS` in order, and falls back to `textPlugin`. To add a
 file type, write a plugin and add one entry to `PLUGINS`. A side is `null` when the file is
 added, deleted, binary or past the size cap; the dialog handles a file with both sides `null`, so
 a plugin draws at least one.
 
+A plugin with `displays` gets a **Display** control beside the modes. The dialog adds Raw to
+the plugin's displays, and Raw draws `TextView`. A plugin without displays has no control. The dialog passes `truncated`, so a
+plugin can tell a side past the size cap from a missing one.
+
 `TextView` is the text plugin. It diffs the two sides with `editToDiffRows` and draws the rows
 with `HighlightedRows`. Changes only keeps each changed row and the 3 rows of context around it.
 
 The Gherkin plugin is in `rendered/gherkin/`. `parseFeature` wraps `@cucumber/gherkin`, and
 `diffFeature` matches the two sides' children by kind and name. A removed child next to an
-added one of the same kind is a rename. Steps, example rows, tags and description lines diff
-as lists. Final diffs the new side against itself, so every row draws as context.
+added one of the same kind is a rename. Steps, example rows, tags and description paragraphs
+diff as lists. A paragraph is a run of lines between blank lines, each trimmed of its indent. A
+paragraph keeps its lines, so a markdown list keeps its shape, and diffs by its words, so a
+paragraph wrapped again is no change. Final diffs the new side against itself, so every row draws
+as context.
+
+`FeatureView` draws the file as a markdown document, in the prose type and measure of
+`Markdown.module.css`. The layout rationale is in the comments in `rendered.module.css`.
+
+- Rules and scenarios are subheadings at markdown's h2 and h3 ranks, with a rule break between
+  rules.
+- Each description paragraph goes through `Markdown`.
+- A side list of contents links to each rule and scenario the mode shows. It hides when the view
+  is narrower than 900px.
+- A wholly added or removed file, rule or scenario is one tinted block. The rows inside it drop
+  their own tints.
+- A step table wider than the measure widens its band, and the dialog body scrolls.
+- Displays: Formatted draws the whole document.
+
 `FeatureView.stories.tsx` draws each mode from `feature.fixture.ts`, which the fake `changes`
-scenario also serves.
+scenario also serves, with an added file beside the modified one.
 
 #### Change comments
 

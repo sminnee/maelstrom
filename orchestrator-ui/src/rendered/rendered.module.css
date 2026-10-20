@@ -21,30 +21,151 @@
 
 /* -- Gherkin -------------------------------------------------------------- */
 
+/*
+ * A feature reads as a markdown document: the prose type, measure and rhythm
+ * of `Markdown.module.css`, with rules and scenarios as its subheadings. The
+ * contents sit beside it while the view is wide enough for both.
+ */
+.featureView {
+  container-type: inline-size;
+}
+/* One hue per change, set where `data-change` is. The contents mark, the
+   badge, the letter and the spine read `--change`, so they cannot drift. */
+.featureView [data-change='unchanged'] {
+  --change: var(--border-strong);
+}
+.featureView [data-change='added'] {
+  --change: var(--ok);
+}
+.featureView [data-change='removed'] {
+  --change: var(--danger);
+}
+.featureView [data-change='modified'] {
+  --change: var(--diff-modified);
+}
+.featureView [data-change='renamed'] {
+  --change: var(--diff-renamed);
+}
+.featureLayout {
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: var(--u-3);
+  padding: var(--u-2) var(--u-3);
+}
+@container (max-width: 900px) {
+  .featureLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .contents {
+    display: none;
+  }
+}
+
+/* Chrome type: the contents are navigation, not prose. Sticky in the
+   dialog's scrolling body. */
+.contents {
+  position: sticky;
+  top: var(--u-2);
+  align-self: start;
+  /* The dialog body is a size container: the contents scroll inside it. */
+  max-height: calc(100cqh - 2 * var(--u-2));
+  overflow-y: auto;
+  /* Room for the marks, which hang left of the names. */
+  padding-left: 1.5ch;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+}
+.contents ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.contents li {
+  margin-top: var(--u-half);
+}
+.contents li ul {
+  padding-left: var(--u-2);
+}
+.contents a {
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+.contents a:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.mark {
+  display: inline-block;
+  width: 1.5ch;
+  margin-left: -1.5ch;
+  font-family: var(--mono);
+}
+.mark {
+  color: var(--change);
+}
+
+/* Block flow, not flex: heading margins collapse as markdown's do. The
+   article takes the column, so a tinted file is one stable box and the pager
+   does not move between scenarios. Its parts keep the measure; a wide table
+   widens the article. --spine, --gutter and --chip place every heading's
+   letter on the spine's axis, left of the text. */
 .feature {
-  display: flex;
-  flex-direction: column;
-  gap: var(--u-2);
-  padding: var(--u-2);
+  --spine: 2px;
+  --gutter: calc(var(--u) * 2.5);
+  --chip: calc(var(--prose-row) * 0.75);
+  min-width: min-content;
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+}
+.feature > :is(.summary, .description, .section, .ruleBreak, .note) {
   max-width: var(--measure-prose);
 }
 .summary {
-  margin: 0;
+  margin: 0 0 var(--prose-gap);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }
-.featureName,
-.name {
-  margin: 0;
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-.name {
+
+/* A heading's row: the heading, then its tags as pills, left-aligned after
+   it. The row takes the heading rank's margins. */
+.head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--u);
-  font-size: var(--text-control);
+  gap: var(--u-half) var(--u);
+}
+.featureHead {
+  margin: 0 0 var(--prose-gap);
+}
+.ruleHead {
+  margin: var(--prose-gap-loose) 0 var(--prose-gap);
+}
+.blockHead {
+  /* On its own steps: the scenario's spine groups them, not a gap. */
+  margin: 0 0 var(--prose-gap-tight);
+}
+/* The heading ranks of markdown's h1, h2 and h3: a flat one-row line box,
+   more space above than below. */
+.featureName,
+.ruleName,
+.blockName {
+  position: relative;
+  margin: 0;
+  font-family: var(--font-display);
+  line-height: var(--prose-row);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+.featureName {
+  font-size: var(--text-xl);
+  letter-spacing: -0.01em;
+}
+.ruleName {
+  font-size: var(--text-lg);
+  letter-spacing: -0.005em;
+}
+.blockName {
+  font-size: var(--text-md);
 }
 .keyword {
   color: var(--fg-muted);
@@ -53,57 +174,153 @@
 .oldName {
   color: var(--danger);
 }
-.badge {
-  margin-left: auto;
+/* One pill for every label on a heading row: a change badge and a tag. */
+.badge,
+.feature .tags > .tag {
   padding: 0 var(--u);
   border-radius: var(--radius-pill);
   background: var(--bg-control);
   color: var(--fg-muted);
-  font-size: var(--text-caption);
+  font-family: var(--font);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  text-decoration: none;
 }
-.description {
-  color: var(--fg-muted);
-  white-space: pre-wrap;
+.badge {
+  margin-left: var(--u-half);
+  background: color-mix(in srgb, var(--change) 18%, transparent);
+  color: var(--change);
+  vertical-align: middle;
 }
 
-/* A scenario, a background or a rule: a card whose edge carries its change. */
-.block,
-.rule {
-  display: flex;
-  flex-direction: column;
-  gap: var(--u-half);
-  padding: var(--u) var(--u-2);
-  border: 1px solid var(--border);
-  border-left-width: var(--u-half);
+/* Between rules: markdown's `hr`, a section break. */
+.ruleBreak {
+  margin: var(--prose-gap-loose) 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* The keyword as one letter in a square, filled with its change's hue. It
+   sits on the spine's axis, in the margin, so the name lines up with the
+   text under it and a scenario's spine runs down from its letter. */
+.kindMark {
+  --axis: calc(var(--gutter) - var(--spine) / 2 + var(--chip) / 2);
+  /* Out of the flow, so the line drops the space after it and the name
+     starts at the text edge; over the spine, which would paint across it. */
+  position: absolute;
+  z-index: 1;
+  top: calc((var(--prose-row) - var(--chip)) / 2);
+  left: calc(-1 * var(--axis));
+  width: var(--chip);
+  height: var(--chip);
+  border-radius: var(--radius-sm);
+  background: var(--change);
+  color: var(--fg-on-hue);
+  font-family: var(--font);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--chip);
+  text-align: center;
+}
+.kindMark[data-change='unchanged'] {
+  color: var(--fg);
+}
+/* The feature's letter outranks the others while nothing tints it. */
+.kindMark[data-type='feature'][data-change='unchanged'] {
+  background: var(--fg-muted);
+  color: var(--bg);
+}
+
+.description > * {
+  margin: 0 0 var(--prose-gap);
+}
+
+/*
+ * A rule or a scenario. One wholly added or removed is one tinted block; its
+ * rows and nested sections then drop their own tint, sign colour and badge.
+ * The negative margin keeps its text in line with the untinted sections.
+ */
+.section {
+  min-width: min-content;
+}
+/* A scenario is one unit on a spine that carries its change. The spine
+   runs down from the centre of its letter, and the step rows run from the
+   spine, their signs in the gutter. */
+.block {
+  position: relative;
+  margin: var(--prose-gap) 0 0 calc(-1 * var(--gutter));
+  padding-left: var(--gutter);
+}
+.block::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--prose-row) / 2);
+  bottom: 0;
+  left: 0;
+  width: var(--spine);
+  background: var(--change);
+}
+.block:is([data-change='added'], [data-change='removed'])::before {
+  top: calc(var(--prose-gap-tight) + var(--prose-row) / 2);
+}
+:is(.feature, .section:not(.block)):is([data-change='added'], [data-change='removed']) {
   border-radius: var(--radius);
 }
-.rule {
-  gap: var(--u);
+.section:not(.block):is([data-change='added'], [data-change='removed']) {
+  margin: var(--prose-gap) 0 0 calc(-1 * (var(--gutter) + var(--chip)));
+  padding: var(--prose-gap-tight) var(--u-2) var(--prose-gap-tight)
+    calc(var(--gutter) + var(--chip));
 }
-/* Scoped under a local class: a bare attribute selector is global, and every
-   diff row in the app carries `data-kind`. */
-:is(.block, .rule)[data-change='added'] {
-  border-left-color: var(--ok);
+.block:is([data-change='added'], [data-change='removed']) {
+  padding-block: var(--prose-gap-tight);
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
-:is(.block, .rule)[data-change='removed'] {
-  border-left-color: var(--danger);
+/* Untinted inside a wholly added or removed parent, so no inset either. */
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) .block {
+  padding-block: 0;
 }
-:is(.block, .rule):is([data-change='modified'], [data-change='renamed']) {
-  border-left-color: var(--accent);
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) .block::before {
+  top: calc(var(--prose-row) / 2);
 }
-:is(.block, .rule)[data-change='added'] > .name .badge {
-  color: var(--ok);
+.section:is([data-change='added'], [data-change='removed']) > .head:first-child {
+  margin-top: 0;
 }
-:is(.block, .rule)[data-change='removed'] > .name .badge {
-  color: var(--danger);
+.feature:is([data-change='added'], [data-change='removed']) {
+  padding: var(--prose-gap-tight) var(--u-3) var(--prose-gap-tight)
+    calc(var(--gutter) + var(--chip) + var(--u));
+}
+.feature[data-change='added'],
+.section[data-change='added'] {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.feature[data-change='removed'],
+.section[data-change='removed'] {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
+.steps {
+  margin: 0 0 var(--prose-gap);
+}
+/* The sign sits in the scenario's gutter, so a step's band starts at the
+   spine. The keyword is right-aligned in a fixed column, as Cucumber prints
+   it, so the step text keeps one left edge. */
 .step {
   display: flex;
-  gap: var(--u);
-  padding: 0 var(--u-half);
-  border-radius: var(--radius-sm);
+  min-width: min-content;
+  margin-left: calc(var(--spine) - var(--gutter));
+}
+.step > .sign {
+  width: calc(var(--gutter) - var(--spine));
+  text-align: center;
+}
+.stepKeyword {
+  display: inline-block;
+  width: 3.4em;
+  text-align: right;
+}
+.step :is(.table, .docString) {
+  margin-left: calc(3.4em + 0.25em);
 }
 .sign {
   width: 1ch;
@@ -111,6 +328,8 @@
   font-family: var(--mono);
   color: var(--fg-faint);
 }
+/* Scoped under a local class: a bare attribute selector is global, and every
+   diff row in the app carries `data-kind`. */
 .feature [data-kind='add'] {
   background: color-mix(in srgb, var(--ok) 15%, transparent);
 }
@@ -125,47 +344,79 @@
 .feature [data-kind='remove'] > .sign {
   color: var(--danger);
 }
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) [data-kind] {
+  background: none;
+  text-decoration: none;
+}
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) [data-kind] > .sign {
+  color: var(--fg-faint);
+}
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) .section {
+  background: none;
+}
+:is(.feature, .section):is([data-change='added'], [data-change='removed']) .section .badge,
+.feature:is([data-change='added'], [data-change='removed']) .badge {
+  display: none;
+}
 
 .tags {
   display: flex;
   flex-wrap: wrap;
+  align-self: center;
   gap: var(--u-half);
 }
-.tag {
-  padding: 0 var(--u-half);
-  border-radius: var(--radius-sm);
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  color: var(--fg-muted);
+/* An added or removed tag takes the badge's hue. It keeps its pill where a
+   wholly added or removed block drops the row tints. */
+.feature .tags > .tag[data-kind='add'] {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.feature .tags > .tag[data-kind='remove'] {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+  text-decoration: line-through;
 }
 
 .examples {
-  display: flex;
-  flex-direction: column;
-  gap: var(--u-half);
-  margin-top: var(--u);
+  margin: 0 0 var(--prose-gap);
+}
+.examplesName {
+  font-weight: var(--weight-semibold);
 }
 .table {
+  margin: var(--prose-gap-tight) 0;
   border-collapse: collapse;
   font-family: var(--mono);
-  font-size: var(--text-sm);
+  font-size: 0.92em;
 }
 .table th,
 .table td {
-  padding: 0 var(--u);
+  padding: var(--u-half) var(--u);
   border: 1px solid var(--border);
   text-align: left;
+  vertical-align: top;
+  /* A cell is a literal, often a date or an id: it does not wrap at its
+     hyphens, and a wide table widens its step's band instead. */
+  white-space: pre;
+}
+.table th {
+  font-weight: var(--weight-semibold);
+  background: var(--bg-sunken);
 }
 .table td.sign {
   border: 0;
-  padding: 0;
+  padding: var(--u-half) var(--u-half) 0 0;
+  background: none;
 }
+/* As markdown's `pre`: (lines + 1) rows tall, half a row either side. */
 .docString {
-  margin: var(--u-half) 0 0;
-  padding: var(--u-half) var(--u);
-  border-radius: var(--radius-sm);
-  background: var(--bg-raised);
+  margin: var(--prose-gap-tight) 0;
+  padding: calc(var(--prose-row) / 2 - 1px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
   font-family: var(--mono);
-  font-size: var(--text-sm);
+  font-size: 0.92em;
+  line-height: var(--prose-row);
   white-space: pre-wrap;
 }
