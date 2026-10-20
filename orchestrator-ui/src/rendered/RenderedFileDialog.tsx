@@ -4,6 +4,7 @@ import { useWorktreeFile } from '../api/worktreeChanges';
 import type { FileDiff } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { Dialog, DialogHeader } from '../ui/Dialog';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import type { Mode } from './plugin';
 import { rendererFor } from './plugins';
 import styles from './RenderedFileDialog.module.css';
@@ -48,20 +49,16 @@ export function RenderedFileDialog({
     >
       <DialogHeader title={file.path} onClose={onClose}>
         <span className={styles.plugin}>{plugin.label}</span>
-        <div className={styles.modes} role="group" aria-label="Mode">
-          {MODES.map(({ mode: m, label }) => (
-            <button
-              key={m}
-              type="button"
-              className={styles.mode}
-              aria-pressed={shown === m}
-              disabled={m === 'final' && deleted}
-              onClick={() => setMode(m)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl<Mode>
+          label="Mode"
+          items={MODES.map(({ mode: m, label }) => ({
+            id: m,
+            label,
+            disabled: m === 'final' && deleted,
+          }))}
+          pressed={shown}
+          onPress={setMode}
+        />
       </DialogHeader>
       <div className={styles.body}>
         {!data ? (
