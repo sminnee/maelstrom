@@ -2,6 +2,7 @@ import type { Story } from '@ladle/react';
 import type { Mode } from '../plugin';
 import { TextView } from '../TextView';
 import { FeatureView } from './FeatureView';
+import { DISPLAY } from './displays';
 import { ADDED_FEATURE, NEW_FEATURE, OLD_FEATURE } from './feature.fixture';
 
 export default { title: 'Changes / Rendered view' };
@@ -19,6 +20,17 @@ export const ScenariosFinal = scenarios('final');
 /** A new file: one added block, a rule, paragraphs and a wide step table. */
 export const ScenariosAddedFile: Story = () => (
   <FeatureView old={null} new={ADDED_FEATURE} mode="whole" path="specs/reminders.feature" />
+);
+
+/** Per scenario: one scenario at a time, with Previous and Next. */
+export const ScenariosPerScenario: Story = () => (
+  <FeatureView
+    old={null}
+    new={ADDED_FEATURE}
+    mode="whole"
+    display={DISPLAY.perScenario}
+    path="specs/reminders.feature"
+  />
 );
 
 /** A file that does not parse falls back to the text view. */

@@ -718,6 +718,70 @@ describe('the Rendered view', () => {
     expect(dialog).not.toHaveTextContent('Changed');
   });
 
+  it('pages a feature one scenario at a time, under its Background and its rule', async () => {
+    const RULED = (partly: string) => `Feature: Checkout
+
+  Background:
+    Given a signed-in customer
+
+${PLACE}
+  Rule: Refunds
+
+    Scenario: Refund in full
+      Given a paid order
+      Then it is refunded
+
+    Scenario: Refund in part
+      Given a paid order
+      Then ${partly}
+`;
+    const { panel } = await openWithVersions({
+      old: RULED('half is refunded'),
+      new: RULED('half is returned'),
+    });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    await within(dialog).findByTestId('feature-view');
+    await mode(dialog, 'Whole file');
+    await showDisplay(dialog, 'Per scenario');
+    const rule = () => within(dialog).queryByRole('region', { name: 'Rule: Refunds' });
+    const previous = () => within(dialog).queryByRole('button', { name: 'Previous scenario' });
+    const next = () => within(dialog).queryByRole('button', { name: 'Next scenario' });
+    const background = () => within(dialog).queryByRole('region', { name: /^Background/ });
+
+    expect(contents(dialog)).toEqual([
+      'Background',
+      'Place an order',
+      'Changed Refunds',
+      'Refund in full',
+      'Changed Refund in part',
+    ]);
+    // The Background is no page of its own: it heads every scenario's page.
+    expect(background()).not.toBeNull();
+    expect(scenario(dialog, 'Place an order')).not.toBeNull();
+    expect(rule()).toBeNull();
+    expect(previous()).toBeDisabled();
+
+    // A rule's link shows its first scenario, under the rule.
+    await userEvent.click(within(dialog).getByRole('link', { name: 'Refunds' }));
+    expect(scenario(dialog, 'Place an order')).toBeNull();
+    expect(scenario(rule()!, 'Refund in full')).not.toBeNull();
+    expect(scenario(rule()!, 'Refund in part')).toBeNull();
+    expect(background()).not.toBeNull();
+    await userEvent.click(next()!);
+    expect(scenario(rule()!, 'Refund in part')).not.toBeNull();
+    expect(next()).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole('link', { name: 'Background' }));
+    expect(scenario(dialog, 'Place an order')).not.toBeNull();
+    await userEvent.click(within(dialog).getByRole('link', { name: 'Refund in full' }));
+    expect(scenario(rule()!, 'Refund in full')).not.toBeNull();
+
+    // Changes only hides the scenario shown, so the first it shows takes its
+    // place; one scenario needs no Previous or Next.
+    await mode(dialog, 'Changes only');
+    expect(scenario(rule()!, 'Refund in part')).not.toBeNull();
+    expect(next()).toBeNull();
+  });
+
   it('draws a feature file as its lines in Raw', async () => {
     const edited = PLACE.replace('2 items', '3 items');
     const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(edited) });

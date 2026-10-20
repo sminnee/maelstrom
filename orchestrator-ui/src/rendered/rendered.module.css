@@ -103,6 +103,10 @@
 .mark {
   color: var(--change);
 }
+.contents a[aria-current] {
+  color: var(--fg);
+  font-weight: var(--weight-semibold);
+}
 
 /* Block flow, not flex: heading margins collapse as markdown's do. The
    article takes the column, so a tinted file is one stable box and the pager
@@ -230,6 +234,14 @@
 .kindMark[data-type='feature'][data-change='unchanged'] {
   background: var(--fg-muted);
   color: var(--bg);
+}
+
+/* Per scenario: Previous and Next, right-aligned on the feature's row. */
+.pager {
+  display: flex;
+  gap: var(--u-half);
+  margin-left: auto;
+  align-self: center;
 }
 
 .description > * {
