@@ -1054,7 +1054,9 @@ steps above (`open_worktree`, `write_env`, `start_agent`) when they launch.
 
   `parent` and `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so
   they reach the notebook through `create`'s `extra` argument — the server's own to set, never a
-  client's.
+  client's. The optional `command` and `mode` override the planning level, as the CLI's
+  `--command` and `--mode` flags do. The `linear.plan` check refuses a null or an unknown mode, as
+  `task.create`'s does. Without them, the task gets the High level that `build_plan_task` writes.
 - **`agent.start`** starts an agent tied to no task, as a `start` operation: `name_branch` when
   the branch is empty, then `open_worktree`, `write_env` and `start_agent`.
   `TaskSource.worktree_for` opens the branch's worktree through the same collaborator a launch
@@ -1509,7 +1511,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
 | `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
-| `POST /api/linear/tasks` | `{project, issueId, launch?}` | `linear.plan` | `202 {operationId}` |
+| `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |

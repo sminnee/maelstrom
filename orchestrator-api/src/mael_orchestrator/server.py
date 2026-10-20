@@ -3086,6 +3086,7 @@ class Orchestrator:
         issue_id = command["issueId"]
         launching = _Launching(project=project, task_id=command.get("taskId", ""))
         launch = bool(command.get("launch"))
+        level = {k: command[k] for k in ("command", "mode") if k in command}
         read: dict[str, Any] = {}
 
         async def read_issue() -> StepOutcome:
@@ -3116,7 +3117,7 @@ class Orchestrator:
                 task_id = await self._run(
                     self.tasks.create,
                     project,
-                    {**read, "project": project},
+                    {**read, **level, "project": project},
                     # Not a client's to choose: the parent binds the task to
                     # its issue, and the action moves that issue when the
                     # planning session ends.
