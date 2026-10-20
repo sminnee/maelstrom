@@ -899,6 +899,13 @@ def validate_command(
             return error
         if not str(cmd.get("issueId", "")).strip():
             return _err("invalid", "An issue is required")
+        # The planning level, as `task.create` checks it: a null breaks the
+        # notebook's write, and nothing past here checks the mode.
+        if any(key in cmd and cmd[key] is None for key in ("command", "mode")):
+            return _err("invalid", "A field is null")
+        mode = cmd.get("mode")
+        if mode is not None and mode not in MODES:
+            return _err("invalid", f"No mode {mode}")
         return None
 
     if kind == "agent.start":

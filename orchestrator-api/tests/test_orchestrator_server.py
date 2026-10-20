@@ -4094,6 +4094,54 @@ def test_linear_plan_writes_the_planning_task_and_files_it(harness, linear):
     assert [entry["id"] for entry in desk["desk"]] == [f"task:{task_id}"]
 
 
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [
+        # Regular, as `mael linear plan --command '' --mode plan` writes.
+        ({"command": "", "mode": "plan"}, ("", "plan")),
+        # A key left out keeps the default it would have had.
+        ({"mode": "plan"}, ("plan-task", "plan")),
+    ],
+)
+def test_linear_plan_takes_the_planning_level_from_the_body(
+    harness, linear, level, expected
+):
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(
+                api,
+                "/api/linear/tasks",
+                {"project": PROJECT, "issueId": "ME-1", **level},
+            )
+
+    op = run(scenario())
+    assert op["state"] == "done", op
+    stored = run(model.load(harness.store, PROJECT, op["taskId"].split("/", 1)[1]))
+    assert (
+        stored.title,
+        stored.command,
+        stored.mode,
+        stored.parent,
+        stored.post_action,
+    ) == ("Plan ME-1", *expected, "linear.ME-1", "linear.planned")
+
+
+@pytest.mark.parametrize(
+    "level", [{"mode": "bogus"}, {"mode": None}, {"command": None}]
+)
+def test_linear_plan_refuses_a_bad_planning_level(harness, linear, level):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/linear/tasks", {"project": PROJECT, "issueId": "ME-1", **level}
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert desk["desk"] == []
+
+
 def test_linear_plan_with_launch_starts_the_planning_session(harness, linear):
     async def scenario():
         async with harness.client() as api:
