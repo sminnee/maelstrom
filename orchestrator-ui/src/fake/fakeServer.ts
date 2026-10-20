@@ -1425,6 +1425,10 @@ function command(
     }
     const issueId = str('issueId')?.trim() ?? '';
     if (!issueId) return error(400, 'invalid', 'An issue is required');
+    const mode = str('mode');
+    if (mode !== undefined && !MODES.some((m) => m === mode)) {
+      return error(400, 'invalid', `No mode ${mode}`);
+    }
     // The same task `mael linear plan` writes: the real server builds these
     // fields from the issue's brief, and this fake from its id alone.
     let taskId = '';
@@ -1444,8 +1448,8 @@ function command(
             taskId = `${project}/NEW-${mint()}`;
             world.tasks[taskId] = {
               ...makeNewTask(taskId, project, `Plan ${issueId}`, {
-                command: 'plan-task',
-                mode: 'normal',
+                command: str('command') ?? 'plan-task',
+                mode: MODES.find((m) => m === mode) ?? 'normal',
                 model: 'opus',
                 content: `# ${issueId}`,
               }),

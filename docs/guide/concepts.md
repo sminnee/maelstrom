@@ -167,7 +167,8 @@ The node, worktree box, worktree table row and deck row an operation acts on sho
 moving hatch and its step count while it runs, and a red mark once it refuses or fails. Their
 commands wait while it runs. Opening the node's or worktree's card clears the mark.
 The top bar's "New" control starts new work without leaving the page: a task, a free agent in
-a branch's worktree, or an investigation. An investigation is a free agent on the main branch
+a branch's worktree, an investigation, or, for a project with Linear, a planning task for a Linear
+issue. An investigation is a free agent on the main branch
 that is told not to change code. It reports what it finds, and writes only under `.drafts/`. Save and Start close the dialog at once.
 The server names an empty title or branch from the prose you type, and the node draws hatched
 while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line

@@ -44,6 +44,9 @@ launches the session. The planning defaults — `plan-task`, normal mode, the `o
 `linear.<ID>` parent, `linear.planned` post-action — are all overridable with the matching
 flag.
 
+The New work dialog's Linear kind does the same. Its Planning radios set the command and the
+mode. They start at High: `plan-task` under `normal`.
+
 Without a Linear issue, the same thing directly:
 
 ```bash

@@ -1216,8 +1216,8 @@ moves. The form is one step: everything the work needs is on one surface.
   which reaches the UI as `hasLinear` on the wire project. One combobox offers the current cycle's
   issues, each row showing the issue id and its title; the field carries the id. "Save" and "Start"
   both run `useCreateLinearTask`, which writes the same planning task `mael linear plan` writes.
-  There is nothing else to fill in: the brief, the branch, the command and the mode all come from
-  the issue.
+  The brief and the branch come from the issue. The Planning radios set the command and the mode.
+  They start at High, which is what `mael linear plan` writes with no flags.
 
 The Linear kind is walled off in `newwork/LinearFields.tsx` and `api/linear.ts`, because the
 Linear integration is expected to go once the task notebook covers the same ground.

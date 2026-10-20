@@ -144,6 +144,24 @@ describe('new work', () => {
     expect(server.world.desk[`task:${planned.id}`]).toBeDefined();
   });
 
+  it('plans the issue at the planning level chosen, High at the start', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await openNewWork(user);
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
+    await user.click(within(form).getByRole('radio', { name: 'Linear' }));
+    const planning = within(form).getByRole('group', { name: 'Planning' });
+    expect(within(planning).getByRole('radio', { name: 'High' })).toBeChecked();
+    await user.click(within(planning).getByRole('radio', { name: 'Regular' }));
+    await user.click(await within(form).findByLabelText('Issue'));
+    await user.click(await screen.findByRole('option', { name: /Add a Linear kind/ }));
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+    const planned = await waitFor(() => createdTask(server));
+    expect(planned).toMatchObject({ command: '', mode: 'plan', parent: 'linear.MAEL-70' });
+  });
+
   it('starts the planning session when Start is pressed instead', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
