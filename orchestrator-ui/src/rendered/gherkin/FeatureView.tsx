@@ -1,5 +1,7 @@
-import { Fragment, type MouseEvent, useId, useMemo } from 'react';
+import { Fragment, type MouseEvent, useId, useMemo, useState } from 'react';
 import { Markdown } from '../../markdown/Markdown';
+import { actionIcon } from '../../ui/actionIcons';
+import { AppButton } from '../../ui/AppButton';
 import { SIGN } from '../../ui/diffSign';
 import type { Mode, RenderedProps } from '../plugin';
 import { TextView } from '../TextView';
@@ -14,6 +16,7 @@ import {
   type RuleDiff,
 } from './diffFeature';
 import type { Step } from './parse';
+import { DISPLAY } from './displays';
 
 const BADGE: Record<Change, string | null> = {
   added: 'Added',
@@ -38,7 +41,7 @@ const MARK: Record<Change, string | null> = {
  * the text view, with the parse error above it.
  */
 export function FeatureView(props: RenderedProps) {
-  const { old, new: next, mode, truncated } = props;
+  const { old, new: next, mode, display, truncated } = props;
   const diff = useMemo(
     () => (mode === 'final' ? diffFeature(next, next) : diffFeature(old, next)),
     [old, next, mode],
@@ -55,7 +58,7 @@ export function FeatureView(props: RenderedProps) {
   if (mode === 'final' && next === null) return <p className={styles.note}>Deleted file.</p>;
   // An unread side is not a new or deleted file.
   const whole = truncated ? { ...diff, change: 'unchanged' as const } : diff;
-  return <Feature diff={whole} mode={mode} />;
+  return <Feature diff={whole} mode={mode} single={display === DISPLAY.perScenario} />;
 }
 
 /** A rule or a scenario the mode shows, with the id of its heading. */
@@ -87,13 +90,74 @@ function outline(diff: FeatureDiff, mode: Mode, prefix: string): Outline {
   return out;
 }
 
-function Feature({ diff, mode }: { diff: FeatureDiff; mode: Mode }) {
+/**
+ * What Per scenario shows at once: a scenario, under its rule if it has one,
+ * with the Backgrounds that run before it. A Background is no page of its
+ * own unless the mode shows nothing else.
+ */
+interface Page {
+  id: string;
+  name: string;
+  entries: Outline;
+}
+
+const isBackground = (entry: Entry<BlockDiff>) => entry.child.kind === 'background';
+const nameOf = (entry: Entry<BlockDiff | RuleDiff>) => entry.child.name || entry.child.keyword;
+
+function pages(entries: Outline): Page[] {
+  const lead = entries.filter((e) => !('children' in e) && isBackground(e));
+  const out = entries.flatMap((entry): Page[] => {
+    if (!('children' in entry))
+      return isBackground(entry)
+        ? []
+        : [{ id: entry.id, name: nameOf(entry), entries: [...lead, entry] }];
+    const ruleLead = entry.children.filter(isBackground);
+    const scenarios = entry.children.filter((block) => !isBackground(block));
+    if (scenarios.length === 0)
+      return [{ id: entry.id, name: nameOf(entry), entries: [...lead, entry] }];
+    return scenarios.map((block) => ({
+      id: block.id,
+      name: nameOf(block),
+      entries: [...lead, { ...entry, children: [...ruleLead, block] }],
+    }));
+  });
+  const first = lead[0];
+  return out.length === 0 && first ? [{ id: first.id, name: nameOf(first), entries: lead }] : out;
+}
+
+/** Whether a page shows the rule or block with this id. */
+const holds = (page: Page, id: string) =>
+  page.entries.some(
+    (entry) => entry.id === id || ('children' in entry && entry.children.some((b) => b.id === id)),
+  );
+
+function Feature({ diff, mode, single }: { diff: FeatureDiff; mode: Mode; single: boolean }) {
   const children = outline(diff, mode, `feature${useId()}`);
+  const [current, setCurrent] = useState<string | null>(null);
+  const all = pages(children);
+  // A scenario the mode no longer shows falls back to the first.
+  const at = Math.max(
+    0,
+    all.findIndex((page) => page.id === current),
+  );
+  const page = all[at];
+  const previous = all[at - 1];
+  const next = all[at + 1];
+  const shown = single && page ? page.entries : children;
+  // A rule's or a Background's link shows the first page it is on.
+  const show = (id: string) => {
+    const found = all.find((p) => p.id === id || holds(p, id));
+    if (found) setCurrent(found.id);
+  };
   const { added, changed, removed } = diff.counts;
   return (
     <div className={styles.featureView}>
       <div className={styles.featureLayout}>
-        <Contents entries={children} />
+        <Contents
+          entries={children}
+          current={single ? page?.id : undefined}
+          onShow={single ? show : undefined}
+        />
         <article className={styles.feature} data-change={diff.change} data-testid="feature-view">
           {mode === 'changes' && (
             <p className={styles.summary}>
@@ -106,9 +170,29 @@ function Feature({ diff, mode }: { diff: FeatureDiff; mode: Mode }) {
               {diff.name}
             </h3>
             <Tags tags={diff.tags} />
+            {single && all.length > 1 && (
+              <nav className={styles.pager} aria-label="Scenarios">
+                <AppButton
+                  variant="quiet"
+                  icon={actionIcon('pagePrevious')}
+                  aria-label="Previous scenario"
+                  title={previous?.name}
+                  disabled={!previous}
+                  onClick={() => previous && setCurrent(previous.id)}
+                />
+                <AppButton
+                  variant="quiet"
+                  icon={actionIcon('pageNext')}
+                  aria-label="Next scenario"
+                  title={next?.name}
+                  disabled={!next}
+                  onClick={() => next && setCurrent(next.id)}
+                />
+              </nav>
+            )}
           </div>
           <Description paragraphs={diff.description} />
-          {children.map((entry, i) =>
+          {shown.map((entry, i) =>
             'children' in entry ? (
               <Fragment key={entry.id}>
                 {i > 0 && <hr className={styles.ruleBreak} />}
@@ -127,10 +211,20 @@ function Feature({ diff, mode }: { diff: FeatureDiff; mode: Mode }) {
   );
 }
 
+interface ContentsProps {
+  entries: Outline;
+  /** The scenario Per scenario shows. */
+  current: string | undefined;
+  /** Set in Per scenario: a link shows its scenario, not scrolls to it. */
+  onShow: ((id: string) => void) | undefined;
+}
+
 /** A link per rule and scenario shown, the scenarios under their rule. */
-function Contents({ entries }: { entries: Outline }) {
+function Contents({ entries, current, onShow }: ContentsProps) {
   if (entries.length === 0) return null;
-  const link = (entry: Entry<BlockDiff | RuleDiff>) => <ContentsLink entry={entry} />;
+  const link = (entry: Entry<BlockDiff | RuleDiff>) => (
+    <ContentsLink entry={entry} current={entry.id === current} onShow={onShow} />
+  );
   return (
     <nav className={styles.contents} aria-label="Contents">
       <ul>
@@ -151,12 +245,21 @@ function Contents({ entries }: { entries: Outline }) {
   );
 }
 
-function ContentsLink({ entry: { id, child } }: { entry: Entry<BlockDiff | RuleDiff> }) {
+function ContentsLink({
+  entry: { id, child },
+  current,
+  onShow,
+}: {
+  entry: Entry<BlockDiff | RuleDiff>;
+  current: boolean;
+  onShow: ((id: string) => void) | undefined;
+}) {
   // The app routes on the URL, so the link scrolls its heading into view
   // rather than move the hash.
   const jump = (event: MouseEvent) => {
     event.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    if (onShow) onShow(id);
+    else document.getElementById(id)?.scrollIntoView({ block: 'start' });
   };
   return (
     <>
@@ -169,7 +272,7 @@ function ContentsLink({ entry: { id, child } }: { entry: Entry<BlockDiff | RuleD
       >
         {MARK[child.change]}
       </span>
-      <a href={`#${id}`} onClick={jump}>
+      <a href={`#${id}`} onClick={jump} aria-current={current || undefined}>
         {child.name || child.keyword}
       </a>
     </>
