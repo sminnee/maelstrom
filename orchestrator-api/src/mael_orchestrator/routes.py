@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import math
+import mimetypes
 import socket
 import ssl
 import subprocess
@@ -25,9 +26,11 @@ from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import (
     BadPath,
+    FileTooLarge,
     UnknownRev,
     list_changes,
     read_diff,
+    read_file_bytes,
     read_file_versions,
 )
 
@@ -106,6 +109,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
     app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
     app.router.add_get("/api/worktrees/{id}/file", _worktree_file)
+    app.router.add_get("/api/worktrees/{id}/raw", _worktree_raw)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
@@ -336,6 +340,46 @@ async def _worktree_file(request: web.Request) -> web.Response:
     response = web.json_response(versions)
     response.enable_compression()
     return response
+
+
+#: A worktree's file is anyone's content. An SVG opened on its own would run
+#: its script on the orchestrator's origin, so the reply is a sandbox.
+_RAW_HEADERS = {
+    "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+async def _worktree_raw(request: web.Request) -> web.Response:
+    """One side of one file of a rev, as its bytes: an image the Rendered view draws."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    file = request.query.get("path", "")
+    side = request.query.get("side", "")
+    if not rev or not file or (side != "old" and side != "new"):
+        return error_response("invalid", "Name a rev, a path and a side: old or new")
+    try:
+        data = await read_file_bytes(
+            path, rev, file, side, request.query.get("oldPath") or None
+        )
+    except BadPath as exc:
+        return error_response("invalid", f"Path {exc} is outside the worktree")
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except FileTooLarge:
+        return error_response(
+            "invalid", f"The {side} side of {file} is too large to show"
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    if data is None:
+        return error_response("unknown_id", f"No {side} side of {file} at {rev}")
+    content_type = mimetypes.guess_type(file)[0] or "application/octet-stream"
+    return web.Response(body=data, content_type=content_type, headers=_RAW_HEADERS)
 
 
 def _dumps_by_item(head: dict[str, Any], key: str, items: list[Any]) -> str:

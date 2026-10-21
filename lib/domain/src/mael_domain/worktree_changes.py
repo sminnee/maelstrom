@@ -9,7 +9,7 @@ import os
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from .base_store import GitConfigBaseStore
 from .protocol import (
@@ -35,6 +35,10 @@ MAX_LINES_PER_FILE = 5000
 #: Bytes kept per side of a file's versions. A side past this is dropped and
 #: marked truncated, as a diff past :data:`MAX_LINES_PER_FILE` is.
 MAX_FILE_BYTES = 1_000_000
+
+#: Bytes served per side of a raw read. A side past this is refused, not cut:
+#: half an image does not draw.
+MAX_RAW_BYTES = 20_000_000
 
 # Diff output in one shape whatever the user's config says: no colour, no
 # external diff or textconv, the a/ b/ prefixes the parser reads, and paths
@@ -68,6 +72,10 @@ class UnknownRev(LookupError):
 
 class BadPath(ValueError):
     """A path that is absolute or climbs out of the worktree."""
+
+
+class FileTooLarge(ValueError):
+    """A side past :data:`MAX_RAW_BYTES`."""
 
 
 def base_refs_for_diff(cwd: Path) -> list[str]:
@@ -128,26 +136,13 @@ async def read_file_versions(
     :class:`BadPath`.
     """
     old_file = old_file or file
-    for name in (file, old_file):
-        parts = PurePosixPath(name).parts
-        if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
-            raise BadPath(name)
-    if rev == UNCOMMITTED:
-        old = await _blob(path, f"HEAD:{old_file}")
+    _check_paths(file, old_file)
+    refs = await _refs(path, rev)
+    old = await _blob(path, f"{refs.old}:{old_file}")
+    if refs.new is None:
         new = await asyncio.to_thread(_worktree_file, path, file)
     else:
-        _, merge_base = await _merge_base(path)
-        if rev == BRANCH:
-            # No base: the branch has no commits of its own, so both sides are HEAD.
-            old_ref = merge_base or "HEAD"
-            new_ref = "HEAD"
-        else:
-            commits = await _commits(path, merge_base) if merge_base else []
-            if not any(c["sha"] == rev for c in commits):
-                raise UnknownRev(rev)
-            old_ref, new_ref = f"{rev}^", rev
-        old = await _blob(path, f"{old_ref}:{old_file}")
-        new = await _blob(path, f"{new_ref}:{file}")
+        new = await _blob(path, f"{refs.new}:{file}")
     return {
         "rev": rev,
         "path": file,
@@ -155,6 +150,88 @@ async def read_file_versions(
         "new": new.text,
         "truncated": old.too_large or new.too_large,
     }
+
+
+async def read_file_bytes(
+    path: Path,
+    rev: str,
+    file: str,
+    side: Literal["old", "new"],
+    old_file: str | None = None,
+) -> bytes | None:
+    """One side of ``file`` at ``rev``, as raw bytes; ``None`` when the side is missing.
+
+    ``side`` is ``old`` or ``new``; ``old_file`` names the old side of a
+    rename. Raises :class:`UnknownRev`, :class:`BadPath` and
+    :class:`FileTooLarge`.
+    """
+    old_file = old_file or file
+    _check_paths(file, old_file)
+    refs = await _refs(path, rev)
+    if side == "old":
+        return await _blob_bytes(path, f"{refs.old}:{old_file}")
+    if refs.new is None:
+        return await asyncio.to_thread(_worktree_bytes, path, file)
+    return await _blob_bytes(path, f"{refs.new}:{file}")
+
+
+def _check_paths(*names: str) -> None:
+    for name in names:
+        parts = PurePosixPath(name).parts
+        if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
+            raise BadPath(name)
+
+
+class _Refs(NamedTuple):
+    """The refs a rev reads each side at. ``new`` is ``None`` for the worktree."""
+
+    old: str
+    new: str | None
+
+
+async def _refs(path: Path, rev: str) -> _Refs:
+    if rev == UNCOMMITTED:
+        return _Refs("HEAD", None)
+    _, merge_base = await _merge_base(path)
+    if rev == BRANCH:
+        # No base: the branch has no commits of its own, so both sides are HEAD.
+        return _Refs(merge_base or "HEAD", "HEAD")
+    commits = await _commits(path, merge_base) if merge_base else []
+    if not any(c["sha"] == rev for c in commits):
+        raise UnknownRev(rev)
+    return _Refs(f"{rev}^", rev)
+
+
+async def _blob_bytes(path: Path, spec: str) -> bytes | None:
+    size = await run_git_async(
+        [*_GIT_OPTIONS, "cat-file", "-s", spec], cwd=path, quiet=True, check=False
+    )
+    if size.returncode != 0:
+        return None
+    if int(size.stdout) > MAX_RAW_BYTES:
+        raise FileTooLarge(spec)
+    result = await run_git_async(
+        [*_GIT_OPTIONS, "cat-file", "blob", spec],
+        cwd=path,
+        quiet=True,
+        check=False,
+        text=False,
+    )
+    # A tree has a size too, but no blob to read: a path that names a folder.
+    return result.stdout if result.returncode == 0 else None
+
+
+def _worktree_bytes(root: Path, file: str) -> bytes | None:
+    target = root / file
+    try:
+        # A link is not followed: its target may sit outside the worktree.
+        if target.is_symlink() or not target.resolve().is_relative_to(root.resolve()):
+            return None
+        if target.stat().st_size > MAX_RAW_BYTES:
+            raise FileTooLarge(file)
+        return target.read_bytes()
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+        return None
 
 
 class _Side(NamedTuple):

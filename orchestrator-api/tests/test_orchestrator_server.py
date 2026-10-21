@@ -8595,6 +8595,76 @@ def test_the_file_route_refuses_a_query_without_a_rev_or_a_safe_path(
     assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
 
 
+def test_the_raw_route_serves_one_side_as_bytes_that_cannot_run_script(
+    harness, tmp_path
+):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    (tmp_path / "logo.svg").write_bytes(svg)
+
+    async def scenario():
+        async with harness.client() as api:
+            base = "/api/worktrees/northwind-alpha/raw?rev="
+            replies = []
+            for query in (
+                "uncommitted&path=logo.svg&side=new",
+                "branch&path=orders.py&side=new",
+                "branch&path=orders.py&side=old&oldPath=readme.md",
+            ):
+                # The shared reply helper decodes text; read the bytes as they are.
+                async with api.session.get(base + query) as response:
+                    replies.append((response.headers, await response.read()))
+            return replies
+
+    (svg_headers, svg_body), (_, py_body), (_, renamed_body) = run(scenario())
+    # The rev rules are the domain suite's; this pins the query, the bytes and the headers.
+    assert (svg_body, svg_headers["Content-Type"]) == (svg, "image/svg+xml")
+    assert py_body == b"print(1)\n"
+    assert renamed_body == b"one\n"
+    assert svg_headers["X-Content-Type-Options"] == "nosniff"
+    assert svg_headers["Content-Security-Policy"].startswith(
+        "sandbox; default-src 'none'"
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "status", "code"),
+    [
+        ("rev=branch&path=orders.py&side=old", 404, "unknown_id"),
+        ("rev=branch&path=../escape&side=new", 400, "invalid"),
+        ("rev=branch&path=orders.py&side=both", 400, "invalid"),
+        ("rev=branch&path=orders.py", 400, "invalid"),
+    ],
+)
+def test_the_raw_route_refuses_a_missing_side_or_a_bad_query(
+    harness, tmp_path, query, status, code
+):
+    _point_alpha_at_a_repo(harness, tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(f"/api/worktrees/northwind-alpha/raw?{query}")
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (status, code)
+
+
+def test_the_raw_route_refuses_a_side_past_the_cap_as_invalid(
+    harness, tmp_path, monkeypatch
+):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    monkeypatch.setattr("mael_domain.worktree_changes.MAX_RAW_BYTES", 2)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(
+                "/api/worktrees/northwind-alpha/raw?rev=branch&path=orders.py&side=new"
+            )
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+
+
 def test_the_changes_routes_refuse_an_unknown_or_closed_worktree(harness, tmp_path):
     _point_alpha_at_a_repo(harness, tmp_path)
     harness.worktrees.worktrees.append(
@@ -8606,13 +8676,18 @@ def test_the_changes_routes_refuse_an_unknown_or_closed_worktree(harness, tmp_pa
             return [
                 await api.get(f"/api/worktrees/{worktree}/{route}")
                 for worktree in ("northwind-zulu", "northwind-bravo")
-                for route in ("changes", "diff?rev=branch", "file?rev=branch&path=a")
+                for route in (
+                    "changes",
+                    "diff?rev=branch",
+                    "file?rev=branch&path=a",
+                    "raw?rev=branch&path=a&side=new",
+                )
             ]
 
     replies = run(scenario())
     assert [(r.status, r.body["error"]["code"]) for r in replies] == [
         (404, "unknown_id")
-    ] * 6
+    ] * 8
 
 
 def test_the_diff_route_refuses_a_request_that_names_no_rev(harness, tmp_path):

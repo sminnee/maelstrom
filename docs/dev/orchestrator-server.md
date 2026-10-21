@@ -1308,6 +1308,7 @@ without waiting for the poll.
 | `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines. Compressed |
 | `GET /api/worktrees/{id}/file?rev=&path=&oldPath=` | `FileVersions`: `{rev, path, old, new, truncated}`, one file whole on each side of a rev, for the **Rendered view**. Compressed |
+| `GET /api/worktrees/{id}/raw?rev=&path=&side=&oldPath=` | One side, `old` or `new`, of one file of a rev, as its bytes, with a `Content-Type` from the path. The reply is a sandbox (`Content-Security-Policy: sandbox`, `nosniff`), so an SVG opened on its own runs no script. A missing side is `unknown_id`; a side over 20 MB is `invalid` |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
