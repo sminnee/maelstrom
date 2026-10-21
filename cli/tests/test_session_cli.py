@@ -246,6 +246,14 @@ class TestSessionInfo:
         assert "CLAUDE_CODE_SESSION_ID" in result.output
         assert "CLAUDE_PID" in result.output
 
+    def test_a_pid_that_is_no_session_is_an_error(self, tmp_path):
+        # A dead pid, or a live one that is not a claude: a typo must not
+        # resolve to an unrelated process.
+        with _patch_live([]), _patch_pid_lookup(None):
+            result = CliRunner().invoke(cli, ["session", "info", "4242"])
+        assert result.exit_code != 0
+        assert "4242" in result.output
+
     def test_errors_on_an_unknown_id(self, tmp_path):
         with _patch_live([self._sess()]):
             result = CliRunner().invoke(cli, ["session", "info", "zzzzzzzz"])
@@ -292,95 +300,3 @@ class TestSessionInfo:
             result = CliRunner().invoke(cli, ["session", "info", sid])
         assert result.exit_code == 0, result.output
         assert "2026-07-03.7" in result.output
-
-
-class TestSessionEnd:
-    """``mael session end [ID]`` — stop one session without closing its worktree."""
-
-    _SID = "97894d02-f335-5ea3-9d9f-050330a4902b"
-
-    @pytest.fixture(autouse=True)
-    def _no_ambient_env(self, monkeypatch):
-        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
-        monkeypatch.delenv("CLAUDE_PID", raising=False)
-
-    def test_stops_the_named_session(self, tmp_path, monkeypatch):
-        sess = _live(4242, "/w/alpha")
-        sess.session_id = self._SID
-        stopped = []
-
-        def fake_stop(sessions, **kwargs):
-            stopped.extend(sessions)
-            return [f"claude session (pid {s.pid}): stopped" for s in sessions]
-
-        monkeypatch.setattr(session_cli, "stop_sessions", fake_stop)
-        with _patch_live([sess]):
-            result = CliRunner().invoke(cli, ["session", "end", "97894d02"])
-
-        assert result.exit_code == 0, result.output
-        assert [s.pid for s in stopped] == [4242]
-        assert "stopped" in result.output
-
-    def test_ending_the_mael_process_itself_says_so_and_stops_nothing(
-        self, tmp_path, monkeypatch
-    ):
-        # A handle that names the `mael` process must not signal it, and must say
-        # why nothing happened — silence reads as a crash.
-        import os
-
-        sess = _live(os.getpid(), "/w/alpha")
-        stopped = []
-        monkeypatch.setattr(
-            session_cli, "stop_sessions", lambda s, **kw: stopped.extend(s) or []
-        )
-        monkeypatch.setenv("CLAUDE_PID", str(os.getpid()))
-        with _patch_live([sess]):
-            result = CliRunner().invoke(cli, ["session", "end"])
-
-        assert result.exit_code == 0, result.output
-        assert stopped == []  # never even handed to the stopper
-        assert "this session" in result.output
-
-    def test_errors_on_an_unknown_id(self, tmp_path):
-        with _patch_live([_live(4242, "/w/alpha")]):
-            result = CliRunner().invoke(cli, ["session", "end", "zzzzzzzz"])
-        assert result.exit_code != 0
-        assert "zzzzzzzz" in result.output
-
-    def test_stops_a_live_pid_the_sweep_cannot_see(self, tmp_path, monkeypatch):
-        # `pgrep` does not report every live claude — the session running `mael`
-        # is itself missing from the sweep on some setups. A pid read straight
-        # from the process resolves even with an empty sweep.
-        stopped = []
-        monkeypatch.setattr(
-            session_cli,
-            "stop_sessions",
-            lambda s, **kw: stopped.extend(s) or ["stopped"],
-        )
-        with _patch_live([]), _patch_pid_lookup(4242):
-            result = CliRunner().invoke(cli, ["session", "end", "4242"])
-
-        assert result.exit_code == 0, result.output
-        assert [s.pid for s in stopped] == [4242]
-
-    def test_a_pid_that_is_no_session_is_an_error(self, tmp_path, monkeypatch):
-        # A dead pid, or a live one that is not a claude. `session end` signals
-        # what it resolves, so neither may resolve — a typo must not reach an
-        # unrelated process.
-        stopped = []
-        monkeypatch.setattr(
-            session_cli,
-            "stop_sessions",
-            lambda s, **kw: stopped.extend(s) or ["stopped"],
-        )
-        with _patch_live([]), _patch_pid_lookup(None):
-            result = CliRunner().invoke(cli, ["session", "end", "4242"])
-        assert result.exit_code != 0
-        assert "4242" in result.output
-        assert stopped == []
-
-    def test_errors_when_no_id_and_no_environment(self, tmp_path):
-        with _patch_live([_live(4242, "/w/alpha")]):
-            result = CliRunner().invoke(cli, ["session", "end"])
-        assert result.exit_code != 0
-        assert "CLAUDE_CODE_SESSION_ID" in result.output

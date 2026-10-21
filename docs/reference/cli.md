@@ -288,7 +288,6 @@ resolves its own conflicts instead.
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List running Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
-| `mael session end [ID]` | Stop one session and leave its worktree in place. Defaults to the session you run it in. |
 | `mael cmux status` | Report whether maelstrom can place a session into cmux. Starts cmux if it is down. Exits non-zero when cmux cannot be reached. |
 
 ```bash
@@ -298,7 +297,6 @@ mael session info                  # the session you are in
 mael session info 97894d02         # ...named by an id prefix from the ID column
 mael session info 4242             # ...named by a pid from the PID column
 mael --json session info 97894d02  # the same fields as JSON
-mael session end 97894d02          # stop that session
 ```
 
 **Harness transport.** `mael add`, `mael task run`, `mael task next --run` and
@@ -366,14 +364,14 @@ mael task run NORT-7 --cli   # selected CLI in the pane
 mael task run NORT-7 --daemon
 ```
 
-**`mael session info` and `mael session end`**
+**`mael session info`**
 
 `ID` is a session id, a unique prefix of one (4 characters or more), or a pid. `mael session list`
 prints both: the `ID` column holds the first 8 characters of the session id, and the `PID` column
 holds the pid. A session maelstrom did not launch has a blank `ID`, so name that session by its
 pid.
 
-Without `ID`, both commands act on the session you run them in. Both exit non-zero when no session
+Without `ID`, the command shows the session you run it in. It exits non-zero when no session
 matches, or when an id prefix matches more than one session.
 
 A pid resolves even when `mael session list` does not show that session. The list comes from a
@@ -381,20 +379,8 @@ process sweep, and the sweep misses some sessions — frequently the one you are
 from the process itself, so it always resolves, and such a session shows only the fields the
 process supplies. A pid that is not a running Claude session does not resolve.
 
-`mael session end` stops the session and leaves the worktree in place — use `mael close` to tear
-down the worktree as well. The stop is graceful: it sends SIGINT so a busy session can wind down,
-waits 5 seconds, then sends SIGTERM to a survivor and waits 10 more. A session that ends on the
-first signal returns at once, so the 15 seconds is the worst case. `mael session end` never sends
-SIGKILL, which would risk a half-written transcript.
-
-`mael session end` with no `ID` inside a session stops that session. The `mael` process is a
-child of the session, so it signals its parent and exits once the parent is gone.
-
-An ended session stays on disk. Its transcript is complete, and `claude --resume` opens it again.
-
-`mael session end` does not close the task the session was launched for. Nothing does it for
-you: close it with `mael task status done`, and use `mael task reconcile` to find one a dead
-session left behind.
+A driven agent ends its own session with the `<end-session>` marker. See `CONTEXT.md`,
+"End-session request".
 
 None of the other commands here take options beyond `--help`.
 

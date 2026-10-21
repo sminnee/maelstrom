@@ -50,4 +50,4 @@ The set splices in after the current task.
 
 On UI approval, the UI already promoted the set the same way and deleted the drafts. Use the reported ids. On rejection, delete the drafts.
 
-When this is a planning session, after promotion close the planning task, launch the head with `mael task next --run`, then run `mael session end`. The head follows the planning task, so close the planner before launching it. A planning session ends only after the first task launches. Do not end it merely because the drafts exist.
+When this is a planning session, after promotion close the planning task, launch the head with `mael task next --run`, then end the session: when the system prompt teaches `<end-session>`, write it and end your turn. The head follows the planning task, so close the planner before launching it. A planning session ends only after the first task launches. Do not end it merely because the drafts exist.

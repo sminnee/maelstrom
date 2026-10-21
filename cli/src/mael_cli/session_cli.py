@@ -1,4 +1,4 @@
-"""Session CLI: `mael session list`, `mael session info`, `mael session end`.
+"""Session CLI: `mael session list` and `mael session info`.
 
 A session here is a running ``claude`` process. Everything shown comes from the
 process itself (via :mod:`mael_domain.session_discovery`) plus the task table's
@@ -16,7 +16,6 @@ import click
 from mael_common.cli_async import AsyncGroup
 from mael_domain import session_discovery
 from mael_domain.context import resolve_context
-from mael_domain.env import stop_sessions
 from mael_domain.task_table import SqliteTaskTable
 
 from .json_flag import wants_json
@@ -26,7 +25,7 @@ from .task_cli import open_task_table
 
 @click.group("session", cls=AsyncGroup)
 def session() -> None:
-    """Inspect and stop Claude Code sessions."""
+    """Inspect Claude Code sessions."""
 
 
 def _derive_project_worktree(cwd: str | None) -> tuple[str | None, str | None]:
@@ -98,7 +97,7 @@ async def session_list() -> None:
     source ``mael list`` and ``task reconcile`` use. TASK is an indexed reverse
     lookup of the session's ``--session-id``, left blank for a ``claude`` that
     ``mael`` did not launch. ID is the first characters of that session-id — the
-    handle ``session info`` and ``session end`` take.
+    handle ``session info`` takes.
 
     What an agent is *doing* is not here: a driven agent reports that to the
     daemon, so ``mael agent list`` shows it, including what a waiting one waits
@@ -230,32 +229,3 @@ async def session_info(id: str | None) -> None:
     if row["task"]:
         click.echo(f"task:     {row['task']}")
     click.echo(f"cwd:      {row['cwd']}")
-
-
-@session.command("end")
-@click.argument("id", required=False)
-async def session_end(id: str | None) -> None:
-    """Stop a live session, leaving its worktree in place.
-
-    ID takes the same forms as ``mael session info``. Without it, the session you
-    run this in is stopped: ``mael`` is a child of that session, so it signals its
-    parent and exits with it. The ended session is resumable — its transcript is
-    complete and ``claude --resume`` opens it again.
-
-    The stop is graceful and can take up to 15 seconds: SIGINT to let a busy
-    session wind down, then SIGTERM to any survivor, never SIGKILL.
-
-    This does not close the task the session was launched for. Close it with
-    ``mael task status done``; ``mael task reconcile`` finds one left behind.
-    """
-    sess = await _find_session(id)
-
-    # Refuse to signal the `mael` process itself. Only a handle naming `mael`
-    # directly reaches here; the enclosing session resolves to the parent pid.
-    # Saying so beats silence: an empty run and a crash look identical otherwise.
-    if sess.pid == os.getpid():
-        click.echo(f"claude session (pid {sess.pid}) is this session; not stopping it.")
-        return
-
-    for msg in stop_sessions([sess]):
-        click.echo(msg)

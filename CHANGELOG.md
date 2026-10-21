@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **An agent ends its session with `<end-session>`.** When the turn that carries the marker
+  ends, the orchestrator terminates the agent, and the UI shows the Terminate. The session stays
+  resumable.
+
 - **`/review-codebase` reviews existing code.** It sweeps the code section by section with the
   `/code-review` rules, ranks the hotspots in one report, and makes a task for each row you
   choose. A script splits the code into sections, one or more for each package, and a check
@@ -253,6 +257,10 @@ release while that section is empty, and retitles it to the version it is releas
   ```bash
   uv tool install --editable ~/Projects/maelstrom/_main/cli --reinstall --force
   ```
+
+### Removed
+
+- **`mael session end` is removed.** A driven agent writes `<end-session>` instead.
 
 ### Fixed
 
