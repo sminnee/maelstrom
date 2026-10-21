@@ -413,6 +413,28 @@ and the agent then waits for a reply. A turn end in replay clears the request, b
 that read it live acted on it. The `compacting` flag is not kept across a restart, so a restart
 between `/compact` and its outcome leaves the agent with no reply.
 
+### An end-session request
+
+An end-session request rides out on `Normalised.end_session`:
+
+```
+<end-session>
+```
+
+`AgentWatch.pending_end` holds it until the turn's `result`, because the agent may still be
+writing that turn. `server._follow_end` then sends `agent.stop` through `handle_command`, as the
+UI's button does. The stop is an ordinary **Terminate**, so the UI shows its operation. A refusal
+is logged.
+
+`_follow_end` runs last on the `result`. The stop cancels the watch, so the turn's milestone is
+recorded first.
+
+The request wins over a compaction request in the same turn. `_follow_compact` sends no `/compact`
+while `pending_end` is set.
+
+A request is parked in replay too, and a turn end in replay clears it, as for a compaction
+request. The run that read it live terminated the agent, so a resumed agent is not stopped again.
+
 ### Approving a task set
 
 A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A cmux session gates on the

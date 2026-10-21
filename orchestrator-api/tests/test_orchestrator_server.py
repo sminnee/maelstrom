@@ -8149,6 +8149,89 @@ def test_a_replayed_compaction_request_does_nothing(harness):
     assert run(scenario()) == []
 
 
+# --- the end-session request --------------------------------------------------
+
+
+def stopped(harness) -> bool:
+    return {"cmd": "stop", "id": "ag1"} in harness.daemon.calls
+
+
+def test_an_end_session_request_terminates_the_agent_once_its_turn_ends(harness):
+    """Not on the marker: the agent may still be writing the turn."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("Done.\n\n<end-session>"))
+                await after_message(harness, "Still in the turn.")
+                before = stopped(harness)
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: stopped(harness))
+                operations = await until(
+                    api,
+                    "/api/operations",
+                    lambda b: any(o["state"] == "done" for o in b["operations"]),
+                )
+                return before, operations["operations"]
+
+    before, operations = run(scenario())
+    assert before is False
+    # A Terminate operation, as the UI's button runs: not a bare host stop.
+    assert [(o["kind"], o["agentId"]) for o in operations] == [("terminate", "ag1")]
+
+
+def test_an_end_session_request_whose_turn_ends_after_a_restart_terminates(harness):
+    """The marker is in the backlog, but the turn ends live."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = [tag_event("<end-session>")]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await after_message(harness, "Still in the turn.")
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: stopped(harness))
+
+    run(scenario())
+
+
+def test_a_replayed_end_session_request_does_nothing(harness):
+    """The run that first read it terminated the agent; a resumed agent stays."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = [tag_event("<end-session>"), end_turn()]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", end_turn())
+                await after_message(harness, "Continuing.")
+                return stopped(harness)
+
+    assert run(scenario()) is False
+
+
+def test_an_end_session_request_wins_over_a_compaction_request(harness):
+    """No ``/compact`` goes to an agent that is stopping."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(f"{COMPACT_TAG}\n<end-session>"))
+                harness.daemon.push("ag1", end_turn())
+                # The `/compact` would be said while the `result` is read,
+                # before the stop operation begins.
+                await wait_until(lambda: stopped(harness))
+                return said_texts(harness)
+
+    assert run(scenario()) == []
+
+
 # ---------------------------------------------------------------------------
 # worktree.forceClose, worktree.remove, worktree.sync, worktree.env
 # ---------------------------------------------------------------------------

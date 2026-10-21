@@ -487,6 +487,9 @@ class AgentWatch:
         #: milestone waits: the turn's last occupancy reading, and an idle
         #: agent to send ``/compact`` to.
         self.pending_compact: CompactRequest | None = None
+        #: An end-session request waiting for its turn to end: the agent may
+        #: still be writing that turn.
+        self.pending_end = False
         #: ``/compact`` was sent and its outcome is not in yet. A boundary
         #: says it compacted; a ``result`` with none first says it did not.
         self.compacting = False
@@ -1864,6 +1867,9 @@ class Orchestrator:
             agent = self.world["agents"].get(watch.agent_id)
             if agent and agent["worktreeId"]:
                 self._apply_feedback_params(agent["worktreeId"], out.feedback_params)
+        if out.end_session:
+            # Parked even in replay, as a compaction request is.
+            watch.pending_end = True
         await self._follow_compact(watch, raw, out)
         if raw.get("type") == "result" and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
@@ -1873,6 +1879,29 @@ class Orchestrator:
             # 0, because no tokens were spent between the two writes.
             if watch.caught_up.is_set():
                 await self._record_milestone(watch, milestone)
+        # Last: the stop cancels this watch, so the turn's milestone goes first.
+        await self._follow_end(watch, raw)
+
+    async def _follow_end(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
+        """Terminate the agent when the turn that asked to end does.
+
+        See ``docs/dev/orchestrator-server.md``, "An end-session request".
+        """
+        if raw.get("type") != "result" or not watch.pending_end:
+            return
+        watch.pending_end = False
+        if not watch.caught_up.is_set():
+            # A replayed turn end was acted on by the run that read it live.
+            return
+        reply = await self.handle_command(
+            {"type": "agent.stop", "agentId": watch.agent_id}
+        )
+        if not reply.get("ok"):
+            log.warning(
+                "agent %s: end-session not acted on: %s",
+                watch.agent_id,
+                reply["error"]["message"],
+            )
 
     async def _follow_compact(
         self, watch: AgentWatch, raw: dict[str, Any], out: Normalised
@@ -1919,7 +1948,9 @@ class Orchestrator:
             )
         elif raw.get("type") == "result" and watch.pending_compact is not None:
             request, watch.pending_compact = watch.pending_compact, None
-            await self._request_compact(watch, request)
+            # The end wins: no `/compact` goes to an agent that is stopping.
+            if not watch.pending_end:
+                await self._request_compact(watch, request)
 
     async def _request_compact(
         self, watch: AgentWatch, request: CompactRequest
