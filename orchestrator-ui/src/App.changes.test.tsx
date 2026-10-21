@@ -814,6 +814,101 @@ ${PLACE}
     expect(screen.queryByRole('dialog', { name: /rendered/ })).toBeNull();
   });
 
+  /** Each image's source: the side and path of a raw URL, else the src as written. */
+  const imageSources = (dialog: HTMLElement) =>
+    within(dialog)
+      .getAllByRole('img')
+      .map((img) => {
+        const src = img.getAttribute('src')!;
+        if (!src.startsWith('/api/')) return src;
+        const q = new URL(src, 'http://x').searchParams;
+        return [q.get('side'), q.get('path'), q.get('oldPath')].filter(Boolean).join(' ');
+      });
+
+  it('draws a markdown file as its blocks, in each mode', async () => {
+    const DOC = (first: string, second: string) =>
+      [
+        '# Rotation',
+        'Tokens rotate. ![up](../up.png) ![web](https://x/y.png) ![out](../../out.png)',
+        '## Expiry',
+        `${first} ![shot](img/a.png)`,
+        'The middle stays.',
+        second,
+        '## Grace',
+        'The old token stays a minute.',
+      ].join('\n\n') + '\n';
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('guide/rotation.md', 'x', { status: 'renamed', oldPath: 'docs/rotation.md' }),
+      ];
+      c.files = {
+        uncommitted: {
+          'guide/rotation.md': {
+            old: DOC('A token expires after an hour.', 'It rotates once.'),
+            new: DOC('A token expires after two hours.', 'It rotates twice.'),
+          },
+        },
+      };
+    });
+    const dialog = await view(panel, 'guide/rotation.md');
+    const blocks = () =>
+      within(dialog)
+        .getAllByTestId('markdown-block')
+        .map((b) => `${b.getAttribute('data-kind')} ${b.textContent?.trim()}`);
+
+    // Changes only: each edited paragraph as removed then added. Both runs sit
+    // under one heading, shown once.
+    expect(within(dialog).getByRole('button', { name: 'Formatted' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await waitFor(() =>
+      expect(blocks()).toEqual([
+        'context Expiry',
+        'remove A token expires after an hour.',
+        'add A token expires after two hours.',
+        'remove It rotates once.',
+        'add It rotates twice.',
+      ]),
+    );
+    expect(within(dialog).getByRole('heading', { name: 'Expiry', level: 2 })).toBeVisible();
+    // A relative ref resolves against its own side's folder: the old side was
+    // `docs/`, the new one is `guide/`.
+    expect(imageSources(dialog)).toEqual(['old docs/img/a.png', 'new guide/img/a.png']);
+
+    await mode(dialog, 'Whole file');
+    expect(blocks()).toEqual([
+      'context Rotation',
+      'context Tokens rotate.',
+      'context Expiry',
+      'remove A token expires after an hour.',
+      'add A token expires after two hours.',
+      'context The middle stays.',
+      'remove It rotates once.',
+      'add It rotates twice.',
+      'context Grace',
+      'context The old token stays a minute.',
+    ]);
+    // A URL passes through, and so does a ref that climbs out of the worktree.
+    expect(imageSources(dialog)).toEqual([
+      'new up.png',
+      'https://x/y.png',
+      '../../out.png',
+      'old docs/img/a.png',
+      'new guide/img/a.png',
+    ]);
+
+    await mode(dialog, 'Final');
+    expect(within(dialog).getByRole('heading', { name: 'Rotation', level: 1 })).toBeVisible();
+    expect(dialog).toHaveTextContent('two hours');
+    expect(dialog).not.toHaveTextContent('an hour');
+
+    await mode(dialog, 'Changes only');
+    await showDisplay(dialog, 'Raw');
+    expect(within(dialog).queryAllByTestId('markdown-block')).toEqual([]);
+    expect(kinds(dialog)).toContain('remove');
+  });
+
   it('reads a side past the size cap as empty, not as a new file', async () => {
     const { panel } = await openChanges((c) => {
       c.diffs.uncommitted = [file('specs/checkout.feature', 'x')];

@@ -6,8 +6,13 @@ describe('rendererFor', () => {
     expect(rendererFor('specs/orders/Checkout.feature').id).toBe('gherkin');
   });
 
+  it('draws a markdown file as a document', () => {
+    for (const path of ['README.md', 'docs/guide.markdown', 'NOTES.MD'])
+      expect(rendererFor(path).id).toBe('markdown');
+  });
+
   it('draws any other file as text', () => {
-    for (const path of ['src/app.ts', 'README.md', 'Dockerfile', 'notes'])
+    for (const path of ['src/app.ts', 'Dockerfile', 'notes'])
       expect(rendererFor(path).id).toBe('text');
   });
 });

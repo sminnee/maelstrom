@@ -60,17 +60,27 @@ function isVideo(src: string): boolean {
   return VIDEO_PATH.test(src.split(/[?#]/, 1)[0] ?? '');
 }
 
+/** Maps an image ref in the source to the URL to load it from. */
+export type ResolveSrc = (src: string) => string;
+
 /**
- * Memoised on its one prop. A partial message re-renders the transcript a few
+ * Memoised on its props. A partial message re-renders the transcript a few
  * times a second, and a card whose text did not change skips the parse.
  */
-const MarkdownContent = memo(function MarkdownContent({ source }: { source: string }) {
+const MarkdownContent = memo(function MarkdownContent({
+  source,
+  resolveSrc,
+}: {
+  source: string;
+  resolveSrc?: ResolveSrc;
+}) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        img: ({ src, alt }) => {
-          if (typeof src !== 'string') return null;
+        img: ({ src: ref, alt }) => {
+          if (typeof ref !== 'string') return null;
+          const src = resolveSrc ? resolveSrc(ref) : ref;
           if (isVideo(src)) {
             // `metadata`, so a document with several recordings loads none whole.
             return (
@@ -104,20 +114,23 @@ const MarkdownContent = memo(function MarkdownContent({ source }: { source: stri
 export function Markdown({
   source,
   className,
+  resolveSrc,
   ...rest
 }: {
   source: string;
   className?: string;
+  /** Maps each image ref; pass a stable function, or the memo re-parses. */
+  resolveSrc?: ResolveSrc;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'className' | 'children'>) {
   return (
     <div className={[styles.markdown, className].filter(Boolean).join(' ')} {...rest}>
       {attentionSegments(source).map((segment, index) =>
         segment.attention === 'low' ? (
           <QuietBlock key={index}>
-            <MarkdownContent source={segment.source} />
+            <MarkdownContent source={segment.source} resolveSrc={resolveSrc} />
           </QuietBlock>
         ) : (
-          <MarkdownContent key={index} source={segment.source} />
+          <MarkdownContent key={index} source={segment.source} resolveSrc={resolveSrc} />
         ),
       )}
     </div>

@@ -29,7 +29,9 @@
     "react-markdown": "10.1.0",
     "react-router": "7.18.4",
     "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
     "shiki": "4.4.3",
+    "unified": "11.0.5",
     "zustand": "5.0.15"
   },
   "devDependencies": {
