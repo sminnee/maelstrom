@@ -101,6 +101,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ('More work.\n\n<link rel="gh-pr" withdrawn>118</link>', "More work."),
         ('Look.\n\n<live-feedback jig="on">', "Look."),
         ('Built.\n\n<compact-session min-tokens="200k">', "Built."),
+        ("Done.\n\n<end-session>", "Done."),
         ('See <image src="docs/shot.png" alt="A"> here', "See  here"),
         # A marker's body is not prose, so nothing shows until it closes.
         ("Before\n\n<note>rebasing on", "Before"),
@@ -120,6 +121,7 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ("Before\n\n<user-attention lo", "Before"),
         ("Before\n\n<live-feedback ji", "Before"),
         ("Before\n\n<compact-session min-tok", "Before"),
+        ("Before\n\n<end-sess", "Before"),
         ("Before\n\n</no", "Before"),
         # The renderer reads this one, so it stays once it is whole.
         ("<user-attention high>\nHello", "<user-attention high>\nHello"),
@@ -253,3 +255,25 @@ def test_a_compaction_request_quoted_in_code_is_text(text):
 
 def test_a_message_with_no_compaction_request_reports_none():
     assert compact("Just talking.") is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Done.\n\n<end-session>", "Done.\n\n<end-session/>", "Done.\n\n<end-session />"],
+    ids=["bare", "self-closing", "spaced"],
+)
+def test_an_end_session_request_is_read_and_cut_from_the_text(text):
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert tagged.end_session is True
+    assert tagged.text == "Done."
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Write `<end-session>` to end.", "```\n<end-session>\n```"],
+    ids=["inline", "fenced"],
+)
+def test_an_end_session_request_quoted_in_code_is_text(text):
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert tagged.end_session is False
+    assert tagged.text == text

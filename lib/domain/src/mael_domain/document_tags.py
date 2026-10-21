@@ -44,6 +44,11 @@ when it holds at least ``min-tokens``. A body focuses the summary::
     <compact-session min-tokens="200k">
     <compact-session min-tokens="200k">Keep the PR number</compact-session>
 
+The end-session request asks the orchestrator to terminate the agent when the
+turn that carries it ends::
+
+    <end-session>
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -111,6 +116,8 @@ _COMPACT_TAG = re.compile(
     r"(?:((?:(?!<compact-session\b).)*?)</compact-session>)?",
     re.DOTALL,
 )
+#: Asks for the agent to be terminated when its turn ends. Self-closing.
+_END_SESSION_TAG = re.compile(r"<end-session\s*/?>")
 _MIN_TOKENS = re.compile(r'\bmin-tokens\s*=\s*"([^"]*)"')
 _TOKEN_COUNT = re.compile(r"(\d+(?:\.\d+)?)([km]?)", re.IGNORECASE)
 _TOKEN_UNITS = {"": 1, "k": 1_000, "m": 1_000_000}
@@ -201,6 +208,7 @@ class TaggedMessage:
     order they were written. Each one applies, so none replaces another.
 
     ``compact`` is the compaction request the message carried. Last wins.
+    ``end_session`` says whether the message asked for the agent to end.
     """
 
     text: str
@@ -211,6 +219,7 @@ class TaggedMessage:
     pr_withdrawn: bool = False
     feedback_params: tuple[ParamSet, ...] = ()
     compact: CompactRequest | None = None
+    end_session: bool = False
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -293,6 +302,12 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         compact = _compact_request(match.group(1), match.group(2) or "")
         spans.append(match.span())
 
+    end_session = False
+    # And so does this one: a quoted marker must not stop the agent.
+    for match in _unquoted(_END_SESSION_TAG, text, spans):
+        end_session = True
+        spans.append(match.span())
+
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
         # An `<image>` inside a tag already cut is that tag's text.
@@ -318,6 +333,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         pr_withdrawn=pr_withdrawn,
         feedback_params=tuple(feedback_params),
         compact=compact,
+        end_session=end_session,
     )
 
 
@@ -375,6 +391,7 @@ _MARKER_NAMES = (
     "link",
     "live-feedback",
     "compact-session",
+    "end-session",
     "user-attention",
 )
 #: The markers whose body is not prose: nothing of one shows until it closes.
