@@ -12,10 +12,12 @@ from mael_domain.worktree_changes import (
     MAX_FILE_BYTES,
     MAX_LINES_PER_FILE,
     BadPath,
+    FileTooLarge,
     UnknownRev,
     format_change_comments,
     list_changes,
     read_diff,
+    read_file_bytes,
     read_file_versions,
 )
 
@@ -373,6 +375,90 @@ async def test_a_symlink_reads_as_its_target_and_is_never_followed_out(
     assert link["new"] == str(outside / "secret")
     assert through_dir["new"] is None
     assert under_a_file["new"] is None
+
+
+# -- file bytes ---------------------------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n\x00\xff"
+
+
+def commit_bytes(repo, name, data, message):
+    (repo / name).write_bytes(data)
+    run_git(repo, "add", name)
+    run_git(repo, "commit", "-qm", message)
+    return run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+async def test_each_side_of_each_rev_reads_its_bytes_unchanged(repo):
+    commit_bytes(repo, "shot.png", PNG + b"base", "feat: shot")
+    commit = commit_bytes(repo, "shot.png", PNG + b"head", "feat: retake")
+    (repo / "shot.png").write_bytes(PNG + b"dirty")
+
+    sides = {
+        (rev, side): await read_file_bytes(repo, rev, "shot.png", side)
+        for rev in ("uncommitted", "branch", commit)
+        for side in ("old", "new")
+    }
+
+    assert sides == {
+        ("uncommitted", "old"): PNG + b"head",
+        ("uncommitted", "new"): PNG + b"dirty",
+        ("branch", "old"): None,
+        ("branch", "new"): PNG + b"head",
+        (commit, "old"): PNG + b"base",
+        (commit, "new"): PNG + b"head",
+    }
+
+
+async def test_a_renamed_file_reads_its_old_side_at_the_old_path(repo):
+    run_git(repo, "mv", "readme.md", "README.md")
+
+    old = await read_file_bytes(
+        repo, "uncommitted", "README.md", "old", old_file="readme.md"
+    )
+
+    assert old == b"one\ntwo\nthree\n"
+
+
+async def test_a_side_past_the_raw_cap_is_refused_and_one_at_it_is_served(
+    repo, monkeypatch
+):
+    monkeypatch.setattr("mael_domain.worktree_changes.MAX_RAW_BYTES", 16)
+    commit_bytes(repo, "at.png", b"x" * 16, "feat: at the cap")
+    commit_bytes(repo, "over.png", b"x" * 17, "feat: over the cap")
+    (repo / "dirty.png").write_bytes(b"x" * 17)
+
+    assert await read_file_bytes(repo, "branch", "at.png", "new") == b"x" * 16
+    with pytest.raises(FileTooLarge):
+        await read_file_bytes(repo, "branch", "over.png", "new")
+    with pytest.raises(FileTooLarge):
+        await read_file_bytes(repo, "uncommitted", "dirty.png", "new")
+
+
+@pytest.mark.parametrize("bad", ["../outside.png", "/etc/passwd", "a/../../b"])
+async def test_a_bytes_path_outside_the_worktree_is_refused(repo, bad):
+    with pytest.raises(BadPath):
+        await read_file_bytes(repo, "uncommitted", bad, "new")
+    with pytest.raises(BadPath):
+        await read_file_bytes(repo, "uncommitted", "readme.md", "old", old_file=bad)
+
+
+async def test_a_bytes_read_never_follows_a_symlink_out(repo, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "secret.png").write_bytes(PNG)
+    (repo / "link.png").symlink_to(outside / "secret.png")
+    (repo / "dir").symlink_to(outside)
+
+    assert await read_file_bytes(repo, "uncommitted", "link.png", "new") is None
+    assert await read_file_bytes(repo, "uncommitted", "dir/secret.png", "new") is None
+    assert await read_file_bytes(repo, "uncommitted", "readme.md/x", "new") is None
+
+
+async def test_a_path_that_names_a_folder_has_no_bytes(repo):
+    (repo / "docs").mkdir()
+    create_commit(repo, "docs/guide.md", "g\n", "feat: guide")
+
+    assert await read_file_bytes(repo, "branch", "docs", "new") is None
 
 
 # -- change comments ----------------------------------------------------------
