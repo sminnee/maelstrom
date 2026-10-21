@@ -21,6 +21,7 @@ import {
   useWorktreeDiff,
 } from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
+import { rendererFor } from '../rendered/plugins';
 import { RenderedFileDialog } from '../rendered/RenderedFileDialog';
 import type {
   BranchCommit,
@@ -646,10 +647,11 @@ const Files = memo(function Files({
   );
 });
 
-/** Opens the Rendered view of a file. A binary file has none. */
+/** Opens the Rendered view of a file. A binary file has none, unless a plugin reads its bytes. */
 function ViewButton({ file, onView }: { file: FileDiff; onView: (file: FileDiff) => void }) {
   // A binary file keeps the button's place, so the counts line up.
-  if (file.binary) return <span className={styles.view} aria-hidden="true" />;
+  if (file.binary && rendererFor(file.path).reads !== 'bytes')
+    return <span className={styles.view} aria-hidden="true" />;
   return (
     <AppButton
       icon={actionIcon('view')}
