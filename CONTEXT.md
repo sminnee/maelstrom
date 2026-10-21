@@ -986,6 +986,13 @@ replies, so an unattended agent continues. See `docs/dev/orchestrator-server.md`
 request".
 _Avoid_: Auto-compact (that is the harness's own), self-compact
 
+**End-session request**:
+An agent's request to end its own session, written as `<end-session>` at the end of an ordinary
+message. When the turn ends, the orchestrator runs a **Terminate** on the agent. The session stays
+resumable, and its task stays open. See `docs/dev/orchestrator-server.md`, "An end-session
+request".
+_Avoid_: session end (the removed command)
+
 **Milestone snapshot**:
 What a driven agent had spent when it reached a milestone: its own tokens, its subagents' tokens,
 and the host's dollar figure, with the delta since the milestone before it. The deltas sum to the
