@@ -430,12 +430,14 @@ The set **splices** in after the planning task — see `CONTEXT.md`, "Splice". T
 plays for `mael task promote`. A free agent has no task, so its set follows nothing. The reply carries the created ids,
 because an approve that reports nothing reads as an approve that did nothing.
 
-The head is **not** launched: the task list and node cards already offer Launch. The agent is told
-what was created, so a session that planned the chain does not promote it a second time.
+The head is **not** launched: the task list and node cards already offer Launch. The agent is
+told what was created, so a session that planned the chain does not promote it a second time.
 
-`NotebookTaskSource.promote` is the storage-layer step, over `task.promote_chain` — the same
-function `mael task promote` calls, so the CLI stays canonical and this is a second surface onto
-it, not a reimplementation. Three things make the failure path safe:
+`NotebookTaskSource.promote` is the storage-layer step, over `task.promote_chain`.
+`task.promote`, which `mael task promote` sends, runs the same step. `promote_chain` takes each
+draft as `(name, text)`, so it needs no path. The approve reads the files from the agent's
+worktree, and `mael task promote` reads them from the caller's tree. Three things make the
+failure path safe:
 
 - **One transaction.** Several drafts are several task writes, and a failure part-way would
   leave some tasks created and some not. `TaskTable.transact` gives the set a true rollback, so
@@ -445,8 +447,8 @@ it, not a reimplementation. Three things make the failure path safe:
 - **One store.** A task's prose is in its row, so there is no second place a rolled-back write
   can survive in. That is what the cache beside the notebook used to cost, and why promote had
   to work around it.
-- **Deferred deletion.** `promote_chain` leaves each file in place, and deletes the set only
-  once the transaction commits. A rollback restores the rows but cannot restore a deleted
+- **Deferred deletion.** The caller deletes the files only once `promote_chain` has committed:
+  the approve after its promote, and `mael task promote` after a `2xx` reply. A rollback restores the rows but cannot restore a deleted
   file, so deleting as it went would leave the user a half-deleted plan.
 
 The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
@@ -1020,8 +1022,12 @@ after the first agent read.
 
 ## Creating work
 
-Four commands write new work. Three of them run as operations whose steps end with the launch
-steps above (`open_worktree`, `write_env`, `start_agent`) when they launch.
+Six commands write new work. Four of them can launch, and a launch ends with the launch steps
+above (`open_worktree`, `write_env`, `start_agent`).
+
+**Every task the server writes joins the desk**, in the same step as the write. So a chain an
+agent creates with `mael task add`, `promote` or `load-many` is on the canvas at once, and the
+user takes a task off with **Off desk**.
 
 - **`task.infer`** names a task from its prose, through `infer_task_names` in
   `task_metadata_generator.py`. It makes one HTTP call to OpenAI's `gpt-6-luna` and falls back to
@@ -1033,7 +1039,8 @@ steps above (`open_worktree`, `write_env`, `start_agent`) when they launch.
 - **`task.create`** writes the task before it answers, so the reply carries the `taskId` and the
   desk entry exists at once. An empty title is written as the prose's first line, cut to 60
   characters. An empty branch is written as `task/<id>`, with `generate_branch=False`, so no model
-  call runs before the reply. When a name is empty or `launch` is set, a `create` operation runs
+  call runs before the reply. A child takes its sibling's or its parent's branch instead, and then
+  there is no branch to name. When a name is empty or `launch` is set, a `create` operation runs
   on:
 
   | Step | When | What it does |
@@ -1042,6 +1049,28 @@ steps above (`open_worktree`, `write_env`, `start_agent`) when they launch.
   | the launch steps | `launch` | as **Launch** |
 
   With every name typed and no launch there is no operation, and the reply is `200 {taskId}`.
+
+  The body carries what `mael task add` sends, too. `parent` is a notebook id, as the task row
+  holds it. Every other task reference is a wire id, which the source unqualifies:
+
+  | Key | Effect |
+  |---|---|
+  | `follows` | The tasks the new task follows. Each must be in the world. |
+  | `followEnds` | Each `*` or id resolves to chain leaves, as `--follow-end` does, then joins `follows`. `*` resolves against the new task's `parent`. |
+  | `from` | Duplicates that task through `task.duplicate`. The fields sent override its recipe, and no title is needed. |
+  | `status` | `template`, or left out for `todo`. |
+  | `preAction`, `postAction`, `schedule`, `trigger` | Written as given. A `trigger` must parse. |
+- **`task.promote`** creates one task per draft, as one chain, through `promote_chain` — see
+  "Approving a task set". The body is `{project, drafts: [{name, text}], parent, overrides,
+  follows?, followEnds?, after?}`. `parent` is the default parent, the caller's
+  `$MAEL_TASK_PARENT`. `overrides` holds the recipe flags, and `''` clears a draft's value. With
+  no follow key the set splices in after `after`. A draft that will not parse refuses the whole
+  set and names the draft.
+- **`task.loadMany`** creates every block of a marked plan file, through `parse_task_blocks` and
+  `task.load_many`. The body is `{project, text, defaultParent, launch}`. The reply lists each task
+  as `{taskId, title}`, and the parser's `warnings`. With `launch`, each new task that waits on
+  nothing starts as its own `launch` operation, and its row carries the `operationId`. A launch
+  the validator refuses becomes a warning: the tasks exist either way.
 - **`linear.plan`** plans a Linear issue: the equivalent of `mael linear plan`. It runs as a
   `plan` operation:
 
@@ -1509,7 +1538,9 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `202 {operationId}` |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
-| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
+| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, base?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
+| `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |
+| `POST /api/tasks/load-many` | `{project, text, defaultParent?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |

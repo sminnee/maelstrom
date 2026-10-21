@@ -317,9 +317,10 @@ runs in the worktree, and `--no-agent` starts a temporary child shell. In cmux,
 maelstrom creates or focuses the worktree workspace. Pane 0 runs the agent and
 pane 1 shows the installer. With `--no-agent`, pane 0 is the installer shell.
 A driven agent starts a child driven agent by default.
-From a driven agent, `mael task run`, `task next --run`, `task add --run` and
-`task load-many --run` also start that child with no cmux pane, and the
-orchestrator shows it.
+From a driven agent, `mael task run` and `task next --run` also start that
+child with no cmux pane, and the orchestrator shows it. `task add --run` and
+`task load-many --run` always start the agent on the daemon, through the
+orchestrator server, with no cmux pane.
 Explicit `--cli` asks cmux for a CLI workspace. If cmux cannot start, the prepared
 worktree remains available.
 
@@ -433,10 +434,12 @@ mael task next --run                          # launch the next actionable task
 mael task status done                         # close $MAEL_TASK_ID
 ```
 
-`mael task list`, `show`, `read` and `status` call the orchestrator server that
+`mael task list`, `show`, `read`, `status`, `add`, `promote` and `load-many` call the
+orchestrator server that
 [`orchestrator_url:`](configuration.md#global-configuration--maelstromconfigyaml) names. They fail
 when that key is unset or no server answers. The server runs the status actions, and `status`
-prints each action's line on stderr.
+prints each action's line on stderr. The server writes each task that `add`, `promote` and
+`load-many` create, and puts it on the desk, so it shows on the canvas at once.
 
 Quote `'*'` — an unquoted `*` is expanded by the shell before `mael` sees it.
 
@@ -474,8 +477,8 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--trigger TEXT` | Fire on a finished GitHub Actions run: `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. A value that does not parse is refused. See [Fire on a finished build](../guide/scheduled-work.md#fire-on-a-finished-build). |
 | `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the parent task's comms. An id that names no comm is refused. |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
-| `-r`, `--run` | Launch the task as a session immediately. |
-| `--here` | With `--run`, launch in the current shell. No worktree, no new workspace. |
+| `-r`, `--run` | Launch the task immediately: the server starts it on the agent daemon. Prints the operation id. |
+| `--here` | With `--run`, launch in the current shell. No worktree, no new workspace, no server launch. |
 
 **`mael task draft`**
 
@@ -590,7 +593,7 @@ prefers a task on the current git branch, then falls back to the global next tas
 
 | Option | Description |
 |---|---|
-| `--run` | Launch every actionable task created. A task that still follows an unfinished id waits for `mael task next --run`. |
+| `--run` | Launch every actionable task created: the server starts each on the agent daemon. A task that still follows an unfinished id waits for `mael task next --run`. |
 | `--here` | With `--run`, launch only the head task in the current shell. |
 
 `FILE` is a preamble the human reads, then one `---CREATE TASK <name>---` block per task.
@@ -629,7 +632,8 @@ mael task load-many - --run            # read the plan from stdin
 ```
 
 `--run` only launches **actionable** tasks. A block that follows a task still `in-progress`
-stays in `todo`; advance it later with `mael task next --run`.
+stays in `todo`; advance it later with `mael task next --run`. A launch that fails prints a
+warning on stderr. The task stays in `todo`, and the command still exits 0.
 
 **`mael task status`**
 
