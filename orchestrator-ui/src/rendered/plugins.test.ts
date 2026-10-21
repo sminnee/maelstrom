@@ -11,8 +11,13 @@ describe('rendererFor', () => {
       expect(rendererFor(path).id).toBe('markdown');
   });
 
+  it('draws an image as its two sides', () => {
+    for (const path of ['docs/shot.png', 'logo.svg', 'photo.JPEG', 'favicon.ico'])
+      expect(rendererFor(path).id).toBe('image');
+  });
+
   it('draws any other file as text', () => {
-    for (const path of ['src/app.ts', 'Dockerfile', 'notes'])
+    for (const path of ['src/app.ts', 'Dockerfile', 'notes', 'png'])
       expect(rendererFor(path).id).toBe('text');
   });
 });

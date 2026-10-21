@@ -18,7 +18,18 @@ import styles from './ImageLightbox.module.css';
  * and a `<dialog>` rendered there would be inside a paragraph — which the
  * browser unnests, dropping it out of its own overlay.
  */
-export function ImageLightbox({ src, alt }: { src: string; alt: string }) {
+export function ImageLightbox({
+  src,
+  alt,
+  onLoad,
+  onError,
+}: {
+  src: string;
+  alt: string;
+  /** The thumbnail loaded: its `naturalWidth` and `naturalHeight` are known. */
+  onLoad?: (img: HTMLImageElement) => void;
+  onError?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   // `![](/x.png)` is legal markdown, so the alt may be empty. A name built
   // around an empty one reads as a dangling dash to a screen reader, and
@@ -33,7 +44,12 @@ export function ImageLightbox({ src, alt }: { src: string; alt: string }) {
         onClick={() => setOpen(true)}
         aria-label={openLabel}
       >
-        <img src={src} alt={alt} />
+        <img
+          src={src}
+          alt={alt}
+          onLoad={onLoad && ((e) => onLoad(e.currentTarget))}
+          onError={onError}
+        />
       </button>
       {open &&
         createPortal(
