@@ -52,6 +52,23 @@ describe('useLayoutMode', () => {
     expect(result.current).toBe('wide');
   });
 
+  it('reads the viewport afresh once the last reader has gone', () => {
+    // No listeners are told: only a new subscription can see the move.
+    let width = 390;
+    setMatchMedia((query) => ({
+      get matches() {
+        return width <= Number(/max-width: (\d+)px/.exec(query)![1]);
+      },
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    const first = renderHook(() => useLayoutMode());
+    expect(first.result.current).toBe('narrow');
+    first.unmount();
+    width = 1920;
+    expect(renderHook(() => useLayoutMode()).result.current).toBe('wide');
+  });
+
   it('reads wide where there is no matchMedia at all', () => {
     setMatchMedia(undefined);
     const { result } = renderHook(() => useLayoutMode());

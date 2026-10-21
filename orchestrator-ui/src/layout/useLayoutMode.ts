@@ -38,22 +38,54 @@ function query(
  * so the layout is a component decision the app-boundary suite can assert.
  * `vite.config.ts` sets `css: false`, so a media query is invisible to a test;
  * the CSS carries only cosmetic sizing.
+ *
+ * Every caller reads one shared mode. The browser dispatches `change` to each
+ * `MediaQueryList` separately and React renders between them, so per-caller
+ * lists would let a child draw one layout inside its parent's other one.
  */
 export function useLayoutMode(): LayoutMode {
   return useSyncExternalStore(subscribe, snapshot, serverSnapshot);
 }
 
+type Media = ReturnType<typeof query>;
+/** The narrow query, then the medium one. */
+type Medias = readonly [Media, Media];
+
+const medias = (): Medias => [query(NARROW_QUERY), query(MEDIUM_QUERY)];
+const read = ([narrow, medium]: Medias): LayoutMode =>
+  narrow.matches ? 'narrow' : medium.matches ? 'medium' : 'wide';
+
+/** The React listeners, and the one viewport subscription they share while any is held. */
+const listeners = new Set<() => void>();
+let watching: { medias: Medias; mode: LayoutMode } | null = null;
+
+function onViewportChange() {
+  if (!watching) return;
+  const mode = read(watching.medias);
+  if (mode === watching.mode) return;
+  watching.mode = mode;
+  // One loop in one task, so React renders every reader together.
+  for (const listener of listeners) listener();
+}
+
 // Stable identities: an inline arrow here would re-subscribe on every render
 // of every consumer, and a panel link renders once per card footer entry.
 function subscribe(onChange: () => void): () => void {
-  const medias = [query(NARROW_QUERY), query(MEDIUM_QUERY)];
-  for (const media of medias) media.addEventListener('change', onChange);
+  if (!watching) {
+    const watched = medias();
+    for (const media of watched) media.addEventListener('change', onViewportChange);
+    watching = { medias: watched, mode: read(watched) };
+  }
+  listeners.add(onChange);
   return () => {
-    for (const media of medias) media.removeEventListener('change', onChange);
+    listeners.delete(onChange);
+    if (listeners.size > 0 || !watching) return;
+    for (const media of watching.medias) media.removeEventListener('change', onViewportChange);
+    watching = null;
   };
 }
 
-const snapshot = (): LayoutMode =>
-  query(NARROW_QUERY).matches ? 'narrow' : query(MEDIUM_QUERY).matches ? 'medium' : 'wide';
+// Fresh when no one is subscribed yet: the first render reads before any effect runs.
+const snapshot = (): LayoutMode => (watching ? watching.mode : read(medias()));
 // The server has no viewport, and the desktop layout is the default.
 const serverSnapshot = (): LayoutMode => 'wide';

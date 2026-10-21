@@ -10,7 +10,7 @@ import {
   paneItem,
   touchDrag,
 } from './test/appHelpers';
-import { renderApp } from './test/renderApp';
+import { renderApp, resizeTo } from './test/renderApp';
 import type { FakeServer } from './fake/fakeServer';
 
 describe('the narrow layout', () => {
@@ -25,6 +25,19 @@ describe('the narrow layout', () => {
     expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('panel')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Tabs' })).toBeNull();
+  });
+
+  it('turns to the medium layout when the phone is rotated to landscape', async () => {
+    await renderApp({ viewport: 'narrow' });
+    // An iPhone in landscape.
+    resizeTo(844);
+    const bar = screen.getByTestId('top-bar');
+    expect(bar).not.toHaveAttribute('data-narrow');
+    // The chip that expands a node on the canvas, drawn with the canvas around it.
+    expect(within(bar).getByRole('button', { name: /items need attention/ })).toBeInTheDocument();
+    expect(within(bar).getByRole('group', { name: 'Views' })).toBeInTheDocument();
+    expect(screen.getByTestId('canvas')).toBeInTheDocument();
+    expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
   });
 
   it('reads the PR number on a deck row, as the canvas node does', async () => {
