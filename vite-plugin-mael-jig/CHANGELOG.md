@@ -11,6 +11,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **A refused provider URL warns once.** When the provider closes the socket with `4403`, the
+  plugin logs that the service needs `mael env restart`.
+
 ### Fixed
 
 - **A page's styles no longer leak into the jig.** A page rule such as `* { color: … }` matched
@@ -24,11 +29,6 @@ release while that section is empty, and retitles it to the version it is releas
   `/__mael/*` that lacks the jig's `x-mael-jig-client` header, or whose `Origin` is not the dev
   server. Before, any page in the browser could send feedback to the agents or write
   `.drafts/monkeypatch.css`.
-
-### Changed
-
-- **A refused provider URL warns once.** When the provider closes the socket with `4403`, the
-  plugin logs that the service needs `mael env restart`.
 
 ## [0.1.0] - 2026-10-13
 
