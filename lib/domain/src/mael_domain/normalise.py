@@ -231,6 +231,8 @@ class Normalised:
     compacted: tuple[int | None, int | None] | None = None
     #: Why the harness refused a compact, if the event says it did.
     compact_refused: str | None = None
+    #: Whether the agent asked to end its session.
+    end_session: bool = False
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -680,6 +682,8 @@ def normalise_stream_event(
                     out.feedback_params += tagged.feedback_params
                 if tagged and tagged.compact:
                     out.compact_request = tagged.compact
+                if tagged and tagged.end_session:
+                    out.end_session = True
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -956,6 +960,8 @@ class _Emitter:
         #: (pre, post) tokens, when the event was a compact boundary.
         self.compacted: tuple[int | None, int | None] | None = None
         self.compact_refused: str | None = None
+        #: Whether the agent asked to end its session.
+        self.end_session = False
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1430,6 +1436,7 @@ class _Emitter:
             self.compact_request,
             self.compacted,
             self.compact_refused,
+            self.end_session,
         )
 
 
