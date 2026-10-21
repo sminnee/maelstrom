@@ -180,6 +180,5 @@ same source, so all four always agree.
 The harness exports a session id of its own, as `CLAUDE_CODE_SESSION_ID`, but
 that id cannot key a task. `CLAUDE_CODE_SESSION_ID` names the conversation running
 now, and a `/clear` starts a new conversation and moves it. The derived id never
-moves, which is why the task table keys on it. `mael session info` and
-`mael session end` are the commands that want the live id, and they read
-`CLAUDE_CODE_SESSION_ID` for it.
+moves, which is why the task table keys on it. `mael session info` is the
+command that wants the live id, and it reads `CLAUDE_CODE_SESSION_ID` for it.

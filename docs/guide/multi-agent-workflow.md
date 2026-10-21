@@ -70,8 +70,9 @@ planning task, and launches the head:
 mael task promote .drafts/1.md .drafts/2.md        # create the tasks; prints their ids
 mael task status done                               # close the planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
-mael session end                                    # stop the planning session
 ```
+
+Then the session writes `<end-session>`, and the orchestrator terminates it.
 
 Promotion consumes each draft file and wires the chain at the moment ids exist. With no follow
 flag, the set [splices](planning.md#expanding-a-chain-mid-way) in after the planning task, so

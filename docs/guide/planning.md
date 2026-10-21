@@ -180,7 +180,6 @@ mael linear set-status PROJ-123 planned   # mirror to Linear
 mael task promote .drafts/1.md .drafts/2.md
 mael task status done                     # close this planning task
 mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — launches it
-mael session end                          # stop this planning session
 ```
 
 The head follows the planning task itself. While the planning task is `in-progress`, the head
@@ -189,8 +188,8 @@ then launches the head. `--parent` scopes the launch to this chain, so an unrela
 task cannot be picked instead. `next --run` prints the id it launches; when nothing in the
 chain is actionable it exits non-zero with "No actionable task."
 
-`mael session end` comes last. The head runs in its own session, so ending the planning session
-does not touch it, and an ended session is resumable.
+Then the session writes `<end-session>`. The head runs in its own session, so ending the planning
+session does not touch it, and an ended session is resumable.
 
 Drafts omit `parent:`; it defaults to `$MAEL_TASK_PARENT` at promote time.
 

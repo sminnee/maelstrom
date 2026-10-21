@@ -75,6 +75,17 @@ happened. Continue the work when that message comes.
   `<compact-session min-tokens="200k">Keep the PR number</compact-session>`.
 - The latest marker in a message wins.
 
+## Ending the session
+
+Write `<end-session>` as the last part of a message when the work is done: after the user says
+so, or after a planner launches its head. Then end your turn.
+
+When the turn ends, Maelstrom terminates your session. The session stays resumable. The task
+stays as it is, so close it first. Finish the PR push and the CI watch before you end.
+
+Do not write `<compact-session>` in the message that ends the session. The end wins, and the
+session is not compacted.
+
 ## PR links
 
 Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so the task card shows

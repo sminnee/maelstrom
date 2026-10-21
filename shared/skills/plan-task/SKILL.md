@@ -23,8 +23,9 @@ Load `planning` first. Read the brief from the initial prompt. This session plan
 mael task promote .drafts/1.md .drafts/2.md   # every draft, in chain order
 mael task status done
 mael task next --run --parent "$MAEL_TASK_PARENT"
-mael session end
 ```
+
+When the system prompt teaches `<end-session>`, write it and end your turn.
 
 UI approval already promotes the drafts; use its ids and skip only the promote command. On rejection, delete the drafts.
 

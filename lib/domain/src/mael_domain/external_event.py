@@ -114,7 +114,8 @@ def pr_events(
         if told is None or told.state != "merged":
             add(
                 PR_MERGED,
-                f"PR #{number} has merged. The work is done: run `mael session end`.",
+                f"PR #{number} has merged. The work is done: write `<end-session>` "
+                "and end your turn.",
             )
     else:
         if told is None:

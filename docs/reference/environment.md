@@ -120,8 +120,8 @@ beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any o
 | Which conversation is running now? | `CLAUDE_CODE_SESSION_ID` | Set by Claude Code. A `/clear` starts a new conversation and moves it. |
 
 `CLAUDE_CODE_SESSION_ID` is Claude Code's own variable, not maelstrom's, and every session has it.
-`mael session info` and `mael session end` read it to find the session you run them in. Those
-commands fall back to `CLAUDE_PID` — also Claude Code's — because a `/clear` leaves the live id in
+`mael session info` reads it to find the session you run it in. The command falls back to
+`CLAUDE_PID` — also Claude Code's — because a `/clear` leaves the live id in
 no command line, so the pid is the only handle that always resolves.
 
 Do not use `MAEL_TASK_SESSION_ID` to name the session you are in. It holds the id the session

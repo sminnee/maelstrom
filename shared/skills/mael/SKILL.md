@@ -56,7 +56,7 @@ Run waits in the background and read their body, not only exit status.
 
 Outside the daemon, `mael gh read-pr --wait` can report success before real CI starts, or hide its exit status through a pipe. Capture its output and confirm real jobs. `0/0 checks` can mean token permission failure; inspect Actions runs instead.
 
-End a finished session with `mael session end`. Close a task before ending its session.
+When the system prompt teaches `<end-session>`, end a finished session with it.
 
 ## Operations
 

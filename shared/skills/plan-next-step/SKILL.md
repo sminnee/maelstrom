@@ -20,8 +20,9 @@ Load `planning` first. The initial prompt says what remains. Verify it against t
 mael task promote .drafts/1.md .drafts/2.md   # every draft, in chain order
 mael task status done
 mael task next --run --parent "$MAEL_TASK_PARENT"
-mael session end
 ```
+
+When the system prompt teaches `<end-session>`, write it and end your turn.
 
 UI approval already promoted the drafts. On rejection, delete them. When no work remains, draft nothing and say so.
 

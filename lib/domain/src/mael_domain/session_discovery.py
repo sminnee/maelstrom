@@ -123,9 +123,8 @@ async def session_for_pid(pid: int) -> LiveSession | None:
 
     ``None`` for a pid this cannot describe as a session. That is either a pid
     whose command is not ``claude``, or one whose cwd ``lsof`` cannot read.
-    Neither may be guessed at: ``mael session end`` signals the pid it resolves,
-    so a mistyped pid must not reach an unrelated process, and a missing cwd
-    would otherwise be reported as the caller's own.
+    Neither may be guessed at: a mistyped pid must not resolve to an unrelated
+    process, and a missing cwd would otherwise be reported as the caller's own.
     """
     command = await command_of(pid)
     if command is None or not _is_claude_command(command):

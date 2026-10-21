@@ -86,8 +86,7 @@ and the reasoning.
 
 ## End a session when work is complete
 
-Run `mael session end` after the user says the work is done, or after a planner launches its head.
-First finish any active task, PR push, and CI watch. An ended session is resumable.
+When the system prompt teaches `<end-session>`, end a finished session with it. It says when.
 
 ## The wiki — cross-project patterns
 
