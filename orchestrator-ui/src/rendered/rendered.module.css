@@ -471,3 +471,51 @@
 .markdownBlock[data-kind='remove'] > * {
   opacity: 0.75;
 }
+
+/* -- Image ---------------------------------------------------------------- */
+
+/* Before and After as columns; one side alone takes the full width. */
+.images {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--u-3);
+  padding: var(--u-2) var(--u-3);
+}
+.image {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  min-width: 0;
+  margin: 0;
+}
+.image:is([data-change='added'], [data-change='removed']) {
+  padding: var(--u);
+  border-radius: var(--radius);
+}
+.image[data-change='added'] {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.image[data-change='removed'] {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+/* A transparent image shows its alpha against the squares. */
+.checkerboard {
+  display: flex;
+  justify-content: center;
+  padding: var(--u);
+  border-radius: var(--radius);
+  background: repeating-conic-gradient(var(--bg-sunken) 0% 25%, var(--bg) 0% 50%) 0 0 / 16px 16px;
+}
+.checkerboard img {
+  max-height: 60vh;
+}
+.imageCaption {
+  display: flex;
+  gap: var(--u);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.imageLabel {
+  color: var(--fg);
+  font-weight: var(--weight-semibold);
+}

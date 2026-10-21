@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import type { FileDiff } from './protocol/entities';
@@ -432,18 +432,19 @@ describe('the Changes tab', () => {
     const { panel } = await openChanges((c) => {
       c.diffs.uncommitted = [
         file('logo.png', '', { status: 'added', binary: true, hunks: [] }),
+        file('dist.zip', '', { status: 'added', binary: true, hunks: [] }),
         file('pnpm-lock.yaml', 'lock', { truncated: true }),
         file('auth/keys.py', 'keys', { status: 'renamed', oldPath: 'auth/secrets.py' }),
       ];
     });
     const region = (name: string) => within(panel).getByRole('region', { name });
-    expect(await within(panel).findByText('Binary file, not shown.')).toBeInTheDocument();
+    expect(await within(panel).findAllByText('Binary file, not shown.')).toHaveLength(2);
     expect(region('logo.png')).toHaveTextContent('Binary file, not shown.');
     expect(region('pnpm-lock.yaml')).toHaveTextContent('The rest is cut.');
     expect(region('auth/keys.py')).toHaveTextContent('auth/secrets.py → auth/keys.py');
-    // A binary file has nothing to render; every other file has a View.
-    expect(within(region('logo.png')).queryByRole('button', { name: /^View/ })).toBeNull();
-    for (const path of ['pnpm-lock.yaml', 'auth/keys.py'])
+    // A binary file has nothing to render unless it is an image; every other file has a View.
+    expect(within(region('dist.zip')).queryByRole('button', { name: /^View/ })).toBeNull();
+    for (const path of ['logo.png', 'pnpm-lock.yaml', 'auth/keys.py'])
       expect(within(region(path)).getByRole('button', { name: `View ${path}` })).toBeVisible();
   });
 
@@ -907,6 +908,44 @@ ${PLACE}
     await showDisplay(dialog, 'Raw');
     expect(within(dialog).queryAllByTestId('markdown-block')).toEqual([]);
     expect(kinds(dialog)).toContain('remove');
+  });
+
+  it('draws an image as its two sides, or the one side it has', async () => {
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('docs/shot.png', '', {
+          status: 'renamed',
+          oldPath: 'old/shot.png',
+          binary: true,
+          hunks: [],
+        }),
+        file('docs/logo.svg', '', { status: 'added', binary: true, hunks: [] }),
+        file('docs/gone.png', '', { status: 'deleted', binary: true, hunks: [] }),
+      ];
+    });
+
+    const shot = await view(panel, 'docs/shot.png');
+    // An image reads its bytes, so it has no text to read and no Raw.
+    expect(within(shot).queryByRole('group', { name: 'Display' })).toBeNull();
+    expect(within(shot).getByText('Before')).toBeVisible();
+    expect(within(shot).getByText('After')).toBeVisible();
+    expect(imageSources(shot)).toEqual(['old docs/shot.png old/shot.png', 'new docs/shot.png']);
+    // A side that does not load says so.
+    fireEvent.error(within(shot).getAllByRole('img')[0]!);
+    expect(within(shot).getByRole('status')).toHaveTextContent('Could not load the image.');
+    await mode(shot, 'Final');
+    expect(imageSources(shot)).toEqual(['new docs/shot.png']);
+    await userEvent.click(within(shot).getByRole('button', { name: 'Close' }));
+
+    const logo = await view(panel, 'docs/logo.svg');
+    expect(imageSources(logo)).toEqual(['new docs/logo.svg']);
+    expect(within(logo).getByText('Added')).toBeVisible();
+    expect(within(logo).queryByText('Before')).toBeNull();
+    await userEvent.click(within(logo).getByRole('button', { name: 'Close' }));
+
+    const gone = await view(panel, 'docs/gone.png');
+    expect(imageSources(gone)).toEqual(['old docs/gone.png']);
+    expect(within(gone).getByText('Removed')).toBeVisible();
   });
 
   it('reads a side past the size cap as empty, not as a new file', async () => {
