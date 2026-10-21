@@ -996,8 +996,8 @@ A new object or function in a prop of one of these components makes every row dr
 
 #### The Rendered view
 
-A **View** button, an eye, sits on the head of each file that is not binary and on its row in
-the file list. It opens the **Rendered view**, `rendered/RenderedFileDialog.tsx`, which reads the
+A **View** button, an eye, sits on the head of each file and on its row in the file list. A
+binary file has one only when its plugin reads bytes. It opens the **Rendered view**, `rendered/RenderedFileDialog.tsx`, which reads the
 file route only while it is open. The dialog is portalled to the body, because the file's head is
 sticky and clips what sits inside it. `Files` holds the open file and draws the one dialog. Each
 `FileBlock` gets the state's setter, whose identity holds, so opening a view draws no row again.
@@ -1010,12 +1010,20 @@ is a `RendererPlugin` from `rendered/plugin.ts`:
 | `id` | A stable name, which tests read |
 | `matches(path)` | Whether the plugin draws this path |
 | `displays` | Optional. The ways the plugin draws its file, the first the default |
-| `View` | A component that takes `old`, `new`, `mode`, `display`, `truncated` and `path` |
+| `reads` | Optional. `text`, the default, or `bytes`: the plugin draws from `src` alone |
+| `View` | A component that takes `old`, `new`, `mode`, `display`, `truncated`, `path`, `src` and `sideUrl` |
 
 `rendererFor` tries each plugin in `PLUGINS` in order, and falls back to `textPlugin`. To add a
 file type, write a plugin and add one entry to `PLUGINS`. A side is `null` when the file is
 added, deleted, binary or past the size cap; the dialog handles a file with both sides `null`, so
 a plugin draws at least one.
+
+`src` holds the URL of each side's raw bytes, from `worktreeFileUrl` in
+`api/worktreeChanges.ts`. A URL is `null` when the file has no such side: an added file has no
+old side, and a deleted one no new side. `sideUrl(path, side)` builds the same URL for another
+file of the rev. For a `bytes` plugin, the dialog reads no text and skips its "Binary file"
+note. An `<img>` src does not go through the faked `fetch`, so the fake server serves no bytes;
+a story passes data URLs.
 
 A plugin with `displays` gets a **Display** control beside the modes. The dialog adds Raw to
 the plugin's displays, and Raw draws `TextView`. A plugin without displays has no control. The dialog passes `truncated`, so a
@@ -1048,6 +1056,24 @@ as context.
 
 `FeatureView.stories.tsx` draws each mode from `feature.fixture.ts`, which the fake `changes`
 scenario also serves, with an added file beside the modified one.
+
+The Markdown plugin is in `rendered/markdown/`. `markdownBlocks` parses a file with
+`remark-parse` and `remark-gfm`, and cuts it at its top-level nodes by their source offsets. A
+fence, a table and a whole list are each one block. Front matter is one block. `diffBlocks`
+diffs the two sides' blocks as lists, so an edited paragraph is its old block removed, then its
+new block added. `MarkdownFileView` draws each block through `Markdown`:
+
+- Whole file draws every block. A changed block sits on a spine in its change's hue.
+- Changes only draws each run of changed blocks, after the nearest unchanged heading above it.
+- A wholly added or removed file is one tinted document.
+- A relative image ref resolves through `sideUrl`, on the side of the block that holds it. An
+  old-side ref resolves against `oldPath` when the file was renamed.
+- Each block gets its side's link reference and footnote definitions, from
+  `markdownDefinitions`, so a `[text][ref]` in it still resolves.
+- Displays: Formatted draws the document. Raw draws the lines.
+
+The Image plugin is in `rendered/image/`. It reads bytes. `ImageFileView` draws Before and After
+in columns on a checkerboard; a click opens `ImageLightbox` at full size.
 
 #### Change comments
 

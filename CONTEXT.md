@@ -1374,7 +1374,7 @@ _Avoid_: Diff view, diff browser, code tab
 
 **Rendered view**:
 A dialog over the **Changes tab** that draws one whole file of the rev in view, by its **Renderer
-plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none. It has three
+plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none, unless it is an image. It has three
 modes: **Final** draws the new file, **Whole file** draws the whole file with the changes marked,
 and **Changes only** draws the changed parts alone. It opens on Changes only. Final is disabled
 for a deleted file. A plugin can also offer displays, such as the Gherkin plugin's Formatted and
@@ -1385,7 +1385,8 @@ _Avoid_: Preview, document, file viewer
 One way the **Rendered view** draws a file, chosen by the file's path. The text plugin draws
 lines in syntax colour, and draws any file no other plugin claims. The Gherkin plugin draws a
 `.feature` file as a markdown document of its rules and scenarios, and falls back to text when a
-side does not parse.
+side does not parse. The Markdown plugin draws a `.md` file as a document, with each changed block
+marked. The Image plugin draws an image's two sides side by side.
 _Avoid_: Viewer, formatter, previewer
 
 **Dev env tab**:
