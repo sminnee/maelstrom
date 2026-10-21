@@ -19,12 +19,16 @@ class GateSourceError(RuntimeError):
 
 
 async def gate_jobs() -> list[dict[str, Any]]:
-    """Every queued or running gate job on the machine, as tangier prints it.
+    """Every running, then every queued, gate job on the machine, as tangier prints it.
+
+    tangier 0.3.0 prints one object that groups the jobs: ``running``,
+    ``queued`` and ``recent``, beside a ``machine`` summary. Under
+    ``--running`` the ``recent`` list is empty, so only the first two count.
 
     Raises:
         GateSourceError: If ``tangier`` is missing, times out, fails or prints
-            something other than a JSON list of jobs. An empty answer would
-            read as "no jobs".
+            something other than a gate status object, such as an older
+            tangier's flat list. An empty answer would read as "no jobs".
     """
     try:
         result = await run_cmd_async(
@@ -43,11 +47,16 @@ async def gate_jobs() -> list[dict[str, Any]]:
             f"tangier gate status failed (exit {result.returncode}): {output}"
         )
     try:
-        jobs = json.loads(result.stdout)
+        status = json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise GateSourceError(f"tangier gate status printed not JSON: {e}") from e
-    if not isinstance(jobs, list) or not all(
-        isinstance(job, dict) and "id" in job for job in jobs
+    if not isinstance(status, dict):
+        raise GateSourceError("tangier gate status printed no gate status object")
+    running, queued = status.get("running"), status.get("queued")
+    if not (
+        isinstance(running, list)
+        and isinstance(queued, list)
+        and all(isinstance(job, dict) and "id" in job for job in running + queued)
     ):
-        raise GateSourceError("tangier gate status printed no JSON list of jobs")
-    return jobs
+        raise GateSourceError("tangier gate status printed no gate status object")
+    return running + queued

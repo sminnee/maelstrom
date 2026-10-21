@@ -637,7 +637,8 @@ snapshot and its first live one.
 The gate read is async, so it takes no thread. It takes about 0.65 s, and the worker thread below
 also serves the task index. A failed read keeps the last jobs and logs once, not on each tick. Each
 job's worktree is the world's worktree with the same path, or `null`: tangier lists the jobs of
-every project on the machine.
+every project on the machine. The read needs tangier 0.3.0 or later, which groups the jobs into
+`running` and `queued` in one object. An older tangier prints a flat list, and the read fails.
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
