@@ -8,111 +8,25 @@ server on its own, as two processes would. So the wire is proven, not a fake.
 
 import asyncio
 import json
-import os
-import threading
-from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from served_orchestrator import (
+    NOW,
+    OTHER_PROJECT,
+    PROJECT,
+    mael_task,
+    point_config_at,
+    seed,
+)
 
-from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_cli.cli import cli
-from mael_cli.task_cli import task
 from mael_domain import task as model
 from mael_domain.task_table import InMemoryTaskTable
-from mael_orchestrator.routes import build_app, serving
-from mael_orchestrator.server import Orchestrator
-from mael_orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
+from mael_orchestrator.sources import InMemoryWorktreeSource
 from mael_orchestrator.world_build import project_entity, worktree_entity
 
 pytestmark = pytest.mark.binds_socket
-
-PROJECT = "northwind"
-OTHER_PROJECT = "acme"
-NOW = "2026-09-01T00:00:00Z"
-
-
-@dataclass
-class Served:
-    """The table the server reads, and the URL it answers on."""
-
-    table: InMemoryTaskTable
-    url: str
-
-
-@pytest.fixture
-def table() -> InMemoryTaskTable:
-    return InMemoryTaskTable()
-
-
-def seed(table: InMemoryTaskTable, **fields) -> model.Task:
-    """Write one task before the server starts, so its first read holds it."""
-    fields.setdefault("now", NOW)
-    return asyncio.run(model.create(table, project=PROJECT, **fields))
-
-
-def point_config_at(url: str) -> None:
-    """Name the server in the notebook root's config, as a dev environment does."""
-    config = Path(os.environ["MAEL_NOTEBOOK_ROOT"]) / "config.yaml"
-    config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(f"orchestrator_url: {url}\n")
-
-
-@pytest.fixture
-def home(tmp_path, monkeypatch):
-    """A ``$HOME`` of the test's own, and no session task in the environment."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("MAEL_TASK_ID", raising=False)
-    monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
-    return tmp_path
-
-
-@pytest.fixture
-def start_server(table, home) -> Iterator:
-    """Serve an orchestrator over ``table`` on its own thread and loop.
-
-    The server is started lazily by :func:`start`, so a test seeds the table
-    first and the server's first read holds what it seeded.
-    """
-    holder: dict = {}
-
-    def start(worktrees: InMemoryWorktreeSource | None = None) -> Served:
-        orch = Orchestrator(
-            NotebookTaskSource(table, lambda: [PROJECT, OTHER_PROJECT]),
-            worktrees or InMemoryWorktreeSource(),
-            ScriptedAsyncDaemonClient(),
-            clock=lambda: NOW,
-        )
-        loop = asyncio.new_event_loop()
-        ready = threading.Event()
-        stop = asyncio.Event()
-
-        async def serve() -> None:
-            async with serving(build_app(orch), "127.0.0.1", 0) as port:
-                holder["port"] = port
-                ready.set()
-                await stop.wait()
-
-        thread = threading.Thread(target=loop.run_until_complete, args=(serve(),))
-        thread.start()
-        assert ready.wait(10), "the server never bound its port"
-        holder.update(loop=loop, stop=stop, thread=thread)
-        url = f"http://127.0.0.1:{holder['port']}"
-        point_config_at(url)
-        return Served(table, url)
-
-    yield start  # type: ignore[misc]
-    if "loop" in holder:
-        holder["loop"].call_soon_threadsafe(holder["stop"].set)
-        holder["thread"].join(10)
-        holder["loop"].close()
-
-
-def mael_task(*args: str):
-    """Run ``mael task <args>`` and return the result."""
-    return CliRunner().invoke(task, list(args), catch_exceptions=False)
 
 
 def test_show_prints_the_task_the_server_holds(table, start_server):
