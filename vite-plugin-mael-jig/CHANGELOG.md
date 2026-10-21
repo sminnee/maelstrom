@@ -11,6 +11,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Fixed
+
+- **A page's styles no longer leak into the jig.** A page rule such as `* { color: … }` matched
+  the jig's host element and set the colour and font of the panel. The panel's base styles now sit
+  on an element inside its shadow root, which no page rule can match. The host is now a
+  `mael-jig` element, not a `div`. Its id is still `mael-jig`.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

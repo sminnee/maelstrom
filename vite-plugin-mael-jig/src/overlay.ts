@@ -22,8 +22,12 @@ interface Options {
   capture?: () => Promise<string | null>;
 }
 
+// The base styles sit on `.root`, not on `:host`: a page rule can match the host, and a page
+// declaration beats a `:host` one. `.root` is in the shadow tree, where no page rule reaches.
+// The host stays fixed, so it does not take a place in the page's layout.
 const STYLE = `
-:host { all: initial; position: fixed; right: 12px; bottom: 12px; z-index: 2147483647;
+:host { all: initial; position: fixed; }
+.root { position: fixed; right: 12px; bottom: 12px; z-index: 2147483647;
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; color: #e6e6e6; }
 .pill, button { font: inherit; color: inherit; background: #2b2b33; border: 1px solid #4a4a55;
   border-radius: 6px; padding: 4px 10px; cursor: pointer; }
@@ -73,6 +77,7 @@ button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
 
 const PANEL = `
 <style>${STYLE}</style>
+<div class="root">
 <button class="pill" data-toggle>Jig</button>
 <div class="outline" hidden></div>
 <div class="panel" hidden>
@@ -100,6 +105,7 @@ const PANEL = `
   <div class="row"><span class="status" role="status"></span>
     <span><button data-ask-controls hidden>Ask for controls</button>
       <button data-send-message>Send message</button></span></div>
+</div>
 </div>
 `;
 
@@ -394,7 +400,8 @@ export async function mountJig({
   // put the app's rule after this one and win a tie of specificity.
   const observer = new MutationObserver(keepLast);
 
-  const host = document.createElement('div');
+  // A custom element, so page rules on `div` miss it.
+  const host = document.createElement('mael-jig');
   host.id = 'mael-jig';
   const shoot = capture ?? (() => captureViewport(host));
   const root = host.attachShadow({ mode: 'open' });
