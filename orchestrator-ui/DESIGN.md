@@ -977,8 +977,9 @@ the same `DialogFooter`.
   dialog lists the running jobs, oldest first, then the queued jobs in queue order. Each row
   names the worktree, the short head, the age or the queue place, and the job's CPU and memory:
   `started, 7m ago · cpu 94% · mem 107M`. Then it shows each gate in the colour of its state.
-  Amber is kept for attention, so a running gate is in the plain text colour. With no gate job
-  the chip is absent.
+  A running gate throbs between the plain text colour and faint, in StepMeter's rhythm: a
+  change in lightness, because amber is kept for attention and blue for affordance. Under
+  reduced motion it is still. With no gate job the chip is absent.
 
 ### Shell command
 
