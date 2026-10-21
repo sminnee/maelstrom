@@ -153,6 +153,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/operations/{id}/retry", _retry_operation)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
+    app.router.add_post("/api/tasks/promote", _promote_tasks)
+    app.router.add_post("/api/tasks/load-many", _load_many_tasks)
     app.router.add_get("/api/linear/issues", _linear_issues)
     app.router.add_post("/api/linear/tasks", _linear_plan)
     app.router.add_post("/api/attachments", _upload_attachment)
@@ -225,9 +227,8 @@ async def _ready_with_tasks(request: web.Request) -> Orchestrator:
     """The orchestrator, with every task write so far in its world.
 
     Some ``mael task`` commands still write the notebook directly, and the
-    next one may read through here at once: ``add`` then ``status start``. A
-    read that waited for the poll would answer that the new task does not
-    exist. The refresh costs one revision query when nothing moved.
+    next one may read through here at once: ``run`` then ``status done``. A
+    read that waited for the poll would answer from before the write. The refresh costs one revision query when nothing moved.
     """
     orch = await _ready(request)
     await orch.refresh_tasks()
@@ -945,10 +946,34 @@ async def _create_task(request: web.Request) -> web.StreamResponse:
     ``202`` when naming or a launch runs on as an operation; ``200`` when the
     write was all there was.
     """
+    # A `from` or a follow may name a task another command wrote a moment ago.
+    await _ready_with_tasks(request)
     return await _command(
         request,
         lambda body: {**body, "type": "task.create"},
         status=lambda result: 202 if "operationId" in result else 200,
+    )
+
+
+async def _promote_tasks(request: web.Request) -> web.StreamResponse:
+    """Promote drafts as one chain: what ``mael task promote`` sends."""
+    await _ready_with_tasks(request)
+    return await _command(request, lambda body: {**body, "type": "task.promote"})
+
+
+async def _load_many_tasks(request: web.Request) -> web.StreamResponse:
+    """Create the tasks a plan file holds; ``launch`` starts the ready ones.
+
+    ``202`` when a launch runs on as an operation; ``200`` when the writes
+    were all there was.
+    """
+    await _ready_with_tasks(request)
+    return await _command(
+        request,
+        lambda body: {**body, "type": "task.loadMany"},
+        status=lambda result: (
+            202 if any("operationId" in t for t in result["tasks"]) else 200
+        ),
     )
 
 

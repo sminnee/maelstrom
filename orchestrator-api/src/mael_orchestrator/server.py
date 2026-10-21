@@ -108,7 +108,7 @@ from mael_domain.protocol import (
     group_members,
 )
 from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
-from mael_domain.task import STATUS_DONE, mode_for_command
+from mael_domain.task import STATUS_DONE, default_branch, mode_for_command
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
@@ -390,6 +390,16 @@ class _Launching:
 def _opened(setup: WorktreeSetup) -> str:
     """The log line of an opened worktree: ``Reused alpha.``"""
     return f"{setup.action.capitalize()} {setup.name}."
+
+
+def _branch_stand_in(task_id: str, parent: str) -> str:
+    """The branch a create writes for an empty branch, until naming replaces it.
+
+    The first task under a Linear parent takes ``feat/<n>``; any other task with
+    no branch to inherit takes ``task/<id>``.
+    """
+    linear = parent if parent.startswith("linear.") else ""
+    return default_branch(split_task_key(task_id)[1], linear)
 
 
 def _first_line(content: str, limit: int = 60) -> str:
@@ -2234,6 +2244,8 @@ class Orchestrator:
             "task.delete": self._delete_task,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
+            "task.promote": self._promote,
+            "task.loadMany": self._load_many,
             "comm.create": self._create_comm,
             "comm.update": self._update_comm,
             "comm.draftUpdates": self._draft_comm_updates,
@@ -2422,11 +2434,10 @@ class Orchestrator:
         ``docs/dev/orchestrator-server.md``, "Creating work".
         """
         content = str(command.get("content", "")).strip()
-        unnamed = [
-            f for f in ("title", "branch") if not str(command.get(f, "")).strip()
-        ]
+        # A duplicate takes its source's title.
+        untitled = "from" not in command and not str(command.get("title", "")).strip()
         fields = dict(command)
-        if "title" in unnamed:
+        if untitled:
             # A stand-in until the operation names it.
             fields["title"] = _first_line(content)
         try:
@@ -2443,6 +2454,12 @@ class Orchestrator:
             return _refused("invalid", str(exc))
         await self.refresh_tasks(force=True)
         await self._add_to_desk(desk_id_for_task(task_id))
+        # A branch left empty is named only when it took the stand-in: a child
+        # takes its sibling's or its parent's branch, and a duplicate may too.
+        row = self.world["tasks"][task_id]
+        unnamed = ["title"] if untitled else []
+        if row["branch"] == _branch_stand_in(task_id, row["parent"]):
+            unnamed.append("branch")
         if not unnamed and not command.get("launch"):
             return {"ok": True, "result": {"taskId": task_id}}
         # The operation's key is the task's own, minted a moment ago, so
@@ -2451,6 +2468,71 @@ class Orchestrator:
             {**command, "taskId": task_id, "unnamed": unnamed}
         )
         return {"ok": True, "result": {"taskId": task_id, **started["result"]}}
+
+    async def _promote(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Promote a client's drafts as one chain, and put each task on the desk."""
+        project = command["project"]
+        follows = command.get("follows")
+        ends = command.get("followEnds")
+        after = command.get("after")
+        try:
+            created = await self._run(
+                functools.partial(
+                    self.tasks.promote,
+                    project,
+                    [(d["name"], d["text"]) for d in command["drafts"]],
+                    str(command.get("parent", "")),
+                    split_task_key(after)[1] if after else None,
+                    overrides=command.get("overrides") or {},
+                    # Either flag wires the first task, and moves no follower.
+                    follows=None if follows is None and not ends else follows or [],
+                    follow_ends=ends,
+                )
+            )
+        except ValueError as exc:
+            return _refused("invalid", str(exc))
+        await self._desk_new_tasks(created)
+        return {"ok": True, "result": {"taskIds": created}}
+
+    async def _load_many(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Create every block of a plan file, put each on the desk, and launch.
+
+        With ``launch``, each created task that waits on nothing starts as its
+        own launch operation, which its row names. A launch the validator
+        refuses is a warning: the tasks exist either way.
+        """
+        try:
+            created, warnings = await self._run(
+                self.tasks.load_many,
+                command["project"],
+                command["text"],
+                str(command.get("defaultParent", "")),
+            )
+        except ValueError as exc:
+            return _refused("invalid", str(exc))
+        await self._desk_new_tasks([task_id for task_id, _ in created])
+        tasks: list[dict[str, Any]] = []
+        for task_id, title in created:
+            row: dict[str, Any] = {"taskId": task_id, "title": title}
+            tasks.append(row)
+            if not command.get("launch"):
+                continue
+            if not self.world["tasks"][task_id]["actionable"]:
+                continue
+            started = await self.handle_command(
+                {"type": "agent.launch", "taskId": task_id}
+            )
+            if started["ok"]:
+                row["operationId"] = started["result"]["operationId"]
+            else:
+                warnings.append(f"{task_id}: {started['error']['message']}")
+        return {"ok": True, "result": {"tasks": tasks, "warnings": warnings}}
+
+    async def _desk_new_tasks(self, task_ids: list[str]) -> None:
+        """Read new tasks into the world, and put each on the desk."""
+        await self.refresh_tasks(force=True)
+        for task_id in task_ids:
+            await self._add_to_desk(desk_id_for_task(task_id))
 
     async def linear_issues(self, project: str) -> dict[str, Any]:
         """A project's Linear issues for the current cycle.
@@ -2550,6 +2632,7 @@ class Orchestrator:
         if not project:
             return [], _refused("invalid", "The agent is in no project's worktree")
         paths: list[Path] = []
+        drafts: list[tuple[str, str]] = []
         for member in members:
             # A `<doc-file>` registers every file it names, so the id resolves
             # to the path the registry already validated. A member with no id
@@ -2560,14 +2643,22 @@ class Orchestrator:
             if found is None:
                 name = source["filename"]
                 return [], _refused("invalid", f"{name} is not a file in the worktree")
+            try:
+                drafts.append((found.name, found.read_text()))
+            except OSError as exc:
+                return [], _refused("invalid", f"{found.name}: {exc}")
             paths.append(found)
         try:
             created = await self._run(
-                self.tasks.promote, project, paths, *self._planning_task(document)
+                self.tasks.promote, project, drafts, *self._planning_task(document)
             )
         except ValueError as exc:
             return [], _refused("invalid", str(exc))
-        await self.refresh_tasks(force=True)
+        # After the commit: a rollback cannot restore a deleted draft.
+        # `missing_ok`: a file already gone must not undo the promote.
+        for path in paths:
+            path.unlink(missing_ok=True)
+        await self._desk_new_tasks(created)
         return created, None
 
     def _planning_task(self, document: Document) -> tuple[str, str | None]:
@@ -3030,10 +3121,11 @@ class Orchestrator:
         unnamed = list(command.get("unnamed") or [])
         launch = bool(command.get("launch"))
 
+        parent = self.world["tasks"][task_id]["parent"]
         # What `_create_task` wrote in place of each empty field.
         stand_ins = {
             "title": _first_line(command["content"]) if "title" in unnamed else "",
-            "branch": f"task/{split_task_key(task_id)[1]}",
+            "branch": _branch_stand_in(task_id, parent),
         }
 
         async def name_task() -> StepOutcome:
@@ -3047,6 +3139,11 @@ class Orchestrator:
                 for f in unnamed
                 if task is not None and task[f] == stand_ins[f]
             }
+            if "branch" in named and parent.startswith("linear."):
+                # The bare issue number leads the branch, as `linear plan` writes it.
+                named["branch"] = lead_with_number(
+                    named["branch"], parent.rsplit("-", 1)[-1]
+                )
             if named:
                 await self._run(self.tasks.update, task_id, named)
             await self.refresh_tasks(force=True)

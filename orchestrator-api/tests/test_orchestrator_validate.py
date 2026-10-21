@@ -596,6 +596,99 @@ def test_invalid_for_a_create_whose_execute_model_is_null():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+def test_a_create_may_wire_parent_follows_actions_and_a_template():
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    cmd = _create(
+        parent="NORT-1",
+        follows=["northwind/NORT-7"],
+        followEnds=["*", "northwind/NORT-7"],
+        preAction="linear.in-progress",
+        postAction="linear.done",
+        status="template",
+        schedule="0 9 * * 1-5",
+        trigger="gh-action/nightly.yml",
+    )
+    assert validate_command(world, cmd) is None
+
+
+def test_a_create_from_another_task_needs_no_title():
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    cmd = _create(title="", content="", **{"from": "northwind/NORT-7"})
+    assert validate_command(world, cmd) is None
+
+
+@pytest.mark.parametrize(
+    ("over", "expected"),
+    [
+        # A new task is filed in `todo`, or parked as a template; nothing else.
+        ({"status": "done"}, "invalid"),
+        ({"trigger": "nightly"}, "invalid"),
+        ({"from": "northwind/NOPE"}, "unknown_id"),
+        ({"follows": ["northwind/NOPE"]}, "unknown_id"),
+        # The notebook stores a bare id, which only a qualified one names.
+        ({"follows": ["NORT-7"]}, "invalid"),
+        ({"follows": ["acme/NORT-7"]}, "invalid"),
+        ({"followEnds": ["NORT-7"]}, "invalid"),
+        ({"preAction": None}, "invalid"),
+    ],
+)
+def test_a_create_refuses_a_bad_new_key(over, expected):
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    assert code(validate_command(world, _create(**over))) == expected
+
+
+def _promote(**over) -> dict:
+    cmd = {
+        "type": "task.promote",
+        "project": "northwind",
+        "drafts": [{"name": "1.md", "text": "---\ntitle: One\n---\n"}],
+        "parent": "",
+        "overrides": {"mode": "auto", "executeModel": None},
+        "after": "northwind/NORT-7",
+    }
+    cmd.update(over)
+    return cmd
+
+
+def test_a_promote_of_drafts_is_allowed():
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    assert validate_command(world, _promote()) is None
+
+
+@pytest.mark.parametrize(
+    ("over", "expected"),
+    [
+        ({"project": "nowhere"}, "unknown_id"),
+        ({"drafts": []}, "invalid"),
+        ({"drafts": [{"name": "1.md"}]}, "invalid"),
+        ({"overrides": {"mode": "turbo"}}, "invalid"),
+        ({"overrides": {"priority": "urgent"}}, "invalid"),
+        ({"overrides": {"title": "Not a recipe field"}}, "invalid"),
+        ({"follows": ["northwind/NOPE"]}, "unknown_id"),
+        ({"followEnds": ["NORT-7"]}, "invalid"),
+        ({"after": "NORT-7"}, "invalid"),
+    ],
+)
+def test_a_promote_refuses_a_bad_body(over, expected):
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    assert code(validate_command(world, _promote(**over))) == expected
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        ({"project": "northwind", "text": "---CREATE TASK a---"}, None),
+        ({"project": "nowhere", "text": "---CREATE TASK a---"}, "unknown_id"),
+        ({"project": "northwind", "text": "  "}, "invalid"),
+        ({"project": "northwind", "text": "x", "defaultParent": None}, "invalid"),
+    ],
+)
+def test_a_load_many_needs_a_known_project_and_text(cmd, expected):
+    world = world_with(projects=[PROJECT])
+    error = validate_command(world, {"type": "task.loadMany", **cmd})
+    assert (code(error) if error else None) == expected
+
+
 def test_a_create_may_leave_the_optional_fields_out():
     world = world_with(projects=[PROJECT])
     cmd = {"type": "task.create", "project": "northwind", "title": "Add order export"}
