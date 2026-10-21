@@ -124,7 +124,11 @@ def run_git(
 
 
 async def run_git_async(
-    args: list[str], cwd: Path | None = None, quiet: bool = False, check: bool = True
+    args: list[str],
+    cwd: Path | None = None,
+    quiet: bool = False,
+    check: bool = True,
+    text: bool = True,
 ) -> subprocess.CompletedProcess:
     """:func:`run_git`'s contract, without blocking the calling thread.
 
@@ -132,7 +136,9 @@ async def run_git_async(
     The orchestrator server reads git on every poll, and a blocking read there
     stalls every socket it is serving for the length of the command.
     """
-    return await run_cmd_async(["git"] + args, cwd=cwd, quiet=quiet, check=check)
+    return await run_cmd_async(
+        ["git"] + args, cwd=cwd, quiet=quiet, check=check, text=text
+    )
 
 
 class UpdateMainResult:

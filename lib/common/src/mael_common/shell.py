@@ -172,7 +172,7 @@ async def _run_cmd_streams(
     cwd: Path | None = None,
     env: dict | None = None,
     timeout: float | None = None,
-) -> tuple[list[str], str, str, int]:
+) -> tuple[list[str], bytes, str, int]:
     """Spawn ``cmd`` on the caller's loop; return the argv it ran, its output and code.
 
     The subprocess mechanics of :func:`run_cmd_async`, kept separate only so
@@ -206,7 +206,7 @@ async def _run_cmd_streams(
         raise
     return (
         argv,
-        out.decode("utf-8", "replace"),
+        out,
         err.decode("utf-8", "replace"),
         proc.returncode if proc.returncode is not None else -1,
     )
@@ -220,6 +220,7 @@ async def run_cmd_async(
     check: bool = True,
     env: dict | None = None,
     timeout: float | None = None,
+    text: bool = True,
 ) -> subprocess.CompletedProcess:
     """:func:`run_cmd`'s contract, without blocking the calling thread.
 
@@ -235,6 +236,9 @@ async def run_cmd_async(
     ``timeout`` raises ``subprocess.TimeoutExpired``. The child gets its own
     process group, so a timeout kills a pipeline whole rather than leaving the
     stages behind their dead ``sh``.
+
+    ``text=False`` leaves ``stdout`` as bytes, for output that is not text,
+    such as an image blob. ``stderr`` is still decoded.
     """
     _audit(cmd, cwd)
     if not quiet:
@@ -242,7 +246,8 @@ async def run_cmd_async(
     argv, out, err, code = await _run_cmd_streams(
         cmd, cwd=cwd, env=env, timeout=timeout
     )
-    result = subprocess.CompletedProcess(argv, code, out, err)
+    stdout = out.decode("utf-8", "replace") if text else out
+    result = subprocess.CompletedProcess(argv, code, stdout, err)
     if check:
         result.check_returncode()
     return result

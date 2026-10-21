@@ -240,6 +240,18 @@ class TestRunCmdAsync:
         )
         assert (result.stdout, result.stderr, result.returncode) == ("out", "err", 3)
 
+    def test_text_false_returns_stdout_as_its_bytes(self):
+        """An image read must not pass through a UTF-8 decode, which would
+        replace its invalid bytes. stderr stays text, for the error message."""
+        result = asyncio.run(
+            run_cmd_async(
+                ["sh", "-c", r"printf '\211PNG\000\377'; printf err >&2"],
+                quiet=True,
+                text=False,
+            )
+        )
+        assert (result.stdout, result.stderr) == (b"\x89PNG\x00\xff", "err")
+
     def test_a_raw_string_goes_through_a_shell(self):
         """``RawShell`` is the one way a raw string reaches the chokepoint, so
         a grep for it finds every place user text is executed."""
