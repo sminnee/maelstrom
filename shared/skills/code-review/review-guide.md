@@ -38,11 +38,11 @@ with siblings · barrel re-exports · re-exported imported type · speculative a
 premature compat shim · unnecessary indirection · dead paths · pointless try/except
 
 **Layer 3 — Test design** — tests focused on the business domain at component/subsystem level? ·
-E2E limited to critical interaction patterns? · unit tests limited to critical or complex
+E2E limited to critical user paths and non-trivial component interactions? · unit tests limited to critical or complex
 subsystems? · duplicated fixture boilerplate · verbose body · non-obvious assertions ·
-point-assertions · no converter for complex state · duplicative · wrong layer · not
-cross-referenced to spec · assertion-free · missing negative case · testing configuration · mocked
-integration test
+point-assertions · no converter for complex state · duplicative · contract tested twice · mirror
+test · E2E re-testing component detail · not cross-referenced to spec · assertion-free · missing
+negative case · testing configuration · mocked integration test
 
 **Layer 4 — Security & correctness** — injection · secrets in code · missing authorisation ·
 overbroad permissions · input trusted by origin · swallowed errors · data loss · unhandled
@@ -140,8 +140,10 @@ assertions easily understood by a reviewer?
 
 - **The bulk of tests target the business domain, at component/subsystem level.** These are the
   tests that describe the behaviour the work exists to deliver.
-- **E2E tests are for the most critical interaction patterns only.** They are the most expensive
-  to run and maintain; spending them on anything less crowds out the domain tests.
+- **E2E tests cover critical user paths, and interactions between components that are not
+  trivial.** They are the most expensive tests to run and maintain. **E2E re-testing component
+  detail** — an E2E test that re-checks a validation message, a format, or an edge case that the
+  component tests prove — is duplicate coverage.
 - **Unit tests are limited to very critical or very complex subsystems supporting the business
   domain.** In most cases the business-domain tests smoke-test the constituents for free. A unit
   test that re-covers what a domain test already exercises is duplicate coverage.
@@ -152,9 +154,14 @@ assertions easily understood by a reviewer?
 maintenance cost and no assurance. Likewise a test of incidental implementation detail rather
 than **business functionality** that matters.
 
-**One spec point, one layer.** Test at the layer that would actually catch the regression, not
-at unit *and* integration *and* end-to-end. Re-testing the same point at every layer multiplies
-the cost of every future change and still catches the bug only once.
+**Contract tested twice.** Test each contract at one layer: the seam that commits to it. A seam
+commits to a contract when it has callers of its own, for example a parser that several commands
+use. Tests above that seam assume the contract and test only the composition. The parser's edge
+cases go in the parser tests. A command test that calls the parser checks one valid input, and
+one invalid input when the command handles the failure itself. It does not repeat the edge
+cases. A helper internal to one component has no contract of its own: test its cases through
+that component. A contract tested at every layer multiplies the cost of each future change, and
+still catches the bug only once.
 
 **Cross-reference to the spec.** Where the project keeps spec files, a test should name the spec
 point it covers, so a reader can trace test to requirement.
@@ -165,13 +172,18 @@ exception was raised — cannot fail, so it provides no assurance.
 **Negative cases.** New branching logic tested only on its success path leaves the branch that
 actually breaks untested.
 
-### Testing configuration
+### Testing configuration or structure
 
 A test that restates a config, constant table, or literal structure asserts nothing about
 behaviour. It requires the same value to be updated in two places, and it cannot catch a bug —
 it can only report that someone edited the config.
 
-Delete it, or replace it with a test of what *consumes* the config.
+A **mirror test** has the same defect. It copies the code under test — the same table, regex,
+mapping, or call sequence — often as one test per method or branch. It changes in lock-step with
+the code, so it cannot catch a bug. Testing each branch is not the defect: copying the code's
+data or sequence into the expectations is.
+
+Delete it, or replace it with a test of what *consumes* the config or the code.
 
 ### Readable assertions
 

@@ -22,6 +22,6 @@ gates pass.
 
 For a feature, add tests for additive behaviour. Re-cut the suite first if the feature reframes existing behaviour. Production refactoring belongs in review, not the loop.
 
-Avoid internal mocks and private-method tests, assertions that recompute the result, query-count assertions, append-only test growth, bulk horizontal test writing, and weakening user behaviour to satisfy a test.
+Avoid internal mocks and private-method tests, assertions that recompute the result, query-count assertions, mirror tests that copy the code's shape, a contract tested twice, E2E tests that re-check component detail, append-only test growth, bulk horizontal test writing, and weakening user behaviour to satisfy a test.
 
 Expected values need an independent source: a literal, worked example, or specification. When a test catches real user behaviour such as a debounce or animation, wait for its signal rather than removing that behaviour. Re-cutting tests across seams needs the same agreement as choosing a new seam.
