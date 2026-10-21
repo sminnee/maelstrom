@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
+import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { QueryClient } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
@@ -117,9 +117,9 @@ export async function renderApp(
   return { server, queryClient, router, reload, ...utils };
 }
 
-/** Resize the window of a mounted app, as a drag of its edge does. */
-export function resizeTo(viewport: keyof typeof VIEWPORTS) {
-  act(() => setViewportWidth(VIEWPORTS[viewport]));
+/** Resize the window of a mounted app, as a drag of its edge or a turn of a phone does. */
+export function resizeTo(viewport: keyof typeof VIEWPORTS | number) {
+  setViewportWidth(typeof viewport === 'number' ? viewport : VIEWPORTS[viewport]);
 }
 
 /**

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
-import { cleanup, configure } from '@testing-library/react';
+import { act, cleanup, configure } from '@testing-library/react';
 import { notifyManager } from '@tanstack/react-query';
 
 // `findBy*` and `waitFor` have their own budget, which `testTimeout` does not
@@ -81,7 +81,9 @@ let viewportWidth: number = DEFAULT_VIEWPORT;
 export function setViewportWidth(width: number) {
   viewportWidth = width;
   Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
-  for (const listener of mediaListeners) listener();
+  // Each list in its own `act`, as a browser dispatches `change`: React renders
+  // between two lists, so a tree that reads two sources of the mode tears here.
+  for (const listener of [...mediaListeners]) act(() => listener());
 }
 
 const mediaListeners = new Set<() => void>();
@@ -116,7 +118,11 @@ Object.defineProperty(globalThis, 'matchMedia', {
       removeListener: () => {},
       dispatchEvent: () => false,
     };
+    // A browser fires `change` only when the answer flips.
+    let last = matches();
     function notify() {
+      if (matches() === last) return;
+      last = matches();
       for (const fn of listeners) fn({ matches: matches(), media: query } as MediaQueryListEvent);
     }
     return media;
