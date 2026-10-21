@@ -316,6 +316,29 @@ then approves the chain that implements it.
 The confirmed rows become one execute block per theme, chained with `follow`, with `branch:`
 unset — so the whole audit lands as one pull request.
 
+## Reviewing existing code
+
+`/review-codebase` is a third way into a chain. `/code-review` reviews one branch. This skill
+applies the same rules to code that already exists. It writes its state files as it works, so
+launch it with `--mode normal`: plan mode would block those writes.
+
+```bash
+mael task add "Codebase review: maelstrom" --mode normal --run
+```
+
+Then run `/review-codebase [path]` in that session.
+
+The skill splits the code into sections of about 2–5k lines, highest churn × size first. It
+reviews three sections at a time with read-only subagents, and each returns five hotspots at
+most. All state is in `.drafts/codebase-review/`: the section ledger, one findings file per
+section, and the report. After each batch the session can compact, and a new session continues
+at the next unticked section.
+
+The report merges a smell found in several sections into one row, and ranks the rows by
+consequence × breadth. As with the audit, it stops at the report checkpoint. You choose fix,
+defer or reject for each row. The skill then drafts one task for each row you chose to fix, as a
+planning session does, and promotes them when you approve.
+
 ## Linear stays a mirror
 
 The plan of record lives in the notebook chain, not in a Linear description. The planning
