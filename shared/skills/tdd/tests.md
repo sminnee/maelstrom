@@ -75,3 +75,59 @@ test("calculateTotal sums line items", () => {
   expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
 });
 ```
+
+**Mirror tests**: The expectations copy the code's own table, so the test changes in lock-step with the code.
+
+```typescript
+// BAD: Restates the rank table the code holds
+test("statusRank ranks each status", () => {
+  expect(statusRank("open")).toBe(0);
+  expect(statusRank("done")).toBe(1);
+  expect(statusRank("blocked")).toBe(2);
+});
+
+// GOOD: Tests the behaviour that consumes the table
+test("blocked tasks sort after open tasks", () => {
+  const sorted = sortTasks([blockedTask, openTask]);
+  expect(sorted.map((t) => t.id)).toEqual(["open-1", "blocked-1"]);
+});
+```
+
+**Contract tested twice**: The parser is a shared seam, and its tests already prove the edge cases.
+
+```typescript
+// BAD: The command test repeats the parser's edge cases
+test.each(["", "  ", "1.", "1..2"])("run rejects bad id %s", async (id) => {
+  await expect(runCommand(["show", id])).rejects.toThrow("bad task id");
+});
+
+// GOOD: The command test checks the composition: one valid input, one invalid input
+test("run shows the task for a valid id", async () => {
+  expect(await runCommand(["show", "1.2"])).toContain("Task 1.2");
+});
+
+test("run reports a bad id", async () => {
+  await expect(runCommand(["show", "1..2"])).rejects.toThrow("bad task id");
+});
+```
+
+**E2E re-testing component detail**: The form's component tests already prove each validation message.
+
+```typescript
+// BAD: The E2E test re-checks a validation message
+test("signup rejects a short password", async ({ page }) => {
+  await page.goto("/signup");
+  await page.fill("#password", "abc");
+  await page.click("text=Sign up");
+  await expect(page.getByText("At least 8 characters")).toBeVisible();
+});
+
+// GOOD: The E2E test covers the critical path across components
+test("a new user signs up and lands on the dashboard", async ({ page }) => {
+  await page.goto("/signup");
+  await page.fill("#email", "ada@example.com");
+  await page.fill("#password", "correct-horse");
+  await page.click("text=Sign up");
+  await expect(page).toHaveURL("/dashboard");
+});
+```

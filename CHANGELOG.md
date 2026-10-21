@@ -12,6 +12,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Sharper test rules for review and TDD.** Test each contract once, at the seam that commits
+  to it. Do not write mirror tests that copy the code's shape. Keep E2E tests to critical paths
+  and to interactions between components that are not trivial.
 - **The Changes tab draws a file whole.** The eye on a file's head or in the file list opens the
   Rendered view in three modes: Final, Whole file and Changes only. A `.feature` file draws as its
   scenarios, with each added, changed, renamed and removed scenario marked. See
