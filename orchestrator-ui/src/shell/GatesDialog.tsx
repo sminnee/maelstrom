@@ -1,5 +1,6 @@
 import { useWorld } from '../api/useWorld';
 import type { GateJob, Worktree } from '../protocol/entities';
+import { bytes } from '../protocol/bytes';
 import { ago } from '../protocol/time';
 import { Dialog, DialogHeader } from '../ui/Dialog';
 import { useNow } from '../ui/useNow';
@@ -87,7 +88,11 @@ function JobRow({
           {job.head.slice(0, 7)}
           {job.dirty && ' +dirty'}
         </span>
-        <span className={styles.meta}>{where}</span>
+        <span className={styles.meta}>
+          {where}
+          {job.usage &&
+            ` · cpu ${Math.round(job.usage.cpuPercent)}% · mem ${bytes(job.usage.rssBytes)}`}
+        </span>
       </div>
       <div className={styles.gates}>
         {job.gates.map((gate) => (
