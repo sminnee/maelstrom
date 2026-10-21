@@ -11,9 +11,11 @@ from typing import Any
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
 from mael_domain.attachments import is_bare_name
+from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
 from mael_domain.protocol import Agent, Worktree, World
+from mael_domain.task import PROMOTABLE_FIELDS
 from mael_domain.worktree_model import is_worktree_closable
 
 from .desk import split_desk_id
@@ -37,19 +39,30 @@ EDITABLE = (
     "comms",
 )
 
-#: The keys ``task.create`` writes, which is :data:`EDITABLE` without
-#: ``follows``. A new task is wired by ``promote``, which resolves the chain
-#: itself, or by a drag once it is on the board — never by the create body.
-#: The notebook stores a bare id, and only ``update`` unqualifies one, so a
-#: ``follows`` written here would be a wire pointing at nothing. ``comms`` is
-#: here so a task made from a comm is linked in the same write; left out, a new
-#: task inherits its parent task's comms.
-CREATABLE = tuple(key for key in EDITABLE if key != "follows")
+#: The keys ``task.create`` writes: :data:`EDITABLE`, and the fields only a
+#: new task takes. ``comms`` is here so a task made from a comm is linked in
+#: the same write; left out, a new task inherits its parent task's comms.
+#: ``status`` is ``template`` or left out. Two more keys are not fields:
+#: ``followEnds`` resolves into ``follows``, and ``from`` names a task to
+#: duplicate.
+CREATABLE = (
+    *EDITABLE,
+    "parent",
+    "pre_action",
+    "post_action",
+    "status",
+    "schedule",
+    "trigger",
+)
 
 #: Wire keys that spell a model field differently, mapped wire -> model. Every
 #: other ``EDITABLE``/``CREATABLE`` key is spelled identically in both, so a
 #: membership check against either tuple must go by the wire name.
-WIRE_RENAMES = {"executeModel": "execute_model"}
+WIRE_RENAMES = {
+    "executeModel": "execute_model",
+    "preAction": "pre_action",
+    "postAction": "post_action",
+}
 
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
 MODES = AGENT_MODES
@@ -216,6 +229,57 @@ def _check_follows(world: World, task_id: str, follows: Any) -> dict[str, str] |
             return _err("unknown_id", f"No task {followed}")
     if _reaches(world, follows, task_id):
         return _err("invalid", "That would make a cycle")
+    return None
+
+
+def _check_task_refs(
+    world: World, project: str, cmd: dict[str, Any]
+) -> dict[str, str] | None:
+    """The refusal for the task ids a create or a promote names, or ``None``.
+
+    ``follows`` and ``from`` must name tasks the world holds. A ``followEnds``
+    entry is ``*`` or an id, which may name no task: the chain of an id that
+    nothing follows ends at the id. ``after`` may be stale, and the notebook
+    ignores a stale one. Every id is qualified and in ``project``, since the
+    notebook stores a bare one.
+    """
+    follows = cmd.get("follows")
+    ends = cmd.get("followEnds")
+    for key, value in (("follows", follows), ("followEnds", ends)):
+        if value is not None and not isinstance(value, list):
+            return _err("invalid", f"{key} must be a list")
+    after = cmd.get("after")
+    named = [
+        *(follows or []),
+        *[e for e in ends or [] if e != "*"],
+        *([cmd["from"]] if "from" in cmd else []),
+        *([after] if after is not None else []),
+    ]
+    for task_id in named:
+        try:
+            task_project, _ = split_task_key(str(task_id))
+        except ValueError:
+            return _err("invalid", f"Not a qualified task id: {task_id}")
+        if task_project != project:
+            return _err("invalid", f"{task_id} is in another project")
+    for task_id in [*(follows or []), *([cmd["from"]] if "from" in cmd else [])]:
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+    return None
+
+
+def _check_recipe(fields: dict[str, Any]) -> dict[str, str] | None:
+    """The refusal for a mode or a priority the notebook cannot take, or ``None``.
+
+    Nothing in the notebook checks a mode, so a bad one would fail only at
+    launch. The priority check refuses before any write.
+    """
+    mode = fields.get("mode")
+    if mode is not None and mode not in MODES:
+        return _err("invalid", f"No mode {mode}")
+    priority = fields.get("priority")
+    if priority is not None and priority not in PRIORITIES:
+        return _err("invalid", f"No priority {priority}")
     return None
 
 
@@ -790,15 +854,9 @@ def validate_command(
         title = fields.get("title")
         if title is not None and not str(title).strip():
             return _err("invalid", "A title is required")
-        # Neither reaches the notebook's own check: ``model.update`` validates
-        # priority and nothing validates mode, so a bad mode would only fail
-        # later, at launch.
-        mode = fields.get("mode")
-        if mode is not None and mode not in MODES:
-            return _err("invalid", f"No mode {mode}")
-        priority = fields.get("priority")
-        if priority is not None and priority not in PRIORITIES:
-            return _err("invalid", f"No priority {priority}")
+        error = _check_recipe(fields)
+        if error:
+            return error
         comms = fields.get("comms")
         if comms is not None:
             error = _check_comm_ids(world, world["tasks"][task_id]["comms"], comms)
@@ -873,24 +931,64 @@ def validate_command(
         # reaches the notebook, which writes strings, and breaks the write.
         if any(cmd.get(key) is None for key in _wire_edited(cmd, CREATABLE)):
             return _err("invalid", "A field is null")
-        if cmd.get("follows") is not None:
-            return _err("invalid", "A new task is wired after it is created")
         if (
-            not str(cmd.get("title", "")).strip()
+            "from" not in cmd
+            and not str(cmd.get("title", "")).strip()
             and not str(cmd.get("content", "")).strip()
         ):
             # An empty title is named from the prose; with no prose there is
-            # nothing to name it from.
+            # nothing to name it from. A duplicate takes its source's title.
             return _err("invalid", "A title or prose is required")
-        mode = cmd.get("mode")
-        if mode is not None and mode not in MODES:
-            return _err("invalid", f"No mode {mode}")
-        priority = cmd.get("priority")
-        if priority is not None and priority not in PRIORITIES:
-            return _err("invalid", f"No priority {priority}")
+        error = _check_recipe(cmd) or _check_task_refs(world, project, cmd)
+        if error:
+            return error
+        status = cmd.get("status")
+        if status is not None and status != "template":
+            return _err("invalid", f"A new task is todo or template, not {status}")
+        trigger = cmd.get("trigger")
+        if trigger and parse_trigger(str(trigger)) is None:
+            return _err(
+                "invalid",
+                f"{trigger!r} is not 'gh-action/<workflow>[@<branch>] "
+                "[<conclusion>,...]'",
+            )
         comms = cmd.get("comms")
         if comms is not None:
             return _check_comm_ids(world, [], comms)
+        return None
+
+    if kind == "task.promote":
+        project = cmd.get("project", "")
+        if project not in world["projects"]:
+            return _err("unknown_id", f"No project {project}")
+        drafts = cmd.get("drafts")
+        if not isinstance(drafts, list) or not drafts:
+            return _err("invalid", "Nothing to promote")
+        for draft in drafts:
+            if not isinstance(draft, dict) or not all(
+                isinstance(draft.get(key), str) for key in ("name", "text")
+            ):
+                return _err("invalid", "A draft is a name and a text")
+        overrides = cmd.get("overrides") or {}
+        if not isinstance(overrides, dict):
+            return _err("invalid", "overrides must be an object")
+        unknown = [
+            k for k in overrides if WIRE_RENAMES.get(k, k) not in PROMOTABLE_FIELDS
+        ]
+        if unknown:
+            return _err("invalid", f"Not a recipe field: {unknown[0]}")
+        if not isinstance(cmd.get("parent", ""), str):
+            return _err("invalid", "parent must be a string")
+        return _check_recipe(overrides) or _check_task_refs(world, project, cmd)
+
+    if kind == "task.loadMany":
+        project = cmd.get("project", "")
+        if project not in world["projects"]:
+            return _err("unknown_id", f"No project {project}")
+        if not str(cmd.get("text", "")).strip():
+            return _err("invalid", "Nothing to create")
+        if not isinstance(cmd.get("defaultParent", ""), str):
+            return _err("invalid", "defaultParent must be a string")
         return None
 
     if kind == "linear.plan":

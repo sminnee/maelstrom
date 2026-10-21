@@ -183,6 +183,11 @@ class CloseBlocked(Exception):
     """
 
 
+def _bare_ref(task_id: str) -> str:
+    """The notebook id of a wire task reference; the ``*`` wildcard stays."""
+    return task_id if task_id == "*" else split_task_key(task_id)[1]
+
+
 def _rename_wire_fields(
     fields: dict[str, Any], allowed: tuple[str, ...]
 ) -> dict[str, Any]:
@@ -364,13 +369,16 @@ class TaskSource(Protocol):
         *,
         generate_branch: bool = True,
     ) -> str:
-        """Write a new ``todo`` task and return its wire id.
+        """Write a new task and return its wire id.
 
-        ``fields`` is filtered to what a client may edit; ``extra`` is the
+        ``fields`` is filtered to what a client may set; ``extra`` is the
         server's own and is written as given. ``generate_branch=False`` writes
         an empty branch as ``task/<id>``, for a caller that names it later.
+        ``from`` in ``fields`` duplicates that task, and ``followEnds``
+        resolves into ``follows``.
 
         Raises:
+            KeyError: If ``from`` names no task.
             ValueError: If a field holds a value the notebook refuses.
         """
         ...
@@ -387,18 +395,41 @@ class TaskSource(Protocol):
         ...
 
     async def promote(
-        self, project: str, paths: list[Path], parent: str, after: str | None
+        self,
+        project: str,
+        drafts: list[tuple[str, str]],
+        parent: str,
+        after: str | None,
+        *,
+        overrides: dict[str, Any] | None = None,
+        follows: list[str] | None = None,
+        follow_ends: list[str] | None = None,
     ) -> list[str]:
-        """Create one task per draft file, chained in the order given.
+        """Create one task per ``(name, text)`` draft, chained in the order given.
 
         The set splices in after ``after``, the planning task's notebook id,
-        or follows nothing when it is ``None``. The whole set is one notebook write: a draft that will not parse
-        leaves nothing created and no file consumed. Returns the wire ids, in
-        the order the drafts were listed.
+        or follows nothing when it is ``None``. ``follows`` and
+        ``follow_ends`` wire the first task instead, and hold wire ids. The
+        whole set is one notebook write: a draft that will not parse leaves
+        nothing created. Returns the wire ids, in the order the drafts were
+        listed.
 
         Raises:
-            ValueError: If a draft is missing or does not parse. The message
-                names the file, so the user knows which one to fix.
+            ValueError: If a draft does not parse. The message names the
+                draft, so the user knows which file to fix.
+        """
+        ...
+
+    async def load_many(
+        self, project: str, text: str, default_parent: str
+    ) -> tuple[list[tuple[str, str]], list[str]]:
+        """Create every block of a marked plan file as one notebook write.
+
+        Returns ``(wire id, title)`` per task, in block order, and the
+        parser's warnings.
+
+        Raises:
+            ValueError: If the plan does not parse.
         """
         ...
 
@@ -778,35 +809,76 @@ class NotebookTaskSource:
         """Write a new task and return its wire id.
 
         Only the keys in :data:`~mael_orchestrator.validate.CREATABLE` are
-        taken from ``fields``, which is ``EDITABLE`` without ``follows``: a new
-        task is wired after it exists, never by the create body. ``branch`` is
-        one of them, so an explicit branch skips ``model.create``'s own
-        generation.
+        taken from ``fields``. ``branch`` is one of them, so an explicit branch
+        skips ``model.create``'s own generation. ``follows`` holds wire ids,
+        and loses the project as ``update``'s does. ``followEnds`` resolves
+        against the new task's parent and joins ``follows`` after it. ``from``
+        duplicates that task: the fields given override its recipe.
 
         ``extra`` is written unfiltered, and is the server's own to set — a
-        Linear plan's ``parent`` and ``post_action``, which no client may
-        choose. It never carries request data, so the filter above stays the
-        only door a client writes through.
+        Linear plan's ``post_action``, which the plan names, not the client.
+        It never carries request data, so the filter above stays the only door
+        a client writes through.
         """
         wanted = _rename_wire_fields(fields, CREATABLE)
         wanted.update(extra or {})
-        task = await model.create(
-            self.table, project=project, generate_branch=generate_branch, **wanted
-        )
+        parent = str(wanted.get("parent", ""))
+        follows = [split_task_key(f)[1] for f in wanted.pop("follows", [])]
+        for end in fields.get("followEnds") or []:
+            follows += await model.resolve_follow_end(
+                self.table, project, _bare_ref(end), parent
+            )
+        wanted["follows"] = list(dict.fromkeys(follows))
+        source = fields.get("from")
+        if source is None:
+            task = await model.create(
+                self.table, project=project, generate_branch=generate_branch, **wanted
+            )
+        else:
+            task = await model.duplicate(
+                self.table,
+                project,
+                split_task_key(source)[1],
+                generate_branch=generate_branch,
+                **wanted,
+            )
         return task_key(project, task.id)
 
     async def promote(
-        self, project: str, paths: list[Path], parent: str, after: str | None
+        self,
+        project: str,
+        drafts: list[tuple[str, str]],
+        parent: str,
+        after: str | None,
+        *,
+        overrides: dict[str, Any] | None = None,
+        follows: list[str] | None = None,
+        follow_ends: list[str] | None = None,
     ) -> list[str]:
         """Promote every draft as one chain, spliced in after ``after``.
 
-        The same step as ``mael task promote`` with no follow flag. See
-        ``docs/dev/orchestrator-server.md``, "Approving a task set".
+        See ``docs/dev/orchestrator-server.md``, "Approving a task set".
         """
         created = await model.promote_chain(
-            self.table, project=project, paths=paths, parent=parent, after=after
+            self.table,
+            project=project,
+            drafts=drafts,
+            parent=parent,
+            overrides=_rename_wire_fields(overrides or {}, model.PROMOTABLE_FIELDS),
+            follows=None if follows is None else [_bare_ref(f) for f in follows],
+            follow_ends=[_bare_ref(f) for f in follow_ends or []],
+            after=after,
         )
         return [task_key(project, task.id) for task in created]
+
+    async def load_many(
+        self, project: str, text: str, default_parent: str
+    ) -> tuple[list[tuple[str, str]], list[str]]:
+        blocks, warnings = model.parse_task_blocks(text)
+        created = await model.load_many(
+            self.table, project=project, blocks=blocks, default_parent=default_parent
+        )
+        return [(task_key(project, t.id), t.title) for t in created], warnings
 
     async def _move(
         self,

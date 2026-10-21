@@ -1840,14 +1840,11 @@ def test_a_rewire_that_would_make_a_cycle_is_refused(harness):
     assert run(model.load(harness.store, PROJECT, "NORT-7")).follows == []
 
 
-def test_create_refuses_a_follows_rather_than_writing_a_wire_it_cannot_unqualify(
-    harness,
-):
-    """``follows`` shares ``EDITABLE`` with ``update`` but not its unqualify pass.
+def test_create_stores_a_wired_follow_as_the_bare_id_the_notebook_holds(harness):
+    """``follows`` arrives qualified, as ``update`` takes it, and is stored bare.
 
-    Left open, a qualified id would land in the notebook beside bare ones,
-    ``world_build`` would re-qualify it to ``northwind/northwind/NORT-7``, and
-    the task would never be actionable again.
+    Stored qualified, ``world_build`` would re-qualify it to
+    ``northwind/northwind/NORT-7``, and the task would never be actionable.
     """
     harness.add_task("NORT-7")
 
@@ -1858,16 +1855,14 @@ def test_create_refuses_a_follows_rather_than_writing_a_wire_it_cannot_unqualify
                 {
                     "project": PROJECT,
                     "title": "Wired at birth",
+                    "branch": "feat/wired",
                     "follows": ["northwind/NORT-7"],
                 },
             )
 
     reply = run(scenario())
-    assert reply.status == 400
-    assert reply.body["error"]["code"] == "invalid"
-    assert [t.id for t in run(model.list_tasks(harness.store, project=PROJECT))] == [
-        "NORT-7"
-    ]
+    assert reply.status == 200, reply.body
+    assert run(load_task(harness, reply.body["taskId"])).follows == ["NORT-7"]
 
 
 def test_a_write_to_a_task_the_notebook_lost_is_unknown_id(harness):
@@ -4412,6 +4407,25 @@ def test_create_with_empty_names_answers_at_once_then_names_them(harness_factory
     assert (named.title, named.branch) == ("Export the orders", "feat/order-export")
 
 
+def test_the_first_task_under_a_linear_issue_is_named_under_its_number(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Fix the export",
+                    "parent": "linear.NORT-9",
+                },
+            )
+            return reply, await ended(api, reply.body["operationId"])
+
+    reply, op = run(scenario())
+    assert [s["name"] for s in op["steps"]] == ["name_task"]
+    named = run(load_task(harness, reply.body["taskId"]))
+    assert named.branch == "feat/9-order-export"
+
+
 def test_a_create_that_names_and_launches_opens_the_branch_it_named(harness):
     opened: list[str] = []
 
@@ -4492,6 +4506,216 @@ def test_naming_writes_only_the_fields_the_user_left_empty(harness):
 
     named = run(load_task(harness, run(scenario())))
     assert (named.title, named.branch) == ("Mine", "feat/order-export")
+
+
+def test_create_writes_the_fields_only_a_new_task_takes(harness):
+    """What ``mael task add`` sends: a parent, actions, and a parked template."""
+    harness.add_task("NORT-1", branch="feat/orders")
+    harness.add_task("NORT-1.1", parent="NORT-1", branch="feat/orders")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "title": "Nightly sweep",
+                    "parent": "NORT-1",
+                    "followEnds": ["*"],
+                    "preAction": "linear.in-progress",
+                    "postAction": "linear.done",
+                    "status": "template",
+                    "schedule": "0 3 * * *",
+                    "trigger": "gh-action/nightly.yml",
+                },
+            )
+
+    reply = run(scenario())
+    # A child takes its sibling's branch, so there is nothing to name.
+    assert reply.status == 200, reply.body
+    assert "operationId" not in reply.body
+    assert reply.body["taskId"] == "northwind/NORT-1.2"
+    stored = run(load_task(harness, reply.body["taskId"]))
+    assert (stored.parent, stored.branch, stored.follows) == (
+        "NORT-1",
+        "feat/orders",
+        ["NORT-1.1"],
+    )
+    assert (stored.pre_action, stored.post_action) == (
+        "linear.in-progress",
+        "linear.done",
+    )
+    assert (stored.status, stored.schedule, stored.trigger) == (
+        "template",
+        "0 3 * * *",
+        "gh-action/nightly.yml",
+    )
+
+
+def test_create_from_a_task_duplicates_its_recipe_under_the_overrides(harness):
+    harness.add_task(
+        "NORT-7",
+        title="Sweep",
+        command="plan-task",
+        mode="auto",
+        base="feat/under",
+        content="The body.",
+        branch="feat/sweep",
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks",
+                {
+                    "project": PROJECT,
+                    "from": "northwind/NORT-7",
+                    "command": "other",
+                    "branch": "feat/copy",
+                },
+            )
+
+    reply = run(scenario())
+    assert reply.status == 200, reply.body
+    copy = run(load_task(harness, reply.body["taskId"]))
+    assert (copy.title, copy.command, copy.mode, copy.base, copy.content) == (
+        "Sweep",
+        "other",
+        "auto",
+        "feat/under",
+        "The body.",
+    )
+    assert copy.branch == "feat/copy"
+
+
+DRAFT_ONE = model.draft_markdown(title="First step", mode="auto")
+DRAFT_TWO = model.draft_markdown(title="Second step")
+
+
+def test_promote_chains_the_drafts_after_the_planner_and_files_each(harness):
+    harness.add_task("NORT-1", branch="feat/orders")
+    harness.add_task("NORT-2", branch="feat/orders", follows=["NORT-1"])
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks/promote",
+                {
+                    "project": PROJECT,
+                    "drafts": [
+                        {"name": "1.md", "text": DRAFT_ONE},
+                        {"name": "2.md", "text": DRAFT_TWO},
+                    ],
+                    "parent": "NORT-1",
+                    "overrides": {"priority": "high"},
+                    "after": "northwind/NORT-1",
+                },
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert reply.status == 200, reply.body
+    one, two = reply.body["taskIds"]
+    assert (one, two) == ("northwind/NORT-1.1", "northwind/NORT-1.2")
+    first, second, follower = (
+        run(load_task(harness, t)) for t in (one, two, "northwind/NORT-2")
+    )
+    assert (first.title, first.mode, first.priority) == ("First step", "auto", "high")
+    # NORT-1 -> 1.1 -> 1.2 -> NORT-2: the set spliced in after the planner.
+    assert (first.follows, second.follows, follower.follows) == (
+        ["NORT-1"],
+        ["NORT-1.1"],
+        ["NORT-1.2"],
+    )
+    assert [e["id"] for e in desk["desk"]] == [f"task:{one}", f"task:{two}"]
+
+
+def test_promote_of_a_draft_that_will_not_parse_names_it_and_creates_nothing(
+    harness,
+):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks/promote",
+                {
+                    "project": PROJECT,
+                    "drafts": [
+                        {"name": "1.md", "text": DRAFT_ONE},
+                        {"name": "2.md", "text": '---\ntitle: "unclosed\n---\n'},
+                    ],
+                },
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "2.md" in reply.body["error"]["message"]
+    assert run(model.list_tasks(harness.store, project=PROJECT)) == []
+
+
+PLAN = """Preamble the parser ignores.
+
+---CREATE TASK head---
+title: Head
+branch: feat/plan
+---
+Do the first part.
+
+---CREATE TASK tail---
+title: Tail
+follow: head
+---
+Do the rest.
+"""
+
+
+def test_load_many_creates_each_block_and_files_it(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks/load-many", {"project": PROJECT, "text": PLAN}
+            )
+            return reply, await api.get_json("/api/desk")
+
+    reply, desk = run(scenario())
+    assert reply.status == 200, reply.body
+    assert [t["title"] for t in reply.body["tasks"]] == ["Head", "Tail"]
+    head_id, tail_id = (t["taskId"] for t in reply.body["tasks"])
+    tail = run(load_task(harness, tail_id))
+    assert tail.follows == [head_id.split("/", 1)[1]]
+    assert tail.content == "Do the rest."
+    assert reply.body["warnings"] == []
+    assert not any("operationId" in t for t in reply.body["tasks"])
+    assert [e["id"] for e in desk["desk"]] == [f"task:{head_id}", f"task:{tail_id}"]
+
+
+def test_load_many_with_launch_starts_each_task_that_waits_on_nothing(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks/load-many",
+                {"project": PROJECT, "text": PLAN, "launch": True},
+            )
+            assert reply.status == 202, reply.body
+            head, tail = reply.body["tasks"]
+            # The tail waits on the head, so only the head starts.
+            assert "operationId" not in tail
+            return head["taskId"], await ended(api, head["operationId"])
+
+    head_id, op = run(scenario())
+    assert (op["kind"], op["state"], op["taskId"]) == ("launch", "done", head_id)
+    assert host_calls(harness) == ["start"]
+
+
+def test_load_many_of_a_plan_that_will_not_parse_is_refused(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/tasks/load-many", {"project": PROJECT, "text": "No blocks."}
+            )
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "No task blocks" in reply.body["error"]["message"]
 
 
 def load_task(harness, task_id: str):
@@ -5108,12 +5332,21 @@ def test_approving_a_task_set_creates_the_tasks_and_consumes_the_drafts(
                 row, reply = await approve_tasks(
                     api, stream, harness, "draft-one.md", "draft-two.md"
                 )
-                return reply, await api.get_json(f"/api/documents/{row['id']}")
+                return (
+                    reply,
+                    await api.get_json(f"/api/documents/{row['id']}"),
+                    await api.get_json("/api/desk"),
+                )
 
-    reply, doc = run(scenario())
+    reply, doc, desk = run(scenario())
     assert reply.status == 200, reply.body
     assert notebook_titles(harness) == ["First step", "Second step"]
     assert doc["status"] == "approved"
+    # What the user approved is on the canvas at once, beside the free agent.
+    assert [e["id"] for e in desk["desk"]] == [
+        "agent:ag1",
+        *(f"task:{t}" for t in reply.body["taskIds"]),
+    ]
     # A promoted draft that stays on disk gets promoted twice.
     assert not (harness.worktree / "draft-one.md").exists()
     assert not (harness.worktree / "draft-two.md").exists()
