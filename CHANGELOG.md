@@ -14,7 +14,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **`/review-codebase` reviews existing code.** It sweeps the code section by section with the
   `/code-review` rules, ranks the hotspots in one report, and makes a task for each row you
-  choose. Its state is on disk, so it continues after a compaction. See
+  choose. A script splits the code into sections, one or more for each package, and a check
+  confirms that every file is in a section. Its state is on disk, so it continues after a
+  compaction. See
   [Reviewing existing code](docs/guide/planning.md#reviewing-existing-code).
 - **Sharper test rules for review and TDD.** Test each contract once, at the seam that commits
   to it. Do not write mirror tests that copy the code's shape. Keep E2E tests to critical paths

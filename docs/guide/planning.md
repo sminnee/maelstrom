@@ -328,11 +328,13 @@ mael task add "Codebase review: maelstrom" --mode normal --run
 
 Then run `/review-codebase [path]` in that session.
 
-The skill splits the code into sections of about 2–5k lines, highest churn × size first. It
-reviews three sections at a time with read-only subagents, and each returns five hotspots at
-most. All state is in `.drafts/codebase-review/`: the section ledger, one findings file per
-section, and the report. After each batch the session can compact, and a new session continues
-at the next unticked section.
+The skill runs a script, `inventory.py`, that splits the code into sections of at most 5k code
+lines, one or more for each package, highest churn × size first. Before the sweep starts, a check
+confirms that every code file is in a section. The report counts the files it left out, such as
+lockfiles and docs. The skill then reviews three sections at a time with read-only subagents,
+and each returns five hotspots at most. All state is in `.drafts/codebase-review/`: the section
+ledger, one findings file per section, and the report. After each batch the session can compact,
+and a new session continues at the next unticked section.
 
 The report merges a smell found in several sections into one row, and ranks the rows by
 consequence × breadth. As with the audit, it stops at the report checkpoint. You choose fix,
