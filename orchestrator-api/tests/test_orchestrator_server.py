@@ -5972,6 +5972,7 @@ def gate_job(job_id: int, state: str, worktree: str, **over) -> dict:
         "started": "2026-09-01T00:00:00+00:00",
         "worktree": worktree,
         "queue_position": None,
+        "usage": {"cpu_percent": 94.4, "rss_bytes": 112197632, "processes": 3},
         "gates": [{"name": "lint", "key": "9cdb", "state": "running", "code": None}],
         **over,
     }
@@ -6002,7 +6003,14 @@ def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
     fake, harness = gates
     fake.jobs = [
         gate_job(898, "running", WORKTREE_PATH),
-        gate_job(899, "queued", "/elsewhere/repo-bravo", queue_position=1),
+        gate_job(
+            899,
+            "queued",
+            "/elsewhere/repo-bravo",
+            queue_position=1,
+            # A malformed sample reads as no sample, not as zero.
+            usage={"cpu_percent": None, "rss_bytes": "n/a", "processes": 1},
+        ),
     ]
 
     async def scenario():
@@ -6024,6 +6032,7 @@ def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
             "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
             "dirty": False,
             "started": "2026-09-01T00:00:00+00:00",
+            "usage": {"cpuPercent": 94.4, "rssBytes": 112197632, "processes": 3},
             "gates": [{"name": "lint", "state": "running"}],
         },
         {
@@ -6036,6 +6045,7 @@ def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
             "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
             "dirty": False,
             "started": "2026-09-01T00:00:00+00:00",
+            "usage": None,
             "gates": [{"name": "lint", "state": "running"}],
         },
     ]

@@ -639,6 +639,8 @@ also serves the task index. A failed read keeps the last jobs and logs once, not
 job's worktree is the world's worktree with the same path, or `null`: tangier lists the jobs of
 every project on the machine. The read needs tangier 0.3.0 or later, which groups the jobs into
 `running` and `queued` in one object. An older tangier prints a flat list, and the read fails.
+Each job carries its CPU and memory, which change on each read, so each tick upserts the jobs
+that run.
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -1328,7 +1330,7 @@ without waiting for the poll.
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
-| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the last read found them. Empty while no client watches, and on a server with no tangier |
+| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the last read found them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty while no client watches, and on a server with no tangier |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |

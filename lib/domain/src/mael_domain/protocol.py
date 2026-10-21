@@ -680,6 +680,15 @@ class GateState(TypedDict):
     state: str
 
 
+class GateUsage(TypedDict):
+    """What one gate job uses: one ``ps`` sample of its process group."""
+
+    #: Above 100 when the job uses more than one core.
+    cpuPercent: float
+    rssBytes: int
+    processes: int
+
+
 class GateJob(TypedDict):
     """One gate job on the machine, queued or running. See CONTEXT.md, "Gate job".
 
@@ -701,6 +710,8 @@ class GateJob(TypedDict):
     dirty: bool
     #: When the job was asked for, ISO 8601.
     started: str
+    #: ``None`` when tangier took no sample: no pid yet, or ``ps`` failed.
+    usage: GateUsage | None
     gates: list[GateState]
 
 

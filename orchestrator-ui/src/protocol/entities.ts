@@ -522,6 +522,14 @@ export interface GateState {
     | 'died';
 }
 
+/** What one gate job uses: one `ps` sample of its process group. */
+export interface GateUsage {
+  /** Above 100 when the job uses more than one core. */
+  cpuPercent: number;
+  rssBytes: number;
+  processes: number;
+}
+
 /**
  * One gate job on the machine, queued or running. See CONTEXT.md, "Gate job".
  * Tangier's own list, so it covers every project, not only this server's.
@@ -541,5 +549,7 @@ export interface GateJob {
   dirty: boolean;
   /** When the job was asked for. */
   started: string;
+  /** `null` when tangier took no sample: no pid yet, or `ps` failed. */
+  usage: GateUsage | null;
   gates: GateState[];
 }

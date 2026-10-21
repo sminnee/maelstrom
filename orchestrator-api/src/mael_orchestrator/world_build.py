@@ -25,6 +25,7 @@ from mael_domain.protocol import (
     CommUpdate,
     Document,
     GateJob,
+    GateUsage,
     HostUsage,
     PrMatch,
     Project,
@@ -424,6 +425,20 @@ def _usage_window(raw: Any) -> UsageWindow | None:
         return None
 
 
+def _gate_usage(raw: Any) -> GateUsage | None:
+    """A job's usage, or ``None`` unless each figure is there and a number."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return {
+            "cpuPercent": float(raw["cpu_percent"]),
+            "rssBytes": int(raw["rss_bytes"]),
+            "processes": int(raw["processes"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJob:
     """One job off ``tangier gate status --json``, as a ``GateJob``.
 
@@ -442,6 +457,7 @@ def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJo
         "head": str(raw.get("head") or ""),
         "dirty": bool(raw.get("dirty")),
         "started": str(raw.get("started") or ""),
+        "usage": _gate_usage(raw.get("usage")),
         "gates": [
             {"name": str(gate.get("name") or ""), "state": str(gate.get("state") or "")}
             for gate in raw.get("gates") or []

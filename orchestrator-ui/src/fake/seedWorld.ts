@@ -36,6 +36,7 @@ function gateJob(
   worktree: string | null,
   minutesAgo: number,
   gates: [string, GateState['state']][],
+  usage: GateJob['usage'],
 ): GateJob {
   return {
     id,
@@ -46,6 +47,7 @@ function gateJob(
     head: `${id}c0ffee${id}`.padEnd(40, '0'),
     dirty: false,
     started: T(minutesAgo),
+    usage,
     gates: gates.map(([name, gateState]) => ({ name, state: gateState })),
   };
 }
@@ -738,13 +740,28 @@ body rather than the query builder.
     // The older job has the higher number, so a list drawn in key order shows it:
     // an object puts number-like keys in ascending order, whatever the insertion.
     gateJobs: keyed([
-      gateJob('41', 'running', 'maelstrom-bravo', 4, [['web', 'running']]),
-      gateJob('42', 'running', 'northwind-alpha', 12, [
-        ['lint', 'passed'],
-        ['test', 'running'],
-      ]),
+      gateJob('41', 'running', 'maelstrom-bravo', 4, [['web', 'running']], {
+        cpuPercent: 212.3,
+        rssBytes: 1_288_490_189,
+        processes: 9,
+      }),
+      gateJob(
+        '42',
+        'running',
+        'northwind-alpha',
+        12,
+        [
+          ['lint', 'passed'],
+          ['test', 'running'],
+        ],
+        { cpuPercent: 94.4, rssBytes: 112_197_632, processes: 3 },
+      ),
       {
-        ...gateJob('43', 'queued', null, 2, [['test-backend.unit', 'pending']]),
+        ...gateJob('43', 'queued', null, 2, [['test-backend.unit', 'pending']], {
+          cpuPercent: 0,
+          rssBytes: 4_194_304,
+          processes: 1,
+        }),
         path: '/Users/dev/Projects/askastro/askastro-bravo',
         queuePosition: 1,
       },
