@@ -1,4 +1,5 @@
 import { ADDED_FEATURE, NEW_FEATURE, OLD_FEATURE } from '../rendered/gherkin/feature.fixture';
+import { NEW_MARKDOWN, OLD_MARKDOWN } from '../rendered/markdown/markdown.fixture';
 import type { Attention, AttentionKind } from '../protocol/attention';
 import { deskIdForTask } from '../protocol/deskId';
 import type { DocumentKind, DocumentStatus } from '../protocol/documents';
@@ -391,6 +392,14 @@ function changes(): Seed {
     diff('auth/legacy.py', { status: 'deleted', additions: 0 }),
     diff('auth/expiry.py', { status: 'renamed', oldPath: 'auth/ttl.py' }),
     diff('docs/tokens.png', { binary: true, additions: 0, deletions: 0, hunks: [] }),
+    diff('docs/logo.svg', {
+      status: 'added',
+      binary: true,
+      additions: 0,
+      deletions: 0,
+      hunks: [],
+    }),
+    diff('docs/rotation.md', { additions: 5, deletions: 8 }),
     diff('auth/fixtures/tokens.json', { truncated: true, additions: 4200 }),
     diff('specs/rotation.feature', { additions: 12, deletions: 6 }),
     diff('specs/reminders.feature', { status: 'added', additions: 33, deletions: 0 }),
@@ -438,6 +447,7 @@ function changes(): Seed {
           'specs/rotation.feature': { old: OLD_FEATURE, new: NEW_FEATURE },
           'specs/reminders.feature': { old: null, new: ADDED_FEATURE },
           'auth/tokens.py': { old: OLD_TOKENS, new: NEW_TOKENS },
+          'docs/rotation.md': { old: OLD_MARKDOWN, new: NEW_MARKDOWN },
         },
       ]),
     ),

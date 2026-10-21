@@ -12,7 +12,7 @@
 .text {
   padding: var(--u) 0;
 }
-/* Where Changes only drops unchanged lines. */
+/* Where Changes only drops unchanged lines or blocks. */
 .gap {
   height: 1px;
   margin: var(--u) 0;
@@ -431,4 +431,43 @@
   font-size: 0.92em;
   line-height: var(--prose-row);
   white-space: pre-wrap;
+}
+
+/* -- Markdown ------------------------------------------------------------- */
+
+/* The prose shell the feature view uses: markdown's own type and measure. */
+.document {
+  --spine: 2px;
+  --gutter: calc(var(--u) * 2.5);
+  max-width: calc(var(--measure-prose) + var(--gutter));
+  padding: var(--u-2) var(--u-3);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+}
+.document:is([data-change='added'], [data-change='removed']) {
+  margin: var(--u-2) var(--u-3);
+  border-radius: var(--radius);
+}
+.document[data-change='added'] {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.document[data-change='removed'] {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.markdownBlock {
+  --change: transparent;
+  margin: 0 0 var(--prose-gap) calc(-1 * var(--gutter));
+  padding-left: calc(var(--gutter) - var(--spine));
+  border-left: var(--spine) solid var(--change);
+}
+.markdownBlock[data-kind='add'] {
+  --change: var(--ok);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+.markdownBlock[data-kind='remove'] {
+  --change: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.markdownBlock[data-kind='remove'] > * {
+  opacity: 0.75;
 }
