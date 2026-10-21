@@ -196,6 +196,11 @@ CLAUDE.md defines them:
 7. Close the task: `mael task status done`.
 8. Run `/watch-pr` to take CI (continuous integration) to green.
 
+`/code-review` reviews one branch. To apply the same rules to code that already exists, run
+`/review-codebase [path]`. It sweeps the code section by section, ranks the hotspots in one
+report, and makes a task for each row you choose. See
+[Reviewing existing code](planning.md#reviewing-existing-code).
+
 When the work has a result you can see, the session also writes a **verification** at
 `.drafts/verification.md`. It says what the session checked, with screenshots and Playwright
 video in the body. Open it from the Verifications heading on the task's expanded node. Maelstrom
