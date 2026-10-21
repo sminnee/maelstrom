@@ -40,9 +40,9 @@ premature compat shim · unnecessary indirection · dead paths · pointless try/
 **Layer 3 — Test design** — tests focused on the business domain at component/subsystem level? ·
 E2E limited to critical user paths and non-trivial component interactions? · unit tests limited to critical or complex
 subsystems? · duplicated fixture boilerplate · verbose body · non-obvious assertions ·
-point-assertions · no converter for complex state · duplicative · contract tested twice · mirror
-test · E2E re-testing component detail · not cross-referenced to spec · assertion-free · missing
-negative case · testing configuration · mocked integration test
+point-assertions · no converter for complex state · duplicative · contract tested twice · re-tests
+the layer below · mirror test · E2E re-testing component detail · not cross-referenced to spec ·
+assertion-free · missing negative case · testing configuration · mocked integration test
 
 **Layer 4 — Security & correctness** — injection · secrets in code · missing authorisation ·
 overbroad permissions · input trusted by origin · swallowed errors · data loss · unhandled
@@ -163,6 +163,20 @@ cases. A helper internal to one component has no contract of its own: test its c
 that component. A contract tested at every layer multiplies the cost of each future change, and
 still catches the bug only once.
 
+**Trust the layer below.** A lower layer, such as a framework, a shared mechanism or a library,
+makes commitments to its callers. Test those commitments thoroughly, once, at that layer: every
+rule, edge case and failure mode. A higher layer then assumes the commitments hold, and tests only
+the logic it adds. When a higher-layer test fails only if the lower layer breaks, the test is
+duplicate coverage. Delete it, or move the missing case down to the lower layer's tests.
+
+- A higher layer gets its own rules, and at most one wiring assertion that it uses the mechanism.
+  Prefer a structural guarantee to that assertion: a type, a registration-time check, or codegen
+  that refuses a bad declaration.
+- When a mechanism has many adopters, test it on one adopter, end to end, and on none of the
+  others.
+- When a higher-layer test finds a gap in the lower layer, fix the gap with a lower-layer test.
+  Do not keep the higher-layer test as a stand-in.
+
 **Cross-reference to the spec.** Where the project keeps spec files, a test should name the spec
 point it covers, so a reader can trace test to requirement.
 
@@ -175,15 +189,21 @@ actually breaks untested.
 ### Testing configuration or structure
 
 A test that restates a config, constant table, or literal structure asserts nothing about
-behaviour. It requires the same value to be updated in two places, and it cannot catch a bug —
-it can only report that someone edited the config.
+behaviour. A declaration is config too: a route's options, a registry entry, a decorator's
+arguments, or a mapping from one name to another. It requires the same value to be updated in
+two places, and it cannot catch a bug — it can only report that someone edited the config.
 
 A **mirror test** has the same defect. It copies the code under test — the same table, regex,
 mapping, or call sequence — often as one test per method or branch. It changes in lock-step with
 the code, so it cannot catch a bug. Testing each branch is not the defect: copying the code's
 data or sequence into the expectations is.
 
-Delete it, or replace it with a test of what *consumes* the config or the code.
+Delete it, or replace it with a test of what *consumes* the config or the code. When the consumer
+is a lower layer, its own tests already cover it, so delete the test. To catch a bad value,
+validate it where the config is loaded or registered, and test that validation once.
+
+Together with "Trust the layer below", this limits a higher layer's tests to its own logic. An
+adopter of a mechanism that adds only declarations needs no tests of its own.
 
 ### Readable assertions
 
