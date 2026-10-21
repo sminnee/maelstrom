@@ -670,6 +670,40 @@ class Host(TypedDict):
     usage: HostUsage | None
 
 
+class GateState(TypedDict):
+    """One gate inside a gate job, as tangier reports it."""
+
+    name: str
+    #: ``pending`` or ``running``, or a finished state: ``passed``, ``failed``,
+    #: ``not-needed``, ``verified``, ``unrecorded``, ``error``, ``cancelled``
+    #: or ``died``.
+    state: str
+
+
+class GateJob(TypedDict):
+    """One gate job on the machine, queued or running. See CONTEXT.md, "Gate job".
+
+    Tangier's own job list, so it covers every project, not only this server's.
+    """
+
+    #: Tangier's job number, as a string.
+    id: str
+    #: ``queued``, ``running``, ``stopping`` (a cancel is stopping it) or
+    #: ``orphaned`` (the job process is gone, but commands it ran are not).
+    state: str
+    #: The place in tangier's queue, from 1; ``None`` once the job runs.
+    queuePosition: int | None
+    #: The worktree whose path the job runs in, or ``None`` when the server
+    #: knows no such worktree.
+    worktree: str | None
+    path: str
+    head: str
+    dirty: bool
+    #: When the job was asked for, ISO 8601.
+    started: str
+    gates: list[GateState]
+
+
 class World(TypedDict):
     projects: dict[str, Project]
     worktrees: dict[str, Worktree]
@@ -682,6 +716,7 @@ class World(TypedDict):
     host: dict[str, Host]
     comms: dict[str, Comm]
     operations: dict[str, Operation]
+    gateJobs: dict[str, GateJob]
 
 
 class ClientState(TypedDict):
@@ -708,6 +743,7 @@ ENTITY_KINDS = (
     "host",
     "comm",
     "operation",
+    "gateJob",
 )
 
 #: Which ``World`` key each entity kind lives under.
@@ -723,6 +759,7 @@ WORLD_KEY = {
     "host": "host",
     "comm": "comms",
     "operation": "operations",
+    "gateJob": "gateJobs",
 }
 
 
@@ -739,6 +776,7 @@ def empty_world() -> World:
         "host": {},
         "comms": {},
         "operations": {},
+        "gateJobs": {},
     }
 
 

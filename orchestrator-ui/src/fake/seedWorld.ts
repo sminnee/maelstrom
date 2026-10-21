@@ -5,6 +5,8 @@ import type {
   Agent,
   Comm,
   CommUpdate,
+  GateJob,
+  GateState,
   Project,
   Task,
   TaskLanding,
@@ -27,6 +29,26 @@ export interface Seed {
  *  name the same instant the seed stamped. */
 export const T = (minutesAgo: number) =>
   new Date(Date.parse(SEED_TIME) - minutesAgo * 60_000).toISOString();
+
+function gateJob(
+  id: string,
+  state: GateJob['state'],
+  worktree: string | null,
+  minutesAgo: number,
+  gates: [string, GateState['state']][],
+): GateJob {
+  return {
+    id,
+    state,
+    queuePosition: null,
+    worktree,
+    path: worktree ? `/Users/dev/Projects/${worktree.split('-')[0]}/${worktree}` : '',
+    head: `${id}c0ffee${id}`.padEnd(40, '0'),
+    dirty: false,
+    started: T(minutesAgo),
+    gates: gates.map(([name, gateState]) => ({ name, state: gateState })),
+  };
+}
 
 function project(id: string, stackTip: string, hasLinear = false): Project {
   return { id, name: id, stackTip, hasLinear };
@@ -711,6 +733,22 @@ body rather than the query builder.
     documents: keyed(documents),
     attention: keyed(attention),
     comms: {},
+    // Two jobs run and one waits, as when worktrees share tangier's slots.
+    // The queued one runs in a worktree this server does not know.
+    // The older job has the higher number, so a list drawn in key order shows it:
+    // an object puts number-like keys in ascending order, whatever the insertion.
+    gateJobs: keyed([
+      gateJob('41', 'running', 'maelstrom-bravo', 4, [['web', 'running']]),
+      gateJob('42', 'running', 'northwind-alpha', 12, [
+        ['lint', 'passed'],
+        ['test', 'running'],
+      ]),
+      {
+        ...gateJob('43', 'queued', null, 2, [['test-backend.unit', 'pending']]),
+        path: '/Users/dev/Projects/askastro/askastro-bravo',
+        queuePosition: 1,
+      },
+    ]),
     // The desk holds every task still in play, so the canvas opens with work
     // on it. Done and cancelled tasks live in the task list only. The free
     // agent is on the desk as the server's auto-join would put it there.

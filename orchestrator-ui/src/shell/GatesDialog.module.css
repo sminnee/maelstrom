@@ -1,0 +1,73 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+.heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.none {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+}
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+.job {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+  padding: var(--u) var(--u-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u-2);
+  min-width: 0;
+}
+.where {
+  font-family: var(--mono);
+  min-width: 0;
+}
+.head {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+/* The age or the queue place, at the row's far end. */
+.meta {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u-half) var(--u-2);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+/* The Reporting Rule: a hue reports a state. Amber is kept for attention, so
+   a running gate is in the plain text colour, and one not yet run is faint. */
+.gate[data-state='passed'] {
+  color: var(--ok);
+}
+.gate[data-state='failed'] {
+  color: var(--danger);
+}
+.gate[data-state='pending'],
+.gate[data-state='not-needed'] {
+  color: var(--fg-faint);
+}

@@ -505,3 +505,41 @@ export interface Host {
   /** The account's budget, or `null` until a reading arrives. */
   usage: HostUsage | null;
 }
+
+/** One gate inside a gate job, as tangier reports it. */
+export interface GateState {
+  name: string;
+  state:
+    | 'pending'
+    | 'running'
+    | 'passed'
+    | 'failed'
+    | 'not-needed'
+    | 'verified'
+    | 'unrecorded'
+    | 'error'
+    | 'cancelled'
+    | 'died';
+}
+
+/**
+ * One gate job on the machine, queued or running. See CONTEXT.md, "Gate job".
+ * Tangier's own list, so it covers every project, not only this server's.
+ */
+export interface GateJob {
+  /** Tangier's job number. */
+  id: string;
+  /** `stopping`: a cancel is stopping it. `orphaned`: the job process is gone, but
+   *  commands it ran are not. Neither waits in the queue. */
+  state: 'queued' | 'running' | 'stopping' | 'orphaned';
+  /** The place in tangier's queue, from 1; `null` once the job runs. */
+  queuePosition: number | null;
+  /** The worktree whose path the job runs in, or `null` when the server knows none. */
+  worktree: WorktreeId | null;
+  path: string;
+  head: string;
+  dirty: boolean;
+  /** When the job was asked for. */
+  started: string;
+  gates: GateState[];
+}

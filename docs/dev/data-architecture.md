@@ -171,6 +171,11 @@ refresher. Losing the whole table costs one slow read, never data.
 
 Worktrees and pull requests are cached. Git and GitHub own them.
 
+**Gate jobs** are cached too, but in memory only: tangier owns them, and a server restart reads
+them again. One server poll serves every open browser, where a pass-through route would run
+tangier once per client. A later feature that tells an agent when its gate job ends needs to see
+each change on the server, and the world kind gives it the old and the new job.
+
 The **PR state** on each worktree row has one owner: the orchestrator's `PrStateCache`. It alone
 calls `gh` for it. See "The PR read comes before the rows" in
 [orchestrator-server.md](orchestrator-server.md).

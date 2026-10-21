@@ -971,6 +971,13 @@ the same `DialogFooter`.
   labels. A status outside the cycle, such as Planned or Has PR, greys nothing, and a click goes on as
   from All. Off the Desk the chip is a plain reading: the filter's effect is drawn on the Desk,
   so a click elsewhere would change nothing in view.
+- **Gates chip:** a split chip that reads the **Gate jobs** running over every gate job: `4/8`.
+  This is the form of the Agents chip, so the gap is the queue. Untoned: jobs that run are
+  normal, and a queue is no call on the operator. A click opens the Gate jobs dialog. The
+  dialog lists the running jobs, oldest first, then the queued jobs in queue order. Each row
+  names the worktree, the short head and the age or the queue place, then each gate in the
+  colour of its state. Amber is kept for attention, so a running gate is in the plain text
+  colour. With no gate job the chip is absent.
 
 ### Shell command
 

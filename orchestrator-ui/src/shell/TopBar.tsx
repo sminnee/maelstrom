@@ -7,6 +7,7 @@ import { Link } from 'react-router';
 import { useLinkState, useGo, useHrefFor, useLoc } from '../nav/useNav';
 import { useNewWork } from '../nav/useOverlays';
 import { AgentsChip } from './AgentsChip';
+import { GatesChip } from './GatesChip';
 import { AttentionChip } from './AttentionChip';
 import { FilterBar } from './FilterBar';
 import { UsageChips } from './UsageChips';
@@ -136,6 +137,7 @@ function Readings() {
     <div className={styles.readings}>
       <UsageChips />
       <AgentsChip />
+      <GatesChip />
     </div>
   );
 }

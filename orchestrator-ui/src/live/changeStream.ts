@@ -52,6 +52,8 @@ export function invalidationsFor(notice: ChangeNotice): QueryKey[] {
       return [keys.desk()];
     case 'host':
       return [keys.host()];
+    case 'gateJob':
+      return [keys.gateJobs()];
     case 'attention':
       return [keys.attention()];
     case 'task':

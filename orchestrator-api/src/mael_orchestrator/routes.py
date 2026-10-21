@@ -129,6 +129,7 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
     app.router.add_get("/api/host", _host)
+    app.router.add_get("/api/gate-jobs", _gate_jobs)
     app.router.add_get("/api/events", _events)
     app.router.add_get("/api/live-feedback", _live_feedback_socket)
     app.router.add_post("/api/agents/{id}/{action}", _agent_command)
@@ -537,6 +538,12 @@ async def _host(request: web.Request) -> web.Response:
     return web.json_response(
         {"host": orch.world["host"].get(HOST_ID), "loop": orch.loop_watch.reading()}
     )
+
+
+async def _gate_jobs(request: web.Request) -> web.Response:
+    """Every queued or running gate job on the machine, as last read from tangier."""
+    orch = await _ready(request)
+    return web.json_response({"gateJobs": list(orch.world["gateJobs"].values())})
 
 
 # -- commands --

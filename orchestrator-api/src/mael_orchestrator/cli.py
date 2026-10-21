@@ -63,6 +63,7 @@ from mael_domain.worktree_trash import trash_worktree_fully
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
+from .gate_source import gate_jobs
 from .routes import build_app, serve_app
 from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
@@ -378,6 +379,7 @@ def build_orchestrator(
         ),
         executor=executor,
         worktree_executor=worktree_executor,
+        gate_jobs=gate_jobs,
     )
 
 

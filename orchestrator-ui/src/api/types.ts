@@ -94,7 +94,8 @@ export type NoticeKind =
   | 'desk'
   | 'host'
   | 'comm'
-  | 'operation';
+  | 'operation'
+  | 'gateJob';
 
 export interface ChangeNotice {
   kind: NoticeKind;

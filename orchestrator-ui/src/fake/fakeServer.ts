@@ -19,6 +19,7 @@ import type {
   CommUpdate,
   DeskEntry,
   FileDiff,
+  GateJob,
   Host,
   Operation,
   Project,
@@ -42,7 +43,7 @@ import {
 } from './operations';
 
 /**
- * The world the fake serves: the eight tables, keyed by id, with tasks and
+ * The world the fake serves: its tables, keyed by id, with tasks and
  * documents whole so the detail routes have their prose.
  */
 export interface FakeWorld {
@@ -57,6 +58,8 @@ export interface FakeWorld {
   comms: Record<string, Comm>;
   /** The agent host's reachability; `null` before the server's first poll settles. */
   host: Host | null;
+  /** The gate jobs on the machine, as the server last read them from tangier. */
+  gateJobs: Record<string, GateJob>;
   /**
    * Each project's Linear issues for the current cycle. Not part of the world
    * the server polls -- the real one reads these straight from Linear -- but
@@ -116,6 +119,7 @@ export function emptyFakeWorld(): FakeWorld {
     attention: {},
     desk: {},
     comms: {},
+    gateJobs: {},
     host: {
       id: 'agent-host',
       reachable: true,
@@ -642,6 +646,7 @@ function read(path: string, server: FakeServer): Reply {
     return comm ? ok(comm) : notFound(`comm ${m[1]}`);
   }
   if (pathname === '/api/host') return ok({ host: world.host });
+  if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }
 

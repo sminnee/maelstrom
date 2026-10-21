@@ -809,6 +809,12 @@ Maelstrom's own `tangier gate run lint test web jig --fail-fast`, run by hand on
 before a PR. It is not a pre-push check: no command runs it for you.
 _Avoid_: pre-push check (for this command)
 
+**Gate job**:
+One `tangier gate run` invocation that runs one or more gates on one worktree. A gate job is
+queued or running: tangier runs four at a time on one machine, and the rest wait. The Gates chip
+counts them.
+_Avoid_: gate run (for the job)
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a

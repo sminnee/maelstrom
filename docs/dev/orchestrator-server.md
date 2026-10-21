@@ -632,6 +632,12 @@ snapshot and its first live one.
 | Comms | Read the `comms` rows written since the last read. A comm's `taskIds` are derived from the world's tasks | 2 s, on the task tick |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
+| Gate jobs | Run `tangier gate status --all --running --json` and diff the jobs, only while a client is watching. The first client to arrive triggers a read | 5 s |
+
+The gate read is async, so it takes no thread. It takes about 0.65 s, and the worker thread below
+also serves the task index. A failed read keeps the last jobs and logs once, not on each tick. Each
+job's worktree is the world's worktree with the same path, or `null`: tangier lists the jobs of
+every project on the machine.
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -1321,6 +1327,7 @@ without waiting for the poll.
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
+| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the last read found them. Empty while no client watches, and on a server with no tangier |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |
@@ -1392,7 +1399,7 @@ data: {"kind": "task", "ids": ["northwind/NORT-7"]}
 ```
 
 The kinds are `project`, `worktree`, `task`, `agent`, `attention`, `document`, `desk`, `host`,
-`comm` and `operation`. A
+`comm`, `operation` and `gateJob`. A
 worktree's changes have no kind of their own; see orchestrator-ui.md, "The Changes tab". A
 notice names what changed and nothing else: no entity travels on it. A remove and an upsert both
 put the id in `ids`, and the client refetches and finds the entity present or gone. Transcript
