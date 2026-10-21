@@ -782,6 +782,7 @@ async def duplicate(
     mode: str | None = None,
     model: str | None = None,
     execute_model: str | None = None,
+    base: str | None = None,
     content: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
@@ -795,11 +796,12 @@ async def duplicate(
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
+    generate_branch: bool = True,
 ) -> Task:
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
     The model primitive behind ``mael task add --from``. Copies the source's
-    title/command/mode/model/content/pre_action/post_action; any non-``None`` override
+    title/command/mode/model/base/content/pre_action/post_action; any non-``None`` override
     wins over the copied default. Source-agnostic — works from any status,
     including ``template/`` — and never mutates the source. ``schedule``/
     ``trigger``/``last_run`` are intentionally *not* copied: ``schedule`` and
@@ -828,6 +830,7 @@ async def duplicate(
         execute_model=(
             execute_model if execute_model is not None else src.execute_model
         ),
+        base=base if base is not None else src.base,
         branch=branch,
         pre_action=pre_action if pre_action is not None else src.pre_action,
         post_action=post_action if post_action is not None else src.post_action,
@@ -841,6 +844,7 @@ async def duplicate(
         status=status,
         id=id,
         now=now,
+        generate_branch=generate_branch,
     )
 
 
@@ -932,18 +936,6 @@ PROMOTABLE_FIELDS = (
 )
 
 
-def read_draft(path: "Path") -> Task:
-    """The unsaved task a draft file describes.
-
-    Raises:
-        FileNotFoundError: If ``path`` names no file.
-        ValueError: If the draft does not parse (see :func:`parse_draft`).
-    """
-    if not path.is_file():
-        raise FileNotFoundError(f"Draft file not found: {path}")
-    return parse_draft(path.read_text())
-
-
 async def _create_from_draft(
     table: "TaskTable",
     *,
@@ -980,27 +972,33 @@ async def promote_chain(
     table: "TaskTable",
     *,
     project: str,
-    paths: "list[Path]",
+    drafts: list[tuple[str, str]],
     parent: str = "",
     overrides: dict[str, str | None] | None = None,
     follows: list[str] | None = None,
+    follow_ends: list[str] | None = None,
     after: str | None = None,
 ) -> list[Task]:
     """Promote a set of drafts as one chain, in the order given.
 
-    The first task follows ``follows`` when it is given, else ``after``, else
-    nothing. Each later task follows the one before it. With ``after`` and no
-    ``follows``, the set is a **splice**: each ``todo`` or ``blocked`` task
+    Each draft is ``(name, text)``: the file name, which a refusal names, and
+    the file's text. The caller deletes the files once this returns, because a
+    rollback cannot restore a deleted file.
+
+    The first task follows ``follows`` and the leaves ``follow_ends`` resolve
+    to when either is given, else ``after``, else nothing. A ``*`` resolves
+    against the first task's parent. Each later task follows the one before
+    it. With ``after`` and no ``follows``, the set is a **splice**: each ``todo`` or ``blocked`` task
     that followed ``after`` now follows the last new task. A follower that
     already ran keeps the follows it ran with.
 
     A task's parent is ``overrides["parent"]``, else the draft's own, else the
     ``parent`` argument. The set is one transaction: a draft that does not
-    parse leaves nothing created, no follower moved, and no file consumed.
+    parse leaves nothing created and no follower moved.
 
     Raises:
-        ValueError: If a draft is missing or does not parse, which names the
-            file, or if an override is refused, which does not.
+        ValueError: If a draft does not parse, which names the file, or if an
+            override is refused, which does not.
     """
     given = dict(overrides or {})
     # A refused override is the caller's fault, so it fails before the loop
@@ -1015,8 +1013,20 @@ async def promote_chain(
             not is_safe_id(after) or await table.load(project, after) is None
         ):
             after = None
+        if follow_ends:
+            # The first draft's parent decides which chain a `*` appends to.
+            name, text = drafts[0]
+            try:
+                first = parse_draft(text)
+            except ValueError as exc:
+                raise ValueError(f"{name}: {exc}") from exc
+            first_parent = given.get("parent") or first.parent or parent
+            wired = list(follows or [])
+            for end_id in follow_ends:
+                wired += await resolve_follow_end(table, project, end_id, first_parent)
+            follows = list(dict.fromkeys(wired))
         splice = follows is None and bool(after)
-        for path in paths:
+        for name, text in drafts:
             if created:
                 wired = [created[-1].id]
             elif follows is not None:
@@ -1024,7 +1034,7 @@ async def promote_chain(
             else:
                 wired = [after] if after else []
             try:
-                draft = read_draft(path)
+                draft = parse_draft(text)
                 task = await _create_from_draft(
                     table,
                     project=project,
@@ -1035,8 +1045,8 @@ async def promote_chain(
                     },
                     follows=wired,
                 )
-            except (OSError, ValueError) as exc:
-                raise ValueError(f"{path.name}: {exc}") from exc
+            except ValueError as exc:
+                raise ValueError(f"{name}: {exc}") from exc
             created.append(task)
         if splice and created:
             new_ids = {t.id for t in created}
@@ -1048,12 +1058,6 @@ async def promote_chain(
                 await update(
                     table, project, task.id, follows=list(dict.fromkeys(moved))
                 )
-    # Committed: a rollback cannot put a deleted draft back, so the files go
-    # only once every row exists. A promoted draft left on disk would be
-    # promoted twice. `missing_ok`: a file already gone must not raise and
-    # undo a promote that succeeded.
-    for path in paths:
-        path.unlink(missing_ok=True)
     return created
 
 
@@ -1219,9 +1223,7 @@ async def load_many(
                 # Intra-file ref wins; otherwise treat as a real id.
                 follows.append(created[f].id if f in created else f)
             for end_id in _coerce_follows(args.get("follow-end")):
-                follows.extend(
-                    await _resolve_follow_end(table, project, end_id, parent)
-                )
+                follows.extend(await resolve_follow_end(table, project, end_id, parent))
             deduped = list(dict.fromkeys(follows))
             t = await create(
                 table,
@@ -1231,6 +1233,7 @@ async def load_many(
                 mode=str(args.get("mode", "")),
                 model=str(args.get("model", "")),
                 execute_model=str(args.get("execute-model", "")),
+                base=str(args.get("base", "")),
                 priority=str(args.get("priority", "")),
                 # An explicit branch: opts the task out of "one PR per parent" —
                 # create() gives it precedence over sibling/parent inheritance,
@@ -1249,7 +1252,7 @@ async def load_many(
     return list(created.values())
 
 
-async def _resolve_follow_end(
+async def resolve_follow_end(
     table: "TaskTable", project: str, end_id: str, parent: str
 ) -> list[str]:
     """Resolve one ``follow-end`` value to a list of ids to follow.
