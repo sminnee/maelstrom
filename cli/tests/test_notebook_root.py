@@ -63,16 +63,18 @@ class TestARefusedCommandWritesNothing:
     somewhere else entirely, so this compares the whole tree before and after.
     """
 
-    def test_a_refused_promote_leaves_the_tree_untouched(self, monkeypatch, tmp_path):
+    def test_a_refused_log_leaves_the_tree_untouched(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """`task log` still writes the notebook itself, not through the server."""
         from mael_cli.cli import main
 
         monkeypatch.delenv(NOTEBOOK_ROOT_ENV, raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
-        draft = tmp_path / "draft.md"
-        draft.write_text("# A draft\n")
         before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
 
-        assert main(["task", "promote", "--project", "p", str(draft)]) == 1
+        assert main(["task", "log", "--project", "p", "t1", "a line"]) == 1
+        assert NOTEBOOK_ROOT_ENV in capsys.readouterr().err
 
         after = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
         assert after == before

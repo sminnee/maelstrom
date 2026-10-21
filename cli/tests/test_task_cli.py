@@ -142,69 +142,12 @@ def _patch_live_sessions(monkeypatch, sessions):
 # --- add: branch defaulting / override ---
 
 
-class TestAddBranch:
-    async def test_branch_defaults_to_generated_slug(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "Smoke"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.strip()
-        # Generated from the title; with the model call blocked in tests this is
-        # the deterministic fallback slug.
-        assert (await model.load(store, "p", new_id)).branch == "feat/smoke"
-
-    async def test_branch_override(self, runner, store):
-        result = runner.invoke(
-            task_cli.task, ["add", "On branch", "--branch", "fix/login"]
-        )
-        assert result.exit_code == 0, result.output
-        new_id = result.output.strip()
-        assert (await model.load(store, "p", new_id)).branch == "fix/login"
-
-    async def test_command_and_mode_recorded(self, runner, store):
-        result = runner.invoke(
-            task_cli.task,
-            ["add", "Plan it", "--command", "plan-task", "--mode", "plan"],
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.command == "plan-task"
-        assert t.mode == "plan"
-
-    async def test_plain_task_defaults_to_plan_mode(self, runner, store):
-        # New tasks default to plan mode (DEFAULT_MODE).
-        result = runner.invoke(task_cli.task, ["add", "Just do it"])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.mode == "plan"
-
-    async def test_explicit_normal_mode_overrides_default(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "Just do it", "--mode", "normal"])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.mode == "normal"
-
-
 # --- add/update: lifecycle action flags ---
 
 
 class TestActionFlags:
-    async def test_add_stores_post_action(self, runner, store):
-        result = runner.invoke(
-            task_cli.task, ["add", "E", "--post-action", "linear.done"]
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.post_action == "linear.done"
-
-    async def test_add_stores_pre_action(self, runner, store):
-        result = runner.invoke(
-            task_cli.task, ["add", "E", "--pre-action", "linear.in-progress"]
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.pre_action == "linear.in-progress"
-
     async def test_update_retrofits_post_action(self, runner, store):
-        new_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        new_id = (await model.create(store, project="p", title="E")).id
         result = runner.invoke(
             task_cli.task,
             ["update", new_id, "--post-action", "linear.done"],
@@ -213,17 +156,17 @@ class TestActionFlags:
         assert (await model.load(store, "p", new_id)).post_action == "linear.done"
 
     async def test_update_can_clear_post_action(self, runner, store):
-        new_id = runner.invoke(
-            task_cli.task, ["add", "E", "--post-action", "linear.done"]
-        ).output.strip()
+        new_id = (
+            await model.create(store, project="p", title="E", post_action="linear.done")
+        ).id
         result = runner.invoke(task_cli.task, ["update", new_id, "--post-action", ""])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", new_id)).post_action == ""
 
     async def test_update_omitting_action_leaves_it(self, runner, store):
-        new_id = runner.invoke(
-            task_cli.task, ["add", "E", "--post-action", "linear.done"]
-        ).output.strip()
+        new_id = (
+            await model.create(store, project="p", title="E", post_action="linear.done")
+        ).id
         # An unrelated update must not wipe the action.
         runner.invoke(task_cli.task, ["update", new_id, "--branch", "x"])
         assert (await model.load(store, "p", new_id)).post_action == "linear.done"
@@ -252,7 +195,7 @@ class TestUpdateRename:
         )
 
     async def test_update_id_rekeys_task(self, runner, store):
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", "new-id")).id == "new-id"
@@ -262,7 +205,7 @@ class TestUpdateRename:
         assert "new-id" in result.output
 
     async def test_update_id_with_branch_in_one_call(self, runner, store):
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         result = runner.invoke(
             task_cli.task,
             ["update", old_id, "--id", "new-id", "--branch", "choose/foo"],
@@ -272,8 +215,8 @@ class TestUpdateRename:
         assert loaded.branch == "choose/foo"
 
     async def test_update_id_rewrites_dependent_follows(self, runner, store):
-        a = runner.invoke(task_cli.task, ["add", "A"]).output.strip()
-        b = runner.invoke(task_cli.task, ["add", "B", "--follow", a]).output.strip()
+        a = (await model.create(store, project="p", title="A")).id
+        b = (await model.create(store, project="p", title="B", follows=[a])).id
         result = runner.invoke(task_cli.task, ["update", a, "--id", "new-a"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", b)).follows == ["new-a"]
@@ -284,7 +227,7 @@ class TestUpdateRename:
         assert "not found" in result.output.lower()
 
     async def test_update_id_refuses_in_progress(self, runner, store):
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         await model.move(store, "p", old_id, model.STATUS_IN_PROGRESS)
         result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
         assert result.exit_code != 0
@@ -293,7 +236,7 @@ class TestUpdateRename:
         assert (await model.load(store, "p", old_id)).id == old_id
 
     async def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         # A live claude carrying this task's deterministic session id.
         self._patch_sweep(
             monkeypatch,
@@ -317,7 +260,7 @@ class TestUpdateRename:
     ):
         # Keyed on this task's own session id, not on worktree occupancy: a
         # sibling task's session shares the worktree and must not block.
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         self._patch_sweep(
             monkeypatch,
             [
@@ -333,7 +276,7 @@ class TestUpdateRename:
         assert (await model.load(store, "p", "new-id")).id == "new-id"
 
     async def test_update_same_id_applies_field_changes(self, runner, store):
-        old_id = runner.invoke(task_cli.task, ["add", "E"]).output.strip()
+        old_id = (await model.create(store, project="p", title="E")).id
         result = runner.invoke(
             task_cli.task,
             ["update", old_id, "still works", "--id", old_id],
@@ -975,149 +918,6 @@ class TestLiveSessionsByTask:
         assert await task_cli._live_sessions_by_task(store, "p") == {}
 
 
-class TestAddRun:
-    async def test_add_run_creates_then_moves_then_launches(
-        self, runner, store, launch
-    ):
-        # Capture the task status at launch time to prove move-before-launch.
-        seen = {}
-
-        async def fake_session(*args, **kwargs):
-            # At launch time the (only) task must already be in-progress —
-            # i.e. model.move ran before launch_claude_in_worktree.
-            seen["in_progress"] = await model.list_tasks(
-                store, project="p", status=model.STATUS_IN_PROGRESS
-            )
-            return True  # placement succeeded → task stays in-progress
-
-        launch.session.side_effect = fake_session
-
-        result = runner.invoke(task_cli.task, ["add", "One shot", "--run"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-
-        # Created task exists and ended up in-progress.
-        assert (await model.load(store, "p", new_id)).status == model.STATUS_IN_PROGRESS
-        # The move ran BEFORE the launch.
-        assert [t.id for t in seen["in_progress"]] == [new_id]
-        launch.session.assert_called_once()
-
-    def test_add_run_never_resumes_stale_transcript(
-        self, runner, store, launch, monkeypatch
-    ):
-        # A task created by `add --run` is brand-new: even with a stale
-        # transcript present it launches with `--session-id` (create), never
-        # `--resume`.
-        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
-        result = runner.invoke(task_cli.task, ["add", "One shot", "--run"])
-        assert result.exit_code == 0, result.output
-        launch.session.assert_called_once()
-        assert launch.session.call_args.kwargs["resume"] is False
-        assert "(resuming)" not in result.output
-
-    def test_add_without_run_does_not_launch(self, runner, store, launch):
-        result = runner.invoke(task_cli.task, ["add", "No launch"])
-        assert result.exit_code == 0, result.output
-        launch.session.assert_not_called()
-        launch.setup.assert_not_called()
-
-    def test_add_run_passes_generated_branch(self, runner, store, launch):
-        result = runner.invoke(task_cli.task, ["add", "Defaulted", "--run"])
-        assert result.exit_code == 0, result.output
-        # The branch is generated from the title; with the model call blocked in
-        # tests it falls back to the deterministic slug, which is what the core
-        # launch fn receives.
-        assert launch.setup.call_args.args[2] == "feat/defaulted"
-
-
-class TestAddEdit:
-    def test_edit_opens_editor_after_create(self, runner, store, monkeypatch):
-        calls = []
-
-        async def _edit(s, p, i, **kw):
-            calls.append((s, p, i))
-            return (None, True)
-
-        monkeypatch.setattr(task_cli.model, "edit_in_editor", _edit)
-        result = runner.invoke(task_cli.task, ["add", "Hand authored", "--edit"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        # Editor opened exactly once on the freshly created task.
-        assert calls == [(store, "p", new_id)]
-
-    def test_edit_short_flag(self, runner, store, monkeypatch):
-        calls = []
-
-        async def _edit(s, p, i, **kw):
-            calls.append(i)
-            return (None, True)
-
-        monkeypatch.setattr(task_cli.model, "edit_in_editor", _edit)
-        result = runner.invoke(task_cli.task, ["add", "Quick", "-e"])
-        assert result.exit_code == 0, result.output
-        assert len(calls) == 1
-
-    def test_no_edit_does_not_open_editor(self, runner, store, monkeypatch):
-        edit = AsyncMock(return_value=(None, False))
-        monkeypatch.setattr(task_cli.model, "edit_in_editor", edit)
-        result = runner.invoke(task_cli.task, ["add", "No edit"])
-        assert result.exit_code == 0, result.output
-        edit.assert_not_called()
-
-    def test_edit_then_run_edits_before_launch(
-        self, runner, store, launch, monkeypatch
-    ):
-        order = []
-        launch.session.side_effect = lambda *a, **k: order.append("launch")
-
-        async def _edit(s, p, i, **kw):
-            order.append("edit")
-            return (None, True)
-
-        monkeypatch.setattr(task_cli.model, "edit_in_editor", _edit)
-        result = runner.invoke(task_cli.task, ["add", "Both", "--edit", "--run"])
-        assert result.exit_code == 0, result.output
-        assert order == ["edit", "launch"]
-
-    def test_edit_reports_broken_editor_cleanly(self, runner, store, monkeypatch):
-        monkeypatch.setattr(
-            task_cli.model,
-            "edit_in_editor",
-            AsyncMock(side_effect=RuntimeError("editor exploded")),
-        )
-        result = runner.invoke(task_cli.task, ["add", "Boom", "--edit"])
-        assert result.exit_code != 0
-        assert "editor exploded" in result.output
-
-
-class TestAddShortFlags:
-    def test_short_project(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "T", "-p", "maelstrom"])
-        assert result.exit_code == 0, result.output
-
-    async def test_short_branch(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "T", "-b", "fix/login"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        assert (await model.load(store, "p", new_id)).branch == "fix/login"
-
-    async def test_short_parent_capital_p(self, runner, store):
-        parent = await model.create(store, project="p", title="parent")
-        result = runner.invoke(task_cli.task, ["add", "child", "-P", parent.id])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        assert (await model.load(store, "p", new_id)).parent == parent.id
-
-
-class TestAddModel:
-    async def test_model_flag_sets_the_field(self, runner, store):
-        # No short flag by design: -m is --mode's.
-        result = runner.invoke(task_cli.task, ["add", "T", "--model", "opus"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        assert (await model.load(store, "p", new_id)).model == "opus"
-
-
 def _block_option_keys() -> set[str]:
     """The block-settable field keys that must appear as CLI flags."""
     return {
@@ -1244,13 +1044,9 @@ class TestLaunchFromADrivenAgent:
         if command == "next":
             await model.create(store, project="p", title="Go")
             return runner.invoke(task_cli.task, ["next", "--run", *flags])
-        if command == "add":
-            return runner.invoke(task_cli.task, ["add", "Go", "--run"])
-        f = tmp_path / "plan.md"
-        f.write_text("---CREATE TASK go---\ntitle: Go\n---\nbody\n")
-        return runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
+        raise AssertionError(command)
 
-    @pytest.mark.parametrize("command", ["run", "next", "add", "load-many"])
+    @pytest.mark.parametrize("command", ["run", "next"])
     @pytest.mark.parametrize(
         ("driven", "harness", "attach"),
         [
@@ -1276,9 +1072,6 @@ class TestLaunchFromADrivenAgent:
         assert result.exit_code == 0, result.output
         kwargs = launch.session.call_args.kwargs
         assert (kwargs["harness"], kwargs["attach"]) == (harness, attach)
-        if command == "load-many":
-            # The one batch command that starts cmux itself, before its launches.
-            assert launch.ensure_cmux.call_count == (0 if driven else 1)
 
     @pytest.mark.parametrize("command", ["run", "next"])
     async def test_a_driven_agents_cli_flag_still_asks_for_the_cli(
@@ -1374,23 +1167,6 @@ class TestRunHere:
         assert result.exit_code == 0, result.output
         assert "claude --permission-mode" in describe(launch.exec.call_args.args[0])
 
-    def test_add_run_here_execs_a_claude_line(self, runner, store, launch):
-        # `add --run --here` reaches `_run_task` without a harness, so the
-        # daemon default has to be downgraded there too.
-        result = runner.invoke(task_cli.task, ["add", "Here go", "--run", "--here"])
-        assert result.exit_code == 0, result.output
-        assert "claude --permission-mode" in describe(launch.exec.call_args.args[0])
-
-    async def test_add_run_here(self, runner, store, launch):
-        result = runner.invoke(task_cli.task, ["add", "Here go", "--run", "--here"])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.splitlines()[0].strip()
-        launch.setup.assert_not_called()
-        launch.session.assert_not_called()
-        assert (await model.load(store, "p", new_id)).status == model.STATUS_IN_PROGRESS
-        assert launch.exec.call_args.kwargs["cwd"] is None
-        assert launch.exec.call_args.kwargs["env"]["MAEL_TASK_ID"] == new_id
-
     async def test_next_run_here(self, runner, store, launch):
         a = await model.create(store, project="p", title="a")
         result = runner.invoke(task_cli.task, ["next", "--run", "--here"])
@@ -1435,36 +1211,6 @@ class TestPrompt:
         result = runner.invoke(task_cli.task, ["prompt", "nope"])
         assert result.exit_code != 0
         assert "Task not found" in result.output
-
-
-class TestContentFile:
-    async def test_content_file_reads_stdin_on_dash(self, runner, store):
-        result = runner.invoke(
-            task_cli.task,
-            ["add", "Piped", "--content-file", "-"],
-            input="brief from stdin\n",
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert "brief from stdin" in t.content
-
-    async def test_content_file_reads_path(self, runner, store, tmp_path):
-        f = tmp_path / "brief.md"
-        f.write_text("brief from file")
-        result = runner.invoke(
-            task_cli.task, ["add", "FromFile", "--content-file", str(f)]
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.content == "brief from file"
-
-    def test_content_file_missing_path_errors(self, runner, store, tmp_path):
-        missing = tmp_path / "nope.md"
-        result = runner.invoke(
-            task_cli.task, ["add", "Missing", "--content-file", str(missing)]
-        )
-        assert result.exit_code != 0
-        assert "Content file not found" in result.output
 
 
 class TestDraft:
@@ -1542,477 +1288,6 @@ class TestDraft:
         result = runner.invoke(task_cli.task, ["draft", str(tmp_path / "d.md"), "T"])
         assert result.exit_code == 0, result.output
         assert await model.list_tasks(store, project="p") == []
-
-
-class TestPromote:
-    @pytest.fixture(autouse=True)
-    def _no_session(self, monkeypatch):
-        # A leaked session's $MAEL_TASK_ID would splice every promote.
-        monkeypatch.delenv("MAEL_TASK_ID", raising=False)
-        monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
-
-    def _draft(self, runner, tmp_path, name="d.md", title="Execute: demo", *args):
-        f = tmp_path / name
-        result = runner.invoke(task_cli.task, ["draft", str(f), title, *args])
-        assert result.exit_code == 0, result.output
-        return f
-
-    async def _follows(self, store, *ids):
-        return [(await model.load(store, "p", i)).follows for i in ids]
-
-    async def test_promote_splices_the_files_in_after_the_session_task(
-        self, runner, store, monkeypatch, tmp_path
-    ):
-        p = await model.create(store, project="p", title="P")
-        monkeypatch.setenv("MAEL_TASK_ID", p.id)
-        d1 = self._draft(runner, tmp_path, "1.md", "N1")
-        d2 = self._draft(runner, tmp_path, "2.md", "N2")
-        result = runner.invoke(task_cli.task, ["promote", str(d1), str(d2)])
-        assert result.exit_code == 0, result.output
-        n1, n2 = result.output.split()
-        assert await self._follows(store, n1, n2) == [[p.id], [n1]]
-
-    async def test_promote_outside_a_session_chains_the_files_and_follows_nothing(
-        self, runner, store, tmp_path
-    ):
-        d1 = self._draft(runner, tmp_path, "1.md", "N1")
-        d2 = self._draft(runner, tmp_path, "2.md", "N2")
-        result = runner.invoke(task_cli.task, ["promote", str(d1), str(d2)])
-        assert result.exit_code == 0, result.output
-        n1, n2 = result.output.split()
-        assert await self._follows(store, n1, n2) == [[], [n1]]
-
-    async def test_a_follow_flag_wires_the_first_file_and_moves_no_follower(
-        self, runner, store, monkeypatch, tmp_path
-    ):
-        p = await model.create(store, project="p", title="P")
-        c = await model.create(store, project="p", title="C", follows=[p.id])
-        monkeypatch.setenv("MAEL_TASK_ID", p.id)
-        d1 = self._draft(runner, tmp_path, "1.md", "N1")
-        d2 = self._draft(runner, tmp_path, "2.md", "N2")
-        result = runner.invoke(
-            task_cli.task, ["promote", str(d1), str(d2), "--follow", c.id]
-        )
-        assert result.exit_code == 0, result.output
-        n1, n2 = result.output.split()
-        assert await self._follows(store, n1, n2, c.id) == [[c.id], [n1], [p.id]]
-
-    async def test_promote_creates_todo_task_and_consumes_file(
-        self, runner, store, tmp_path
-    ):
-        f = self._draft(
-            runner,
-            tmp_path,
-            "d.md",
-            "Execute: demo",
-            "--mode",
-            "auto",
-            "--command",
-            "plan-next-step",
-            "--pre-action",
-            "linear.in-progress",
-            "--model",
-            "opus",
-        )
-        result = runner.invoke(task_cli.task, ["promote", str(f)])
-        assert result.exit_code == 0, result.output
-        new_id = result.output.strip()
-        t = await model.load(store, "p", new_id)
-        assert t.status == "todo"
-        assert t.title == "Execute: demo"
-        assert t.mode == "auto"
-        assert t.command == "plan-next-step"
-        assert t.pre_action == "linear.in-progress"
-        assert t.model == "opus"
-        # Promotion consumes the draft — it has moved into the notebook.
-        assert not f.exists()
-
-    async def test_promote_body_content_becomes_task_content(
-        self, runner, store, tmp_path
-    ):
-        f = self._draft(runner, tmp_path)
-        text = f.read_text().replace(
-            "## Content\n", "## Content\n\nThe sculpted plan.\n"
-        )
-        f.write_text(text)
-        result = runner.invoke(task_cli.task, ["promote", str(f)])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.content == "The sculpted plan."
-
-    async def test_promote_flag_overrides_file_field(self, runner, store, tmp_path):
-        f = self._draft(runner, tmp_path, "d.md", "T", "--mode", "auto")
-        result = runner.invoke(task_cli.task, ["promote", str(f), "--mode", "normal"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", result.output.strip())).mode == "normal"
-
-    async def test_promote_wires_follow(self, runner, store, tmp_path):
-        first = await model.create(store, project="p", title="first")
-        f = self._draft(runner, tmp_path)
-        result = runner.invoke(task_cli.task, ["promote", str(f), "--follow", first.id])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", result.output.strip())).follows == [
-            first.id
-        ]
-
-    async def test_promote_follow_end_wildcard_appends_to_parent_chain(
-        self, runner, store, monkeypatch, tmp_path
-    ):
-        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        existing = await model.create(
-            store, project="p", title="prev", parent="linear.NORT-9"
-        )
-        f = self._draft(runner, tmp_path)
-        result = runner.invoke(task_cli.task, ["promote", str(f), "--follow-end", "*"])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.parent == "linear.NORT-9"
-        assert t.follows == [existing.id]
-
-    def test_a_bad_flag_is_not_blamed_on_the_draft(self, runner, store, tmp_path):
-        # The draft parsed; what failed is the flag, so the message must not
-        # name the file and send the user to edit a file that is fine.
-        f = self._draft(runner, tmp_path)
-        result = runner.invoke(
-            task_cli.task, ["promote", str(f), "--priority", "urgnet"]
-        )
-        assert result.exit_code != 0
-        assert "urgnet" in result.output
-        assert f.name not in result.output
-
-    def test_promote_missing_file_errors(self, runner, store, tmp_path):
-        result = runner.invoke(task_cli.task, ["promote", str(tmp_path / "absent.md")])
-        assert result.exit_code != 0
-        assert "not found" in result.output.lower()
-
-    async def test_promote_bad_frontmatter_leaves_file(self, runner, store, tmp_path):
-        f = tmp_path / "d.md"
-        f.write_text('---\ntitle: "unclosed\n---\n\nBody.\n')
-        result = runner.invoke(task_cli.task, ["promote", str(f)])
-        assert result.exit_code != 0
-        assert f.exists()
-        assert await model.list_tasks(store, project="p") == []
-
-    async def test_promote_missing_title_leaves_file(self, runner, store, tmp_path):
-        f = tmp_path / "d.md"
-        f.write_text("---\nmode: auto\n---\n\n## Content\n\nBody.\n")
-        result = runner.invoke(task_cli.task, ["promote", str(f)])
-        assert result.exit_code != 0
-        assert "title" in result.output.lower()
-        assert f.exists()
-        assert await model.list_tasks(store, project="p") == []
-
-
-class TestLoadMany:
-    async def test_creates_chain_with_block_follow(self, runner, store, tmp_path):
-        f = tmp_path / "plan.md"
-        f.write_text(
-            "Preamble: only action is `mael task load-many <file>`.\n"
-            "\n"
-            "---CREATE TASK iter1---\n"
-            "title: First step\n"
-            "---\n"
-            "## Scope\n"
-            "do the first thing\n"
-            "---CREATE TASK tail---\n"
-            "title: Plan next step\n"
-            "command: plan-next-step\n"
-            "follow: iter1\n"
-            "---\n"
-            "## Remaining\n"
-            "the rest\n"
-        )
-        result = runner.invoke(task_cli.task, ["load-many", str(f)])
-        assert result.exit_code == 0, result.output
-        # Two ids printed, one per line.
-        lines = [ln for ln in result.output.strip().split("\n") if ln]
-        assert len(lines) == 2
-        first_id = lines[0].split("\t")[0]
-        second_id = lines[1].split("\t")[0]
-        # The second task follows the first (block name resolved to real id).
-        second = await model.load(store, "p", second_id)
-        assert second.follows == [first_id]
-        assert second.command == "plan-next-step"
-        assert "the rest" in second.content
-
-    async def test_reads_stdin_on_dash(self, runner, store):
-        text = "---CREATE TASK a---\ntitle: From stdin\n---\nbody\n"
-        result = runner.invoke(task_cli.task, ["load-many", "-"], input=text)
-        assert result.exit_code == 0, result.output
-        line = result.output.strip().split("\n")[0]
-        t = await model.load(store, "p", line.split("\t")[0])
-        assert t.title == "From stdin"
-
-    def test_bad_file_unknown_key_exits_nonzero(self, runner, store, tmp_path):
-        f = tmp_path / "bad.md"
-        f.write_text("---CREATE TASK a---\ntitle: A\nfollows: b\n---\nbody\n")
-        result = runner.invoke(task_cli.task, ["load-many", str(f)])
-        assert result.exit_code != 0
-        assert "Unknown key" in result.output
-
-    async def test_blocks_default_parent_from_env(
-        self, runner, store, monkeypatch, tmp_path
-    ):
-        # With MAEL_TASK_PARENT set and no `parent:` in the block, the created
-        # task nests under that parent, and follow-end:* appends to its siblings.
-        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        existing = await model.create(
-            store, project="p", title="prev", parent="linear.NORT-9"
-        )
-        f = tmp_path / "plan.md"
-        f.write_text(
-            '---CREATE TASK step---\ntitle: Step\nfollow-end: "*"\n---\nbody\n'
-        )
-        result = runner.invoke(task_cli.task, ["load-many", str(f)])
-        assert result.exit_code == 0, result.output
-        created = await model.load(store, "p", result.output.split("\t")[0])
-        assert created.parent == "linear.NORT-9"
-        assert created.follows == [existing.id]
-
-    def _two_block_plan(self, tmp_path):
-        f = tmp_path / "plan.md"
-        f.write_text(
-            "---CREATE TASK iter1---\n"
-            "title: First step\n"
-            "---\n"
-            "do the first thing\n"
-            "---CREATE TASK tail---\n"
-            "title: Plan next step\n"
-            "follow: iter1\n"
-            "---\n"
-            "the rest\n"
-        )
-        return f
-
-    async def test_load_many_run_launches_head_task(
-        self, runner, store, launch, tmp_path
-    ):
-        f = self._two_block_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        lines = [ln for ln in result.output.strip().split("\n") if ln]
-        # Two task lines + the announcement line.
-        head_id = lines[0].split("\t")[0]
-        tail_id = lines[1].split("\t")[0]
-        assert any(head_id in ln and "do *not* work on it" in ln for ln in lines)
-        # This plan is a genuine chain (tail follows iter1), so only the head is
-        # unblocked — one launch even though --run is now multi-launch.
-        launch.session.assert_called_once()
-        assert launch.session.call_args.kwargs["task_id"] == head_id
-        # Move-before-launch parity: head is in-progress, tail still blocked.
-        assert (
-            await model.load(store, "p", head_id)
-        ).status == model.STATUS_IN_PROGRESS
-        assert (await model.load(store, "p", tail_id)).status == model.STATUS_TODO
-
-    def test_load_many_run_head_never_resumes_stale_transcript(
-        self, runner, store, launch, tmp_path, monkeypatch
-    ):
-        # Regression: the head is a brand-new task, so even when a stale
-        # transcript for its deterministic session-id already sits in the
-        # reused worktree, it must launch with `--session-id` (create), never
-        # `--resume`. Before the `fresh=True` fix this launched with resume=True
-        # and the tab died immediately.
-        monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
-        f = self._two_block_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        launch.session.assert_called_once()
-        assert launch.session.call_args.kwargs["resume"] is False
-        assert "(resuming)" not in result.output
-
-    def test_load_many_without_run_does_not_launch(
-        self, runner, store, launch, tmp_path
-    ):
-        f = self._two_block_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f)])
-        assert result.exit_code == 0, result.output
-        launch.session.assert_not_called()
-        launch.setup.assert_not_called()
-
-    def test_load_many_run_announces_head_and_not_implement(
-        self, runner, store, launch, tmp_path
-    ):
-        f = self._two_block_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        head_id = result.output.strip().split("\n")[0].split("\t")[0]
-        announce = next(
-            ln for ln in result.output.split("\n") if "separate claude session" in ln
-        )
-        assert head_id in announce
-        assert "do *not* work on it yourself" in announce
-
-    def _three_independent_plan(self, tmp_path):
-        """Three blocks with no ``follow`` — all three are unblocked at once."""
-        f = tmp_path / "parallel.md"
-        f.write_text(
-            "---CREATE TASK one---\ntitle: One\n---\nfirst\n"
-            "---CREATE TASK two---\ntitle: Two\n---\nsecond\n"
-            "---CREATE TASK three---\ntitle: Three\n---\nthird\n"
-        )
-        return f
-
-    async def test_load_many_run_launches_every_unblocked_task(
-        self, runner, store, launch, tmp_path
-    ):
-        f = self._three_independent_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
-        assert launch.session.call_count == 3
-        # Launched in `created` order, so the head still goes first.
-        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == ids
-        for tid in ids:
-            assert (
-                await model.load(store, "p", tid)
-            ).status == model.STATUS_IN_PROGRESS
-
-    async def test_load_many_run_leaves_followers_queued(
-        self, runner, store, launch, tmp_path
-    ):
-        # Two independent blocks + one following `two`: only the independents are
-        # actionable, so the follower stays in todo/ for `task next --run`.
-        f = tmp_path / "mixed.md"
-        f.write_text(
-            "---CREATE TASK one---\ntitle: One\n---\nfirst\n"
-            "---CREATE TASK two---\ntitle: Two\n---\nsecond\n"
-            "---CREATE TASK three---\ntitle: Three\nfollow: two\n---\nthird\n"
-        )
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
-        assert launch.session.call_count == 2
-        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == ids[:2]
-        assert (await model.load(store, "p", ids[2])).status == model.STATUS_TODO
-
-    async def test_load_many_run_here_launches_head_only(
-        self, runner, store, launch, tmp_path
-    ):
-        # --here execvp's, so a loop is impossible by construction: head only.
-        f = self._three_independent_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run", "--here"])
-        assert result.exit_code == 0, result.output
-        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
-        launch.exec.assert_called_once()
-        launch.session.assert_not_called()
-        assert (await model.load(store, "p", ids[0])).status == model.STATUS_IN_PROGRESS
-        assert (await model.load(store, "p", ids[1])).status == model.STATUS_TODO
-
-    async def test_load_many_run_continues_past_a_failed_launch(
-        self, runner, store, launch, tmp_path, monkeypatch
-    ):
-        # A live session on the *second* task trips the duplicate-launch guard.
-        # The other two must still launch, and the failure must be reported.
-        f = self._three_independent_plan(tmp_path)
-
-        def sweep():
-            # Resolved lazily: the ids don't exist until load-many has created
-            # them, which happens after this fixture is installed. Sync, because
-            # `_patch_live_sessions` awaits the sweep and not the maker — and
-            # the table this reads is in memory, so there is nothing to await.
-            # Unfiltered by status: earlier tasks in the batch have already moved
-            # out of todo/ by the time later ones sweep.
-            rows = sorted(store._rows.values(), key=lambda r: r["created"])
-            all_ids = [r["task_id"] for r in rows]
-            second = all_ids[1:2]
-            return [
-                _live_session(pid=77, session_id=model.session_id_for("p", i))
-                for i in second
-            ]
-
-        _patch_live_sessions(monkeypatch, sweep)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code != 0
-        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
-        assert launch.session.call_count == 2
-        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == [
-            ids[0],
-            ids[2],
-        ]
-        assert f"warning: {ids[1]}" in result.output
-        assert "1 of 3 tasks failed to launch" in result.output
-        assert (await model.load(store, "p", ids[1])).status == model.STATUS_TODO
-
-    async def test_load_many_run_continues_past_a_runtime_error(
-        self, runner, store, launch, tmp_path
-    ):
-        # Worktree/port allocation raises RuntimeError, not ClickException —
-        # e.g. allocate_port_base exhausting the 300-999 range, which a batch
-        # launch can genuinely provoke. One task's failure must not abandon the
-        # rest, and the task must stay in todo/ (the raise precedes the status
-        # move).
-        f = self._three_independent_plan(tmp_path)
-        calls: list[str] = []
-
-        def setup(*a, **kw):
-            calls.append("x")
-            if len(calls) == 2:
-                raise RuntimeError("No available port ranges found")
-            return WorktreeSetup(path=launch.wt_path, name="bravo", action="created")
-
-        launch.setup.side_effect = setup
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code != 0
-        ids = [ln.split("\t")[0] for ln in result.output.strip().split("\n")[:3]]
-        assert launch.session.call_count == 2
-        assert [c.kwargs["task_id"] for c in launch.session.call_args_list] == [
-            ids[0],
-            ids[2],
-        ]
-        assert f"warning: {ids[1]} — No available port ranges found" in result.output
-        assert "1 of 3 tasks failed to launch" in result.output
-        assert (await model.load(store, "p", ids[1])).status == model.STATUS_TODO
-
-    def test_load_many_run_starts_cmux_once_for_the_batch(
-        self, runner, store, launch, tmp_path
-    ):
-        f = self._three_independent_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        assert launch.session.call_count == 3
-        launch.ensure_cmux.assert_called_once()
-
-    async def test_load_many_run_then_next_skips_head(
-        self, runner, store, launch, tmp_path
-    ):
-        # A+B end-to-end: load-many --run marks the head in-progress, so
-        # `task next` steps past it. Here the only follow-up is blocked behind
-        # the head, so next has nothing actionable.
-        f = self._two_block_plan(tmp_path)
-        result = runner.invoke(task_cli.task, ["load-many", str(f), "--run"])
-        assert result.exit_code == 0, result.output
-        head_id = result.output.strip().split("\n")[0].split("\t")[0]
-        nxt = await model.next_task(store, "p")
-        assert nxt is None or nxt.id != head_id
-
-
-class TestAddParentDefault:
-    async def test_add_defaults_parent_from_env(self, runner, store, monkeypatch):
-        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        result = runner.invoke(task_cli.task, ["add", "Child"])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.parent == "linear.NORT-9"
-
-    async def test_explicit_parent_overrides_env(self, runner, store, monkeypatch):
-        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        result = runner.invoke(
-            task_cli.task, ["add", "Child", "--parent", "linear.OTHER"]
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.parent == "linear.OTHER"
-
-    async def test_add_follow_end_wildcard(self, runner, store, monkeypatch):
-        monkeypatch.setenv("MAEL_TASK_PARENT", "linear.NORT-9")
-        prev = await model.create(
-            store, project="p", title="prev", parent="linear.NORT-9"
-        )
-        result = runner.invoke(task_cli.task, ["add", "Next", "--follow-end", "*"])
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.follows == [prev.id]
 
 
 class TestStatus:
@@ -2204,103 +1479,10 @@ class TestUpdate:
 # --- duplicate (--from) ---
 
 
-class TestDuplicate:
-    async def test_from_copies_recipe(self, runner, store):
-        src = await model.create(
-            store,
-            project="p",
-            title="Orig",
-            command="plan-task",
-            mode="auto",
-            content="the body",
-        )
-        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
-        assert result.exit_code == 0, result.output
-        new = await model.load(store, "p", result.output.strip())
-        assert new.id != src.id
-        assert new.title == "Orig"
-        assert new.command == "plan-task"
-        assert new.mode == "auto"
-        assert new.content == "the body"
-        assert new.status == model.STATUS_TODO
-
-    async def test_from_overrides_win(self, runner, store):
-        src = await model.create(store, project="p", title="Orig", command="plan-task")
-        result = runner.invoke(
-            task_cli.task,
-            ["add", "New title", "--from", src.id, "--command", "other"],
-        )
-        new = await model.load(store, "p", result.output.strip())
-        assert new.title == "New title"
-        assert new.command == "other"
-
-    async def test_source_untouched(self, runner, store):
-        src = await model.create(store, project="p", title="Orig", content="x")
-        runner.invoke(task_cli.task, ["add", "--from", src.id])
-        again = await model.load(store, "p", src.id)
-        assert again.title == "Orig"
-        assert again.content == "x"
-
-    async def test_from_works_from_template_status(self, runner, store):
-        src = await model.create(
-            store,
-            project="p",
-            title="Tmpl",
-            status=model.STATUS_TEMPLATE,
-            id="tmpl",
-        )
-        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
-        assert result.exit_code == 0, result.output
-        new = await model.load(store, "p", result.output.strip())
-        assert new.title == "Tmpl"
-        assert new.status == model.STATUS_TODO
-
-    def test_from_unknown_id_errors(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "--from", "nope"])
-        assert result.exit_code != 0
-        assert "Task not found" in result.output
-
-    def test_title_required_without_from(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add"])
-        assert result.exit_code != 0
-        assert "title is required" in result.output.lower()
-
-
 # --- priority ---
 
 
 class TestPriority:
-    async def test_add_records_priority(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "urgent", "--priority", "high"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", result.output.strip())).priority == "high"
-
-    async def test_add_defaults_to_medium(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "normal"])
-        assert result.exit_code == 0, result.output
-        assert (
-            await model.load(store, "p", result.output.strip())
-        ).priority == "medium"
-
-    def test_add_rejects_bogus_priority(self, runner, store):
-        result = runner.invoke(task_cli.task, ["add", "x", "--priority", "bogus"])
-        assert result.exit_code != 0
-
-    async def test_from_inherits_source_priority(self, runner, store):
-        src = await model.create(store, project="p", title="Orig", priority="critical")
-        result = runner.invoke(task_cli.task, ["add", "--from", src.id])
-        assert result.exit_code == 0, result.output
-        assert (
-            await model.load(store, "p", result.output.strip())
-        ).priority == "critical"
-
-    async def test_from_priority_override_wins(self, runner, store):
-        src = await model.create(store, project="p", title="Orig", priority="critical")
-        result = runner.invoke(
-            task_cli.task, ["add", "--from", src.id, "--priority", "low"]
-        )
-        assert (await model.load(store, "p", result.output.strip())).priority == "low"
-
     async def test_update_priority(self, runner, store):
         t = await model.create(store, project="p", title="alpha")
         result = runner.invoke(
@@ -2351,34 +1533,10 @@ class TestCommFlag:
         monkeypatch.setattr(task_cli, "_comm_store", _comm_store)
         return comms
 
-    async def test_add_links_each_named_comm(self, runner, store, comms):
-        result = runner.invoke(
-            task_cli.task, ["add", "T", "--comm", "c1", "--comm", "c2"]
-        )
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", result.output.strip())).comms == [
-            "c1",
-            "c2",
-        ]
-
-    async def test_add_without_the_flag_inherits_the_parent_comms(
-        self, runner, store, comms
-    ):
-        par = runner.invoke(task_cli.task, ["add", "Par", "--comm", "c2"]).output
-        result = runner.invoke(task_cli.task, ["add", "Child", "-P", par.strip()])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", result.output.strip())).comms == ["c2"]
-
-    async def test_an_unknown_comm_is_refused(self, runner, store, comms):
-        result = runner.invoke(task_cli.task, ["add", "T", "--comm", "c9"])
-        assert result.exit_code != 0
-        assert "Comm not found: c9" in result.output
-        assert await store.list("p") == []
-
     async def test_update_replaces_and_an_empty_value_clears(
         self, runner, store, comms
     ):
-        tid = runner.invoke(task_cli.task, ["add", "T", "--comm", "c1"]).output.strip()
+        tid = (await model.create(store, project="p", title="T", comms=["c1"])).id
         runner.invoke(task_cli.task, ["update", tid, "--comm", "c2"])
         assert (await model.load(store, "p", tid)).comms == ["c2"]
         runner.invoke(task_cli.task, ["update", tid, "--comm", ""])
@@ -2386,29 +1544,19 @@ class TestCommFlag:
 
 
 class TestTemplates:
-    async def test_add_template_parks_in_template_status(self, runner, store):
-        result = runner.invoke(
-            task_cli.task, ["add", "Morning", "--template", "--schedule", "0 9 * * *"]
+    async def test_template_invisible_to_next(self, runner, store):
+        await model.create(
+            store, project="p", title="Tmpl", status=model.STATUS_TEMPLATE
         )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.status == model.STATUS_TEMPLATE
-        assert t.schedule == "0 9 * * *"
-        result = runner.invoke(
-            task_cli.task,
-            ["add", "Nightly", "--template", "--trigger", "gh-action/nightly.yml"],
-        )
-        assert result.exit_code == 0, result.output
-        t = await model.load(store, "p", result.output.strip())
-        assert t.trigger == "gh-action/nightly.yml"
-
-    def test_template_invisible_to_next(self, runner, store):
-        runner.invoke(task_cli.task, ["add", "Tmpl", "--template"])
         result = runner.invoke(task_cli.task, ["next"])
         assert result.exit_code != 0  # no actionable task
 
     async def test_update_schedule_round_trips(self, runner, store):
-        tid = runner.invoke(task_cli.task, ["add", "Tmpl", "--template"]).output.strip()
+        tid = (
+            await model.create(
+                store, project="p", title="Tmpl", status=model.STATUS_TEMPLATE
+            )
+        ).id
         runner.invoke(task_cli.task, ["update", tid, "--schedule", "0 9 * * 1-5"])
         assert (await model.load(store, "p", tid)).schedule == "0 9 * * 1-5"
         result = runner.invoke(
@@ -2423,13 +1571,6 @@ class TestTemplates:
         assert (await model.load(store, "p", tid)).trigger == "gh-action/nightly.yml"
         runner.invoke(task_cli.task, ["update", tid, "--trigger", ""])
         assert (await model.load(store, "p", tid)).trigger == ""
-
-    async def test_template_from_duplicate(self, runner, store):
-        src = await model.create(store, project="p", title="Base", command="plan-task")
-        result = runner.invoke(task_cli.task, ["add", "--from", src.id, "--template"])
-        new = await model.load(store, "p", result.output.strip())
-        assert new.status == model.STATUS_TEMPLATE
-        assert new.command == "plan-task"
 
 
 # --- add-scheduled (catch-up / idempotency / launch) ---

@@ -6,10 +6,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from mael_cli import task_cli
 from mael_cli.integrations import linear_cli
 from mael_cli.integrations.linear_cli import linear_group as linear
-from mael_domain import task as model
 from mael_domain.integrations import linear as linear_mod
 from mael_domain.integrations.errors import IntegrationError, IntegrationHTTPError
 from mael_domain.integrations.linear import (
@@ -19,7 +17,6 @@ from mael_domain.integrations.linear import (
     graphql_paginated,
     localize_description_images,
 )
-from mael_domain.task_table import InMemoryTaskTable
 
 
 class ThreadedCliRunner(CliRunner):
@@ -233,60 +230,21 @@ class TestCmdPlan:
         assert mock_add.call_args.kwargs["project"] == "myproj"
 
     @patch("mael_domain.integrations.linear.get_issue")
-    async def test_plan_creates_task_on_generated_branch(self, mock_get, monkeypatch):
-        """End-to-end: ``plan`` computes a descriptive branch from the issue
-        title + bare number and persists it on the created task. With the model
-        call forced to fail (autouse fixture) this is the deterministic fallback:
-        ``feat/<number>-<slug>``."""
-        mock_get.return_value = {
-            "identifier": "NORT-123",
-            "title": "Do the thing",
-            "description": "",
-        }
-        store = InMemoryTaskTable()
-
-        async def _table():
-            return store
-
-        monkeypatch.setattr(task_cli, "_table", _table)
-        monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
-        runner = ThreadedCliRunner()
-        result = runner.invoke(linear, ["plan", "NORT-123", "--no-run"])
-        assert result.exit_code == 0, result.output
-
-        created = await model.list_tasks(store, project="p")
-        assert len(created) == 1
-        assert created[0].parent == "linear.NORT-123"
-        assert created[0].branch == "feat/123-do-thing"
-
-    @patch("mael_domain.integrations.linear.get_issue")
-    async def test_plan_persists_the_execute_model(self, mock_get, monkeypatch):
-        """The flag must reach the task, not merely exist.
-
-        ``cmd_plan`` enumerates ``add_task``'s kwargs by hand, so the shared
+    @patch("mael_cli.task_cli.add_task")
+    def test_plan_forwards_the_execute_model(self, mock_add, mock_get):
+        """``cmd_plan`` enumerates ``add_task``'s kwargs by hand, so the shared
         decorator proves the *flag* is offered while the value can still be
-        dropped on the way through. This asserts on the stored task.
-        """
+        dropped on the way through."""
         mock_get.return_value = {
             "identifier": "NORT-123",
             "title": "Do the thing",
             "description": "",
         }
-        store = InMemoryTaskTable()
-
-        async def _table():
-            return store
-
-        monkeypatch.setattr(task_cli, "_table", _table)
-        monkeypatch.setattr(task_cli, "open_task_table", lambda: store)
-        runner = ThreadedCliRunner()
-        result = runner.invoke(
+        result = ThreadedCliRunner().invoke(
             linear, ["plan", "NORT-123", "--no-run", "--execute-model", "sonnet"]
         )
         assert result.exit_code == 0, result.output
-
-        created = await model.list_tasks(store, project="p")
-        assert [t.execute_model for t in created] == ["sonnet"]
+        assert mock_add.call_args.kwargs["execute_model"] == "sonnet"
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"

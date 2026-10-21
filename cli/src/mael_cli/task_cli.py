@@ -7,6 +7,7 @@ says which commands call the server.
 
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -851,7 +852,8 @@ async def task_add(
         is_template=is_template,
         schedule=schedule,
         trigger=trigger,
-        comms=await _checked_comms(comms) if comms else None,
+        # `--comm ''` opts out of the parent task's comms.
+        comms=list(dict.fromkeys(c for c in comms if c)) if comms else None,
         edit=edit,
         run=run,
         here=here,
@@ -864,13 +866,8 @@ async def add_task(
     project: str | None,
     command: str = "",
     mode: str = "",
-    # The task's LLM model (`claude --model`). This name shadows the `task as
-    # model` module alias for this body, which therefore reaches the model layer
-    # via the `task_model` binding instead.
     model: str = "",
-    # Branch to stack this task's branch on; empty uses the project's stack tip.
     base: str = "",
-    # The model the session switches to on plan approval; empty means no switch.
     execute_model: str = "",
     priority: str | None = None,
     branch: str = "",
@@ -888,95 +885,109 @@ async def add_task(
     edit: bool = False,
     run: bool = False,
     here: bool = False,
-) -> "task_model.Task":
-    """Create a task (and optionally launch it), echoing its id.
+) -> str:
+    """Create a task on the orchestrator server (and optionally launch it).
 
-    The single create-and-launch path shared by ``mael task add`` and any other
-    command that creates a task (e.g. ``mael linear plan``), so there is exactly
-    one place that resolves follows, creates the task, and runs it.
+    The one create path for ``mael task add`` and every other command that
+    creates a task (``mael linear plan``). The server writes the task and puts
+    it on the desk; this resolves the environment and prints the id. An empty
+    flag is left out, so the server's default wins, or under ``from_id`` the
+    source's value. ``content`` of ``None`` is left out too: pass ``""`` to
+    blank a duplicate's content.
 
-    With ``from_id`` the task is seeded by :func:`task.duplicate` from that
-    source; the remaining flags override the copied recipe. ``is_template`` parks
-    the new task in ``template/`` status and ``schedule`` sets its cron metadata.
-    ``content`` of ``None`` means "unspecified" (so a duplicate keeps the
-    source's content); pass ``""`` to deliberately blank it.
+    ``run`` launches on the server, on the daemon, unless ``here`` runs it in
+    this shell. ``edit`` opens the new task in ``$EDITOR`` first.
     """
     proj = resolve_project(project)
-    table = await _table()
-    parent = _default_parent(parent)
-
     if from_id is None and not (title and title.strip()):
         raise click.ClickException("A title is required (or pass --from <task-id>).")
-
-    follow_list = list(follows)
-    for end_id in follow_ends:
-        follow_list.extend(
-            await task_model._resolve_follow_end(table, proj, end_id, parent)
-        )
-    # De-dupe while preserving first-seen order.
-    deduped = list(dict.fromkeys(follow_list))
-
-    status = task_model.STATUS_TEMPLATE if is_template else task_model.STATUS_TODO
-
+    fields = {
+        "title": title,
+        "command": command,
+        "mode": mode,
+        "model": model,
+        "base": base,
+        "executeModel": execute_model,
+        "priority": priority,
+        "branch": branch,
+        "parent": _default_parent(parent),
+        "preAction": pre_action,
+        "postAction": post_action,
+        "schedule": schedule,
+        "trigger": trigger,
+    }
+    body: dict = {"project": proj, **{k: v for k, v in fields.items() if v}}
+    if content is not None:
+        body["content"] = content
+    if comms is not None:
+        body["comms"] = comms
+    if follows:
+        body["follows"] = [f"{proj}/{f}" for f in follows]
+    if follow_ends:
+        body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
     if from_id is not None:
-        try:
-            new = await task_model.duplicate(
-                table,
-                proj,
-                from_id,
-                title=title,
-                command=command or None,
-                mode=mode or None,
-                model=model or None,
-                execute_model=execute_model or None,
-                priority=priority,
-                content=content,
-                pre_action=pre_action or None,
-                post_action=post_action or None,
-                branch=branch,
-                parent=parent,
-                follows=deduped,
-                schedule=schedule or "",
-                trigger=trigger or "",
-                comms=comms,
-                status=status,
-            )
-        except KeyError:
-            raise click.ClickException(f"Task not found: {from_id}")
-    else:
-        new = await task_model.create(
-            table,
-            project=proj,
-            title=title or "",
-            command=command,
-            mode=mode,
-            model=model,
-            base=base,
-            execute_model=execute_model,
-            priority=priority or task_model.DEFAULT_PRIORITY,
-            branch=branch,
-            parent=parent,
-            pre_action=pre_action,
-            post_action=post_action,
-            follows=deduped,
-            content=content or "",
-            schedule=schedule or "",
-            trigger=trigger or "",
-            comms=comms,
-            status=status,
-        )
-    click.echo(new.id)
+        body["from"] = f"{proj}/{from_id}"
+    if is_template:
+        body["status"] = task_model.STATUS_TEMPLATE
+    # With --edit or --here, the launch runs after the create, not in it.
+    if run and not here and not edit:
+        body["launch"] = True
+    client = OrchestratorClient.from_config()
+    reply = client.post("/api/tasks", body)
+    task_id = _notebook_id(reply["taskId"])
+    click.echo(task_id)
+    operation_id = reply.get("operationId")
+    if operation_id and (edit or here):
+        # The operation names the task. A local write before it ends would
+        # save the stand-in title and branch over the names.
+        _wait_for_operation(client, operation_id)
     if edit:
+        table = await _table()
         try:
-            await task_model.edit_in_editor(table, proj, new.id)
+            await task_model.edit_in_editor(table, proj, task_id)
         except KeyError:
-            raise click.ClickException(f"Task not found: {new.id}")
+            raise click.ClickException(f"Task not found: {task_id}")
         except RuntimeError as e:
             raise click.ClickException(str(e))
-    if run:
-        harness = TRANSPORT_CLI if here else resolve_harness_or_fail()
-        await _run_task(table, proj, new, here=here, fresh=True, harness=harness)
-    return new
+    if run and here:
+        table = await _table()
+        new = await task_model.load(table, proj, task_id)
+        await _run_task(table, proj, new, here=True, fresh=True)
+    elif run:
+        launched = reply["operationId"] if body.get("launch") else None
+        _echo_started(task_id, launched or _launch_on_server(proj, task_id))
+    return task_id
+
+
+def _qualified(project: str, task_id: str) -> str:
+    """The wire id of ``task_id``; the ``*`` wildcard stays as it is."""
+    return task_id if task_id == "*" else f"{project}/{task_id}"
+
+
+def _wait_for_operation(
+    client: OrchestratorClient, operation_id: str, *, timeout: float = 120.0
+) -> None:
+    """Wait until an operation is no longer running, or ``timeout`` passes."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        operations = client.get("/api/operations")["operations"]
+        if not any(
+            o["id"] == operation_id and o["state"] == "running" for o in operations
+        ):
+            return
+        time.sleep(0.5)
+
+
+def _launch_on_server(project: str, task_id: str) -> str:
+    """Launch a task on the server, and return the launch operation's id."""
+    return _task_call(project, task_id, "launch", {})["operationId"]
+
+
+def _echo_started(task_id: str, operation_id: str) -> None:
+    click.echo(
+        f"{task_id} started in a separate claude session "
+        f"— do *not* work on it yourself. (operation {operation_id})"
+    )
 
 
 @task.command("draft")
@@ -1069,50 +1080,49 @@ async def task_promote(
     it now follow the last new task. --follow/--follow-end wire the first task
     instead and move nothing. Prints the new ids, one per line. A draft that
     fails to parse leaves every file untouched with no task created.
+
+    The server writes the tasks and puts each on the desk. The files are read
+    here and deleted only after the server's reply.
     """
     paths = [Path(file) for file in files]
     proj = resolve_project(project)
-    table = await _table()
-    wired: list[str] | None = None
-    if follows or follow_ends:
-        # The first draft's parent decides which chain a `--follow-end '*'`
-        # appends to, so it is read before the follows are resolved.
+    drafts = []
+    for path in paths:
         try:
-            first = task_model.read_draft(paths[0])
-        except (OSError, ValueError) as e:
-            raise click.ClickException(f"{paths[0].name}: {e}")
-        first_parent = _default_parent(parent or first.parent)
-        wired = list(follows)
-        for end_id in follow_ends:
-            wired.extend(
-                await task_model._resolve_follow_end(table, proj, end_id, first_parent)
-            )
-        wired = list(dict.fromkeys(wired))
-    try:
-        created = await task_model.promote_chain(
-            table,
-            project=proj,
-            paths=paths,
-            parent=_default_parent(""),
-            overrides={
-                "command": command,
-                "mode": mode,
-                "model": model,
-                "execute_model": execute_model,
-                "base": base,
-                "priority": priority,
-                "branch": branch,
-                "parent": parent,
-                "pre_action": pre_action,
-                "post_action": post_action,
-            },
-            follows=wired,
-            after=os.environ.get("MAEL_TASK_ID") or None,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    for task in created:
-        click.echo(task.id)
+            drafts.append({"name": path.name, "text": path.read_text()})
+        except OSError as e:
+            raise click.ClickException(f"{path.name}: {e}")
+    overrides = {
+        "command": command,
+        "mode": mode,
+        "model": model,
+        "executeModel": execute_model,
+        "base": base,
+        "priority": priority,
+        "branch": branch,
+        "parent": parent,
+        "preAction": pre_action,
+        "postAction": post_action,
+    }
+    body: dict = {
+        "project": proj,
+        "drafts": drafts,
+        "parent": _default_parent(""),
+        # `None` is a flag not given; `''` clears the file's value.
+        "overrides": {k: v for k, v in overrides.items() if v is not None},
+    }
+    if follows:
+        body["follows"] = [f"{proj}/{f}" for f in follows]
+    if follow_ends:
+        body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
+    if after := os.environ.get("MAEL_TASK_ID"):
+        body["after"] = f"{proj}/{after}"
+    reply = OrchestratorClient.from_config().post("/api/tasks/promote", body)
+    # Committed: a promoted draft left on disk would be promoted twice.
+    for path in paths:
+        path.unlink(missing_ok=True)
+    for task_id in reply["taskIds"]:
+        click.echo(_notebook_id(task_id))
 
 
 @task.command("load-many")
@@ -1137,77 +1147,35 @@ async def task_promote(
 async def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
     text = _read_content_file(file)
-    try:
-        blocks, warnings = model.parse_task_blocks(text)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    for w in warnings:
-        click.echo(f"warning: {w}", err=True)
     proj = resolve_project(project)
-    table = await _table()
-    created = await model.load_many(
-        table,
-        project=proj,
-        blocks=blocks,
-        default_parent=_default_parent(""),
+    reply = OrchestratorClient.from_config().post(
+        "/api/tasks/load-many",
+        {
+            "project": proj,
+            "text": text,
+            "defaultParent": _default_parent(""),
+            "launch": run and not here,
+        },
     )
-    for t in created:
-        click.echo(f"{t.id}\t{t.title}")
-    if not (run and created):
-        return
-
-    if here:
-        # `exec_cmd` is an execvp that never returns, so
-        # only one task can be launched this way: the head, matching the
-        # single-launch behaviour --run had before it went multi. Print BEFORE
-        # _run_task — after the execvp nothing here reaches the terminal.
-        head = created[0]
-        click.echo(f"{head.id} starting in this shell.")
+    for w in reply["warnings"]:
+        click.echo(f"warning: {w}", err=True)
+    created = [(_notebook_id(t["taskId"]), t["title"]) for t in reply["tasks"]]
+    for task_id, title in created:
+        click.echo(f"{task_id}\t{title}")
+    if run and here and created:
+        # `exec_cmd` is an execvp that never returns, so only the head can be
+        # launched this way. Print BEFORE _run_task — after the execvp nothing
+        # here reaches the terminal.
+        head_id = created[0][0]
+        click.echo(f"{head_id} starting in this shell.")
+        table = await _table()
+        head = await model.load(table, proj, head_id)
         await _run_task(table, proj, head, here=True, fresh=True)
         return
-
-    # Launch every task in the batch that isn't waiting on a follow — the same
-    # predicate `task next` and the `task list --all-todo` actionable column use.
-    # Blocked siblings stay in todo/ and advance later via `mael task next --run`.
-    # `created` order is preserved so the head still launches first.
-    #
-    # The set is computed once, before any launch: a launch only moves a task to
-    # in-progress, never to done, so no blocked task in the batch can *become*
-    # actionable partway through the loop.
-    launch = [t for t in created if await model.is_actionable(t, table)]
-    if not launch:
-        return
-    # Start the cmux app once for the whole batch; each _run_task still guards
-    # liveness individually and rolls its own task back to TODO on a failed
-    # placement. A daemon batch from a driven agent places no pane, so it needs
-    # no cmux.
-    # Sequential, never parallel: worktree-name and port-base allocation are
-    # unlocked, so concurrent launches would race.
-    harness = resolve_harness_or_fail()
-    if harness == TRANSPORT_CLI:
-        ensure_cmux_running()
-    failed = 0
-    for t in launch:
-        click.echo(
-            f"{t.id} started in a separate claude session "
-            "— do *not* work on it yourself."
-        )
-        # One task's launch must not abandon its siblings. ClickException is the
-        # duplicate-live-session guard; RuntimeError covers the worktree/port
-        # allocators (`allocate_port_base` exhausting the 300-999 range is a
-        # genuine batch failure mode — every launch consumes a base). Both are
-        # raised before the status move, so the task is still in todo/ and stays
-        # re-runnable via `mael task next --run`.
-        try:
-            await _run_task(table, proj, t, here=False, fresh=True, harness=harness)
-        except click.ClickException as e:
-            failed += 1
-            click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
-        except RuntimeError as e:
-            failed += 1
-            click.echo(f"warning: {t.id} — {e}", err=True)
-    if failed:
-        raise click.ClickException(f"{failed} of {len(launch)} tasks failed to launch")
+    # The server launched each task that waits on nothing.
+    for row in reply["tasks"]:
+        if "operationId" in row:
+            _echo_started(_notebook_id(row["taskId"]), row["operationId"])
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
