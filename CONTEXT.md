@@ -1142,7 +1142,9 @@ _Avoid_: Workspace, board, pinned
 Putting a task on the desk. A button says "On desk"; a label that joins it to another act uses
 the verb form, "put on desk". The task list row, its bulk bar and the node card's follows rows
 offer it. In a task list row and a follows row it is a toggle: it always says "On desk", and a
-square on the desk icon shows the task is on the desk.
+square on the desk icon shows the task is on the desk. A created task is on the desk already:
+every task the orchestrator server writes joins it, whether the UI, `mael task add`, `promote`
+or `load-many` asked for it.
 _Avoid_: Add to desk, pin
 
 **Off desk**:

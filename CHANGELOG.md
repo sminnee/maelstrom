@@ -131,6 +131,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A task an agent creates is on the canvas at once.** `mael task add`, `promote` and
+  `load-many` now ask the orchestrator server to write the task, and the server puts every task
+  it writes on the desk. A document approval's tasks join the desk too. The three commands fail
+  when no server answers. `add --run` and `load-many --run` start the agent on the daemon through
+  the server; `--run --here` still runs in the current shell. A `load-many --run` launch that
+  fails is now a warning, and the command exits 0. See
+  [The CLI over the orchestrator API](docs/dev/cli-over-api.md#done).
 - **`mael list` and `mael list-all` read the orchestrator server.** They fail when
   `orchestrator_url:` is unset or no server answers. A PR cell that ends in `(stale)` shows the
   last known pull request, because the latest read failed, timed out or stood off for a rate

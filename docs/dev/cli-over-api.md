@@ -5,7 +5,8 @@ server is the one writer of the state it holds, and `mael_domain` belongs to the
 note sorts every command into a class, names the API gaps, and gives the migration order.
 
 `mael task show`, `read`, `list` and `status` are the pilot. They call the server today, as do
-`mael list` and `mael list-all`.
+`mael list`, `mael list-all`, and the creating commands `mael task add`, `promote` and
+`load-many`.
 
 ## Why two writers fail
 
@@ -20,9 +21,10 @@ also holds state in memory, so a direct CLI write goes stale in it:
 
 When the server makes the write, it publishes the change at once, and nothing goes stale.
 
-Until every task write moves, `add`, `promote` and `load-many` still write the database. So a task
-read and a status move refresh the server's tasks first. That costs one revision query when
-nothing moved, and `mael task add` then `mael task status start` finds the new task.
+Until every task write moves, `task run`, `task next --run`, `task log`, `task edit` and
+`task add-scheduled` still write the database. So a task read, a status move and each create route
+refresh the server's tasks first. That costs one revision query when nothing moved, and `mael task run`
+then `mael task status done` finds the moved task.
 
 ## The Orchestrator client
 
@@ -50,9 +52,9 @@ no domain in the package split below.
 
 | Class | Commands | Why |
 |---|---|---|
-| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch) | The state is the server's. Both sides already call the same domain function. |
-| **B. Thin after API work** | `task add/promote/load-many/next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `add`, `linear plan` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
-| **C. Stays local** | `install`, `self-update`, `self-env *`, `doctor`, `cmux status`, `schedule *`, `session end/info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self-env start orchestrator` starts it. The rest use the TTY or `$EDITOR`, exec into the caller's shell, or signal the caller's parent process. |
+| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch), `task add/promote/load-many` | The state is the server's. Both sides already call the same domain function. |
+| **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
+| **C. Stays local** | `install`, `self-update`, `self-env *`, `doctor`, `cmux status`, `schedule *`, `session end/info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `task add --edit`, `task load-many --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self-env start orchestrator` starts it. The rest use the TTY or `$EDITOR`, exec into the caller's shell, or signal the caller's parent process. |
 | **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `base/stack-tip/promote/eject`, `wiki *`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
 | **E. Already a thin client** | `agent show/say/run/approve/…` | They speak the agent daemon's wire contract. |
 
@@ -62,13 +64,23 @@ no domain in the package split below.
 [orchestrator-server.md](orchestrator-server.md). The PR state they show comes from the server's
 `PrStateCache` alone.
 
+`mael task add`, `promote` and `load-many` post to `POST /api/tasks`, `POST /api/tasks/promote`
+and `POST /api/tasks/load-many`. `mael linear plan` calls `task add`, so it moved with it. The
+client resolves the environment and the files:
+
+- `$MAEL_TASK_PARENT` becomes `parent`, and `$MAEL_TASK_ID` becomes the promote's `after`.
+- A bare id from a flag becomes a wire id. `--follow-end '*'` stays `*`.
+- `promote` reads the draft files and sends their text. It deletes the files after a `2xx`
+  reply, and leaves them on a refusal.
+- `--run` sets `launch`, and the server starts the agent on the daemon. `--run --here` and
+  `--edit` stay local: they exec into the caller's shell or open `$EDITOR`.
+
 ## API gaps
 
 | Gap | Commands it blocks |
 |---|---|
-| No route for promote, load-many or a task log append | `task promote`, `task load-many`, `task log` |
+| No route for a task log append | `task log` |
 | No actionable or next filter on `GET /api/tasks` | `task next`. It could filter the full list, as `task list` does. |
-| `task.create` does not take `parent` | `task add` under a parent |
 | No streamed long command | `sync` and `create-pr` with a `pre_push_cmd`, and `env start`. They run for minutes, and the agent reads their output. This needs a job id and a log stream, on the WebSocket pattern the transcripts use. |
 
 The wire task is a projection of the notebook row: `branch` is the default branch when the row
@@ -97,12 +109,13 @@ server's alone.
 
 1. **Class A.** The routes exist, and agents use these commands most: `task status done` and
    `task show`. The pilot did four of them.
-2. **Class B, by agent use.** `task promote`, `task next --run`, `sync`, then `create-pr`. The
-   last two wait for the streamed long command.
+2. **Class B, by agent use.** `task next --run`, `sync`, then `create-pr`. The last two wait
+   for the streamed long command.
 3. **The package split.** Move the wire types out of `mael_domain`, then split the three
    packages above.
 
 ## Testing a thin command
 
 Follow `tests/test_cli_over_api.py`: a real `build_app` on loopback, with the client pointed at
-it. `cli/tests/test_orchestrator_client.py` covers each failure against a stub server.
+it. The fixtures are in `tests/conftest.py`, and `tests/test_task_create_over_api.py` uses the
+same ones. `cli/tests/test_orchestrator_client.py` covers each failure against a stub server.
