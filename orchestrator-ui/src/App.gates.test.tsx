@@ -23,6 +23,22 @@ describe('the gates chip', () => {
     await waitFor(() => expect(screen.queryByLabelText(/gate jobs running/)).toBeNull());
   });
 
+  it('shows no usage for a job tangier took no sample of', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await act(async () => {
+      server.change({ kind: 'gateJob', ids: ['43'] }, (world) => {
+        world.gateJobs['43']!.usage = null;
+      });
+    });
+    await user.click(await screen.findByLabelText(/gate jobs running/));
+    const dialog = await screen.findByRole('dialog', { name: 'Gate jobs' });
+    const queued = within(within(dialog).getByRole('region', { name: 'Queued' }));
+    expect(
+      await within(queued.getByRole('listitem')).findByText('queue 1 of 1'),
+    ).toBeInTheDocument();
+  });
+
   it('lists the running jobs, then the queued jobs, with their gates', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -40,10 +56,11 @@ describe('the gates chip', () => {
     const first = within(rows[0]!);
     expect(first.getByText('lint')).toHaveAttribute('data-state', 'passed');
     expect(first.getByText('test')).toHaveAttribute('data-state', 'running');
+    expect(first.getByText(/^started, .* ago · cpu 94% · mem 107M$/)).toBeInTheDocument();
 
     // One the world does not know keeps its path.
     const waiting = within(queued.getByRole('listitem'));
     expect(waiting.getByText('/Users/dev/Projects/askastro/askastro-bravo')).toBeInTheDocument();
-    expect(waiting.getByText('queue 1 of 1')).toBeInTheDocument();
+    expect(waiting.getByText('queue 1 of 1 · cpu 0% · mem 4.0M')).toBeInTheDocument();
   });
 });
