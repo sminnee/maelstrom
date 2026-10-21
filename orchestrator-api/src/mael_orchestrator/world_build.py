@@ -24,6 +24,7 @@ from mael_domain.protocol import (
     CommItem,
     CommUpdate,
     Document,
+    GateJob,
     HostUsage,
     PrMatch,
     Project,
@@ -421,6 +422,32 @@ def _usage_window(raw: Any) -> UsageWindow | None:
         }
     except (TypeError, ValueError):
         return None
+
+
+def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJob:
+    """One job off ``tangier gate status --json``, as a ``GateJob``.
+
+    ``worktree_ids`` maps each worktree's real path to its id. A job in a
+    worktree the server does not know keeps its path, so the reader can still
+    name it.
+    """
+    path = str(raw.get("worktree") or "")
+    worktree = worktree_ids.get(path)
+    return {
+        "id": str(raw["id"]),
+        "state": str(raw.get("state") or ""),
+        "queuePosition": raw.get("queue_position"),
+        "worktree": worktree,
+        "path": path,
+        "head": str(raw.get("head") or ""),
+        "dirty": bool(raw.get("dirty")),
+        "started": str(raw.get("started") or ""),
+        "gates": [
+            {"name": str(gate.get("name") or ""), "state": str(gate.get("state") or "")}
+            for gate in raw.get("gates") or []
+            if isinstance(gate, dict)
+        ],
+    }
 
 
 def diff_kind(kind: str, old: dict[str, Any], new: dict[str, Any]) -> list[ServerEvent]:

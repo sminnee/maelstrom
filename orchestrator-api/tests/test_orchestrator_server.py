@@ -67,6 +67,7 @@ from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
+from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.live_feedback import LiveFeedbackHub
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
@@ -5955,6 +5956,163 @@ def test_a_retry_is_judged_against_the_world_as_it_is_now(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "is closed already" in reply.body["error"]["message"]
+
+
+# -- gate jobs --
+
+
+def gate_job(job_id: int, state: str, worktree: str, **over) -> dict:
+    """One job as ``tangier gate status --all --running --json`` prints it."""
+    return {
+        "id": job_id,
+        "state": state,
+        "pid": 3839,
+        "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
+        "dirty": False,
+        "started": "2026-09-01T00:00:00+00:00",
+        "worktree": worktree,
+        "queue_position": None,
+        "gates": [{"name": "lint", "key": "9cdb", "state": "running", "code": None}],
+        **over,
+    }
+
+
+class FakeGates:
+    """Answers the gate read from memory: the suite must not reach tangier."""
+
+    def __init__(self) -> None:
+        self.jobs: list[dict] = []
+        self.fail = False
+        self.calls = 0
+
+    async def __call__(self) -> list[dict]:
+        self.calls += 1
+        if self.fail:
+            raise GateSourceError("tangier is not on PATH")
+        return list(self.jobs)
+
+
+@pytest.fixture
+def gates(store):
+    fake = FakeGates()
+    return fake, Harness(store, gate_jobs=fake, gate_poll=0.02)
+
+
+def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
+    fake, harness = gates
+    fake.jobs = [
+        gate_job(898, "running", WORKTREE_PATH),
+        gate_job(899, "queued", "/elsewhere/repo-bravo", queue_position=1),
+    ]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                ids = await stream.change("gateJob")
+            return ids, await api.get_json("/api/gate-jobs")
+
+    ids, body = run(scenario())
+    assert sorted(ids) == ["898", "899"]
+    assert body["gateJobs"] == [
+        {
+            "id": "898",
+            "state": "running",
+            "queuePosition": None,
+            "worktree": "northwind-alpha",
+            "path": WORKTREE_PATH,
+            "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
+            "dirty": False,
+            "started": "2026-09-01T00:00:00+00:00",
+            "gates": [{"name": "lint", "state": "running"}],
+        },
+        {
+            "id": "899",
+            "state": "queued",
+            "queuePosition": 1,
+            # Not a worktree this server knows: the path stands in for it.
+            "worktree": None,
+            "path": "/elsewhere/repo-bravo",
+            "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
+            "dirty": False,
+            "started": "2026-09-01T00:00:00+00:00",
+            "gates": [{"name": "lint", "state": "running"}],
+        },
+    ]
+
+
+def test_a_job_that_leaves_the_list_is_removed(gates):
+    fake, harness = gates
+    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await stream.change("gateJob", "898")
+                fake.jobs = []
+                await stream.change("gateJob", "898")
+            return await api.get_json("/api/gate-jobs")
+
+    assert run(scenario())["gateJobs"] == []
+
+
+def test_the_first_client_to_arrive_reads_at_once(store):
+    """Not on the next tick: the jobs held since the last client may be hours old."""
+    fake = FakeGates()
+    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+    harness = Harness(store, gate_jobs=fake, gate_poll=60)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                return await stream.change("gateJob", "898")
+
+    assert run(scenario()) == ["898"]
+
+
+def test_a_failed_read_keeps_the_last_jobs_and_logs_once(gates, caplog):
+    fake, harness = gates
+    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+
+    def warnings() -> int:
+        return sum("gate jobs" in r.getMessage() for r in caplog.records)
+
+    async def scenario():
+        async with harness.client() as api:
+            await harness.orch.refresh_gates()
+            fake.fail = True
+            await harness.orch.refresh_gates()
+            await harness.orch.refresh_gates()
+            kept = await api.get_json("/api/gate-jobs")
+            logged = warnings()
+            # A read that works again ends the outage, so the next one is news.
+            fake.fail = False
+            fake.jobs = [gate_job(899, "queued", WORKTREE_PATH, queue_position=1)]
+            await harness.orch.refresh_gates()
+            fake.fail = True
+            await harness.orch.refresh_gates()
+            return kept, logged, warnings(), await api.get_json("/api/gate-jobs")
+
+    kept, logged, logged_after, after = run(scenario())
+    assert [job["id"] for job in kept["gateJobs"]] == ["898"]
+    assert logged == 1
+    assert logged_after == 2
+    assert [job["id"] for job in after["gateJobs"]] == ["899"]
+
+
+def test_an_unwatched_server_does_not_read_the_gate_jobs(gates):
+    fake, harness = gates
+    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+
+    async def scenario():
+        async with harness.client() as api:
+            await asyncio.sleep(0.1)
+            return await api.get_json("/api/gate-jobs")
+
+    assert run(scenario())["gateJobs"] == []
+    assert fake.calls == 0
 
 
 # -- dismiss --

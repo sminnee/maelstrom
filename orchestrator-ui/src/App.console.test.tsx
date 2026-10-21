@@ -40,7 +40,8 @@ describe('the console strip', () => {
     await renderApp({ scenario: 'operations-live' });
     await waitFor(() => expect(stripEntries()).toHaveLength(3));
     const bar = within(screen.getByTestId('top-bar'));
-    expect(bar.queryByRole('button', { name: /running|Console/ })).toBeNull();
+    // Not the Gates chip, whose name also says "running": it counts gate jobs.
+    expect(bar.queryByRole('button', { name: /^\d+ running|Console/ })).toBeNull();
   });
 
   it('says No operations yet in an empty console', async () => {

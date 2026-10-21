@@ -129,6 +129,7 @@ from . import desk as desk_model
 from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
+from .gate_source import GateSourceError
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
@@ -169,6 +170,7 @@ from .world_build import (
     attached_document_entity,
     comm_entity,
     diff_kind,
+    gate_job_entity,
     host_usage,
     link_agent,
     linked_tasks,
@@ -198,6 +200,8 @@ EXPORT_POLL_SECS = 5.0
 WORKTREE_POLL_SECS = 60.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
+#: How often tangier's gate jobs are re-read, while a client watches.
+GATE_POLL_SECS = 5.0
 #: How many consecutive failed agent polls make the host unreachable. Two, so
 #: the one dropped connection a daemon restart costs does not raise the banner.
 HOST_UNREACHABLE_AFTER = 2
@@ -521,6 +525,8 @@ class Orchestrator:
         export_poll: float = EXPORT_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
+        gate_jobs: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
+        gate_poll: float = GATE_POLL_SECS,
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
@@ -609,6 +615,10 @@ class Orchestrator:
         #: from the catch-up: an arriving client and a new pull request can
         #: land together, and neither should drop the other's task.
         self._event_read: asyncio.Task[None] | None = None
+        #: The gate read an arriving client triggers, kept for the same reasons.
+        self._gate_read: asyncio.Task[None] | None = None
+        #: One gate read at a time, so an older answer never lands after a newer one.
+        self._gate_lock = asyncio.Lock()
         #: Bumped on every task change published; the task list's ETag.
         self.task_revision = 0
         #: One transcript per agent seen, fed by the normaliser and served to
@@ -626,6 +636,11 @@ class Orchestrator:
         self._export_poll = export_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
+        #: Reads tangier's gate jobs; ``None`` keeps the world's gate jobs empty.
+        self._gate_jobs = gate_jobs
+        self._gate_poll = gate_poll
+        #: Whether the last gate read failed, so a lasting failure logs once.
+        self._gate_read_failed = False
         #: Loop time the last read that asked GitHub about every branch
         #: finished, or ``None`` before the first. ``GET /api/worktrees?max_age=``
         #: reads against it: a poll asks about the desk's branches only.
@@ -688,6 +703,16 @@ class Orchestrator:
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
         ]
+        if self._gate_jobs is not None:
+            self._pollers.append(
+                asyncio.create_task(
+                    self._poll(
+                        self._gate_poll,
+                        self.refresh_gates,
+                        when=lambda: self.notices.watching,
+                    )
+                )
+            )
         if self.exporter is not None:
             self._pollers.append(
                 asyncio.create_task(self._poll(self._export_poll, self.drain_exports))
@@ -701,7 +726,9 @@ class Orchestrator:
         watching = [w.task for w in self._watches.values() if w.task is not None]
         detaching = list(self._detaches.values())
         reading = [
-            task for task in (self._catch_up, self._event_read) if task is not None
+            task
+            for task in (self._catch_up, self._event_read, self._gate_read)
+            if task is not None
         ]
         for task in [
             *self._pollers,
@@ -722,6 +749,7 @@ class Orchestrator:
         self._pollers = []
         self._catch_up = None
         self._event_read = None
+        self._gate_read = None
         await self.operations.stop()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
@@ -763,6 +791,10 @@ class Orchestrator:
             # ``start`` reads every source before it serves anyone, so a
             # subscriber arriving during start needs no catch-up.
             return
+        if self._gate_jobs is not None and not self._gate_lock.locked():
+            # Not held to the worktree read's guards: the read asks no rate-limited
+            # API, and the jobs held since the last client left may be hours old.
+            self._gate_read = asyncio.create_task(self.refresh_gates())
         if self._catch_up is not None and not self._catch_up.done():
             return
         if self._kept_fresh():
@@ -1087,6 +1119,36 @@ class Orchestrator:
         if events:
             await self._prune_desk()
         return True
+
+    async def refresh_gates(self) -> None:
+        """Re-read tangier's gate jobs, and publish what changed.
+
+        A failed read keeps the last jobs: tangier missing for one tick must
+        not empty the reading. It logs on the first failure only, so a machine
+        with no tangier does not log every few seconds.
+        """
+        if self._gate_jobs is None:
+            return
+        async with self._gate_lock:
+            try:
+                raw = await self._gate_jobs()
+            except GateSourceError as e:
+                if not self._gate_read_failed:
+                    log.warning("gate jobs: %s", e)
+                self._gate_read_failed = True
+                return
+            self._gate_read_failed = False
+            # Tangier records each job's real path; a projects directory under a
+            # symlink would otherwise match no worktree.
+            worktree_ids = {
+                os.path.realpath(wt["path"]): wt["id"]
+                for wt in self.world["worktrees"].values()
+            }
+            new = {
+                entity["id"]: entity
+                for entity in (gate_job_entity(job, worktree_ids) for job in raw)
+            }
+            self._apply(diff_kind("gateJob", self.world["gateJobs"], new))
 
     async def refresh_comms(self, *, force: bool = False) -> None:
         """Re-read the comms that moved, and publish them.

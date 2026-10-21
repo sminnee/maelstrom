@@ -91,7 +91,8 @@
     "desk": {},
     "host": {},
     "comms": {},
-    "operations": {}
+    "operations": {},
+    "gateJobs": {}
   },
   "transcripts": {
     "ag1": {
