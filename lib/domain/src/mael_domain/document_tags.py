@@ -271,10 +271,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     pr_withdrawn = False
     # Unlike the other markers, a PR link writes to the task store, so one an
     # agent quotes in code must not register.
-    quoted = spans + _code_spans(text)
-    for match in _LINK_TAG.finditer(text):
-        if any(start <= match.start() < end for start, end in quoted):
-            continue
+    for match in _unquoted(_LINK_TAG, text, spans):
         # The last one wins: a later registration replaces the earlier.
         pr_link = match.group(2)
         opening = _QUOTED.sub('""', match.group(1))
@@ -284,10 +281,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     feedback_params: list[ParamSet] = []
     # Like a PR link, this marker acts outside the transcript, so one an agent
     # quotes in code must not set anything.
-    quoted = spans + _code_spans(text)
-    for match in _LIVE_FEEDBACK_TAG.finditer(text):
-        if any(start <= match.start() < end for start, end in quoted):
-            continue
+    for match in _unquoted(_LIVE_FEEDBACK_TAG, text, spans):
         sets = _param_sets(_attributes(match.group(1)))
         if sets:
             feedback_params.extend(sets)
@@ -295,10 +289,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
 
     compact: CompactRequest | None = None
     # This marker acts outside the transcript too.
-    quoted = spans + _code_spans(text)
-    for match in _COMPACT_TAG.finditer(text):
-        if any(start <= match.start() < end for start, end in quoted):
-            continue
+    for match in _unquoted(_COMPACT_TAG, text, spans):
         compact = _compact_request(match.group(1), match.group(2) or "")
         spans.append(match.span())
 
@@ -328,6 +319,18 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         feedback_params=tuple(feedback_params),
         compact=compact,
     )
+
+
+def _unquoted(
+    pattern: re.Pattern[str], text: str, spans: list[tuple[int, int]]
+) -> list[re.Match[str]]:
+    """The matches of ``pattern`` outside the cut ``spans`` and outside code."""
+    quoted = spans + _code_spans(text)
+    return [
+        match
+        for match in pattern.finditer(text)
+        if not any(start <= match.start() < end for start, end in quoted)
+    ]
 
 
 def _compact_request(attributes: str, body: str) -> CompactRequest:
