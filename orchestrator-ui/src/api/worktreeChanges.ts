@@ -46,6 +46,7 @@ export function useWorktreeFile(
   rev: string,
   path: string,
   oldPath: string | null,
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
   const api = useApi();
   const query = new URLSearchParams({ rev, path });
@@ -53,7 +54,24 @@ export function useWorktreeFile(
   return useQuery({
     queryKey: keys.worktreeChanges.file(worktreeId, rev, path, oldPath),
     queryFn: ({ signal }) => api.get<FileVersions>(`${base(worktreeId)}/file?${query}`, { signal }),
+    enabled,
   });
+}
+
+/**
+ * The URL of one side of a file of `rev`, as its raw bytes: an `<img>` src.
+ * `oldPath` names the old side of a rename.
+ */
+export function worktreeFileUrl(
+  worktreeId: WorktreeId,
+  rev: string,
+  path: string,
+  side: 'old' | 'new',
+  oldPath: string | null = null,
+): string {
+  const query = new URLSearchParams({ rev, path, side });
+  if (oldPath) query.set('oldPath', oldPath);
+  return `${base(worktreeId)}/raw?${query}`;
 }
 
 /** What a post of change comments answers: who took the message, and who refused it. */

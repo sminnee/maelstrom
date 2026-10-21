@@ -14,7 +14,19 @@ export interface RenderedProps {
   /** A side passed the size cap, so a `null` side is unread, not missing. */
   truncated?: boolean;
   path: string;
+  /** The old side's path, when the file was renamed. */
+  oldPath?: string | null;
+  /**
+   * The URL of each side's raw bytes, `null` for a side the file does not
+   * have. A `bytes` plugin draws from these; a text plugin resolves a
+   * relative ref in the file with `sideUrl`.
+   */
+  src: { old: string | null; new: string | null };
+  /** The raw-bytes URL of another file of the rev, on one side. */
+  sideUrl: (path: string, side: Side) => string;
 }
+
+export type Side = 'old' | 'new';
 
 /** A way a plugin draws its file, e.g. its scenarios one at a time. */
 export interface DisplayOption {
@@ -31,5 +43,10 @@ export interface RendererPlugin {
    * text plugin's lines. A plugin without displays draws one way.
    */
   displays?: DisplayOption[];
+  /**
+   * What the plugin reads: the two sides as text (the default), or only
+   * their raw-bytes URLs, `src`. A `bytes` plugin draws a binary file.
+   */
+  reads?: 'text' | 'bytes';
   View: ComponentType<RenderedProps>;
 }

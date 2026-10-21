@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useWorktreeFile } from '../api/worktreeChanges';
+import { useWorktreeFile, worktreeFileUrl } from '../api/worktreeChanges';
 import type { FileDiff } from '../protocol/entities';
 import type { WorktreeId } from '../protocol/ids';
 import { Dialog, DialogHeader } from '../ui/Dialog';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import type { DisplayOption, Mode } from './plugin';
+import type { DisplayOption, Mode, Side } from './plugin';
 import { rendererFor } from './plugins';
 import styles from './RenderedFileDialog.module.css';
 import { TextView } from './TextView';
@@ -38,12 +38,25 @@ export function RenderedFileDialog({
 }) {
   const [mode, setMode] = useState<Mode>('changes');
   const [display, setDisplay] = useState<string | null>(null);
-  const versions = useWorktreeFile(worktreeId, rev, file.path, file.oldPath);
   const plugin = rendererFor(file.path);
+  const bytes = plugin.reads === 'bytes';
+  const versions = useWorktreeFile(worktreeId, rev, file.path, file.oldPath, { enabled: !bytes });
   const deleted = file.status === 'deleted';
   // Final has nothing to draw for a deleted file.
   const shown = deleted && mode === 'final' ? 'changes' : mode;
-  const data = versions.data;
+  const data = bytes ? { old: null, new: null, truncated: false } : versions.data;
+  // Stable, so a Markdown block's memo holds across renders.
+  const sideUrl = useCallback(
+    (path: string, side: Side) => worktreeFileUrl(worktreeId, rev, path, side),
+    [worktreeId, rev],
+  );
+  const src = {
+    old:
+      file.status === 'added'
+        ? null
+        : worktreeFileUrl(worktreeId, rev, file.path, 'old', file.oldPath),
+    new: deleted ? null : sideUrl(file.path, 'new'),
+  };
   const displays = plugin.displays && [...plugin.displays, RAW];
   const shownDisplay = displays?.find((d) => d.id === display)?.id ?? displays?.[0]?.id;
   const Draw = shownDisplay === RAW.id ? TextView : plugin.View;
@@ -81,7 +94,7 @@ export function RenderedFileDialog({
               ? `Could not read the file: ${versions.error.message}`
               : 'Reading the file…'}
           </p>
-        ) : data.old === null && data.new === null ? (
+        ) : !bytes && data.old === null && data.new === null ? (
           <p className={styles.note}>
             {data.truncated ? 'This file is too large to show.' : 'Binary file, not shown.'}
           </p>
@@ -99,6 +112,9 @@ export function RenderedFileDialog({
               display={shownDisplay}
               truncated={data.truncated}
               path={file.path}
+              oldPath={file.oldPath}
+              src={src}
+              sideUrl={sideUrl}
             />
           </>
         )}
