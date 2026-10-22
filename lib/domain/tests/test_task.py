@@ -2054,6 +2054,20 @@ class TestUpdate:
         await model.update(store, "p", t.id, branch="b", now=NOW2)
         assert (await model.load(store, "p", t.id)).priority == "high"
 
+    @pytest.mark.parametrize(
+        ("field", "value"), [("model", "opus"), ("post_action", "linear.done")]
+    )
+    async def test_update_sets_clears_and_omits_a_field(self, store, field, value):
+        t = await model.create(store, project="p", title="t", now=NOW)
+        await model.update(store, "p", t.id, **{field: value}, now=NOW2)
+        assert getattr(await model.load(store, "p", t.id), field) == value
+        # Omitting the field leaves it alone.
+        await model.update(store, "p", t.id, branch="b", now=NOW2)
+        assert getattr(await model.load(store, "p", t.id), field) == value
+        # An empty string clears it.
+        await model.update(store, "p", t.id, **{field: ""}, now=NOW2)
+        assert getattr(await model.load(store, "p", t.id), field) == ""
+
     async def test_update_changes_follows(self, store):
         t = await model.create(store, project="p", title="t", now=NOW)
         await model.update(store, "p", t.id, follows=["a", "b"], now=NOW2)

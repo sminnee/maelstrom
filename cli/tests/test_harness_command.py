@@ -1,4 +1,7 @@
-"""The harness command and transport the launcher builds from a model reference."""
+"""The harness command and transport the launcher builds from a model reference.
+
+The alias table and mode flags belong to ``lib/agent/tests/test_harness_model.py``.
+"""
 
 import asyncio
 from pathlib import Path
@@ -21,59 +24,6 @@ def test_cli_command_uses_the_model_prefix_and_omits_a_mismatched_alias():
         "model_reasoning_effort=medium",
     ]
     assert build_harness_command(model="codex:terra", harness="claude") == ["claude"]
-
-
-@pytest.mark.parametrize(
-    ("model", "expected"),
-    [
-        (
-            "codex:astra",
-            ["codex", "--sandbox", "workspace-write", "--model", "gpt-6-astra"],
-        ),
-        (
-            "codex:sol",
-            [
-                "codex",
-                "--sandbox",
-                "workspace-write",
-                "--model",
-                "gpt-5.6-sol",
-                "-c",
-                "model_reasoning_effort=low",
-            ],
-        ),
-        (
-            "codex:terra",
-            [
-                "codex",
-                "--sandbox",
-                "workspace-write",
-                "--model",
-                "gpt-5.6-terra",
-                "-c",
-                "model_reasoning_effort=medium",
-            ],
-        ),
-        (
-            "codex:luna",
-            ["codex", "--sandbox", "workspace-write", "--model", "gpt-5.6-luna"],
-        ),
-        (
-            "codex:custom",
-            ["codex", "--sandbox", "workspace-write", "--model", "custom"],
-        ),
-    ],
-)
-def test_codex_commands_resolve_known_aliases_and_set_effort_defaults(model, expected):
-    assert build_harness_command(model=model) == expected
-
-
-def test_opencode_cli_passes_its_selected_alias():
-    assert build_harness_command(model="opencode:kimi") == [
-        "opencode",
-        "--model",
-        "kimi",
-    ]
 
 
 def test_cli_command_refuses_an_unknown_harness():

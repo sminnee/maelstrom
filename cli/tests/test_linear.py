@@ -45,29 +45,31 @@ class TestCmdPlan:
         )
 
     @patch("mael_cli.task_cli.add_task")
-    @patch("mael_domain.integrations.linear.get_issue")
-    def test_plan_assembles_brief_and_invokes_task_add(self, mock_get, mock_add):
-        mock_get.return_value = {
-            "identifier": "ME-99",
-            "title": "Do the thing",
-            "description": "Some details.",
-        }
-        runner = ThreadedCliRunner()
-        result = runner.invoke(linear, ["plan", "ME-99"])
-        assert result.exit_code == 0, result.output
+    def test_plan_passes_the_planned_fields_to_task_add(self, mock_add, monkeypatch):
+        """Unset flags fall back to ``build_plan_task``, which owns the values.
 
-        mock_get.assert_called_once_with("ME-99")
-        mock_add.assert_called_once()
+        ``test_integrations_linear.py::TestBuildPlanTask`` tests the values.
+        """
+        planned = {
+            "title": "Plan ME-99",
+            "command": "plan-task",
+            "mode": "normal",
+            "model": "opus",
+            "parent": "linear.ME-99",
+            "post_action": "linear.planned",
+            "content": "# ME-99: T",
+            "branch": "feat/99-t",
+        }
+        monkeypatch.setattr(
+            linear_cli.linear, "build_plan_task", lambda *a, **k: planned
+        )
+
+        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99"])
+
+        assert result.exit_code == 0, result.output
         kwargs = mock_add.call_args.kwargs
-        assert kwargs["title"] == "Plan ME-99"
-        assert kwargs["command"] == "plan-task"
-        assert kwargs["parent"] == "linear.ME-99"
+        assert {k: kwargs[k] for k in planned} == planned
         assert kwargs["run"] is True
-        assert kwargs["post_action"] == "linear.planned"
-        assert kwargs["content"] == "# ME-99: Do the thing\n\nSome details."
-        # The branch is generated from the *issue* title/number (here the
-        # fallback, since the model call is forced to fail): number-led desc.
-        assert kwargs["branch"] == "feat/99-do-thing"
 
     @patch("mael_cli.task_cli.add_task")
     @patch("mael_domain.integrations.linear.get_issue")
@@ -94,34 +96,6 @@ class TestCmdPlan:
         result = runner.invoke(linear, ["plan", "ME-99", "--no-run"])
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["run"] is False
-
-    @patch("mael_cli.task_cli.add_task")
-    @patch("mael_domain.integrations.linear.get_issue")
-    def test_plan_defaults_to_opus(self, mock_get, mock_add):
-        # Planning is pinned to Opus: the plan is the leverage point, so the
-        # created plan-task session runs there regardless of the user's default.
-        mock_get.return_value = {
-            "identifier": "ME-99",
-            "title": "T",
-            "description": "",
-        }
-        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99"])
-        assert result.exit_code == 0, result.output
-        assert mock_add.call_args.kwargs["model"] == "opus"
-
-    @patch("mael_cli.task_cli.add_task")
-    @patch("mael_domain.integrations.linear.get_issue")
-    def test_plan_defaults_to_normal_mode(self, mock_get, mock_add):
-        # The planning session writes draft task files in normal permission
-        # mode; the skill prompt, not plan mode, forbids code edits.
-        mock_get.return_value = {
-            "identifier": "ME-99",
-            "title": "T",
-            "description": "",
-        }
-        result = ThreadedCliRunner().invoke(linear, ["plan", "ME-99"])
-        assert result.exit_code == 0, result.output
-        assert mock_add.call_args.kwargs["mode"] == "normal"
 
     @patch("mael_cli.task_cli.add_task")
     @patch("mael_domain.integrations.linear.get_issue")
@@ -187,30 +161,6 @@ class TestCmdPlan:
         kwargs = mock_add.call_args.kwargs
         assert kwargs["post_action"] == ""
         assert kwargs["command"] == ""
-
-    @patch("mael_cli.task_cli.add_task")
-    @patch("mael_domain.integrations.linear.get_issue")
-    def test_plan_explicit_branch_skips_generation(
-        self, mock_get, mock_add, monkeypatch
-    ):
-        # Branch generation calls the task metadata generator; an explicit --branch must
-        # skip it entirely rather than generate-then-discard.
-        mock_get.return_value = {
-            "identifier": "ME-99",
-            "title": "T",
-            "description": "",
-        }
-        calls = []
-        monkeypatch.setattr(
-            "mael_domain.task_metadata_generator.generate_branch_name",
-            lambda *a, **k: calls.append(a) or "generated",
-        )
-        result = ThreadedCliRunner().invoke(
-            linear, ["plan", "ME-99", "--branch", "mine/explicit"]
-        )
-        assert result.exit_code == 0, result.output
-        assert mock_add.call_args.kwargs["branch"] == "mine/explicit"
-        assert calls == []
 
     @patch("mael_cli.task_cli.add_task")
     @patch("mael_domain.integrations.linear.get_issue")
