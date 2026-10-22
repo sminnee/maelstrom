@@ -9,7 +9,7 @@ git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync --all-extras
 uv tool install --editable ./cli
-uv tool install tangier
+uv tool install "tangier>=0.3.1"
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 

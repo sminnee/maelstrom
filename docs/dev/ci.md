@@ -61,8 +61,9 @@ tangier gate run lint test web jig --fail-fast
 `e2e` runs in CI only.
 
 `gate run` starts a background job and waits 60 seconds for it. Exit 3 means the job is still
-running. Run the printed `tangier gate wait --job <n>`, and repeat it while it exits 3. Do not
-start `gate run` again: a second run exits 2 while the job runs. Do not edit the worktree while
+running. An agent under the agent daemon ends its turn: the orchestrator's gate watch sends it a
+`gate` External event when the job ends. Outside the daemon, run the printed `tangier gate wait
+--job <n>`, and repeat it while it exits 3. Do not start `gate run` again: a second run exits 2 while the job runs. Do not edit the worktree while
 the job runs: a gate whose files change under it writes no record. `tangier gate status` shows
 each recent job and its gates.
 
@@ -74,10 +75,10 @@ In CI, `gate run` runs inline and does not start a job.
 
 The project sets no `pre_push_cmd`, so `mael gh create-pr` and `mael sync` push without a check.
 
-Install tangier, and see each gate's status:
+Install tangier 0.3.1 or later, and see each gate's status:
 
 ```bash
-uv tool install tangier
+uv tool install "tangier>=0.3.1"
 tangier gate run --all --dry-run   # each gate's status, and what it would run
 ```
 

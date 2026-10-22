@@ -24,7 +24,7 @@ git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync
 uv tool install --editable ./cli
-uv tool install tangier   # for the gates and service versions
+uv tool install "tangier>=0.3.1"   # for the gates, the gate watch and service versions
 ```
 
 Then install the Claude Code skills and hooks:
