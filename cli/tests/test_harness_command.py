@@ -76,6 +76,11 @@ def test_opencode_cli_passes_its_selected_alias():
     ]
 
 
+def test_cli_command_refuses_an_unknown_harness():
+    with pytest.raises(ValueError, match="Unknown CLI harness: 'cursor'"):
+        build_harness_command(harness="cursor")
+
+
 def test_cli_flags_select_transport_and_here_refuses_daemon():
     assert resolve_harness_or_fail(cli=True) == TRANSPORT_CLI
     assert resolve_harness_or_fail(daemon=True) == TRANSPORT_DAEMON

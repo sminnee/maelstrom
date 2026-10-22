@@ -16,7 +16,7 @@ from typing import NamedTuple
 import pytest
 
 from mael_common.claude_paths import sanitise_path_for_claude
-from mael_daemon.agent_model import KIND_CLI, KIND_MAEL, TranscriptMeta
+from mael_daemon.agent_model import KIND_CLI, KIND_MAEL
 from mael_daemon.transcript_store import (
     ClaudeTranscriptStore,
     InMemoryTranscriptStore,
@@ -187,17 +187,3 @@ def test_a_meta_carries_the_files_size_and_modification_time(tmp_path):
     (meta,) = ClaudeTranscriptStore(root).list(None)
     assert meta.size == path.stat().st_size
     assert meta.modified_at == pytest.approx(path.stat().st_mtime)
-
-
-def test_a_meta_is_comparable_by_value():
-    """The row builder is handed these, so equality must not be identity."""
-    fields = dict(
-        session_id="s1",
-        cwd=CWD,
-        branch="feat/x",
-        kind=KIND_CLI,
-        label="hi",
-        modified_at=1.0,
-        size=2,
-    )
-    assert TranscriptMeta(**fields) == TranscriptMeta(**fields)

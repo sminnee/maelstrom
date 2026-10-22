@@ -619,48 +619,6 @@ class StateDb:
 
     # -- reading --
 
-    async def read_health(self, name: str) -> sqlite3.Row | None:
-        """One refresher's stored health, or ``None`` when it has none.
-
-        Its own pair of methods rather than a table in ``TABLES``: the
-        health row carries no ``revision`` and raises no notice, because it is
-        a fact about the refresher rather than about anything a client draws.
-        A refresher standing off must not make every client refetch.
-        """
-        return await self._call(
-            lambda conn: conn.execute(
-                "SELECT * FROM refresher_health WHERE name = ?", (name,)
-            ).fetchone()
-        )
-
-    async def write_health(self, name: str, **cols: Any) -> None:
-        """Record ``name``'s health. Consumes no revision and raises no notice.
-
-        Joins an open transaction when one is running on this connection, so a
-        health write inside a :meth:`transact` block commits or rolls back with
-        it rather than on its own.
-        """
-        await self._call(lambda conn: self._write_health(conn, name, cols))
-
-    def _write_health(
-        self, conn: sqlite3.Connection, name: str, cols: dict[str, Any]
-    ) -> None:
-        known = self._columns(conn, "refresher_health")
-        unknown = sorted(set(cols) - known)
-        if unknown:
-            raise UnknownColumnError(
-                f"refresher_health has no column {', '.join(unknown)}"
-            )
-        values: dict[str, Any] = {**cols, "name": name}
-        names = ", ".join(values)
-        placeholders = ", ".join(f":{key}" for key in values)
-        conn.execute(
-            f"INSERT INTO refresher_health ({names}) "  # noqa: S608 — checked above
-            f"VALUES ({placeholders}) ON CONFLICT (name) DO UPDATE SET "
-            + ", ".join(f"{key} = :{key}" for key in values if key != "name"),
-            values,
-        )
-
     async def meta(self, key: str) -> str | None:
         """One ``meta`` row's value, or ``None`` when it has none."""
         return await self._call(

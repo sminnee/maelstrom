@@ -1532,7 +1532,8 @@ _Avoid_: Mirror, copy, snapshot
 
 **Refresher**:
 What keeps one cached table current. It owns its cadence, its budget and what it does when the
-upstream refuses. A reader never triggers one.
+upstream refuses. A reader never triggers one. No module implements it yet: see
+`docs/dev/data-architecture.md`.
 _Avoid_: Poller, syncer, updater
 
 **Pass-through**:
