@@ -241,7 +241,6 @@ def _writer_worker(root_str: str, prefix: str, count: int) -> None:
 
 
 class TestLocking:
-    @pytest.mark.slow
     def test_lock_serialises_concurrent_writers(self, tmp_path):
         root = tmp_path / "tasks"
         # Initialise the repo once so both children share a ready store.

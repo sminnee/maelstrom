@@ -76,5 +76,3 @@ recordings now:
 `e2e` is the one marker that selects a suite. The `test` gate runs `uv run pytest -m 'not e2e'`.
 CI's `e2e` gate runs `uv run pytest -m e2e`. A test that spawns real processes or uses a real git
 repo across a workflow is `e2e`.
-
-The `slow` marker is still on some tests and in some docs. Task c3t0.2 replaces it with `e2e`.

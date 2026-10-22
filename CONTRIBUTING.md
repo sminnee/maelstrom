@@ -38,8 +38,7 @@ uv run pytest -m e2e -v            # e2e: end-to-end tests
 bin/lint                           # lint: ruff lint, ruff format check, pyright, import contracts, vulture
 ```
 
-`bin/publish` runs the same three before it uploads anything. During development
-`uv run pytest -m 'not slow'` skips the slow tests for a faster loop.
+`bin/publish` runs the same three before it uploads anything.
 
 `ruff format` decides the layout, so let it. `bin/lint` only checks; run `uv run ruff format .`
 to apply it. `bin/lint` reads the same paths.

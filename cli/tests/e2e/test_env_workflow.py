@@ -25,7 +25,6 @@ def _service_pids(project, worktree):
 
 
 @pytest.mark.e2e
-@pytest.mark.slow
 class TestSingleEnvWorkflow:
     """Single-worktree workflow: start → status → logs → stop."""
 
@@ -64,7 +63,6 @@ class TestSingleEnvWorkflow:
 
 
 @pytest.mark.e2e
-@pytest.mark.slow
 class TestMultiEnvWorkflow:
     """Two worktrees share one service; stop-all stops everything."""
 
