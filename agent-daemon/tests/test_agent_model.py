@@ -12,7 +12,7 @@ so the request arrives bare and the plan is in a message instead.
 """
 
 import json
-from dataclasses import fields, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -459,10 +459,6 @@ def test_spec_round_trips_through_plain_json():
     # The record is the resume contract, so a field it drops is one a restarted
     # daemon would approve the plan without.
     assert spec_from_dict(spec_to_dict(spec)) == spec
-    # Every field set above, and checked by name: a round trip that leaves a
-    # new field at its default passes while the serialiser drops it, which is
-    # how `plan_file` first shipped unwritten.
-    assert set(spec_to_dict(spec)) == {f.name for f in fields(AgentSpec)}
 
 
 def test_spec_from_dict_fills_in_what_an_older_record_lacks():
@@ -476,21 +472,23 @@ def test_spec_from_dict_fills_in_what_an_older_record_lacks():
     assert spec.last_status == ""
 
 
-def test_the_record_names_its_child_and_round_trips_it():
-    """The pid is what lets the next daemon tell a live child from a dead one."""
-    spec = AgentSpec(
-        agent_id="a1",
-        cwd="/w",
-        session_id="sid",
-        pid=4242,
-        started_at="2026-09-05T10:00:00+00:00",
-        last_status="idle",
+def test_spec_from_dict_reads_a_null_text_field_as_its_default():
+    """An older daemon wrote ``null`` for a text field it had no value for."""
+    spec = spec_from_dict(
+        {"agent_id": "a1", "cwd": "/w", "session_id": "sid", "plan_file": None}
+        | {"prompt": None, "status": None, "env": None}
     )
-    data = spec_to_dict(spec)
-    assert data["pid"] == 4242
-    assert data["started_at"] == "2026-09-05T10:00:00+00:00"
-    assert data["last_status"] == "idle"
-    assert spec_from_dict(data) == spec
+    assert (spec.plan_file, spec.prompt, spec.status, spec.env) == (
+        "",
+        "",
+        "running",
+        {},
+    )
+
+
+def test_spec_from_dict_refuses_a_record_with_no_session():
+    with pytest.raises(KeyError):
+        spec_from_dict({"agent_id": "a1", "cwd": "/w"})
 
 
 def test_the_row_carries_the_childs_pid():

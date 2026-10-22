@@ -13,7 +13,7 @@ shape.
 
 import re
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import MISSING, asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -312,25 +312,8 @@ class AgentSpec:
 
 
 def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:
-    """``spec`` as the plain JSON the store writes."""
-    return {
-        "agent_id": spec.agent_id,
-        "cwd": spec.cwd,
-        "session_id": spec.session_id,
-        "permission_mode": spec.permission_mode,
-        "model": spec.model,
-        "execute_model": spec.execute_model,
-        "env": dict(spec.env),
-        "prompt": spec.prompt,
-        "plan_file": spec.plan_file,
-        "system_prompt_file": spec.system_prompt_file,
-        "status": spec.status,
-        "exit_code": spec.exit_code,
-        "pid": spec.pid,
-        "started_at": spec.started_at,
-        "last_status": spec.last_status,
-        "stopped_at_shutdown": spec.stopped_at_shutdown,
-    }
+    """``spec`` as the plain JSON the store writes: every field, by name."""
+    return asdict(spec)
 
 
 def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
@@ -338,26 +321,18 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
 
     A record written by an older daemon is missing fields rather than wrong, so
     every optional one falls back rather than raising — a resume is worth
-    attempting on a partial record.
+    attempting on a partial record. A required field that is missing raises
+    :class:`KeyError`. A ``null`` reads as the field's default.
     """
-    return AgentSpec(
-        agent_id=data["agent_id"],
-        cwd=data["cwd"],
-        session_id=data["session_id"],
-        permission_mode=data.get("permission_mode"),
-        model=data.get("model"),
-        execute_model=data.get("execute_model"),
-        env=dict(data.get("env") or {}),
-        prompt=data.get("prompt", ""),
-        plan_file=data.get("plan_file") or "",
-        system_prompt_file=data.get("system_prompt_file") or "",
-        status=data.get("status", SPEC_RUNNING),
-        exit_code=data.get("exit_code"),
-        pid=data.get("pid"),
-        started_at=data.get("started_at") or "",
-        last_status=data.get("last_status") or "",
-        stopped_at_shutdown=bool(data.get("stopped_at_shutdown")),
-    )
+    values: dict[str, Any] = {}
+    for f in fields(AgentSpec):
+        if f.default is MISSING and f.default_factory is MISSING:
+            values[f.name] = data[f.name]
+        elif data.get(f.name) is not None:
+            values[f.name] = data[f.name]
+    # A copy, so the spec does not share the caller's mapping.
+    values["env"] = dict(values.get("env", {}))
+    return AgentSpec(**values)
 
 
 #: Which of the two things started a session, read from a transcript's
