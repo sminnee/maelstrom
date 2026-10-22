@@ -44,11 +44,3 @@ def _isolate(tmp_path: Path, mp: pytest.MonkeyPatch) -> IsolatedMaelstrom:
 def isolated_maelstrom_fixture(tmp_path, monkeypatch):
     """Isolation for one test."""
     return _isolate(tmp_path, monkeypatch)
-
-
-@pytest.fixture(name="isolated_maelstrom_module", scope="module")
-def isolated_maelstrom_module_fixture(tmp_path_factory):
-    """Isolation for a module of tests sharing a git_project."""
-    mp = pytest.MonkeyPatch()
-    yield _isolate(tmp_path_factory.mktemp("maelstrom"), mp)
-    mp.undo()
