@@ -834,7 +834,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 | Command | Description |
 |---|---|
 | `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. Under `dev_https:` it renews the dev certificate first, and stops if Tailscale refuses. |
-| `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. |
+| `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. Refuses a name that is neither declared nor running. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
 | `mael env restart --changed` | Restart only the running services whose [service version](../../CONTEXT.md) moved since they started. Prints `<service>: <old> → <new>` for each, or `Nothing changed.` Needs a `pipeline.toml` — see [Service versions](../guide/dev-environments.md#service-versions). |
 | `mael env status` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |

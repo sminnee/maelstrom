@@ -3117,6 +3117,76 @@ class TestStopEnvNamedServices:
         argv = mock_run.call_args[0][0]
         assert "proj-ladle" in argv
 
+    def _saved(self, tmp_path, yaml: str) -> InMemoryEnvStore:
+        """A store whose saved state points at ``tmp_path``, configured by ``yaml``."""
+        (tmp_path / ".maelstrom.yaml").write_text(yaml)
+        state = self._state(tmp_path)
+        state.worktree_path = str(tmp_path)
+        store = InMemoryEnvStore()
+        save_env_state(store, state)
+        return store
+
+    @patch("os.killpg")
+    def test_an_undeclared_name_is_refused_and_nothing_stops(
+        self, mock_killpg, tmp_path
+    ):
+        """A typo lists the declared services, not "No running service".
+
+        The saved state names the worktree, so the caller passes no path.
+        """
+        store = self._saved(
+            tmp_path,
+            "services:\n  web:\n    command: python app.py\n"
+            "  ladle:\n    command: ladle serve\n",
+        )
+
+        with pytest.raises(
+            ValueError, match=r"Unknown service\(s\): ladel\. Declared services: web"
+        ):
+            stop_env(store, "proj", "bravo", services=["ladel"])
+
+        mock_killpg.assert_not_called()
+        assert load_env_state(store, "proj", "bravo") is not None
+
+    def test_with_nothing_running_the_caller_path_is_checked(self, tmp_path):
+        """No saved state: ``worktree_path`` supplies the declared services."""
+        (tmp_path / ".maelstrom.yaml").write_text(
+            "services:\n  web:\n    command: python app.py\n"
+        )
+        with pytest.raises(ValueError, match=r"Unknown service\(s\): ladel"):
+            stop_env(
+                InMemoryEnvStore(),
+                "proj",
+                "bravo",
+                services=["ladel"],
+                worktree_path=tmp_path,
+            )
+
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_a_running_service_no_longer_declared_still_stops(
+        self, mock_killpg, mock_alive, tmp_path
+    ):
+        """A pull renamed ``ladle``, but the running one can still be stopped."""
+        store = self._saved(tmp_path, "services:\n  web:\n    command: python app.py\n")
+
+        stop_env(store, "proj", "bravo", services=["ladle"])
+
+        assert {c[0][0] for c in mock_killpg.call_args_list} == {200}
+
+    @patch("mael_domain.env.is_service_alive", return_value=False)
+    @patch("os.killpg")
+    def test_a_project_without_a_services_block_does_not_refuse(
+        self, mock_killpg, mock_alive, tmp_path
+    ):
+        """A Procfile project has no declared list, so a name passes through."""
+        store = self._saved(tmp_path, "")
+        (tmp_path / "Procfile").write_text("web: python app.py\n")
+
+        messages = stop_env(store, "proj", "bravo", services=["nope"])
+
+        assert messages == ["No running service 'nope' for proj/bravo"]
+
 
 class TestStopEnvNamedSharedService:
     """Stopping a shared service by name goes through the subscriber count."""
@@ -3515,7 +3585,9 @@ class TestRefreshEnv:
         assert result.changed is True
         assert result.stop_messages == ["web (pid 100): stopped"]
         assert result.new_state is mock_start.return_value
-        mock_stop.assert_called_once_with(store, "proj", "bravo", services=None)
+        mock_stop.assert_called_once_with(
+            store, "proj", "bravo", services=None, worktree_path=worktree_path
+        )
         mock_start.assert_called_once_with(
             store, "proj", "bravo", worktree_path, skip_install=True, services=None
         )

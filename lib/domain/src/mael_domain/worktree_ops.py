@@ -79,8 +79,16 @@ def _start(
     ]
 
 
-def _stop(project: str, worktree: str, services: list[str] | None) -> list[str]:
-    return stop_env(JsonEnvStore(), project, worktree, services=services)
+def _stop(
+    project: str, worktree: str, worktree_path: Path, services: list[str] | None
+) -> list[str]:
+    return stop_env(
+        JsonEnvStore(),
+        project,
+        worktree,
+        services=services,
+        worktree_path=worktree_path,
+    )
 
 
 @dataclass
@@ -96,7 +104,7 @@ class EnvSteps:
     """The collaborators the environment operation drives."""
 
     start: Callable[[str, str, Path, list[str] | None], list[str]] = _start
-    stop: Callable[[str, str, list[str] | None], list[str]] = _stop
+    stop: Callable[[str, str, Path, list[str] | None], list[str]] = _stop
 
 
 async def run_sync(
@@ -183,7 +191,9 @@ async def run_env(
         if action not in (STOP, RESTART):
             return StepOutcome()
         try:
-            return StepOutcome(messages=list(steps.stop(project, worktree, services)))
+            return StepOutcome(
+                messages=list(steps.stop(project, worktree, worktree_path, services))
+            )
         except Exception as exc:  # noqa: BLE001 — the caller reads the refusal
             return StepOutcome(blocked=f"Could not stop the environment: {exc}")
 

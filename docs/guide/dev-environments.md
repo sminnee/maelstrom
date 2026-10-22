@@ -173,6 +173,9 @@ Named services need a `services:` block. `mael env start ladle` in a Procfile pr
 error instead. `mael env logs <name>` is the exception: logs come from files on disk, so it works
 whichever way the project declares its services.
 
+`env start`, `env stop` and `env restart` refuse a name that `services:` does not declare.
+`env stop` accepts a running service even after a pull renames it.
+
 The argument to `env start`, `env stop`, `env restart` and `env logs` names a **service**. The
 worktree comes from `--worktree`, or from the current directory:
 
