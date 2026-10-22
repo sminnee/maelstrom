@@ -635,7 +635,7 @@ _Avoid_: Skill message, skill prompt
 **External event**:
 A user turn the orchestrator server writes to an agent from outside its conversation, in the
 `<external-event source=… type=…>` envelope. The source says where it came from: `orchestrator-ui`,
-`jig`, `github` or `orchestrator`. The type says what happened, such as `document.approved` or
+`jig`, `github`, `gate` or `orchestrator`. The type says what happened, such as `document.approved` or
 `pr.checks_failed`. The attributes are its facts, and the body is what the agent is to do. The
 transcript draws it apart from the user's words, as it does a **Loaded skill** and a **Task
 notification**. See `docs/dev/orchestrator-server.md`, "External events".
