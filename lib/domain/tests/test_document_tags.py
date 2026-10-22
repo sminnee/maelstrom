@@ -277,3 +277,78 @@ def test_an_end_session_request_quoted_in_code_is_text(text):
     tagged = read_tags(text, show_image=lambda _image: None)
     assert tagged.end_session is False
     assert tagged.text == text
+
+
+# --- the milestone: the agent marks a stage of the work ---------------------
+
+
+def tagged(text: str):
+    return read_tags(text, show_image=lambda _image: None)
+
+
+def test_a_milestone_is_read_and_cut_from_the_text():
+    out = tagged("Tests pass.\n\n<milestone>built</milestone>")
+    assert (out.milestone, out.text) == ("built", "Tests pass.")
+
+
+def test_an_unrecognised_milestone_name_is_read_as_written():
+    """A typo must be visible, so the reader keeps it; the normaliser flags it."""
+    assert tagged("<milestone>deployed</milestone>").milestone == "deployed"
+
+
+def test_the_last_milestone_in_a_message_wins():
+    out = tagged("<milestone>built</milestone>\n<milestone>reviewed</milestone>")
+    assert out.milestone == "reviewed"
+
+
+def test_a_message_with_no_milestone_reads_none():
+    assert tagged("Just talking.").milestone == ""
+
+
+# --- the PR link: the agent registers a PR on its task ----------------------
+
+
+@pytest.mark.parametrize("ref", ["118", "https://github.com/o/r/pull/118"])
+def test_a_pr_link_is_read_and_cut_from_the_text(ref):
+    out = tagged(f'Pushed.\n\n<link rel="gh-pr">{ref}</link>')
+    assert (out.pr_link, out.text) == (ref, "Pushed.")
+
+
+@pytest.mark.parametrize(
+    ("opening", "withdrawn"),
+    [
+        ('<link rel="gh-pr">', False),
+        ('<link rel="gh-pr" withdrawn>', True),
+        ('<link rel="gh-pr" withdrawn="true">', True),
+        ('<link withdrawn rel="gh-pr">', True),
+        ('<link rel="gh-pr" title="not withdrawn yet">', False),
+        ('<link rel="gh-pr" data-withdrawn>', False),
+    ],
+    ids=["ready", "bare", "valued", "first", "in-a-value", "prefixed"],
+)
+def test_withdrawn_is_the_attribute_name_alone(opening, withdrawn):
+    out = tagged(f"{opening}118</link>")
+    assert (out.pr_link, out.pr_withdrawn) == ("118", withdrawn)
+
+
+def test_the_last_pr_link_wins_and_carries_its_own_withdrawal():
+    out = tagged('<link rel="gh-pr" withdrawn>1</link> then <link rel="gh-pr">2</link>')
+    assert (out.pr_link, out.pr_withdrawn) == ("2", False)
+
+
+def test_a_pr_link_quoted_in_code_registers_nothing():
+    """A PR link writes to the task store, so an example must not."""
+    text = 'Write `<link rel="gh-pr">118</link>` to register.'
+    assert (tagged(text).pr_link, tagged(text).text) == ("", text)
+
+
+def test_an_unclosed_html_link_does_not_swallow_a_pr_link():
+    out = tagged(
+        '<link rel="stylesheet" href="x.css"> then <link rel="gh-pr">118</link>'
+    )
+    assert out.pr_link == "118"
+
+
+def test_a_link_of_another_rel_is_left_as_text():
+    out = tagged('<link rel="stylesheet">x</link>')
+    assert (out.pr_link, out.text) == ("", '<link rel="stylesheet">x</link>')
