@@ -174,9 +174,17 @@ body says what to do: do it. The sources are:
   - `pr.checks_passed`: CI passed. No action is needed.
   - `pr.conflict`: the PR conflicts with its base.
   - `pr.merged`: the PR merged.
+- `gate`: a gate job in your worktree ended. The `job` attribute is its number.
+  - `gate.passed`: every gate passed.
+  - `gate.failed`: a gate failed. The body names each failed gate and the log.
+  - `gate.cancelled`: the job was cancelled.
 
 After you push your task's PR, end your turn. Do not wait on CI in a shell. Act on each `github`
 event when it arrives. A free agent hears no `github` events.
+
+When `tangier gate run` exits 3, end your turn. Do not run `tangier gate wait`, or a watcher of
+your own, in a shell. Maelstrom sends a `gate` event when the job ends, to every agent in the
+worktree.
 
 ## User attention
 

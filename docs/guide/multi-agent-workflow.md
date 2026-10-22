@@ -185,7 +185,9 @@ asking**. The gates are the project's automated checks — tests, lint and type 
 CLAUDE.md defines them:
 
 1. Rebase onto the current base: `mael sync --no-push`.
-2. Commit the implementation, then run the gates on the clean tree.
+2. Commit the implementation, then run the gates on the clean tree. A gate job runs in the
+   background. The session ends its turn, and the orchestrator tells it when the job passes or
+   fails.
 3. Write `.drafts/pr.md` — the decisions and their rationale, which review reads first.
 4. Run `/code-review` — it uncommits the branch and reviews the working tree, applying findings
    as plain edits and committing them.
