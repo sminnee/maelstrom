@@ -2,8 +2,8 @@
 
 A *template* task is parked in `template/` status carrying a `schedule` cron
 expression, a `trigger`, or both. Hourly, a launchd LaunchAgent runs `mael task
-add-scheduled --all-projects --run`, which consults `schedule.due_firings` and
-launches any template that is due. A cron template is due when its most recent
+add-scheduled --all-projects --run`. `schedule.fire_due` makes one run per
+template that is due, and the command launches each run. A cron template is due when its most recent
 fire boundary is newer than its `last_run` watermark. A trigger-only template is
 due when a newer run of its workflow has a listed conclusion.
 
@@ -46,7 +46,7 @@ so the log records *when* the agent last fired even when nothing was due.
 - **While awake:** fires hourly at `:00` (`StartCalendarInterval`) plus once on
   load (`RunAtLoad`).
 - **While asleep:** does not fire, and does not wake the Mac. The job runs on the
-  next wake instead, as a single coalesced catch-up. `due_templates` then yields
+  next wake instead, as a single coalesced catch-up. `fire_due` then makes
   exactly one run per due template — **no backfill** for missed boundaries.
 
 The same `StartCalendarInterval` covers both rows. `man 5 launchd.plist` states

@@ -14,6 +14,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 import click
 import pytest
 from click.testing import CliRunner
+from domain_fixtures import FakeBuildRuns
 
 from mael_agent.harness_model import TRANSPORT_CLI, TRANSPORT_DAEMON
 from mael_cli import env_cli, task_cli
@@ -21,7 +22,6 @@ from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
-from mael_domain.build_runs import BuildRun, BuildRuns
 from mael_domain.comm_store import Comm, InMemoryCommStore
 from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
@@ -1417,223 +1417,89 @@ class TestTemplates:
         assert (await model.load(store, "p", tid)).trigger == ""
 
 
-# --- add-scheduled (catch-up / idempotency / launch) ---
+# --- add-scheduled ---
+#
+# `schedule.fire_due` owns which runs a tick makes (lib/domain/tests/test_schedule.py).
+# These cover what the command adds: its output, the launch, and its flags.
 
 
-async def _make_template(store, *, schedule, last_run="", created):
+@pytest.fixture(autouse=True)
+def no_build_runs(monkeypatch):
+    """No test reads real workflow runs: the read is unknown unless a test says."""
+    monkeypatch.setattr(task_cli, "_build_runs", lambda: FakeBuildRuns(None))
+
+
+@pytest.fixture
+def frozen_now(monkeypatch):
+    """Freeze the command's clock at 2026-06-18 10:00 local, and return it."""
+    frozen = datetime(2026, 6, 18, 10, 0).astimezone()
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+    return frozen
+
+
+async def _make_template(store, id="maintenance", **fields):
+    """A daily 09:00 template whose last run was the day before ``frozen_now``."""
+    fields = {
+        "schedule": "0 9 * * *",
+        "last_run": datetime(2026, 6, 17, 9, 0).astimezone().isoformat(),
+        **fields,
+    }
     return await model.create(
         store,
         project="p",
         title="Maintenance",
         command="",
-        schedule=schedule,
-        last_run=last_run,
         status=model.STATUS_TEMPLATE,
-        id="maintenance",
-        now=created,
+        id=id,
+        now="2026-06-01T00:00:00+00:00",
+        **fields,
     )
 
 
 class TestAddScheduled:
-    async def test_one_run_created_and_watermark_advances(
-        self, runner, store, monkeypatch
+    async def test_a_due_template_fires_and_prints_its_run(
+        self, runner, store, frozen_now
     ):
-        from datetime import datetime
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-11T09:00:00",
-            created="2026-06-01T00:00:00",
-        )
-        # Freeze "now" to a fixed *local* wall-clock — the command uses
-        # datetime.now().astimezone(), so the scheduler matches local time.
-        real_dt = datetime
-        frozen_local = real_dt(2026, 6, 18, 10, 0).astimezone()
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return frozen_local
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        await _make_template(store)
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert result.exit_code == 0, result.output
-        run = await model.load(store, "p", "maintenance.2026-06-18")
-        # The run is parentless: its dot-id names it under the template, but its
-        # empty parent lets it root its own chain (follow-ups nest under the run).
-        assert run.parent == ""
-        assert run.id == "maintenance.2026-06-18"
-        # Exactly one run (catch-up is a single boundary, not 7).
-        runs = [
-            t
-            for t in await model.list_tasks(store, project="p")
-            if t.id.startswith("maintenance.")
-        ]
-        assert len(runs) == 1
-        # Watermark advanced to today's 09:00 *local* boundary.
-        tmpl = await model.load(store, "p", "maintenance")
-        expected = real_dt(2026, 6, 18, 9, 0).astimezone().isoformat()
-        assert tmpl.last_run == expected
+        assert "p/maintenance.2026-06-18\tMaintenance" in result.output
+        assert await model.load(store, "p", "maintenance.2026-06-18") is not None
 
-    async def test_idempotent_second_call_creates_nothing(
-        self, runner, store, monkeypatch
+    async def test_nothing_due_prints_the_stamp_the_warnings_and_says_so(
+        self, runner, store, frozen_now
     ):
-        from datetime import datetime, timezone
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        """The stamp is how schedule.log records that the scheduler ran."""
+        await _make_template(store, last_run=frozen_now.isoformat())
+        await _make_template(store, id="nightly", schedule="", trigger="nightly.yml")
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-        assert "No scheduled tasks due." in result.output
-        runs = [
-            t
-            for t in await model.list_tasks(store, project="p")
-            if t.id.startswith("maintenance.")
-        ]
-        assert len(runs) == 1
-
-    async def test_not_due_creates_nothing(self, runner, store, monkeypatch):
-        from datetime import datetime, timezone
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-18T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-        assert "No scheduled tasks due." in result.output
-
-    async def test_run_is_timestamped(self, runner, store, monkeypatch):
-        """Every run emits a dated header so schedule.log records when it fired."""
-        from datetime import datetime
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-18T09:00:00",
-            created="2026-06-01T00:00:00",
-        )
-        real_dt = datetime
-        frozen_local = real_dt(2026, 6, 18, 10, 0).astimezone()
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return frozen_local
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-        # Header is the first line, carries the *local* ISO firing time (no
-        # nothing-due template here so the timestamp prefixes the run).
-        stamp = frozen_local.isoformat(timespec="seconds")
+        assert result.exit_code == 0, result.output
+        stamp = frozen_now.isoformat(timespec="seconds")
         assert result.output.startswith(f"[{stamp}] add-scheduled")
+        assert "warning: p/nightly: unknown trigger 'nightly.yml'" in result.output
+        assert "No scheduled tasks due." in result.output
 
-    async def test_run_inherits_template_branch(self, runner, store, monkeypatch):
-        """A scheduled run lands on the template's own branch, not task/<tmpl-id>."""
-        from datetime import datetime, timezone
-
-        await model.create(
-            store,
-            project="p",
-            title="Maintenance",
-            command="",
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+00:00",
-            branch="chore/maint",
-            status=model.STATUS_TEMPLATE,
-            id="maintenance",
-            now="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-        assert result.exit_code == 0, result.output
-        run = await model.load(store, "p", "maintenance.2026-06-18")
-        assert run.parent == ""
-        assert run.branch == "chore/maint"
-
-    async def test_run_launches_into_workspace(
-        self, runner, store, monkeypatch, launch
+    async def test_run_launches_a_fresh_session_rooted_at_the_run(
+        self, runner, store, monkeypatch, launch, frozen_now
     ):
-        from datetime import datetime, timezone
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
-        assert result.exit_code == 0, result.output
-        launch.session.assert_called_once()
-        # The run is parentless, so the launched session exports its own id as the
-        # chain parent — follow-ups nest under the run, not the template.
-        env = launch.session.call_args.kwargs["env"]
-        assert env["MAEL_TASK_ID"] == "maintenance.2026-06-18"
-        assert env["MAEL_TASK_PARENT"] == "maintenance.2026-06-18"
-
-    async def test_run_never_resumes_stale_transcript(
-        self, runner, store, monkeypatch, launch
-    ):
-        # A scheduled run is a freshly-created task, so it launches with
-        # `--session-id` (create) even when a stale transcript is present.
-        from datetime import datetime, timezone
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        await _make_template(store)
+        # A scheduled run is a new task, so a stale transcript is not resumed.
         monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
         assert launch.session.call_args.kwargs["resume"] is False
+        # The run is parentless, so the launched session exports its own id as the
+        # chain parent — follow-ups nest under the run, not the template.
+        env = launch.session.call_args.kwargs["env"]
+        assert env["MAEL_TASK_ID"] == "maintenance.2026-06-18"
+        assert env["MAEL_TASK_PARENT"] == "maintenance.2026-06-18"
 
     @pytest.mark.parametrize(
         ("flags", "harness", "attach", "cmux_starts"),
@@ -1644,33 +1510,22 @@ class TestAddScheduled:
         ids=["daemon-default", "cli"],
     )
     async def test_run_attempts_every_due_run_on_its_harness(
-        self, runner, store, monkeypatch, launch, flags, harness, attach, cmux_starts
+        self,
+        runner,
+        store,
+        monkeypatch,
+        launch,
+        frozen_now,
+        flags,
+        harness,
+        attach,
+        cmux_starts,
     ):
         # Two due templates fire in one --run pass, and BOTH runs are attempted.
         # The env names the CLI, to prove the daemon default ignores it.
-        from datetime import datetime, timezone
-
         monkeypatch.setenv("MAEL_HARNESS_TYPE", "cli")
         for tmpl_id in ("maint-a", "maint-b"):
-            await model.create(
-                store,
-                project="p",
-                title="Maintenance",
-                command="",
-                schedule="0 9 * * *",
-                last_run="2026-06-17T09:00:00+00:00",
-                status=model.STATUS_TEMPLATE,
-                id=tmpl_id,
-                now="2026-06-01T00:00:00+00:00",
-            )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+            await _make_template(store, id=tmpl_id)
         result = runner.invoke(
             task_cli.task, ["add-scheduled", "-p", "p", "--run", *flags]
         )
@@ -1686,33 +1541,12 @@ class TestAddScheduled:
         ]
 
     async def test_a_refused_run_does_not_abandon_the_next(
-        self, runner, store, monkeypatch, launch
+        self, runner, store, launch, frozen_now
     ):
         # A codex template cannot run on the daemon default. Its refusal is a
         # warning; the Claude template after it still launches.
-        from datetime import datetime, timezone
-
-        for tmpl_id, model_ref in (("maint-a", "codex:gpt-5"), ("maint-b", "")):
-            await model.create(
-                store,
-                project="p",
-                title="Maintenance",
-                command="",
-                model=model_ref,
-                schedule="0 9 * * *",
-                last_run="2026-06-17T09:00:00+00:00",
-                status=model.STATUS_TEMPLATE,
-                id=tmpl_id,
-                now="2026-06-01T00:00:00+00:00",
-            )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        await _make_template(store, id="maint-a", model="codex:gpt-5")
+        await _make_template(store, id="maint-b")
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
         assert result.exit_code == 0, result.output
         assert "warning: maint-a.2026-06-18" in result.output
@@ -1737,26 +1571,11 @@ class TestAddScheduled:
         launch.session.assert_not_called()
 
     async def test_here_run_still_execs_and_skips_ensure_cmux(
-        self, runner, store, monkeypatch, launch
+        self, runner, store, launch, frozen_now
     ):
         # `--run --here` runs Claude in the current shell (execvp), so it must
         # NOT start the cmux app and NOT go through the workspace launcher.
-        from datetime import datetime, timezone
-
-        await _make_template(
-            store,
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+00:00",
-            created="2026-06-01T00:00:00+00:00",
-        )
-        real_dt = datetime
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return real_dt(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+        await _make_template(store)
         result = runner.invoke(
             task_cli.task, ["add-scheduled", "-p", "p", "--run", "--here"]
         )
@@ -1764,205 +1583,3 @@ class TestAddScheduled:
         launch.ensure_cmux.assert_not_called()
         launch.session.assert_not_called()
         launch.exec.assert_called_once()
-        # exec_cmd replaces the current shell — no flag to check, the
-        # call itself is the exec.
-
-
-# --- add-scheduled on a build trigger ---
-
-
-class _FakeBuildRuns(BuildRuns):
-    """Completed runs from a fixed answer; ``None`` is a failed read."""
-
-    def __init__(self, answer):
-        self.answer = answer
-        self.reads = []
-
-    async def completed(self, project, trigger):
-        self.reads.append((project, trigger.workflow))
-        return self.answer
-
-
-@pytest.fixture(autouse=True)
-def no_build_runs(monkeypatch):
-    """No test reads real workflow runs: the read is unknown unless a test says."""
-    monkeypatch.setattr(task_cli, "_build_runs", lambda: _FakeBuildRuns(None))
-
-
-def _local(day, hour):
-    """A local wall-clock time on 2026-10-``day``, so the run's date is ``day``."""
-    return datetime(2026, 10, day, hour, 0).astimezone()
-
-
-def _build_run(id, conclusion, completed_at):
-    return BuildRun(
-        id=id,
-        conclusion=conclusion,
-        completed_at=completed_at,
-        url=f"https://github.com/o/r/actions/runs/{id}",
-        head_sha=f"abcdef{id}0000",
-    )
-
-
-class TestAddScheduledOnTrigger:
-    @pytest.fixture
-    def tick(self, runner, monkeypatch):
-        """Run one scheduler tick at 2026-10-08 10:00 local against ``runs``."""
-        frozen = _local(8, 10)
-
-        class FrozenDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return frozen
-
-        monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
-
-        def tick(runs):
-            monkeypatch.setattr(task_cli, "_build_runs", lambda: runs)
-            result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
-            assert result.exit_code == 0, result.output
-            return result
-
-        return tick
-
-    async def _template(self, store, trigger, *, schedule="", last_run=""):
-        return await model.create(
-            store,
-            project="p",
-            title="Fix the nightly build",
-            content="Fix it.",
-            schedule=schedule,
-            trigger=trigger,
-            last_run=last_run,
-            status=model.STATUS_TEMPLATE,
-            id="nightly",
-            now="2026-10-01T00:00:00+00:00",
-        )
-
-    async def _runs(self, store):
-        return [
-            t.id
-            for t in await model.list_tasks(store, project="p")
-            if t.id.startswith("nightly.")
-        ]
-
-    async def _watermark(self, store):
-        return datetime.fromisoformat(
-            (await model.load(store, "p", "nightly")).last_run
-        )
-
-    async def test_a_failed_run_fires_once(self, store, tick):
-        await self._template(store, "gh-action/nightly.yml")
-        runs = _FakeBuildRuns([_build_run(2, "failure", _local(7, 3))])
-        tick(runs)
-        run = await model.load(store, "p", "nightly.2026-10-07")
-        assert run.content == (
-            "Fix it.\n\n## Build run\n\n"
-            "nightly.yml on main: failure. "
-            "https://github.com/o/r/actions/runs/2 — commit abcdef2.\n"
-            "Read the log: `mael gh check-log 2 --failed-only`."
-        )
-        assert run.trigger == ""
-        assert await self._watermark(store) == _local(7, 3)
-        assert "No scheduled tasks due." in tick(runs).output
-        assert await self._runs(store) == ["nightly.2026-10-07"]
-
-    async def test_a_second_failure_that_day_moves_the_watermark(self, store, tick):
-        await self._template(store, "gh-action/nightly.yml")
-        first = _build_run(2, "failure", _local(7, 3))
-        tick(_FakeBuildRuns([first]))
-        tick(_FakeBuildRuns([_build_run(3, "failure", _local(7, 5)), first]))
-        assert await self._runs(store) == ["nightly.2026-10-07"]
-        assert await self._watermark(store) == _local(7, 5)
-
-    async def test_a_newer_green_run_moves_the_watermark_only(self, store, tick):
-        await self._template(store, "gh-action/nightly.yml")
-        tick(
-            _FakeBuildRuns(
-                [
-                    _build_run(3, "success", _local(7, 4)),
-                    _build_run(2, "failure", _local(7, 3)),
-                ]
-            )
-        )
-        assert await self._runs(store) == []
-        assert await self._watermark(store) == _local(7, 4)
-
-    @pytest.mark.parametrize(
-        ("trigger", "conclusion", "fires"),
-        [
-            ("gh-action/nightly.yml", "cancelled", False),
-            ("gh-action/nightly.yml", "timed_out", True),
-            ("gh-action/nightly.yml success", "success", True),
-        ],
-    )
-    async def test_only_a_listed_conclusion_fires(
-        self, store, tick, trigger, conclusion, fires
-    ):
-        await self._template(store, trigger)
-        tick(_FakeBuildRuns([_build_run(2, conclusion, _local(7, 3))]))
-        assert await self._runs(store) == (["nightly.2026-10-07"] if fires else [])
-
-    async def test_a_green_run_section_has_no_log_command(self, store, tick):
-        await self._template(store, "gh-action/nightly.yml success")
-        tick(_FakeBuildRuns([_build_run(2, "success", _local(7, 3))]))
-        run = await model.load(store, "p", "nightly.2026-10-07")
-        assert run.content.endswith(
-            "nightly.yml on main: success. "
-            "https://github.com/o/r/actions/runs/2 — commit abcdef2."
-        )
-
-    @pytest.mark.parametrize(
-        ("trigger", "schedule", "warning"),
-        [
-            ("gh-action/nightly.yml", "", "could not read the nightly.yml runs"),
-            (
-                "gh-action/nightly.yml",
-                "0 9 * * *",
-                "could not read the nightly.yml runs",
-            ),
-            ("nightly.yml", "", "unknown trigger 'nightly.yml'"),
-        ],
-        ids=["read-fails", "read-fails-with-cron", "bad-trigger"],
-    )
-    async def test_an_undecided_template_warns_and_keeps_its_watermark(
-        self, store, tick, trigger, schedule, warning
-    ):
-        last_run = _local(7, 9).isoformat()
-        await self._template(store, trigger, schedule=schedule, last_run=last_run)
-        result = tick(_FakeBuildRuns(None))
-        assert f"warning: p/nightly: {warning}" in result.output
-        assert await self._runs(store) == []
-        assert (await model.load(store, "p", "nightly")).last_run == last_run
-
-    async def test_a_cron_boundary_with_a_green_build_is_skipped(self, store, tick):
-        await self._template(
-            store,
-            "gh-action/nightly.yml",
-            schedule="0 9 * * *",
-            last_run=_local(7, 9).isoformat(),
-        )
-        tick(_FakeBuildRuns([_build_run(3, "success", _local(7, 20))]))
-        assert await self._runs(store) == []
-        assert await self._watermark(store) == _local(8, 9)
-
-    async def test_a_cron_boundary_with_a_failed_build_fires(self, store, tick):
-        await self._template(
-            store,
-            "gh-action/nightly.yml",
-            schedule="0 9 * * *",
-            last_run=_local(7, 9).isoformat(),
-        )
-        tick(_FakeBuildRuns([_build_run(3, "failure", _local(6, 20))]))
-        run = await model.load(store, "p", "nightly.2026-10-08")
-        assert "https://github.com/o/r/actions/runs/3" in run.content
-        assert await self._watermark(store) == _local(8, 9)
-
-    async def test_a_template_without_a_trigger_reads_no_runs(self, store, tick):
-        await self._template(
-            store, "", schedule="0 9 * * *", last_run=_local(7, 9).isoformat()
-        )
-        runs = _FakeBuildRuns(None)
-        tick(runs)
-        assert runs.reads == []
-        assert await self._runs(store) == ["nightly.2026-10-08"]
