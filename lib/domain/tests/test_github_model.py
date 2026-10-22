@@ -406,16 +406,19 @@ class TestParseRunStates:
 
     @staticmethod
     def _payload(*runs):
-        """The `.workflow_runs` array, newest first as the API returns it."""
+        """The `.workflow_runs` array, newest first as the API returns it.
+
+        Each run is its own workflow unless it names one."""
         return json.dumps(
             {
                 "workflow_runs": [
                     {
                         "head_sha": run.get("sha", "abc123"),
+                        "workflow_id": run.get("workflow", n),
                         "status": run.get("status", "completed"),
                         "conclusion": run.get("conclusion"),
                     }
-                    for run in runs
+                    for n, run in enumerate(runs)
                 ]
             }
         )
@@ -456,18 +459,34 @@ class TestParseRunStates:
         )
         assert parse_run_states(payload)["abc123"] == "ci-failed"
 
+    def test_a_cancelled_run_reads_ci_failed(self):
+        """On a head commit, a cancelled run is a fast-fail gate, not a
+        superseded push."""
+        payload = self._payload({"conclusion": "cancelled"})
+        assert parse_run_states(payload)["abc123"] == "ci-failed"
+
+    def test_a_cancelled_workflow_is_not_hidden_by_another_that_passed(self):
+        """One workflow's fast-fail is a red build however the others did."""
+        payload = self._payload(
+            {"workflow": 1, "conclusion": "success"},
+            {"workflow": 2, "conclusion": "cancelled"},
+        )
+        assert parse_run_states(payload)["abc123"] == "ci-failed"
+
+    def test_the_newest_run_of_a_workflow_answers_for_it(self):
+        """A reopened PR runs the workflow again on the same commit. The page
+        is newest first, and the newer run replaces the older one."""
+        payload = self._payload(
+            {"workflow": 1, "conclusion": "success"},
+            {"workflow": 1, "conclusion": "cancelled"},
+        )
+        assert parse_run_states(payload)["abc123"] == "ready"
+
     @pytest.mark.parametrize(
-        "conclusion", ["cancelled", "skipped", "neutral", "action_required", "stale"]
+        "conclusion", ["skipped", "neutral", "action_required", "stale"]
     )
     def test_a_run_that_judged_nothing_answers_nothing(self, conclusion):
-        """None of these says the commit is good, so none may read as green.
-
-        A cancelled run is the common one: a push superseding the last, or a
-        concurrency group, and 39 of 100 runs on one repo here ended this way.
-        Calling those `ready` would put a green tick on a commit nothing
-        finished checking — the false green the head-commit match exists to
-        prevent, arriving by another door.
-        """
+        """None of these says the commit is good, so none may read as green."""
         payload = self._payload({"conclusion": conclusion})
         assert parse_run_states(payload) == {}
 
@@ -475,7 +494,7 @@ class TestParseRunStates:
         """Absent, not green — so a sibling run that reached a verdict still
         answers for the commit."""
         payload = self._payload(
-            {"conclusion": "cancelled"},
+            {"conclusion": "skipped"},
             {"conclusion": "success"},
         )
         assert parse_run_states(payload)["abc123"] == "ready"

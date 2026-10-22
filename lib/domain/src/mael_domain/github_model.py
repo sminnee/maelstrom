@@ -460,17 +460,15 @@ _CI_FAILED = frozenset({"FAILURE", "ERROR"})
 #: Workflow-run statuses that mean the run has not reached a verdict.
 _RUN_PENDING = frozenset({"in_progress", "queued", "requested", "waiting", "pending"})
 
-#: Workflow-run conclusions that mean the run judged the commit and failed it.
-_RUN_FAILED = frozenset({"failure", "timed_out", "startup_failure"})
+#: Workflow-run conclusions that mean the commit needs attention. ``cancelled``
+#: is one: see :func:`parse_run_states`.
+_RUN_FAILED = frozenset({"failure", "timed_out", "startup_failure", "cancelled"})
 
 #: Workflow-run conclusions that reached no verdict on the commit. A run that
-#: ended one of these ways says nothing, so it must not read as green: a
-#: cancelled run is the commonest of them — a push superseding the last, or a
-#: concurrency group — and a green tick on a commit nothing finished checking
-#: is the false green this fallback exists to avoid.
-_RUN_INCONCLUSIVE = frozenset(
-    {"cancelled", "skipped", "neutral", "action_required", "stale", None}
-)
+#: ended one of these ways says nothing, so it must not read as green: a green
+#: tick on a commit nothing finished checking is the false green this fallback
+#: exists to avoid.
+_RUN_INCONCLUSIVE = frozenset({"skipped", "neutral", "action_required", "stale", None})
 
 
 def parse_run_states(payload: str) -> dict[str, PrState]:
@@ -484,6 +482,10 @@ def parse_run_states(payload: str) -> dict[str, PrState]:
     Runs are reduced per ``head_sha`` in the order the rollup is read — running
     beats passed, failed beats running — so one commit gets one state however
     many workflows it ran.
+
+    Each workflow answers with its newest run on the commit, the first the
+    page lists. A ``cancelled`` run reads ``ci-failed``: on a head commit it is
+    a fast-fail gate or a manual stop, never a superseded push.
 
     Args:
         payload: The raw JSON object the runs endpoint printed.
@@ -500,10 +502,15 @@ def parse_run_states(payload: str) -> dict[str, PrState]:
         # could not find out rather than inventing a state for every commit.
         return {}
     states: dict[str, PrState] = {}
+    seen: set[tuple[str, object]] = set()
     for run in runs:
         sha = run.get("head_sha")
         if not sha:
             continue
+        workflow = (sha, run.get("workflow_id"))
+        if workflow in seen:
+            continue
+        seen.add(workflow)
         conclusion = run.get("conclusion")
         if run.get("status") in _RUN_PENDING:
             state: PrState = "ci-running"

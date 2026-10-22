@@ -836,12 +836,21 @@ draw a green tick. One page per repository covers every branch — 100 runs reac
 nine days on one repository here, and 50 over six days on another — and REST is metered apart from
 the GraphQL budget. A repository that grants the rollup never pays for this.
 
-A run that reached no verdict answers for nothing. `cancelled`, `skipped`, `neutral`,
-`action_required` and `stale` are skipped rather than ranked, so a sibling run that did reach one
-still answers and a commit whose every run ended that way stays absent. Calling those green would
-put a tick on a commit nothing finished checking — the false green the head-commit match exists to
-prevent, by another door. Cancelling is the common one: a push superseding the last, or a
-concurrency group, and 39 of 100 runs on one repository here ended that way.
+Each workflow answers with its newest run on the commit. The page lists newest first, so the
+first run of a workflow wins. A "Re-run jobs" adds an attempt to the same run, and the page lists
+only its latest attempt. A second run of one workflow on one commit comes from a reopened or
+relabelled pull request.
+
+A run that reached no verdict answers for nothing. `skipped`, `neutral`, `action_required` and
+`stale` are skipped rather than ranked, so a sibling run that did reach one still answers and a
+commit whose every run ended that way stays absent. Calling those green would put a tick on a
+commit nothing finished checking — the false green the head-commit match exists to prevent, by
+another door.
+
+A `cancelled` run reads `ci-failed`. A run that a later push superseded is on an older commit, so
+the head-commit match never consults it. On a head commit, `cancelled` is a fast-fail gate that
+cancelled the run when one job failed, or a manual stop: both need attention. A fast-fail
+workflow's cancel is a red build even when another workflow on that commit passed.
 
 The page is also a window in time, not a set of branches. So four cases read `checks-unreadable`:
 a commit whose build has fallen off the end of the page, a commit nothing has run yet, a commit
