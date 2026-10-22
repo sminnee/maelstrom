@@ -64,6 +64,9 @@ recordings now:
 - `agent-daemon/fixtures/agent_events/`: daemon streams, replayed by the reducer tests.
 - `lib/domain/fixtures/normalised/`: the normaliser goldens. Re-record them with
   `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py`.
+- `lib/domain/fixtures/state_db/`: the shape each shipped rung builds, one file for each ladder.
+  `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_state_db.py` appends the entries of new
+  rungs only. A failing shipped entry is an edit to a shipped rung: add a new rung instead.
 
 ## The `e2e` marker
 

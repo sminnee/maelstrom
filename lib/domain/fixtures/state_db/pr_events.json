@@ -1,0 +1,18 @@
+[
+  {
+    "pr_events": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "state TEXT notnull=1 default='' pk=0",
+        "conflicting INTEGER notnull=1 default=0 pk=0",
+        "told_failed_oid TEXT notnull=1 default='' pk=0",
+        "told_green_oid TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "pr_events_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_pr_events_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  }
+]

@@ -1,0 +1,305 @@
+[
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "steps TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "steps TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "steps TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0",
+        "pr_number INTEGER notnull=1 default=0 pk=0",
+        "pr_url TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0",
+        "pr_number INTEGER notnull=1 default=0 pk=0",
+        "pr_url TEXT notnull=1 default='' pk=0",
+        "trigger TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0",
+        "pr_number INTEGER notnull=1 default=0 pk=0",
+        "pr_url TEXT notnull=1 default='' pk=0",
+        "trigger TEXT notnull=1 default='' pk=0",
+        "comms TEXT notnull=1 default='[]' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "tasks": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "status TEXT notnull=1 default='' pk=0",
+        "command TEXT notnull=1 default='' pk=0",
+        "mode TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "parent TEXT notnull=1 default='' pk=0",
+        "pre_action TEXT notnull=1 default='' pk=0",
+        "post_action TEXT notnull=1 default='' pk=0",
+        "follows TEXT notnull=1 default='[]' pk=0",
+        "created TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "schedule TEXT notnull=1 default='' pk=0",
+        "last_run TEXT notnull=1 default='' pk=0",
+        "priority TEXT notnull=1 default='' pk=0",
+        "model TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "session_id TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "log TEXT notnull=1 default='' pk=0",
+        "execute_model TEXT notnull=1 default='' pk=0",
+        "pr_number INTEGER notnull=1 default=0 pk=0",
+        "pr_url TEXT notnull=1 default='' pk=0",
+        "trigger TEXT notnull=1 default='' pk=0",
+        "comms TEXT notnull=1 default='[]' pk=0",
+        "pr_withdrawn INTEGER notnull=1 default=0 pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_tasks_1": "(id) unique=1 origin=pk partial=0",
+        "tasks_project_status": "(project, status) unique=0 origin=c partial=0",
+        "tasks_revision": "(revision) unique=0 origin=c partial=0",
+        "tasks_session_id": "(session_id) unique=0 origin=c partial=0"
+      }
+    }
+  }
+]

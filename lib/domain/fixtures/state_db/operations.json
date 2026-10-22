@@ -1,0 +1,17 @@
+[
+  {
+    "operations": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "body TEXT notnull=1 default='{}' pk=0",
+        "log TEXT notnull=1 default='{}' pk=0",
+        "command TEXT notnull=1 default='{}' pk=0"
+      ],
+      "indexes": {
+        "operations_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_operations_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  }
+]
