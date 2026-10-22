@@ -17,7 +17,7 @@ everyday daemon root, so the job needs no secret and no other variable.
 
 Nothing here wakes a sleeping Mac, and nothing needs to: launchd starts a job
 missed during sleep on the next wake, coalescing missed intervals into one event.
-That single fire is what ``schedule.due_templates`` expects — one run per due
+That single fire is what ``schedule.fire_due`` expects — one run per due
 template, no backfill. See ``docs/dev/scheduled-tasks.md``.
 
 The one remaining ``pmset`` call is :func:`clear_leftover_wake`, which cleans up

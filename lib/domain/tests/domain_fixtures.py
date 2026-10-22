@@ -15,6 +15,7 @@ import pytest
 from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_domain import worktree
+from mael_domain.build_runs import BuildRuns
 from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.mael_layout import MaelCmux
 
@@ -297,3 +298,18 @@ def fake_tailscale(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("PATH", f"{bin_dir}:/bin:/usr/bin")
     monkeypatch.setenv("ARGV_LOG", str(log))
     return log
+
+
+class FakeBuildRuns(BuildRuns):
+    """Completed runs from a fixed answer; ``None`` is a failed read.
+
+    ``reads`` records each ``(project, workflow)`` asked about.
+    """
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.reads = []
+
+    async def completed(self, project, trigger):
+        self.reads.append((project, trigger.workflow))
+        return self.answer

@@ -1207,57 +1207,17 @@ async def _fire_due_templates(
     here: bool,
     harness: str = TRANSPORT_DAEMON,
 ) -> list["model.Task"]:
-    """Create (and optionally launch) one run per due template in ``project``.
+    """Fire the due templates in ``project``, and launch each new run with ``run``.
 
-    Each fired template, in its own transaction: duplicate it into a date-keyed
-    run (skipped if that id already exists → idempotent across RunAtLoad+interval
-    double-fires) and advance its ``last-run`` watermark. A firing that comes
-    from a build run adds a ``## Build run`` section to the run's content. A
-    skipped boundary, or a run whose conclusion is not listed, moves only the
-    watermark. Returns the run tasks that were created this call.
-
-    The run's id (``<tmpl>.<date>``) names it as a dot-child of the template, but
-    its ``parent`` is deliberately left **empty** so it roots its own chain: the
-    launcher exports ``MAEL_TASK_PARENT = run.id`` (via ``task.parent or task.id``),
-    making each firing's follow-ups grandchildren of the template rather than
-    piling onto the template's own chain. See docs/dev/tasks.md.
+    :func:`mael_domain.schedule.fire_due` makes the runs. This adds the warnings
+    on stderr and the launch. Returns the run tasks that were created this call.
     """
     from mael_domain import schedule as sched
 
-    created: list[model.Task] = []
-    firings, warnings = await sched.due_firings(table, project, build_runs, now=now)
-    for warning in warnings:
+    fired = await sched.fire_due(table, project, build_runs, now=now)
+    for warning in fired.warnings:
         click.echo(f"warning: {project}/{warning}", err=True)
-    for firing in firings:
-        tmpl = firing.tmpl
-        last_run = firing.watermark.isoformat()
-        if not firing.date:
-            await model.update(table, project, tmpl.id, last_run=last_run)
-            continue
-        run_id = model.allocate_run_id(tmpl.id, firing.date)
-        # A run already made under this id (a double fire, or a second build run
-        # on the same day) fires nothing, but the watermark still moves past it.
-        if await table.load(project, run_id) is not None:
-            await model.update(table, project, tmpl.id, last_run=last_run)
-            continue
-        content = None
-        if firing.section:
-            content = f"{tmpl.content.strip()}\n\n{firing.section}".strip()
-        # One transaction: the duplicate and the template's watermark move
-        # together, so a rollback leaves the boundary unfired rather than
-        # half-fired.
-        async with table.transact():
-            new = await model.duplicate(
-                table,
-                project,
-                tmpl.id,
-                parent="",  # parentless → run roots its own chain (see docstring)
-                branch=tmpl.branch,
-                content=content,
-                id=run_id,
-            )
-            await model.update(table, project, tmpl.id, last_run=last_run)
-        created.append(new)
+    created = fired.created
     if run and created and harness == TRANSPORT_CLI and not here:
         # Start the cmux app once for the whole batch (N due runs share one app
         # start); each _run_task still guards liveness individually and rolls its

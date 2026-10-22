@@ -5,9 +5,9 @@ A *template* is an ordinary task parked in ``template/`` status (see
 expression, an optional ``trigger`` and a ``last_run`` watermark. This module owns
 the cron math and the "what's due" computation. It never touches git or launches
 anything: it reads the injected table and
-:class:`~mael_domain.build_runs.BuildRuns` and returns plain data, so it is
-unit-testable against an :class:`~mael_domain.task_table.InMemoryTaskTable` with
-a frozen ``now``.
+:class:`~mael_domain.build_runs.BuildRuns`, and :func:`fire_due` writes the runs
+to that table. It is unit-testable against an
+:class:`~mael_domain.task_table.InMemoryTaskTable` with a frozen ``now``.
 
 The cron parser supports the needed 5-field subset (``m h dom mon dow``): ``*``,
 single integers, comma lists, and ``a-b`` ranges (and combinations like
@@ -27,7 +27,14 @@ from .build_runs import (
     parse_trigger,
     run_section,
 )
-from .task import STATUS_TEMPLATE, Task, list_tasks
+from .task import (
+    STATUS_TEMPLATE,
+    Task,
+    allocate_run_id,
+    duplicate,
+    list_tasks,
+    update,
+)
 from .task_table import TaskTable
 
 # --- cron field parsing ---
@@ -189,18 +196,6 @@ def _due_boundary(tmpl: Task, now: datetime) -> datetime | None:
     return prev
 
 
-async def due_templates(
-    table: TaskTable, project: str, *, now: datetime
-) -> list[tuple[Task, str]]:
-    """Return ``(template, boundary_date)`` for every cron template due at ``now``."""
-    out: list[tuple[Task, str]] = []
-    for tmpl in await list_tasks(table, project=project, status=STATUS_TEMPLATE):
-        boundary = _due_boundary(tmpl, now) if tmpl.schedule else None
-        if boundary is not None:
-            out.append((tmpl, date_of(boundary)))
-    return out
-
-
 @dataclass(frozen=True)
 class Firing:
     """What one tick does to one template: move its watermark, and maybe fire.
@@ -294,3 +289,57 @@ def _triggered(
     # Keyed by the date in ``now``'s zone, as a cron boundary is.
     date = date_of(run.completed_at.astimezone(now.tzinfo))
     return Firing(tmpl, watermark, date, run_section(trigger, run))
+
+
+@dataclass(frozen=True)
+class FireResult:
+    """What one tick did to one project: the runs it made, and what it could not decide."""
+
+    created: list[Task]
+    warnings: list[str]
+
+
+async def fire_due(
+    table: TaskTable, project: str, build_runs: BuildRuns, *, now: datetime
+) -> FireResult:
+    """Make one run per template that fires at ``now``, and move each watermark.
+
+    Each firing duplicates its template into a date-keyed run and advances the
+    template's ``last-run`` in one transaction. A run id that already exists (a
+    RunAtLoad and interval double fire, or a second build run on the same day)
+    makes nothing, but the watermark still moves past it. A firing from a build
+    run adds its ``## Build run`` section to the run's content. A firing with no
+    date moves only the watermark.
+
+    The run's ``parent`` is empty, so the run roots its own chain. See
+    docs/dev/tasks.md, "Scheduled runs".
+    """
+    created: list[Task] = []
+    firings, warnings = await due_firings(table, project, build_runs, now=now)
+    for firing in firings:
+        tmpl = firing.tmpl
+        last_run = firing.watermark.isoformat()
+        if not firing.date:
+            await update(table, project, tmpl.id, last_run=last_run)
+            continue
+        run_id = allocate_run_id(tmpl.id, firing.date)
+        if await table.load(project, run_id) is not None:
+            await update(table, project, tmpl.id, last_run=last_run)
+            continue
+        content = None
+        if firing.section:
+            content = f"{tmpl.content.strip()}\n\n{firing.section}".strip()
+        # A rollback leaves the boundary unfired, not half-fired.
+        async with table.transact():
+            new = await duplicate(
+                table,
+                project,
+                tmpl.id,
+                parent="",
+                branch=tmpl.branch,
+                content=content,
+                id=run_id,
+            )
+            await update(table, project, tmpl.id, last_run=last_run)
+        created.append(new)
+    return FireResult(created, warnings)
