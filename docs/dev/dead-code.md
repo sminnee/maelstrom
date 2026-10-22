@@ -16,9 +16,10 @@ unused test helper invisible.
 | Test       | `src/`, `tests/` | Nothing at all uses this | Fails the build |
 | Production | `src/` only      | Only tests reach this    | Prints only     |
 
-Each pass reads the `src/` and `tests/` of every workspace member: `cli/`, `lib/common/`,
-`lib/agent/`, `lib/domain/`, `agent-daemon/` and `orchestrator-api/`. The test pass also reads the
-repo-root `conftest.py`.
+The production pass reads the `src/` of every workspace member: `cli/`, `lib/common/`,
+`lib/agent/`, `lib/domain/`, `agent-daemon/` and `orchestrator-api/`. The test pass adds each
+member's `tests/`, plus the repo-root `conftest.py`, `tests/`, `shared/`, `bin/publish` and
+`bin/publish-jig`.
 
 **Only the test pass fails the build.** A symbol neither `src/` nor `tests/` uses is dead by any
 reading. A symbol only tests reach is different: an in-memory store or a helper a test drives is a

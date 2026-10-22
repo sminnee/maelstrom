@@ -10,11 +10,11 @@ from collections.abc import Iterator
 
 import pytest
 from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
-    _block_real_cmux,
-    _block_real_naming_model,
-    _isolate_notebook_root,
-    _mark_test_commands_production,
-    _plain_terminal,
+    _block_real_cmux,  # pyright: ignore[reportUnusedImport]
+    _block_real_naming_model,  # pyright: ignore[reportUnusedImport]
+    _isolate_notebook_root,  # pyright: ignore[reportUnusedImport]
+    _mark_test_commands_production,  # pyright: ignore[reportUnusedImport]
+    _plain_terminal,  # pyright: ignore[reportUnusedImport]
 )
 from served_orchestrator import NOW, OTHER_PROJECT, PROJECT, Served, point_config_at
 

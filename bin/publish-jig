@@ -38,11 +38,15 @@ def load_token_from_env_file() -> None:
     for raw in env_file.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if line.startswith("NPM_TOKEN="):
-            os.environ.setdefault("NPM_TOKEN", line.split("=", 1)[1].strip().strip("\"'"))
+            os.environ.setdefault(
+                "NPM_TOKEN", line.split("=", 1)[1].strip().strip("\"'")
+            )
 
 
 def current_version() -> str:
-    match = re.search(r'^  "version": "(.+?)"', MANIFEST.read_text(encoding="utf-8"), re.MULTILINE)
+    match = re.search(
+        r'^  "version": "(.+?)"', MANIFEST.read_text(encoding="utf-8"), re.MULTILINE
+    )
     if not match:
         sys.exit(f"Error: could not find version in {MANIFEST}")
     return match.group(1)
@@ -59,7 +63,9 @@ def bump(version: str, part: str) -> str:
 
 def write_version(old: str, new: str) -> None:
     MANIFEST.write_text(
-        MANIFEST.read_text(encoding="utf-8").replace(f'"version": "{old}"', f'"version": "{new}"', 1),
+        MANIFEST.read_text(encoding="utf-8").replace(
+            f'"version": "{old}"', f'"version": "{new}"', 1
+        ),
         encoding="utf-8",
     )
 
@@ -69,15 +75,21 @@ def require_release_notes() -> None:
     text = CHANGELOG.read_text(encoding="utf-8")
     if UNRELEASED_HEADING not in text:
         sys.exit(f"Error: {CHANGELOG} has no '{UNRELEASED_HEADING}' heading")
-    body = re.split(r"^## ", text.split(UNRELEASED_HEADING, 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
+    body = re.split(
+        r"^## ", text.split(UNRELEASED_HEADING, 1)[1], maxsplit=1, flags=re.MULTILINE
+    )[0]
     if not body.strip():
-        sys.exit(f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first.")
+        sys.exit(
+            f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first."
+        )
 
 
 def retitle_unreleased(new: str, released_on: str) -> None:
     text = CHANGELOG.read_text(encoding="utf-8")
     CHANGELOG.write_text(
-        text.replace(UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1),
+        text.replace(
+            UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1
+        ),
         encoding="utf-8",
     )
 
@@ -90,7 +102,9 @@ def run(*command: str) -> None:
 
 
 def require_clean_worktree() -> None:
-    result = subprocess.run(("git", "status", "--porcelain"), check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        ("git", "status", "--porcelain"), check=True, capture_output=True, text=True
+    )
     if result.stdout.strip():
         sys.exit("Error: working tree is not clean. Commit or stash first.")
 
@@ -105,14 +119,24 @@ def publish() -> None:
         npmrc.write("//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n")
         npmrc.flush()
         env = {**os.environ, "npm_config_userconfig": npmrc.name}
-        subprocess.run(("npm", "stage", "publish", "--access", "public"), check=True, env=env, cwd=PACKAGE)
+        subprocess.run(
+            ("npm", "stage", "publish", "--access", "public"),
+            check=True,
+            env=env,
+            cwd=PACKAGE,
+        )
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Publish {NAME} to npm")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--minor", action="store_true", help="bump the minor version")
     group.add_argument("--major", action="store_true", help="bump the major version")
-    parser.add_argument("--dry-run", action="store_true", help="run the gates and the pack smoke; do not publish or tag")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run the gates and the pack smoke; do not publish or tag",
+    )
     args = parser.parse_args()
 
     if not MANIFEST.exists():
@@ -148,7 +172,10 @@ def main() -> int:
     try:
         publish()
     except subprocess.CalledProcessError:
-        print(f"Publish failed. Rolling back the release commit for {new}.", file=sys.stderr)
+        print(
+            f"Publish failed. Rolling back the release commit for {new}.",
+            file=sys.stderr,
+        )
         try:
             run("git", "reset", "--hard", "HEAD~1")
         except subprocess.CalledProcessError:

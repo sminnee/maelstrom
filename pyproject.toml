@@ -83,7 +83,12 @@ include = [
     "lib/domain/src",
     "agent-daemon/src",
     "orchestrator-api/src",
+    "tests",
+    "shared",
 ]
+# The support modules pytest's `pythonpath` puts on the path, so pyright
+# resolves the same imports pytest does.
+extraPaths = ["lib/domain/tests", "agent-daemon/tests"]
 exclude = [".vulture_whitelist.py"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
@@ -106,6 +111,8 @@ src = [
 # The vulture whitelist is a list of bare names, not a program. Every line is
 # an undefined name by design, so ruff and pyright must both skip it.
 extend-exclude = [".vulture_whitelist.py"]
+# Python scripts with no `.py` suffix, which ruff would not find otherwise.
+extend-include = ["bin/publish", "bin/publish-jig"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
