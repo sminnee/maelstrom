@@ -2315,32 +2315,11 @@ def test_a_milestone_tag_is_reported_beside_the_events():
     assert out.milestone.recognised is True
 
 
-def test_the_milestone_tag_is_cut_from_the_message_the_transcript_shows():
-    """A milestone is a marker, not prose the reader sees."""
-    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>built</milestone>")
-    [message] = items_of(replayed, "message")
-    assert "<milestone>" not in message["markdown"]
-    assert message["markdown"] == "Tests pass."
-
-
 def test_an_unrecognised_milestone_name_is_kept_and_flagged():
     """Stored as written, never dropped: a typo must be visible, not silent."""
     _, out = replay_milestone("<milestone>deployed</milestone>")
     assert out.milestone.name == "deployed"
     assert out.milestone.recognised is False
-
-
-def test_the_last_milestone_in_a_message_wins():
-    """Latest only, as a note is."""
-    _, out = replay_milestone(
-        "<milestone>built</milestone>\n<milestone>reviewed</milestone>"
-    )
-    assert out.milestone.name == "reviewed"
-
-
-def test_a_message_with_no_milestone_reports_none():
-    _, out = replay_milestone("Just talking.")
-    assert out.milestone is None
 
 
 def test_a_subagent_writes_no_milestone():
@@ -2349,11 +2328,6 @@ def test_a_subagent_writes_no_milestone():
     assert out.milestone is None
     [message] = items_of(replayed, "message")
     assert "<milestone>built</milestone>" in message["markdown"]
-
-
-def test_a_milestone_does_not_become_what_the_agent_last_said():
-    replayed, _ = replay_milestone("Tests pass.\n\n<milestone>built</milestone>")
-    assert agent_of(replayed)["lastMessage"] == "Tests pass."
 
 
 # -- the compaction request an agent writes to ask for a compact --
@@ -2704,78 +2678,14 @@ def test_a_whole_message_that_is_not_the_partial_one_is_appended_beside_it():
 # -- the PR an agent registers on its task --
 
 
-@pytest.mark.parametrize("ref", ["118", "https://github.com/o/r/pull/118"])
-def test_a_pr_link_tag_is_reported_beside_the_events(ref):
-    _, out = replay_milestone(f'Pushed.\n\n<link rel="gh-pr">{ref}</link>')
-    assert out.pr_link == ref
-
-
-def test_a_pr_link_is_ready_unless_marked_withdrawn():
-    _, out = replay_milestone('<link rel="gh-pr">118</link>')
-    assert (out.pr_link, out.pr_withdrawn) == ("118", False)
-
-
-def test_a_withdrawn_pr_link_is_reported_withdrawn():
+def test_a_pr_link_tag_is_reported_beside_the_events():
+    """`read_tags` owns the parsing; this is the link and its withdrawal travelling."""
     replayed, out = replay_milestone(
         'More work.\n\n<link rel="gh-pr" withdrawn>118</link>'
     )
     assert (out.pr_link, out.pr_withdrawn) == ("118", True)
     [message] = items_of(replayed, "message")
     assert message["markdown"] == "More work."
-
-
-@pytest.mark.parametrize(
-    ("opening", "withdrawn"),
-    [
-        ('<link rel="gh-pr" withdrawn="true">', True),
-        ('<link withdrawn rel="gh-pr">', True),
-        ('<link rel="gh-pr" title="not withdrawn yet">', False),
-        ('<link rel="gh-pr" data-withdrawn>', False),
-    ],
-)
-def test_withdrawn_is_the_attribute_name_alone(opening, withdrawn):
-    _, out = replay_milestone(f"{opening}118</link>")
-    assert (out.pr_link, out.pr_withdrawn) == ("118", withdrawn)
-
-
-def test_the_last_pr_link_carries_its_own_withdrawal():
-    _, out = replay_milestone(
-        '<link rel="gh-pr" withdrawn>118</link> then <link rel="gh-pr">118</link>'
-    )
-    assert (out.pr_link, out.pr_withdrawn) == ("118", False)
-
-
-def test_the_pr_link_tag_is_cut_from_the_message_the_transcript_shows():
-    replayed, _ = replay_milestone('Pushed.\n\n<link rel="gh-pr">118</link>')
-    [message] = items_of(replayed, "message")
-    assert message["markdown"] == "Pushed."
-
-
-def test_the_last_pr_link_in_a_message_wins():
-    _, out = replay_milestone(
-        '<link rel="gh-pr">1</link> then <link rel="gh-pr">2</link>'
-    )
-    assert out.pr_link == "2"
-
-
-def test_a_pr_link_quoted_in_code_registers_nothing():
-    """A PR link writes to the task store, so an example must not."""
-    _, out = replay_milestone('Write `<link rel="gh-pr">118</link>` to register.')
-    assert out.pr_link == ""
-
-
-def test_an_unclosed_html_link_does_not_swallow_a_pr_link():
-    _, out = replay_milestone(
-        '<link rel="stylesheet" href="x.css"> then <link rel="gh-pr">118</link>'
-    )
-    assert out.pr_link == "118"
-
-
-def test_a_link_of_another_rel_is_left_as_text():
-    replayed, out = replay_milestone('<link rel="stylesheet">x</link>')
-    assert out.pr_link == ""
-    [message] = items_of(replayed, "message")
-    assert "<link" in message["markdown"]
 
 
 HANDOVER_OPENING = "Your plan was reviewed and approved."
