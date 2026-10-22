@@ -1496,8 +1496,9 @@ GitHub's one-word verdict on a commit's checks, read through GraphQL. The rollup
 answer `null` — the same answer a repository running no CI gives. The refusal arrives beside the
 data as a per-field error, so only the payload says it happened.
 
-A refused rollup falls back to the **Actions run** for the same commit. A repository that refuses
-both reads `checks-unreadable`.
+A refused rollup falls back to the **Actions run** for the same commit. There each workflow
+answers with its newest run on the head commit, and a cancelled run reads `ci-failed`. A
+repository that refuses both reads `checks-unreadable`.
 _Avoid_: Check status, CI rollup, status check
 
 **Actions run**:
