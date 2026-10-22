@@ -5958,11 +5958,11 @@ def test_a_retry_is_judged_against_the_world_as_it_is_now(harness):
     assert "is closed already" in reply.body["error"]["message"]
 
 
-# -- gate jobs --
+# -- the gate watch --
 
 
 def gate_job(job_id: int, state: str, worktree: str, **over) -> dict:
-    """One job as ``tangier gate status --all --running --json`` prints it."""
+    """One job as ``tangier gate status --watch --json --all`` prints it."""
     return {
         "id": job_id,
         "state": state,
@@ -5970,6 +5970,7 @@ def gate_job(job_id: int, state: str, worktree: str, **over) -> dict:
         "head": "a2fc5ee2257e85a8afff0ed902e90ce9ca3accd2",
         "dirty": False,
         "started": "2026-09-01T00:00:00+00:00",
+        "log": f"/Users/me/.tangier/jobs/{job_id}/output.log",
         "worktree": worktree,
         "queue_position": None,
         "usage": {"cpu_percent": 94.4, "rss_bytes": 112197632, "processes": 3},
@@ -5978,50 +5979,68 @@ def gate_job(job_id: int, state: str, worktree: str, **over) -> dict:
     }
 
 
-class FakeGates:
-    """Answers the gate read from memory: the suite must not reach tangier."""
+def gate_status(*running: dict, recent: tuple[dict, ...] = ()) -> dict:
+    return {
+        "type": "status",
+        "running": list(running),
+        "queued": [],
+        "recent": list(recent),
+    }
+
+
+def job_line(job: dict, previous: str | None = "running") -> dict:
+    return {"type": "job", "previous": previous, "job": job}
+
+
+class ScriptedGateWatch:
+    """Stands in for ``watch_gates``: each start reads the lines put on ``lines``.
+
+    An exception put on the queue ends that start with it. The suite must not
+    reach tangier.
+    """
 
     def __init__(self) -> None:
-        self.jobs: list[dict] = []
-        self.fail = False
-        self.calls = 0
+        self.lines: asyncio.Queue[dict | Exception] = asyncio.Queue()
+        self.starts = 0
 
-    async def __call__(self) -> list[dict]:
-        self.calls += 1
-        if self.fail:
-            raise GateSourceError("tangier is not on PATH")
-        return list(self.jobs)
+    async def __call__(self):
+        self.starts += 1
+        while True:
+            line = await self.lines.get()
+            if isinstance(line, Exception):
+                raise line
+            yield line
 
 
 @pytest.fixture
 def gates(store):
-    fake = FakeGates()
-    return fake, Harness(store, gate_jobs=fake, gate_poll=0.02)
+    watch = ScriptedGateWatch()
+    return watch, Harness(store, gate_watch=watch, gate_backoff=0.01)
 
 
-def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
-    fake, harness = gates
-    fake.jobs = [
-        gate_job(898, "running", WORKTREE_PATH),
-        gate_job(
-            899,
-            "queued",
-            "/elsewhere/repo-bravo",
-            queue_position=1,
-            # A malformed sample reads as no sample, not as zero.
-            usage={"cpu_percent": None, "rss_bytes": "n/a", "processes": 1},
-        ),
-    ]
+def test_the_watch_lists_the_gate_jobs_with_no_client_watching(gates):
+    """Nothing subscribes: the watch runs for the agents as much as the UI."""
+    watch, harness = gates
+    watch.lines.put_nowait(
+        gate_status(
+            gate_job(898, "running", WORKTREE_PATH),
+            gate_job(
+                899,
+                "queued",
+                "/elsewhere/repo-bravo",
+                queue_position=1,
+                # A malformed sample reads as no sample, not as zero.
+                usage={"cpu_percent": None, "rss_bytes": "n/a", "processes": 1},
+            ),
+        )
+    )
 
     async def scenario():
         async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                ids = await stream.change("gateJob")
-            return ids, await api.get_json("/api/gate-jobs")
+            await wait_until(lambda: len(harness.orch.world["gateJobs"]) == 2)
+            return await api.get_json("/api/gate-jobs")
 
-    ids, body = run(scenario())
-    assert sorted(ids) == ["898", "899"]
+    body = run(scenario())
     assert body["gateJobs"] == [
         {
             "id": "898",
@@ -6051,78 +6070,96 @@ def test_a_watched_server_lists_the_gate_jobs_with_their_worktrees(gates):
     ]
 
 
-def test_a_job_that_leaves_the_list_is_removed(gates):
-    fake, harness = gates
-    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+def test_a_failed_job_tells_its_worktree_once(gates):
+    watch, harness = gates
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.rows["ag2"] = agent_row("ag2", cwd="/elsewhere/repo-bravo")
+    failed = gate_job(
+        898,
+        "failed",
+        WORKTREE_PATH,
+        gates=[{"name": "lint", "state": "failed", "code": 1}],
+    )
 
     async def scenario():
         async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                await stream.change("gateJob", "898")
-                fake.jobs = []
-                await stream.change("gateJob", "898")
-            return await api.get_json("/api/gate-jobs")
+            await until(api, "/api/agents/ag1", lambda b: b["worktreeId"])
+            watch.lines.put_nowait(gate_status(gate_job(898, "running", WORKTREE_PATH)))
+            await wait_until(lambda: "898" in harness.orch.world["gateJobs"])
+            watch.lines.put_nowait(job_line(failed))
+            await wait_until(lambda: events_said(harness) == ["gate.failed"])
+            # A repeated end, as a restarted watch can give, is old news.
+            watch.lines.put_nowait(job_line(failed))
+            watch.lines.put_nowait(
+                job_line(gate_job(899, "passed", WORKTREE_PATH), None)
+            )
+            await wait_until(lambda: len(events_said(harness)) == 2)
+            return harness.orch.world["gateJobs"]
 
-    assert run(scenario())["gateJobs"] == []
+    assert run(scenario()) == {}
+    assert events_said(harness) == ["gate.failed", "gate.passed"]
+    assert {c["id"] for c in said(harness)} == {"ag1"}
+    told = parse_external_event(said(harness)[0]["text"])
+    assert told is not None
+    assert told.attrs == {"job": "898", "head": "a2fc5ee"}
 
 
-def test_the_first_client_to_arrive_reads_at_once(store):
-    """Not on the next tick: the jobs held since the last client may be hours old."""
-    fake = FakeGates()
-    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
-    harness = Harness(store, gate_jobs=fake, gate_poll=60)
+def test_a_job_in_an_unknown_worktree_tells_nobody(gates):
+    watch, harness = gates
+    harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
         async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                return await stream.change("gateJob", "898")
+            await until(api, "/api/agents/ag1", lambda b: b["worktreeId"])
+            watch.lines.put_nowait(gate_status())
+            watch.lines.put_nowait(
+                job_line(gate_job(898, "failed", "/elsewhere/repo-bravo"), None)
+            )
+            watch.lines.put_nowait(
+                job_line(gate_job(899, "passed", WORKTREE_PATH), None)
+            )
+            await wait_until(lambda: events_said(harness) != [])
 
-    assert run(scenario()) == ["898"]
+    run(scenario())
+    assert events_said(harness) == ["gate.passed"]
 
 
-def test_a_failed_read_keeps_the_last_jobs_and_logs_once(gates, caplog):
-    fake, harness = gates
-    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
+def test_a_failed_watch_keeps_the_jobs_logs_once_and_restarts(gates, caplog):
+    watch, harness = gates
 
     def warnings() -> int:
-        return sum("gate jobs" in r.getMessage() for r in caplog.records)
+        return sum("gate watch" in r.getMessage() for r in caplog.records)
 
     async def scenario():
-        async with harness.client() as api:
-            await harness.orch.refresh_gates()
-            fake.fail = True
-            await harness.orch.refresh_gates()
-            await harness.orch.refresh_gates()
-            kept = await api.get_json("/api/gate-jobs")
+        async with harness.client():
+            watch.lines.put_nowait(gate_status(gate_job(898, "running", WORKTREE_PATH)))
+            await wait_until(lambda: "898" in harness.orch.world["gateJobs"])
+            # A line tangier should not print fails the watch as a missing
+            # tangier does.
+            watch.lines.put_nowait({"type": "job"})
+            watch.lines.put_nowait(GateSourceError("tangier is not on PATH"))
+            await wait_until(lambda: watch.starts == 3)
+            kept = list(harness.orch.world["gateJobs"])
+            # A snapshot alone does not end the outage: tangier can print one
+            # and exit.
+            watch.lines.put_nowait(gate_status())
+            watch.lines.put_nowait(GateSourceError("tangier is not on PATH"))
+            await wait_until(lambda: watch.starts == 4)
             logged = warnings()
-            # A read that works again ends the outage, so the next one is news.
-            fake.fail = False
-            fake.jobs = [gate_job(899, "queued", WORKTREE_PATH, queue_position=1)]
-            await harness.orch.refresh_gates()
-            fake.fail = True
-            await harness.orch.refresh_gates()
-            return kept, logged, warnings(), await api.get_json("/api/gate-jobs")
+            # A change ends the outage, so the next failure is news.
+            watch.lines.put_nowait(
+                job_line(gate_job(899, "queued", WORKTREE_PATH), None)
+            )
+            await wait_until(lambda: "899" in harness.orch.world["gateJobs"])
+            watch.lines.put_nowait(GateSourceError("tangier is not on PATH"))
+            await wait_until(lambda: watch.starts == 5)
+            return kept, logged, warnings(), list(harness.orch.world["gateJobs"])
 
     kept, logged, logged_after, after = run(scenario())
-    assert [job["id"] for job in kept["gateJobs"]] == ["898"]
+    assert kept == ["898"]
     assert logged == 1
     assert logged_after == 2
-    assert [job["id"] for job in after["gateJobs"]] == ["899"]
-
-
-def test_an_unwatched_server_does_not_read_the_gate_jobs(gates):
-    fake, harness = gates
-    fake.jobs = [gate_job(898, "running", WORKTREE_PATH)]
-
-    async def scenario():
-        async with harness.client() as api:
-            await asyncio.sleep(0.1)
-            return await api.get_json("/api/gate-jobs")
-
-    assert run(scenario())["gateJobs"] == []
-    assert fake.calls == 0
+    assert after == ["899"]
 
 
 # -- dismiss --
