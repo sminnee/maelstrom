@@ -298,6 +298,9 @@ export function Canvas() {
         onEdgeClick={() => collapse()}
         onPaneClick={() => collapse()}
         elementsSelectable
+        // Its window listener cancels Space app-wide, so no pane scrolled with it.
+        // Drag pans already.
+        panActivationKeyCode={null}
       >
         <Background gap={24} color="var(--border)" />
         {shownNode && shownNodeAt && (

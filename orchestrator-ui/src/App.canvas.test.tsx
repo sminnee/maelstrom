@@ -2,7 +2,7 @@ import type { DeskBody } from './api/desk';
 import { keys } from './api/keys';
 import { deskIdForTask } from './protocol/deskId';
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { askQuestion } from './fake/moves';
@@ -62,6 +62,12 @@ describe('App', () => {
     await renderApp();
     const title = screen.getByRole('heading', { name: 'maelstrom' });
     expect(title.querySelector('img')).toHaveAttribute('src', '/logo.svg');
+  });
+
+  it('leaves Space to scroll the page, as the canvas has no pan key', async () => {
+    await renderApp();
+    const title = screen.getByRole('heading', { name: 'maelstrom' });
+    expect(fireEvent.keyDown(title, { key: ' ', code: 'Space' })).toBe(true);
   });
 
   it('renders one node per task on the desk, and one per free agent', async () => {
