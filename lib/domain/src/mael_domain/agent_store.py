@@ -162,7 +162,7 @@ class MilestoneStore(Protocol):
     async def list(self, agent_id: str = "") -> list[dict[str, Any]]: ...
 
 
-class SqliteMilestoneStore:
+class SqliteMilestoneStore(MilestoneStore):
     """Store one snapshot per stage an agent reaches, with its delta.
 
     The delta is computed on write, against the agent's previous snapshot: the
@@ -211,7 +211,7 @@ class SqliteMilestoneStore:
         return [_milestone_row(row) for row in rows]
 
 
-class InMemoryMilestoneStore:
+class InMemoryMilestoneStore(MilestoneStore):
     """A :class:`MilestoneStore` with no database, for a test and a bare server.
 
     Holds the rows :class:`SqliteMilestoneStore` would have written, in the
