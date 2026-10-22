@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from mael_domain.shared_dir import get_shared_dir
+SKILLS = Path(__file__).resolve().parents[1] / "skills"
 
 
 def _frontmatter(skill_file: Path) -> dict:
@@ -30,7 +30,7 @@ class TestSkillFrontmatterNames:
     """
 
     def test_every_skill_name_matches_its_directory(self):
-        skills_dir = get_shared_dir() / "skills"
+        skills_dir = SKILLS
 
         missing = []
         mismatches = []
