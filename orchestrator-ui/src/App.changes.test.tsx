@@ -651,6 +651,12 @@ describe('the Rendered view', () => {
     scrolled.mockReset();
   });
 
+  it('gives the file pane the focus on open, so the keys scroll it', async () => {
+    const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(PLACE) });
+    const dialog = await view(panel, 'auth/tokens.py');
+    expect(within(dialog).getByRole('region', { name: 'File' })).toHaveFocus();
+  });
+
   it('draws a text file as lines, in each mode', async () => {
     const { panel } = await openWithVersions({ old: FEATURE(PLACE), new: FEATURE(PLACE) });
     const dialog = await view(panel, 'auth/tokens.py');
