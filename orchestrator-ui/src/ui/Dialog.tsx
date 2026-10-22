@@ -20,6 +20,11 @@ import styles from './Dialog.module.css';
  * `boxProps` reach the `<dialog>` itself, for a caller that moves the box, as
  * the side sheet's drag does. A pointer handler in them runs before the
  * dialog's own.
+ *
+ * `initialFocus` takes the focus on open in place of the box. A dialog whose
+ * content scrolls in an inner pane gives it that pane: the browser scrolls the
+ * focused element or an ancestor, never a descendant, so the keys would
+ * scroll nothing.
  */
 export function Dialog({
   label,
@@ -28,6 +33,7 @@ export function Dialog({
   className,
   placement = 'centre',
   boxProps,
+  initialFocus,
   children,
 }: {
   /** The dialog's accessible name. */
@@ -41,6 +47,8 @@ export function Dialog({
   boxProps?: Omit<React.HTMLAttributes<HTMLDialogElement>, 'onCancel' | 'onClick'> & {
     [data: `data-${string}`]: string | undefined;
   };
+  /** The element focused on open, in place of the box. */
+  initialFocus?: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
 }) {
   const box = useRef<HTMLDialogElement>(null);
@@ -80,8 +88,8 @@ export function Dialog({
     // caller here unmounts it instead, and a removed element restores nothing.
     const opener = document.activeElement;
     // `showModal()` focuses the first field inside. Focus the box instead, so a
-    // screen reader reads the dialog from its start.
-    box.current?.focus({ preventScroll: true });
+    // screen reader reads the dialog from its start, unless the caller names `initialFocus`.
+    (initialFocus?.current ?? box.current)?.focus({ preventScroll: true });
     return () => {
       // The blur above ends the reveal already. This is the fallback, for a
       // reveal whose field no longer has the focus.
@@ -89,6 +97,8 @@ export function Dialog({
       if (opener instanceof HTMLElement && opener.isConnected)
         opener.focus({ preventScroll: true });
     };
+    // Focus on open only: a new ref object must not move the focus again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

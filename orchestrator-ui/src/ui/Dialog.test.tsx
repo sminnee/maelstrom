@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -95,6 +96,32 @@ describe('the dialog shell', () => {
     const box = open(onClose);
     fireEvent(box, new Event('cancel', { bubbles: false, cancelable: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Where the focus goes on open: a keyboard user's keys act on it. */
+describe('the focus on open', () => {
+  it('goes to the box, so a screen reader reads the dialog from its start', () => {
+    render(
+      <Dialog label="Test" onClose={() => {}}>
+        <button type="button">Go</button>
+      </Dialog>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Test' })).toHaveFocus();
+  });
+
+  it('goes to the initial focus, as an inner pane that scrolls takes it', () => {
+    function Paned() {
+      const pane = useRef<HTMLDivElement>(null);
+      return (
+        <Dialog label="Test" onClose={() => {}} initialFocus={pane}>
+          <button type="button">Go</button>
+          <div ref={pane} tabIndex={0} role="region" aria-label="Pane" />
+        </Dialog>
+      );
+    }
+    render(<Paned />);
+    expect(screen.getByRole('region', { name: 'Pane' })).toHaveFocus();
   });
 });
 
