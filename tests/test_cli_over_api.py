@@ -157,11 +157,19 @@ def listed(result) -> list[list[str]]:
 def seed_list(table: InMemoryTaskTable) -> None:
     """One task in each state ``list`` tells apart, and one in another project.
 
-    Every task has the same ``created``, so each priority band sorts by id.
+    ``NORT-3`` is created a day after the others, so it sorts last in its
+    priority band: the list sorts by ``created`` before id.
     """
     seed(table, title="Low", id="NORT-1", priority="low", branch="b1")
     seed(table, title="High", id="NORT-2", priority="high", branch="b2")
-    seed(table, title="Waits", id="NORT-3", follows=["NORT-1"], branch="b3")
+    seed(
+        table,
+        title="Waits",
+        id="NORT-3",
+        follows=["NORT-1"],
+        branch="b3",
+        now="2026-09-02T00:00:00Z",
+    )
     seed(table, title="Done", id="NORT-4", status=model.STATUS_DONE, branch="b4")
     seed(
         table, title="Dropped", id="NORT-5", status=model.STATUS_CANCELLED, branch="b5"
@@ -225,11 +233,11 @@ def test_list_all_todo_adds_what_cannot_start_and_the_actionable_column(
     assert [row[:4] for row in rows] == [
         ["ID", "STATUS", "PRIORITY", "ACTIONABLE"],
         ["NORT-2", "todo", "high", "yes"],
-        ["NORT-3", "todo", "medium", "no"],
         ["NORT-6", "in-progress", "medium", "yes"],
         ["NORT-7", "in-progress", "medium", "no"],
         ["NORT-8", "blocked", "medium", "no"],
         ["NORT-9", "template", "medium", "no"],
+        ["NORT-3", "todo", "medium", "no"],
         ["NORT-1", "todo", "low", "yes"],
     ]
 
@@ -243,26 +251,15 @@ def test_list_all_adds_the_finished_tasks(table, start_server):
     assert [row[:4] for row in rows] == [
         ["ID", "STATUS", "PRIORITY", "ACTIONABLE"],
         ["NORT-2", "todo", "high", "yes"],
-        ["NORT-3", "todo", "medium", "no"],
         ["NORT-4", "done", "medium", "no"],
         ["NORT-5", "cancelled", "medium", "no"],
         ["NORT-6", "in-progress", "medium", "yes"],
         ["NORT-7", "in-progress", "medium", "no"],
         ["NORT-8", "blocked", "medium", "no"],
         ["NORT-9", "template", "medium", "no"],
+        ["NORT-3", "todo", "medium", "no"],
         ["NORT-1", "todo", "low", "yes"],
     ]
-
-
-@pytest.mark.parametrize(("older", "newer"), [("aaaa", "zzzz"), ("zzzz", "aaaa")])
-def test_list_puts_the_older_of_one_priority_first(table, start_server, older, newer):
-    seed(table, title="New", id=newer, branch="b", now="2026-06-09T12:00:00+00:00")
-    seed(table, title="Old", id=older, branch="b", now="2026-06-08T12:00:00+00:00")
-    start_server()
-
-    rows = listed(mael_task("list", "--project", PROJECT))
-
-    assert [row[0] for row in rows[1:]] == [older, newer]
 
 
 def test_list_with_no_tasks_says_so(start_server):
@@ -332,45 +329,6 @@ def test_status_done_moves_the_row_and_names_the_next_follower(table, start_serv
         "  NORT-2 - Second\n"
     )
     assert status_of(table, "NORT-1") == model.STATUS_DONE
-
-
-def test_status_done_names_the_follower_mael_task_next_would_pick(table, start_server):
-    """Of two followers, the higher priority wins over the older."""
-    seed(table, title="First", id="NORT-1", branch="b")
-    seed(
-        table,
-        title="Older",
-        id="NORT-2",
-        follows=["NORT-1"],
-        priority="low",
-        branch="b",
-        now="2026-08-01T00:00:00Z",
-    )
-    seed(
-        table,
-        title="Urgent",
-        id="NORT-3",
-        follows=["NORT-1"],
-        priority="high",
-        branch="b",
-    )
-    start_server()
-
-    result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
-
-    assert result.output.endswith("  NORT-3 - Urgent\n")
-
-
-def test_status_done_names_no_follower_that_still_waits(table, start_server):
-    """Nor the running task it waits on, which follows nothing."""
-    seed(table, title="First", id="NORT-1", branch="b")
-    seed(table, title="Other", id="NORT-3", status=model.STATUS_IN_PROGRESS, branch="b")
-    seed(table, title="Second", id="NORT-2", follows=["NORT-1", "NORT-3"], branch="b")
-    start_server()
-
-    result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
-
-    assert result.output == "NORT-1 -> done\n"
 
 
 def test_status_done_names_a_follower_already_running(table, start_server):

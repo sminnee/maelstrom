@@ -20,36 +20,36 @@ from mael_domain.worktree import CloseResult
 # ---------------------------------------------------------------------------
 
 
+def _ctx():
+    mock_ctx = MagicMock()
+    mock_ctx.worktree = "alpha"
+    mock_ctx.project = "myproject"
+    mock_ctx.project_path = None  # skip copy-back-env path
+    mock_ctx.worktree_path = MagicMock()
+    mock_ctx.worktree_path.exists.return_value = True
+    return mock_ctx
+
+
+def _run(args, close_result, table=None):
+    """Run ``mael close``, and return the result and the tasks it left."""
+    runner = CliRunner()
+    table = table or InMemoryTaskTable()
+
+    async def task_table():
+        return table
+
+    with (
+        patch("mael_cli.cli.resolve_context", return_value=_ctx()),
+        patch("mael_domain.worktree_close.close_worktree", return_value=close_result),
+        patch("mael_domain.worktree_close.get_env_status", return_value=[]),
+        patch("mael_cli.cli.task_table", task_table),
+    ):
+        result = runner.invoke(cli, ["close", "myproject.alpha", *args])
+    return result, asyncio.run(list_tasks(table, project="myproject"))
+
+
 class TestCloseForceCli:
     """`mael close --force` task-creation behaviour via CliRunner."""
-
-    def _ctx(self):
-        mock_ctx = MagicMock()
-        mock_ctx.worktree = "alpha"
-        mock_ctx.project = "myproject"
-        mock_ctx.project_path = None  # skip copy-back-env path
-        mock_ctx.worktree_path = MagicMock()
-        mock_ctx.worktree_path.exists.return_value = True
-        return mock_ctx
-
-    def _run(self, args, close_result, table=None):
-        """Run ``mael close``, and return the result and the tasks it left."""
-        runner = CliRunner()
-        table = table or InMemoryTaskTable()
-
-        async def task_table():
-            return table
-
-        with (
-            patch("mael_cli.cli.resolve_context", return_value=self._ctx()),
-            patch(
-                "mael_domain.worktree_close.close_worktree", return_value=close_result
-            ),
-            patch("mael_domain.worktree_close.get_env_status", return_value=[]),
-            patch("mael_cli.cli.task_table", task_table),
-        ):
-            result = runner.invoke(cli, ["close", "myproject.alpha", *args])
-        return result, asyncio.run(list_tasks(table, project="myproject"))
 
     def test_force_with_unmerged_work_creates_reopen_task(self, monkeypatch):
         close_result = CloseResult(
@@ -61,7 +61,7 @@ class TestCloseForceCli:
         # The task belongs to the branch, not to the chain of the session
         # that ran the close.
         monkeypatch.setenv("MAEL_TASK_PARENT", "some-chain")
-        result, tasks = self._run(["--force"], close_result)
+        result, tasks = _run(["--force"], close_result)
 
         assert result.exit_code == 0
         [task] = tasks
@@ -79,7 +79,7 @@ class TestCloseForceCli:
         )
         table = InMemoryTaskTable()
         with patch.object(table, "save", side_effect=OSError("disk full")):
-            result, tasks = self._run(["--force"], close_result, table)
+            result, tasks = _run(["--force"], close_result, table)
 
         assert result.exit_code == 0
         assert "could not create reopen task for 'feature/work'" in result.output
@@ -92,7 +92,7 @@ class TestCloseForceCli:
             branch="feature/work",
             had_unmerged_work=False,
         )
-        result, tasks = self._run(["--force"], close_result)
+        result, tasks = _run(["--force"], close_result)
 
         assert result.exit_code == 0
         assert tasks == []
@@ -105,7 +105,7 @@ class TestCloseForceCli:
             branch="HEAD",
             had_unmerged_work=True,
         )
-        result, tasks = self._run(["--force"], close_result)
+        result, tasks = _run(["--force"], close_result)
 
         assert result.exit_code == 0
         assert tasks == []
@@ -119,7 +119,7 @@ class TestCloseForceCli:
         )
         runner = CliRunner()
         with (
-            patch("mael_cli.cli.resolve_context", return_value=self._ctx()),
+            patch("mael_cli.cli.resolve_context", return_value=_ctx()),
             patch(
                 "mael_domain.worktree_close.close_worktree", return_value=close_result
             ) as mock_close,
@@ -131,7 +131,7 @@ class TestCloseForceCli:
         assert kwargs["force"] is True
 
 
-class TestCloseDiscardCli(TestCloseForceCli):
+class TestCloseDiscardCli:
     def test_discard_does_not_create_a_reopen_task(self):
         close_result = CloseResult(
             success=True,
@@ -139,13 +139,13 @@ class TestCloseDiscardCli(TestCloseForceCli):
             branch="feature/work",
             had_unmerged_work=True,
         )
-        result, tasks = self._run(["--discard"], close_result)
+        result, tasks = _run(["--discard"], close_result)
 
         assert result.exit_code == 0
         assert tasks == []
 
     def test_discard_cannot_be_combined_with_force(self):
-        result, _ = self._run(
+        result, _ = _run(
             ["--discard", "--force"], CloseResult(success=True, message="Closed")
         )
 
@@ -153,7 +153,7 @@ class TestCloseDiscardCli(TestCloseForceCli):
         assert "--discard cannot be used with --force" in result.output
 
     def test_discard_cannot_be_combined_with_wait(self):
-        result, _ = self._run(
+        result, _ = _run(
             ["--discard", "--wait"], CloseResult(success=True, message="Closed")
         )
 

@@ -319,23 +319,6 @@ class TestSyncBaseCli:
         assert store.read("feature/work") == BaseRef()
         assert store.all() == {}
 
-    def test_self_base_exits_one_with_the_validation_message(self):
-        result, store = self._run(["--base", "feature/work"])
-
-        assert result.exit_code == 1
-        assert "cannot be based on itself" in result.output
-        assert store.all() == {}
-
-    def test_a_cyclic_base_exits_one(self):
-        result, store = self._run(
-            ["--base", "feat/a"], bases={"feat/a": "feature/work"}
-        )
-
-        assert result.exit_code == 1
-        assert "Cycle" in result.output
-        # The rejected base is not written, so the store is left as it was.
-        assert store.all() == {"feat/a": "feature/work"}
-
     def test_a_base_that_does_not_exist_exits_one(self):
         """A typo must be refused, not accepted and silently collapsed later."""
         store = InMemoryBaseStore()

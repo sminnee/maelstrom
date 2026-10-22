@@ -1905,6 +1905,16 @@ def creation_order(task: Task) -> tuple[str, str]:
     return (task.created, task.id)
 
 
+def pick_order(priority: str, created: str, id: str) -> tuple[int, str, str]:
+    """The sort key a selector picks by: higher priority first, then oldest.
+
+    ``created`` and ``id`` are the two parts of :func:`creation_order`. The
+    arguments are plain fields, so a caller that holds wire rows sorts by it
+    too.
+    """
+    return (priority_rank(priority), created, id)
+
+
 async def next_task(
     table: "TaskTable",
     project: str,
@@ -1924,7 +1934,7 @@ async def next_task(
     candidates = await list_tasks(
         table, project=project, status=STATUS_TODO, parent=parent
     )
-    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
+    candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     actionable = [t for t in candidates if await is_actionable(t, table)]
     if branch is not None:
         on_branch = next((t for t in actionable if t.branch == branch), None)
@@ -1951,7 +1961,7 @@ async def next_follower(
     to a single parent, so no ``parent`` filter is applied.
     """
     candidates = await list_tasks(table, project=project, status=STATUS_TODO)
-    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
+    candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     for t in candidates:
         if done_id in t.follows and await is_actionable(t, table):
             return t
@@ -1971,7 +1981,7 @@ async def running_follower(
     ``None`` when no direct follower is in progress.
     """
     candidates = await list_tasks(table, project=project, status=STATUS_IN_PROGRESS)
-    candidates.sort(key=lambda t: (priority_rank(t.priority), *creation_order(t)))
+    candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     for t in candidates:
         if done_id in t.follows:
             return t

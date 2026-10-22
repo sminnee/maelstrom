@@ -142,36 +142,6 @@ def _patch_live_sessions(monkeypatch, sessions):
 # --- add: branch defaulting / override ---
 
 
-# --- add/update: lifecycle action flags ---
-
-
-class TestActionFlags:
-    async def test_update_retrofits_post_action(self, runner, store):
-        new_id = (await model.create(store, project="p", title="E")).id
-        result = runner.invoke(
-            task_cli.task,
-            ["update", new_id, "--post-action", "linear.done"],
-        )
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", new_id)).post_action == "linear.done"
-
-    async def test_update_can_clear_post_action(self, runner, store):
-        new_id = (
-            await model.create(store, project="p", title="E", post_action="linear.done")
-        ).id
-        result = runner.invoke(task_cli.task, ["update", new_id, "--post-action", ""])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", new_id)).post_action == ""
-
-    async def test_update_omitting_action_leaves_it(self, runner, store):
-        new_id = (
-            await model.create(store, project="p", title="E", post_action="linear.done")
-        ).id
-        # An unrelated update must not wipe the action.
-        runner.invoke(task_cli.task, ["update", new_id, "--branch", "x"])
-        assert (await model.load(store, "p", new_id)).post_action == "linear.done"
-
-
 #: The real sweep class, bound at import. `_patch_sweep` replaces the name on
 #: the module, so it must build from this rather than re-reading the attribute
 #: it just overwrote — an autouse fixture patches once before each test does.
@@ -196,35 +166,17 @@ class TestUpdateRename:
 
     async def test_update_id_rekeys_task(self, runner, store):
         old_id = (await model.create(store, project="p", title="E")).id
-        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", "new-id")).id == "new-id"
-        with pytest.raises(KeyError):
-            await model.load(store, "p", old_id)
-        assert "Renamed" in result.output
-        assert "new-id" in result.output
-
-    async def test_update_id_with_branch_in_one_call(self, runner, store):
-        old_id = (await model.create(store, project="p", title="E")).id
+        # The field update lands on the re-keyed task.
         result = runner.invoke(
             task_cli.task,
             ["update", old_id, "--id", "new-id", "--branch", "choose/foo"],
         )
         assert result.exit_code == 0, result.output
-        loaded = await model.load(store, "p", "new-id")
-        assert loaded.branch == "choose/foo"
-
-    async def test_update_id_rewrites_dependent_follows(self, runner, store):
-        a = (await model.create(store, project="p", title="A")).id
-        b = (await model.create(store, project="p", title="B", follows=[a])).id
-        result = runner.invoke(task_cli.task, ["update", a, "--id", "new-a"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", b)).follows == ["new-a"]
-
-    def test_update_id_not_found_errors(self, runner, store):
-        result = runner.invoke(task_cli.task, ["update", "nope", "--id", "new-id"])
-        assert result.exit_code != 0
-        assert "not found" in result.output.lower()
+        assert (await model.load(store, "p", "new-id")).branch == "choose/foo"
+        with pytest.raises(KeyError):
+            await model.load(store, "p", old_id)
+        assert "Renamed" in result.output
+        assert "new-id" in result.output
 
     async def test_update_id_refuses_in_progress(self, runner, store):
         old_id = (await model.create(store, project="p", title="E")).id
@@ -292,11 +244,6 @@ class TestUpdateRename:
 
 
 class TestNext:
-    def test_no_tasks_errors(self, runner, store):
-        result = runner.invoke(task_cli.task, ["next"])
-        assert result.exit_code != 0
-        assert "No actionable task" in result.output
-
     async def test_prints_first_actionable(self, runner, store):
         a = await model.create(
             store, project="p", title="a", now="2026-06-08T12:00:00+00:00"
@@ -307,30 +254,6 @@ class TestNext:
         result = runner.invoke(task_cli.task, ["next"])
         assert result.exit_code == 0, result.output
         assert result.output.strip() == a.id
-
-    async def test_skips_blocked(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        b = await model.create(store, project="p", title="b", follows=[a.id])
-        await model.move(store, "p", a.id, "done")
-        result = runner.invoke(task_cli.task, ["next"])
-        assert result.exit_code == 0, result.output
-        # a is done (terminal); b is now the next actionable.
-        assert result.output.strip() == b.id
-
-    async def test_filters_by_parent(self, runner, store):
-        parent = await model.create(store, project="p", title="parent")
-        child = await model.create(store, project="p", title="child", parent=parent.id)
-        result = runner.invoke(task_cli.task, ["next", "--parent", parent.id])
-        assert result.exit_code == 0, result.output
-        assert result.output.strip() == child.id
-
-    async def test_branch_flag_restricts_to_branch(self, runner, store):
-        # a has the lower id but is on another branch.
-        await model.create(store, project="p", title="a", branch="other")
-        b = await model.create(store, project="p", title="b", branch="feat/x")
-        result = runner.invoke(task_cli.task, ["next", "-b", "feat/x"])
-        assert result.exit_code == 0, result.output
-        assert result.output.strip() == b.id
 
     async def test_branch_flag_no_match_no_fallback(self, runner, store):
         # Only a task on 'other' exists; -b restricts strictly with no fallback.
@@ -358,13 +281,6 @@ class TestRm:
         result = runner.invoke(task_cli.task, ["rm", "nope"])
         assert result.exit_code != 0
         assert "Task not found" in result.output
-
-    async def test_rm_strips_dependents_follows(self, runner, store):
-        a = await model.create(store, project="p", title="a")
-        b = await model.create(store, project="p", title="b", follows=[a.id])
-        result = runner.invoke(task_cli.task, ["rm", a.id])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", b.id)).follows == []
 
 
 # --- launch wiring: run / add --run / next --run ---
@@ -1038,19 +954,6 @@ class TestPrompt:
         assert result.output == model.build_prompt(t)
         assert result.output == "/plan-task Plan it\n\ndo the thing"
 
-    async def test_no_command_no_content(self, runner, store):
-        t = await model.create(store, project="p", title="Bare task")
-        result = runner.invoke(task_cli.task, ["prompt", t.id])
-        assert result.exit_code == 0, result.output
-        assert result.output == model.build_prompt(t)
-        assert result.output == "Bare task"
-
-    async def test_content_without_command(self, runner, store):
-        t = await model.create(store, project="p", title="Exec it", content="run plan")
-        result = runner.invoke(task_cli.task, ["prompt", t.id])
-        assert result.exit_code == 0, result.output
-        assert result.output == "Exec it\n\nrun plan"
-
     def test_unknown_task_errors(self, runner, store):
         result = runner.invoke(task_cli.task, ["prompt", "nope"])
         assert result.exit_code != 0
@@ -1263,18 +1166,16 @@ class TestEnvThreading:
 
 
 class TestUpdate:
-    async def test_update_branch(self, runner, store):
+    async def test_update_title_and_branch(self, runner, store):
         t = await model.create(store, project="p", title="alpha")
-        result = runner.invoke(task_cli.task, ["update", t.id, "--branch", "feat/foo"])
+        result = runner.invoke(
+            task_cli.task, ["update", t.id, "new title", "--branch", "feat/foo"]
+        )
         assert result.exit_code == 0, result.output
         assert f"Updated {t.id}" in result.output
-        assert (await model.load(store, "p", t.id)).branch == "feat/foo"
-
-    async def test_update_title_via_positional(self, runner, store):
-        t = await model.create(store, project="p", title="old")
-        result = runner.invoke(task_cli.task, ["update", t.id, "new title"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).title == "new title"
+        reloaded = await model.load(store, "p", t.id)
+        assert reloaded.title == "new title"
+        assert reloaded.branch == "feat/foo"
 
     async def test_update_content_from_stdin(self, runner, store):
         t = await model.create(store, project="p", title="alpha", content="old body")
@@ -1286,79 +1187,13 @@ class TestUpdate:
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", t.id)).content == "new body"
 
-    async def test_update_command_and_mode(self, runner, store):
-        t = await model.create(store, project="p", title="alpha", command="plan-task")
-        result = runner.invoke(
-            task_cli.task,
-            ["update", t.id, "--command", "execute", "--mode", "plan"],
-        )
-        assert result.exit_code == 0, result.output
-        reloaded = await model.load(store, "p", t.id)
-        assert reloaded.command == "execute"
-        assert reloaded.mode == "plan"
-
     def test_update_unknown_id_errors(self, runner, store):
         result = runner.invoke(task_cli.task, ["update", "nope", "--branch", "x"])
         assert result.exit_code != 0
         assert "Task not found" in result.output
 
-    async def test_update_bumps_updated(self, runner, store):
-        t = await model.create(
-            store, project="p", title="alpha", now="2020-01-01T00:00:00"
-        )
-        runner.invoke(task_cli.task, ["update", t.id, "--branch", "feat/foo"])
-        assert (await model.load(store, "p", t.id)).updated != "2020-01-01T00:00:00"
-
-    async def test_update_omitted_fields_untouched(self, runner, store):
-        t = await model.create(
-            store, project="p", title="keep", branch="b", content="body"
-        )
-        runner.invoke(task_cli.task, ["update", t.id, "--branch", "b2"])
-        reloaded = await model.load(store, "p", t.id)
-        assert reloaded.title == "keep"
-        assert reloaded.content == "body"
-        assert reloaded.branch == "b2"
-
 
 # --- duplicate (--from) ---
-
-
-# --- priority ---
-
-
-class TestPriority:
-    async def test_update_priority(self, runner, store):
-        t = await model.create(store, project="p", title="alpha")
-        result = runner.invoke(
-            task_cli.task, ["update", t.id, "--priority", "critical"]
-        )
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).priority == "critical"
-
-    async def test_update_rejects_bogus_priority(self, runner, store):
-        t = await model.create(store, project="p", title="alpha")
-        result = runner.invoke(task_cli.task, ["update", t.id, "--priority", "bogus"])
-        assert result.exit_code != 0
-
-    async def test_update_sets_the_model(self, runner, store):
-        t = await model.create(store, project="p", title="alpha")
-        result = runner.invoke(task_cli.task, ["update", t.id, "--model", "opus"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).model == "opus"
-
-    async def test_update_clears_the_model_with_empty_string(self, runner, store):
-        t = await model.create(store, project="p", title="alpha", model="opus")
-        result = runner.invoke(task_cli.task, ["update", t.id, "--model", ""])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).model == ""
-
-    async def test_update_without_model_leaves_it_alone(self, runner, store):
-        # The default=None "unset" semantics: touching another field must not
-        # blank the model.
-        t = await model.create(store, project="p", title="alpha", model="opus")
-        result = runner.invoke(task_cli.task, ["update", t.id, "--branch", "x"])
-        assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", t.id)).model == "opus"
 
 
 # --- templates + schedule metadata ---

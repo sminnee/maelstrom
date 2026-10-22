@@ -468,11 +468,6 @@ def _fetch_rows() -> list[TaskRow]:
     return OrchestratorClient.from_config().get("/api/tasks")["tasks"]
 
 
-def _pick_order(t: TaskRow) -> tuple[int, str, str]:
-    """The order ``mael task next`` picks by: priority, then oldest first."""
-    return (model.priority_rank(t["priority"]), t["created"], t["notebookId"])
-
-
 def _notebook_id(wire_id: str) -> str:
     """The notebook id of a wire id, ``<project>/<notebook id>``."""
     return wire_id.rpartition("/")[2]
@@ -1361,7 +1356,9 @@ async def task_list(
     show_all_in_folder = status == model.STATUS_TEMPLATE
 
     # The same order ``mael task next`` picks by.
-    tasks.sort(key=_pick_order)
+    tasks.sort(
+        key=lambda t: model.pick_order(t["priority"], t["created"], t["notebookId"])
+    )
 
     rows = []
     for t in tasks:

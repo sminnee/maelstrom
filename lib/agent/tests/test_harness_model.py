@@ -40,6 +40,25 @@ def test_model_reference_resolves_the_supported_forms(model, harness, alias):
     assert ref.alias == alias
 
 
+@pytest.mark.parametrize(
+    ("model", "cli_args"),
+    [
+        ("codex:astra", ("--model", "gpt-6-astra")),
+        ("codex:sol", ("--model", "gpt-5.6-sol", "-c", "model_reasoning_effort=low")),
+        (
+            "codex:terra",
+            ("--model", "gpt-5.6-terra", "-c", "model_reasoning_effort=medium"),
+        ),
+        ("codex:luna", ("--model", "gpt-5.6-luna")),
+        # An alias the table does not know passes through to the CLI.
+        ("codex:custom", ("--model", "custom")),
+        ("opencode:kimi", ("--model", "kimi")),
+    ],
+)
+def test_cli_args_resolve_codex_aliases_and_their_effort_defaults(model, cli_args):
+    assert resolve_model_reference(model).cli_args == cli_args
+
+
 def test_codex_mode_settings_never_request_an_interactive_plan_mode():
     assert resolve_model_reference("codex:terra", "plan").mode_args == (
         "--sandbox",

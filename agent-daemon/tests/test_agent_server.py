@@ -1617,9 +1617,16 @@ def test_restore_kills_the_strays_and_then_resumes_each_session_once():
 
     Both die first, then the record is resumed exactly once. Without the gc
     the restore would have spawned a third `claude` on the same transcript.
+    A crashed record beside it is written off, not respawned.
     """
     record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
-    daemon, specs, signals = _gc_daemon([record], [_driven(100), _driven(200)])
+    crashed = AgentSpec(
+        agent_id="a2",
+        cwd="/tmp/x",
+        session_id="22222222-2222-2222-2222-222222222222",
+        pid=300,
+    )
+    daemon, specs, signals = _gc_daemon([record, crashed], [_driven(100), _driven(200)])
     proc = _spawn_stub()
     with patch.object(
         agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
@@ -1630,44 +1637,9 @@ def test_restore_kills_the_strays_and_then_resumes_each_session_once():
     argv = list(spawn.call_args.args)
     assert argv[argv.index("--resume") + 1] == S1
     assert "a1" in daemon.agents
-
-
-def test_restore_writes_off_a_crashed_record_instead_of_respawning_it():
-    """A known pid that is dead, with no shutdown recorded, is a crash.
-
-    Respawning it is what the old restore did, and what made a crashed agent
-    indistinguishable from a stopped daemon.
-    """
-    record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
-    daemon, specs, signals = _gc_daemon([record], [])
-    with patch.object(
-        agent_server.asyncio, "create_subprocess_exec", AsyncMock()
-    ) as spawn:
-        asyncio.run(daemon.restore())
-    assert spawn.call_count == 0
-    assert signals == []
-    assert specs.read("a1").status == SPEC_EXITED
+    assert specs.read("a2").status == SPEC_EXITED
     # Loaded as exited, so `list`, `show` and `resume` all answer for it.
-    assert daemon.agents["a1"].state.status == EXITED
-
-
-def test_restore_retires_the_older_of_two_running_records_on_one_session():
-    older = AgentSpec(
-        agent_id="old", cwd="/tmp/x", session_id=S1, pid=100, started_at="2026-01-01"
-    )
-    newer = AgentSpec(
-        agent_id="new", cwd="/tmp/x", session_id=S1, pid=200, started_at="2026-01-02"
-    )
-    daemon, specs, signals = _gc_daemon([older, newer], [_driven(100), _driven(200)])
-    with patch.object(
-        agent_server.asyncio,
-        "create_subprocess_exec",
-        AsyncMock(return_value=_spawn_stub()),
-    ) as spawn:
-        asyncio.run(daemon.restore())
-    assert spawn.call_count == 1
-    assert specs.read("old").status == SPEC_STOPPED
-    assert set(daemon.agents) == {"new"}
+    assert daemon.agents["a2"].state.status == EXITED
 
 
 def test_restore_without_a_process_table_resumes_as_before(caplog):

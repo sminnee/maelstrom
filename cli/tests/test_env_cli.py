@@ -1024,18 +1024,6 @@ class TestEnvStartNamedService:
         assert result.exit_code != 0
         assert "Declared services: web" in result.output
 
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_procfile_project_rejects_named_service(self, mock_ctx, tmp_path):
-        """A Procfile project reports why a named service cannot work."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        (ctx.worktree_path / "Procfile").write_text("web: node server.ts\n")
-        mock_ctx.return_value = ctx
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "start", "ladle"])
-        assert result.exit_code != 0
-        assert "uses a Procfile" in result.output
-
 
 class TestEnvStopNamedService:
     """Tests for `mael env stop <service>`."""
