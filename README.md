@@ -135,7 +135,7 @@ uv sync --all-extras           # install dev dependencies
 uv run pytest -m 'not slow'    # tests, skipping slow e2e
 uv run pytest                  # everything
 uv run pytest --cov=mael_cli --cov=mael_domain  # with coverage
-bin/lint                       # ruff lint, ruff format check, pyright, vulture
+bin/lint                       # ruff lint, ruff format check, pyright, import contracts, vulture
 ```
 
 ## Contributing

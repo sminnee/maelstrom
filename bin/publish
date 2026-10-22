@@ -38,8 +38,14 @@ VERSIONED: list[tuple[Path, Path | None]] = [
     (Path("lib/common/pyproject.toml"), Path("lib/common/src/mael_common/__init__.py")),
     (Path("lib/agent/pyproject.toml"), Path("lib/agent/src/mael_agent/__init__.py")),
     (Path("lib/domain/pyproject.toml"), Path("lib/domain/src/mael_domain/__init__.py")),
-    (Path("agent-daemon/pyproject.toml"), Path("agent-daemon/src/mael_daemon/__init__.py")),
-    (Path("orchestrator-api/pyproject.toml"), Path("orchestrator-api/src/mael_orchestrator/__init__.py")),
+    (
+        Path("agent-daemon/pyproject.toml"),
+        Path("agent-daemon/src/mael_daemon/__init__.py"),
+    ),
+    (
+        Path("orchestrator-api/pyproject.toml"),
+        Path("orchestrator-api/src/mael_orchestrator/__init__.py"),
+    ),
 ]
 LOCK = Path("uv.lock")
 DIST = Path("dist")
@@ -56,11 +62,15 @@ def load_token_from_env_file() -> None:
         line = raw.strip()
         if not line or line.startswith("#") or not line.startswith("UV_PUBLISH_TOKEN="):
             continue
-        os.environ.setdefault("UV_PUBLISH_TOKEN", line.split("=", 1)[1].strip().strip("\"'"))
+        os.environ.setdefault(
+            "UV_PUBLISH_TOKEN", line.split("=", 1)[1].strip().strip("\"'")
+        )
 
 
 def current_version() -> str:
-    match = re.search(r'^version = "(.+?)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE)
+    match = re.search(
+        r'^version = "(.+?)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE
+    )
     if not match:
         sys.exit("Error: could not find version in pyproject.toml")
     return match.group(1)
@@ -87,13 +97,17 @@ def write_version(old: str, new: str) -> None:
     """
     for pyproject, init in VERSIONED:
         pyproject.write_text(
-            pyproject.read_text(encoding="utf-8").replace(f'version = "{old}"', f'version = "{new}"', 1),
+            pyproject.read_text(encoding="utf-8").replace(
+                f'version = "{old}"', f'version = "{new}"', 1
+            ),
             encoding="utf-8",
         )
         if init is None:
             continue
         init.write_text(
-            init.read_text(encoding="utf-8").replace(f'__version__ = "{old}"', f'__version__ = "{new}"', 1),
+            init.read_text(encoding="utf-8").replace(
+                f'__version__ = "{old}"', f'__version__ = "{new}"', 1
+            ),
             encoding="utf-8",
         )
     run("uv", "lock")
@@ -120,14 +134,18 @@ def require_release_notes() -> None:
     if not CHANGELOG.exists():
         sys.exit(f"Error: {CHANGELOG} not found")
     if not unreleased_body():
-        sys.exit(f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first.")
+        sys.exit(
+            f"Error: the '{UNRELEASED_HEADING}' section of {CHANGELOG} is empty. Write the release notes first."
+        )
 
 
 def retitle_unreleased(new: str, released_on: str) -> None:
     """Rename Unreleased to the version being released, and open a fresh one."""
     text = CHANGELOG.read_text(encoding="utf-8")
     CHANGELOG.write_text(
-        text.replace(UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1),
+        text.replace(
+            UNRELEASED_HEADING, f"{UNRELEASED_HEADING}\n\n## [{new}] - {released_on}", 1
+        ),
         encoding="utf-8",
     )
 
@@ -136,7 +154,17 @@ def build(outdir: Path) -> None:
     """Build the one wheel this release uploads: the CLI's, into ``outdir``."""
     # --directory, so a caller outside the repository builds this checkout.
     root = Path(__file__).resolve().parent.parent
-    run("uv", "build", "--directory", str(root), "--package", "sminnee-maelstrom", "--wheel", "-o", str(outdir.resolve()))
+    run(
+        "uv",
+        "build",
+        "--directory",
+        str(root),
+        "--package",
+        "sminnee-maelstrom",
+        "--wheel",
+        "-o",
+        str(outdir.resolve()),
+    )
 
 
 def run(*command: str) -> None:
@@ -155,7 +183,9 @@ def require_clean_worktree() -> None:
     failed upload rolls it back with ``reset --hard``. Both are only safe when
     nothing else is in flight.
     """
-    result = subprocess.run(("git", "status", "--porcelain"), check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        ("git", "status", "--porcelain"), check=True, capture_output=True, text=True
+    )
     if result.stdout.strip():
         sys.exit("Error: working tree is not clean. Commit or stash first.")
 
@@ -165,7 +195,9 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--minor", action="store_true", help="bump the minor version")
     group.add_argument("--major", action="store_true", help="bump the major version")
-    parser.add_argument("--dry-run", action="store_true", help="build only; do not publish or tag")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="build only; do not publish or tag"
+    )
     args = parser.parse_args()
 
     if not PYPROJECT.exists():
@@ -216,7 +248,10 @@ def main() -> int:
     try:
         run("uv", "publish")
     except subprocess.CalledProcessError:
-        print(f"Publish failed. Rolling back the release commit for v{new}.", file=sys.stderr)
+        print(
+            f"Publish failed. Rolling back the release commit for v{new}.",
+            file=sys.stderr,
+        )
         try:
             run("git", "reset", "--hard", "HEAD~1")
         except subprocess.CalledProcessError:

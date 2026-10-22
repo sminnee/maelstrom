@@ -41,8 +41,8 @@ bin/lint                           # lint: ruff lint, ruff format check, pyright
 `bin/publish` runs the same three before it uploads anything. During development
 `uv run pytest -m 'not slow'` skips the slow tests for a faster loop.
 
-`ruff format` decides the layout, so let it. `bin/lint` only checks; run
-`uv run ruff format src tests lib agent-daemon orchestrator-api conftest.py` to apply it.
+`ruff format` decides the layout, so let it. `bin/lint` only checks; run `uv run ruff format .`
+to apply it. `bin/lint` reads the same paths.
 
 The `web` gate runs these commands for a change under `orchestrator-ui/`:
 
