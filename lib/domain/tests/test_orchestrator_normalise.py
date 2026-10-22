@@ -22,8 +22,6 @@ from agent_fixtures import (
     read_stamped_fixture,
 )
 
-from mael_daemon import agent_model
-from mael_domain import document_tags
 from mael_domain import task as task_model
 from mael_domain.attachments import attachment_urls
 from mael_domain.document_tags import CompactRequest, ParamSet, read_worktree_file
@@ -2454,18 +2452,6 @@ def test_a_subagents_plan_approval_reports_no_milestone():
     """
     out = replay_plan_decision(allow=True, parent="ag0")
     assert out.milestone is None
-
-
-def test_both_note_patterns_are_still_in_step():
-    """Each reader holds its own copy, so neither depends on the other.
-
-    The patterns only: what each reader *does* with a match differs on purpose.
-    `read_tags` skips a `<note>` inside a tag it has already cut, where this
-    module's `read_note` has no spans to skip and takes the last match. Only the
-    tag's spelling is shared, and duplicated text drifts silently.
-    """
-    assert agent_model._NOTE_TAG.pattern == document_tags._NOTE_TAG.pattern
-    assert agent_model._NOTE_TAG.flags == document_tags._NOTE_TAG.flags
 
 
 # --- a partial message -----------------------------------------------------

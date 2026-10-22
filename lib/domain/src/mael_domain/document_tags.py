@@ -58,6 +58,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from mael_agent.tags import ATTRIBUTES, NOTE_TAG
+
 #: Turns one image tag into the markdown that replaces it, or ``None`` when the
 #: file may not be shown. The registry is what decides, so the decision is
 #: injected rather than made here.
@@ -69,23 +71,13 @@ KINDS = ("plan", "tasks", "pr", "review", "verification", "other")
 DEFAULT_KIND = "other"
 
 _ATTRIBUTE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
-#: What sits between a tag's name and its closing ``>``: quoted values, and
-#: anything that is neither a quote nor a ``>``. A tag ends at the ``>`` that
-#: closes it, so a value may hold one — a title reading ``A > B``, or a
-#: placeholder an agent copied out of a skill.
-_ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
-_FILE_TAG = re.compile(rf"<doc-file\b{_ATTRIBUTES}>")
-_IMAGE_TAG = re.compile(rf"<image\b{_ATTRIBUTES}>")
-#: What the agent is doing now. No attributes are read; the body is the note.
-#: ``agent_model`` holds its own copy of this pattern, because the daemon reads
-#: the same tag without depending on the orchestrator. The two are kept in step
-#: by ``test_both_readers_agree_on_the_note_tag``.
-_NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
+_FILE_TAG = re.compile(rf"<doc-file\b{ATTRIBUTES}>")
+_IMAGE_TAG = re.compile(rf"<image\b{ATTRIBUTES}>")
 #: Which stage of the work the agent has just reached. No attributes are read;
 #: the body is the name. The daemon holds no copy of this pattern: it cuts every
 #: marker by shape, so only this module knows what a milestone is called.
 _MILESTONE_TAG = re.compile(
-    rf"<milestone\b{_ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
+    rf"<milestone\b{ATTRIBUTES}>\n?(.*?)\n?</milestone>", re.DOTALL
 )
 
 #: A PR the agent registers on its task. Only ``rel="gh-pr"`` is read; a link
@@ -112,7 +104,7 @@ _PARAM_VALUES = {"on": True, "off": False}
 #: the summary. The body may not cross another opening, so two bare markers
 #: and a later close do not read as one.
 _COMPACT_TAG = re.compile(
-    rf"<compact-session\b{_ATTRIBUTES}>"
+    rf"<compact-session\b{ATTRIBUTES}>"
     r"(?:((?:(?!<compact-session\b).)*?)</compact-session>)?",
     re.DOTALL,
 )
@@ -257,7 +249,7 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         spans.append(match.span())
 
     note = ""
-    for match in _NOTE_TAG.finditer(text):
+    for match in NOTE_TAG.finditer(text):
         # A `<note>` inside a tag already cut is that tag's text.
         if any(start <= match.start() < end for start, end in spans):
             continue
@@ -408,7 +400,7 @@ _HALF_TAG = re.compile(
     rf'</?(?:{_PREFIXES})?$|</?(?:{_NAMES})\b(?:"[^"]*"|[^>"])*(?:"[^"]*)?$'
 )
 _BODY_OPENING = re.compile(
-    rf"<({'|'.join(_BODY_MARKERS)})\b{_ATTRIBUTES}>|(?P<link>{_PR_LINK_OPENING})"
+    rf"<({'|'.join(_BODY_MARKERS)})\b{ATTRIBUTES}>|(?P<link>{_PR_LINK_OPENING})"
 )
 _FENCE_OPENING = re.compile(r"^(```|~~~)", re.MULTILINE)
 #: Stands where an image tag was while :func:`read_tags` runs, and is then cut.

@@ -42,6 +42,7 @@ from mael_agent.agent_wire import (
     usage_of,
 )
 from mael_agent.harness_model import HARNESS_TYPE_ENV, TRANSPORT_DAEMON
+from mael_agent.tags import ATTRIBUTES, NOTE_TAG
 from mael_common.util import sanitise_child_env
 
 
@@ -579,21 +580,13 @@ MESSAGE_SUMMARY_CHARS = 60
 #: note is authored to be read whole, where a message is cut to a table cell.
 NOTE_CHARS = 240
 
-#: What sits between a tag's name and its closing ``>``: quoted values, and
-#: anything that is neither a quote nor a ``>``.
-_ATTRIBUTES = r'((?:"[^"]*"|[^>"])*)'
-#: What the agent is doing now. No attributes are read; the body is the note.
-#: The orchestrator's ``document_tags`` holds its own copy of this pattern: both
-#: readers cut the tag, and the daemon does not depend on the orchestrator to do
-#: it. ``test_both_readers_agree_on_the_note_tag`` keeps the two in step.
-_NOTE_TAG = re.compile(rf"<note\b{_ATTRIBUTES}>\n?(.*?)\n?</note>", re.DOTALL)
 #: A marker's syntax: any lowercase tag, opening or closing, wherever it sits.
 #: The daemon reads nothing from a marker — the orchestrator owns the vocabulary
 #: and the ledger — but the syntax must not stand as the agent's last message in
 #: ``mael agent list``. Matching by shape is what keeps the two layers apart: a
 #: name list here would leak every marker the orchestrator gained afterwards, and
 #: ``<user-attention>`` opens every message an agent writes.
-_MARKER_TAG = re.compile(rf"</?[a-z][a-z0-9-]*\b{_ATTRIBUTES}>")
+_MARKER_TAG = re.compile(rf"</?[a-z][a-z0-9-]*\b{ATTRIBUTES}>")
 #: A fenced code block, whose content is prose about code rather than a marker.
 #: Agents write HTML and XML in fences, and a scrub that reached inside one would
 #: strip the tags it was quoting.
@@ -639,11 +632,11 @@ def read_note(text: str) -> tuple[str, str]:
     The span is cut because a note is a field, not prose the reader sees twice.
     """
     note = ""
-    for match in _NOTE_TAG.finditer(text):
+    for match in NOTE_TAG.finditer(text):
         note = match.group(2)
     if not note:
         return text, ""
-    return re.sub(r"\n{3,}", "\n\n", _NOTE_TAG.sub("", text)).strip(), note
+    return re.sub(r"\n{3,}", "\n\n", NOTE_TAG.sub("", text)).strip(), note
 
 
 def _message_texts(event: dict[str, Any]) -> list[str]:
