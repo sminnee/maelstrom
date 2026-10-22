@@ -69,6 +69,7 @@ the worktree table. A task read is now a query.
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PUSHED           the owner streams it; the database holds nothing live   │
 │  live sessions        The agent host already works this way.             │
+│  gate jobs            tangier streams each change to the gate watch.     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ PROGRESSIVE      a slow write answers at once, then reports itself       │
 │  worktree setup  command ──► row at `preparing` ──► reply                │
@@ -170,11 +171,6 @@ refresher. Losing the whole table costs one slow read, never data.
 
 Worktrees and pull requests are cached. Git and GitHub own them.
 
-**Gate jobs** are cached too, but in memory only: tangier owns them, and a server restart reads
-them again. One server poll serves every open browser, where a pass-through route would run
-tangier once per client. A later feature that tells an agent when its gate job ends needs to see
-each change on the server, and the world kind gives it the old and the new job.
-
 The **PR state** on each worktree row has one owner: the orchestrator's `PrStateCache`. It alone
 calls `gh` for it. See "The PR read comes before the rows" in
 [orchestrator-server.md](orchestrator-server.md).
@@ -208,6 +204,11 @@ The owner holds the state and streams it. The database holds nothing live.
 A live session works this way already, and it is the fastest and most correct subsystem
 here. Caching live agent state would add a second place for that state to be wrong. This is the
 agent's running state only — what started it is the canonical **Agent record**, above.
+
+**Gate jobs** are pushed too. Tangier owns them, and `tangier gate status --watch` streams each
+change to one server process. The server holds them in memory only, and a restarted watch starts
+with a full snapshot. One watch serves every open browser. See "The gate watch" in
+[orchestrator-server.md](orchestrator-server.md).
 
 A poll may still run as a reconciliation net — the server reconciles the host's `list` against
 the world every 2 s — but it corrects the stream rather than replacing it.

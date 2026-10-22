@@ -1,102 +1,116 @@
-"""The server's door onto tangier's gate jobs, against a stand-in ``tangier``."""
+"""The server's door onto tangier's gate watch, against a stand-in ``tangier``."""
 
+import asyncio
 import json
 import os
+from contextlib import aclosing
 
 import pytest
 
-from mael_orchestrator.gate_source import GateSourceError, gate_jobs
+from mael_orchestrator.gate_source import GateSourceError, watch_gates
 
-STATUS = """{
-  "machine": {"slots_in_use": 1, "max_running": 4, "queued": 1, "load": 3.2,
-              "cpus": 8, "memory_total_bytes": null,
-              "jobs_cpu_percent": 94.0, "jobs_rss_bytes": 112197632},
-  "running": [
-    {"id": 898, "state": "running", "queue_position": null,
-     "worktree": "/p/northwind-alpha", "head": "a2fc5ee2", "dirty": false,
-     "started": "2026-10-21T02:03:20+00:00",
-     "usage": {"cpu_percent": 94.0, "rss_bytes": 112197632, "processes": 3},
-     "gates": [{"name": "test", "state": "running"}]}
-  ],
-  "queued": [
-    {"id": 899, "state": "queued", "queue_position": 1,
-     "worktree": "/p/northwind-alpha", "head": "a2fc5ee2", "dirty": false,
-     "started": "2026-10-21T02:03:25+00:00", "usage": null,
-     "gates": [{"name": "lint", "state": "pending"}]}
-  ],
-  "recent": [
-    {"id": 897, "state": "passed", "queue_position": null,
-     "worktree": "/p/northwind-alpha", "head": "a2fc5ee2", "dirty": false,
-     "started": "2026-10-21T01:00:00+00:00", "usage": null, "gates": []}
-  ],
-  "not_found": []
-}
-"""
+STATUS = {"type": "status", "running": [], "queued": [], "recent": []}
+JOB = {"type": "job", "previous": None, "job": {"id": 7, "state": "queued"}}
 
 
-def _fake_tangier(tmp_path, monkeypatch, output: str, exit_code: int = 0):
-    """Put a stand-in ``tangier`` first on PATH that prints ``output``.
+def _fake_tangier(tmp_path, monkeypatch, lines: list[str], then: str = "exit 0"):
+    """Put a stand-in ``tangier`` first on PATH that prints ``lines``, then runs ``then``.
 
-    Returns the file that logs each call's arguments.
+    Returns the file that logs each call's arguments, and the file the
+    stand-in writes its pid to.
     """
     bin_dir = tmp_path / "fake-bin"
     bin_dir.mkdir(exist_ok=True)
     log = tmp_path / "tangier-args.log"
+    pid = tmp_path / "tangier.pid"
+    output = "".join(f"{line}\n" for line in lines)
     script = bin_dir / "tangier"
     script.write_text(
-        f"#!/bin/sh\necho \"$*\" >> {log}\ncat <<'OUT'\n{output}OUT\nexit {exit_code}\n"
+        f'#!/bin/sh\necho "$*" >> {log}\necho $$ > {pid}\n'
+        f"cat <<'OUT'\n{output}OUT\n{then}\n"
     )
     script.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    return log
+    return log, pid
 
 
-async def test_the_jobs_are_the_running_then_the_queued(tmp_path, monkeypatch):
-    """Not ``recent``: the finished jobs are not on the list."""
-    log = _fake_tangier(tmp_path, monkeypatch, STATUS)
-    status = json.loads(STATUS)
-    assert await gate_jobs() == status["running"] + status["queued"]
-    assert log.read_text() == "gate status --all --running --json\n"
+async def _read(n: int) -> list[dict]:
+    seen = []
+    async with aclosing(watch_gates()) as events:
+        async for event in events:
+            seen.append(event)
+            if len(seen) == n:
+                break
+    return seen
 
 
-async def test_an_idle_machine_has_no_jobs(tmp_path, monkeypatch):
-    _fake_tangier(
-        tmp_path, monkeypatch, '{"running": [], "queued": [], "recent": []}\n'
+async def test_each_line_is_one_event(tmp_path, monkeypatch):
+    log, _ = _fake_tangier(
+        tmp_path,
+        monkeypatch,
+        [json.dumps(STATUS), json.dumps(JOB)],
+        then="exec sleep 30",
     )
-    assert await gate_jobs() == []
+    assert await _read(2) == [STATUS, JOB]
+    assert log.read_text() == "gate status --watch --json --all\n"
 
 
-async def test_a_failed_call_is_an_error(tmp_path, monkeypatch):
-    """Not "no jobs": that would clear the jobs the dashboard shows."""
-    _fake_tangier(tmp_path, monkeypatch, "boom\n", exit_code=2)
-    with pytest.raises(GateSourceError, match="exit 2"):
-        await gate_jobs()
-
-
-async def test_output_that_is_not_json_is_an_error(tmp_path, monkeypatch):
-    _fake_tangier(tmp_path, monkeypatch, "Error: cannot write lock\n")
-    with pytest.raises(GateSourceError, match="not JSON"):
-        await gate_jobs()
-
-
-@pytest.mark.parametrize(
-    "output",
-    [
-        '{"error": "no jobs dir"}\n',
-        '{"running": [1, 2], "queued": []}\n',
-        # tangier before 0.3.0 printed a flat list.
-        '[{"id": 1}]\n',
-    ],
-)
-async def test_json_that_is_not_a_status_object_is_an_error(
-    tmp_path, monkeypatch, output
+async def test_a_line_longer_than_the_stream_default_is_one_event(
+    tmp_path, monkeypatch
 ):
-    _fake_tangier(tmp_path, monkeypatch, output)
-    with pytest.raises(GateSourceError, match="no gate status object"):
-        await gate_jobs()
+    """The first ``--all`` status lists the machine's recent jobs: 530 KB on a busy day."""
+    big = {**STATUS, "recent": [{"id": n, "state": "passed"} for n in range(40_000)]}
+    _fake_tangier(tmp_path, monkeypatch, [json.dumps(big)], then="exec sleep 30")
+    assert await _read(1) == [big]
+
+
+async def test_a_watch_that_ends_is_an_error(tmp_path, monkeypatch):
+    """With the tail of stderr, so an old tangier's refusal is visible."""
+    _fake_tangier(
+        tmp_path,
+        monkeypatch,
+        [json.dumps(STATUS)],
+        then="echo 'error: unrecognized arguments: --watch' >&2; exit 2",
+    )
+    seen = []
+    with pytest.raises(GateSourceError, match="exit 2.*unrecognized arguments"):
+        async for event in watch_gates():
+            seen.append(event)
+    assert seen == [STATUS]
+
+
+@pytest.mark.parametrize("line", ["Error: cannot write lock", "[1, 2]"])
+async def test_a_line_that_is_not_a_json_object_is_an_error(
+    tmp_path, monkeypatch, line
+):
+    _fake_tangier(tmp_path, monkeypatch, [line], then="exec sleep 30")
+    with pytest.raises(GateSourceError, match="not a JSON object"):
+        await _read(1)
 
 
 async def test_no_tangier_on_path_is_an_error(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     with pytest.raises(GateSourceError, match="not on PATH"):
-        await gate_jobs()
+        await _read(1)
+
+
+async def test_a_cancelled_watch_kills_tangier(tmp_path, monkeypatch):
+    _, pid_file = _fake_tangier(
+        tmp_path, monkeypatch, [json.dumps(STATUS)], then="exec sleep 30"
+    )
+    first = asyncio.Event()
+
+    async def reader():
+        async with aclosing(watch_gates()) as events:
+            async for _ in events:
+                first.set()
+
+    task = asyncio.create_task(reader())
+    # The stand-in writes its pid before it prints.
+    await asyncio.wait_for(first.wait(), 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)

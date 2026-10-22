@@ -152,6 +152,7 @@ tag says the turn is from outside, the attributes are its facts, and the body is
 | `orchestrator-ui` | `document.approved`, `document.changes_requested`, `changes.commented` | The document and change-comment commands |
 | `jig` | `jig.monkeypatch`, `jig.pick`, `jig.controls`, `jig.param_set` | The live feedback socket and the params route |
 | `github` | `pr.watching`, `pr.checks_failed`, `pr.checks_passed`, `pr.conflict`, `pr.merged` | The PR watch |
+| `gate` | `gate.passed`, `gate.failed`, `gate.cancelled` | The gate watch |
 | `orchestrator` | `session.compacted`, `session.not_compacted` | A compaction request |
 
 **One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
@@ -221,6 +222,53 @@ checks, so two reads cannot tell the same news.
 **Fast acknowledgement.** A live `<link rel="gh-pr">` tag reads its branch's PR at once, as
 `POST /api/worktrees/refresh` does. Every maelstrom push re-reads too; see "A write reads straight
 away".
+
+### The gate watch
+
+The **Gate watch** keeps the world's gate jobs, and tells an agent when a **Gate job** in its
+worktree ends. The watch needs tangier 0.3.1 or later.
+
+`gate_source.watch_gates` runs one `tangier gate status --watch --json --all` process for the
+server's life, whether or not a client watches. It yields one object per line: a `status`
+snapshot first, then a `job` or `gate` line per change. A cancel kills tangier's process group.
+The watch reads stderr all the time, because a full pipe would stop tangier with no error.
+A missing tangier, an exit, or a line that is not a JSON object raises `GateSourceError`. An
+older tangier exits at once, and the tail of its stderr is in the error.
+
+`gate_table.GateTable` holds the unfinished jobs by id, in memory only. `apply` takes one line and
+returns the jobs that line ended:
+
+| Line | Table | Ended |
+|---|---|---|
+| `status` | Replaced by `running` and `queued` | Each job the table held that `recent` shows finished. This covers a restarted watch |
+| `job`, unfinished | The job is upserted | — |
+| `job`, finished | The job is removed | The job. A finished job never changes state again, but a restarted watch can repeat it |
+| `gate` | The gate is replaced by name in its job | — |
+
+The unfinished states are `queued`, `running`, `stopping` and `orphaned`. A finished job's gate
+lines come before its job line, so the table holds the last gate states when the job ends.
+Each gate job's worktree is the world's worktree with the same real path, or `null`: tangier
+lists the jobs of every project on the machine.
+
+`gate_event` makes the event from the finished job. `passed` is `gate.passed`, `cancelled` is
+`gate.cancelled`, and every other end is `gate.failed`. The failure body names each gate that
+failed, with its exit code, and the job's log. It leaves out a gate that passed, did not run, or
+was cancelled.
+
+**The recipients** are `agents_in_worktree` for the job's worktree: the live top-level agents.
+A free agent hears it too, because a gate job belongs to a worktree, not to a PR. A job in a
+worktree the server does not know tells nobody. A set of told job ids makes a repeated end tell
+once. Each `status` line drops the ids that are not in its `recent` list. The tell runs off the
+watch, so a slow `say` never holds the next line. Two tells are not ordered. A refusal is logged.
+
+**A failed watch** keeps the last jobs, and logs on the first failure only. It starts again after
+5 s, then 10 s, up to 60 s. A `job` or `gate` line resets the wait, but a `status` line does
+not: a tangier that prints its snapshot and exits stays one failure. A watch that ends with no
+error counts as a failure. A line the table cannot read fails the watch too.
+
+**Two gaps.** Tangier prints no line for a change in usage alone, so a job's CPU and memory move
+only on a job or gate change. A job that ends while the server is down is not told: the table and
+the told set start empty at each start.
 
 ## A tagged document
 
@@ -654,15 +702,7 @@ snapshot and its first live one.
 | Comms | Read the `comms` rows written since the last read. A comm's `taskIds` are derived from the world's tasks | 2 s, on the task tick |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
-| Gate jobs | Run `tangier gate status --all --running --json` and diff the jobs, only while a client is watching. The first client to arrive triggers a read | 5 s |
-
-The gate read is async, so it takes no thread. It takes about 0.65 s, and the worker thread below
-also serves the task index. A failed read keeps the last jobs and logs once, not on each tick. Each
-job's worktree is the world's worktree with the same path, or `null`: tangier lists the jobs of
-every project on the machine. The read needs tangier 0.3.0 or later, which groups the jobs into
-`running` and `queued` in one object. An older tangier prints a flat list, and the read fails.
-Each job carries its CPU and memory, which change on each read, so each tick upserts the jobs
-that run.
+| Gate jobs | Pushed by the gate watch. See "The gate watch" | on each change |
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
@@ -1352,7 +1392,7 @@ without waiting for the poll.
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
-| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the last read found them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty while no client watches, and on a server with no tangier |
+| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty on a server with no tangier |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |

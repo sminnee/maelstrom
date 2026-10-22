@@ -816,6 +816,11 @@ queued or running: tangier runs four at a time on one machine, and the rest wait
 counts them.
 _Avoid_: gate run (for the job)
 
+**Gate watch**:
+The orchestrator's one `tangier gate status --watch` process. It keeps the world's gate jobs, and
+tells each agent in a gate job's worktree when the job ends, with a `gate` **External event**.
+_Avoid_: gate poll
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a

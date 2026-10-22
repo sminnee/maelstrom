@@ -14,8 +14,9 @@ import inspect
 import logging
 import os
 import uuid
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from concurrent.futures import Executor
+from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ from mael_domain.external_event import (
     SESSION_COMPACTED,
     SESSION_NOT_COMPACTED,
     ExternalEvent,
+    gate_event,
     pr_events,
 )
 from mael_domain.external_event import render as render_event
@@ -130,6 +132,7 @@ from . import linear_source
 from .daemon_bridge import AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
+from .gate_table import GateTable
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
@@ -200,8 +203,10 @@ EXPORT_POLL_SECS = 5.0
 WORKTREE_POLL_SECS = 60.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
-#: How often tangier's gate jobs are re-read, while a client watches.
-GATE_POLL_SECS = 5.0
+#: The first wait before a failed gate watch starts again. It doubles on each
+#: failure in a row, up to ``GATE_BACKOFF_MAX_SECS``.
+GATE_BACKOFF_SECS = 5.0
+GATE_BACKOFF_MAX_SECS = 60.0
 #: How many consecutive failed agent polls make the host unreachable. Two, so
 #: the one dropped connection a daemon restart costs does not raise the banner.
 HOST_UNREACHABLE_AFTER = 2
@@ -528,8 +533,8 @@ class Orchestrator:
         export_poll: float = EXPORT_POLL_SECS,
         worktree_poll: float = WORKTREE_POLL_SECS,
         agent_poll: float = AGENT_POLL_SECS,
-        gate_jobs: Callable[[], Awaitable[list[dict[str, Any]]]] | None = None,
-        gate_poll: float = GATE_POLL_SECS,
+        gate_watch: Callable[[], AsyncGenerator[dict[str, Any]]] | None = None,
+        gate_backoff: float = GATE_BACKOFF_SECS,
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
@@ -618,10 +623,6 @@ class Orchestrator:
         #: from the catch-up: an arriving client and a new pull request can
         #: land together, and neither should drop the other's task.
         self._event_read: asyncio.Task[None] | None = None
-        #: The gate read an arriving client triggers, kept for the same reasons.
-        self._gate_read: asyncio.Task[None] | None = None
-        #: One gate read at a time, so an older answer never lands after a newer one.
-        self._gate_lock = asyncio.Lock()
         #: Bumped on every task change published; the task list's ETag.
         self.task_revision = 0
         #: One transcript per agent seen, fed by the normaliser and served to
@@ -639,11 +640,17 @@ class Orchestrator:
         self._export_poll = export_poll
         self._worktree_poll = worktree_poll
         self._agent_poll = agent_poll
-        #: Reads tangier's gate jobs; ``None`` keeps the world's gate jobs empty.
-        self._gate_jobs = gate_jobs
-        self._gate_poll = gate_poll
-        #: Whether the last gate read failed, so a lasting failure logs once.
-        self._gate_read_failed = False
+        #: Starts tangier's gate watch; ``None`` keeps the world's gate jobs empty.
+        self._gate_watch = gate_watch
+        self._gate_backoff = gate_backoff
+        #: The unfinished jobs the watch holds. See ``CONTEXT.md``, "Gate watch".
+        self._gate_table = GateTable()
+        #: The jobs whose end was told, so a repeated end tells once.
+        self._gate_told: set[str] = set()
+        #: Whether the last watch failed, so a lasting failure logs once.
+        self._gate_watch_failed = False
+        #: The gate tells in flight, kept so a stop can cancel them.
+        self._gate_tells: set[asyncio.Task[None]] = set()
         #: Loop time the last read that asked GitHub about every branch
         #: finished, or ``None`` before the first. ``GET /api/worktrees?max_age=``
         #: reads against it: a poll asks about the desk's branches only.
@@ -706,16 +713,8 @@ class Orchestrator:
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
         ]
-        if self._gate_jobs is not None:
-            self._pollers.append(
-                asyncio.create_task(
-                    self._poll(
-                        self._gate_poll,
-                        self.refresh_gates,
-                        when=lambda: self.notices.watching,
-                    )
-                )
-            )
+        if self._gate_watch is not None:
+            self._pollers.append(asyncio.create_task(self._watch_gates()))
         if self.exporter is not None:
             self._pollers.append(
                 asyncio.create_task(self._poll(self._export_poll, self.drain_exports))
@@ -729,9 +728,7 @@ class Orchestrator:
         watching = [w.task for w in self._watches.values() if w.task is not None]
         detaching = list(self._detaches.values())
         reading = [
-            task
-            for task in (self._catch_up, self._event_read, self._gate_read)
-            if task is not None
+            task for task in (self._catch_up, self._event_read) if task is not None
         ]
         for task in [
             *self._pollers,
@@ -739,6 +736,7 @@ class Orchestrator:
             *detaching,
             *reading,
             *self._pr_watches,
+            *self._gate_tells,
         ]:
             task.cancel()
         await asyncio.gather(
@@ -747,12 +745,12 @@ class Orchestrator:
             *detaching,
             *reading,
             *self._pr_watches,
+            *self._gate_tells,
             return_exceptions=True,
         )
         self._pollers = []
         self._catch_up = None
         self._event_read = None
-        self._gate_read = None
         await self.operations.stop()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
@@ -794,10 +792,6 @@ class Orchestrator:
             # ``start`` reads every source before it serves anyone, so a
             # subscriber arriving during start needs no catch-up.
             return
-        if self._gate_jobs is not None and not self._gate_lock.locked():
-            # Not held to the worktree read's guards: the read asks no rate-limited
-            # API, and the jobs held since the last client left may be hours old.
-            self._gate_read = asyncio.create_task(self.refresh_gates())
         if self._catch_up is not None and not self._catch_up.done():
             return
         if self._kept_fresh():
@@ -1122,36 +1116,6 @@ class Orchestrator:
         if events:
             await self._prune_desk()
         return True
-
-    async def refresh_gates(self) -> None:
-        """Re-read tangier's gate jobs, and publish what changed.
-
-        A failed read keeps the last jobs: tangier missing for one tick must
-        not empty the reading. It logs on the first failure only, so a machine
-        with no tangier does not log every few seconds.
-        """
-        if self._gate_jobs is None:
-            return
-        async with self._gate_lock:
-            try:
-                raw = await self._gate_jobs()
-            except GateSourceError as e:
-                if not self._gate_read_failed:
-                    log.warning("gate jobs: %s", e)
-                self._gate_read_failed = True
-                return
-            self._gate_read_failed = False
-            # Tangier records each job's real path; a projects directory under a
-            # symlink would otherwise match no worktree.
-            worktree_ids = {
-                os.path.realpath(wt["path"]): wt["id"]
-                for wt in self.world["worktrees"].values()
-            }
-            new = {
-                entity["id"]: entity
-                for entity in (gate_job_entity(job, worktree_ids) for job in raw)
-            }
-            self._apply(diff_kind("gateJob", self.world["gateJobs"], new))
 
     async def refresh_comms(self, *, force: bool = False) -> None:
         """Re-read the comms that moved, and publish them.
@@ -3032,6 +2996,97 @@ class Orchestrator:
                         )
         except Exception:  # noqa: BLE001 — nothing awaits this task
             log.exception("the PR watch failed for %s", pr.url)
+
+    # -- the gate watch --
+
+    async def _watch_gates(self) -> None:
+        """Keep the gate jobs from tangier's watch, and tell each job's end.
+
+        See orchestrator-server.md, "The gate watch".
+        """
+        assert self._gate_watch is not None
+        delay = self._gate_backoff
+        while True:
+            try:
+                async with aclosing(self._gate_watch()) as events:
+                    async for event in events:
+                        ended = self._gate_table.apply(event)
+                        self._publish_gates()
+                        for job in ended:
+                            self._schedule_gate_tell(job.job)
+                        if event.get("type") == "status":
+                            # Only a recent job can end again: forget the rest.
+                            self._gate_told &= {
+                                str(job.get("id")) for job in event.get("recent") or []
+                            }
+                        else:
+                            # A change, not the snapshot: a tangier that prints
+                            # its snapshot and exits stays one outage.
+                            self._gate_watch_failed = False
+                            delay = self._gate_backoff
+                raise GateSourceError("the watch ended")
+            except GateSourceError as e:
+                if not self._gate_watch_failed:
+                    log.warning("gate watch: %s", e)
+                self._gate_watch_failed = True
+            except Exception:  # noqa: BLE001 — the watch must outlive one bad line
+                if not self._gate_watch_failed:
+                    log.exception("gate watch failed")
+                self._gate_watch_failed = True
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, GATE_BACKOFF_MAX_SECS)
+
+    def _gate_worktree_ids(self) -> dict[str, str]:
+        """Each worktree's id, by its real path.
+
+        Tangier records each job's real path; a projects directory under a
+        symlink would otherwise match no worktree.
+        """
+        return {
+            os.path.realpath(wt["path"]): wt["id"]
+            for wt in self.world["worktrees"].values()
+        }
+
+    def _publish_gates(self) -> None:
+        worktree_ids = self._gate_worktree_ids()
+        new = {
+            entity["id"]: entity
+            for entity in (
+                gate_job_entity(job, worktree_ids)
+                for job in self._gate_table.jobs.values()
+            )
+        }
+        self._apply(diff_kind("gateJob", self.world["gateJobs"], new))
+
+    def _schedule_gate_tell(self, job: dict[str, Any]) -> None:
+        job_id = str(job["id"])
+        if job_id in self._gate_told:
+            return
+        self._gate_told.add(job_id)
+        worktree_id = self._gate_worktree_ids().get(str(job.get("worktree") or ""))
+        if worktree_id is None:
+            return
+        agent_ids = [a["id"] for a in agents_in_worktree(self.world, worktree_id)]
+        if not agent_ids:
+            return
+        task = asyncio.create_task(self._gate_tell(agent_ids, gate_event(job)))
+        self._gate_tells.add(task)
+        task.add_done_callback(self._gate_tells.discard)
+
+    async def _gate_tell(self, agent_ids: list[str], event: ExternalEvent) -> None:
+        """Tell the agents of a job's worktree that it ended. Off the watch, so
+        a slow ``say`` never holds the next line."""
+        try:
+            _, refusals = await self._tell(agent_ids, event)
+            for agent_id, refused in refusals:
+                log.warning(
+                    "agent %s: %s not delivered: %s",
+                    agent_id,
+                    event.type,
+                    refused["error"]["message"],
+                )
+        except Exception:  # noqa: BLE001 — nothing awaits this task
+            log.exception("the gate tell failed for job %s", event.attrs.get("job"))
 
     def _settle_group(self, members: list[Document], status: str) -> None:
         """Move every member, and retire the items that asked for the review.
