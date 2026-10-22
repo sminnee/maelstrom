@@ -5,13 +5,35 @@ The seams are :func:`mael_domain.worktree_close.close_worktree_fully` and
 :func:`mael_domain.worktree_close.remove_worktree_fully`: what each does, in what
 order, and what it reports. The CLI tests in ``tests/test_cli.py`` cover only
 what the commands print on top of them.
+
+The last section drives the git step, ``close_worktree``, against real git: the
+refusals, ``force`` and ``discard``, and the reopen after a forced close.
 """
 
 import asyncio
+import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from mael_domain.worktree import CloseResult
+from git_helpers import (
+    branch_exists,
+    create_commit,
+    is_detached,
+    make_conflict,
+    rev_parse,
+    run_git,
+    subjects,
+)
+
+from mael_domain.ports import get_port_allocation, record_port_allocation
+from mael_domain.worktree import (
+    CloseResult,
+    close_worktree,
+    detach_and_free_ports,
+    rebase_in_progress,
+    setup_worktree_for_branch,
+    sync_worktree,
+)
 from mael_domain.worktree_close import (
     CloseSteps,
     close_worktree_fully,
@@ -463,3 +485,218 @@ class TestTheHook:
             "git_remove",
             "close_workspace",
         ]
+
+
+# ---------------------------------------------------------------------------
+# close_worktree — the git step, against real git
+# ---------------------------------------------------------------------------
+
+
+class TestDetachAndFreePorts:
+    """`detach_and_free_ports` and the refactored `close_worktree` tail."""
+
+    def test_detach_and_free_ports_direct(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        record_port_allocation(project_path, "alpha", 350)
+
+        result = detach_and_free_ports(worktree_path)
+
+        assert isinstance(result, CloseResult)
+        assert result.success is True
+        assert is_detached(worktree_path)
+        assert rev_parse(worktree_path) == rev_parse(project_path, "origin/main")
+        assert get_port_allocation(project_path, "alpha") is None
+
+    def test_close_worktree_happy_path(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        record_port_allocation(project_path, "alpha", 350)
+
+        result = close_worktree(worktree_path)
+
+        assert result.success is True
+        assert is_detached(worktree_path)
+        assert get_port_allocation(project_path, "alpha") is None
+
+    def test_close_worktree_dirty_files(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        (worktree_path / "dirty.txt").write_text("uncommitted\n")
+
+        result = close_worktree(worktree_path)
+
+        assert result.success is False
+        assert result.had_dirty_files is True
+        assert not is_detached(worktree_path)
+
+    def test_close_worktree_commits_ahead(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        create_commit(worktree_path, "ahead.txt", "ahead\n", "Unmerged commit")
+
+        result = close_worktree(worktree_path)
+
+        assert result.success is False
+        assert result.had_unpushed_commits is True
+        assert not is_detached(worktree_path)
+
+
+class TestCloseForce:
+    """`close_worktree(force=True)` against a real remote."""
+
+    def test_force_with_unmerged_commits_preserves_branch(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        record_port_allocation(project_path, "alpha", 350)
+        create_commit(worktree_path, "ahead.txt", "ahead\n", "Unmerged commit")
+
+        result = close_worktree(worktree_path, force=True)
+
+        assert result.success is True
+        assert result.had_unmerged_work is True
+        assert result.branch == "feature/work"
+        # Worktree detached at origin/main, ports freed.
+        assert is_detached(worktree_path)
+        assert rev_parse(worktree_path) == rev_parse(project_path, "origin/main")
+        assert get_port_allocation(project_path, "alpha") is None
+        # Branch survives — the unmerged work is recoverable.
+        assert branch_exists(project_path, "feature/work")
+
+    def test_force_with_dirty_tree_commits_wip(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        (worktree_path / "dirty.txt").write_text("uncommitted work\n")  # untracked
+
+        result = close_worktree(worktree_path, force=True)
+
+        assert result.success is True
+        assert result.had_unmerged_work is True
+        assert result.branch == "feature/work"
+        assert is_detached(worktree_path)
+        # The dirty change was committed onto the branch, not discarded.
+        wip_tip = run_git(
+            project_path, "log", "-1", "--format=%s", "feature/work"
+        ).stdout.strip()
+        assert wip_tip == "wip: uncommitted changes"
+        # File content preserved on the branch tip.
+        blob = run_git(project_path, "show", "feature/work:dirty.txt", check=False)
+        assert blob.returncode == 0
+        assert blob.stdout == "uncommitted work\n"
+
+    def test_force_over_rebase_conflict_aborts_and_closes(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        make_conflict(project_path, worktree_path, remote_path)
+
+        result = close_worktree(worktree_path, force=True)
+
+        assert result.success is True
+        assert result.had_unmerged_work is True
+        # The conflicting rebase was aborted — none left in progress.
+        assert not rebase_in_progress(worktree_path)
+        # Worktree closed, branch preserved.
+        assert is_detached(worktree_path)
+        assert branch_exists(project_path, "feature/work")
+
+    def test_force_on_clean_merged_worktree_no_unmerged_flag(
+        self, project_with_worktree
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        # Branch is empty (HEAD == origin/main), clean tree.
+        record_port_allocation(project_path, "alpha", 350)
+
+        result = close_worktree(worktree_path, force=True)
+
+        assert result.success is True
+        assert result.had_unmerged_work is False
+        assert is_detached(worktree_path)
+        assert get_port_allocation(project_path, "alpha") is None
+
+
+class TestCloseDiscard:
+    """`close_worktree(discard=True)` removes files but keeps branch commits."""
+
+    def test_discard_removes_dirty_files_preserves_ignored_files_and_branch(
+        self, project_with_worktree
+    ):
+        project_path, worktree_path, remote_path = project_with_worktree
+        record_port_allocation(project_path, "alpha", 350)
+        create_commit(worktree_path, "branch.txt", "branch work\n", "Branch commit")
+        branch_tip = rev_parse(worktree_path)
+        exclude = Path(
+            run_git(
+                worktree_path, "rev-parse", "--git-path", "info/exclude"
+            ).stdout.strip()
+        )
+        if not exclude.is_absolute():
+            exclude = worktree_path / exclude
+        exclude.write_text(".env\npreserved.ignore\n")
+        (worktree_path / "README.md").write_text("tracked change\n")
+        (worktree_path / "staged.txt").write_text("staged change\n")
+        run_git(worktree_path, "add", "staged.txt")
+        (worktree_path / "untracked.txt").write_text("untracked change\n")
+        nested_repository = worktree_path / "nested-repository"
+        subprocess.run(
+            ["git", "init", str(nested_repository)], check=True, capture_output=True
+        )
+        (worktree_path / ".env").write_text("PORT_BASE=350\n")
+        (worktree_path / "preserved.ignore").write_text("keep me\n")
+
+        result = close_worktree(worktree_path, discard=True)
+
+        assert result.success is True
+        assert is_detached(worktree_path)
+        assert rev_parse(worktree_path) == rev_parse(project_path, "origin/main")
+        assert get_port_allocation(project_path, "alpha") is None
+        assert not (worktree_path / "staged.txt").exists()
+        assert not (worktree_path / "untracked.txt").exists()
+        assert not nested_repository.exists()
+        assert (worktree_path / ".env").read_text() == "PORT_BASE=350\n"
+        assert (worktree_path / "preserved.ignore").read_text() == "keep me\n"
+        assert run_git(worktree_path, "status", "--porcelain").stdout == ""
+        assert rev_parse(project_path, "feature/work") == branch_tip
+        assert (
+            run_git(project_path, "show", "feature/work:branch.txt").stdout
+            == "branch work\n"
+        )
+
+    def test_discard_aborts_a_rebase_without_syncing(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        make_conflict(project_path, worktree_path, remote_path)
+        sync_worktree(worktree_path)
+        assert rebase_in_progress(worktree_path)
+
+        with patch("mael_domain.worktree.sync_worktree") as sync:
+            result = close_worktree(worktree_path, discard=True)
+
+        sync.assert_not_called()
+        assert result.success is True
+        assert not rebase_in_progress(worktree_path)
+        assert is_detached(worktree_path)
+
+
+class TestReopenRoundTrip:
+    """Force-close a branch with committed + dirty work, then reopen it."""
+
+    def test_reopen_restores_commits_and_wip(self, project_with_worktree):
+        project_path, worktree_path, remote_path = project_with_worktree
+        # Both committed unmerged work AND a dirty file.
+        create_commit(worktree_path, "feature.txt", "feature work\n", "Feature commit")
+        (worktree_path / "dirty.txt").write_text("dirty work\n")
+
+        result = close_worktree(worktree_path, force=True)
+        assert result.success is True
+        assert result.branch == "feature/work"
+        # Worktree is now detached and recyclable.
+        assert is_detached(worktree_path)
+
+        setup = setup_worktree_for_branch(
+            project_path, project_path.name, "feature/work", run_install=False
+        )
+
+        reopened = setup.path
+        # Back on the branch at its tip.
+        assert (
+            run_git(reopened, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            == "feature/work"
+        )
+        # The committed feature work is present.
+        assert (reopened / "feature.txt").exists()
+        assert (reopened / "feature.txt").read_text() == "feature work\n"
+        # The wip commit (carrying the previously-dirty file) is back as the tip.
+        assert subjects(reopened, "-1")[0] == "wip: uncommitted changes"
+        assert (reopened / "dirty.txt").read_text() == "dirty work\n"

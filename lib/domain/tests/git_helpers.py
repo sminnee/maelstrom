@@ -1,6 +1,8 @@
 """Shared git test helpers used across unit and e2e tests."""
 
 import subprocess
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from mael_domain.worktree_model import history_ref_prefix
 
@@ -69,3 +71,78 @@ def history_refs(worktree_path, branch):
         history_ref_prefix(branch),
     )
     return [line for line in result.stdout.split("\n") if line]
+
+
+def rev_parse(path, ref="HEAD"):
+    """The commit ``ref`` names in the repo at ``path``."""
+    return run_git(path, "rev-parse", ref).stdout.strip()
+
+
+def is_detached(path):
+    """True when HEAD at ``path`` is on no branch."""
+    return run_git(path, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0
+
+
+def branch_exists(path, branch):
+    """True when ``branch`` (or any ref) resolves in the repo at ``path``."""
+    return run_git(path, "rev-parse", "--verify", branch, check=False).returncode == 0
+
+
+def subjects(path, rev_range):
+    """The commit subjects in ``rev_range``, newest first."""
+    result = run_git(path, "log", "--format=%s", rev_range)
+    return [line for line in result.stdout.split("\n") if line]
+
+
+def push_branch(path, branch, *, force=False):
+    """Push ``branch`` to origin and refresh the remote-tracking refs."""
+    args = ["push"] + (["--force"] if force else []) + ["origin", f"{branch}:{branch}"]
+    run_git(path, *args)
+    run_git(path, "fetch", "origin")
+
+
+def push_to_origin_main(
+    project_path, remote_path, filename="upstream.txt", content="upstream\n"
+):
+    """Commit ``filename`` on origin's main from a throwaway clone, then fetch."""
+    with TemporaryDirectory() as tmpdir:
+        clone = Path(tmpdir) / "pusher"
+        subprocess.run(
+            ["git", "clone", str(remote_path), str(clone)],
+            check=True,
+            capture_output=True,
+        )
+        run_git(clone, "config", "user.email", "test@test.com")
+        run_git(clone, "config", "user.name", "Test")
+        create_commit(clone, filename, content, f"Upstream {filename}")
+        run_git(clone, "push", "origin", "HEAD:main")
+    run_git(project_path, "fetch", "origin")
+
+
+def make_conflict(project_path, worktree_path, remote_path):
+    """Edit README on origin's main and on the branch, so a rebase conflicts."""
+    push_to_origin_main(project_path, remote_path, "README.md", "# Upstream version\n")
+    create_commit(worktree_path, "README.md", "# Feature version\n", "Feature README")
+
+
+def make_conflict_from_a_second_worktree(project_path, worktree_path):
+    """Move origin's main to a commit that conflicts with the branch.
+
+    For a project with no clone-able remote at hand: a second worktree writes
+    the conflicting change and pushes it. Returns the branch's HEAD before.
+    """
+    create_commit(worktree_path, "shared.txt", "mine\n", "feat: my line")
+    head = rev_parse(worktree_path)
+    other = Path(project_path) / "other"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "other", str(other), "origin/main"],
+        cwd=project_path,
+        check=True,
+        capture_output=True,
+    )
+    run_git(other, "config", "user.email", "test@test.com")
+    run_git(other, "config", "user.name", "Test")
+    create_commit(other, "shared.txt", "theirs\n", "feat: their line")
+    run_git(other, "push", "-q", "origin", "other:main")
+    run_git(worktree_path, "fetch", "-q", "origin")
+    return head

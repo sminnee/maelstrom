@@ -183,6 +183,75 @@ def store():
     return InMemoryTaskTable()
 
 
+def build_project_with_worktree(tmp: Path) -> tuple[Path, Path, Path]:
+    """Build a bare-clone project ``test-repo`` under ``tmp``.
+
+    The source → bare-remote → working-clone pattern, so ``origin`` is a real
+    remote. The project-root HEAD is detached, and the worktree
+    ``test-repo-alpha`` is on ``feature/work`` from ``origin/main``.
+
+    Returns ``(project_path, worktree_path, remote_path)``.
+    """
+    # Source repo with an initial commit on main.
+    source_path = tmp / "source"
+    source_path.mkdir()
+    setup_git_repo(source_path)
+    create_commit(source_path, "README.md", "# Test\n", "Initial commit")
+    run_git(source_path, "branch", "-M", "main")
+
+    # Bare "remote".
+    remote_path = tmp / "remote.git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(source_path), str(remote_path)],
+        check=True,
+        capture_output=True,
+    )
+
+    # Project root: bare clone in .git (maelstrom layout).
+    project_path = tmp / "test-repo"
+    project_path.mkdir()
+    git_dir = project_path / ".git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(remote_path), str(git_dir)],
+        check=True,
+        capture_output=True,
+    )
+    run_git(project_path, "config", "core.bare", "true")
+    run_git(
+        project_path,
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    )
+    run_git(project_path, "config", "user.email", "test@test.com")
+    run_git(project_path, "config", "user.name", "Test")
+    run_git(project_path, "fetch", "origin")
+
+    # Detach project-root HEAD so main isn't checked out there.
+    head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
+    run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
+
+    # Worktree on a feature branch, folder named <project>-alpha.
+    worktree_path = project_path / "test-repo-alpha"
+    subprocess.run(
+        [
+            "git",
+            "worktree",
+            "add",
+            "-b",
+            "feature/work",
+            str(worktree_path),
+            "origin/main",
+        ],
+        cwd=project_path,
+        check=True,
+        capture_output=True,
+    )
+    run_git(worktree_path, "config", "user.email", "test@test.com")
+    run_git(worktree_path, "config", "user.name", "Test")
+    return project_path, worktree_path, remote_path
+
+
 @pytest.fixture
 def project_with_worktree():
     """A bare-clone project ``test-repo`` with a worktree ``test-repo-alpha``.
@@ -195,64 +264,7 @@ def project_with_worktree():
     """
     with TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
-
-        # Source repo with an initial commit on main.
-        source_path = tmp / "source"
-        source_path.mkdir()
-        setup_git_repo(source_path)
-        create_commit(source_path, "README.md", "# Test\n", "Initial commit")
-        run_git(source_path, "branch", "-M", "main")
-
-        # Bare "remote".
-        remote_path = tmp / "remote.git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(source_path), str(remote_path)],
-            check=True,
-            capture_output=True,
-        )
-
-        # Project root: bare clone in .git (maelstrom layout).
-        project_path = tmp / "test-repo"
-        project_path.mkdir()
-        git_dir = project_path / ".git"
-        subprocess.run(
-            ["git", "clone", "--bare", str(remote_path), str(git_dir)],
-            check=True,
-            capture_output=True,
-        )
-        run_git(project_path, "config", "core.bare", "true")
-        run_git(
-            project_path,
-            "config",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        )
-        run_git(project_path, "config", "user.email", "test@test.com")
-        run_git(project_path, "config", "user.name", "Test")
-        run_git(project_path, "fetch", "origin")
-
-        # Detach project-root HEAD so main isn't checked out there.
-        head_sha = run_git(project_path, "rev-parse", "HEAD").stdout.strip()
-        run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
-
-        # Worktree on a feature branch, folder named <project>-alpha.
-        worktree_path = project_path / "test-repo-alpha"
-        subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                "-b",
-                "feature/work",
-                str(worktree_path),
-                "origin/main",
-            ],
-            cwd=project_path,
-            check=True,
-            capture_output=True,
-        )
-        run_git(worktree_path, "config", "user.email", "test@test.com")
-        run_git(worktree_path, "config", "user.name", "Test")
+        project_path, worktree_path, remote_path = build_project_with_worktree(tmp)
 
         maelstrom_dir = tmp / "maelstrom-home"
         maelstrom_dir.mkdir()
@@ -263,6 +275,32 @@ def project_with_worktree():
             patch("pathlib.Path.home", return_value=tmp / "home"),
         ):
             yield project_path, worktree_path, remote_path
+
+
+@pytest.fixture
+def collapsible_project():
+    """A bare-clone project with a worktree on ``feature/work``.
+
+    Shared by the squash and uncommit suites, which drive the same two
+    functions. Named apart from ``project_with_worktree``, which yields a third
+    element and patches ``get_maelstrom_dir``.
+
+    Yields ``(project_path, worktree_path)``.
+    """
+    with TemporaryDirectory() as tmpdir:
+        project_path, worktree_path, _ = build_project_with_worktree(Path(tmpdir))
+        yield project_path, worktree_path
+
+
+@pytest.fixture
+def quiet_finalize():
+    """Stub the finalize side effects, so a worktree stays clean for git asserts."""
+    with (
+        patch("mael_domain.worktree.update_claude_local_md", return_value=False),
+        patch("mael_domain.worktree.run_install_cmd"),
+        patch("mael_domain.worktree.setup_claude_memory_symlink"),
+    ):
+        yield
 
 
 _FAKE_TAILSCALE = """#!/bin/sh

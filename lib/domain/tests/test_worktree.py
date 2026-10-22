@@ -1682,24 +1682,6 @@ class TestPortAllocationLifecycle:
         # Allocation should be freed
         assert get_port_allocation(git_repo_with_remote, "alpha") is None
 
-    def test_close_frees_allocation(self, git_repo_with_remote):
-        """Test that closing a worktree frees its port allocation."""
-        with patch("mael_domain.ports.check_ports_free", return_value=True):
-            worktree_path = create_worktree(git_repo_with_remote, "feature/test")
-
-        # Verify allocation exists
-        assert get_port_allocation(git_repo_with_remote, "alpha") is not None
-
-        # Close worktree
-        result = close_worktree(worktree_path)
-        assert result.success is True
-
-        # Allocation should be freed
-        assert get_port_allocation(git_repo_with_remote, "alpha") is None
-
-        # Cleanup
-        remove_worktree_by_path(git_repo_with_remote, worktree_path.name)
-
     def test_create_avoids_allocated_ports(self, git_repo_with_remote):
         """Test that creating worktrees avoids already-allocated port bases."""
         with patch("mael_domain.ports.check_ports_free", return_value=True):
