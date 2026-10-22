@@ -374,6 +374,17 @@ class TestTidyBranchesIntegration:
         assert merged_result.deleted_local is True
         assert merged_result.deleted_remote is True
 
+    def test_tidy_skips_branch_checked_out_in_a_worktree(self, git_repo_with_remote):
+        """A merged branch checked out in a worktree is skipped, not deleted."""
+        project_path, helper_wt = git_repo_with_remote
+        run_git(helper_wt, "checkout", "-b", "feature/checked-out")
+
+        results = tidy_branches(project_path)
+
+        assert "feature/checked-out" in list_local_branches(project_path)
+        checked_out = [r for r in results if r.branch == "feature/checked-out"]
+        assert [r.action for r in checked_out] == ["skipped_checked_out"]
+
     def test_tidy_no_feature_branches(self, git_repo_with_remote):
         """Test that tidy returns empty list when no feature branches exist."""
         project_path, _helper_wt = git_repo_with_remote

@@ -4,10 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from e2e_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
-    isolated_maelstrom_fixture,
-    isolated_maelstrom_module_fixture,
-)
+from e2e_fixtures import isolated_maelstrom_fixture  # noqa: F401  (a pytest fixture)
 from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_domain.worktree import add_project
@@ -29,18 +26,8 @@ class GitProject:
 
 @pytest.fixture
 def git_project(isolated_maelstrom):
-    """Create a project using add_project() against a local source repo (function-scoped)."""
-    return _create_git_project(isolated_maelstrom)
-
-
-@pytest.fixture(scope="module")
-def git_project_module(isolated_maelstrom_module):
-    """Module-scoped git project for workflow tests sharing a single repo."""
-    return _create_git_project(isolated_maelstrom_module)
-
-
-def _create_git_project(isolated):
-    """Shared implementation for creating a git project fixture."""
+    """Create a project using add_project() against a local source repo."""
+    isolated = isolated_maelstrom
     base = isolated.projects_dir.parent
     projects_dir = isolated.projects_dir
 
