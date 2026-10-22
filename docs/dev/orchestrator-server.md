@@ -266,9 +266,9 @@ work. It is cut like a document tag, being a field rather than prose. A subagent
 the reason it mints no document.
 
 Both readers cut the tag. The daemon cuts it in `agent_model` so the note never also stands as the
-agent's last message, and the orchestrator cuts it here so the transcript shows no raw syntax. Each
-holds its own copy of the pattern rather than sharing one: the daemon sits below the orchestrator,
-and a shared module would invert that. A test asserts the two patterns still agree.
+agent's last message, and the orchestrator cuts it here so the transcript shows no raw syntax. Both
+import the pattern from `mael_agent.tags`, which sits below the two of them, so the spelling has one
+copy. What each reader does with a match stays with the reader.
 
 Another mints no document either:
 
