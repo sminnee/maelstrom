@@ -1,8 +1,11 @@
 """Tests for mael_domain.state_db — the state database and its shared machinery."""
 
 import asyncio
+import json
+import os
 import sqlite3
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -130,37 +133,34 @@ class TestLadderInjection:
             db.close()
 
 
-class TestTheTasksLadderUpgrade:
-    """An existing database changes its task columns by its own rungs.
+class TestTheShippedLadders:
+    """An existing database changes its shape only by new rungs.
 
-    ``_COLUMNS`` alone serves a fresh install's ``CREATE TABLE``; a database
-    already stamped past that rung never re-runs it, so a new or removed field
-    needs an ``ALTER TABLE`` rung as well. This holds both halves honest.
+    A database already stamped past a rung never re-runs it, so a new or
+    removed field needs a rung of its own, never an edit to a shipped one.
     """
 
-    async def test_an_older_database_gains_the_later_columns(self, tmp_path):
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            # Stand the database up at the ladder as it was before the field —
-            # its CREATE TABLE has no ``execute_model`` column.
-            full = db.ladders["tasks"]
-            db.ladders["tasks"] = full[:2]
-            await db.migrate()
-            await db.write_all(
-                [Write("tasks", "maelstrom/2026-06-11.1", {"title": "Older"})]
-            )
+    @pytest.mark.parametrize("name", sorted(state_db_migrate.LADDERS))
+    async def test_each_rung_keeps_the_shape_it_shipped_with(self, tmp_path, name):
+        """A shipped rung is frozen: its golden shape never moves.
 
-            db.ladders["tasks"] = full
-            await db.migrate()
-
-            row = await db.read("tasks", "maelstrom/2026-06-11.1")
-            assert row is not None
-            assert row["execute_model"] == ""
-            assert (row["pr_number"], row["pr_url"]) == (0, "")
-            assert row["pr_withdrawn"] == 0
-            assert row["comms"] == "[]"
-        finally:
-            db.close()
+        A fresh install gains an edit to a shipped ``CREATE TABLE``, while
+        ``check()`` reports an older database up to date. A new rung adds an
+        entry; a moved entry is that edit. ``UPDATE_GOLDEN=1`` re-records.
+        """
+        full = state_db_migrate.LADDERS[name]
+        actual = [
+            await _shape_at(tmp_path / f"{name}-{k}.db", name, full[:k])
+            for k in range(1, len(full) + 1)
+        ]
+        path = STATE_DB_GOLDEN / f"{name}.json"
+        recorded = json.loads(path.read_text()) if path.exists() else []
+        if os.environ.get("UPDATE_GOLDEN") == "1":
+            # Appends the new rungs' entries only. A shipped entry changes by a
+            # hand edit to the JSON, never by a re-record.
+            recorded += actual[len(recorded) :]
+            path.write_text(json.dumps(recorded, indent=2) + "\n")
+        assert actual == recorded
 
     async def test_an_older_database_folds_steps_into_content(self, tmp_path):
         db = open_state_db(tmp_path / "state.db")
@@ -189,116 +189,6 @@ class TestTheTasksLadderUpgrade:
             assert with_steps is not None and without is not None
             assert with_steps.content == "c\n\n## Steps\n\n1. a"
             assert (without.content, without.log) == ("c", "- l")
-        finally:
-            db.close()
-
-    async def test_an_older_database_gains_the_milestone_ledger(self, tmp_path):
-        """The new rung opens an existing database and leaves its agents alone.
-
-        The failure this guards is the one the plan names: editing the shipped
-        ``CREATE TABLE`` instead of appending, which leaves every existing
-        database without the table while ``check()`` reports it up to date.
-        """
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders["agents"]
-            db.ladders["agents"] = full[:1]
-            await db.migrate()
-            await db.write_all([Write("agents", "a1", {"body": '{"id": "a1"}'})])
-            assert not await db.has_table("agent_milestones")
-
-            db.ladders["agents"] = full
-            await db.migrate()
-
-            assert await db.has_table("agent_milestones")
-            row = await db.read("agents", "a1")
-            assert row is not None
-            assert row["body"] == '{"id": "a1"}'
-        finally:
-            db.close()
-
-    async def test_an_older_database_gains_the_landing_tables(self, tmp_path):
-        """A database from before the ladder gains both tables, and they differ.
-
-        ``pull_requests`` is GitHub's data, so it is cached and takes a stamp.
-        ``task_steps`` is the flush baseline, which a restore must keep, so it is
-        canonical and refuses one.
-        """
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders.pop("landings")
-            await db.migrate()
-            assert not await db.has_table("pull_requests")
-
-            db.ladders["landings"] = full
-            await db.migrate()
-
-            await db.upsert("pull_requests", "p/1", fetched_at="t", title="x")
-            assert (await db.read("pull_requests", "p/1"))["fetched_at"] == "t"
-            with pytest.raises(ValueError, match="canonical"):
-                await db.upsert("task_steps", "p/t/done", fetched_at="t", step="done")
-        finally:
-            db.close()
-
-    async def test_an_older_database_gains_the_comms_table(self, tmp_path):
-        """A database from before comms gains the table, and it notifies."""
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders.pop("comms")
-            await db.migrate()
-            assert not await db.has_table("comms")
-
-            db.ladders["comms"] = full
-            await db.migrate()
-
-            before = await db.revision()
-            await db.upsert("comms", "c1", title="Invoice export")
-            notices, _ = await db.notices_since(before)
-            assert notices == {"comms": {"c1"}}
-        finally:
-            db.close()
-
-    async def test_an_older_database_gains_the_pr_events_ledger(self, tmp_path):
-        """The PR watch's ledger: the server's bookkeeping, so a write is no news."""
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders.pop("pr_events")
-            await db.migrate()
-            assert not await db.has_table("pr_events")
-
-            db.ladders["pr_events"] = full
-            await db.migrate()
-
-            before = await db.revision()
-            await db.upsert(
-                "pr_events",
-                "https://github.com/acme/repo/pull/7",
-                state="ci-failed",
-                conflicting=0,
-                told_failed_oid="abc1234",
-                told_green_oid="",
-            )
-            notices, _ = await db.notices_since(before)
-            assert notices == {}
-        finally:
-            db.close()
-
-    async def test_an_older_database_gains_the_comm_updates_table(self, tmp_path):
-        """A database from before comm updates gains the table; a write is no news."""
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders["comms"]
-            db.ladders["comms"] = full[:2]
-            await db.migrate()
-            assert not await db.has_table("comm_updates")
-
-            db.ladders["comms"] = full
-            await db.migrate()
-
-            before = await db.revision()
-            await db.upsert("comm_updates", "c1.1", comm_id="c1")
-            notices, _ = await db.notices_since(before)
-            assert notices == {}
         finally:
             db.close()
 
@@ -391,6 +281,66 @@ class TestPythonRung:
         assert await db.revision() == 0
         assert [row["id"] for row in await db.read_all("fake")] == ["a"]
         assert await db.changed_since("fake", 0) == []
+
+
+STATE_DB_GOLDEN = Path(__file__).parents[1] / "fixtures" / "state_db"
+
+
+async def _shape_at(path, name, ladder) -> dict:
+    """What ``ladder``, the one ladder in a database, builds on the spine.
+
+    Read through ``PRAGMA`` rather than ``sqlite_master.sql``, so the golden
+    holds the shape and not the text that built it. An index records its
+    ``unique``, ``origin`` and ``partial`` flags, so a ``UNIQUE`` constraint's
+    auto-index is in the shape too. The spine's own tables are left out: each
+    ladder's golden would only repeat them.
+    """
+    db = open_state_db(path)
+    db.ladders = {name: ladder}
+    await db.migrate()
+    db.close()
+    conn = sqlite3.connect(path)
+    try:
+        kinds = {kind for (kind,) in conn.execute("SELECT type FROM sqlite_master")}
+        # A trigger or a view has no PRAGMA shape here; a rung that adds one
+        # must extend this reader before its golden means anything.
+        assert kinds <= {"table", "index"}, kinds
+        tables = [
+            table
+            for (table,) in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+            if table not in _SPINE_TABLES
+        ]
+        return {
+            table: {
+                "columns": [
+                    f"{col} {type_} notnull={notnull} default={default} pk={pk}"
+                    for _, col, type_, notnull, default, pk in conn.execute(
+                        f"PRAGMA table_info('{table}')"
+                    )
+                ],
+                "indexes": {
+                    index: f"({', '.join(_index_columns(conn, index))}) "
+                    f"unique={unique} origin={origin} partial={partial}"
+                    for _, index, unique, origin, partial in sorted(
+                        conn.execute(f"PRAGMA index_list('{table}')"),
+                        key=lambda row: row[1],
+                    )
+                },
+            }
+            for table in tables
+        }
+    finally:
+        conn.close()
+
+
+def _index_columns(conn, index: str) -> list[str]:
+    return [row[2] for row in conn.execute(f"PRAGMA index_info('{index}')")]
+
+
+_SPINE_TABLES = ("meta", "schema_version", "removals", "refresher_health")
 
 
 def _noop_migration() -> "Migration":
@@ -552,6 +502,16 @@ class TestNoticesSince:
         await db.upsert("desk", "a", body="one")
         await db.delete("desk", "a")
         assert await db.notices_since(1) == ({"desk": {"a"}}, 2)
+
+    async def test_a_write_to_a_table_that_does_not_notify_is_no_notice(self, db):
+        db.ladders["fake"] = (
+            Migration(("CREATE TABLE quiet (id TEXT PRIMARY KEY, revision INTEGER)",)),
+        )
+        db.tables["quiet"] = TableSpec("quiet", notifies=False)
+        await db.migrate()
+        await db.upsert("quiet", "a")
+        await db.upsert("desk", "b", body="two")
+        assert await db.notices_since(0) == ({"desk": {"b"}}, 2)
 
 
 class TestReadWhere:

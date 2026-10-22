@@ -1,0 +1,17 @@
+[
+  {
+    "task_export": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "path TEXT notnull=1 default='' pk=0",
+        "deleted INTEGER notnull=1 default=0 pk=0",
+        "queued_at TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_export_1": "(id) unique=1 origin=pk partial=0",
+        "task_export_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    }
+  }
+]

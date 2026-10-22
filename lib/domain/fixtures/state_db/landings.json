@@ -1,0 +1,40 @@
+[
+  {
+    "pull_requests": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "fetched_at TEXT notnull=0 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "number INTEGER notnull=1 default=0 pk=0",
+        "url TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "merged_at TEXT notnull=1 default='' pk=0",
+        "merge_sha TEXT notnull=1 default='' pk=0",
+        "state TEXT notnull=1 default='' pk=0",
+        "envs TEXT notnull=1 default='{}' pk=0"
+      ],
+      "indexes": {
+        "pull_requests_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_pull_requests_1": "(id) unique=1 origin=pk partial=0"
+      }
+    },
+    "task_steps": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "step TEXT notnull=1 default='' pk=0",
+        "pr_number INTEGER notnull=1 default=0 pk=0",
+        "at TEXT notnull=1 default='' pk=0",
+        "recorded_at TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_steps_1": "(id) unique=1 origin=pk partial=0",
+        "task_steps_revision": "(revision) unique=0 origin=c partial=0",
+        "task_steps_task_id": "(task_id) unique=0 origin=c partial=0"
+      }
+    }
+  }
+]

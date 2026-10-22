@@ -1,0 +1,74 @@
+[
+  {
+    "comms": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "recipients TEXT notnull=1 default='[]' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "closed_at TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "comms_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_comms_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  },
+  {
+    "comms": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "recipients TEXT notnull=1 default='[]' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "closed_at TEXT notnull=1 default='' pk=0",
+        "category TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "comms_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_comms_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  },
+  {
+    "comm_updates": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "comm_id TEXT notnull=1 default='' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "items TEXT notnull=1 default='[]' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "state TEXT notnull=1 default='draft' pk=0",
+        "sent_at TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "comm_updates_comm_id": "(comm_id) unique=0 origin=c partial=0",
+        "comm_updates_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_comm_updates_1": "(id) unique=1 origin=pk partial=0"
+      }
+    },
+    "comms": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "content TEXT notnull=1 default='' pk=0",
+        "recipients TEXT notnull=1 default='[]' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "closed_at TEXT notnull=1 default='' pk=0",
+        "category TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "comms_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_comms_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  }
+]

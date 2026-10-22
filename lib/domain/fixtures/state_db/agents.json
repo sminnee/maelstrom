@@ -1,0 +1,49 @@
+[
+  {
+    "agents": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "body TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "agents_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_agents_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  },
+  {
+    "agent_milestones": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "agent_id TEXT notnull=1 default='' pk=0",
+        "name TEXT notnull=1 default='' pk=0",
+        "at TEXT notnull=1 default='' pk=0",
+        "recognised INTEGER notnull=1 default=1 pk=0",
+        "own_total INTEGER notnull=1 default=0 pk=0",
+        "sub_total INTEGER notnull=1 default=0 pk=0",
+        "cost_usd REAL notnull=1 default=0 pk=0",
+        "own_delta INTEGER notnull=1 default=0 pk=0",
+        "sub_delta INTEGER notnull=1 default=0 pk=0",
+        "cost_delta REAL notnull=1 default=0 pk=0"
+      ],
+      "indexes": {
+        "agent_milestones_agent": "(agent_id) unique=0 origin=c partial=0",
+        "agent_milestones_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_agent_milestones_1": "(id) unique=1 origin=pk partial=0"
+      }
+    },
+    "agents": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "body TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "agents_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_agents_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
+  }
+]
