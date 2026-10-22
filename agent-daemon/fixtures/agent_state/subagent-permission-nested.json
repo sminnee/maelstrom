@@ -1,0 +1,108 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 25498,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "The subagent reported back: its own subagent fetched https://example.com and returned the page title **Example Domain**. It noted that WebFetch was a deferred tool, so the schema was loaded first via `ToolSearch` with `select:WebFetch` before the fetch.\n\nIt also mentioned in passing that several MCP servers (Gmail, Google Calendar, LawCyborg, Linear, Notion, figma) need OAuth authorization and are unavailable in this non-interactive session — that didn't affect this task.",
+  "last_message_at": "2026-09-06T22:01:12.648Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "assistant",
+    "rate_limit_event",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "control_request",
+    "control_response",
+    "control_response",
+    "system",
+    "system",
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "result"
+  ],
+  "seq": 22,
+  "session_id": "1582f4de-580f-499c-b941-8172a9b172ff",
+  "status": "idle",
+  "subagent_ids": {
+    "toolu_018yW379xzH9yvFnAykQAGsc": "a1.1",
+    "toolu_019LrPHnhXhXLrZnMVbEt8n5": "a1.2"
+  },
+  "subagent_readings": {},
+  "subagent_tasks": {
+    "a471eb2f2873d180b": "a1.2",
+    "a990638185a1b107c": "a1.1"
+  },
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {
+    "a1.1": {
+      "description": "Nested agent fetch test",
+      "last_message": "",
+      "last_message_at": "",
+      "pending": {},
+      "recent": [],
+      "seq": 0,
+      "status": "completed",
+      "subagent_type": "general-purpose",
+      "summary": "The subagent reported the page title of https://example.com as **Example Domain**. It confirmed WebFetch was a deferred tool and loaded its schema via ToolSearch (`select:WebFetch`) before making the fetch.\n\nNote: several MCP servers (claude.ai Gmail, Google Calendar, LawCyborg, Linear, Notion, and the figma plugin) require OAuth authorization, which can't be completed in this non-interactive session. Those tools are unavailable until authorized via claude.ai connector settings or `/mcp` in an interactive session — none of that blocked this task.",
+      "tokens": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "input": 0,
+        "output": 0
+      },
+      "tool_use_id": "toolu_018yW379xzH9yvFnAykQAGsc"
+    },
+    "a1.2": {
+      "description": "Fetch example.com title",
+      "last_message": "",
+      "last_message_at": "",
+      "pending": {},
+      "recent": [],
+      "seq": 0,
+      "status": "completed",
+      "subagent_type": "general-purpose",
+      "summary": "Page title: **Example Domain**\n\n(Fetched https://example.com via WebFetch after loading its schema with ToolSearch.)",
+      "tokens": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "input": 0,
+        "output": 0
+      },
+      "tool_use_id": "toolu_019LrPHnhXhXLrZnMVbEt8n5"
+    }
+  },
+  "total_cost_usd": 0.32623375,
+  "total_tokens": 50846,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1788742800,
+      "utilization": 0.15
+    },
+    "seven_day": {
+      "resets_at": 1789084800,
+      "utilization": 0.44
+    }
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 27273,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "The subagent finished. It found 8 files under `docs/dev` — `agent-daemon.md`, `architecture-patterns.md`, `cmux.md`, `orchestrator-server.md`, `orchestrator-ui.md`, `scheduled-tasks.md`, `stacking.md`, `tasks.md` — and its one-line summary:\n\n> Internal developer documentation for maelstrom, covering its three-layer Python architecture conventions, the task domain model and launchd-based scheduled tasks, stacked-branch rebasing, the cmux pane-layout package, the agent daemon that drives Claude Code over NDJSON pipes, and the orchestrator server and web UI built on top of them.",
+  "last_message_at": "2026-09-04T08:32:06.143Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "auto",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "system",
+    "assistant",
+    "assistant",
+    "rate_limit_event",
+    "system",
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "result",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "assistant",
+    "rate_limit_event",
+    "result"
+  ],
+  "seq": 22,
+  "session_id": "aec4080c-4f19-49b3-9a30-8ed218f360d3",
+  "status": "idle",
+  "subagent_ids": {
+    "toolu_01Psu3ew4jVXe96yarRAujE5": "a1.1"
+  },
+  "subagent_readings": {
+    "msg_011Cei61zYdTtGiaS7TfJWwL": {
+      "cache_creation": 14225,
+      "cache_read": 0,
+      "input": 2,
+      "output": 1
+    },
+    "msg_011Cei63mpUTWVLmFtS5E2Rv": {
+      "cache_creation": 1813,
+      "cache_read": 14225,
+      "input": 2,
+      "output": 2
+    },
+    "msg_011Cei65EwPwu3VDrpeHk8dK": {
+      "cache_creation": 4003,
+      "cache_read": 16038,
+      "input": 2,
+      "output": 3
+    }
+  },
+  "subagent_tasks": {
+    "a5f10515640d5228b": "a1.1"
+  },
+  "subagent_tokens": {
+    "cache_creation": 20041,
+    "cache_read": 30263,
+    "input": 6,
+    "output": 6
+  },
+  "subagents": {
+    "a1.1": {
+      "description": "List and summarise docs/dev",
+      "last_message": "Files under `docs/dev` (8 total, all absolute paths under `/private/tmp/claude-501/clean/docs/dev/`):\n\n- `agent-daemon.md`\n- `architecture-patterns.md`\n- `cmux.md`\n- `orchestrator-server.md`\n- `orchestrator-ui.md`\n- `scheduled-tasks.md`\n- `stacking.md`\n- `tasks.md`\n\nOne line summary:\n\nInternal developer documentation for maelstrom, covering its three-layer Python architecture conventions, the task domain model and launchd-based scheduled tasks, stacked-branch rebasing, the cmux pane-layout package, the agent daemon that drives Claude Code over NDJSON pipes, and the orchestrator server and web UI built on top of them.",
+      "last_message_at": "",
+      "pending": {},
+      "recent": [
+        "assistant",
+        "assistant",
+        "user",
+        "assistant",
+        "assistant",
+        "user",
+        "assistant"
+      ],
+      "seq": 7,
+      "status": "completed",
+      "subagent_type": "Explore",
+      "summary": "Files under `docs/dev` (8 total, all absolute paths under `/private/tmp/claude-501/clean/docs/dev/`):\n\n- `agent-daemon.md`\n- `architecture-patterns.md`\n- `cmux.md`\n- `orchestrator-server.md`\n- `orchestrator-ui.md`\n- `scheduled-tasks.md`\n- `stacking.md`\n- `tasks.md`\n\nOne line summary:\n\nInternal developer documentation for maelstrom, covering its three-layer Python architecture conventions, the task domain model and launchd-based scheduled tasks, stacked-branch rebasing, the cmux pane-layout package, the agent daemon that drives Claude Code over NDJSON pipes, and the orchestrator server and web UI built on top of them.",
+      "tokens": {
+        "cache_creation": 20041,
+        "cache_read": 30263,
+        "input": 6,
+        "output": 6
+      },
+      "tool_use_id": "toolu_01Psu3ew4jVXe96yarRAujE5"
+    }
+  },
+  "total_cost_usd": 0.33535875,
+  "total_tokens": 79606,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1788517800,
+      "utilization": 0.46
+    },
+    "seven_day": {
+      "resets_at": 1789084800,
+      "utilization": 0.26
+    }
+  }
+}

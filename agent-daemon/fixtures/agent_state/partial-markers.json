@@ -1,0 +1,52 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 30578,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "All true tea comes from one plant, *Camellia sinensis*. The difference between green, oolong and black tea is how long the picked leaves are left to oxidise before heat stops the process. Green tea is heated almost at once, so it stays grassy and pale. Black tea is fully oxidised, which gives it a darker colour and a malty taste.\n\nBrewing matters as much as the leaf. Green tea turns bitter in boiling water and does best at about 80°C for two minutes. Black tea needs a full boil and three to five minutes.\n\nHerbal infusions such as peppermint, chamomile and rooibos contain no tea leaf, so they are strictly tisanes and have no caffeine.",
+  "last_message_at": "2026-10-02T07:14:02.379Z",
+  "last_note": "writing about tea",
+  "last_note_at": "2026-10-02T07:14:02.379Z",
+  "model": "claude-opus-5-5",
+  "own_pending": {},
+  "permission_mode": "auto",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "rate_limit_event",
+    "user",
+    "system",
+    "assistant",
+    "result"
+  ],
+  "seq": 9,
+  "session_id": "d9464497-98ac-4143-822b-261b8d49584f",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.1356986,
+  "total_tokens": 61362,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1790935200,
+      "utilization": 0.16
+    },
+    "seven_day": {
+      "resets_at": 1791504000,
+      "utilization": 0.09
+    }
+  }
+}

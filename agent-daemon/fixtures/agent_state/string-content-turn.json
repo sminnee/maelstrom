@@ -1,0 +1,42 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 0,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "The review agent finished, so I'll read its report.",
+  "last_message_at": "2026-09-01T01:42:18.120Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "user",
+    "user",
+    "assistant",
+    "result"
+  ],
+  "seq": 5,
+  "session_id": "3f1c8a20-5b7e-4d61-9c02-7a4e1d8f60b3",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.0212,
+  "total_tokens": 0,
+  "usage": {
+    "at": "",
+    "five_hour": null,
+    "seven_day": null
+  }
+}

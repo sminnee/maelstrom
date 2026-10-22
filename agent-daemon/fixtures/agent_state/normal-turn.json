@@ -1,0 +1,50 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 24552,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "Hello there, friend",
+  "last_message_at": "2026-09-01T01:42:19.652Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "rate_limit_event",
+    "result"
+  ],
+  "seq": 7,
+  "session_id": "029ed263-b318-4d4e-a661-32f9c9f23f19",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.1495855,
+  "total_tokens": 24561,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1788241800,
+      "utilization": 0.05
+    },
+    "seven_day": {
+      "resets_at": 1788480000,
+      "utilization": 0.24
+    }
+  }
+}

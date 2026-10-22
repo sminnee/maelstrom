@@ -12,11 +12,12 @@ so the request arrives bare and the plan is in a message instead.
 """
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from agent_replay import FIXTURES, replay
+from agent_replay import FIXTURES, STATES, replay, state_snapshot
 
 from mael_agent.agent_wire import (
     AWAITING_PERMISSION,
@@ -74,10 +75,23 @@ def only_pending(state: AgentState) -> PendingRequest:
 # --- states derived from real transcripts ---------------------------------
 
 
-def test_a_completed_turn_ends_idle():
-    state = replay("normal-turn.jsonl")
-    assert state.status == "idle"
-    assert state.session_id == "029ed263-b318-4d4e-a661-32f9c9f23f19"
+EVENT_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
+# An empty glob would turn every golden test into a skip, not a failure.
+assert EVENT_NAMES, f"no recordings under {FIXTURES}"
+
+
+@pytest.mark.parametrize("name", EVENT_NAMES)
+def test_every_fixture_replays_to_its_golden_state(name):
+    """A reducer change is a deliberate re-record, never a silent drift.
+
+    The golden holds the whole final state: status, waits, cost, tokens and
+    context. ``UPDATE_GOLDEN=1`` re-records.
+    """
+    actual = state_snapshot(replay(name))
+    path = STATES / name.replace(".jsonl", ".json")
+    if os.environ.get("UPDATE_GOLDEN") == "1":
+        path.write_text(json.dumps(actual, indent=2, ensure_ascii=False) + "\n")
+    assert actual == json.loads(path.read_text())
 
 
 def test_an_assistant_message_marks_the_agent_processing():
@@ -105,36 +119,22 @@ def test_an_exit_plan_mode_awaits_plan_review():
     assert only_pending(state).tool_name == "ExitPlanMode"
 
 
-def test_an_assistant_event_does_not_wipe_a_pending_wait():
-    """A row must never say ``processing`` while it still names what it waits on."""
-    state = replay("question-unanswered.jsonl", stop_before_control=True)
-    state = apply_event(state, {"type": "assistant", "message": {"content": []}})
-    assert state.status == "awaiting-question"
-
-
 def test_answering_the_pending_request_clears_the_wait():
     state = replay("question-answered.jsonl")
-    assert state.status == "idle"
-    assert state.own_pending == {}
+    assert (state.status, state.own_pending) == ("idle", {})
 
 
 def test_a_denied_tool_does_not_leave_the_agent_waiting():
     """A hard deny is terminal — the agent carries on, it does not wait."""
     state = replay("permission-denied.jsonl")
-    assert state.status == "idle"
-    assert state.own_pending == {}
+    assert (state.status, state.own_pending) == ("idle", {})
 
 
-def test_a_result_event_records_the_cost():
-    state = replay("normal-turn.jsonl")
-    assert state.total_cost_usd == pytest.approx(0.1495855)
-
-
-def test_a_result_event_adds_its_tokens_to_the_running_total():
-    """The turn's four counts, summed: 2 + 14429 + 10121 + 9 off the fixture."""
-    state = replay("normal-turn.jsonl")
-    assert state.total_tokens == 24561
-    assert build_agent_row(state)["tokens"] == 24561
+def test_an_assistant_event_does_not_wipe_a_pending_wait():
+    """A row must never say ``processing`` while it still names what it waits on."""
+    state = replay("question-unanswered.jsonl", stop_before_control=True)
+    state = apply_event(state, {"type": "assistant", "message": {"content": []}})
+    assert state.status == "awaiting-question"
 
 
 def test_a_second_turn_adds_to_the_token_total_rather_than_replacing_it():
@@ -157,18 +157,6 @@ def test_a_result_without_usage_leaves_the_token_total_alone():
     state = replay("normal-turn.jsonl")
     state = apply_event(state, {"type": "result", "total_cost_usd": 0.2})
     assert state.total_tokens == 24561
-
-
-def test_an_assistant_event_records_what_the_prompt_holds():
-    """The prompt's three counts, summed: 2 + 10121 + 14429 off the fixture.
-
-    ``output_tokens`` is out. It is what the model wrote, not what the prompt
-    holds — it joins the context for the *next* request, which that request's
-    own ``assistant`` event then reports.
-    """
-    state = replay("normal-turn.jsonl")
-    assert state.context_tokens == 24552
-    assert build_agent_row(state)["context_tokens"] == 24552
 
 
 def test_a_smaller_later_reading_brings_the_context_down():
@@ -512,6 +500,8 @@ def test_row_of_an_idle_agent_has_nothing_pending():
     row = build_agent_row(replay("normal-turn.jsonl"))
     assert row["state"] == "idle"
     assert row["waiting_on"] == ""
+    # 2 + 14429 + 10121 + 9 spent; 2 + 10121 + 14429 held, off the fixture.
+    assert (row["tokens"], row["context_tokens"]) == (24561, 24552)
 
 
 def test_every_row_key_is_always_present():
