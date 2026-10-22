@@ -64,14 +64,6 @@ def _worktree_target(worktree_opt: str | None, target: str | None) -> str | None
     return worktree_opt if worktree_opt is not None else target
 
 
-def _declared_service_names(ctx: ResolvedContext) -> list[str]:
-    """Names of the services the worktree's `.maelstrom.yaml` declares, in order."""
-    worktree_path = ctx.worktree_path
-    if worktree_path is None:
-        return []
-    return [svc.name for svc in load_config_or_default(worktree_path).services]
-
-
 def _reject_worktree_target(service: str) -> None:
     """Reject a dotted name, which can only be the worktree target.
 
@@ -98,24 +90,15 @@ def resolve_service(
     Returns (context, service name) — the service name is ``None`` for the whole
     environment.
 
+    The model checks the name against the declared services.
+
     Raises:
-        ValueError: If the worktree declares services and this is not one of
-            them, or the context cannot be resolved.
+        ValueError: If the name holds a dot, or the context cannot be resolved.
     """
     if service is not None:
         _reject_worktree_target(service)
 
     ctx = resolve_context(worktree_opt, require_project=True, require_worktree=True)
-    if service is None:
-        return ctx, None
-
-    # A project that declares nothing has no list to check against, so
-    # get_services raises the Procfile diagnosis instead.
-    declared = _declared_service_names(ctx)
-    if declared and service not in declared:
-        raise ValueError(
-            f"Unknown service: {service}. Declared services: {', '.join(declared)}"
-        )
     return ctx, service
 
 
@@ -459,6 +442,7 @@ def env_stop(service, worktree_opt):
             ctx.project,
             ctx.worktree,
             services=[service_name] if service_name else None,
+            worktree_path=ctx.worktree_path,
         )
     except ValueError as e:
         raise click.ClickException(str(e))

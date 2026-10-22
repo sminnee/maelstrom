@@ -269,13 +269,7 @@ def get_services(
                 for svc in config.services
                 if not svc.optional
             ]
-        declared = {svc.name for svc in config.services}
-        unknown = [n for n in names if n not in declared]
-        if unknown:
-            raise ValueError(
-                f"Unknown service(s): {', '.join(unknown)}. "
-                f"Declared services: {', '.join(svc.name for svc in config.services)}"
-            )
+        _refuse_undeclared(config.services, names)
         wanted = set(names)
         return [
             _resolve_service_def(svc, project)
@@ -309,6 +303,17 @@ def get_services(
 
 
 # --- State File Persistence ---
+
+
+def _refuse_undeclared(declared: list[ServiceDef], names: list[str]) -> None:
+    """Raise ``ValueError`` naming each of ``names`` that ``declared`` lacks."""
+    known = {svc.name for svc in declared}
+    unknown = [n for n in names if n not in known]
+    if unknown:
+        raise ValueError(
+            f"Unknown service(s): {', '.join(unknown)}. "
+            f"Declared services: {', '.join(svc.name for svc in declared)}"
+        )
 
 
 def _env_key(project: str, worktree: str) -> str:
@@ -1177,6 +1182,7 @@ def stop_env(
     *,
     timeout: float = 10.0,
     services: list[str] | None = None,
+    worktree_path: Path | None = None,
 ) -> list[str]:
     """Stop services for a worktree environment.
 
@@ -1189,9 +1195,31 @@ def stop_env(
     because the remaining services still need the database. Stopping the last
     running service by name lands on the full-stop path.
 
+    A named stop checks the names against the services ``.maelstrom.yaml``
+    declares. The worktree comes from the saved state, or from
+    ``worktree_path`` when nothing local runs. A running service passes even
+    when it is no longer declared, because a pull can rename one that is still
+    up. A project with no ``services:`` block has no list to check against, so
+    its names pass through.
+
     Returns a list of status messages per service.
+
+    Raises:
+        ValueError: If ``services`` holds a service that is neither declared
+            nor running. Nothing stops.
     """
     state = load_env_state(store, project, worktree)
+    config_path = Path(state.worktree_path) if state else worktree_path
+    if services is not None and config_path is not None:
+        declared = load_config_or_default(config_path).services
+        if declared:
+            shared_state = load_shared_state(store, project)
+            running = {s.name for s in state.services} if state else set()
+            running |= (
+                {s.name for s in shared_state.services} if shared_state else set()
+            )
+            _refuse_undeclared(declared, [n for n in services if n not in running])
+
     if state is None:
         # Still try to unsubscribe from shared services
         shared_msgs = _unsubscribe_shared(store, project, worktree, timeout=timeout)
@@ -1329,7 +1357,9 @@ def restart_services(
     """
     messages: list[str] = []
     if load_env_state(store, project, worktree) is not None:
-        messages = stop_env(store, project, worktree, services=services)
+        messages = stop_env(
+            store, project, worktree, services=services, worktree_path=worktree_path
+        )
     try:
         state = start_env(
             store,

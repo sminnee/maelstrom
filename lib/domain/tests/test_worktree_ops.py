@@ -32,7 +32,7 @@ def sync_steps(**over) -> SyncSteps:
 def env_steps(**over) -> EnvSteps:
     defaults = dict(
         start=lambda project, worktree, path, services: [],
-        stop=lambda project, worktree, services: [],
+        stop=lambda project, worktree, path, services: [],
     )
     return EnvSteps(**{**defaults, **over})
 
@@ -214,7 +214,7 @@ class TestEnvActions:
             "start",
             steps=env_steps(
                 start=lambda p, w, path, services: order.append("start") or [],
-                stop=lambda p, w, services: order.append("stop") or [],
+                stop=lambda p, w, path, services: order.append("stop") or [],
             ),
         )
         assert order == ["start"]
@@ -230,7 +230,7 @@ class TestEnvActions:
             "stop",
             steps=env_steps(
                 start=lambda p, w, path, services: order.append("start") or [],
-                stop=lambda p, w, services: order.append("stop") or [],
+                stop=lambda p, w, path, services: order.append("stop") or [],
             ),
         )
         assert order == ["stop"]
@@ -246,7 +246,7 @@ class TestEnvActions:
             "restart",
             steps=env_steps(
                 start=lambda p, w, path, services: order.append("start") or [],
-                stop=lambda p, w, services: order.append("stop") or [],
+                stop=lambda p, w, path, services: order.append("stop") or [],
             ),
         )
         assert order == ["stop", "start"]
@@ -256,7 +256,7 @@ class TestEnvActions:
         asked: list[tuple[str, list[str] | None]] = []
         steps = env_steps(
             start=lambda p, w, path, services: asked.append(("start", services)) or [],
-            stop=lambda p, w, services: asked.append(("stop", services)) or [],
+            stop=lambda p, w, path, services: asked.append(("stop", services)) or [],
         )
         for action in ("start", "stop"):
             await run_env(
@@ -302,7 +302,7 @@ class TestEnvActions:
         """A half-restart is worse than a refused one: it hides the fault."""
         start = MagicMock(return_value=[])
 
-        def boom(project, worktree, services):
+        def boom(project, worktree, path, services):
             raise OSError("will not die")
 
         result = await run_env(
