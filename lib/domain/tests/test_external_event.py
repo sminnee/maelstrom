@@ -1,8 +1,11 @@
-"""The **External event** envelope, and the PR transitions that become events."""
+"""The **External event** envelope, and the PR and gate news that become events."""
+
+import pytest
 
 from mael_domain.external_event import (
     ExternalEvent,
     PrLedger,
+    gate_event,
     parse,
     pr_events,
     render,
@@ -177,3 +180,71 @@ class TestPrEvents:
     def test_the_ledger_is_plain_data(self):
         ledger = _told(_seen("ci-failed"))
         assert ledger == PrLedger("ci-failed", False, "aaa1111", "")
+
+
+def _job(state, *gates, job_id=1100):
+    """A finished job as ``tangier gate status --watch --json`` prints it, trimmed."""
+    return {
+        "id": job_id,
+        "state": state,
+        "head": "0c72dc69d92b6ce342eb0a7d54bc408d4857550f",
+        "log": "/Users/me/.tangier/jobs/1100/output.log",
+        "worktree": "/p/northwind-alpha",
+        "gates": [
+            {"name": name, "state": gate_state, "code": code}
+            for name, gate_state, code in gates
+        ],
+    }
+
+
+class TestGateEvent:
+    def test_a_pass_names_each_gate(self):
+        event = gate_event(
+            _job("passed", ("lint", "passed", 0), ("web", "not-needed", None))
+        )
+        assert event == ExternalEvent(
+            "gate",
+            "gate.passed",
+            {"job": "1100", "head": "0c72dc6"},
+            "Gate job 1100 passed: lint, web.",
+        )
+
+    def test_a_failure_names_each_gate_that_failed_and_the_log(self):
+        event = gate_event(
+            _job(
+                "failed",
+                ("lint", "passed", 0),
+                ("test", "failed", 1),
+                ("jig", "exploded", None),
+                ("web", "cancelled", None),
+                ("e2e", "pending", None),
+            )
+        )
+        assert event == ExternalEvent(
+            "gate",
+            "gate.failed",
+            {"job": "1100", "head": "0c72dc6"},
+            "Gate job 1100 failed at 0c72dc6:\n"
+            "- test: failed (exit 1)\n"
+            "- jig: exploded\n"
+            "Log: /Users/me/.tangier/jobs/1100/output.log\n"
+            "Read the log, fix the failures, commit, and run the gates again.",
+        )
+
+    def test_an_unrecorded_gate_says_the_worktree_changed(self):
+        event = gate_event(_job("failed", ("lint", "unrecorded", 1)))
+        assert event.type == "gate.failed"
+        assert (
+            "- lint: unrecorded (exit 1): the worktree changed while the gate ran, "
+            "so its pass wrote no record\n"
+        ) in event.body
+
+    @pytest.mark.parametrize("state", ["died", "orphaned-but-finished"])
+    def test_any_other_end_is_a_failure(self, state):
+        """A died job, or a state this version does not know, is not a pass."""
+        assert gate_event(_job(state, ("lint", "died", None))).type == "gate.failed"
+
+    def test_a_cancel_says_only_that(self):
+        event = gate_event(_job("cancelled", ("lint", "cancelled", None)))
+        assert event.type == "gate.cancelled"
+        assert event.body == "Gate job 1100 was cancelled."

@@ -8,9 +8,11 @@ the user's words. The facts are attributes; the body is what to do. See
 import html
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from .github_model import PrStatus
 
+GATE = "gate"
 GITHUB = "github"
 JIG = "jig"
 ORCHESTRATOR = "orchestrator"
@@ -23,6 +25,9 @@ JIG_MONKEYPATCH = "jig.monkeypatch"
 JIG_PARAM_SET = "jig.param_set"
 JIG_PICK = "jig.pick"
 JIG_CONTROLS = "jig.controls"
+GATE_PASSED = "gate.passed"
+GATE_FAILED = "gate.failed"
+GATE_CANCELLED = "gate.cancelled"
 PR_WATCHING = "pr.watching"
 PR_CHECKS_FAILED = "pr.checks_failed"
 PR_CHECKS_PASSED = "pr.checks_passed"
@@ -150,3 +155,51 @@ def pr_events(
         if withdrawn:
             events = []
     return events, PrLedger(pr.state, pr.conflicting, failed_oid, green_oid)
+
+
+#: The gate states tangier counts as a pass.
+_GATE_OK = frozenset({"passed", "not-needed", "verified"})
+#: The gate states a failure body leaves out: a pass, a gate that has not
+#: run, and a gate a fail-fast job cancelled. Every other state is listed, so a
+#: state this version does not know still names its gate.
+_GATE_UNLISTED = _GATE_OK | {"pending", "running", "cancelled"}
+
+
+def gate_event(job: dict[str, Any]) -> ExternalEvent:
+    """The event a finished gate job is, as ``tangier gate status --json`` gives it.
+
+    Any end but ``passed`` and ``cancelled`` is a failure: a job that ``died``,
+    or a state this version does not know, must not read as a pass.
+    """
+    number, short = str(job["id"]), str(job.get("head") or "")[:7]
+    gates = [g for g in job.get("gates") or [] if isinstance(g, dict)]
+    attrs = {"job": number, "head": short}
+    state = job.get("state")
+    if state == "passed":
+        names = ", ".join(str(g.get("name")) for g in gates)
+        return ExternalEvent(
+            GATE, GATE_PASSED, attrs, f"Gate job {number} passed: {names}."
+        )
+    if state == "cancelled":
+        return ExternalEvent(
+            GATE, GATE_CANCELLED, attrs, f"Gate job {number} was cancelled."
+        )
+    lines = [f"Gate job {number} failed at {short}:"]
+    for gate in gates:
+        gate_state = gate.get("state")
+        if gate_state in _GATE_UNLISTED:
+            continue
+        code = gate.get("code")
+        line = f"- {gate.get('name')}: {gate_state}"
+        if code is not None:
+            line += f" (exit {code})"
+        if gate_state == "unrecorded":
+            line += (
+                ": the worktree changed while the gate ran, so its pass wrote no record"
+            )
+        lines.append(line)
+    lines += [
+        f"Log: {job.get('log')}",
+        "Read the log, fix the failures, commit, and run the gates again.",
+    ]
+    return ExternalEvent(GATE, GATE_FAILED, attrs, "\n".join(lines))
