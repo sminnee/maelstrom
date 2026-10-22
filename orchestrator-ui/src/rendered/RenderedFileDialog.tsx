@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorktreeFile, worktreeFileUrl } from '../api/worktreeChanges';
 import type { FileDiff } from '../protocol/entities';
@@ -36,6 +36,7 @@ export function RenderedFileDialog({
   file: FileDiff;
   onClose: () => void;
 }) {
+  const body = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<Mode>('changes');
   const [display, setDisplay] = useState<string | null>(null);
   const plugin = rendererFor(file.path);
@@ -66,6 +67,7 @@ export function RenderedFileDialog({
       onClose={onClose}
       testId="rendered-file"
       className={styles.box}
+      initialFocus={body}
     >
       <DialogHeader title={file.path} onClose={onClose}>
         {displays && (
@@ -87,7 +89,9 @@ export function RenderedFileDialog({
           onPress={setMode}
         />
       </DialogHeader>
-      <div className={styles.body}>
+      {/* A tab stop, so Tab from the header controls and a click in the text land
+          here, rather than on the box, which does not scroll. */}
+      <div ref={body} className={styles.body} tabIndex={0} role="region" aria-label="File">
         {!data ? (
           <p className={styles.note} role={versions.isError ? 'alert' : undefined}>
             {versions.isError

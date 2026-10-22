@@ -15,6 +15,10 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
+/* The base ring, drawn inset: the box's edge clips a ring drawn outside the pane. */
+.body:focus-visible {
+  outline-offset: -2px;
+}
 .note {
   margin: 0;
   padding: var(--u) var(--u-2);
