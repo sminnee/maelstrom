@@ -10,37 +10,29 @@ from mael_domain.comm_store import (
     CommUpdate,
     InMemoryCommStore,
     InMemoryCommUpdateStore,
-    SqliteCommStore,
-    SqliteCommUpdateStore,
 )
 from mael_domain.landing_store import (
     InMemoryTaskStepStore,
-    SqliteTaskStepStore,
     StepEvent,
 )
-from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_table import InMemoryTaskTable
 
 NOW = "2026-10-08T09:00:00+00:00"
 LATER = "2026-10-09T09:00:00+00:00"
 
 
-@pytest.fixture(params=["memory", "sqlite"])
-async def store(request):
-    """Run each test against every backend."""
-    if request.param == "memory":
-        yield InMemoryCommStore()
-        return
-    db = open_state_db(":memory:")
-    await db.migrate()
-    yield SqliteCommStore(db)
-    db.close()
+@pytest.fixture
+def comm_store():
+    """The model runs on one backend; ``test_comm_store`` holds the two to it."""
+    return InMemoryCommStore()
 
 
 class TestNew:
-    async def test_a_new_comm_is_stored_whole_with_its_category_trimmed(self, store):
+    async def test_a_new_comm_is_stored_whole_with_its_category_trimmed(
+        self, comm_store
+    ):
         await comms.new(
-            store,
+            comm_store,
             "Invoice export",
             "Jo asked for CSV.",
             ["#cs", "jo@acme.test"],
@@ -48,7 +40,7 @@ class TestNew:
             category=" release ",
             project="maelstrom",
         )
-        assert await store.read("c1") == Comm(
+        assert await comm_store.read("c1") == Comm(
             id="c1",
             title="Invoice export",
             content="Jo asked for CSV.",
@@ -59,52 +51,46 @@ class TestNew:
             project="maelstrom",
         )
 
-    async def test_ids_count_up_from_c1_in_number_order(self, store):
-        for n in range(11):
-            await comms.new(store, f"t{n}", now=NOW)
-        # c10 sorts before c2 as text; the sequence and the list are numeric.
-        assert [c.id for c in await store.list()] == [f"c{n}" for n in range(1, 12)]
-
-    async def test_a_blank_title_is_refused(self, store):
+    async def test_a_blank_title_is_refused(self, comm_store):
         with pytest.raises(ValueError):
-            await comms.new(store, "  ", now=NOW)
-        made = await comms.new(store, "t", now=NOW)
+            await comms.new(comm_store, "  ", now=NOW)
+        made = await comms.new(comm_store, "t", now=NOW)
         with pytest.raises(ValueError):
-            await comms.edit(store, made.id, title="")
+            await comms.edit(comm_store, made.id, title="")
 
 
 class TestEdit:
-    async def test_edit_changes_only_the_given_fields(self, store):
-        made = await comms.new(store, "Old", "body", ["#cs"], NOW)
-        await comms.edit(store, made.id, title="New", recipients=["#ops"])
-        assert await store.read(made.id) == Comm(
+    async def test_edit_changes_only_the_given_fields(self, comm_store):
+        made = await comms.new(comm_store, "Old", "body", ["#cs"], NOW)
+        await comms.edit(comm_store, made.id, title="New", recipients=["#ops"])
+        assert await comm_store.read(made.id) == Comm(
             id="c1", title="New", content="body", recipients=["#ops"], created_at=NOW
         )
 
-    async def test_edit_sets_and_clears_category_and_project(self, store):
-        made = await comms.new(store, "t", category="a", project="p", now=NOW)
-        await comms.edit(store, made.id, category=" b ", project="")
-        stored = await store.read(made.id)
+    async def test_edit_sets_and_clears_category_and_project(self, comm_store):
+        made = await comms.new(comm_store, "t", category="a", project="p", now=NOW)
+        await comms.edit(comm_store, made.id, category=" b ", project="")
+        stored = await comm_store.read(made.id)
         assert (stored.category, stored.project) == ("b", "")
 
-    async def test_editing_an_unknown_comm_raises(self, store):
+    async def test_editing_an_unknown_comm_raises(self, comm_store):
         with pytest.raises(KeyError):
-            await comms.edit(store, "c9", title="x")
+            await comms.edit(comm_store, "c9", title="x")
 
 
 class TestCloseAndReopen:
-    async def test_close_stamps_closed_at_and_reopen_clears_it(self, store):
-        made = await comms.new(store, "t", now=NOW)
-        await comms.close(store, made.id, LATER)
-        assert (await store.read(made.id)).closed_at == LATER
-        await comms.reopen(store, made.id)
-        assert (await store.read(made.id)).closed_at == ""
+    async def test_close_stamps_closed_at_and_reopen_clears_it(self, comm_store):
+        made = await comms.new(comm_store, "t", now=NOW)
+        await comms.close(comm_store, made.id, LATER)
+        assert (await comm_store.read(made.id)).closed_at == LATER
+        await comms.reopen(comm_store, made.id)
+        assert (await comm_store.read(made.id)).closed_at == ""
 
-    async def test_closing_a_closed_comm_keeps_the_first_time(self, store):
-        made = await comms.new(store, "t", now=NOW)
-        await comms.close(store, made.id, NOW)
-        await comms.close(store, made.id, LATER)
-        assert (await store.read(made.id)).closed_at == NOW
+    async def test_closing_a_closed_comm_keeps_the_first_time(self, comm_store):
+        made = await comms.new(comm_store, "t", now=NOW)
+        await comms.close(comm_store, made.id, NOW)
+        await comms.close(comm_store, made.id, LATER)
+        assert (await comm_store.read(made.id)).closed_at == NOW
 
 
 def _comm(id: str, category: str, project: str, created_at: str = NOW) -> Comm:
@@ -144,17 +130,6 @@ def test_categories_are_distinct_sorted_and_non_blank():
     assert comms.categories(made) == ["a", "b"]
 
 
-class TestChangedSince:
-    async def test_only_written_comms_have_changed(self, store):
-        a = await comms.new(store, "a", now=NOW)
-        await comms.new(store, "b", now=NOW)
-        mark = await store.revision()
-        await comms.edit(store, a.id, title="a2")
-        changes = await store.changed_since(mark)
-        assert [c.title for c in changes.comms] == ["a2"]
-        assert changes.revision == await store.revision()
-
-
 class TestLinks:
     async def _tasks(self):
         table = InMemoryTaskTable()
@@ -183,16 +158,10 @@ class TestLinks:
         assert (await task_model.load(table, "p", "t1")).comms == []
 
 
-@pytest.fixture(params=["memory", "sqlite"])
-async def stores(request):
-    """The comm, comm update and task step stores, on each backend."""
-    if request.param == "memory":
-        yield InMemoryCommStore(), InMemoryCommUpdateStore(), InMemoryTaskStepStore()
-        return
-    db = open_state_db(":memory:")
-    await db.migrate()
-    yield SqliteCommStore(db), SqliteCommUpdateStore(db), SqliteTaskStepStore(db)
-    db.close()
+@pytest.fixture
+def stores():
+    """The comm, comm update and task step stores."""
+    return InMemoryCommStore(), InMemoryCommUpdateStore(), InMemoryTaskStepStore()
 
 
 def _step(task_id: str, step: str, recorded_at: str = NOW) -> StepEvent:
