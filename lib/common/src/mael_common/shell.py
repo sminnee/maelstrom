@@ -196,12 +196,12 @@ async def _run_cmd_streams(
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        _kill_group(proc)
+        kill_process_group(proc)
         await proc.wait()
         raise subprocess.TimeoutExpired(describe(cmd), timeout or 0) from None
     except asyncio.CancelledError:
         # A caller's timeout arrives as a cancel. The child must not outlive the await.
-        _kill_group(proc)
+        kill_process_group(proc)
         await asyncio.shield(proc.wait())
         raise
     return (
@@ -253,7 +253,7 @@ async def run_cmd_async(
     return result
 
 
-def _kill_group(proc: "asyncio.subprocess.Process") -> None:
+def kill_process_group(proc: "asyncio.subprocess.Process") -> None:
     """Kill ``proc``'s whole process group, falling back to the child alone."""
     try:
         os.killpg(proc.pid, signal.SIGKILL)
