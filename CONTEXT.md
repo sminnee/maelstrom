@@ -821,6 +821,16 @@ review, a question, a permission, a document review. A checkpoint is where a hum
 gate is automated.
 _Avoid_: Gate, approval step
 
+**Owning suite**:
+The one test suite that tests a contract in full: the suite of the package that holds the rule.
+`docs/dev/testing.md` lists which suite owns which contract.
+_Avoid_: canonical tests
+
+**Outer layer**:
+A layer that reaches a contract through another layer: a CLI command, a server route, or a
+command that goes over the API. `docs/dev/testing.md` says what an outer layer tests.
+_Avoid_: wrapper tests
+
 ## Pull requests
 
 **Orchestrator token**:

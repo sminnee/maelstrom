@@ -12,8 +12,8 @@ Before a PR, run the pre-PR gate: `tangier gate run lint test web jig --fail-fas
 Use `uv run` to execute commands in the project's virtual environment:
 
 ```bash
-uv run pytest -m 'not slow'        # Skip slow e2e tests (recommended for dev)
-uv run pytest                      # Run all tests including slow ones
+uv run pytest -m 'not e2e'         # The test gate: skip e2e tests (recommended for dev)
+uv run pytest                      # Run all tests, e2e included
 uv run pytest lib/domain/tests/test_ports.py  # Run a single test file
 uv run pytest -k "test_name"       # Run tests matching a pattern
 uv run pytest --cov=mael_cli --cov=mael_domain  # Run with coverage
@@ -40,6 +40,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
 - `docs/dev/ci.md` — the CI gates in `pipeline.toml`: how CI reuses a local pass, and the
   service buckets that give each service its version.
+- `docs/dev/testing.md` — which suite owns which contract, what an outer layer and e2e keep,
+  where test support lives, and how fakes get their replies.
 - `docs/dev/dead-code.md` — the vulture and knip gates: why each runs twice, and where a false
   positive goes.
 - `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
