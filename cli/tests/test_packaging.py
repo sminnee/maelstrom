@@ -1,12 +1,10 @@
-"""What `bin/publish` releases: one `mael` wheel, and every version in step.
+"""What `bin/publish` releases: one `mael` wheel that bundles the libraries.
 
-`bin/publish` moves every member's version in lockstep, so a member that
-disagrees was edited by hand, or was added without joining `VERSIONED`.
+`tests/test_publish.py` checks that every version moves in step.
 """
 
 import importlib.util
 import os
-import re
 import subprocess
 import sys
 import tomllib
@@ -34,10 +32,8 @@ def _toml(path: Path) -> dict:
     return tomllib.loads(path.read_text())
 
 
-VERSIONED = _publish().VERSIONED
 WORKSPACE = _toml(REPO / "pyproject.toml")
 MEMBERS = WORKSPACE["tool"]["uv"]["workspace"]["members"]
-ROOT_VERSION = WORKSPACE["project"]["version"]
 LIBRARIES = [m for m in MEMBERS if m.startswith("lib/")]
 SERVICES = ["agent-daemon", "orchestrator-api"]
 
@@ -49,23 +45,6 @@ def _packages(member: str) -> set[str]:
         for p in (REPO / member / "src").iterdir()
         if (p / "__init__.py").exists()
     }
-
-
-def test_publish_versions_every_workspace_member():
-    listed = {str(pyproject.parent) for pyproject, _ in VERSIONED}
-    assert listed == {".", *MEMBERS}
-
-
-@pytest.mark.parametrize(
-    ("pyproject", "init"),
-    [pair for pair in VERSIONED if pair[1] is not None],
-    ids=[str(p.parent) for p, init in VERSIONED if init is not None],
-)
-def test_each_member_agrees_with_the_root(pyproject: Path, init: Path):
-    declared = _toml(REPO / pyproject)["project"]["version"]
-    match = re.search(r'^__version__ = "(.+?)"', (REPO / init).read_text(), re.M)
-    assert match, f"{init} sets no __version__"
-    assert (declared, match.group(1)) == (ROOT_VERSION, ROOT_VERSION)
 
 
 def _third_party(requirements: list[str]) -> set[str]:

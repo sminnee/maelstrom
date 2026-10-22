@@ -13,9 +13,7 @@ from pathlib import Path
 import pytest
 from git_helpers import run_git, setup_git_repo
 
-from mael_domain.shared_dir import get_shared_dir
-
-SCRIPT = get_shared_dir() / "skills" / "review-codebase" / "inventory.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills/review-codebase/inventory.py"
 
 
 def _write(root: Path, rel: str, lines: int) -> None:

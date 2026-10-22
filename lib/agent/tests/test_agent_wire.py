@@ -9,8 +9,6 @@ import base64
 import json
 from pathlib import Path
 
-from agent_replay import FIXTURES
-
 from mael_agent.agent_wire import (
     AWAITING_PLAN_REVIEW,
     PendingRequest,
@@ -25,6 +23,9 @@ from mael_agent.agent_wire import (
     set_mode_request,
     user_message,
 )
+
+#: The asks recorded from a live ``claude``, which the daemon's reducer tests share.
+FIXTURES = Path(__file__).resolve().parents[3] / "agent-daemon/fixtures/agent_events"
 
 
 def recorded_ask(name: str) -> PendingRequest:
@@ -199,11 +200,6 @@ class TestBuildStartPayload:
         assert build_start_payload(
             Path("/wt/alpha"), prompt="hi", model="", env={}, system_prompt_file=None
         ) == {"cmd": "start", "cwd": "/wt/alpha", "prompt": "hi", "resume": False}
-
-    def test_resume_is_always_sent(self):
-        # `resume` is the one falsy field that carries meaning: False says
-        # "claim a fresh session", not "the caller did not say".
-        assert build_start_payload(Path("/wt/alpha"))["resume"] is False
 
 
 # --- the keys a wait fills ----------------------------------------------------
