@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
 
 from .base_store import GitConfigBaseStore
+from .git_status import read_dirty_files_async
 from .protocol import (
     BranchCommit,
     ChangeComment,
@@ -297,25 +298,13 @@ async def _merge_base(path: Path) -> tuple[str, str]:
 
 
 async def _dirty_files(path: Path) -> list[ChangedFile]:
-    result = await run_git_async(
-        [*_GIT_OPTIONS, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=path,
-        quiet=True,
-    )
-    files: list[ChangedFile] = []
-    entries = iter(result.stdout.split("\0"))
-    for entry in entries:
-        if not entry:
-            continue
-        code, name = entry[:2], entry[3:]
-        if "R" in code or "C" in code:
-            # -z writes a rename's old path as the next entry.
-            next(entries, None)
-        if name in MAELSTROM_MANAGED_FILES:
-            continue
-        status = "?" if code == "??" else (code[0] if code[0] != " " else code[1])
-        files.append({"path": name, "status": status})
-    return files
+    return [
+        {
+            "path": f.path,
+            "status": "?" if f.untracked else (f.index if f.staged else f.worktree),
+        }
+        for f in await read_dirty_files_async(path)
+    ]
 
 
 async def _commits(path: Path, merge_base: str) -> list[BranchCommit]:

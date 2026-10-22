@@ -145,10 +145,10 @@ prints.
 
 ### `DIRTY FILES`
 
-The count is the number of paths in `git status --porcelain` — staged, unstaged and untracked.
-A new file nobody has added counts as dirty, so build output or a scratch file that `.gitignore`
-misses shows up here. One path counts once, however many ways it changed, and a rename counts
-once.
+The count is the number of paths in `git status --porcelain --untracked-files=all` — staged,
+unstaged and untracked. A new file nobody has added counts as dirty, so build output or a scratch
+file that `.gitignore` misses shows up here. Each file in a new directory counts, not the
+directory once. One path counts once, however many ways it changed, and a rename counts once.
 
 `.env` never counts. Maelstrom generates that file, so a changed `.env` is not your work. The
 exclusion matches the path exactly, so a root `.env` is skipped but a nested `apps/web/.env`

@@ -26,6 +26,7 @@ from .config import (
     shared_service_port_names,
 )
 from .dev_cert import dev_env_vars
+from .git_status import read_dirty_files, read_dirty_files_async
 from .github_model import token_env
 from .ports import (
     allocate_port_base,
@@ -43,7 +44,6 @@ from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
 from .worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
-    MAELSTROM_MANAGED_FILES,
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
     SQUASH_MESSAGE,
@@ -295,58 +295,13 @@ def ensure_fetched(
 
 
 def get_worktree_dirty_files(worktree_path: Path) -> list[str]:
-    """Get modified/untracked files in worktree, excluding maelstrom-managed files.
-
-    Args:
-        worktree_path: Path to the worktree directory.
-
-    Returns:
-        List of file paths that are modified or untracked (excluding maelstrom-managed files).
-    """
-    if not worktree_path.is_dir():
-        return []
-
-    result = run_cmd(
-        ["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False
-    )
-    return _parse_dirty_files(result)
+    """The paths of the worktree's **Dirty files**. See :func:`read_dirty_files`."""
+    return [f.path for f in read_dirty_files(worktree_path)]
 
 
 async def get_worktree_dirty_files_async(worktree_path: Path) -> list[str]:
     """:func:`get_worktree_dirty_files`, without blocking the calling thread."""
-    if not worktree_path.is_dir():
-        return []
-
-    result = await run_cmd_async(
-        ["git", "status", "--porcelain"], cwd=worktree_path, quiet=True, check=False
-    )
-    return _parse_dirty_files(result)
-
-
-def _parse_dirty_files(result: subprocess.CompletedProcess) -> list[str]:
-    """The dirty files in a ``git status --porcelain`` result.
-
-    Shared by the two :func:`get_worktree_dirty_files` forms, so the exclusion
-    of maelstrom-managed files is stated once and cannot drift between them.
-    """
-    if result.returncode != 0:
-        return []
-
-    dirty_files = []
-    for line in result.stdout.strip().split("\n"):
-        if not line:
-            continue
-        # git status --porcelain format: XY filename
-        # where XY is the status code (2 chars) followed by a space
-        filename = line[3:].strip()
-        # Handle renamed files (format: "old -> new")
-        if " -> " in filename:
-            filename = filename.split(" -> ")[1]
-        # Skip maelstrom-managed files
-        if filename not in MAELSTROM_MANAGED_FILES:
-            dirty_files.append(filename)
-
-    return dirty_files
+    return [f.path for f in await read_dirty_files_async(worktree_path)]
 
 
 def get_commits_ahead(worktree_path: Path, base_branch: str = "origin/main") -> int:
