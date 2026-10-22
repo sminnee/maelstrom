@@ -77,7 +77,6 @@ def wheel(tmp_path_factory) -> Path:
     return wheels[0]
 
 
-@pytest.mark.slow
 @pytest.mark.e2e
 def test_the_wheel_bundles_every_library_and_no_service(wheel: Path):
     names = zipfile.ZipFile(wheel).namelist()
@@ -91,7 +90,6 @@ def test_the_wheel_bundles_every_library_and_no_service(wheel: Path):
     assert "mael_domain/shared/agent-prompt.md" in names
 
 
-@pytest.mark.slow
 @pytest.mark.e2e
 def test_the_wheel_requires_no_workspace_member(wheel: Path):
     """PyPI has no `mael-*` distribution to satisfy such a requirement."""
@@ -108,7 +106,6 @@ def test_the_wheel_requires_no_workspace_member(wheel: Path):
     assert not [r for r in requires if r.lower().startswith("mael-")]
 
 
-@pytest.mark.slow
 @pytest.mark.e2e
 def test_the_installed_wheel_finds_its_shared_dir(wheel: Path, tmp_path: Path):
     """No repository surrounds a wheel installed from PyPI."""

@@ -41,7 +41,6 @@ def tool(tmp_path_factory) -> Path:
     return root
 
 
-@pytest.mark.slow
 @pytest.mark.e2e
 def test_the_installed_mael_runs(tool: Path):
     result = subprocess.run(
@@ -50,7 +49,6 @@ def test_the_installed_mael_runs(tool: Path):
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.slow
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "member", sorted(p.parent.name for p in REPO.glob("lib/*/src"))
