@@ -119,8 +119,9 @@ cached row's `fetched_at`. See `docs/dev/worktree-steps.md`.
 _Avoid_: Last fetched, fetch time
 
 **Dirty file**:
-A file `git status` reports as changed in a worktree, staged or unstaged. `.env` is excluded,
-because maelstrom generates it — a changed `.env` is not the agent's work.
+A file `git status` reports as changed in a worktree: staged, unstaged or untracked. Each file in
+an untracked directory counts. `.env` is excluded, because maelstrom generates it — a changed
+`.env` is not the agent's work.
 _Avoid_: Modified file, uncommitted change
 
 **Local commit**:

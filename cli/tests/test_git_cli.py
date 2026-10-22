@@ -1,11 +1,11 @@
 """Tests for mael_cli.git_cli module."""
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_cli.cli import cli
 from mael_cli.git_cli import (
@@ -13,73 +13,7 @@ from mael_cli.git_cli import (
     format_git_status,
     get_diff_stat_summary,
     get_recent_commits,
-    get_worktree_file_status,
-    git_status,
 )
-
-
-class TestGetWorktreeFileStatus:
-    """Tests for get_worktree_file_status helper."""
-
-    def test_staged_files(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="A  src/new.py\nM  src/changed.py\n"
-            )
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert result["staged"] == ["src/new.py", "src/changed.py"]
-        assert result["modified"] == []
-        assert result["untracked"] == []
-
-    def test_modified_files(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout=" M src/routes.py\n")
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert result["staged"] == []
-        assert result["modified"] == ["src/routes.py"]
-        assert result["untracked"] == []
-
-    def test_untracked_files(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="?? src/new_file.py\n"
-            )
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert result["staged"] == []
-        assert result["modified"] == []
-        assert result["untracked"] == ["src/new_file.py"]
-
-    def test_mixed_status(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="A  src/new.py\n M src/routes.py\n?? src/todo.txt\nMM src/both.py\n",
-            )
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert "src/new.py" in result["staged"]
-        assert "src/routes.py" in result["modified"]
-        assert "src/todo.txt" in result["untracked"]
-        # MM = staged AND modified
-        assert "src/both.py" in result["staged"]
-        assert "src/both.py" in result["modified"]
-
-    def test_empty_output(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="")
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert result == {"staged": [], "modified": [], "untracked": []}
-
-    def test_git_failure(self):
-        with patch("mael_cli.git_cli.run_cmd") as mock_run:
-            mock_run.return_value = MagicMock(returncode=128, stdout="")
-            result = get_worktree_file_status(Path("/tmp/claude/repo"))
-
-        assert result == {"staged": [], "modified": [], "untracked": []}
 
 
 class TestGetDiffStatSummary:
@@ -224,106 +158,28 @@ class TestBuildStatusDict:
 
 
 class TestGitStatusCommand:
-    """Integration tests for mael git status command."""
+    """`mael git status` on a real repository."""
 
-    @patch("mael_cli.git_cli.get_recent_commits")
-    @patch("mael_cli.git_cli.get_diff_stat_summary")
-    @patch("mael_cli.git_cli.get_worktree_file_status")
-    @patch("mael_cli.git_cli.get_local_only_commits")
-    @patch("mael_cli.git_cli.get_commits_ahead")
-    @patch("mael_cli.git_cli.get_current_branch")
-    @patch("mael_cli.git_cli.resolve_context")
-    def test_plain_output(
-        self,
-        mock_ctx,
-        mock_branch,
-        mock_ahead,
-        mock_unpushed,
-        mock_files,
-        mock_diff,
-        mock_commits,
-    ):
-        mock_ctx.return_value = MagicMock(worktree_path=Path("/tmp/claude/repo"))
-        mock_branch.return_value = "feat/test"
-        mock_ahead.return_value = 2
-        mock_unpushed.return_value = 1
-        mock_files.return_value = {
-            "staged": ["a.py"],
-            "modified": [],
-            "untracked": [],
-        }
-        mock_diff.return_value = (1, 5, 0)
-        mock_commits.return_value = [{"hash": "abc", "message": "test"}]
+    def test_prints_the_branch_and_the_split_working_tree(self, tmp_path):
+        setup_git_repo(tmp_path)
+        run_git(tmp_path, "checkout", "-b", "feat/test")
+        create_commit(tmp_path, "a.py", "a\n", "chore: start")
+        (tmp_path / "a.py").write_text("a2\n")
+        (tmp_path / "new.py").write_text("n\n")
+        run_git(tmp_path, "add", "new.py")
+        (tmp_path / "todo.txt").write_text("t\n")
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["git", "status"])
+        with patch(
+            "mael_cli.git_cli.resolve_context",
+            return_value=MagicMock(worktree_path=tmp_path),
+        ):
+            result = CliRunner().invoke(cli, ["git", "status"])
+
         assert result.exit_code == 0
         assert "feat/test" in result.output
-        assert "Staged:" in result.output
-
-    @patch("mael_cli.git_cli.get_recent_commits")
-    @patch("mael_cli.git_cli.get_diff_stat_summary")
-    @patch("mael_cli.git_cli.get_worktree_file_status")
-    @patch("mael_cli.git_cli.get_local_only_commits")
-    @patch("mael_cli.git_cli.get_commits_ahead")
-    @patch("mael_cli.git_cli.get_current_branch")
-    @patch("mael_cli.git_cli.resolve_context")
-    def test_json_output(
-        self,
-        mock_ctx,
-        mock_branch,
-        mock_ahead,
-        mock_unpushed,
-        mock_files,
-        mock_diff,
-        mock_commits,
-    ):
-        mock_ctx.return_value = MagicMock(worktree_path=Path("/tmp/claude/repo"))
-        mock_branch.return_value = "main"
-        mock_ahead.return_value = 0
-        mock_unpushed.return_value = 0
-        mock_files.return_value = {"staged": [], "modified": [], "untracked": []}
-        mock_diff.return_value = None
-        mock_commits.return_value = []
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "git", "status"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["branch"] == "main"
-        assert data["commits_ahead"] == 0
-        assert data["diff_stat"] is None
-
-    @patch("mael_cli.git_cli.get_recent_commits")
-    @patch("mael_cli.git_cli.get_diff_stat_summary")
-    @patch("mael_cli.git_cli.get_worktree_file_status")
-    @patch("mael_cli.git_cli.get_local_only_commits")
-    @patch("mael_cli.git_cli.get_commits_ahead")
-    @patch("mael_cli.git_cli.get_current_branch")
-    @patch("mael_cli.git_cli.resolve_context")
-    def test_clean_worktree_output(
-        self,
-        mock_ctx,
-        mock_branch,
-        mock_ahead,
-        mock_unpushed,
-        mock_files,
-        mock_diff,
-        mock_commits,
-    ):
-        mock_ctx.return_value = MagicMock(worktree_path=None)
-        mock_branch.return_value = "main"
-        mock_ahead.return_value = 0
-        mock_unpushed.return_value = 0
-        mock_files.return_value = {"staged": [], "modified": [], "untracked": []}
-        mock_diff.return_value = None
-        mock_commits.return_value = []
-
-        # Invoked without the root group, so ctx.obj is None.
-        runner = CliRunner()
-        result = runner.invoke(git_status, [])
-        assert result.exit_code == 0
-        assert "Clean working tree, no commits ahead of main." in result.output
+        assert "Staged:\n  new.py\nModified:\n  a.py\nUntracked:\n  todo.txt" in (
+            result.output
+        )
 
 
 class TestGitMergeCommand:

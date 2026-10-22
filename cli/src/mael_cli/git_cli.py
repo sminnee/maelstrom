@@ -8,6 +8,7 @@ import click
 
 from mael_common.shell import run_cmd
 from mael_domain.context import resolve_context
+from mael_domain.git_status import read_dirty_files
 from mael_domain.worktree import (
     SyncResult,
     get_commits_ahead,
@@ -57,39 +58,17 @@ def print_rebase_conflict_help(result: SyncResult) -> None:
 
 
 def get_worktree_file_status(path: Path) -> dict[str, list[str]]:
-    """Parse git status --porcelain into categorised file lists.
+    """The worktree's dirty files, split as the summary prints them.
 
     Returns:
         Dict with keys 'staged', 'modified', 'untracked', each a list of file paths.
     """
-    result = run_cmd(
-        ["git", "status", "--porcelain"], cwd=path, quiet=True, check=False
-    )
-    staged = []
-    modified = []
-    untracked = []
-
-    if result.returncode != 0:
-        return {"staged": staged, "modified": modified, "untracked": untracked}
-
-    for line in result.stdout.rstrip("\n").split("\n"):
-        if not line:
-            continue
-        index_status = line[0]
-        work_status = line[1]
-        filename = line[3:]
-
-        # Staged changes (index has a non-space status, not untracked)
-        if index_status in "MADRC":
-            staged.append(filename)
-        # Working tree modifications (not staged)
-        if work_status in "MD" and index_status != "?":
-            modified.append(filename)
-        # Untracked files
-        if index_status == "?" and work_status == "?":
-            untracked.append(filename)
-
-    return {"staged": staged, "modified": modified, "untracked": untracked}
+    files = read_dirty_files(path)
+    return {
+        "staged": [f.path for f in files if f.staged],
+        "modified": [f.path for f in files if f.unstaged],
+        "untracked": [f.path for f in files if f.untracked],
+    }
 
 
 def get_diff_stat_summary(path: Path) -> tuple[int, int, int] | None:

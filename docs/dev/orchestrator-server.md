@@ -1362,7 +1362,7 @@ without waiting for the poll.
 The three changes routes are **Pass-through** (see [data-architecture.md](data-architecture.md)).
 Each request runs git in the worktree, with `--no-optional-locks`, so a read never takes the
 index lock from an agent's commit. `mael_domain.worktree_changes` holds the reads and the diff
-parser.
+parser. `mael_domain.git_status` reads the **Dirty files**, and a failed `git status` reads as none.
 
 A rev is one of three values:
 
