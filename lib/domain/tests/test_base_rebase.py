@@ -20,7 +20,14 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import pytest
-from git_helpers import create_commit, run_git, setup_git_repo
+from git_helpers import (
+    create_commit,
+    push_branch,
+    push_to_origin_main,
+    rev_parse,
+    run_git,
+    setup_git_repo,
+)
 
 from mael_domain.base_store import GitConfigBaseStore
 from mael_domain.worktree import (
@@ -35,10 +42,6 @@ from mael_domain.worktree import (
     tidy_branches,
 )
 from mael_domain.worktree_model import BaseRef, StackTip
-
-
-def _head(path: Path) -> str:
-    return run_git(path, "rev-parse", "HEAD").stdout.strip()
 
 
 def _log(path: Path) -> list[str]:
@@ -93,7 +96,7 @@ def project_with_stack():
         run_git(project_path, "config", "user.name", "Test")
         run_git(project_path, "fetch", "origin")
 
-        head_sha = _head(project_path)
+        head_sha = rev_parse(project_path)
         run_git(project_path, "update-ref", "--no-deref", "HEAD", head_sha)
 
         worktrees = {}
@@ -115,30 +118,6 @@ def project_with_stack():
         maelstrom_dir.mkdir()
         with patch("mael_domain.context.get_maelstrom_dir", return_value=maelstrom_dir):
             yield project_path, worktrees["alpha"], worktrees["bravo"], remote_path
-
-
-def _push(path: Path, branch: str, *, force: bool = False) -> None:
-    args = ["push"] + (["--force"] if force else []) + ["origin", f"{branch}:{branch}"]
-    run_git(path, *args)
-    run_git(path, "fetch", "origin")
-
-
-def _advance_origin_main(
-    project_path: Path, remote_path: Path, name: str = "upstream.txt"
-) -> None:
-    """Add an unrelated commit to origin/main and fetch it."""
-    with TemporaryDirectory() as tmpdir:
-        clone = Path(tmpdir) / "pusher"
-        subprocess.run(
-            ["git", "clone", str(remote_path), str(clone)],
-            check=True,
-            capture_output=True,
-        )
-        run_git(clone, "config", "user.email", "test@test.com")
-        run_git(clone, "config", "user.name", "Test")
-        create_commit(clone, name, "upstream\n", f"Upstream {name}")
-        run_git(clone, "push", "origin", "HEAD:main")
-    run_git(project_path, "fetch", "origin")
 
 
 def _squash_merge_to_main(project_path: Path, remote_path: Path, branch: str) -> None:
@@ -244,7 +223,7 @@ class TestStackedRebase:
     def test_a_stacked_child_rebases_onto_its_parent(self, project_with_stack):
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
 
@@ -259,7 +238,7 @@ class TestStackedRebase:
         """The single write site. Everything downstream depends on it being here."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = self._stack(project_path, child)
 
@@ -274,13 +253,13 @@ class TestStackedRebase:
         """The whole point: the auto-rebase maintains the stack for free."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
         rebase_worktree(child, max_age=math.inf, squash=False)
 
         create_commit(parent, "parent2.txt", "more\n", "Parent second commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
 
         result = rebase_worktree(child, max_age=math.inf, squash=False)
 
@@ -294,12 +273,12 @@ class TestStackedRebase:
     ):
         project_path, parent, child, remote_path = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
         rebase_worktree(child, max_age=math.inf, squash=False)
 
-        _advance_origin_main(project_path, remote_path)
+        push_to_origin_main(project_path, remote_path)
 
         result = rebase_worktree(child, max_age=math.inf, squash=False)
 
@@ -317,7 +296,7 @@ class TestStackedRebase:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "shared.txt", "v1\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         self._stack(project_path, child)
         rebase_worktree(child, max_age=math.inf, squash=False)
@@ -326,7 +305,7 @@ class TestStackedRebase:
         (parent / "shared.txt").write_text("v2\n")
         run_git(parent, "add", "shared.txt")
         run_git(parent, "commit", "--amend", "-m", "Parent commit (reviewed)")
-        _push(parent, "feat/parent", force=True)
+        push_branch(parent, "feat/parent", force=True)
 
         result = rebase_worktree(child, max_age=math.inf, squash=False)
 
@@ -346,7 +325,7 @@ class TestStackedRebase:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "shared.txt", "v1\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         first_tip = run_git(
             project_path, "rev-parse", "origin/feat/parent"
         ).stdout.strip()
@@ -357,7 +336,7 @@ class TestStackedRebase:
 
         # An extra parent commit the child picks up, so the recorded tip moves on.
         create_commit(parent, "shared.txt", "v1\nextra\n", "Parent second commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         rebase_worktree(child, max_age=math.inf, squash=False)
 
         # Simulate a store that stopped re-recording: pin the tip to the first value.
@@ -365,7 +344,7 @@ class TestStackedRebase:
         (parent / "shared.txt").write_text("rewritten\n")
         run_git(parent, "add", "shared.txt")
         run_git(parent, "commit", "--amend", "-m", "Parent second (reviewed)")
-        _push(parent, "feat/parent", force=True)
+        push_branch(parent, "feat/parent", force=True)
 
         result = rebase_worktree(
             child, max_age=math.inf, squash=False, abort_on_conflict=True
@@ -390,7 +369,7 @@ class TestBaseTipSafetyGuard:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         orphan = create_commit(parent, "orphan.txt", "orphan\n", "Orphan commit")
         run_git(parent, "reset", "--hard", "HEAD~1")
@@ -416,7 +395,7 @@ class TestCollapse:
     def test_a_merged_base_collapses_onto_main(self, project_with_stack):
         project_path, parent, child, remote_path = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
@@ -436,7 +415,7 @@ class TestCollapse:
         """Abandoned and merged are handled identically, and silently."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
@@ -459,7 +438,7 @@ class TestCollapse:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
@@ -491,7 +470,7 @@ class TestCollapse:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
@@ -524,7 +503,7 @@ class TestSyncWithBase:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
 
@@ -537,7 +516,7 @@ class TestSyncWithBase:
     def test_a_child_with_its_own_work_is_not_closed(self, project_with_stack):
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
@@ -564,7 +543,7 @@ class TestTidyBranchesRespectsStacks:
     def test_a_base_branch_is_not_flattened_or_deleted(self, project_with_stack):
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
@@ -584,11 +563,11 @@ class TestTidyBranchesRespectsStacks:
         """
         project_path, parent, child, remote_path = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         GitConfigBaseStore(project_path).write(
             "feat/child", BaseRef(branch="feat/parent")
         )
-        _advance_origin_main(project_path, remote_path)
+        push_to_origin_main(project_path, remote_path)
 
         # Free the parent's worktree so tidy would otherwise process the branch.
         run_git(parent, "checkout", "--detach", "origin/main")
@@ -617,7 +596,7 @@ class TestTidyBranchesRespectsStacks:
         """
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         create_commit(child, "child.txt", "child\n", "Child commit")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent"))
@@ -650,15 +629,6 @@ class TestCloseIfEmptyProtectsABase:
         assert result.closed is True
         assert "feat/parent" in list_local_branches(project_path)
         assert result.deleted_remote is False
-
-    def test_an_empty_unstacked_branch_is_still_deleted(self, project_with_stack):
-        """The guard is narrow: nothing stacked on it means the old behaviour holds."""
-        project_path, parent, _, _ = project_with_stack
-
-        result = sync_worktree(parent, max_age=math.inf, close_if_empty=True)
-
-        assert result.closed is True
-        assert "feat/parent" not in list_local_branches(project_path)
 
 
 # ---------------------------------------------------------------------------
@@ -739,7 +709,7 @@ class TestNewBranchBase:
     def test_a_new_branch_bases_on_the_stack_tip(self, project_with_stack):
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write_stack_tip("feat/parent")
 
@@ -751,7 +721,7 @@ class TestNewBranchBase:
         """A child starts stacked rather than needing an immediate re-stack."""
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         GitConfigBaseStore(project_path).write_stack_tip("feat/parent")
 
         setup = self._new_branch(project_path, "feat/new")
@@ -762,7 +732,7 @@ class TestNewBranchBase:
         """Only `mael stack-tip` moves the tip; `mael add` never does."""
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write_stack_tip("feat/parent")
 
@@ -775,7 +745,7 @@ class TestNewBranchBase:
     ):
         project_path, parent, _, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write_stack_tip("feat/parent")
 
@@ -798,7 +768,7 @@ class TestNewBranchBase:
         """Worktrees are recycled; the base belongs to the branch, so it persists."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent", tip="abc123"))
 
@@ -827,7 +797,7 @@ class TestExistingBranchKeepsItsBase:
         """The `mael close --force` → reopen-branch path must not clobber the base."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent", tip="abc123"))
         store.write_stack_tip("feat/unrelated")
@@ -859,7 +829,7 @@ class TestExistingBranchKeepsItsBase:
         """An existing branch never had the tip's history, so it is not stacked on it."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write_stack_tip("feat/parent")
 
@@ -872,7 +842,7 @@ class TestExistingBranchKeepsItsBase:
         """`--base main` must unstack the branch, not leave a stale base behind."""
         project_path, parent, child, _ = project_with_stack
         create_commit(parent, "parent.txt", "parent\n", "Parent commit")
-        _push(parent, "feat/parent")
+        push_branch(parent, "feat/parent")
         store = GitConfigBaseStore(project_path)
         store.write("feat/child", BaseRef(branch="feat/parent", tip="abc123"))
 

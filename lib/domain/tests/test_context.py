@@ -81,6 +81,37 @@ class TestGlobalConfig:
         assert config.openai_api_key == "sk-test"
 
 
+class TestGlobalConfigSlackWebhooks:
+    """The ``slack.webhooks`` map in the global config."""
+
+    def test_parses_webhooks_map(self):
+        cfg = GlobalConfig.from_dict(
+            {"slack": {"webhooks": {"weekly": "https://a", "alerts": "https://b"}}}
+        )
+        assert cfg.slack_webhooks == {"weekly": "https://a", "alerts": "https://b"}
+        # Insertion order preserved (relied on for "first = default").
+        assert next(iter(cfg.slack_webhooks)) == "weekly"
+
+    def test_missing_slack_block(self):
+        assert GlobalConfig.from_dict({}).slack_webhooks == {}
+
+    def test_non_dict_slack_block(self):
+        assert GlobalConfig.from_dict({"slack": "nope"}).slack_webhooks == {}
+
+    def test_non_dict_webhooks(self):
+        assert (
+            GlobalConfig.from_dict({"slack": {"webhooks": ["a", "b"]}}).slack_webhooks
+            == {}
+        )
+
+    def test_coerces_values_to_str(self):
+        cfg = GlobalConfig.from_dict({"slack": {"webhooks": {"a": 123}}})
+        assert cfg.slack_webhooks == {"a": "123"}
+
+    def test_default_is_empty(self):
+        assert GlobalConfig.default().slack_webhooks == {}
+
+
 class TestLoadGlobalConfigDoesNotChmod:
     """Loading the config is a pure read — it must never touch perms."""
 
