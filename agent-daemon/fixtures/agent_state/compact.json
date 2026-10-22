@@ -1,0 +1,57 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 3046,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "2",
+  "last_message_at": "2026-09-11T06:44:51.380Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-haiku-4-5-20251001",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "rate_limit_event",
+    "assistant",
+    "result",
+    "system",
+    "assistant",
+    "result",
+    "system",
+    "system",
+    "system",
+    "system",
+    "user",
+    "user",
+    "result"
+  ],
+  "seq": 14,
+  "session_id": "6c2d726e-65db-4fcd-a3d5-ef238eeed223",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.04313015,
+  "total_tokens": 46151,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1789123800,
+      "utilization": 0.2
+    },
+    "seven_day": {
+      "resets_at": 1789689600,
+      "utilization": 0.14
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 25776,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "The subagent fetched the page. The title is **Example Domain**.\n\nIt also noted the body text: \"This domain is for use in documentation examples without needing permission.\"",
+  "last_message_at": "2026-09-04T08:46:17.024Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "system",
+    "assistant",
+    "assistant",
+    "rate_limit_event",
+    "system",
+    "system",
+    "system",
+    "control_request",
+    "control_response",
+    "rate_limit_event",
+    "system",
+    "system",
+    "user",
+    "assistant",
+    "system",
+    "result"
+  ],
+  "seq": 18,
+  "session_id": "a82cbb22-d3ac-48a4-a9b2-58a45624e64a",
+  "status": "idle",
+  "subagent_ids": {
+    "toolu_01KgLJnnXSkArhjQQoycVMFn": "a1.1"
+  },
+  "subagent_readings": {
+    "msg_011Cei61KZ6iDubBfhBGzAgq": {
+      "cache_creation": 17026,
+      "cache_read": 0,
+      "input": 2,
+      "output": 1
+    },
+    "msg_011Cei62R5GPpUrPjPZBCDn1": {
+      "cache_creation": 1215,
+      "cache_read": 17026,
+      "input": 2,
+      "output": 2
+    },
+    "msg_011Cei7Aa3MYSFF9zx6HZ3z9": {
+      "cache_creation": 18411,
+      "cache_read": 0,
+      "input": 2,
+      "output": 1
+    }
+  },
+  "subagent_tasks": {
+    "a32f365d5e1fd91ee": "a1.1"
+  },
+  "subagent_tokens": {
+    "cache_creation": 36652,
+    "cache_read": 17026,
+    "input": 6,
+    "output": 4
+  },
+  "subagents": {
+    "a1.1": {
+      "description": "Fetch example.com title",
+      "last_message": "The page title is **Example Domain**.\n\nWebFetch was indeed deferred; loading it via `ToolSearch` with `select:WebFetch` worked, and the subsequent fetch of https://example.com succeeded. The page body also contains the line \"This domain is for use in documentation examples without needing permission.\"",
+      "last_message_at": "",
+      "pending": {},
+      "recent": [
+        "user",
+        "assistant",
+        "assistant",
+        "user",
+        "assistant",
+        "assistant",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "tool_progress",
+        "user",
+        "assistant"
+      ],
+      "seq": 38,
+      "status": "completed",
+      "subagent_type": "general-purpose",
+      "summary": "The page title is **Example Domain**.\n\nWebFetch was indeed deferred; loading it via `ToolSearch` with `select:WebFetch` worked, and the subsequent fetch of https://example.com succeeded. The page body also contains the line \"This domain is for use in documentation examples without needing permission.\"",
+      "tokens": {
+        "cache_creation": 36652,
+        "cache_read": 17026,
+        "input": 6,
+        "output": 4
+      },
+      "tool_use_id": "toolu_01KgLJnnXSkArhjQQoycVMFn"
+    }
+  },
+  "total_cost_usd": 0.41344450000000005,
+  "total_tokens": 51373,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1788517800,
+      "utilization": 0.5
+    },
+    "seven_day": {
+      "resets_at": 1789084800,
+      "utilization": 0.26
+    }
+  }
+}

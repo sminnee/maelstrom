@@ -1,0 +1,64 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 25121,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "Foreground `sleep` is blocked by the harness, so I can't insert real 1-second pauses between numbers. Before I burn 120 tool calls on this, let me check what you actually want.",
+  "last_message_at": "2026-09-04T01:17:31.974Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "system",
+    "system",
+    "assistant",
+    "assistant",
+    "rate_limit_event",
+    "control_request",
+    "control_cancel_request",
+    "user",
+    "assistant",
+    "assistant",
+    "user",
+    "assistant",
+    "assistant",
+    "control_request",
+    "control_response",
+    "control_request",
+    "user",
+    "control_response",
+    "user",
+    "result"
+  ],
+  "seq": 21,
+  "session_id": "b73202ff-d9f0-4068-9679-21fec94d95e5",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.18168299999999998,
+  "total_tokens": 75443,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1788499800,
+      "utilization": 0.18
+    },
+    "seven_day": {
+      "resets_at": 1789084800,
+      "utilization": 0.04
+    }
+  }
+}

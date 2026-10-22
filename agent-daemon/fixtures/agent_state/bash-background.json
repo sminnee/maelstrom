@@ -1,0 +1,61 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 29491,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "Background command finished.",
+  "last_message_at": "2026-09-28T01:25:48.740Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-sonnet-5",
+  "own_pending": {},
+  "permission_mode": "bypassPermissions",
+  "pid": null,
+  "recent": [
+    "system",
+    "user",
+    "assistant",
+    "rate_limit_event",
+    "user",
+    "assistant",
+    "system",
+    "system",
+    "user",
+    "rate_limit_event",
+    "assistant",
+    "result",
+    "system",
+    "system",
+    "system",
+    "system",
+    "assistant",
+    "result"
+  ],
+  "seq": 18,
+  "session_id": "a9e73400-b4ca-4452-bd86-a6a507a34cb0",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.137173,
+  "total_tokens": 114820,
+  "usage": {
+    "at": "",
+    "five_hour": {
+      "resets_at": 1790574600,
+      "utilization": 0.09
+    },
+    "seven_day": {
+      "resets_at": 1790899200,
+      "utilization": 0.21
+    }
+  }
+}

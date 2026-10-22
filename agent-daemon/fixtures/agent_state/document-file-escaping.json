@@ -1,0 +1,40 @@
+{
+  "agent_id": "a1",
+  "background": [],
+  "context_tokens": 0,
+  "cwd": "/tmp/x",
+  "exit_code": null,
+  "last_message": "Reading a file outside the worktree.",
+  "last_message_at": "2026-09-05T03:00:04.000Z",
+  "last_note": "",
+  "last_note_at": "",
+  "model": "claude-opus-5",
+  "own_pending": {},
+  "permission_mode": "normal",
+  "pid": null,
+  "recent": [
+    "system",
+    "assistant",
+    "result"
+  ],
+  "seq": 3,
+  "session_id": "7f1c2a90-8b34-4d6e-9a12-5c7e0d3b4f68",
+  "status": "idle",
+  "subagent_ids": {},
+  "subagent_readings": {},
+  "subagent_tasks": {},
+  "subagent_tokens": {
+    "cache_creation": 0,
+    "cache_read": 0,
+    "input": 0,
+    "output": 0
+  },
+  "subagents": {},
+  "total_cost_usd": 0.0312,
+  "total_tokens": 0,
+  "usage": {
+    "at": "",
+    "five_hour": null,
+    "seven_day": null
+  }
+}
