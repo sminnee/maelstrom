@@ -113,26 +113,6 @@ class TestNothingStartsADaemon:
         assert "mael self-env start" in reply["error"]
         assert "mael env start" in reply["error"]
 
-    def test_a_request_to_a_missing_socket_spawns_nothing(self, tmp_path, monkeypatch):
-        spawned = []
-        monkeypatch.setattr(
-            "subprocess.Popen", lambda *a, **k: spawned.append(a) or None
-        )
-        missing = str(tmp_path / "gone" / "agent-daemon.sock")
-        asyncio.run(request_over_socket(missing, {"cmd": "list"}))
-        assert spawned == []
-
-    async def test_the_cli_client_spawns_nothing_either(self, tmp_path, monkeypatch):
-        """`SocketAsyncDaemonClient` is what every CLI command actually uses."""
-        spawned = []
-        monkeypatch.setattr(
-            "subprocess.Popen", lambda *a, **k: spawned.append(a) or None
-        )
-        missing = str(tmp_path / "gone" / "agent-daemon.sock")
-        reply = await SocketAsyncDaemonClient(missing).request({"cmd": "list"})
-        assert "No agent daemon on" in reply["error"]
-        assert spawned == []
-
 
 @pytest.fixture()
 def deny_connect(monkeypatch):

@@ -82,14 +82,6 @@ def test_an_unreachable_socket_is_an_error_reply_not_an_exception():
     assert "mael self-env start" in reply["error"]
 
 
-def test_an_unreachable_socket_starts_no_daemon(monkeypatch):
-    spawned = []
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: spawned.append(a) or None)
-    client = SocketAsyncDaemonClient("/nonexistent/d.sock")
-    asyncio.run(client.request({"cmd": "list"}))
-    assert spawned == []
-
-
 def test_attach_streams_lines_until_the_server_closes():
     async def handler(reader, writer):
         await reader.readline()

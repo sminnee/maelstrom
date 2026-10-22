@@ -896,10 +896,12 @@ def test_a_cancelled_request_stops_being_pending():
 
 
 def test_a_cancel_for_another_request_is_ignored():
-    state = replay("interrupt-while-waiting.jsonl", stop_before_control=True)
-    state = apply_event(
-        state, {"type": "control_cancel_request", "request_id": "other"}
+    before = replay("interrupt-while-waiting.jsonl", stop_before_control=True)
+    after = apply_event(
+        before, {"type": "control_cancel_request", "request_id": "other"}
     )
+    assert after.own_pending == before.own_pending != {}
+    assert after.status == before.status
 
 
 def test_apply_event_stamps_each_event_with_its_seq_and_leaves_the_input_alone():
@@ -1818,9 +1820,8 @@ class TestConcurrentSubagentPermissions:
     ``WebFetch``. Both asks were open together, so Claude Code does not
     serialise them.
 
-    These tests pin what the reducer does with that stream today. Two of them
-    describe a defect, and say so: the state machine holds one wait, and the
-    second ask displaces the first. Both invert when the fix lands.
+    The reducer holds each ask under the subagent that raised it, so the
+    second ask does not displace the first.
     """
 
     FIXTURE = "subagent-permission-concurrent.jsonl"
@@ -1830,8 +1831,9 @@ class TestConcurrentSubagentPermissions:
         """The fixture's events, and the guard that it still records two asks.
 
         The class is worthless against a re-recording that lost the overlap,
-        and every test below would still pass. So the precondition is asserted
-        once, here, rather than as a test of its own.
+        or whose asks no longer name their subagent: every test below would
+        still pass. So the preconditions are asserted once, here, rather than
+        as tests of their own.
         """
         events = [
             json.loads(line)
@@ -1841,6 +1843,13 @@ class TestConcurrentSubagentPermissions:
         asks = [e for e in events if e.get("type") == "control_request"]
         assert len(asks) == 2, "the fixture no longer records two open asks"
         assert asks[0]["request_id"] != asks[1]["request_id"]
+        started = {
+            e["task_id"]
+            for e in events
+            if e.get("type") == "system" and e.get("subtype") == "task_started"
+        }
+        asked = {e["request"]["agent_id"] for e in asks}
+        assert len(asked) == 2 and asked <= started, "an ask names no subagent"
         return events
 
     def open_asks(self, state: AgentState) -> dict[str, PendingRequest]:
@@ -1865,25 +1874,6 @@ class TestConcurrentSubagentPermissions:
                 if seen == nth:
                     break
         return state
-
-    def test_each_ask_names_its_own_subagent_on_the_wire(self, events):
-        """``agent_id`` on the request is the subagent's ``task_started`` id.
-
-        This is the join that makes attribution possible. Nothing reads it yet,
-        so the assertion is against the recording rather than the reducer.
-        """
-        started = {
-            e["task_id"]
-            for e in events
-            if e.get("type") == "system" and e.get("subtype") == "task_started"
-        }
-        asked = {
-            e["request"]["agent_id"]
-            for e in events
-            if e.get("type") == "control_request"
-        }
-        assert len(asked) == 2
-        assert asked <= started
 
     def test_the_second_ask_does_not_displace_the_first(self, events):
         """Both waits are held, so either can still be answered."""
@@ -2035,8 +2025,13 @@ class TestNestedSubagentPermission:
 
     FIXTURE = "subagent-permission-nested.jsonl"
 
-    def test_the_ask_names_the_nested_subagent_on_the_wire(self):
-        """``agent_id`` matches the ``task_started`` of the deeper subagent."""
+    @pytest.fixture
+    def events(self) -> list[dict]:
+        """The fixture's events, and the guard that its ask is a nested one.
+
+        ``agent_id`` must match the ``task_started`` of the deeper subagent,
+        the one the subagent spawned rather than the parent.
+        """
         events = [
             json.loads(line)
             for line in (FIXTURES / self.FIXTURE).read_text().splitlines()
@@ -2049,9 +2044,22 @@ class TestNestedSubagentPermission:
         }
         [ask] = [e for e in events if e.get("type") == "control_request"]
         asked = ask["request"]["agent_id"]
-        assert asked in started
-        # The deeper of the two: spawned by the subagent, not by the parent.
-        assert started[asked]["spawn_depth"] == 2
+        assert asked in started, "the ask names no subagent"
+        assert started[asked]["spawn_depth"] == 2, "the ask is not a nested one"
+        return events
+
+    def test_the_ask_lands_under_the_nested_subagent(self, events):
+        """The reducer files the ask under the subagent ``agent_id`` names."""
+        state = AgentState(agent_id="a1", cwd="/tmp/x")
+        for event in events:
+            state = apply_event(state, event)
+            if event.get("type") == "control_request":
+                nested = state.subagent_tasks[event["request"]["agent_id"]]
+                break
+        [(owner, sub)] = [(k, v) for k, v in state.subagents.items() if v.pending]
+        [ask] = sub.pending.values()
+        assert owner == ask.subagent == nested
+        assert state.own_pending == {}
 
 
 # --- a subagent's own token spend -------------------------------------------

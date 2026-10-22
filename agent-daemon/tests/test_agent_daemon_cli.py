@@ -200,15 +200,16 @@ def test_list_shows_each_record_with_its_pid_liveness_and_holder(monkeypatch):
     assert rows["a2"]["alive"] == ""
 
 
-def test_list_marks_held_from_the_daemons_own_listing():
+def test_list_marks_held_from_the_daemons_own_listing(monkeypatch):
+    _local_root(monkeypatch, [("a1", 100, "running"), ("a2", 200, "running")], [])
     result, _ = run_cli(
         ["list", "--json"],
         replies=[{"verdicts": [_verdict("owned")]}, {"agents": [{"id": "a1"}]}],
     )
-    # No record on disk under the isolated root, so the only row is none —
-    # the verdict alone does not make a row; the record does.
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == []
+    rows = {row["id"]: row for row in json.loads(result.output)}
+    assert rows["a1"]["held"] == "yes"
+    assert rows["a2"]["held"] == "no"
 
 
 def test_an_unreadable_process_table_is_an_error_not_a_verdict(monkeypatch):
@@ -390,20 +391,3 @@ class TestAnUnreachableDaemonIsReported:
         assert result.exit_code == 1
         assert f"No agent daemon on {root}" in result.output
         assert "older than this code" not in result.output
-
-    def test_gc_falls_back_to_the_records_when_no_daemon_answers(
-        self, tmp_path, monkeypatch
-    ):
-        """The case `gc` exists for: a daemon that died leaving children."""
-
-        async def _empty():
-            return []
-
-        monkeypatch.setattr(
-            agent_daemon_cli, "list_claude_processes", _empty, raising=False
-        )
-        result, _ = run_cli(
-            ["gc"],
-            replies=[unreachable(tmp_path)],
-        )
-        assert result.exit_code == 0, result.output

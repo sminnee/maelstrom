@@ -4,10 +4,9 @@ How the orchestrator server holds state: where a reader gets it, how a reader le
 changed, and who decides when to refresh it.
 
 > **Status: the machinery is built; two subsystems are not on it.** The state database, the
-> revision counter, the notice path and the refresher contract exist, in
-> [`state_db/`](../../lib/domain/src/mael_domain/state_db/) and
-> [`refresh.py`](../../cli/src/mael_cli/refresh.py). The desk and the tasks are canonical and on
-> the database. Worktrees and pull requests still work as "Why a common architecture" describes
+> revision counter and the notice path exist, in
+> [`state_db/`](../../lib/domain/src/mael_domain/state_db/). The refresher contract is a design
+> only: no module implements it. The desk and the tasks are canonical and on the database. Worktrees and pull requests still work as "Why a common architecture" describes
 > below, and moving each one is its own task.
 
 Every subsystem the server shows answers those three questions. Today each answers them its own
