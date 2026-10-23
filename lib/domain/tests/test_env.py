@@ -6,7 +6,7 @@ import signal
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pytest
 
@@ -59,6 +59,7 @@ from mael_domain.env import (
     tail_log_file,
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
+from mael_domain.live_feedback_key import verify
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 from mael_domain.session_discovery import LiveSession
 from mael_domain.worktree import read_env_file
@@ -3735,7 +3736,7 @@ class TestServiceEnvExpands:
     def test_each_service_dials_live_feedback_by_its_own_name(
         self, tmp_path, base, expected
     ):
-        """The URL is the client's identity; under ``dev_https:`` its port is a proxy's."""
+        """The URL is the client's identity, and carries a ``sig`` that verifies."""
         spawned = []
 
         def fake_popen(argv, **kwargs):
@@ -3756,10 +3757,43 @@ class TestServiceEnvExpands:
                 tmp_path / "logs",
                 "2026-10-13T00:00:00+00:00",
             )
-        assert [env["MAEL_FEEDBACK_URL"] for env in spawned] == [
+
+        def unsigned(url: str) -> str:
+            """``url`` without its ``sig``, once the ``sig`` verifies."""
+            if not url:
+                return url
+            parts = urlsplit(url)
+            query = dict(parse_qsl(parts.query))
+            assert verify(query["path"], query["service"], query.pop("sig"))
+            return urlunsplit(parts._replace(query=urlencode(query)))
+
+        assert [unsigned(env["MAEL_FEEDBACK_URL"]) for env in spawned] == [
             expected.format("web"),
             expected.format("ladle"),
         ]
+
+    def test_a_service_dials_unsigned_when_no_notebook_root_is_set(
+        self, tmp_path, monkeypatch
+    ):
+        """No root, no key: the provider refuses the URL, and the start goes on."""
+        monkeypatch.delenv("MAEL_NOTEBOOK_ROOT")
+        spawned = []
+
+        def fake_popen(argv, **kwargs):
+            spawned.append(kwargs["env"])
+            return MagicMock(pid=4242)
+
+        with patch("mael_domain.env.Popen", fake_popen):
+            _spawn_services(
+                [ResolvedService(name="web", command="serve", env={})],
+                tmp_path,
+                {"MAEL_FEEDBACK_URL": "ws://o:2770/api/live-feedback?path=%2Fp"},
+                tmp_path / "logs",
+                "2026-10-13T00:00:00+00:00",
+            )
+        assert spawned[0]["MAEL_FEEDBACK_URL"] == (
+            "ws://o:2770/api/live-feedback?path=%2Fp&service=web"
+        )
 
 
 class TestServiceLogsSurviveARestart:

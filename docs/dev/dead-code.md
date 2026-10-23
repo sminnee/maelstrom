@@ -114,7 +114,8 @@ needs them.
 Knip finds the vite, vitest and eslint entry points by itself. The config names only
 `src/**/*.stories.tsx`, because Ladle reaches a story and nothing else does.
 
-`bin/knip-check` covers `orchestrator-ui/`. `vite-plugin-mael-jig/` runs knip once, in its `pnpm lint`, which is the `web.jig-lint` gate. `tools/mael-session-channel` has no tsconfig and
+`bin/knip-check` covers `orchestrator-ui/`. `vite-plugin-mael-jig/` runs knip once, in its `pnpm lint`, which is the `web.jig-lint` gate. Its `ignoreBinaries` lists `openssl`: a test makes a certificate with it, and knip cannot find a
+system binary in `package.json`. `tools/mael-session-channel` has no tsconfig and
 no CI job, so covering it means building a gate for it first.
 
 `bin/publish` does not run knip. It ships the Python wheel, and the web app is not in it, so the

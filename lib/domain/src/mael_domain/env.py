@@ -25,6 +25,8 @@ from .config import (
 )
 from .dev_cert import TLS_ENV_VARS, dev_env_vars, ensure_configured_dev_cert
 from .env_store import EnvStore
+from .live_feedback_key import sign
+from .notebook_root import NotebookRootUnset
 from .protocol import EnvStateName
 from .services import (
     ENGINES,
@@ -430,6 +432,21 @@ def _with_query(url: str, **params: str) -> str:
     return urlunsplit(parts._replace(query=query))
 
 
+def _signed_feedback_url(url: str, service: str) -> str:
+    """``url`` for ``service``, with the ``sig`` the provider checks.
+
+    The ``path`` signed is the one the URL carries, so a ``.env`` URL with a
+    ``path`` of its own is signed too. With no notebook root there is no key:
+    the URL goes unsigned, and the provider's ``4403`` names the fix, rather
+    than the whole start failing for a convenience.
+    """
+    path = dict(parse_qsl(urlsplit(url).query)).get("path", "")
+    try:
+        return _with_query(url, service=service, sig=sign(path, service))
+    except NotebookRootUnset:
+        return _with_query(url, service=service)
+
+
 def build_service_env(worktree_path: Path) -> dict[str, str]:
     """Build the environment dict for spawned services.
 
@@ -614,8 +631,8 @@ def _spawn_services(
         # service: the client dials it as it is.
         svc_env = dict(env)
         if env.get("MAEL_FEEDBACK_URL"):
-            svc_env["MAEL_FEEDBACK_URL"] = _with_query(
-                env["MAEL_FEEDBACK_URL"], service=svc.name
+            svc_env["MAEL_FEEDBACK_URL"] = _signed_feedback_url(
+                env["MAEL_FEEDBACK_URL"], svc.name
             )
         if svc.env:
             expanded = {k: Template(v).safe_substitute(env) for k, v in svc.env.items()}

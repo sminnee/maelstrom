@@ -27,6 +27,12 @@ jig, which stays hidden. `mael env start` sets the variable for each service.
 See [the jig guide](https://github.com/sminnee/maelstrom/blob/main/docs/guide/jig.md) for the
 setup, the check that it works, and the local override.
 
+## Who can send
+
+The plugin refuses a `POST` or `PUT` to `/__mael/` from a browser page on another origin, and
+trusts any host that can reach the dev server. See
+[Who can send](https://github.com/sminnee/maelstrom/blob/main/docs/guide/jig.md#who-can-send).
+
 ## Options
 
 | Option        | Default                         | Meaning                                    |

@@ -11,12 +11,24 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **A refused provider URL warns once.** When the provider closes the socket with `4403`, the
+  plugin logs that the service needs `mael env restart`.
+
 ### Fixed
 
 - **A page's styles no longer leak into the jig.** A page rule such as `* { color: … }` matched
   the jig's host element and set the colour and font of the panel. The panel's base styles now sit
   on an element inside its shadow root, which no page rule can match. The host is now a
   `mael-jig` element, not a `div`. Its id is still `mael-jig`.
+
+### Security
+
+- **A page on another origin cannot reach the agents.** The plugin refuses a `POST` or `PUT` to
+  `/__mael/*` that lacks the jig's `x-mael-jig-client` header, or whose `Origin` is not the dev
+  server. Before, any page in the browser could send feedback to the agents or write
+  `.drafts/monkeypatch.css`.
 
 ## [0.1.0] - 2026-10-13
 

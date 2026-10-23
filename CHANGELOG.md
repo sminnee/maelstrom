@@ -10,6 +10,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Security
+
+- **The orchestrator refuses an unsigned Live feedback URL.** `mael env start` signs the URL it
+  gives each service. The orchestrator closes a socket with `4403` when its `sig` does not
+  verify. Before, any process that guessed a worktree path could send feedback to its agents.
+  After the upgrade, run `mael env restart` in each worktree that has running services. See
+  [The URL](docs/dev/live-feedback.md#the-url).
+
 ### Added
 
 - **The orchestrator tells an agent when its gate job ends.** One `tangier gate status --watch`

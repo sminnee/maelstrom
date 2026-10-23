@@ -56,6 +56,7 @@ from mael_domain.landing import (
     tracked_tasks,
 )
 from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
+from mael_domain.live_feedback_key import sign
 from mael_domain.operation_store import InMemoryOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
@@ -9981,9 +9982,17 @@ async def live_feedback_socket(
     path: str | None = WORKTREE_PATH,
     service: str | None = "web",
     params: dict | None = JIG,
+    sig: str | None = None,
 ):
-    """A client's socket at its URL, past its ``exposeParams`` when it sends one."""
-    query = {k: v for k, v in {"path": path, "service": service}.items() if v}
+    """A client's socket at its URL, past its ``exposeParams`` when it sends one.
+
+    The URL is signed as ``mael env start`` signs it, unless ``sig`` is given.
+    """
+    if sig is None:
+        sig = sign(path or "", service or "")
+    query = {
+        k: v for k, v in {"path": path, "service": service, "sig": sig}.items() if v
+    }
     async with api.session.ws_connect("/api/live-feedback", params=query) as ws:
         if params is not None:
             await ws.send_json({"type": "exposeParams", "params": params})
@@ -10088,6 +10097,28 @@ def test_a_client_url_naming_no_known_worktree_and_service_is_closed_4404(
             return message.type, ws.close_code
 
     assert run(scenario()) == (aiohttp.WSMsgType.CLOSE, 4404)
+
+
+@pytest.mark.parametrize(
+    ("path", "signed_for"),
+    [(WORKTREE_PATH, None), (WORKTREE_PATH, "ladle"), ("/elsewhere", None)],
+    # An unknown path is 4403 too, so an unsigned caller learns no real path.
+    ids=["unsigned", "other-service", "unsigned-unknown-path"],
+)
+def test_a_client_url_without_its_own_signature_is_closed_4403(
+    harness, path, signed_for
+):
+    sig = sign(path, signed_for) if signed_for else ""
+
+    async def scenario():
+        async with (
+            harness.client() as api,
+            live_feedback_socket(api, path, sig=sig, params=None) as ws,
+        ):
+            message = await asyncio.wait_for(ws.receive(), 2.0)
+            return message.type, ws.close_code
+
+    assert run(scenario()) == (aiohttp.WSMsgType.CLOSE, 4403)
 
 
 def test_the_user_sets_a_param_on_one_service_and_every_agent_hears(harness):
