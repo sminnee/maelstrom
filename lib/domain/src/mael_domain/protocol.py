@@ -80,6 +80,22 @@ class LiveFeedbackService(TypedDict):
     params: dict[str, LiveFeedbackParam]
 
 
+#: An unfinished **Gate job**'s state. ``stopping``: a cancel is stopping it.
+#: ``orphaned``: the job process is gone, but commands it ran are not.
+GateJobState = Literal["queued", "running", "stopping", "orphaned"]
+
+
+class WorktreeGate(TypedDict):
+    """The one **Gate job** a worktree shows."""
+
+    jobId: str
+    state: GateJobState
+    #: The name of the gate that runs now, or ``None`` with none running.
+    gate: str | None
+    #: The place in tangier's queue, from 1; ``None`` once the job runs.
+    queuePosition: int | None
+
+
 class Worktree(TypedDict):
     """One row of ``mael --json list-all``."""
 
@@ -125,6 +141,9 @@ class Worktree(TypedDict):
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
     shellUrl: str
     liveFeedback: list[LiveFeedbackService]
+    #: The worktree's live **Gate job**, or ``None`` with none. The server
+    #: overlays it from ``gateJobs``; see ``worktree_gates``.
+    gate: WorktreeGate | None
 
 
 class ChangedFile(TypedDict):
@@ -697,9 +716,7 @@ class GateJob(TypedDict):
 
     #: Tangier's job number, as a string.
     id: str
-    #: ``queued``, ``running``, ``stopping`` (a cancel is stopping it) or
-    #: ``orphaned`` (the job process is gone, but commands it ran are not).
-    state: str
+    state: GateJobState
     #: The place in tangier's queue, from 1; ``None`` once the job runs.
     queuePosition: int | None
     #: The worktree whose path the job runs in, or ``None`` when the server

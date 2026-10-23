@@ -250,6 +250,12 @@ lines come before its job line, so the table holds the last gate states when the
 Each gate job's worktree is the world's worktree with the same real path, or `null`: tangier
 lists the jobs of every project on the machine.
 
+**The worktree overlay.** Each worktree carries `gate`, the one gate job it shows, or `null`.
+`world_build.worktree_gates` picks it: a job out of the queue wins over a queued one, then the
+oldest. The UI reads it for the gate lozenge. Each gate line writes the overlay. A worktree poll
+writes it too, because `list-all` knows nothing of gates. The poll re-links the gate jobs to its
+new rows first, so a job that ran before its worktree appeared gets its worktree at once.
+
 `gate_event` makes the event from the finished job. `passed` is `gate.passed`, `cancelled` is
 `gate.cancelled`, and every other end is `gate.failed`. The failure body names each gate that
 failed, with its exit code, and the job's log. It leaves out a gate that passed, did not run, or

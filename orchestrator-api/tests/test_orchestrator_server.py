@@ -6124,6 +6124,76 @@ def test_a_job_in_an_unknown_worktree_tells_nobody(gates):
     assert events_said(harness) == ["gate.passed"]
 
 
+def worktree_gate(body: dict, worktree_id: str = "northwind-alpha"):
+    return next(w["gate"] for w in body["worktrees"] if w["id"] == worktree_id)
+
+
+def test_a_live_job_is_its_worktrees_gate_until_it_ends(gates):
+    watch, harness = gates
+    running = gate_job(
+        898,
+        "running",
+        WORKTREE_PATH,
+        gates=[
+            {"name": "lint", "state": "passed", "code": 0},
+            {"name": "test", "state": "running", "code": None},
+        ],
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/worktrees", lambda b: b["worktrees"])
+            watch.lines.put_nowait(gate_status(running))
+            watching = worktree_gate(await until(api, "/api/worktrees", worktree_gate))
+            # A poll reads ``list-all``, which knows nothing of gates.
+            await harness.orch.refresh_worktrees()
+            polled = worktree_gate(await api.get_json("/api/worktrees"))
+            watch.lines.put_nowait(job_line({**running, "state": "passed"}))
+            await until(api, "/api/worktrees", lambda b: worktree_gate(b) is None)
+            return watching, polled
+
+    watching, polled = run(scenario())
+    assert watching == {
+        "jobId": "898",
+        "state": "running",
+        "gate": "test",
+        "queuePosition": None,
+    }
+    assert polled == watching
+
+
+def test_a_job_whose_worktree_appears_later_gets_linked(gates):
+    watch, harness = gates
+    bravo = "/Users/dev/Projects/northwind/northwind-bravo"
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/worktrees", lambda b: b["worktrees"])
+            watch.lines.put_nowait(gate_status(gate_job(898, "running", bravo)))
+            await wait_until(lambda: "898" in harness.orch.world["gateJobs"])
+            harness.worktrees.worktrees.append(
+                {
+                    **harness.worktrees.worktrees[0],
+                    "id": "northwind-bravo",
+                    "nato": "bravo",
+                    "path": bravo,
+                }
+            )
+            await harness.orch.refresh_worktrees()
+            worktrees = await api.get_json("/api/worktrees")
+            jobs = await api.get_json("/api/gate-jobs")
+            return worktree_gate(worktrees, "northwind-bravo"), jobs["gateJobs"]
+
+    gate, jobs = run(scenario())
+    assert gate == {
+        "jobId": "898",
+        "state": "running",
+        "gate": "lint",
+        "queuePosition": None,
+    }
+    assert [job["worktree"] for job in jobs] == ["northwind-bravo"]
+
+
 def test_a_failed_watch_keeps_the_jobs_logs_once_and_restarts(gates, caplog):
     watch, harness = gates
 

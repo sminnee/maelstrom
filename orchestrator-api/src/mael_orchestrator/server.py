@@ -102,6 +102,7 @@ from mael_domain.protocol import (
     Agent,
     Comm,
     Document,
+    GateJob,
     Host,
     HostUsage,
     ServerEvent,
@@ -180,6 +181,7 @@ from .world_build import (
     parse_agent_state,
     row_totals,
     split_task_key,
+    with_gates,
 )
 from .world_build import task_key as wire_task_key
 
@@ -1232,15 +1234,16 @@ class Orchestrator:
             events = diff_kind(
                 "project", world["projects"], {p["id"]: p for p in projects}
             )
-            # ``list-all`` knows nothing of live feedback: the hub's state goes on top.
-            events += diff_kind(
-                "worktree",
-                world["worktrees"],
-                {
-                    w["id"]: {**w, "liveFeedback": self.live_feedback.state(w["id"])}
-                    for w in worktrees
-                },
-            )
+            # ``list-all`` knows nothing of live feedback or gates: the hub's
+            # state and the gate jobs go on top. The jobs re-link to the new
+            # rows, so a job whose worktree is new gets it at once.
+            rows = {
+                w["id"]: {**w, "liveFeedback": self.live_feedback.state(w["id"])}
+                for w in worktrees
+            }
+            jobs = self._gate_jobs(rows)
+            events += diff_kind("gateJob", world["gateJobs"], jobs)
+            events += diff_kind("worktree", world["worktrees"], with_gates(rows, jobs))
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
             if every_branch:
@@ -3036,27 +3039,35 @@ class Orchestrator:
             await asyncio.sleep(delay)
             delay = min(delay * 2, GATE_BACKOFF_MAX_SECS)
 
-    def _gate_worktree_ids(self) -> dict[str, str]:
-        """Each worktree's id, by its real path.
+    def _gate_worktree_ids(
+        self, worktrees: dict[str, Any] | None = None
+    ) -> dict[str, str]:
+        """Each worktree's id, by its real path. ``worktrees`` defaults to the world's.
 
         Tangier records each job's real path; a projects directory under a
         symlink would otherwise match no worktree.
         """
-        return {
-            os.path.realpath(wt["path"]): wt["id"]
-            for wt in self.world["worktrees"].values()
-        }
+        rows = self.world["worktrees"] if worktrees is None else worktrees
+        return {os.path.realpath(wt["path"]): wt["id"] for wt in rows.values()}
 
-    def _publish_gates(self) -> None:
-        worktree_ids = self._gate_worktree_ids()
-        new = {
+    def _gate_jobs(self, worktrees: dict[str, Any]) -> dict[str, GateJob]:
+        """The gate table's jobs, each linked to its worktree in ``worktrees``."""
+        worktree_ids = self._gate_worktree_ids(worktrees)
+        return {
             entity["id"]: entity
             for entity in (
                 gate_job_entity(job, worktree_ids)
                 for job in self._gate_table.jobs.values()
             )
         }
-        self._apply(diff_kind("gateJob", self.world["gateJobs"], new))
+
+    def _publish_gates(self) -> None:
+        worktrees = self.world["worktrees"]
+        jobs = self._gate_jobs(worktrees)
+        self._apply(
+            diff_kind("gateJob", self.world["gateJobs"], jobs)
+            + diff_kind("worktree", worktrees, with_gates(worktrees, jobs))
+        )
 
     def _schedule_gate_tell(self, job: dict[str, Any]) -> None:
         job_id = str(job["id"])

@@ -8,6 +8,7 @@ that take a client from the first to the second.
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
@@ -25,6 +26,7 @@ from mael_domain.protocol import (
     CommUpdate,
     Document,
     GateJob,
+    GateJobState,
     GateUsage,
     HostUsage,
     PrMatch,
@@ -35,6 +37,7 @@ from mael_domain.protocol import (
     TaskLogEntry,
     UsageWindow,
     Worktree,
+    WorktreeGate,
 )
 from mael_domain.task_attachments import TaskAttachment
 from mael_domain.worktree_model import get_worktree_folder_name
@@ -243,6 +246,8 @@ def worktree_entity(
         "shellUrl": shell_url,
         # The server overlays the live state; see ``LiveFeedbackHub``.
         "liveFeedback": [],
+        # The server overlays the live job; see ``worktree_gates``.
+        "gate": None,
     }
 
 
@@ -450,7 +455,8 @@ def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJo
     worktree = worktree_ids.get(path)
     return {
         "id": str(raw["id"]),
-        "state": str(raw.get("state") or ""),
+        # The gate table holds unfinished jobs only.
+        "state": cast(GateJobState, str(raw.get("state") or "")),
         "queuePosition": raw.get("queue_position"),
         "worktree": worktree,
         "path": path,
@@ -463,6 +469,38 @@ def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJo
             for gate in raw.get("gates") or []
             if isinstance(gate, dict)
         ],
+    }
+
+
+def worktree_gates(jobs: Iterable[GateJob]) -> dict[str, WorktreeGate]:
+    """Each worktree's **Gate job**: a job out of the queue first, then the oldest.
+
+    A job with no worktree is skipped.
+    """
+    gates: dict[str, WorktreeGate] = {}
+    ranked = sorted(jobs, key=lambda job: (job["state"] == "queued", job["started"]))
+    for job in ranked:
+        worktree = job["worktree"]
+        if worktree is None or worktree in gates:
+            continue
+        running = next(
+            (g["name"] for g in job["gates"] if g["state"] == "running"), None
+        )
+        gates[worktree] = {
+            "jobId": job["id"],
+            "state": job["state"],
+            "gate": running,
+            "queuePosition": job["queuePosition"],
+        }
+    return gates
+
+
+def with_gates(worktrees: dict[str, Any], jobs: dict[str, GateJob]) -> dict[str, Any]:
+    """``worktrees``, each with its live gate job from ``jobs``."""
+    gates = worktree_gates(jobs.values())
+    return {
+        worktree_id: {**worktree, "gate": gates.get(worktree_id)}
+        for worktree_id, worktree in worktrees.items()
     }
 
 

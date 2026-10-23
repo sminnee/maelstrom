@@ -36,6 +36,7 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     env: { state: 'stopped', services: [] },
     sessionCount: 0,
     shellUrl: '',
+    gate: null,
     ...over,
   };
 }

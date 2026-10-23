@@ -108,6 +108,18 @@ export interface Worktree {
   shellUrl: string;
   /** Absent from a server older than the UI; read it as no service connected. */
   liveFeedback?: LiveFeedbackService[];
+  /** The worktree's live **Gate job**, or `null` with none. The server picks it. */
+  gate: WorktreeGate | null;
+}
+
+/** The one gate job a worktree shows. */
+export interface WorktreeGate {
+  jobId: string;
+  state: GateJob['state'];
+  /** The name of the gate that runs now, or `null` with none running. */
+  gate: string | null;
+  /** The place in tangier's queue, from 1; `null` once the job runs. */
+  queuePosition: number | null;
 }
 
 /**
