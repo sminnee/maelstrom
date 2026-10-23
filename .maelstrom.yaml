@@ -2,6 +2,23 @@
 main_port_base: 277
 install_cmd: bin/install
 
+# The Changes tab's Diff groups. See docs/reference/configuration.md.
+diff_groups:
+  - name: Goldens and fixtures
+    paths: ["**/fixtures/**"]
+    collapsed: true
+  - name: Lockfiles
+    paths: [uv.lock, pnpm-lock.yaml]
+    collapsed: true
+  - name: Tests
+    paths: ["**/tests/**", "test_*.py", "*.test.ts", "*.test.tsx", "**/src/test/**", "**/src/fake/**"]
+  - name: Docs
+    paths: ["docs/**", "*.md"]
+  - name: Web
+    paths: ["orchestrator-ui/**", "vite-plugin-mael-jig/**"]
+  - name: Python
+    paths: ["*.py", "pyproject.toml"]
+
 linear:
   team_id: 3201e7ca-cceb-4079-b8ef-51ffbde14db7
   product_label: Maelstrom
