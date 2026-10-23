@@ -580,6 +580,130 @@ describe('the Changes tab', () => {
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(region);
   });
+
+  describe('diff groups', () => {
+    /** The uncommitted diff in two groups: Code, then Lockfiles, which `collapsed` folds. */
+    const grouped = (collapsed: boolean) => (c: Changes) => {
+      c.diffs.uncommitted = [
+        file('auth/tokens.py', 'tokens'),
+        file('uv.lock', 'lock'),
+        file('auth/rotate.py', 'rotate', { status: 'added' }),
+      ];
+      c.groups = {
+        uncommitted: [
+          { name: 'Code', collapsed: false, paths: ['auth/tokens.py', 'auth/rotate.py'] },
+          { name: 'Lockfiles', collapsed, paths: ['uv.lock'] },
+        ],
+      };
+    };
+    const group = (panel: HTMLElement, name: string) => within(panel).getByRole('group', { name });
+    const fileFold = (panel: HTMLElement, path: string) =>
+      within(within(panel).getByRole('region', { name: path })).getByRole('button', {
+        name: new RegExp(`^[AM] ?${path.replace('.', '\\.')} `),
+      });
+
+    it('draws no group heads when the worktree names no groups', async () => {
+      const { panel } = await openChanges();
+      // Every file is in Other, which draws no head of its own.
+      expect(within(panel).queryByRole('group', { name: 'Other' })).toBeNull();
+      expect(within(panel).getByRole('region', { name: 'auth/tokens.py' })).toBeVisible();
+    });
+
+    it('draws each group under its head, in the diff and in the file list, and folds it', async () => {
+      const { panel } = await openChanges(grouped(false));
+      const code = await waitFor(() => group(panel, 'Code'));
+      const fold = within(code).getByRole('button', { name: /^Code/ });
+      expect(fold).toHaveTextContent('Code 2 files +2 −2');
+      expect(
+        within(code)
+          .getAllByRole('region')
+          .map((r) => r.getAttribute('aria-label')),
+      ).toEqual(['auth/tokens.py', 'auth/rotate.py']);
+      const list = within(panel).getByRole('list', { name: 'Files' });
+      expect(
+        within(within(list).getByRole('list', { name: 'Lockfiles' }))
+          .getAllByRole('listitem')
+          .map((li) => li.textContent),
+      ).toEqual([expect.stringContaining('uv.lock')]);
+
+      await userEvent.click(fold);
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      // A folded group's files stay in the page, out of the accessibility tree.
+      expect(
+        within(panel).getByRole('region', { name: 'auth/tokens.py', hidden: true }),
+      ).not.toBeVisible();
+      expect(within(panel).getByRole('region', { name: 'uv.lock' })).toBeVisible();
+    });
+
+    it('starts a collapsed group folded', async () => {
+      const { panel } = await openChanges(grouped(true));
+      const lock = await waitFor(() => group(panel, 'Lockfiles'));
+      expect(within(lock).getByRole('button', { name: /^Lockfiles/ })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      expect(
+        within(panel).getByRole('region', { name: 'uv.lock', hidden: true }),
+      ).not.toBeVisible();
+      expect(within(panel).getByRole('region', { name: 'auth/tokens.py' })).toBeVisible();
+    });
+
+    it('folds one file to its head, and the fold stays on another rev', async () => {
+      const { panel } = await openChanges();
+      const fold = fileFold(panel, 'auth/tokens.py');
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      await userEvent.click(fold);
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      expect(fold).toBeVisible();
+      within(within(panel).getByRole('region', { name: 'auth/tokens.py' }))
+        .getAllByTestId('diff-row')
+        .forEach((row) => expect(row).not.toBeVisible());
+      within(within(panel).getByRole('region', { name: 'auth/rotate.py' }))
+        .getAllByTestId('diff-row')
+        .forEach((row) => expect(row).toBeVisible());
+
+      await pick(/All commits/);
+      await waitFor(() => expect(rowTexts(panel, 'auth/grace.py')).toHaveLength(3));
+      await pick(/^Uncommitted/);
+      await waitFor(() =>
+        expect(fileFold(panel, 'auth/tokens.py')).toHaveAttribute('aria-expanded', 'false'),
+      );
+    });
+
+    it('opens a folded group and file when the file is picked in the list', async () => {
+      const { panel } = await openChanges(grouped(false));
+      await waitFor(() => group(panel, 'Lockfiles'));
+      await userEvent.click(fileFold(panel, 'uv.lock'));
+      await userEvent.click(
+        within(group(panel, 'Lockfiles')).getByRole('button', { name: /^Lockfiles/ }),
+      );
+      const region = within(panel).getByRole('region', { name: 'uv.lock', hidden: true });
+      expect(region).not.toBeVisible();
+
+      const list = within(panel).getByRole('list', { name: 'Lockfiles' });
+      await userEvent.click(within(list).getByRole('button', { name: /^M ?uv\.lock/ }));
+      within(region)
+        .getAllByTestId('diff-row')
+        .forEach((row) => expect(row).toBeVisible());
+      expect(scrolled).toHaveBeenCalledTimes(1);
+      expect(scrolled.mock.contexts[0]).toBe(region);
+    });
+
+    it('draws a head for Other alone when the config folds it', async () => {
+      const { panel } = await openChanges((c) => {
+        c.groups = {
+          uncommitted: [
+            { name: 'Other', collapsed: true, paths: ['auth/tokens.py', 'auth/rotate.py'] },
+          ],
+        };
+      });
+      const other = await waitFor(() => group(panel, 'Other'));
+      expect(within(other).getByRole('button', { name: /^Other/ })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    });
+  });
 });
 
 describe('the Rendered view', () => {

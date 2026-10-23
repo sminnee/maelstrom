@@ -7,9 +7,11 @@ import {
   useCallback,
   useId,
   useMemo,
+  useEffect,
   useRef,
   useState,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { ApiError } from '../api/http';
 import { useSyncWorktree } from '../api/worktrees';
 import { keys } from '../api/keys';
@@ -27,6 +29,7 @@ import type {
   BranchCommit,
   ChangeComment,
   FileDiff,
+  FileGroup,
   Worktree,
   WorktreeChanges,
 } from '../protocol/entities';
@@ -72,6 +75,14 @@ const NO_ROWS: DiffRowData[] = [];
 const UNCOMMITTED = 'uncommitted';
 const BRANCH = 'branch';
 
+/** The fold keys: a group's and a file's. One map holds both. */
+const groupKey = (name: string) => `group:${name}`;
+const fileKey = (path: string) => `file:${path}`;
+
+/** Whether a fold is open: the user's choice when there is one, else `fallback`. */
+const isOpen = (folds: Map<string, boolean>, key: string, fallback: boolean) =>
+  folds.get(key) ?? fallback;
+
 /** The comments of a file that has none. One list, so the file's props stay the same. */
 const NO_COMMENTS_HERE: ChangeComment[] = [];
 
@@ -116,15 +127,33 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   // on the rev, and a fold stays from one commit to the next.
   const [messageOpen, setMessageOpen] = useState(true);
   const [listOpen, setListOpen] = useState(true);
+  // The group and file folds the user chose, by `groupKey` and `fileKey`.
+  const [folds, setFolds] = useState<Map<string, boolean>>(() => new Map());
+  const setFold = useCallback(
+    (key: string, open: boolean) => setFolds((f) => new Map(f).set(key, open)),
+    [],
+  );
   const blocks = useRef(new Map<string, HTMLElement>());
   const holdFile = useCallback((path: string, el: HTMLElement | null) => {
     if (el) blocks.current.set(path, el);
     else blocks.current.delete(path);
   }, []);
-  const scrollToFile = useCallback(
-    (path: string) => blocks.current.get(path)?.scrollIntoView({ block: 'start' }),
-    [],
-  ); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
+  // Read at pick time, so `scrollToFile` keeps its identity across revs.
+  const groups = useRef<FileGroup[]>([]);
+  useEffect(() => {
+    groups.current = diff.data?.groups ?? [];
+  });
+  const scrollToFile = useCallback((path: string) => {
+    // A folded file has no rows to land on, so open it and its group first.
+    const group = groups.current.find((g) => g.paths.includes(path));
+    flushSync(() =>
+      setFolds((f) => {
+        const next = new Map(f).set(fileKey(path), true);
+        return group ? next.set(groupKey(group.name), true) : next;
+      }),
+    );
+    blocks.current.get(path)?.scrollIntoView({ block: 'start' });
+  }, []); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
   const closeSheet = chrome?.closeSheet;
   const pickRevInSheet = useCallback(
     (picked: string) => {
@@ -251,6 +280,9 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             held={held}
             setHeld={setHeld}
             files={diff.data.files}
+            groups={diff.data.groups}
+            folds={folds}
+            onFold={setFold}
             empty={emptyText(rev, base)}
             commit={commit}
             prev={prev}
@@ -494,6 +526,9 @@ const Files = memo(function Files({
   held,
   setHeld,
   files,
+  groups,
+  folds,
+  onFold,
   empty,
   commit,
   prev,
@@ -512,6 +547,9 @@ const Files = memo(function Files({
   held: HeldComments;
   setHeld: Dispatch<SetStateAction<HeldComments>>;
   files: FileDiff[];
+  groups: FileGroup[];
+  folds: Map<string, boolean>;
+  onFold: (key: string, open: boolean) => void;
   empty: string;
   commit: BranchCommit | undefined;
   /** The shas of the commit before and the commit after, where there is one. */
@@ -559,10 +597,57 @@ const Files = memo(function Files({
   // One dialog for the tab. `setViewing` keeps its identity, so opening a view
   // changes no prop of a `FileBlock` and draws no row again.
   const [viewing, setViewing] = useState<FileDiff | null>(null);
+  const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
+  const sections = useMemo(
+    () =>
+      groups.map((g) => ({
+        ...g,
+        files: g.paths.flatMap((p) => byPath.get(p) ?? []),
+      })),
+    [groups, byPath],
+  );
+  // Only Other, open: the diff has no classes to tell apart, so no heads draw.
+  const headed = sections.length > 1 || sections.some((g) => g.collapsed);
+  const entry = (f: FileDiff) => (
+    <li key={f.path} className={styles.entryRow}>
+      <button type="button" className={styles.entry} onClick={() => scrollToFile(f.path)}>
+        <span className={styles.status} data-status={f.status}>
+          {STATUS_LETTER[f.status]}
+        </span>
+        <span className={`${styles.path} truncate`} title={f.path}>
+          {f.path}
+        </span>
+        <Counts add={f.additions} remove={f.deletions} />
+      </button>
+      <ViewButton file={f} onView={setViewing} />
+    </li>
+  );
+  const fileBlock = (f: FileDiff) => {
+    const here = comments.get(f.path);
+    return (
+      <FileBlock
+        key={f.path}
+        file={f}
+        expanded={isOpen(folds, fileKey(f.path), true)}
+        onFold={onFold}
+        onView={setViewing}
+        rows={rows.get(f.path) ?? NO_ROWS}
+        comments={here ?? NO_COMMENTS_HERE}
+        open={open?.path === f.path ? open : null}
+        // Only a file with comments draws Edit, so only it follows the lock.
+        editLocked={here !== undefined && editLocked}
+        setHeld={setHeld}
+        dragged={selection.dragged(f.path)}
+        handlersFor={selection.handlersFor}
+        holdFile={holdFile}
+      />
+    );
+  };
   return (
     <div
       className={styles.scroll}
       data-commit={commit !== undefined}
+      data-grouped={headed || undefined}
       data-flat={flat || undefined}
       data-selecting={selection.dragging || undefined}
     >
@@ -599,42 +684,31 @@ const Files = memo(function Files({
             </Fold>
           </div>
           <ul id={listId} className={styles.list} aria-label="Files" hidden={!listOpen}>
-            {files.map((f) => (
-              <li key={f.path} className={styles.entryRow}>
-                <button type="button" className={styles.entry} onClick={() => scrollToFile(f.path)}>
-                  <span className={styles.status} data-status={f.status}>
-                    {STATUS_LETTER[f.status]}
-                  </span>
-                  <span className={`${styles.path} truncate`} title={f.path}>
-                    {f.path}
-                  </span>
-                  <Counts add={f.additions} remove={f.deletions} />
-                </button>
-                <ViewButton file={f} onView={setViewing} />
-              </li>
-            ))}
+            {headed
+              ? sections.map((g) => (
+                  <li key={g.name}>
+                    <span className={styles.listGroup}>{g.name}</span>
+                    <ul className={styles.listGroupFiles} aria-label={g.name}>
+                      {g.files.map(entry)}
+                    </ul>
+                  </li>
+                ))
+              : files.map(entry)}
           </ul>
         </>
       )}
-      {files.map((f) => {
-        const here = comments.get(f.path);
-        return (
-          <FileBlock
-            key={f.path}
-            file={f}
-            onView={setViewing}
-            rows={rows.get(f.path) ?? NO_ROWS}
-            comments={here ?? NO_COMMENTS_HERE}
-            open={open?.path === f.path ? open : null}
-            // Only a file with comments draws Edit, so only it follows the lock.
-            editLocked={here !== undefined && editLocked}
-            setHeld={setHeld}
-            dragged={selection.dragged(f.path)}
-            handlersFor={selection.handlersFor}
-            holdFile={holdFile}
-          />
-        );
-      })}
+      {headed
+        ? sections.map((g) => (
+            <FileGroupSection
+              key={g.name}
+              group={g}
+              open={isOpen(folds, groupKey(g.name), !g.collapsed)}
+              onFold={onFold}
+            >
+              {g.files.map(fileBlock)}
+            </FileGroupSection>
+          ))
+        : files.map(fileBlock)}
       {viewing && (
         <RenderedFileDialog
           worktreeId={worktreeId}
@@ -646,6 +720,41 @@ const Files = memo(function Files({
     </div>
   );
 });
+
+/**
+ * One **Diff group**: a head that folds it, then its files. The head sticks
+ * only while the group is in view, because a sticky element holds inside its
+ * parent.
+ */
+function FileGroupSection({
+  group,
+  open,
+  onFold,
+  children,
+}: {
+  group: FileGroup & { files: FileDiff[] };
+  open: boolean;
+  onFold: (key: string, open: boolean) => void;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const { name, files } = group;
+  const additions = files.reduce((n, f) => n + f.additions, 0);
+  const deletions = files.reduce((n, f) => n + f.deletions, 0);
+  return (
+    <div role="group" aria-label={name} className={styles.group}>
+      <div className={styles.groupHead}>
+        <Fold open={open} onOpen={(o) => onFold(groupKey(name), o)} controls={id}>
+          <span className={styles.groupName}>{name}</span> {files.length}{' '}
+          {files.length === 1 ? 'file' : 'files'} <Counts add={additions} remove={deletions} />
+        </Fold>
+      </div>
+      <div id={id} hidden={!open}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 /** Opens the Rendered view of a file. A binary file has none, unless a plugin reads its bytes. */
 function ViewButton({ file, onView }: { file: FileDiff; onView: (file: FileDiff) => void }) {
@@ -717,6 +826,8 @@ function Hunk({
 /** One file: its head and its rows, with its comments below their lines. */
 const FileBlock = memo(function FileBlock({
   file,
+  expanded,
+  onFold,
   onView,
   rows,
   comments,
@@ -728,6 +839,9 @@ const FileBlock = memo(function FileBlock({
   holdFile,
 }: {
   file: FileDiff;
+  /** Whether the rows show. A folded file keeps its head. */
+  expanded: boolean;
+  onFold: (key: string, open: boolean) => void;
   onView: (file: FileDiff) => void;
   /** Every row of the file, across its hunks. A selection counts rows in this list. */
   rows: DiffRowData[];
@@ -746,6 +860,7 @@ const FileBlock = memo(function FileBlock({
   const { path } = file;
   const handlers = useMemo(() => handlersFor(path), [handlersFor, path]);
   const section = useCallback((el: HTMLElement | null) => holdFile(path, el), [holdFile, path]);
+  const bodyId = useId();
   // Each hunk's rows, and where they begin in `rows`.
   const hunks = useMemo(() => {
     const out: DiffHunk[] = [];
@@ -804,36 +919,41 @@ const FileBlock = memo(function FileBlock({
   return (
     <section aria-label={path} className={styles.file} ref={section}>
       <h3 className={styles.fileHead}>
-        <span className={styles.status} data-status={file.status}>
-          {STATUS_LETTER[file.status]}
-        </span>
-        <span className="truncate" title={file.oldPath ? `${file.oldPath} → ${path}` : path}>
-          {file.oldPath ? `${file.oldPath} → ${path}` : path}
-        </span>
-        <Counts add={file.additions} remove={file.deletions} />
+        <Fold open={expanded} onOpen={(o) => onFold(fileKey(path), o)} controls={bodyId}>
+          <span className={styles.status} data-status={file.status}>
+            {STATUS_LETTER[file.status]}
+          </span>
+          <span className="truncate" title={file.oldPath ? `${file.oldPath} → ${path}` : path}>
+            {file.oldPath ? `${file.oldPath} → ${path}` : path}
+          </span>{' '}
+          <Counts add={file.additions} remove={file.deletions} />
+        </Fold>
         <ViewButton file={file} onView={onView} />
       </h3>
-      {file.binary ? (
-        <p className={styles.note}>Binary file, not shown.</p>
-      ) : (
-        <DiffBlock className={styles.diff}>
-          <div className={styles.rows}>
-            {hunks.map((hunk, h) => (
-              <Hunk
-                key={h}
-                hunk={hunk}
-                path={path}
-                selected={dragged ?? openAt}
-                handlers={handlers}
-                after={after}
-              />
-            ))}
-          </div>
-        </DiffBlock>
-      )}
-      {file.truncated && (
-        <p className={styles.note}>This file is too long to show whole. The rest is cut.</p>
-      )}
+      {/* `hidden`, not unmounted: the rows keep their place, so a selection's indices hold. */}
+      <div id={bodyId} hidden={!expanded}>
+        {file.binary ? (
+          <p className={styles.note}>Binary file, not shown.</p>
+        ) : (
+          <DiffBlock className={styles.diff}>
+            <div className={styles.rows}>
+              {hunks.map((hunk, h) => (
+                <Hunk
+                  key={h}
+                  hunk={hunk}
+                  path={path}
+                  selected={dragged ?? openAt}
+                  handlers={handlers}
+                  after={after}
+                />
+              ))}
+            </div>
+          </DiffBlock>
+        )}
+        {file.truncated && (
+          <p className={styles.note}>This file is too long to show whole. The rest is cut.</p>
+        )}
+      </div>
     </section>
   );
 });

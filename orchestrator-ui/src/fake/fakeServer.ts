@@ -19,6 +19,7 @@ import type {
   CommUpdate,
   DeskEntry,
   FileDiff,
+  FileGroup,
   GateJob,
   Host,
   Operation,
@@ -85,6 +86,8 @@ export interface FakeWorld {
     {
       changes: WorktreeChanges;
       diffs: Record<string, FileDiff[]>;
+      /** Each rev's diff groups. A rev with none reads as one Other group, as with no config. */
+      groups?: Record<string, FileGroup[]>;
       files?: Record<
         string,
         Record<string, { old: string | null; new: string | null; truncated?: boolean }>
@@ -571,7 +574,11 @@ function read(path: string, server: FakeServer): Reply {
       const versions = entry.files?.[rev]?.[path] ?? { old: null, new: null };
       return ok({ rev, path, truncated: false, ...versions });
     }
-    return ok({ rev, files: entry.diffs[rev] ?? [] });
+    const files = entry.diffs[rev] ?? [];
+    const other = files.length
+      ? [{ name: 'Other', collapsed: false, paths: files.map((f) => f.path) }]
+      : [];
+    return ok({ rev, groups: entry.groups?.[rev] ?? other, files });
   }
   if (pathname === '/api/tasks') {
     const tasks = Object.values(world.tasks).map((task) => omit(task, 'content', 'log'));

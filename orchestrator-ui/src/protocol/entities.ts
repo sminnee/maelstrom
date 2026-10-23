@@ -196,6 +196,14 @@ export interface FileDiff {
   hunks: DiffHunk[];
 }
 
+/** One **Diff group** of `GET /api/worktrees/{id}/diff`, with its files. */
+export interface FileGroup {
+  name: string;
+  collapsed: boolean;
+  /** The group's file paths, in diff order. */
+  paths: string[];
+}
+
 /** `GET /api/worktrees/{id}/file`: one file whole, on each side of a rev. */
 export interface FileVersions {
   rev: string;

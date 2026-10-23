@@ -134,6 +134,8 @@
   /* Each line holds a control, so neither is lower than one. */
   --title-h: max(2.25rem, calc(var(--control) + var(--u)));
   --stats-h: max(1.75rem, var(--control));
+  /* A group head draws only when the diff has groups to tell apart. */
+  --group-h: 0px;
   /* The eye that opens a file's Rendered view, and the inset that puts the
      file list's columns under the file heads': the file's margin, its
      border, and its head's padding. */
@@ -144,10 +146,14 @@
 .scroll[data-commit='false'] {
   --title-h: 0px;
 }
+.scroll[data-grouped] {
+  --group-h: max(1.75rem, var(--control));
+}
 .titleLine,
 .statsLine {
   position: sticky;
-  z-index: 2;
+  /* Above a group head, which slides up under them at its group's end. */
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--u);
@@ -277,16 +283,56 @@
   color: var(--accent);
 }
 
+/* The file list's group names: a plain sub-heading, in the status column. */
+.listGroup {
+  display: block;
+  padding: var(--u-half) var(--head-inset) 0;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.listGroupFiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* -- one diff group -- */
+.groupHead {
+  position: sticky;
+  top: calc(var(--title-h) + var(--stats-h));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: var(--group-h);
+  padding-inline: var(--u-2) calc(var(--head-inset) + var(--u) + var(--view-gap) + var(--view-size));
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.groupName {
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
 /* -- one file -- */
 /* `clip`, not `hidden`: `hidden` makes the section a scroll container
    and the header stops sticking. */
 .file {
-  /* A jump from the list or the tree lands the head below the two lines. */
-  scroll-margin-top: calc(var(--title-h) + var(--stats-h));
+  /* A jump from the list or the tree lands the head below the two lines and the group head. */
+  scroll-margin-top: calc(var(--title-h) + var(--stats-h) + var(--group-h));
   margin: var(--u-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: clip;
+}
+/* The head keeps its text height: a button's control height would grow it. */
+.fileHead > .fold {
+  align-items: baseline;
+  min-height: 0;
 }
 .file + .file {
   margin-block-start: 0;
@@ -294,7 +340,7 @@
 .fileHead {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   position: sticky;
-  top: calc(var(--title-h) + var(--stats-h));
+  top: calc(var(--title-h) + var(--stats-h) + var(--group-h));
   z-index: 1;
   display: flex;
   align-items: baseline;

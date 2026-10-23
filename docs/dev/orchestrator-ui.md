@@ -959,7 +959,7 @@ The scroll holds five parts, in this order:
 | Commit message | The body and the author. The body is drawn as Markdown, which joins git's hard wraps | No |
 | Stats line | The file count and the line totals | Yes, under the title line |
 | File list | One entry per file, which jumps to that file | No |
-| Files | Each file as a card, with a head | The head, under both lines |
+| Files | Each file as a card, with a head, by **Diff group** | The group head, under both lines; the file head, under the group head |
 
 Uncommitted and All commits name no single commit, so they draw no title line and no commit
 message.
@@ -972,10 +972,24 @@ the file list. `ChangesTab` holds both fold states, so a fold stays from one com
 The scroll is keyed on the rev, so each rev opens at the top, and state inside the scroll would
 open again.
 
+The `/diff` route sends `groups` beside `files`: the **Diff groups**, each with its paths, in
+config order and then Other. The server classifies the files, because the config is in the
+worktree, so the tab has no glob code. The file list draws a plain sub-heading per group, and the
+files draw in sections under a group head. A group head folds its group. When the only group is
+an open Other, the tab draws no group heads.
+
+A file head also folds its file. A folded file keeps its head and hides its rows with `hidden`, so
+the rows stay mounted and a selection's row indices do not move. `ChangesTab` holds the group and
+file folds in one map, keyed `group:<name>` and `file:<path>`, so a fold stays across revs. A
+group with no entry takes its `collapsed`, and a file with no entry is open. A pick in the file
+list or the tree opens the file and its group, in a `flushSync`, then scrolls to it.
+
 The title line and the stats line are direct children of the scroll. A sticky element holds only
 inside its parent, so a line inside a foldable parent would leave the view with that parent. Each
-line has a fixed height, which `--title-h` and `--stats-h` hold. A file head sticks at the sum of
-the two, and `scroll-margin-top` lands a jump at the same offset. With no title line,
+line has a fixed height, which `--title-h` and `--stats-h` hold. A group head sticks at the sum
+of the two. It holds only inside its group, so the next group's head takes its place. A group
+head is `--group-h` high, which is zero when no group heads draw. A file head sticks at the sum
+of the three, and `scroll-margin-top` lands a jump at the same offset. With no title line,
 `--title-h` is zero. The tab's header and the strip sit outside the scroll, so the title line
 sticks at zero.
 
