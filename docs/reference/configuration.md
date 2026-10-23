@@ -35,6 +35,7 @@ Put this file in your repository root.
 | `sentry` | map | — | Sentry settings. See below. |
 | `uptimerobot` | map | — | UptimeRobot settings. See below. |
 | `deploy` | map | — | The GitHub environments that signal each **Landing** step. See below. |
+| `diff_groups` | list of map | `[]` | The **Diff groups** the Changes tab sorts a diff's files into. See below. |
 
 When `services:` is present it supersedes `port_names`, `shared_port_names`, the Procfile
 and `start_cmd`. Precedence is **`services:` → Procfile → `start_cmd`**.
@@ -209,6 +210,50 @@ deploy:
 - The server's `gh` login needs `deployments: read` on the repository. Without it, every
   environment reads `unknown`.
 
+### `diff_groups:`
+
+`diff_groups:` names classes of files, such as tests, docs and lockfiles. The Changes tab draws
+each class as a **Diff group**: a head that folds, then its files. The orchestrator server reads
+the worktree's own `.maelstrom.yaml` on each diff request, so an older commit is grouped by the
+current config.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `name` | string | The group's name. **Required.** |
+| `paths` | list of string | Globs over the repo-relative path. **Required**, except for `Other`. |
+| `collapsed` | bool | Default `false`. When `true`, the group starts folded. Any other value reads as `false`. |
+
+```yaml
+diff_groups:
+  - name: Tests
+    paths: ["**/tests/**", "test_*.py", "*.test.ts"]
+  - name: Docs
+    paths: ["docs/**", "*.md"]
+  - name: Lockfiles
+    paths: [uv.lock, pnpm-lock.yaml]
+    collapsed: true
+```
+
+- The list order is the priority. A file goes to the first group with a glob that matches it.
+- A file that no glob matches goes to a last group, **Other**. A group named `Other` matches at
+  its place in the list and sets the fold of that group. Other always draws last.
+- A glob matches the whole path. For a rename, it matches the new path.
+
+| Glob | Matches |
+|---|---|
+| `**` | Any number of directories, zero included |
+| `*` | Any characters but `/` |
+| `?` | One character but `/` |
+| A pattern with no `/` | The basename at any depth |
+| A leading `/` | Nothing more: a pattern with a `/` is anchored at the root anyway |
+| A trailing `/` | A directory and everything in it: `docs/` is `docs/**` |
+
+- Character classes such as `[abc]` and negation with `!` are not supported. `[` is a literal.
+- An entry with no name, with `paths` that is not a list of strings, or with the name of an
+  earlier entry is dropped.
+- With no `diff_groups:`, or a config that does not load, every file is in Other. Then the tab
+  draws no group heads.
+
 ### Full example
 
 ```yaml
@@ -224,6 +269,13 @@ services:
     image: postgres:16
     ports: [DB]
     publish: ["${DB_PORT}:5432"]
+
+diff_groups:
+  - name: Tests
+    paths: ["**/tests/**"]
+  - name: Lockfiles
+    paths: [uv.lock]
+    collapsed: true
 
 linear:
   team_id: "your-team-uuid"

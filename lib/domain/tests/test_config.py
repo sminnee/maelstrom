@@ -7,6 +7,7 @@ import pytest
 
 from mael_domain.config import (
     CONFIG_FILENAME,
+    DiffGroup,
     MaelstromConfig,
     PortSpec,
     find_config_file,
@@ -73,6 +74,64 @@ class TestMaelstromConfig:
         """Test that a non-dict uptimerobot block is ignored gracefully."""
         config = MaelstromConfig.from_dict({"uptimerobot": "garbage"})
         assert config.uptimerobot_monitors is None
+
+
+class TestDiffGroups:
+    """`diff_groups:` names classes of files for the Changes tab."""
+
+    def test_absent_by_default(self):
+        assert MaelstromConfig.from_dict({}).diff_groups == []
+
+    def test_parsed_in_order(self):
+        config = MaelstromConfig.from_dict(
+            {
+                "diff_groups": [
+                    {"name": "Tests", "paths": ["**/tests/**"]},
+                    {"name": "Lockfiles", "paths": ["uv.lock"], "collapsed": True},
+                ]
+            }
+        )
+        assert config.diff_groups == [
+            DiffGroup(name="Tests", paths=["**/tests/**"], collapsed=False),
+            DiffGroup(name="Lockfiles", paths=["uv.lock"], collapsed=True),
+        ]
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "Tests",
+            {"paths": ["*.py"]},
+            {"name": "", "paths": ["*.py"]},
+            {"name": "Tests"},
+            {"name": "Tests", "paths": "*.py"},
+            {"name": "Tests", "paths": [3]},
+        ],
+    )
+    def test_skips_a_bad_entry(self, entry):
+        config = MaelstromConfig.from_dict(
+            {"diff_groups": [entry, {"name": "Docs", "paths": ["*.md"]}]}
+        )
+        assert config.diff_groups == [DiffGroup(name="Docs", paths=["*.md"])]
+
+    def test_other_needs_no_paths(self):
+        config = MaelstromConfig.from_dict(
+            {"diff_groups": [{"name": "Other", "collapsed": True}]}
+        )
+        assert config.diff_groups == [DiffGroup(name="Other", paths=[], collapsed=True)]
+
+    def test_a_later_entry_with_the_same_name_is_dropped(self):
+        config = MaelstromConfig.from_dict(
+            {
+                "diff_groups": [
+                    {"name": "Docs", "paths": ["*.md"]},
+                    {"name": "Docs", "paths": ["*.rst"], "collapsed": True},
+                ]
+            }
+        )
+        assert config.diff_groups == [DiffGroup(name="Docs", paths=["*.md"])]
+
+    def test_a_block_that_is_not_a_list_gives_no_groups(self):
+        assert MaelstromConfig.from_dict({"diff_groups": {"a": 1}}).diff_groups == []
 
 
 class TestMainPortBase:
