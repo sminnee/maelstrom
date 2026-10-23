@@ -7,6 +7,7 @@ import type { Agent, BackgroundShell } from '../protocol/entities';
 import { modelLabel } from '../protocol/models';
 import { nextMode } from '../protocol/modes';
 import { contextSize } from '../protocol/tokens';
+import { gateOf } from '../selectors/gate';
 import { finishedSubagentsOf, subagentsOf } from '../selectors/agents';
 import { progressOf } from '../protocol/progress';
 import { sessionTab } from '../selectors/tabs';
@@ -204,7 +205,12 @@ export function SessionTab({
           ? 'The agent is not running a turn.'
           : 'Abandon the turn the agent is running. The agent stays alive.';
   const label = isChild ? `${agent.id} · ${agent.description}` : agent.id;
-  const stateWords = progressOf(task, agent, Object.values(world.attention)).words;
+  const stateWords = progressOf(
+    task,
+    agent,
+    Object.values(world.attention),
+    gateOf(world, agent),
+  ).words;
   const live = (
     <>
       <span className={`${styles.state} truncate`} data-state={agent.state} title={stateWords}>

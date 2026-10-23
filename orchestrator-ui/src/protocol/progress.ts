@@ -1,6 +1,6 @@
 import type { Attention } from './attention';
 import { isOpen } from './attention';
-import type { Agent, Task, TaskStatus } from './entities';
+import type { Agent, Task, TaskStatus, WorktreeGate } from './entities';
 
 /** Where a node sits in the left-to-right progression of work. */
 export type Zone = 'done' | 'running' | 'notStarted';
@@ -51,17 +51,20 @@ type TaskFacts = Pick<Task, 'id' | 'status' | 'actionable'>;
  *
  * `attention` is required, not defaulted: a caller that passes none reads a
  * blocked agent as idle, and every view that draws a node holds the table.
+ * `gate`, the worktree's live gate job, is required for the same reason: a
+ * caller that passes none reads an agent that waits on its gate as unanswered.
  */
 export function progressOf(
   task: TaskFacts | undefined,
   agent: Agent | undefined,
   attention: readonly Attention[],
+  gate: WorktreeGate | null,
 ): Progress {
-  const state = nodeState(task, agent, attention);
+  const state = nodeState(task, agent, attention, gate);
   const drift = driftOf(task, agent);
   return {
     state,
-    words: describeState(state, task, agent),
+    words: describeState(state, task, agent, gate),
     drift,
     fixStatus: drift ? fixStatusFor(drift, task) : null,
     echoesStatus: !drift && restatesStatus(task, state),
@@ -72,6 +75,7 @@ function nodeState(
   task: TaskFacts | undefined,
   agent: Agent | undefined,
   attention: readonly Attention[],
+  gate: WorktreeGate | null,
 ): NodeState {
   // The task closes when the PR is pushed, and watch-pr keeps running to take
   // CI green. That tail is the ordinary end of a task, so it draws as its own
@@ -97,6 +101,8 @@ function nodeState(
   if (!agent) return task?.actionable ? 'ready' : 'queued';
   if (agent.state === 'exited') return 'stopped';
   if (isWorking(agent)) return 'working';
+  // Waiting on its gate: see CONTEXT.md, Unanswered agent.
+  if (agent.state === 'idle' && gate) return 'working';
   // An Unanswered agent: see CONTEXT.md.
   if (task && agent.state === 'idle' && agent.lastMessage !== '') return 'unanswered';
   return 'idle';
@@ -112,6 +118,7 @@ function describeState(
   state: NodeState,
   task: TaskFacts | undefined,
   agent: Agent | undefined,
+  gate: WorktreeGate | null,
 ): string {
   switch (state) {
     case 'done':
@@ -123,7 +130,7 @@ function describeState(
       // code to name.
       return `Exited (code ${agent?.exitCode})`;
     case 'working':
-      return workingWords(agent);
+      return workingWords(agent, gate);
     case 'finalising':
       return 'Finalising';
     case 'ready':
@@ -147,9 +154,10 @@ function describeState(
 }
 
 /** The words a working node uses. The work after a turn says what runs it. */
-function workingWords(agent: Agent | undefined): string {
+function workingWords(agent: Agent | undefined, gate: WorktreeGate | null): string {
   if (agent?.state === 'delegating') return 'Subagents working';
   if (agent?.state === 'background') return 'Background tasks working';
+  if (agent?.state === 'idle' && gate) return `Gate ${gate.state}`;
   return 'Working';
 }
 

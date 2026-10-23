@@ -124,13 +124,14 @@ function node(over: {
 }): GraphNode {
   const t = 'task' in over ? over.task : task();
   const a = 'agent' in over ? over.agent : agent();
+  const wt = over.worktree ?? worktree();
   return {
     id: over.id ?? t?.id ?? a?.id ?? 'node',
     kind: t ? 'task' : 'freeAgent',
     task: t,
     agent: a,
-    worktree: over.worktree ?? worktree(),
-    progress: progressOf(t, a, []),
+    worktree: wt,
+    progress: progressOf(t, a, [], wt.gate),
     // Read from the task, never set by hand: a free agent has no task and so
     // no phase, exactly as `deriveGraph` has it.
     phase: t ? phaseForTask(t, a) : null,
@@ -230,7 +231,7 @@ function needsAttention(): GraphNode {
   ];
   return {
     ...node({ task: t, agent: a }),
-    progress: progressOf(t, a, attention),
+    progress: progressOf(t, a, attention, null),
     attention,
     reason: attention[0]!.summary,
   };
