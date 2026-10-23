@@ -159,17 +159,31 @@ def pr_events(
 
 #: The gate states tangier counts as a pass.
 _GATE_OK = frozenset({"passed", "not-needed", "verified"})
-#: The gate states a failure body leaves out: a pass, a gate that has not
-#: run, and a gate a fail-fast job cancelled. Every other state is listed, so a
+#: The gate states that did not run: not started, cut off, or cancelled.
+_GATE_NOT_RUN = frozenset({"pending", "running", "cancelled"})
+#: The gate states that are not a failure. Every other state is a failed gate:
+#: it makes a cancelled job ``gate.failed``, and the failure body names it, so a
 #: state this version does not know still names its gate.
-_GATE_UNLISTED = _GATE_OK | {"pending", "running", "cancelled"}
+_GATE_NOT_FAILED = _GATE_OK | _GATE_NOT_RUN
+
+
+def _gate_summary(gates: list[dict[str, Any]]) -> list[str]:
+    """The ``Passed:`` and ``Not run:`` lines for *gates*, each left out when empty."""
+    lines = []
+    for label, states in (("Passed", _GATE_OK), ("Not run", _GATE_NOT_RUN)):
+        names = [str(g.get("name")) for g in gates if g.get("state") in states]
+        if names:
+            lines.append(f"{label}: {', '.join(names)}")
+    return lines
 
 
 def gate_event(job: dict[str, Any]) -> ExternalEvent:
     """The event a finished gate job is, as ``tangier gate status --json`` gives it.
 
     Any end but ``passed`` and ``cancelled`` is a failure: a job that ``died``,
-    or a state this version does not know, must not read as a pass.
+    or a state this version does not know, must not read as a pass. A
+    ``cancelled`` job with a failed gate is a failure too: tangier ends a
+    fail-fast job ``cancelled`` when one gate fails.
     """
     number, short = str(job["id"]), str(job.get("head") or "")[:7]
     gates = [g for g in job.get("gates") or [] if isinstance(g, dict)]
@@ -180,15 +194,13 @@ def gate_event(job: dict[str, Any]) -> ExternalEvent:
         return ExternalEvent(
             GATE, GATE_PASSED, attrs, f"Gate job {number} passed: {names}."
         )
-    if state == "cancelled":
-        return ExternalEvent(
-            GATE, GATE_CANCELLED, attrs, f"Gate job {number} was cancelled."
-        )
+    failed = [g for g in gates if g.get("state") not in _GATE_NOT_FAILED]
+    if state == "cancelled" and not failed:
+        lines = [f"Gate job {number} was cancelled.", *_gate_summary(gates)]
+        return ExternalEvent(GATE, GATE_CANCELLED, attrs, "\n".join(lines))
     lines = [f"Gate job {number} failed at {short}:"]
-    for gate in gates:
+    for gate in failed:
         gate_state = gate.get("state")
-        if gate_state in _GATE_UNLISTED:
-            continue
         code = gate.get("code")
         line = f"- {gate.get('name')}: {gate_state}"
         if code is not None:
@@ -199,6 +211,7 @@ def gate_event(job: dict[str, Any]) -> ExternalEvent:
             )
         lines.append(line)
     lines += [
+        *_gate_summary(gates),
         f"Log: {job.get('log')}",
         "Read the log, fix the failures, commit, and run the gates again.",
     ]

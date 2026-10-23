@@ -256,10 +256,16 @@ oldest. The UI reads it for the gate lozenge. Each gate line writes the overlay.
 writes it too, because `list-all` knows nothing of gates. The poll re-links the gate jobs to its
 new rows first, so a job that ran before its worktree appeared gets its worktree at once.
 
-`gate_event` makes the event from the finished job. `passed` is `gate.passed`, `cancelled` is
-`gate.cancelled`, and every other end is `gate.failed`. The failure body names each gate that
-failed, with its exit code, and the job's log. It leaves out a gate that passed, did not run, or
-was cancelled.
+`gate_event` makes the event from the finished job. `passed` is `gate.passed`. `cancelled` with
+no failed gate is `gate.cancelled`. Every other end is `gate.failed`. This includes a
+`cancelled` job with a failed gate: tangier ends a fail-fast job `cancelled` when a gate fails,
+and cancels the gates it did not start. A failed gate is one whose state is not a pass, `pending`,
+`running` or `cancelled`.
+
+The failure body names each gate that failed, with its exit code, and the job's log. Two lines
+follow the failed gates: `Passed:` names the gates that passed, and `Not run:` names the gates
+that are pending, running or cancelled. The cancel body has the same two lines. A line with no
+gates is left out.
 
 **The recipients** are `agents_in_worktree` for the job's worktree: the live top-level agents.
 A free agent hears it too, because a gate job belongs to a worktree, not to a PR. A job in a
