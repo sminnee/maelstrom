@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChangeComment, FileDiff, FileVersions, WorktreeChanges } from '../protocol/entities';
+import type {
+  ChangeComment,
+  FileDiff,
+  FileGroup,
+  FileVersions,
+  WorktreeChanges,
+} from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
 import type { WorktreeId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
@@ -7,6 +13,8 @@ import { keys } from './keys';
 
 export interface DiffBody {
   rev: string;
+  /** The files by **Diff group**: config order, then Other. Draw order, not diff order. */
+  groups: FileGroup[];
   files: FileDiff[];
 }
 
