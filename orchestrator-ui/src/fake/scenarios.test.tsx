@@ -17,6 +17,7 @@ import type { ToolCallStatus, TranscriptItem } from '../protocol/transcript';
 import { agentsByTask } from '../selectors/graph';
 import { renderApp } from '../test/renderApp';
 import { SCENARIOS, screenOf, type ScenarioName } from './scenarios';
+import { gateOf } from '../selectors/gate';
 
 /**
  * The coverage gate: each closed set of the protocol, as a record. See
@@ -162,7 +163,8 @@ function shown() {
       seen.taskStatus.add(task.status);
       const phase = phaseForCommand(task.command);
       if (phase) seen.phase.add(phase);
-      const progress = progressOf(task, byTask.get(task.id), attention);
+      const agent = byTask.get(task.id);
+      const progress = progressOf(task, agent, attention, gateOf(world, agent));
       seen.nodeState.add(progress.state);
       if (progress.drift) seen.drift.add(progress.drift);
     }

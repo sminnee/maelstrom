@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeAgent, makeAttention, makeTask } from '../fake/fixtures';
-import type { Agent, AgentState, TaskStatus } from './entities';
+import type { Agent, AgentState, TaskStatus, WorktreeGate } from './entities';
 import { progressOf, zoneForState, type DriftKind, type NodeState } from './progress';
 
 /** The five positions of the agent axis, as the matrix names them. */
@@ -376,7 +376,12 @@ describe('progressOf', () => {
     '$status ($actionable) with $agent agent reads $state / $words / $drift',
     ({ status, actionable, agent, state, words, drift, fixStatus }) => {
       const task = makeTask({ status, actionable });
-      expect(progressOf(task, AGENTS[agent], [])).toMatchObject({ state, words, drift, fixStatus });
+      expect(progressOf(task, AGENTS[agent], [], null)).toMatchObject({
+        state,
+        words,
+        drift,
+        fixStatus,
+      });
     },
   );
 
@@ -388,7 +393,12 @@ describe('progressOf', () => {
     ];
     for (const [state, words] of waits) {
       const agent = makeAgent({ state });
-      const progress = progressOf(makeTask({ status: 'in-progress' }), agent, [makeAttention()]);
+      const progress = progressOf(
+        makeTask({ status: 'in-progress' }),
+        agent,
+        [makeAttention()],
+        null,
+      );
       expect(progress).toMatchObject({ state: 'needs-attention', words });
     }
   });
@@ -400,7 +410,12 @@ describe('progressOf', () => {
       state: 'awaiting-permission',
       pendingRequestIds: ['req-1', 'req-2'],
     });
-    const progress = progressOf(makeTask({ status: 'in-progress' }), agent, [makeAttention()]);
+    const progress = progressOf(
+      makeTask({ status: 'in-progress' }),
+      agent,
+      [makeAttention()],
+      null,
+    );
     expect(progress).toMatchObject({ state: 'needs-attention', words: 'Needs you · 2 asks' });
   });
 
@@ -408,7 +423,7 @@ describe('progressOf', () => {
   // accident. Now "Needs you" appears exactly when the state does.
   it('reads an awaiting agent as idle when no attention item is open', () => {
     const agent = makeAgent({ state: 'awaiting-question', lastMessage: 'Which default?' });
-    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [], null)).toMatchObject({
       state: 'idle',
       words: 'Idle',
     });
@@ -416,7 +431,7 @@ describe('progressOf', () => {
 
   it('reads an idle agent that has said nothing as idle', () => {
     const agent = makeAgent({ state: 'idle', lastMessage: '' });
-    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [], null)).toMatchObject({
       state: 'idle',
       words: 'Idle',
     });
@@ -424,20 +439,26 @@ describe('progressOf', () => {
 
   // A free agent has no task to finish, so its last message asks for nothing.
   it('reads an idle free agent as idle, whatever it said', () => {
-    expect(progressOf(undefined, AGENTS.idle, [])).toMatchObject({ state: 'idle', words: 'Idle' });
+    expect(progressOf(undefined, AGENTS.idle, [], null)).toMatchObject({
+      state: 'idle',
+      words: 'Idle',
+    });
   });
 
   it('lets an open attention item outrank an unanswered message', () => {
-    const progress = progressOf(makeTask({ status: 'in-progress' }), AGENTS.idle, [
-      makeAttention(),
-    ]);
+    const progress = progressOf(
+      makeTask({ status: 'in-progress' }),
+      AGENTS.idle,
+      [makeAttention()],
+      null,
+    );
     expect(progress).toMatchObject({ state: 'needs-attention' });
   });
 
   it('ignores a cleared attention item', () => {
     const agent = makeAgent({ state: 'awaiting-question' });
     const cleared = makeAttention({ clearedAt: '2026-09-01T00:01:00Z' });
-    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [cleared])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [cleared], null)).toMatchObject({
       state: 'idle',
     });
   });
@@ -445,7 +466,7 @@ describe('progressOf', () => {
   it('lets a faulted agent outrank an open attention item', () => {
     const agent = makeAgent({ state: 'exited', exitCode: 1 });
     const raised = makeAttention({ kind: 'agent_exited' });
-    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [raised])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [raised], null)).toMatchObject({
       state: 'exited',
     });
   });
@@ -454,7 +475,7 @@ describe('progressOf', () => {
   // like any other. It is the happy path, so it never drifts.
   it('lets a finalising agent still ask for the user', () => {
     const agent = makeAgent({ state: 'awaiting-question' });
-    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()], null)).toMatchObject({
       state: 'needs-attention',
       words: 'Needs you · question',
       drift: null,
@@ -464,7 +485,7 @@ describe('progressOf', () => {
 
   it('lets a done task outrank a stopped agent', () => {
     const agent = makeAgent({ state: 'exited', exitCode: 1 });
-    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()], null)).toMatchObject({
       state: 'done',
       words: 'Done',
       drift: null,
@@ -474,24 +495,26 @@ describe('progressOf', () => {
   it('says an awaiting agent needs the user wherever its attention item is passed', () => {
     const agent = makeAgent({ state: 'awaiting-permission' });
     const task = makeTask({ status: 'in-progress' });
-    expect(progressOf(task, agent, [makeAttention()]).words).toBe('Needs you · permission');
+    expect(progressOf(task, agent, [makeAttention()], null).words).toBe('Needs you · permission');
   });
 
   it('reads a free agent from the agent alone, and never drifts', () => {
     const raised = makeAttention({ agentId: 'agent-1', taskId: '' });
-    expect(progressOf(undefined, makeAgent({ state: 'processing' }), [])).toMatchObject({
+    expect(progressOf(undefined, makeAgent({ state: 'processing' }), [], null)).toMatchObject({
       state: 'working',
       words: 'Working',
       drift: null,
       fixStatus: null,
     });
-    expect(progressOf(undefined, makeAgent({ state: 'exited', exitCode: 0 }), [])).toMatchObject({
+    expect(
+      progressOf(undefined, makeAgent({ state: 'exited', exitCode: 0 }), [], null),
+    ).toMatchObject({
       state: 'stopped',
       words: 'Finished',
       drift: null,
     });
     expect(
-      progressOf(undefined, makeAgent({ state: 'awaiting-question' }), [raised]),
+      progressOf(undefined, makeAgent({ state: 'awaiting-question' }), [raised], null),
     ).toMatchObject({ state: 'needs-attention', drift: null });
   });
 
@@ -500,19 +523,60 @@ describe('progressOf', () => {
     ['background', 'Background tasks working'],
   ] as const)('draws a %s agent as working, in the running zone', (state, words) => {
     const agent = makeAgent({ state });
-    const progress = progressOf(makeTask({ status: 'in-progress' }), agent, []);
+    const progress = progressOf(makeTask({ status: 'in-progress' }), agent, [], null);
     expect(progress).toMatchObject({ state: 'working', words, drift: null });
     expect(zoneForState(progress.state)).toBe('running');
     // On a done task the work after the turn is its tail, not an orphan.
-    expect(progressOf(makeTask({ status: 'done' }), agent, [])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'done' }), agent, [], null)).toMatchObject({
       state: 'finalising',
       drift: null,
     });
   });
 
+  describe('with a gate job on the worktree', () => {
+    const running: WorktreeGate = {
+      jobId: '43',
+      state: 'running',
+      gate: 'test',
+      queuePosition: null,
+    };
+    const queued: WorktreeGate = { jobId: '44', state: 'queued', gate: null, queuePosition: 2 };
+    const task = makeTask({ status: 'in-progress' });
+
+    it.each([
+      ['has said nothing', makeAgent({ state: 'idle', lastMessage: '' })],
+      ['ended its turn on a message', AGENTS.idle],
+    ])('reads an idle agent that %s as working while the gate runs', (_, agent) => {
+      expect(progressOf(task, agent, [], running)).toMatchObject({
+        state: 'working',
+        words: 'Gate running',
+      });
+    });
+
+    it.each([
+      [queued, 'Gate queued'],
+      [{ ...running, state: 'orphaned' } as const, 'Gate orphaned'],
+    ])('names the state of the gate job', (gate, words) => {
+      expect(progressOf(task, AGENTS.idle, [], gate).words).toBe(words);
+    });
+
+    it('lets a stopped agent outrank the gate', () => {
+      expect(progressOf(task, AGENTS.finished, [], running).state).toBe('stopped');
+    });
+
+    it('lets an open attention item outrank the gate', () => {
+      const agent = makeAgent({ state: 'awaiting-question' });
+      expect(progressOf(task, agent, [makeAttention()], running).state).toBe('needs-attention');
+    });
+
+    it('keeps the words of an agent whose own turn runs', () => {
+      expect(progressOf(task, AGENTS.live, [], running).words).toBe('Working');
+    });
+  });
+
   it('does not draw an unobserved exit as a fault', () => {
     const agent = makeAgent({ state: 'exited', exitCode: null });
-    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [])).toMatchObject({
+    expect(progressOf(makeTask({ status: 'in-progress' }), agent, [], null)).toMatchObject({
       state: 'stopped',
       // Not "Finished": nobody saw this agent finish, so the words must not
       // claim the work completed while offering to mark the task done.
@@ -535,25 +599,29 @@ describe('echoesStatus', () => {
     ['a queued task', makeTask({ status: 'todo', actionable: false }), undefined, false],
     ['a working agent', makeTask({ status: 'in-progress' }), AGENTS.live, false],
   ] as const)('is %s → %s', (_, task, agent, expected) => {
-    expect(progressOf(task, agent, []).echoesStatus).toBe(expected);
+    expect(progressOf(task, agent, [], null).echoesStatus).toBe(expected);
   });
 
   // A status control must never speak alone about a value the card disputes.
   it('is false whenever the status is drifting', () => {
-    expect(progressOf(makeTask({ status: 'blocked' }), AGENTS.idle, []).echoesStatus).toBe(false);
-    expect(progressOf(makeTask({ status: 'in-progress' }), AGENTS.finished, []).echoesStatus).toBe(
+    expect(progressOf(makeTask({ status: 'blocked' }), AGENTS.idle, [], null).echoesStatus).toBe(
       false,
     );
+    expect(
+      progressOf(makeTask({ status: 'in-progress' }), AGENTS.finished, [], null).echoesStatus,
+    ).toBe(false);
   });
 
   // The card says "Finalising"; the picker saying "done" alone would hide the
   // fact that an agent is still carrying the PR.
   it('is false while a closed task is still finalising', () => {
-    expect(progressOf(makeTask({ status: 'done' }), AGENTS.live, []).echoesStatus).toBe(false);
+    expect(progressOf(makeTask({ status: 'done' }), AGENTS.live, [], null).echoesStatus).toBe(
+      false,
+    );
   });
 
   it('is false for a free agent, which has no status to echo', () => {
-    expect(progressOf(undefined, AGENTS.live, []).echoesStatus).toBe(false);
+    expect(progressOf(undefined, AGENTS.live, [], null).echoesStatus).toBe(false);
   });
 });
 

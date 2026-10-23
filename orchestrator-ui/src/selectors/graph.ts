@@ -253,18 +253,19 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     const attention = attentionFrom(attentionIndex, task, agent);
     const groupId = task.project;
     laneOf(groupId).nodeIds.push(task.id);
+    // The agent knows which worktree it is in; the branch index only guesses.
+    // The guess is what keeps a finished task naming the worktree — and so
+    // the PR — after its agent has stopped.
+    const worktree =
+      (agent ? world.worktrees[agent.worktreeId] : undefined) ??
+      worktreeByBranch.get(branchKey(task.project, task.branch));
     nodes.push({
       id: task.id,
       kind: 'task',
       task,
       agent,
-      // The agent knows which worktree it is in; the branch index only guesses.
-      // The guess is what keeps a finished task naming the worktree — and so
-      // the PR — after its agent has stopped.
-      worktree:
-        (agent ? world.worktrees[agent.worktreeId] : undefined) ??
-        worktreeByBranch.get(branchKey(task.project, task.branch)),
-      progress: progressOf(task, agent, attention),
+      worktree,
+      progress: progressOf(task, agent, attention, worktree?.gate ?? null),
       phase: phaseForTask(task, agent),
       groupId,
       attention,
@@ -291,7 +292,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       task: undefined,
       agent,
       worktree,
-      progress: progressOf(undefined, agent, attention),
+      progress: progressOf(undefined, agent, attention, worktree?.gate ?? null),
       phase: null,
       groupId,
       attention,
@@ -322,7 +323,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       task: undefined,
       agent: undefined,
       worktree,
-      progress: progressOf(undefined, undefined, []),
+      progress: progressOf(undefined, undefined, [], null),
       phase: null,
       groupId: op.project,
       attention: [],

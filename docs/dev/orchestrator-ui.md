@@ -58,6 +58,7 @@ The ordinary run through them, in order:
 | Working | `in-progress` | processing | running |
 | Subagents working | `in-progress` | delegating | running |
 | Background tasks working | `in-progress` | background | running |
+| Gate running, Gate queued, … | `in-progress` | idle, its worktree with a gate job | running |
 | Needs you · … | `in-progress` | awaiting, with an open attention item | running |
 | Unanswered | `in-progress` | idle, with a last message | running |
 | Idle | `in-progress` | idle, with no message | running |

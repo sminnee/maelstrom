@@ -3,9 +3,10 @@ import type { TaskRow } from '../api/types';
 import { useDeleteTask, useSetStatus } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import type { Attention } from '../protocol/attention';
-import type { Agent } from '../protocol/entities';
+import type { Agent, WorktreeGate } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import { driftLabel, progressOf } from '../protocol/progress';
+import { gateOf } from '../selectors/gate';
 import { sessionTab } from '../selectors/tabs';
 import { listTasks } from '../selectors/taskList';
 import { PanelLink } from '../shell/PanelLink';
@@ -166,7 +167,7 @@ export function TaskList() {
                   }}
                 />
               </td>
-              <td>{stateCell(task, agent, attention)}</td>
+              <td>{stateCell(task, agent, attention, gateOf(world, agent))}</td>
               <td>
                 <div className={styles.actions}>
                   <DeskToggle taskId={task.id} onDesk={onDesk} />
@@ -221,8 +222,13 @@ export function TaskList() {
 }
 
 /** The state in words, plus the caret when the status and the agent disagree. */
-function stateCell(task: TaskRow, agent: Agent | undefined, attention: readonly Attention[]) {
-  const progress = progressOf(task, agent, attention);
+function stateCell(
+  task: TaskRow,
+  agent: Agent | undefined,
+  attention: readonly Attention[],
+  gate: WorktreeGate | null,
+) {
+  const progress = progressOf(task, agent, attention, gate);
   return (
     <>
       {/* The list's one way into the panel: the state is the agent's, so it
