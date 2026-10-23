@@ -8,6 +8,7 @@ import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { GateLozenge } from '../shell/GateLozenge';
 import { PrChip } from '../shell/PrChip';
 import { useSwipeAction } from '../gesture/useSwipeAction';
 import { useUnitOperation } from '../console/useConsole';
@@ -118,6 +119,7 @@ export function DeckRow({
             <span className={`${styles.worktree} truncate`}>{node.worktree.nato}</span>
           )}
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
+          {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} interactive={false} />}
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>
       </Link>

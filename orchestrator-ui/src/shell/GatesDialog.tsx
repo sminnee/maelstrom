@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useWorld } from '../api/useWorld';
 import type { GateJob, Worktree } from '../protocol/entities';
 import { bytes } from '../protocol/bytes';
@@ -23,9 +24,18 @@ function splitGateJobs(jobs: GateJob[]): { running: GateJob[]; queued: GateJob[]
 
 /**
  * The gate jobs on the machine: what runs in tangier's slots, and what waits
- * for one. See DESIGN.md, "Gates chip".
+ * for one. See DESIGN.md, "Gates chip". `markedJobId` is the job a gate
+ * lozenge opened it on.
  */
-export function GatesDialog({ jobs, onClose }: { jobs: GateJob[]; onClose: () => void }) {
+export function GatesDialog({
+  jobs,
+  markedJobId = null,
+  onClose,
+}: {
+  jobs: GateJob[];
+  markedJobId?: string | null;
+  onClose: () => void;
+}) {
   const { world } = useWorld();
   const now = useNow();
   const { running, queued } = splitGateJobs(jobs);
@@ -33,6 +43,7 @@ export function GatesDialog({ jobs, onClose }: { jobs: GateJob[]; onClose: () =>
     <JobRow
       key={job.id}
       job={job}
+      marked={job.id === markedJobId}
       worktree={job.worktree ? world.worktrees[job.worktree] : undefined}
       where={
         job.state === 'queued'
@@ -70,15 +81,21 @@ export function GatesDialog({ jobs, onClose }: { jobs: GateJob[]; onClose: () =>
 
 function JobRow({
   job,
+  marked,
   worktree,
   where,
 }: {
   job: GateJob;
+  marked: boolean;
   worktree: Worktree | undefined;
   where: string;
 }) {
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (marked) ref.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [marked]);
   return (
-    <li className={styles.job}>
+    <li ref={ref} className={styles.job} aria-current={marked || undefined}>
       <div className={styles.line}>
         {/* Mono Means Literal: a path or a worktree name is an identifier. */}
         <span className={`${styles.where} truncate`} title={job.path}>

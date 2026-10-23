@@ -71,6 +71,14 @@ export interface UiState {
   panelWidth: number;
   /** The **Console**: whether it is open, and the operation it shows. Not kept across a reload. */
   console: ConsoleState;
+  /** The **Gates chip**'s dialog: whether it is open, and the job it marks. */
+  gates: GatesState;
+}
+
+export interface GatesState {
+  open: boolean;
+  /** The job the dialog marks, as a gate lozenge opened it; `null` marks none. */
+  jobId: string | null;
 }
 
 export interface ConsoleState {
@@ -105,5 +113,6 @@ export function initialUiState(): UiState {
     editorEditing: false,
     panelWidth: openingWidth(),
     console: { open: false, selected: null, height: null },
+    gates: { open: false, jobId: null },
   };
 }

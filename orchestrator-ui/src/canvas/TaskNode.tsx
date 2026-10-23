@@ -7,6 +7,7 @@ import { phaseLabel } from '../protocol/phase';
 import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
+import { GateLozenge } from '../shell/GateLozenge';
 import { PrChip } from '../shell/PrChip';
 import { cardOf, useCard } from '../nav/useCard';
 import { useUnitOperation } from '../console/useConsole';
@@ -98,6 +99,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
           {nodeIdLine(node)}
         </span>
         <PrChip pr={cardPr(node)} className={styles.pr} />
+        {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} className="nodrag nopan" />}
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       {op && <StepMeter op={op} variant="edge" />}

@@ -70,6 +70,9 @@ export interface AppStore {
   /** Show `id`'s log in the console. */
   selectOperation(id: OperationId): void;
   setConsoleHeight(height: number): void;
+  /** Open the gate jobs, marking `jobId` when given. */
+  openGates(jobId?: string): void;
+  closeGates(): void;
 }
 
 /** The store's tabs, with the active one the location names. */
@@ -152,6 +155,9 @@ export const useAppStore = create<AppStore>()(
         set((s) => ({ ui: { ...s.ui, console: { ...s.ui.console, selected } } })),
       setConsoleHeight: (height) =>
         set((s) => ({ ui: { ...s.ui, console: { ...s.ui.console, height } } })),
+      openGates: (jobId) =>
+        set((s) => ({ ui: { ...s.ui, gates: { open: true, jobId: jobId ?? null } } })),
+      closeGates: () => set((s) => ({ ui: { ...s.ui, gates: { open: false, jobId: null } } })),
     }),
     {
       name: TABS_STORAGE_KEY,

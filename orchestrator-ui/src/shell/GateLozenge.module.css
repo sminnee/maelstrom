@@ -1,0 +1,25 @@
+/* An untoned pill at `HueChip`'s small size: a gate job is neither good nor
+   bad until it ends, and an ended job leaves the table. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--chip);
+  padding: 0 var(--u);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm);
+  white-space: nowrap;
+}
+button.chip {
+  cursor: pointer;
+}
+button.chip:hover {
+  border-color: var(--fg-faint);
+}
+/* A running gate throbs: see `[data-throb]` in base.css. */
