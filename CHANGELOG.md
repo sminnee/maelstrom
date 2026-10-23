@@ -270,6 +270,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **A fail-fast gate job that fails tells the agent `gate.failed`.** Tangier ends such a job
+  `cancelled`, so the agent got `gate.cancelled` and did not learn which gate failed. Now a
+  cancelled job with a failed gate is `gate.failed`. The failure and cancel bodies also name the
+  gates that passed and the gates that did not run.
 - **The orchestrator UI no longer locks up under load.** A cancelled read now aborts its
   request, so the connection it held is freed. A burst of change notices no longer restarts a
   slow read. A transcript recovers when it lags, when its agent comes back, and after a slash

@@ -176,8 +176,11 @@ body says what to do: do it. The sources are:
   - `pr.merged`: the PR merged.
 - `gate`: a gate job in your worktree ended. The `job` attribute is its number.
   - `gate.passed`: every gate passed.
-  - `gate.failed`: a gate failed. The body names each failed gate and the log.
-  - `gate.cancelled`: the job was cancelled.
+  - `gate.failed`: a gate failed. A `--fail-fast` job that stopped at a failure is also
+    `gate.failed`. The body names each failed gate, the gates that passed, the gates that did
+    not run, and the log.
+  - `gate.cancelled`: the job was cancelled before a gate failed. The body names the gates that
+    passed and the gates that did not run.
 
 After you push your task's PR, end your turn. Do not wait on CI in a shell. Act on each `github`
 event when it arrives. A free agent hears no `github` events.
