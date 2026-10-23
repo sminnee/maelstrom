@@ -192,6 +192,44 @@ def _parse_deploy_environments(value: object) -> dict[str, str]:
 
 
 @dataclass
+class DiffGroup:
+    """A **Diff group**: a named class of files the Changes tab draws together."""
+
+    name: str
+    #: Globs over the repo-relative path; see ``mael_domain.diff_groups``.
+    paths: list[str]
+    #: The group starts folded.
+    collapsed: bool = False
+
+
+def _parse_diff_groups(value: object) -> list[DiffGroup]:
+    """``diff_groups:`` in config order, which is the match priority.
+
+    An entry with no name, no list of string paths, or the name of an earlier
+    entry is dropped: the diff route reads the block on each request, so it
+    must not raise. ``Other`` alone may omit ``paths``, to set only its fold.
+    """
+    if not isinstance(value, list):
+        return []
+    groups: list[DiffGroup] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        paths = entry.get("paths", [] if name == "Other" else None)
+        if not isinstance(name, str) or not name:
+            continue
+        if any(g.name == name for g in groups):
+            continue
+        if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            continue
+        groups.append(
+            DiffGroup(name=name, paths=paths, collapsed=entry.get("collapsed") is True)
+        )
+    return groups
+
+
+@dataclass
 class MaelstromConfig:
     """Configuration for a maelstrom-managed project."""
 
@@ -218,6 +256,8 @@ class MaelstromConfig:
     uptimerobot_monitors: list[str] | None = None
     # Landing step -> the GitHub environment whose deploys signal it.
     deploy_environments: dict[str, str] = field(default_factory=dict)
+    # The Changes tab's file classes, in match priority.
+    diff_groups: list[DiffGroup] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
@@ -260,6 +300,7 @@ class MaelstromConfig:
             sentry_project=sentry_config.get("project_id"),
             uptimerobot_monitors=ur_config.get("monitors"),
             deploy_environments=_parse_deploy_environments(data.get("deploy")),
+            diff_groups=_parse_diff_groups(data.get("diff_groups")),
         )
 
 

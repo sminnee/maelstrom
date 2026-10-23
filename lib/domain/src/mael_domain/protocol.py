@@ -211,6 +211,15 @@ class FileDiff(TypedDict):
     hunks: list[DiffHunk]
 
 
+class FileGroup(TypedDict):
+    """One **Diff group** of ``GET /api/worktrees/{id}/diff``, with its files."""
+
+    name: str
+    collapsed: bool
+    #: The group's file paths, in diff order.
+    paths: list[str]
+
+
 class FileVersions(TypedDict):
     """``GET /api/worktrees/{id}/file``: one file on each side of a rev."""
 

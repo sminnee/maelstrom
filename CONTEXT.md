@@ -1407,6 +1407,13 @@ over its **Base**, or the whole branch as one diff. The expanded node's `Changes
 The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 
+**Diff group**:
+A named class of files in the **Changes tab**, such as tests or docs. A project names its diff
+groups in `diff_groups:` in `.maelstrom.yaml`, as an ordered list, each with its globs. A file goes to the
+first group that matches it, else to the last group, Other. The tab draws each group under a head
+that folds it. A group can start folded.
+_Avoid_: Category, file class, section
+
 **Rendered view**:
 A dialog over the **Changes tab** that draws one whole file of the rev in view, by its **Renderer
 plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none, unless it is an image. It has three
