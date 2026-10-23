@@ -8907,6 +8907,34 @@ def test_the_diff_route_serves_each_rev(harness, tmp_path):
     ]
 
 
+@pytest.mark.parametrize(
+    ("config", "groups"),
+    [
+        (None, [("Other", False, ["orders.py", "readme.md"])]),
+        (
+            "diff_groups:\n  - {name: Docs, paths: ['*.md'], collapsed: true}\n",
+            [("Docs", True, ["readme.md"]), ("Other", False, ["orders.py"])],
+        ),
+    ],
+)
+def test_the_diff_route_groups_files_by_the_worktree_config(
+    harness, tmp_path, config, groups
+):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    git(tmp_path, "commit", "-am", "docs: readme")
+    if config is not None:
+        (tmp_path / ".maelstrom.yaml").write_text(config)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/worktrees/northwind-alpha/diff?rev=branch")
+
+    # The grouping and a broken config are the domain suite's; this pins the wiring.
+    assert [
+        (g["name"], g["collapsed"], g["paths"]) for g in run(scenario())["groups"]
+    ] == groups
+
+
 def test_the_file_route_serves_both_sides_of_a_rev(harness, tmp_path):
     _point_alpha_at_a_repo(harness, tmp_path)
 

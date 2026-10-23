@@ -22,6 +22,7 @@ from typing import Any
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
+from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import (
@@ -310,8 +311,12 @@ async def _worktree_diff(request: web.Request) -> web.Response:
         return error_response("unknown_id", f"No rev {rev} on this branch")
     except (OSError, subprocess.CalledProcessError) as exc:
         return _git_failed(exc)
+    config_groups = await asyncio.to_thread(read_diff_groups, path)
+    groups = group_files([f["path"] for f in files], config_groups)
     # A branch diff runs to megabytes, so it is dumped off the loop and compressed.
-    body = await asyncio.to_thread(_dumps_by_item, {"rev": rev}, "files", files)
+    body = await asyncio.to_thread(
+        _dumps_by_item, {"rev": rev, "groups": groups}, "files", files
+    )
     response = web.json_response(text=body)
     response.enable_compression()
     return response
