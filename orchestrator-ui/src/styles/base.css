@@ -190,6 +190,24 @@ summary::-webkit-details-marker {
   }
 }
 
+/* A running gate, in the Gate jobs dialog and on a gate lozenge. The Reporting Rule (DESIGN.md,
+   "Gates chip"): it throbs in lightness, not hue. 1.6s is StepMeter's rhythm. The global
+   reduced-motion rule stops it. */
+[data-throb] {
+  color: var(--fg);
+  animation: throb 1.6s ease-in-out infinite;
+}
+/* Both ends named: a module's own colour on the element would otherwise be the throb's base. */
+@keyframes throb {
+  0%,
+  100% {
+    color: var(--fg);
+  }
+  50% {
+    color: var(--fg-faint);
+  }
+}
+
 /*
  * The one place a phase becomes a colour. Anything under a phased element reads
  * `--phase`. Each phase re-derives `--phase-dormant` with it: a custom property

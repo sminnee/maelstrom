@@ -96,7 +96,13 @@ function JobRow({
       </div>
       <div className={styles.gates}>
         {job.gates.map((gate) => (
-          <span key={gate.name} className={styles.gate} data-state={gate.state} title={gate.state}>
+          <span
+            key={gate.name}
+            className={styles.gate}
+            data-state={gate.state}
+            data-throb={gate.state === 'running' || undefined}
+            title={gate.state}
+          >
             {gate.name}
           </span>
         ))}
