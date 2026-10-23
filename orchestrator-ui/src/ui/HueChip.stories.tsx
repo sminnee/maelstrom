@@ -95,6 +95,7 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     env: { state: 'stopped', services: [] },
     shellUrl: '',
     sessionCount: 0,
+    gate: null,
   };
 }
 

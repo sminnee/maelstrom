@@ -23,6 +23,7 @@ from mael_orchestrator.world_build import (
     task_entity,
     task_key,
     worktree_entity,
+    worktree_gates,
 )
 
 TASK_MD = """---
@@ -173,7 +174,75 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "sessionCount": 1,
         "shellUrl": "",
         "liveFeedback": [],
+        "gate": None,
     }
+
+
+def _job(job_id, state, worktree, started, gates=(), queue_position=None):
+    return {
+        "id": job_id,
+        "state": state,
+        "queuePosition": queue_position,
+        "worktree": worktree,
+        "path": "/p",
+        "head": "abc",
+        "dirty": False,
+        "started": started,
+        "usage": None,
+        "gates": [{"name": name, "state": st} for name, st in gates],
+    }
+
+
+RUNNING = _job(
+    "43",
+    "running",
+    "northwind-alpha",
+    "2026-10-23T10:00:05Z",
+    gates=[("lint", "passed"), ("test", "running"), ("web", "pending")],
+)
+QUEUED = _job(
+    "44", "queued", "northwind-alpha", "2026-10-23T10:00:00Z", queue_position=2
+)
+
+
+@pytest.mark.parametrize("jobs", [[RUNNING, QUEUED], [QUEUED, RUNNING]])
+def test_worktree_gates_a_running_job_beats_a_queued_one(jobs):
+    assert worktree_gates(jobs) == {
+        "northwind-alpha": {
+            "jobId": "43",
+            "state": "running",
+            "gate": "test",
+            "queuePosition": None,
+        }
+    }
+
+
+def test_worktree_gates_a_queued_job_carries_its_place():
+    assert worktree_gates([QUEUED]) == {
+        "northwind-alpha": {
+            "jobId": "44",
+            "state": "queued",
+            "gate": None,
+            "queuePosition": 2,
+        }
+    }
+
+
+def test_worktree_gates_the_oldest_running_job_wins():
+    newer = _job("45", "running", "northwind-alpha", "2026-10-23T11:00:00Z")
+    gates = worktree_gates([newer, RUNNING])
+    assert gates["northwind-alpha"]["jobId"] == "43"
+
+
+def test_worktree_gates_an_orphaned_job_beats_a_queued_one():
+    """An orphaned job's commands still run, so it is out of the queue."""
+    orphaned = {**RUNNING, "state": "orphaned", "started": "2026-10-23T11:00:00Z"}
+    assert worktree_gates([QUEUED, orphaned])["northwind-alpha"]["state"] == "orphaned"
+
+
+def test_worktree_gates_skips_a_job_with_no_worktree():
+    stray = _job("46", "running", None, "2026-10-23T10:00:00Z")
+    assert worktree_gates([stray]) == {}
 
 
 def test_worktree_entity_blanks_the_nulls_of_a_closed_row():
