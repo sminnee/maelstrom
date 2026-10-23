@@ -9,7 +9,7 @@ import { makeWorktree } from '../fake/fixtures';
 import { SCENARIOS } from '../fake/scenarios';
 import { TaskNode } from './TaskNode';
 import type { GraphNode } from '../selectors/graph';
-import { byState, idle, stopped, stoppedByPhase } from './taskNode.fixture';
+import { byState, gated, idle, stopped, stoppedByPhase } from './taskNode.fixture';
 
 export default { title: 'Canvas / TaskNode' };
 
@@ -142,6 +142,20 @@ export const StoppedAcrossPhases: Story = () => (
     <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
       {stoppedByPhase.map(({ phase, node }) => (
         <Cell key={phase} label={phase} node={node} />
+      ))}
+    </div>
+  </Board>
+);
+
+/**
+ * The gate lozenge, on an agent that waits on its gate job: the gate that runs
+ * throbs, and a queued job names its place.
+ */
+export const GateJob: Story = () => (
+  <Board>
+    <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
+      {gated.map(({ label, node }) => (
+        <Cell key={label} label={`gate ${label}`} node={node} />
       ))}
     </div>
   </Board>

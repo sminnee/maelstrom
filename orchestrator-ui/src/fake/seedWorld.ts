@@ -314,6 +314,9 @@ export function seedWorld(): Seed {
       branch: 'feat/orchestrator-ui',
       dirtyFiles: 3,
       sessionCount: 1,
+      // Each worktree gate matches a seeded gate job below. Both sit on agents
+      // with an open ask, which outranks the gate.
+      gate: { jobId: '41', state: 'running', gate: 'web', queuePosition: null },
     }),
     worktree('maelstrom', 'bravo', {
       branch: 'feat/task-index',
@@ -323,7 +326,11 @@ export function seedWorld(): Seed {
       sessionCount: 1,
     }),
     worktree('maelstrom', 'charlie', { isClosed: true }),
-    worktree('northwind', 'alpha', { branch: 'feat/orders', sessionCount: 1 }),
+    worktree('northwind', 'alpha', {
+      branch: 'feat/orders',
+      sessionCount: 1,
+      gate: { jobId: '42', state: 'running', gate: 'test', queuePosition: null },
+    }),
     worktree('northwind', 'bravo', { branch: 'feat/db-migrate', dirtyFiles: 7, sessionCount: 1 }),
     worktree('northwind', 'charlie', { isClosed: true }),
     worktree('northwind', 'delta', {
@@ -741,7 +748,7 @@ body rather than the query builder.
     // The older job has the higher number, so a list drawn in key order shows it:
     // an object puts number-like keys in ascending order, whatever the insertion.
     gateJobs: keyed([
-      gateJob('41', 'running', 'maelstrom-bravo', 4, [['web', 'running']], {
+      gateJob('41', 'running', 'maelstrom-alpha', 4, [['web', 'running']], {
         cpuPercent: 212.3,
         rssBytes: 1_288_490_189,
         processes: 9,

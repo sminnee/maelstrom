@@ -817,6 +817,11 @@ queued or running: tangier runs four at a time on one machine, and the rest wait
 counts them.
 _Avoid_: gate run (for the job)
 
+**Gate lozenge**:
+The pill on a node whose worktree has a **Gate job**. It names the gate that runs now, or the
+job's place in the queue: `queued 2`. A click opens the Gate jobs dialog on that job.
+_Avoid_: gate badge, gate chip (the Gates chip is the top-bar count)
+
 **Gate watch**:
 The orchestrator's one `tangier gate status --watch` process. It keeps the world's gate jobs, and
 tells each agent in a gate job's worktree when the job ends, with a `gate` **External event**.

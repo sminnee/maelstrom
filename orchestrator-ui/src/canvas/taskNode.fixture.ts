@@ -260,3 +260,21 @@ export const stoppedByPhase: { phase: Phase; node: GraphNode }[] = (
     agent: agent({ state: 'exited', exitCode: 0 }),
   }),
 }));
+
+/**
+ * An agent that ended its turn on `tangier gate run` exit 3, with its gate job
+ * running and then queued. Each reads working, not unanswered.
+ */
+export const gated: { label: string; node: GraphNode }[] = (
+  [
+    ['running', { jobId: '43', state: 'running', gate: 'test', queuePosition: null }],
+    ['queued', { jobId: '44', state: 'queued', gate: null, queuePosition: 2 }],
+  ] as const
+).map(([label, gate]) => ({
+  label,
+  node: node({
+    id: `gated-${label}`,
+    agent: agent({ state: 'idle', lastMessage: 'The gates run in the background.' }),
+    worktree: worktree({ gate }),
+  }),
+}));

@@ -30,6 +30,10 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
+/* The job a gate lozenge opened the dialog on. */
+.job[aria-current='true'] {
+  border-color: var(--accent);
+}
 .line {
   display: flex;
   align-items: baseline;

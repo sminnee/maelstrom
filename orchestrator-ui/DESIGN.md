@@ -980,6 +980,11 @@ the same `DialogFooter`.
   A running gate throbs between the plain text colour and faint, in StepMeter's rhythm: a
   change in lightness, because amber is kept for attention and blue for affordance. Under
   reduced motion it is still. With no gate job the chip is absent.
+- **Gate lozenge:** a small untoned pill in a node's meta row, beside the PR chip, while the
+  node's worktree has a **Gate job**. It names the gate that runs now, such as `test`, or the
+  queue place: `queued 2`. A running gate throbs as it does in the dialog. A click opens the
+  Gate jobs dialog with that job's row marked. On a deck row the lozenge is a reading only,
+  because the row is a link. A finished job leaves the table, so the lozenge goes with it.
 
 ### Shell command
 
