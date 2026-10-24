@@ -208,6 +208,8 @@ class FileDiff(TypedDict):
     deletions: int
     #: The file passed the line cap, so ``hunks`` holds its first lines only.
     truncated: bool
+    #: The file's ``#!`` line, read only for a name with no extension, else ``None``.
+    shebang: str | None
     hunks: list[DiffHunk]
 
 

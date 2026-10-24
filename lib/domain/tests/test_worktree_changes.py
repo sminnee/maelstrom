@@ -111,6 +111,7 @@ def file_diff(path, **over):
         "additions": 0,
         "deletions": 0,
         "truncated": False,
+        "shebang": None,
         "hunks": [],
         **over,
     }
@@ -206,6 +207,64 @@ async def test_a_file_past_the_line_cap_keeps_its_first_lines_and_drops_later_hu
     assert (lock["additions"], lock["deletions"]) == (
         MAX_LINES_PER_FILE + 1,
         MAX_LINES_PER_FILE + 1,
+    )
+
+
+SCRIPT = "#!/usr/bin/env bash\n" + "".join(f"echo {n}\n" for n in range(20))
+EDIT = SCRIPT.replace("echo 15", "echo fifteen")
+
+
+@pytest.fixture
+def scripts(repo):
+    """A branch commit that edits each kind of file below line 1; returns its sha."""
+    (repo / "bin").mkdir()
+    for name, text in [
+        ("bin/lint", SCRIPT),
+        (".hook", SCRIPT),
+        ("bin/plain", "no shebang\n" * 20),
+        ("tool.py", SCRIPT),
+    ]:
+        create_commit(repo, name, text, f"feat: {name}")
+    for name in ["bin/lint", ".hook", "tool.py"]:
+        (repo / name).write_text(EDIT)
+    (repo / "bin/plain").write_text("no shebang\n" * 19 + "changed\n")
+    run_git(repo, "add", ".")
+    run_git(repo, "commit", "-q", "-m", "feat: edit")
+    return run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+@pytest.mark.parametrize("rev", ["commit", "branch", "uncommitted"])
+async def test_a_file_with_no_extension_carries_its_shebang(repo, scripts, rev):
+    if rev == "uncommitted":
+        for name in ["bin/lint", ".hook", "bin/plain", "tool.py"]:
+            (repo / name).write_text((repo / name).read_text() + "echo more\n")
+
+    files = by_path(await read_diff(repo, scripts if rev == "commit" else rev))
+
+    assert {p: f["shebang"] for p, f in files.items()} == {
+        "bin/lint": "#!/usr/bin/env bash",
+        ".hook": "#!/usr/bin/env bash",
+        "bin/plain": None,
+        "tool.py": None,
+    }
+
+
+async def test_a_deleted_script_carries_the_shebang_of_its_old_side(repo, scripts):
+    run_git(repo, "rm", "-q", "bin/lint")
+    run_git(repo, "commit", "-q", "-m", "feat: drop lint")
+    sha = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+    (repo / ".hook").unlink()
+
+    [committed] = await read_diff(repo, sha)
+    [uncommitted] = await read_diff(repo, "uncommitted")
+
+    assert (committed["status"], committed["shebang"]) == (
+        "deleted",
+        "#!/usr/bin/env bash",
+    )
+    assert (uncommitted["status"], uncommitted["shebang"]) == (
+        "deleted",
+        "#!/usr/bin/env bash",
     )
 
 

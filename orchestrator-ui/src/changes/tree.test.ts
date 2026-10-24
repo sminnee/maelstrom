@@ -10,6 +10,7 @@ const file = (path: string): FileDiff => ({
   additions: 0,
   deletions: 0,
   truncated: false,
+  shebang: null,
   hunks: [],
 });
 

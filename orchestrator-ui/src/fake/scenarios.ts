@@ -345,6 +345,7 @@ const diff = (path: string, over: Partial<FileDiff> = {}): FileDiff => ({
   additions: 2,
   deletions: 1,
   truncated: false,
+  shebang: null,
   hunks: [
     {
       header: '@@ -4,3 +4,4 @@ def rotate(token):',
