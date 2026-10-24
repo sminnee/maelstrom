@@ -10,6 +10,7 @@ const CONTEXT = 3;
 /** The default renderer: the file as lines, in syntax colour. */
 export function TextView({ old, new: next, mode, path }: RenderedProps) {
   const runs = useMemo(() => textRuns(old, next, mode), [old, next, mode]);
+  const shebang = useMemo(() => firstLine(next ?? old), [next, old]);
   if (runs.length === 0)
     return <p className={styles.note}>{mode === 'final' ? 'Deleted file.' : 'No changes.'}</p>;
   return (
@@ -17,11 +18,18 @@ export function TextView({ old, new: next, mode, path }: RenderedProps) {
       {runs.map((rows, i) => (
         <Fragment key={i}>
           {i > 0 && <div className={styles.gap} aria-hidden="true" />}
-          <HighlightedRows rows={rows} path={path} />
+          <HighlightedRows rows={rows} path={path} shebang={shebang} />
         </Fragment>
       ))}
     </DiffBlock>
   );
+}
+
+/** The text's first line, which can name a script's language. */
+function firstLine(text: string | null): string | null {
+  if (text === null) return null;
+  const end = text.indexOf('\n');
+  return end < 0 ? text : text.slice(0, end);
 }
 
 /** The rows to draw, as runs that a gap parts. */

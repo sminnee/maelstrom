@@ -449,14 +449,17 @@ describe('the Changes tab', () => {
       expect(within(region(path)).getByRole('button', { name: `View ${path}` })).toBeVisible();
   });
 
-  it('draws a known language in syntax colour, and an unknown one or a long line plain', async () => {
+  it('draws a known language or a shebang language in syntax colour, and an unknown one or a long line plain', async () => {
     const { panel } = await openChanges((c) => {
       c.diffs.uncommitted = [
         file('src/rotate.ts', 'const ttl = 60; // seconds'),
         file('notes/rotate.xyz', 'plain'),
         file('src/min.ts', 'x'.repeat(1001)),
+        file('bin/lint', 'echo hi', { shebang: '#!/usr/bin/env bash' }),
+        file('bin/notes', 'echo hi'),
       ];
     });
+    await highlighted(panel, 'bin/lint');
     const rows = await highlighted(panel, 'src/rotate.ts');
     // The tokens draw the same text the plain rows did.
     expect(rowTexts(panel, 'src/rotate.ts')).toEqual([
@@ -466,7 +469,7 @@ describe('the Changes tab', () => {
     ]);
     const comment = within(rows[2]!).getByText('// seconds', { exact: false });
     expect(comment.style.color).toBe('var(--syntax-token-comment)');
-    for (const path of ['notes/rotate.xyz', 'src/min.ts'])
+    for (const path of ['notes/rotate.xyz', 'src/min.ts', 'bin/notes'])
       within(within(panel).getByRole('region', { name: path }))
         .getAllByTestId('diff-row')
         .forEach((row) => expect(row).not.toHaveAttribute('data-highlighted'));

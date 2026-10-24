@@ -1137,7 +1137,10 @@ Diff rows draw in syntax colour, in the Changes tab and in the Edit card, which 
 from the tool call's `file_path`. `ui/highlight.ts` holds one Shiki highlighter with the
 JavaScript regex engine, so there is no WASM. Shiki's core and each language's grammar are
 separate chunks, fetched when the first diff in that language draws. `languageFor` picks the
-language from the file's path; a file with no known language draws plain. A hunk interleaves two
+language from the file's path. A name with no extension (no dot, or a dotfile) falls back to the
+interpreter its `#!` line names. The Changes tab takes that line from `FileDiff.shebang`, and the
+Rendered view reads it from the text. The Edit card has no first line, so it stays path-only. A
+file with no known language draws plain. A hunk interleaves two
 files, so the old side (context and remove rows) and the new side (context and add rows) are
 highlighted as two texts. A comment or string that spans lines then keeps one colour. The hunk
 is all the highlighter sees, so a hunk that opens inside a comment or a string draws wrong.

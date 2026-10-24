@@ -50,8 +50,13 @@ function sideLines(rows: DiffRowData[]) {
  * Tokens already made come back at once; new ones are made only while
  * `enabled`, which the Changes tab ties to the hunk being near the screen.
  */
-export function useRowTokens(rows: DiffRowData[], path: string, enabled = true): Token[][] | null {
-  const lang = languageFor(path);
+export function useRowTokens(
+  rows: DiffRowData[],
+  path: string,
+  enabled = true,
+  shebang?: string | null,
+): Token[][] | null {
+  const lang = languageFor(path, shebang);
   // The rows' content, not their identity: it is the cache key, and the same
   // text comes back in new rows after a refetch or a remount.
   const key = useMemo(() => {

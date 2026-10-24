@@ -795,12 +795,14 @@ interface DiffHunk {
 function Hunk({
   hunk,
   path,
+  shebang,
   selected,
   handlers,
   after,
 }: {
   hunk: DiffHunk;
   path: string;
+  shebang: string | null;
   selected: [number, number] | null;
   handlers: RowHandlers;
   after: (index: number) => ReactNode;
@@ -812,6 +814,7 @@ function Hunk({
       <div className={styles.hunk}>{hunk.header}</div>
       <HighlightedRows
         path={path}
+        shebang={shebang}
         rows={hunk.rows}
         first={hunk.first}
         selected={selected}
@@ -942,6 +945,7 @@ const FileBlock = memo(function FileBlock({
                   key={h}
                   hunk={hunk}
                   path={path}
+                  shebang={file.shebang}
                   selected={dragged ?? openAt}
                   handlers={handlers}
                   after={after}
