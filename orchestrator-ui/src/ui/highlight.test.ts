@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { highlightLines, languageFor } from './highlight';
+import { GRAMMARS, highlightLines, type Lang, languageFor } from './highlight';
 
 describe('languageFor', () => {
   it('reads the extension in any case', () => {
@@ -15,6 +15,22 @@ describe('languageFor', () => {
     expect(languageFor('assets/logo.xyz')).toBeNull();
     expect(languageFor('LICENSE')).toBeNull();
     expect(languageFor('config/.bash')).toBeNull();
+  });
+
+  it('reads a Swift file, and a C header as C++', () => {
+    expect(languageFor('App/View.swift')).toBe('swift');
+    expect(languageFor('src/main.h')).toBe('cpp');
+  });
+
+  it('takes the last extension, so a Kotlin build script is Kotlin', () => {
+    expect(languageFor('build.gradle.kts')).toBe('kotlin');
+  });
+
+  it('reads any Dockerfile.* and any .env.* by its name', () => {
+    expect(languageFor('Dockerfile.dev')).toBe('docker');
+    expect(languageFor('web.Dockerfile')).toBe('docker');
+    expect(languageFor('.env')).toBe('dotenv');
+    expect(languageFor('.env.local')).toBe('dotenv');
   });
 
   it('gives null for a name an object inherits', () => {
@@ -34,5 +50,10 @@ describe('highlightLines', () => {
     expect(comment).toBe('var(--syntax-token-comment)');
     expect(tokens[2]?.[0]?.color).toBe(comment);
     expect(tokens[3]?.[0]?.color).not.toBe(comment);
+  });
+
+  it.each(Object.keys(GRAMMARS) as Lang[])('loads and compiles the %s grammar', async (lang) => {
+    const tokens = await highlightLines(['x'], lang);
+    expect(tokens.map((line) => line.map((t) => t.content).join(''))).toEqual(['x']);
   });
 });

@@ -7,7 +7,7 @@ export interface Token {
 }
 
 /** Each grammar is its own chunk, fetched the first time a diff in that language draws. */
-const GRAMMARS = {
+export const GRAMMARS = {
   typescript: () => import('shiki/langs/typescript.mjs'),
   tsx: () => import('shiki/langs/tsx.mjs'),
   javascript: () => import('shiki/langs/javascript.mjs'),
@@ -25,6 +25,36 @@ const GRAMMARS = {
   go: () => import('shiki/langs/go.mjs'),
   rust: () => import('shiki/langs/rust.mjs'),
   docker: () => import('shiki/langs/docker.mjs'),
+  swift: () => import('shiki/langs/swift.mjs'),
+  'objective-c': () => import('shiki/langs/objective-c.mjs'),
+  'objective-cpp': () => import('shiki/langs/objective-cpp.mjs'),
+  c: () => import('shiki/langs/c.mjs'),
+  cpp: () => import('shiki/langs/cpp.mjs'),
+  csharp: () => import('shiki/langs/csharp.mjs'),
+  java: () => import('shiki/langs/java.mjs'),
+  kotlin: () => import('shiki/langs/kotlin.mjs'),
+  ruby: () => import('shiki/langs/ruby.mjs'),
+  php: () => import('shiki/langs/php.mjs'),
+  scss: () => import('shiki/langs/scss.mjs'),
+  less: () => import('shiki/langs/less.mjs'),
+  xml: () => import('shiki/langs/xml.mjs'),
+  ini: () => import('shiki/langs/ini.mjs'),
+  dotenv: () => import('shiki/langs/dotenv.mjs'),
+  make: () => import('shiki/langs/make.mjs'),
+  diff: () => import('shiki/langs/diff.mjs'),
+  graphql: () => import('shiki/langs/graphql.mjs'),
+  lua: () => import('shiki/langs/lua.mjs'),
+  vue: () => import('shiki/langs/vue.mjs'),
+  svelte: () => import('shiki/langs/svelte.mjs'),
+  fish: () => import('shiki/langs/fish.mjs'),
+  powershell: () => import('shiki/langs/powershell.mjs'),
+  hcl: () => import('shiki/langs/hcl.mjs'),
+  terraform: () => import('shiki/langs/terraform.mjs'),
+  proto: () => import('shiki/langs/proto.mjs'),
+  jsonc: () => import('shiki/langs/jsonc.mjs'),
+  jsonl: () => import('shiki/langs/jsonl.mjs'),
+  nix: () => import('shiki/langs/nix.mjs'),
+  just: () => import('shiki/langs/just.mjs'),
 };
 
 export type Lang = keyof typeof GRAMMARS;
@@ -53,16 +83,67 @@ const BY_EXTENSION = new Map<string, Lang>([
   ['feature', 'gherkin'],
   ['go', 'go'],
   ['rs', 'rust'],
+  ['dockerfile', 'docker'],
+  ['swift', 'swift'],
+  ['m', 'objective-c'],
+  ['mm', 'objective-cpp'],
+  ['c', 'c'],
+  // C, C++ and Objective-C share `.h`; the C++ grammar colours all three well enough.
+  ['h', 'cpp'],
+  ['cc', 'cpp'],
+  ['cpp', 'cpp'],
+  ['cxx', 'cpp'],
+  ['hh', 'cpp'],
+  ['hpp', 'cpp'],
+  ['hxx', 'cpp'],
+  ['cs', 'csharp'],
+  ['java', 'java'],
+  ['kt', 'kotlin'],
+  ['kts', 'kotlin'],
+  ['rb', 'ruby'],
+  ['php', 'php'],
+  ['scss', 'scss'],
+  ['less', 'less'],
+  ['xml', 'xml'],
+  ['svg', 'xml'],
+  ['plist', 'xml'],
+  ['ini', 'ini'],
+  ['cfg', 'ini'],
+  ['mk', 'make'],
+  ['diff', 'diff'],
+  ['patch', 'diff'],
+  ['graphql', 'graphql'],
+  ['gql', 'graphql'],
+  ['lua', 'lua'],
+  ['vue', 'vue'],
+  ['svelte', 'svelte'],
+  ['fish', 'fish'],
+  ['ps1', 'powershell'],
+  ['hcl', 'hcl'],
+  ['tf', 'terraform'],
+  ['proto', 'proto'],
+  ['jsonc', 'jsonc'],
+  ['jsonl', 'jsonl'],
+  ['nix', 'nix'],
 ]);
 /** Files named in full, which win over their extension. */
-const BY_NAME = new Map<string, Lang>([['Dockerfile', 'docker']]);
+const BY_NAME = new Map<string, Lang>([
+  ['Dockerfile', 'docker'],
+  ['Gemfile', 'ruby'],
+  ['Rakefile', 'ruby'],
+  ['Makefile', 'make'],
+  ['justfile', 'just'],
+  ['.env', 'dotenv'],
+]);
 
 /** The language a file's path names, or null when there is none to highlight. */
 export function languageFor(path: string): Lang | null {
   const name = path.slice(path.lastIndexOf('/') + 1);
   const named = BY_NAME.get(name);
   if (named) return named;
-  // A dotfile such as `.env` has a name and no extension.
+  if (name.startsWith('Dockerfile.')) return 'docker';
+  if (name.startsWith('.env.')) return 'dotenv';
+  // A dotfile such as `.bashrc` has a name and no extension.
   const dot = name.lastIndexOf('.');
   if (dot <= 0) return null;
   return BY_EXTENSION.get(name.slice(dot + 1).toLowerCase()) ?? null;
