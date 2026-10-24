@@ -33,6 +33,29 @@ describe('languageFor', () => {
     expect(languageFor('.env.local')).toBe('dotenv');
   });
 
+  it('reads the interpreter from a shebang when the path names no language', () => {
+    expect(languageFor('bin/lint', '#!/usr/bin/env bash')).toBe('bash');
+    expect(languageFor('bin/lint', '#!/bin/sh')).toBe('bash');
+    expect(languageFor('bin/lint', '#!/usr/bin/env -S zsh -e')).toBe('bash');
+    expect(languageFor('bin/lint', '#!/usr/bin/env python3')).toBe('python');
+    expect(languageFor('bin/lint', '#! /usr/bin/python3.12')).toBe('python');
+    expect(languageFor('bin/serve', '#!/usr/bin/env node')).toBe('javascript');
+    expect(languageFor('bin/serve', '#!/usr/bin/env FOO=1 ruby')).toBe('ruby');
+    expect(languageFor('.bashrc', '#!/bin/bash')).toBe('bash');
+  });
+
+  it('takes the extension over the shebang, even an unknown one', () => {
+    expect(languageFor('bin/lint.py', '#!/bin/sh')).toBe('python');
+    expect(languageFor('bin/deploy.local', '#!/bin/sh')).toBeNull();
+  });
+
+  it('gives null for a line that is no shebang, or an unknown interpreter', () => {
+    expect(languageFor('bin/lint', 'echo hi')).toBeNull();
+    expect(languageFor('bin/lint', '#!/usr/bin/env perl')).toBeNull();
+    expect(languageFor('bin/lint', '#!/usr/bin/env')).toBeNull();
+    expect(languageFor('bin/lint', null)).toBeNull();
+  });
+
   it('gives null for a name an object inherits', () => {
     expect(languageFor('constructor')).toBeNull();
     expect(languageFor('a.toString')).toBeNull();
