@@ -135,9 +135,31 @@ const BY_NAME = new Map<string, Lang>([
   ['justfile', 'just'],
   ['.env', 'dotenv'],
 ]);
+/** The interpreter a `#!` line names, without its version suffix. */
+const BY_INTERPRETER = new Map<string, Lang>([
+  ['sh', 'bash'],
+  ['bash', 'bash'],
+  ['zsh', 'bash'],
+  ['dash', 'bash'],
+  ['ksh', 'bash'],
+  ['fish', 'fish'],
+  ['python', 'python'],
+  ['node', 'javascript'],
+  ['deno', 'typescript'],
+  ['bun', 'typescript'],
+  ['tsx', 'typescript'],
+  ['ts-node', 'typescript'],
+  ['ruby', 'ruby'],
+  ['php', 'php'],
+  ['lua', 'lua'],
+  ['pwsh', 'powershell'],
+]);
 
-/** The language a file's path names, or null when there is none to highlight. */
-export function languageFor(path: string): Lang | null {
+/**
+ * The language a file's path names, or null when there is none to highlight.
+ * A name with no extension falls back to the interpreter its `#!` line names.
+ */
+export function languageFor(path: string, shebang?: string | null): Lang | null {
   const name = path.slice(path.lastIndexOf('/') + 1);
   const named = BY_NAME.get(name);
   if (named) return named;
@@ -145,8 +167,22 @@ export function languageFor(path: string): Lang | null {
   if (name.startsWith('.env.')) return 'dotenv';
   // A dotfile such as `.bashrc` has a name and no extension.
   const dot = name.lastIndexOf('.');
-  if (dot <= 0) return null;
-  return BY_EXTENSION.get(name.slice(dot + 1).toLowerCase()) ?? null;
+  if (dot > 0) return BY_EXTENSION.get(name.slice(dot + 1).toLowerCase()) ?? null;
+  return shebang ? interpreterLanguage(shebang) : null;
+}
+
+/** `#!/bin/sh`, `#!/usr/bin/env python3` and `#!/usr/bin/env -S zsh -e` name sh, python3 and zsh. */
+function interpreterLanguage(shebang: string): Lang | null {
+  if (!shebang.startsWith('#!')) return null;
+  let words = shebang.slice(2).trim().split(/\s+/);
+  let program = words[0]?.slice(words[0].lastIndexOf('/') + 1);
+  if (program === 'env') {
+    // Skip env's flags and its NAME=value settings.
+    words = words.slice(1).filter((word) => !word.startsWith('-') && !word.includes('='));
+    program = words[0];
+  }
+  if (!program) return null;
+  return BY_INTERPRETER.get(program.replace(/[\d.]+$/, '')) ?? null;
 }
 
 let highlighter: Promise<HighlighterCore> | null = null;
