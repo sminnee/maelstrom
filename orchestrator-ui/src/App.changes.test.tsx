@@ -40,6 +40,7 @@ const file = (path: string, text: string, over: Partial<FileDiff> = {}): FileDif
   additions: 1,
   deletions: 1,
   truncated: false,
+  shebang: null,
   hunks: [
     {
       header: '@@ -4,2 +4,2 @@',

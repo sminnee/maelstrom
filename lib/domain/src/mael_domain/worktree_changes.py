@@ -61,6 +61,9 @@ _GIT_OPTIONS = ["--no-optional-locks", "-c", "core.quotepath=off"]
 #: one git per file all together.
 _UNTRACKED_DIFFS_AT_ONCE = 4
 
+#: Scripts whose first line is read at once, for the same reason.
+_SHEBANG_READS_AT_ONCE = 4
+
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _FILES_CHANGED = re.compile(r"(\d+) files? changed")
 _FIELD = "\x1f"
@@ -117,15 +120,40 @@ async def list_changes(path: Path) -> WorktreeChanges:
 
 async def read_diff(path: Path, rev: str) -> list[FileDiff]:
     """The diff ``rev`` names, file by file. Raises :class:`UnknownRev`."""
-    if rev == UNCOMMITTED:
-        return await _uncommitted_diff(path)
-    _, merge_base = await _merge_base(path)
-    if rev == BRANCH:
-        return await _diff(path, [merge_base, "HEAD"]) if merge_base else []
-    commits = await _commits(path, merge_base) if merge_base else []
-    if not any(c["sha"] == rev for c in commits):
-        raise UnknownRev(rev)
-    return await _diff(path, [f"{rev}^", rev])
+    refs = await _refs(path, rev)
+    if refs.new is None:
+        files = await _uncommitted_diff(path)
+    else:
+        files = await _diff(path, [refs.old, refs.new])
+    await _read_shebangs(path, refs, files)
+    return files
+
+
+async def _read_shebangs(path: Path, refs: "_Refs", files: list[FileDiff]) -> None:
+    """Set ``shebang`` on each text file whose name has no extension."""
+    scripts = [f for f in files if not f["binary"] and _has_no_extension(f["path"])]
+    limit = asyncio.Semaphore(_SHEBANG_READS_AT_ONCE)
+
+    async def read(file: FileDiff) -> None:
+        async with limit:
+            if file["status"] == "deleted":
+                side = await _blob(path, f"{refs.old}:{file['path']}")
+            elif refs.new is None:
+                side = await asyncio.to_thread(_worktree_file, path, file["path"])
+            else:
+                side = await _blob(path, f"{refs.new}:{file['path']}")
+        first = (side.text or "").partition("\n")[0]
+        if first.startswith("#!"):
+            file["shebang"] = first
+
+    async with asyncio.TaskGroup() as group:
+        for file in scripts:
+            group.create_task(read(file))
+
+
+def _has_no_extension(file: str) -> bool:
+    """A name with no dot, or a dotfile such as ``.bashrc``: when the UI reads the shebang."""
+    return PurePosixPath(file).name.rfind(".") <= 0
 
 
 async def read_file_versions(
@@ -468,6 +496,7 @@ def _new_file(paths: str) -> FileDiff:
         "additions": 0,
         "deletions": 0,
         "truncated": False,
+        "shebang": None,
         "hunks": [],
     }
 

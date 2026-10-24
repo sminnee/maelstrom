@@ -1441,6 +1441,10 @@ A file keeps its first 5,000 lines. A longer file is marked `truncated: true`, a
 `additions` and `deletions` still count every line. A binary file is marked `binary: true` and
 has no hunks.
 
+A text file whose name has no extension (no dot, or a dotfile such as `.bashrc`) carries
+`shebang`: its first line when that line starts with `#!`, else `null`. A script names its language there, and a hunk deep in the file does not hold line
+1. The new side is read, or the old side for a deleted file. Every other file has `null`.
+
 The file route reads one file whole, so the **Rendered view** can draw more than a hunk's
 context. Each rev names an old side and a new side:
 

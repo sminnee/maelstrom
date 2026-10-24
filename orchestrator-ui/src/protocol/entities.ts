@@ -193,6 +193,8 @@ export interface FileDiff {
   deletions: number;
   /** The file passed the line cap, so `hunks` holds its first lines only. */
   truncated: boolean;
+  /** The file's `#!` line, read only for a name with no extension, else `null`. */
+  shebang: string | null;
   hunks: DiffHunk[];
 }
 
