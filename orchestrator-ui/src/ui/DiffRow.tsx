@@ -108,9 +108,11 @@ export function HighlightedRows({
   handlers,
   after,
   highlight = true,
+  shebang,
 }: {
   rows: DiffRowData[];
   path: string;
+  shebang?: string | null;
   /** False holds back the tokeniser; tokens it made already still show. */
   highlight?: boolean;
   first?: number;
@@ -119,7 +121,7 @@ export function HighlightedRows({
   handlers?: RowHandlers;
   after?: (index: number) => ReactNode;
 }) {
-  const tokens = useRowTokens(rows, path, highlight);
+  const tokens = useRowTokens(rows, path, highlight, shebang);
   return rows.map((row, i) => {
     const index = first + i;
     return (
