@@ -833,6 +833,18 @@ review, a question, a permission, a document review. A checkpoint is where a hum
 gate is automated.
 _Avoid_: Gate, approval step
 
+**Security requirements**:
+A project's `docs/security/requirements.md`: its assets, roles, authentication, trust
+boundaries, ranked top risks, and accepted risks. `/security-test` writes it with the user, and
+ranks its triage by the top risks.
+_Avoid_: threat model (the `claude-security` plugin's in-memory model), security policy
+
+**DAST scope**:
+A project's `docs/security/dast-scope.md`: the rules of engagement for a dynamic application
+security test (DAST). It names the target services, the test account of each role, and the paths
+that must not be scanned actively. The target is always the worktree's own dev environment.
+_Avoid_: scan config (the ZAP plan is generated from it)
+
 **Owning suite**:
 The one test suite that tests a contract in full: the suite of the package that holds the rule.
 `docs/dev/testing.md` lists which suite owns which contract.
