@@ -179,6 +179,77 @@ describe('trackVisualViewport', () => {
     expect(vvh(root)).toBe('508px');
   });
 
+  describe('page scroll', () => {
+    const scrollTo = () => vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const scrollY = (y: number) =>
+      Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      scrollY(0);
+    });
+
+    it('goes back to 0 when the field loses the focus', () => {
+      const notes = field();
+      const { viewport } = track(notes);
+      const spy = scrollTo();
+      viewport.offsetTop = 120;
+
+      notes.blur();
+      nextFrame();
+      expect(spy).toHaveBeenCalledWith(0, 0);
+    });
+
+    it('goes back to 0 when iOS scrolls the page late, with no viewport event', () => {
+      track();
+      const spy = scrollTo();
+
+      scrollY(80);
+      window.dispatchEvent(new Event('scroll'));
+      nextFrame();
+      expect(spy).toHaveBeenCalledWith(0, 0);
+    });
+
+    it('stays while a field has the focus, as iOS pans to reach the field', () => {
+      const { viewport } = editing();
+      const spy = scrollTo();
+
+      viewport.offsetTop = 120;
+      viewport.dispatchEvent(new Event('scroll'));
+      nextFrame();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('stays while a select has the focus, as iOS pans to show its picker', () => {
+      const { viewport } = track(field('select'));
+      const spy = scrollTo();
+
+      viewport.offsetTop = 120;
+      viewport.dispatchEvent(new Event('scroll'));
+      nextFrame();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('stays while the page is pinch-zoomed, so the zoom stays under the thumb', () => {
+      const { viewport } = track();
+      const spy = scrollTo();
+
+      viewport.scale = 2;
+      viewport.offsetTop = 120;
+      viewport.dispatchEvent(new Event('scroll'));
+      nextFrame();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('is not reset while the page is not scrolled', () => {
+      const { viewport } = track();
+      const spy = scrollTo();
+
+      resize(viewport, 844);
+      nextFrame();
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
   it('leaves it unset with no visual viewport, so the CSS fallback applies', () => {
     const root = document.createElement('div');
     trackVisualViewport(root, null);
