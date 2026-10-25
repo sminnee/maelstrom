@@ -285,6 +285,9 @@ release while that section is empty, and retitles it to the version it is releas
   detail. The browser's Back still goes through the nodes.
 - **A side sheet closes on a phone.** Every side sheet has a Close button. A tap on the
   backdrop closes a dialog on iOS Safari.
+- **Taps work after the keyboard closes on a phone.** In home-screen-app mode, iOS could leave
+  the page scrolled after the keyboard closed, and taps then missed Close and other buttons
+  until the app restarted. The page scroll now goes back to 0 when no field has the focus.
 - **A half-answered question survives a tab switch.** The question prompt holds the chosen
   options, the Other text and the step, also across a reload. Answer, Decline and Decline &
   stop clear it once they succeed.

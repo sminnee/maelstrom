@@ -12,6 +12,10 @@
  * on the blur. The check waits for the frame, so a focus move between fields
  * keeps them.
  *
+ * While no field and no select has the focus, it also scrolls the page back
+ * to 0, except while the page is zoomed, as a zoom pans the visual viewport.
+ * A select is skipped, as iOS pans to show its picker.
+ *
  * Writes wait for the next frame, so a burst of events writes once. iOS reports
  * a height of 0 for a moment while the keyboard moves, and that is skipped.
  *
@@ -27,10 +31,18 @@ export function trackVisualViewport(
 ): () => void {
   if (!viewport) return () => {};
   const doc = root.ownerDocument;
+  const win = doc.defaultView;
   const write = () => {
     if (!isEditing(doc.activeElement)) {
       root.style.removeProperty('--vvh');
       root.style.removeProperty('--vvt');
+      if (
+        win &&
+        !(doc.activeElement instanceof HTMLSelectElement) &&
+        viewport.scale === 1 &&
+        (viewport.offsetTop !== 0 || win.scrollY !== 0)
+      )
+        win.scrollTo(0, 0);
       return;
     }
     if (viewport.scale !== 1 || viewport.height <= 0) return;
@@ -50,6 +62,7 @@ export function trackVisualViewport(
   write();
   viewport.addEventListener('resize', schedule);
   viewport.addEventListener('scroll', schedule);
+  win?.addEventListener('scroll', schedule);
   doc.addEventListener('focusin', schedule);
   doc.addEventListener('focusout', schedule);
   return () => {
@@ -57,6 +70,7 @@ export function trackVisualViewport(
     doc.removeEventListener('focusout', schedule);
     viewport.removeEventListener('resize', schedule);
     viewport.removeEventListener('scroll', schedule);
+    win?.removeEventListener('scroll', schedule);
     if (frame) cancelAnimationFrame(frame);
   };
 }

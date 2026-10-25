@@ -570,8 +570,11 @@ does not hold the brand, so the brand is hidden visually and kept for a screen r
 `--vvt`, once a frame at most, while a field has the focus. While no field has the focus, it
 clears them, and the CSS falls back to `100dvh` and `0px`. The keyboard is open only while a
 field has the focus. So the app returns to the full height when the keyboard closes, even when
-iOS sends no last viewport event. `#root` is fixed at `--vvt` and `--vvh`, so a soft keyboard
-shrinks the app from the bottom and the app ends on the keyboard. It is not fixed to
+iOS sends no last viewport event. While no field has the focus, the page scroll also goes back
+to 0. iOS can leave the page scrolled after the keyboard closes. WebKit then hit-tests at the
+scrolled offset, so taps miss the drawn controls. The reset skips a focused select, as iOS pans
+to show its picker. `#root` is fixed at `--vvt` and `--vvh`, so a soft keyboard shrinks the app
+from the bottom and the app ends on the keyboard. It is not fixed to
 `bottom: 0`: on iOS the keyboard shrinks the visual viewport, not the layout viewport, so the
 bottom of the layout viewport is behind the keyboard. `html` and `body` take the same height, so
 iOS has no document to scroll toward a field. A modal dialog is outside `#root`, so it anchors to
