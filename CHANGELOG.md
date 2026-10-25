@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`/security-test` tests a running app for security.** It agrees the project's security
+  requirements with you, then scans the worktree's own dev environment with OWASP ZAP in Docker,
+  and triages the alerts. It refuses any other target. It works with the `security-guidance` and
+  `claude-security` plugins: see "Testing a running app for security" in
+  `docs/guide/planning.md`.
+
 - **The orchestrator tells an agent when its gate job ends.** One `tangier gate status --watch`
   process replaces the 5-second gate poll, and runs whether or not a browser is open. When a gate
   job ends, each live agent in its worktree gets a `gate.passed`, `gate.failed` or

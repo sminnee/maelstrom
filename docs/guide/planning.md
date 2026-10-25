@@ -340,6 +340,54 @@ consequence × breadth. As with the audit, it stops at the report checkpoint. Yo
 defer or reject for each row. The skill then drafts one task for each row you chose to fix, as a
 planning session does, and promotes them when you approve.
 
+## Testing a running app for security
+
+`/security-test` is a fourth way into a chain. It is a dynamic application security test
+(DAST): it scans the running app with OWASP ZAP, the Zed Attack Proxy, in Docker. The hygiene
+audit reads the project. This skill attacks the app.
+
+```bash
+mael task add "Security test: forecastel" --mode normal --run
+```
+
+The skill writes documents and a ZAP plan as it works, so launch it with `--mode normal`: plan
+mode would block those writes. Then run `/security-test` in that session. The skill has two
+checkpoints:
+
+1. **Requirements.** The skill reads the code and interviews you, one question at a time. Each
+   question comes with a proposed answer from the code. You approve the documents it writes.
+2. **Triage.** The skill runs ZAP and reproduces each serious alert with `curl`. You choose fix,
+   accept, or false positive for each row of its review. Each fix becomes a task.
+
+It writes these files in the project:
+
+| Path | Committed | Content |
+|---|---|---|
+| `docs/security/requirements.md` | yes | the **security requirements** |
+| `docs/security/dast-scope.md` | yes | the **DAST scope** |
+| `.claude/claude-security-guidance.md` | yes | a summary of the requirements, between `security-test` markers |
+| `security/zap/plan.yaml` | yes | the ZAP Automation Framework plan, with the accepted false positives |
+| `security-reports/zap-<ts>/` | no | the HTML, SARIF, and JSON reports |
+
+**The skill only scans the worktree's own dev environment.** A guard script compares the target
+host and port with the worktree `.env`, and refuses every other target. An active scan sends
+attacks, and a shared or production host is not yours to attack.
+
+The skill works with two plugins from `claude-plugins-official`. Install them once, user-wide:
+
+```
+/plugin install security-guidance@claude-plugins-official
+/plugin install claude-security@claude-plugins-official
+/reload-plugins
+```
+
+- **`security-guidance`** reviews each diff. It reads `.claude/claude-security-guidance.md`, so
+  it reviews against the project's own top risks. Set `ENABLE_STOP_REVIEW=0` when several
+  agents share one worktree: another agent can move `HEAD` between the turns of a worker.
+- **`claude-security`** scans the code statically. `/security-test` reads its newest report,
+  when the report is for the current commit. It sends requests to the HTTP entry points of the
+  static findings, and the triage marks each finding that the running app confirms.
+
 ## Linear stays a mirror
 
 The plan of record lives in the notebook chain, not in a Linear description. The planning
