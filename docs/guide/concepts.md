@@ -142,6 +142,14 @@ Agents are told to consult the wiki before they solve a cross-project problem, a
 correct the page they used if it turns out to be wrong. See
 [cli.md](../reference/cli.md) for the commands.
 
+### Reports
+
+A report keeps the output of one scan, such as a Claude Security or ZAP SARIF file, in the
+task notebook. `mael report import` copies it in as one commit. `mael report show` lists its
+findings and the tasks that name each one. A task names a finding with `--ref REPORT#F3`, which
+stores the finding's key: the key stays the same in the next scan. See
+[cli.md](../reference/cli.md#reports) for the commands.
+
 ### The orchestrator UI and server
 
 `orchestrator-ui/` holds a web app that shows every agent as a node on one canvas, with edges for

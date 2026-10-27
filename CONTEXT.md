@@ -610,7 +610,7 @@ _Avoid_: Orphan session, lingering session, post-done
 
 **Reconcile**:
 Reading every in-progress task against the sessions running now, and reporting each drift with
-the status that would correct it. `mael task reconcile` lists the findings; `--fix` applies
+the status that would correct it. `mael task reconcile` lists the drifts; `--fix` applies
 them. Reconcile never guesses at a terminal task: a done task with a session still up is
 reported, not moved.
 _Avoid_: Repair, sync, heal
@@ -1630,6 +1630,39 @@ The directory that groups one piece of work's attachments. A task uses its noteb
 Linear issue its identifier, an agent tied to no task `agent-<id>`, and a task that does not
 exist yet `draft-<random>`.
 _Avoid_: Folder, group, album
+
+**Report**:
+The output of one scan, kept whole in the task notebook. A report is a directory,
+`<project>/reports/<YYYY-MM-DD>-<tool>[-<n>]/`, that holds the files as the tool wrote them. A
+`*.sarif` or `*.sarif.json` file makes it a SARIF report, the only kind maelstrom reads now.
+- A report holds no table of its findings. Maelstrom reads them from the SARIF file each time.
+_Avoid_: Scan, audit, results
+
+**Finding**:
+One result in a SARIF report. Its label is its name inside one report: the Claude Security id
+(`F1`, `F2`, …), or else `F<position>`. A label can change in the next report.
+_Avoid_: Alert, issue, vulnerability, result
+
+**Finding key**:
+The name of a **Finding** that stays the same across reports. It is the Claude Security finding
+id (`v3:<sha256>`), or else the first SARIF fingerprint. A finding with neither, such as a ZAP
+alert, gets a hash of the tool, the rule and the location.
+- A URL location drops its scheme, host and port, because each worktree serves on its own port.
+- A line number is never part of the key. An edit above the finding moves it.
+- Two findings in one report with the same hash, such as one ZAP rule on two parameters of one
+  URL, are told apart by a `-2`, `-3`, … suffix in SARIF order.
+_Avoid_: Fingerprint, finding id
+
+**Reference**:
+The name of a thing a task is about, kept in the task's `references` field. A reference to a
+finding is `<SARIF file path>#<finding key>`, such as
+`reports/2026-10-27-claude-security/CLAUDE-SECURITY-RESULTS.sarif#v3:21b3…`. The path is relative
+to the project's notebook directory.
+- `mael task add --ref REPORT#F3` stores the finding key, not the label. The key stays the
+  same in the next report, so a later report can match the reference by key.
+- The CLI accepts only finding references now: `--ref` refuses a value that names no finding.
+- A child task does not get its parent task's references. A reference names what one task does.
+_Avoid_: Link, citation
 
 ## Code layout
 

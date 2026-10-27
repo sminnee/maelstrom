@@ -202,6 +202,8 @@ TASK_FIELDS = (
     # Set while the agent does more work after the push. See CONTEXT.md,
     # "Withdrawn PR".
     _FieldSpec("pr-withdrawn"),
+    # The findings the task names. See CONTEXT.md, "Reference".
+    _FieldSpec("references"),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -296,6 +298,8 @@ class Task:
     trigger: str = ""
     # The ids of the comms this task feeds, such as ``c3``. See CONTEXT.md.
     comms: list[str] = field(default_factory=list)
+    # The findings this task names. See CONTEXT.md, "Reference".
+    references: list[str] = field(default_factory=list)
     content: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
@@ -315,7 +319,7 @@ class Task:
             if k == "pr-withdrawn":
                 if self.pr_withdrawn:
                     lines.append(f"{k}: true")
-            elif k in ("follows", "comms"):
+            elif k in ("follows", "comms", "references"):
                 lines.append(f"{k}: {_dump_follows(getattr(self, k))}")
             else:
                 attr = _FRONTMATTER_ATTR.get(k, k)
@@ -363,6 +367,7 @@ class Task:
             pr_withdrawn=frontmatter.get("pr-withdrawn") is True,
             trigger=str(frontmatter.get("trigger", "")),
             comms=_coerce_follows(frontmatter.get("comms")),
+            references=_coerce_follows(frontmatter.get("references")),
             content=sections.get("content", ""),
             log=sections.get("log", ""),
             status=status,
@@ -690,6 +695,7 @@ async def create(
     trigger: str = "",
     priority: str = "",
     comms: list[str] | None = None,
+    references: list[str] | None = None,
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
@@ -709,7 +715,8 @@ async def create(
     folder other than ``todo/`` (e.g. ``template/`` for a parked template).
 
     ``comms`` set to ``None`` inherits the parent task's comms, as the branch
-    is inherited. An explicit list wins, and ``[]`` opts out.
+    is inherited. An explicit list wins, and ``[]`` opts out. ``references``
+    is never inherited.
 
     ``generate_branch=False`` skips the generator and takes the cheap
     ``task/<id>`` shape, for a caller that names the branch itself later.
@@ -765,6 +772,7 @@ async def create(
             if comms is not None
             else await _parent_comms(table, project, parent)
         ),
+        references=list(references or []),
         content=content,
         status=status,
     )
@@ -793,6 +801,7 @@ async def duplicate(
     trigger: str = "",
     priority: str | None = None,
     comms: list[str] | None = None,
+    references: list[str] | None = None,
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
@@ -810,7 +819,7 @@ async def duplicate(
 
     ``comms`` set to ``None`` takes the parent task's comms when there is a
     parent, and the source's comms when there is none — so a scheduled run
-    feeds the comms its template feeds.
+    feeds the comms its template feeds. ``references`` is never copied.
 
     ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
     duplicate. For a scheduled run pass ``parent=""`` and
@@ -841,6 +850,7 @@ async def duplicate(
         trigger=trigger,
         priority=priority if priority is not None else src.priority,
         comms=comms if comms is not None or parent else list(src.comms),
+        references=references,
         status=status,
         id=id,
         now=now,
@@ -1344,6 +1354,7 @@ async def update(
     priority: str | None = None,
     follows: list[str] | None = None,
     comms: list[str] | None = None,
+    references: list[str] | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -1386,6 +1397,8 @@ async def update(
         task.follows = follows
     if comms is not None:
         task.comms = comms
+    if references is not None:
+        task.references = references
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
