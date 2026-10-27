@@ -91,6 +91,7 @@ from .integrations.uptimerobot_cli import uptimerobot_group
 from .json_flag import wants_json
 from .orchestrator_client import OrchestratorClient, tell_pr_changed
 from .project_cli import project as project_cli
+from .report_cli import report as report_cli
 from .schedule_cli import schedule_group
 from .session_cli import session as session_cli
 from .table_cli import draw_table
@@ -1753,6 +1754,7 @@ cli.add_command(task_cli)
 cli.add_command(wiki_cli)
 cli.add_command(schedule_group)
 cli.add_command(project_cli)
+cli.add_command(report_cli)
 cli.add_command(cmd_admin)
 cli.add_command(cmd_install)
 cli.add_command(cmd_self_update)

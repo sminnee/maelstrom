@@ -6,6 +6,8 @@ the desk, and the canvas shows a chain an agent creates at once.
 """
 
 import asyncio
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -13,7 +15,9 @@ from served_orchestrator import PROJECT, mael_task, point_config_at, seed
 
 from mael_cli.orchestrator_client import OrchestratorClient
 from mael_cli.task_cli import task
+from mael_domain import reports
 from mael_domain import task as model
+from mael_domain.task_store import GitFileStore
 from mael_orchestrator.sources import InMemoryWorktreeSource
 from mael_orchestrator.world_build import project_entity
 
@@ -165,6 +169,23 @@ def test_add_links_the_comm_it_names(start_server):
 
     assert result.exit_code == 0, result.output
     assert stored(served.table, result.output.strip()).comms == [comm["id"]]
+
+
+def test_add_names_a_finding_by_its_key(start_server, tmp_path):
+    served = serve(start_server)
+    fixture = Path(__file__).parents[1] / "lib/domain/fixtures/reports/claude-security"
+    report = reports.import_report(
+        GitFileStore(), PROJECT, fixture, now=datetime.now(UTC)
+    )
+
+    result = mael_task(
+        "add", "Fix it", "-p", PROJECT, "-b", "feat/a", "--ref", f"{report}#F2"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert stored(served.table, result.output.strip()).references == [
+        f"{report}/CLAUDE-SECURITY-RESULTS.sarif#v3:" + "2" * 64
+    ]
 
 
 def test_add_with_a_comm_that_is_not_there_writes_nothing(start_server):
