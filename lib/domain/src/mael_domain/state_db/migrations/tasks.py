@@ -118,4 +118,7 @@ TASKS: tuple[Rung, ...] = (
     Migration(
         ("ALTER TABLE tasks ADD COLUMN pr_withdrawn INTEGER NOT NULL DEFAULT 0",)
     ),
+    # The findings a task names: a JSON list. ``references`` is an SQL keyword,
+    # so the column is ``refs``. See CONTEXT.md, "Reference".
+    Migration(("ALTER TABLE tasks ADD COLUMN refs TEXT NOT NULL DEFAULT '[]'",)),
 )

@@ -45,6 +45,7 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         pr_url="https://github.com/o/r/pull/118",
         pr_withdrawn=True,
         comms=["c3", "c7"],
+        references=["reports/2026-10-27-zap/zap.sarif#ab12"],
         content="The prose the row carries.",
         log="- started",
         status="todo",

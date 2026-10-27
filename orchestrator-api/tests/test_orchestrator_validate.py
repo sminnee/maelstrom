@@ -689,6 +689,20 @@ def test_a_load_many_needs_a_known_project_and_text(cmd, expected):
     assert (code(error) if error else None) == expected
 
 
+@pytest.mark.parametrize("references", ["reports/r/x.sarif#k", [1]])
+def test_invalid_for_references_that_are_not_a_list_of_strings(references):
+    # A string would be stored as a list of its characters.
+    world = world_with(projects=[PROJECT], tasks=[make_task()])
+    create = _create(references=references)
+    update = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"references": references},
+    }
+    assert code(validate_command(world, create)) == "invalid"
+    assert code(validate_command(world, update)) == "invalid"
+
+
 def test_a_create_may_leave_the_optional_fields_out():
     world = world_with(projects=[PROJECT])
     cmd = {"type": "task.create", "project": "northwind", "title": "Add order export"}
