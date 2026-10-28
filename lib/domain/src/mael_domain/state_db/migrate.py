@@ -62,6 +62,10 @@ TABLES: dict[str, TableSpec] = {
     # The server seeds the world from these rows at start and upserts the
     # document itself when it attaches one, so a write is not news for a client.
     "task_attachments": TableSpec("task_attachments", notifies=False),
+    # A Task document's versions and links. As for the document row, no
+    # client draws them, so a write is not news.
+    "task_attachment_versions": TableSpec("task_attachment_versions", notifies=False),
+    "task_attachment_links": TableSpec("task_attachment_links", notifies=False),
     # GitHub's data about a pull request, read on the worktree poll. No client
     # draws it, so a write is not news.
     "pull_requests": TableSpec("pull_requests", cached=True, notifies=False),

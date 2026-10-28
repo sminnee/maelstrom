@@ -665,6 +665,39 @@ def _worktree_error(
     return None
 
 
+#: The Task document writes. Each names a task by its wire id in ``taskId``,
+#: except ``archive``, which names one in ``by`` when it names one at all.
+TASK_DOCUMENT_COMMANDS = (
+    "taskDocument.add",
+    "taskDocument.link",
+    "taskDocument.unlink",
+    "taskDocument.archive",
+)
+
+
+def _check_task_document(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
+    """The shape check of a Task document write. The rules are the model's."""
+    kind = cmd["type"]
+    task_field = "by" if kind == "taskDocument.archive" else "taskId"
+    task_id = cmd.get(task_field)
+    if task_id is not None or task_field == "taskId":
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+    if kind == "taskDocument.add":
+        for field in ("name", "body"):
+            if not isinstance(cmd.get(field), str):
+                return _err("invalid", f"{field} is a string")
+        for field in ("title", "kind"):
+            if not isinstance(cmd.get(field, ""), str):
+                return _err("invalid", f"{field} is a string")
+        return None
+    if not isinstance(cmd.get("ref"), str):
+        return _err("invalid", "ref is a document reference")
+    if kind == "taskDocument.archive" and not isinstance(cmd.get("archived"), bool):
+        return _err("invalid", "archived is true or false")
+    return None
+
+
 def validate_command(
     world: World, cmd: dict[str, Any], *, wait_kind: str | None = None
 ) -> dict[str, str] | None:
@@ -866,6 +899,9 @@ def validate_command(
         if follows is not None:
             return _check_follows(world, task_id, follows)
         return None
+
+    if kind in TASK_DOCUMENT_COMMANDS:
+        return _check_task_document(world, cmd)
 
     if kind == "comm.create":
         if not str(cmd.get("title", "")).strip():

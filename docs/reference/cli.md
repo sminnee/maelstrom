@@ -1153,6 +1153,61 @@ overrides. Passing an explicit empty value, e.g. `--post-action ''`, clears the 
 
 ---
 
+## Documents
+
+A **Task document** is a file one task owns, with every version kept. Other tasks link it, or one
+**Fragment** of it. A reference names a document as `<project>:<task-id>:<name>`, with an
+optional `@v<n>` and `#<fragment>`. A reference may leave out the project, which is then the
+current directory's, and the task id, which is then `$MAEL_TASK_ID`. These commands go through
+the orchestrator server.
+
+| Command | Description |
+|---|---|
+| `mael doc add PATH` | Add the file as the next version of a document of the task, and print its reference with `@v<n>`. The same text and title again add no version. A document keeps its kind, and the name `plan` is refused: only an approved plan writes it. |
+| `mael doc list [TASK]` | Print the documents the task owns, then those it links. |
+| `mael doc show REF` | Print a document: its versions, a SARIF document's findings with their keys, and the tasks that link it, by fragment. |
+| `mael doc link REF [TASK]` | Link the task to the document, or to the fragment `REF` names. The fragment must be in the latest version. A link names no version, so `@v<n>` is refused. A task cannot link a document it owns. |
+| `mael doc unlink REF [TASK]` | Remove that link. |
+| `mael doc archive REF` | Archive the document. Inside a task session, only the owning task may: the session's task goes as the asking task. |
+| `mael doc unarchive REF` | Unarchive the document, with the same rule. |
+
+`TASK` defaults to `$MAEL_TASK_ID`. Every command takes `-p, --project`, which defaults to the
+current directory's project.
+
+```bash
+mael doc add zap.sarif.json                       # prints maelstrom:bivs.1:zap.sarif.json@v1
+mael doc show zap.sarif.json                      # each finding, with its #<finding key>
+mael doc link maelstrom:bivs.1:zap.sarif.json#<finding key> bivs.4
+mael doc show maelstrom:bivs.1:zap.sarif.json@v1 --body
+```
+
+**`mael doc add`**
+
+| Option | Description |
+|---|---|
+| `--name TEXT` | The document name. Default: the path relative to its worktree root, or the file name outside a worktree. A name may hold `/`, but not `:`, `@` or `#`. |
+| `--kind [markdown\|sarif]` | Default: `sarif` for a `.sarif` or `.sarif.json` file, else `markdown`. A SARIF file that does not parse is refused. |
+| `--title TEXT` | Default: a markdown file's first heading, else the name. |
+| `--task TEXT` | The owning task. Default: `$MAEL_TASK_ID`. |
+
+The media a markdown file names are not copied. Only a document an agent shows with a
+**Document tag** stores its media.
+
+Until the UI lists Task documents, a markdown document added here shows on the task card as a
+verification after a server restart.
+
+**`mael doc list`**
+
+| Option | Description |
+|---|---|
+| `--archived` | Show archived documents too. |
+
+**`mael doc show`**
+
+| Option | Description |
+|---|---|
+| `--body` | Print only the body of the selected version. |
+
 ## Comms
 
 A **Comm** is something to tell people outside the team when work lands. These commands let an

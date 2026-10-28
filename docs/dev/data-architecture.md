@@ -122,8 +122,8 @@ an agent had spent at each stage, and no transcript can rebuild it. The **closin
 writes is one of these, so the ledger is whole on disk. It carries no `fetched_at` and
 nothing draws it, so a write to it is not news for a client.
 
-An **Attached document** is canonical too. Its row in `task_attachments` carries the markdown, and no
-source can rebuild it once the worktree that held the file is closed. Its media are files in the
+A **Task document** is canonical too. Its versions in `task_attachment_versions` carry the text, and
+no source can rebuild them once the worktree that held the file is closed. Its media are files in the
 task's **Bucket**, which the notebook's git tree holds.
 
 The `task_steps` table is canonical too. It holds each **Landing** step a task reached, and when

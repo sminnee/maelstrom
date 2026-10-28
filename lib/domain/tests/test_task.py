@@ -869,7 +869,9 @@ class TestSafeId:
         assert model.is_safe_id(good)
 
     @pytest.mark.parametrize(
-        "bad", ["", ".", "..", "a/b", "../x", "a b", "a\tb", "a/../b"]
+        "bad",
+        # `:` `@` `#` delimit a Task document reference: see CONTEXT.md, "Task document".
+        ["", ".", "..", "a/b", "../x", "a b", "a\tb", "a/../b", "a:b", "a@b", "a#b"],
     )
     def test_rejects_unsafe(self, bad):
         assert not model.is_safe_id(bad)

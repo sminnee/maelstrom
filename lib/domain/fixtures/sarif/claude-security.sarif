@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Claude Security Plugin for Claude Code",
+          "organization": "Anthropic",
+          "version": "0.12.0",
+          "rules": [
+            {
+              "id": "CWE-89",
+              "name": "SQLInjection",
+              "shortDescription": {
+                "text": "SQL Injection"
+              },
+              "fullDescription": {
+                "text": "SQL Injection (CWE-89)."
+              },
+              "helpUri": "https://cwe.mitre.org/data/definitions/89.html",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-89"
+                ]
+              }
+            },
+            {
+              "id": "CWE-918",
+              "name": "ServerSideRequestForgerySSRF",
+              "shortDescription": {
+                "text": "Server-Side Request Forgery (SSRF)"
+              },
+              "fullDescription": {
+                "text": "Server-Side Request Forgery (SSRF) (CWE-918)."
+              },
+              "helpUri": "https://cwe.mitre.org/data/definitions/918.html",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-918"
+                ]
+              }
+            },
+            {
+              "id": "CWE-639",
+              "name": "AuthorizationBypassThroughUserControlledKey",
+              "shortDescription": {
+                "text": "Authorization Bypass Through User-Controlled Key"
+              },
+              "fullDescription": {
+                "text": "Authorization Bypass Through User-Controlled Key (CWE-639)."
+              },
+              "helpUri": "https://cwe.mitre.org/data/definitions/639.html",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-639"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "automationDetails": {
+        "id": "claude-security-plugin/scan/app/0000",
+        "guid": "00000000-0000-0000-0000-000000000000"
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true
+        }
+      ],
+      "originalUriBaseIds": {
+        "%SRCROOT%": {
+          "description": {
+            "text": "The top level of the scanned repository."
+          }
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CWE-89",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "Search column interpolated into the SELECT list.\n\nHow Search column interpolated into the SELECT list happens.\n\nImpact: Impact of Search column interpolated into the SELECT list."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/tools/search.py",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 149,
+                  "snippet": {
+                    "text": "    f\"SELECT {columns}\""
+                  }
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "SearchTool.call",
+                  "fullyQualifiedName": "SearchTool.call"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "claudeSecurityPlugin": {
+              "id": "F1",
+              "title": "Search column interpolated into the SELECT list",
+              "impact": "Impact of Search column interpolated into the SELECT list.",
+              "file": "app/tools/search.py",
+              "line": 149,
+              "description": "How Search column interpolated into the SELECT list happens.",
+              "exploit_scenario": "An attacker exploits Search column interpolated into the SELECT list.",
+              "preconditions": [
+                "The route is reachable",
+                "The caller is signed in"
+              ],
+              "category": "SQL Injection",
+              "severity": "HIGH",
+              "confidence": "high",
+              "recommendation": "Fix Search column interpolated into the SELECT list.",
+              "cwe_id": "CWE-89",
+              "snippet": "    f\"SELECT {columns}\"",
+              "symbol": "SearchTool.call",
+              "declared_line": 149,
+              "via_change": null,
+              "other_cwe_ids": [],
+              "claudeSecurityPluginFindingId": "v3:1111111111111111111111111111111111111111111111111111111111111111",
+              "verification": {
+                "panel": {
+                  "true": 3,
+                  "false": 0,
+                  "voters": 3
+                }
+              }
+            }
+          }
+        },
+        {
+          "ruleId": "CWE-918",
+          "ruleIndex": 1,
+          "level": "warning",
+          "message": {
+            "text": "Download follows a caller-supplied URL.\n\nHow Download follows a caller-supplied URL happens.\n\nImpact: Impact of Download follows a caller-supplied URL."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/tools/fetch.py",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 183,
+                  "snippet": {
+                    "text": "    resp = client.get(url)"
+                  }
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "FetchTool.download",
+                  "fullyQualifiedName": "FetchTool.download"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "claudeSecurityPlugin": {
+              "id": "F2",
+              "title": "Download follows a caller-supplied URL",
+              "impact": "Impact of Download follows a caller-supplied URL.",
+              "file": "app/tools/fetch.py",
+              "line": 183,
+              "description": "How Download follows a caller-supplied URL happens.",
+              "exploit_scenario": "An attacker exploits Download follows a caller-supplied URL.",
+              "preconditions": [
+                "The route is reachable",
+                "The caller is signed in"
+              ],
+              "category": "Server-Side Request Forgery (SSRF)",
+              "severity": "MEDIUM",
+              "confidence": "high",
+              "recommendation": "Fix Download follows a caller-supplied URL.",
+              "cwe_id": "CWE-918",
+              "snippet": "    resp = client.get(url)",
+              "symbol": "FetchTool.download",
+              "declared_line": 183,
+              "via_change": null,
+              "other_cwe_ids": [],
+              "claudeSecurityPluginFindingId": "v3:2222222222222222222222222222222222222222222222222222222222222222",
+              "verification": {
+                "panel": {
+                  "true": 3,
+                  "false": 0,
+                  "voters": 3
+                }
+              }
+            }
+          }
+        },
+        {
+          "ruleId": "CWE-639",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "Partition update skips the owner check.\n\nHow Partition update skips the owner check happens.\n\nImpact: Impact of Partition update skips the owner check."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/datasets/model.py",
+                  "uriBaseId": "%SRCROOT%"
+                },
+                "region": {
+                  "startLine": 464,
+                  "snippet": {
+                    "text": "    row = load(partition_id)"
+                  }
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "update_partition",
+                  "fullyQualifiedName": "update_partition"
+                }
+              ]
+            }
+          ],
+          "properties": {
+            "claudeSecurityPlugin": {
+              "id": "F3",
+              "title": "Partition update skips the owner check",
+              "impact": "Impact of Partition update skips the owner check.",
+              "file": "app/datasets/model.py",
+              "line": 464,
+              "description": "How Partition update skips the owner check happens.",
+              "exploit_scenario": "An attacker exploits Partition update skips the owner check.",
+              "preconditions": [
+                "The route is reachable",
+                "The caller is signed in"
+              ],
+              "category": "Authorization Bypass Through User-Controlled Key",
+              "severity": "LOW",
+              "confidence": "high",
+              "recommendation": "Fix Partition update skips the owner check.",
+              "cwe_id": "CWE-639",
+              "snippet": "    row = load(partition_id)",
+              "symbol": "update_partition",
+              "declared_line": 464,
+              "via_change": null,
+              "other_cwe_ids": [],
+              "claudeSecurityPluginFindingId": "v3:3333333333333333333333333333333333333333333333333333333333333333",
+              "verification": {
+                "panel": {
+                  "true": 3,
+                  "false": 0,
+                  "voters": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "claudeSecurityPlugin": {
+          "generated_at": "2026-10-27T04:41:49+00:00",
+          "scan_id": "0000",
+          "findings": {
+            "total": 3
+          }
+        }
+      }
+    }
+  ]
+}

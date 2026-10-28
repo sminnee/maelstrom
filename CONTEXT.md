@@ -962,13 +962,38 @@ A **Document** of kind `verification`. It holds the evidence that the work is co
 images and video. An agent writes it at `.drafts/verification.md` after the gates pass.
 _Avoid_: Proof, evidence document, demo
 
-**Attached document**:
-A **Document** that the task notebook stores as an **Attachment** of its task. The row is in the
-`task_attachments` table of the **State database**, and the media are in the task's **Bucket**.
-An attached document outlives its agent, its worktree and the server. A verification is attached
-when the agent shows it with a **Document tag**, and a plan when the user approves it. Only a
-document of an agent with a task is attached.
-_Avoid_: Kept document, saved document, persisted document, archived document
+**Task document**:
+A file one task owns, with every version kept. Its kind is `markdown` or `sarif`. Its name is
+unique within that task, and it may hold `/`. A reference names it as
+`<project>:<task-id>:<name>`, with an optional `@v<n>` for one version and `#<fragment>` for one
+part. Without `@v<n>`, a reference reads the latest version. A verification **Document** is
+stored when the agent shows it with a **Document tag**, and a plan when the user approves it.
+Only an agent with a task stores one. The rows are in the **State database**, and the media are
+in the task's **Bucket**. See `docs/adr/0001-task-documents.md` for archiving, plans and storage.
+_Avoid_: Attached document, kept document, saved document, persisted document, report
+
+**Document link**:
+A task's link to a **Task document** that another task owns, or to one **Fragment** of it. The
+owner's link is implicit. A link is deleted, not archived.
+_Avoid_: Reference (that is the text that names a document), relation
+
+**Fragment**:
+One part of a **Task document** that a reference names after `#`. In markdown it is a heading's
+slug, made as GitHub makes it: `## Set up` is `set-up`, and a second `## Set up` is `set-up-1`. In
+SARIF it is a **Finding key**.
+_Avoid_: Anchor, section id
+
+**Finding**:
+One result in a SARIF **Task document**: a rule, a level, a location and the tool's prose. The
+findings are parsed from the stored SARIF each time, so no table holds them.
+_Avoid_: Issue, alert, vulnerability
+
+**Finding key**:
+The name of one **Finding** that stays the same across scans. It is the Claude Security finding
+id, else a SARIF fingerprint, else a hash of the tool, the rule and the location. A URL loses its
+host and port, because each worktree serves on its own port. A line number never counts. Two
+findings with one key in one scan get `-2`, `-3` in SARIF order.
+_Avoid_: Finding id, label (`F3` names a finding inside one scan only)
 
 **Document tag**:
 The marker an agent writes in the text of an ordinary message to put a document in front of the
@@ -1619,8 +1644,8 @@ the gap that per-project memory and a repo's own `docs/` both leave open.
 
 **Attachment**:
 Something the task notebook stores for one task. There are two kinds. A media attachment is an
-image or a video under `<project>/images/<bucket>/`. An **Attached document** is a row in the
-`task_attachments` table. Task content and the body of an attached document reference a media
+image or a video under `<project>/images/<bucket>/`. A **Task document** is rows in the
+**State database**. Task content and the body of a task document reference a media
 attachment by a `{{MAEL_TASK_DIR}}` token, which expands to an absolute path at launch. A brief
 from Linear and a screenshot pasted into the orchestrator UI are both media attachments.
 _Avoid_: Upload, file, asset

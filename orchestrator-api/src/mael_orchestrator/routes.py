@@ -21,6 +21,7 @@ from typing import Any
 
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
 
+from mael_domain import task_documents
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.operation_store import operation_number
@@ -36,7 +37,7 @@ from mael_domain.worktree_changes import (
 )
 
 from .hubs import Lagging
-from .server import Orchestrator
+from .server import Orchestrator, task_document_refusal
 
 log = logging.getLogger(__name__)
 #: How often an idle notice stream sends a comment, so a proxy keeps it open.
@@ -114,6 +115,13 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
+    app.router.add_get("/api/tasks/{project}/{id}/documents", _task_documents)
+    app.router.add_post("/api/tasks/{project}/{id}/documents", _add_task_document)
+    app.router.add_get("/api/task-documents", _task_document)
+    app.router.add_post("/api/task-documents/link", _link_task_document)
+    app.router.add_post("/api/task-documents/unlink", _unlink_task_document)
+    app.router.add_post("/api/task-documents/archive", _archive_task_document)
+    app.router.add_post("/api/task-documents/unarchive", _unarchive_task_document)
     app.router.add_get("/api/comms", _comms)
     app.router.add_get("/api/comms/{id}", _comm)
     app.router.add_post("/api/comms", _create_comm)
@@ -438,6 +446,58 @@ async def _task(request: web.Request) -> web.Response:
         "displayContent": attachment_urls(task["content"], task["project"]),
     }
     return web.json_response(detail)
+
+
+async def _task_documents(request: web.Request) -> web.Response:
+    """``{owned, linked}``: the Task documents of one task."""
+    orch = await _ready_with_tasks(request)
+    task_id = _task_id(request)
+    if task_id not in orch.world["tasks"]:
+        return error_response("unknown_id", f"No task {task_id}")
+    return web.json_response(await orch.task_documents_of(task_id))
+
+
+async def _task_document(request: web.Request) -> web.Response:
+    """One Task document, by ``?ref=<project>:<task-id>:<name>[@v<n>]``."""
+    orch = await _ready(request)
+    ref = request.query.get("ref", "")
+    try:
+        return web.json_response(await orch.task_document(ref))
+    except task_documents.TaskDocumentError as exc:
+        refusal = task_document_refusal(exc)["error"]
+        return error_response(refusal["code"], refusal["message"])
+
+
+async def _add_task_document(request: web.Request) -> web.StreamResponse:
+    """Add a version to one of the task's documents: ``{name, kind, title, body}``."""
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda body: {**body, "type": "taskDocument.add", "taskId": task_id}
+    )
+
+
+async def _link_task_document(request: web.Request) -> web.StreamResponse:
+    """Link ``taskId`` to ``ref``: ``{ref, taskId}``."""
+    return await _command(request, lambda body: {**body, "type": "taskDocument.link"})
+
+
+async def _unlink_task_document(request: web.Request) -> web.StreamResponse:
+    return await _command(request, lambda body: {**body, "type": "taskDocument.unlink"})
+
+
+async def _archive_task_document(request: web.Request) -> web.StreamResponse:
+    """Archive ``ref``: ``{ref, by?}``. ``by`` is the asking task, when one asks."""
+    return await _command(
+        request,
+        lambda body: {**body, "type": "taskDocument.archive", "archived": True},
+    )
+
+
+async def _unarchive_task_document(request: web.Request) -> web.StreamResponse:
+    return await _command(
+        request,
+        lambda body: {**body, "type": "taskDocument.archive", "archived": False},
+    )
 
 
 async def _task_markdown(request: web.Request) -> web.Response:

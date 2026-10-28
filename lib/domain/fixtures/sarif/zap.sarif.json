@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "https://localhost:3560/"
+                },
+                "region": {
+                  "startLine": 1,
+                  "snippet": {
+                    "text": ""
+                  }
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Content Security Policy (CSP) Header Not Set"
+          },
+          "ruleId": "10038",
+          "webRequest": {
+            "protocol": "HTTP",
+            "version": "1.1",
+            "target": "https://localhost:3560/",
+            "method": "GET"
+          },
+          "webResponse": {
+            "statusCode": 200
+          }
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "https://localhost:3560/search?q=x"
+                },
+                "region": {
+                  "startLine": 1,
+                  "snippet": {
+                    "text": "<script>alert(1)</script>"
+                  }
+                }
+              },
+              "properties": {
+                "attack": "<script>alert(1)</script>"
+              }
+            }
+          ],
+          "message": {
+            "text": "Cross Site Scripting (Reflected)"
+          },
+          "ruleId": "40012",
+          "webRequest": {
+            "protocol": "HTTP",
+            "version": "1.1",
+            "target": "https://localhost:3560/search?q=x",
+            "method": "GET"
+          },
+          "webResponse": {
+            "statusCode": 200
+          }
+        }
+      ],
+      "taxonomies": [
+        {
+          "name": "CWE",
+          "guid": "z",
+          "taxa": []
+        }
+      ],
+      "tool": {
+        "driver": {
+          "guid": "4d841a0e-0ab1-4ef8-8b28-5a0d8b2e0de9",
+          "informationUri": "https://www.zaproxy.org/",
+          "name": "ZAP",
+          "rules": [
+            {
+              "id": "10038",
+              "name": "Content Security Policy (CSP) Header Not Set",
+              "shortDescription": {
+                "text": "Content Security Policy (CSP) Header Not Set"
+              },
+              "fullDescription": {
+                "text": "CSP is an added layer of security."
+              },
+              "help": {
+                "text": "Set the Content-Security-Policy header."
+              },
+              "properties": {
+                "confidence": "high",
+                "references": [
+                  "https://cwe.mitre.org/data/definitions/693.html"
+                ],
+                "solution": {
+                  "text": "Set the Content-Security-Policy header."
+                }
+              },
+              "relationships": [
+                {
+                  "target": {
+                    "id": "693",
+                    "guid": "x",
+                    "toolComponent": {
+                      "name": "CWE"
+                    }
+                  },
+                  "kinds": [
+                    "superset"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "40012",
+              "name": "Cross Site Scripting (Reflected)",
+              "shortDescription": {
+                "text": "Cross Site Scripting (Reflected)"
+              },
+              "fullDescription": {
+                "text": "Reflected XSS."
+              },
+              "help": {
+                "text": "Encode the output."
+              },
+              "properties": {
+                "confidence": "medium",
+                "references": [],
+                "solution": {
+                  "text": "Encode the output."
+                }
+              },
+              "relationships": [
+                {
+                  "target": {
+                    "id": "79",
+                    "guid": "y",
+                    "toolComponent": {
+                      "name": "CWE"
+                    }
+                  },
+                  "kinds": [
+                    "superset"
+                  ]
+                }
+              ]
+            }
+          ],
+          "semanticVersion": "2.16.0",
+          "version": "2.16.0"
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "startTimeUtc": "2026-10-26T21:15:02Z",
+          "endTimeUtc": "2026-10-26T21:20:44Z"
+        }
+      ]
+    }
+  ]
+}

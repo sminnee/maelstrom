@@ -100,7 +100,7 @@ def save_attachment(project: str, bucket: str, data: bytes, *, name: str = "") -
     return f"{MAEL_TASK_DIR_TOKEN}/images/{bucket}/{filename}"
 
 
-#: The largest image or video an attached document stores. A short screen recording
+#: The largest image or video a Task document stores. A short screen recording
 #: is under this; the cap is here so one capture cannot fill the notebook repo.
 MAX_MEDIA_BYTES = 50 * 1024 * 1024
 
@@ -138,7 +138,7 @@ def save_media(project: str, bucket: str, source: Path) -> str:
     """Copy one image or video into the task repo and return its portable token.
 
     :func:`save_attachment` takes the bytes of an upload: an image, up to
-    5 MB. This takes a file an attached document names: an image or a video, up
+    5 MB. This takes a file a Task document names: an image or a video, up
     to :data:`MAX_MEDIA_BYTES`.
 
     The filename carries a digest of the bytes. A document is attached once per
