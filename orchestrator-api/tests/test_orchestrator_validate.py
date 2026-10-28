@@ -1470,3 +1470,78 @@ def test_a_new_project_may_be_added():
     world = world_with(projects=[PROJECT])
     cmd = {"type": "project.add", "gitUrl": "https://github.com/acme/demo.git"}
     assert validate_command(world, cmd) is None
+
+
+class TestTaskDocumentCommands:
+    """The shape check only: the Task document rules are the model's."""
+
+    WORLD = world_with(tasks=[make_task(), make_task(id="northwind/NORT-8")])
+    REF = "northwind:NORT-7:a.md"
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            {
+                "type": "taskDocument.add",
+                "taskId": "northwind/NORT-7",
+                "name": "a.md",
+                "body": "",
+            },
+            {"type": "taskDocument.link", "taskId": "northwind/NORT-8", "ref": REF},
+            {"type": "taskDocument.unlink", "taskId": "northwind/NORT-8", "ref": REF},
+            {"type": "taskDocument.archive", "ref": REF, "archived": True},
+            {
+                "type": "taskDocument.archive",
+                "ref": REF,
+                "archived": False,
+                "by": "northwind/NORT-8",
+            },
+        ],
+    )
+    def test_a_well_formed_command_passes(self, cmd):
+        assert validate_command(self.WORLD, cmd) is None
+
+    @pytest.mark.parametrize(
+        ("cmd", "expected"),
+        [
+            (
+                {
+                    "type": "taskDocument.add",
+                    "taskId": "northwind/GONE",
+                    "name": "a",
+                    "body": "",
+                },
+                "unknown_id",
+            ),
+            (
+                {"type": "taskDocument.add", "taskId": "northwind/NORT-7", "body": ""},
+                "invalid",
+            ),
+            (
+                {
+                    "type": "taskDocument.add",
+                    "taskId": "northwind/NORT-7",
+                    "name": "a",
+                    "body": 3,
+                },
+                "invalid",
+            ),
+            ({"type": "taskDocument.link", "ref": REF}, "unknown_id"),
+            ({"type": "taskDocument.link", "taskId": "northwind/NORT-8"}, "invalid"),
+            (
+                {"type": "taskDocument.archive", "ref": REF, "archived": "yes"},
+                "invalid",
+            ),
+            (
+                {
+                    "type": "taskDocument.archive",
+                    "ref": REF,
+                    "archived": True,
+                    "by": "northwind/GONE",
+                },
+                "unknown_id",
+            ),
+        ],
+    )
+    def test_a_malformed_command_is_refused(self, cmd, expected):
+        assert code(validate_command(self.WORLD, cmd)) == expected
