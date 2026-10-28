@@ -12,6 +12,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import aiohttp
 import pytest
@@ -30,8 +31,8 @@ from mael_daemon.agent_model import (
 )
 from mael_domain import comms as comms_model
 from mael_domain import task as model
-from mael_domain.comm_store import (
 from mael_domain import task_documents
+from mael_domain.comm_store import (
     CommItem,
     CommUpdate,
     InMemoryCommStore,
@@ -81,7 +82,6 @@ from mael_orchestrator.sources import (
 from mael_orchestrator.world_build import split_task_key
 
 NOW = "2026-09-01T00:00:00Z"
-PROJECT = "northwind"
 ZAP_SARIF = (
     Path(__file__).parents[2]
     / "lib"
@@ -90,6 +90,7 @@ ZAP_SARIF = (
     / "sarif"
     / "zap.sarif.json"
 ).read_text()
+PROJECT = "northwind"
 WORKTREE_PATH = "/Users/dev/Projects/northwind/northwind-alpha"
 
 
@@ -9572,7 +9573,6 @@ async def attach_settled(api: Api, harness, marker: str = "Marker.") -> None:
     await until(api, "/api/agents/ag1", lambda a: a["lastMessage"] == marker)
 
 
-@pytest.fixture
 async def stored(table: InMemoryTaskAttachmentTable) -> list:
     """Each stored Task document with its latest version."""
     return [
@@ -9580,6 +9580,7 @@ async def stored(table: InMemoryTaskAttachmentTable) -> list:
     ]
 
 
+@pytest.fixture
 def attach_harness(store, tmp_path, images):
     """Builds harnesses over one task-attachment table and one real worktree.
 
@@ -9919,7 +9920,6 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
             await attach_settled(api, first)
 
     run(approve())
-    approval = reply_for_approval(pending_from(backlog))
     # A later plan the store holds and the backlog does not: before the
     # migration, a re-plan to the same plan file replaced the earlier row.
     run(
@@ -9935,6 +9935,7 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
             review_status="approved",
         )
     )
+    approval = reply_for_approval(pending_from(backlog))
     second = Harness(store, task_attachments=table)
     second.daemon.rows["ag1"] = agent_row(session=session)
     second.daemon.backlog["ag1"] = [*backlog, approval]
@@ -9954,7 +9955,6 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
     assert [(d["kind"], d["agentId"], d["status"]) for d in documents] == [
         ("plan", "ag1", "approved")
     ]
-
     # The replayed plan is the earlier one, so it adds no version.
     [(_, latest)] = run(stored(table))
     assert (latest.version, latest.title) == (2, "Later plan")
@@ -9983,6 +9983,7 @@ def test_a_sarif_document_is_not_seeded_as_a_world_document(store, images):
             return (await api.get_json("/api/documents"))["documents"]
 
     assert run(scenario()) == []
+
 
 # --- change comments ---------------------------------------------------------
 
@@ -11086,3 +11087,160 @@ def test_a_comm_written_elsewhere_reaches_the_world_on_the_poll(harness):
     ids, listed = run(scenario())
     assert ids == ["c1"]
     assert [c["title"] for c in listed["comms"]] == ["From the CLI"]
+
+
+# -- Task documents --
+
+
+def task_document_harness(harness):
+    harness.add_task("NORT-7")
+    harness.add_task("NORT-8")
+    return harness
+
+
+def test_a_task_document_added_is_listed_and_shown_with_its_links(harness):
+    task_document_harness(harness)
+    owner, other = f"{PROJECT}/NORT-7", f"{PROJECT}/NORT-8"
+    uri = f"{PROJECT}:NORT-7:notes/setup.md"
+
+    async def scenario():
+        async with harness.client() as api:
+            added = []
+            for body in ("# Setup\n", "# Setup\n\n## Install\n"):
+                reply = await api.post(
+                    f"/api/tasks/{owner}/documents",
+                    {"name": "notes/setup.md", "title": "Setup", "body": body},
+                )
+                added.append((reply.status, reply.body))
+            await api.post(
+                "/api/task-documents/link", {"ref": f"{uri}#install", "taskId": other}
+            )
+            owned = await api.get_json(f"/api/tasks/{owner}/documents")
+            linked = await api.get_json(f"/api/tasks/{other}/documents")
+            shown = await api.get_json(f"/api/task-documents?ref={quote(uri + '@v1')}")
+            return added, owned, linked, shown
+
+    added, owned, linked, shown = run(scenario())
+
+    assert added == [
+        (200, {"uri": f"{uri}@v1", "version": 1}),
+        (200, {"uri": f"{uri}@v2", "version": 2}),
+    ]
+    [document] = owned["owned"]
+    assert document == {
+        "id": document["id"],
+        "uri": uri,
+        "taskId": owner,
+        "name": "notes/setup.md",
+        "kind": "markdown",
+        "archived": False,
+        "title": "Setup",
+        "version": 2,
+        "updatedAt": NOW,
+    }
+    assert (owned["linked"], linked["owned"], linked["linked"]) == ([], [], [document])
+    version = {"title": "Setup", "createdAt": NOW, "reviewStatus": "draft"}
+    assert shown == {
+        "document": document,
+        "versions": [{**version, "version": 1}, {**version, "version": 2}],
+        "version": {**version, "version": 1, "body": "# Setup\n"},
+        "links": {"install": [other]},
+        "findings": [],
+    }
+
+
+def test_a_sarif_task_document_shows_its_findings(harness):
+    task_document_harness(harness)
+    ref = f"{PROJECT}:NORT-7:zap.sarif.json"
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {"name": "zap.sarif.json", "kind": "sarif", "body": ZAP_SARIF},
+            )
+            return await api.get_json(f"/api/task-documents?ref={quote(ref)}")
+
+    findings = run(scenario())["findings"]
+
+    assert findings[1] == {
+        "key": findings[1]["key"],
+        "label": "F2",
+        "level": "error",
+        "rule": "40012",
+        "cwe": "CWE-79",
+        "title": "Cross Site Scripting (Reflected)",
+        "file": "https://localhost:3560/search?q=x",
+        "line": 1,
+        "symbol": "",
+    }
+
+
+def test_the_plan_name_is_refused_to_a_hand_add(harness):
+    """Only an approved plan writes the task's `plan` document."""
+    task_document_harness(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {"name": "plan", "body": "# My plan\n"},
+            )
+
+    assert run(scenario()).status == 400
+
+
+def test_a_link_to_a_fragment_the_document_lacks_is_refused(harness):
+    task_document_harness(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {"name": "a.md", "body": "# A\n"},
+            )
+            return await api.post(
+                "/api/task-documents/link",
+                {"ref": f"{PROJECT}:NORT-7:a.md#b", "taskId": f"{PROJECT}/NORT-8"},
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 400
+    assert "#b" in reply.body["error"]["message"]
+
+
+def test_only_the_owner_archives_a_task_document(harness):
+    task_document_harness(harness)
+    ref = f"{PROJECT}:NORT-7:a.md"
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents", {"name": "a.md", "body": "x"}
+            )
+            refused = await api.post(
+                "/api/task-documents/archive", {"ref": ref, "by": f"{PROJECT}/NORT-8"}
+            )
+            archived = await api.post(
+                "/api/task-documents/archive", {"ref": ref, "by": f"{PROJECT}/NORT-7"}
+            )
+            shown = await api.get_json(f"/api/task-documents?ref={quote(ref)}")
+            return refused, archived, shown
+
+    refused, archived, shown = run(scenario())
+
+    assert refused.status == 400
+    assert (archived.status, shown["document"]["archived"]) == (200, True)
+
+
+def test_an_unknown_task_document_is_not_found(harness):
+    task_document_harness(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(
+                f"/api/task-documents?ref={quote(PROJECT + ':NORT-7:nope.md')}"
+            )
+
+    assert run(scenario()).status == 404
