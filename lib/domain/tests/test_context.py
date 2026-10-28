@@ -268,6 +268,12 @@ class TestValidateProjectName:
     def test_underscore_names_are_allowed(self):
         validate_project_name("_wiki")  # Should not raise
 
+    @pytest.mark.parametrize("name", ["a:b", "a@b", "a#b"])
+    def test_a_reference_delimiter_raises_error(self, name):
+        """`:` `@` `#` delimit a Task document reference."""
+        with pytest.raises(ValueError, match="cannot contain"):
+            validate_project_name(name)
+
     def test_empty_raises_error(self):
         """Test that empty name raises error."""
         with pytest.raises(ValueError, match="cannot be empty"):
