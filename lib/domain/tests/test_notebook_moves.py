@@ -141,12 +141,17 @@ class TestTheAttachmentsMoveRung:
                     Write("tasks", "p/t2", {"project": "p", "content": other}),
                     Write("tasks", "p/t3", {"project": "p", "content": elsewhere}),
                     Write("tasks", "p/t4", {"project": "p", "content": "prose"}),
-                    Write("task_attachments", "d1", {"task_key": "p/t1", "body": own}),
+                    Write("task_attachments", "d1", {"task_key": "p/t1"}),
+                    Write(
+                        "task_attachment_versions",
+                        "d1@v1",
+                        {"attachment_id": "d1", "body": own},
+                    ),
                 ]
             )
             await climb(db)
             content = {r["id"]: r["content"] for r in await db.read_all("tasks")}
-            row = await db.read("task_attachments", "d1")
+            row = await db.read("task_attachment_versions", "d1@v1")
             assert row is not None
             body = row["body"]
         finally:
