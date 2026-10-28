@@ -76,11 +76,15 @@ def _rewrite_refs(conn: sqlite3.Connection, root: Path) -> None:
             "UPDATE tasks SET content = ? WHERE id = ?",
             (rewrite(content, project), id),
         )
+    # The `task_attachments` ladder climbs first, so a Task document's text is
+    # in its versions by now.
     for id, key, body in conn.execute(
-        "SELECT id, task_key, body FROM task_attachments WHERE body LIKE ?", (like,)
+        "SELECT v.id, a.task_key, v.body FROM task_attachment_versions v "
+        "JOIN task_attachments a ON a.id = v.attachment_id WHERE v.body LIKE ?",
+        (like,),
     ).fetchall():
         conn.execute(
-            "UPDATE task_attachments SET body = ? WHERE id = ?",
+            "UPDATE task_attachment_versions SET body = ? WHERE id = ?",
             (rewrite(body, key.partition("/")[0]), id),
         )
 
