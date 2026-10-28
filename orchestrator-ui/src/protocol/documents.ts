@@ -23,7 +23,7 @@ export type DocumentSource =
    * null when the file could not be read.
    */
   | { type: 'draft_file'; fileId: string | null; filename: string }
-  /** A plan read back from the notebook. Its review is over — see `CONTEXT.md`, "Attached document". */
+  /** A plan read back from the notebook. Its review is over — see `CONTEXT.md`, "Task document". */
   | { type: 'attached'; path: string };
 
 /** The review group a document is a member of — see `CONTEXT.md`, "Review group". */
