@@ -73,6 +73,7 @@ from mael_domain.worktree_trash import trash_worktree_fully
 
 from .agent_cli import agent as agent_cli
 from .comms_cli import comms
+from .doc_cli import doc
 from .env_cli import (
     env as env_cli,
 )
@@ -1646,6 +1647,7 @@ def cmd_tidy_branches(project):
 
 
 cli.add_command(comms)
+cli.add_command(doc)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(gh_cli)
