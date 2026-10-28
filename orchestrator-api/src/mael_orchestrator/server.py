@@ -117,10 +117,11 @@ from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
     TaskAttachment,
     TaskAttachmentTable,
-    attach,
+    Version,
     task_key,
 )
 from mael_domain.task_export import TaskExporter
+from mael_domain.task_documents import PLAN_NAME, attach
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree import WorktreeSetup
@@ -553,8 +554,8 @@ class Orchestrator:
         self.milestones = (
             milestones if milestones is not None else InMemoryMilestoneStore()
         )
-        #: The attached documents — see ``CONTEXT.md``, "Attached document". Read once,
-        #: at start.
+        #: The Task documents — see ``CONTEXT.md``, "Task document". The world
+        #: reads them once, at start.
         self.task_attachments = (
             task_attachments
             if task_attachments is not None
@@ -1974,22 +1975,20 @@ class Orchestrator:
         return not refusals
 
     async def _load_attached(self) -> None:
-        """Put every attached document in the world, before any agent is read.
+        """Put every markdown Task document in the world, before any agent is read.
 
         Before, so an agent whose backlog presents an attached path finds the
         document there and makes its next version, not a second entry.
         """
-        rows = await self.task_attachments.list()
-        self._apply(
-            [
-                {
-                    "type": "upsert",
-                    "kind": "document",
-                    "entity": attached_document_entity(row),
-                }
-                for row in rows
-            ]
-        )
+        entities = []
+        for row in await self.task_attachments.all_documents():
+            versions = await self.task_attachments.versions(row.id)
+            entity = attached_document_entity(row, versions[-1]) if versions else None
+            if entity is not None:
+                entities.append(
+                    {"type": "upsert", "kind": "document", "entity": entity}
+                )
+        self._apply(entities)
 
     async def _attach_documents(
         self, events: list[ServerEvent], *, replay: bool
@@ -2011,10 +2010,11 @@ class Orchestrator:
     async def _attach_document(self, document: Document, *, replay: bool) -> None:
         """Attach ``document`` when it is a verification or an approved plan.
 
-        A replayed event only repairs: it attaches a document that has no row,
-        and leaves a row that exists alone. A verification is read from the
-        worktree as it stands now, which is not what the agent showed when the
-        event first ran. Only a live event may replace what is attached.
+        A replayed event only repairs: it attaches a document the task does not
+        have, and adds no version to one it has. A verification is read from the
+        worktree as it stands now, which is not what the agent showed. A plan's
+        backlog holds plans that a migrated store no longer has. See
+        ``docs/dev/orchestrator-server.md``, "A replay only repairs".
         """
         task = self.world["tasks"].get(document["taskId"])
         if task is None:
@@ -2022,52 +2022,62 @@ class Orchestrator:
         source = document["source"]
         body: str | None = None
         if document["kind"] == "verification" and source.get("type") == "draft_file":
-            path = str(source["filename"])
+            path = name = str(source["filename"])
+            review_status = "draft"
         elif (
             document["kind"] == "plan"
             and source.get("type") == "plan_review"
             and document["status"] == "approved"
         ):
-            path = str(source.get("planFilePath") or "plan")
+            path, name = str(source.get("planFilePath") or PLAN_NAME), PLAN_NAME
             body = document["markdown"]
         else:
             return
         project, notebook_id = task["project"], task["notebookId"]
         row = (
-            await self.task_attachments.read(task_key(project, notebook_id), path)
+            await self.task_attachments.read(task_key(project, notebook_id), name)
             if replay
             else None
         )
-        if row is None:
+        versions = await self.task_attachments.versions(row.id) if row else []
+        if row is not None and versions:
+            attached = row, versions[-1]
+        else:
             agent = self.world["agents"].get(document["agentId"])
-            row = await attach(
+            attached = await attach(
                 self.task_attachments,
                 project=project,
                 task_id=notebook_id,
                 cwd=agent["cwd"] if agent else "",
                 path=path,
-                kind=document["kind"],
+                name=name,
                 title=document["title"],
                 now=self.clock(),
                 body=body,
             )
-        # No row: the file could not be read. The document says so, and it stays.
-        if row is not None:
-            self._show_attached(document["id"], row)
+        # None: the file could not be read. The document says so, and it stays.
+        if attached is not None:
+            self._show_attached(document["id"], *attached)
 
-    def _show_attached(self, document_id: str, row: TaskAttachment) -> None:
-        """Make the world's document agree with the row that stores it.
+    def _show_attached(
+        self, document_id: str, row: TaskAttachment, version: Version
+    ) -> None:
+        """Make the world's document agree with the version that stores it.
 
-        A verification takes the row's version and reads its media from the
-        bucket. A plan keeps its own text and id, and the entry seeded for it
-        at start is removed. See ``docs/dev/orchestrator-server.md``, "An attached
-        document".
+        A verification takes the stored version's number and reads its media
+        from the bucket. A plan keeps its own text and id, and the entry seeded
+        for it at start is removed. See ``docs/dev/orchestrator-server.md``,
+        "Storing a Task document".
         """
+            review_status = "approved"
         current = self.world["documents"].get(document_id)
         if current is None:
             return
-        seeded = attached_document_entity(row)
-        if row.kind == "plan":
+        attached: tuple[TaskAttachment, Version] | None = None
+        seeded = attached_document_entity(row, version)
+        if seeded is None:
+            return
+        if row.name == PLAN_NAME:
             if seeded["id"] != document_id and seeded["id"] in self.world["documents"]:
                 self._apply(
                     [{"type": "remove", "kind": "document", "id": seeded["id"]}]
@@ -2075,7 +2085,7 @@ class Orchestrator:
             return
         shown: Document = {
             **current,
-            "version": row.version,
+            "version": version.version,
             "markdown": seeded["markdown"],
         }
         if shown != current:
@@ -2083,6 +2093,7 @@ class Orchestrator:
 
     async def _register_pr(self, agent_id: str, ref: str, *, replay: bool) -> None:
         """Register the PR an agent's ``<link rel="gh-pr">`` named on its task.
+                review_status=review_status,
 
         A free agent registers nothing. A bare number takes its URL from the
         repo of the agent's worktree. A replayed tag registers only on a task

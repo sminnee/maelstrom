@@ -39,7 +39,8 @@ from mael_domain.protocol import (
     Worktree,
     WorktreeGate,
 )
-from mael_domain.task_attachments import TaskAttachment
+from mael_domain.task_attachments import TaskAttachment, Version
+from mael_domain.task_documents import PLAN_NAME
 from mael_domain.worktree_model import get_worktree_folder_name
 
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")
@@ -525,30 +526,36 @@ def diff_kind(kind: str, old: dict[str, Any], new: dict[str, Any]) -> list[Serve
 ATTACHED_ID_PREFIX = "attached-"
 
 
-def attached_document_entity(row: TaskAttachment) -> Document:
-    """An attached row as the document the world holds before any agent presents it.
+def attached_document_entity(row: TaskAttachment, version: Version) -> Document | None:
+    """A Task document as the world holds it before any agent presents it.
+
+    The document named ``plan`` is the plan; any other markdown document is a
+    verification. A SARIF document is not a world document: ``None``.
 
     A verification takes the ``draft_file`` source, so the normaliser's path
     match reads a later present as the next version of this document and not as
     a second entry. A plan takes the ``attached`` source: its review is over, and
     nothing may offer one.
     """
+    if row.kind != "markdown":
+        return None
     project, _ = split_task_key(row.task_key)
     document_id = f"{ATTACHED_ID_PREFIX}{row.id}"
+    is_plan = row.name == PLAN_NAME
     source: dict[str, Any] = (
-        {"type": "attached", "path": row.path}
-        if row.kind == "plan"
-        else {"type": "draft_file", "fileId": None, "filename": row.path}
+        {"type": "attached", "path": row.name}
+        if is_plan
+        else {"type": "draft_file", "fileId": None, "filename": row.name}
     )
     return {
         "id": document_id,
         "agentId": "",
         "taskId": row.task_key,
-        "kind": row.kind,
-        "title": row.title,
-        "markdown": attachment_urls(row.body, project),
-        "version": row.version,
-        "status": "approved" if row.kind == "plan" else "draft",
+        "kind": "plan" if is_plan else "verification",
+        "title": version.title,
+        "markdown": attachment_urls(version.body, project),
+        "version": version.version,
+        "status": version.review_status,
         "source": source,
-        "group": {"id": document_id, "title": row.title, "position": 0},
+        "group": {"id": document_id, "title": version.title, "position": 0},
     }

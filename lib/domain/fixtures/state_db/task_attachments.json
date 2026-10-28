@@ -19,5 +19,224 @@
         "task_attachments_revision": "(revision) unique=0 origin=c partial=0"
       }
     }
+  },
+  {
+    "task_attachment_links": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "fragment TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_links_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_links_2": "(attachment_id, project, task_id, fragment) unique=1 origin=u partial=0",
+        "task_attachment_links_revision": "(revision) unique=0 origin=c partial=0",
+        "task_attachment_links_task": "(task_id, project) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachment_versions": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "review_status TEXT notnull=1 default='draft' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_versions_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_versions_2": "(attachment_id, version) unique=1 origin=u partial=0",
+        "task_attachment_versions_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachments": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "task_key TEXT notnull=1 default='' pk=0",
+        "kind TEXT notnull=1 default='' pk=0",
+        "path TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "attached_at TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachments_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachments_2": "(task_key, path) unique=1 origin=u partial=0",
+        "task_attachments_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "task_attachment_links": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "fragment TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_links_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_links_2": "(attachment_id, project, task_id, fragment) unique=1 origin=u partial=0",
+        "task_attachment_links_revision": "(revision) unique=0 origin=c partial=0",
+        "task_attachment_links_task": "(task_id, project) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachment_versions": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "review_status TEXT notnull=1 default='draft' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_versions_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_versions_2": "(attachment_id, version) unique=1 origin=u partial=0",
+        "task_attachment_versions_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachments": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "task_key TEXT notnull=1 default='' pk=0",
+        "kind TEXT notnull=1 default='' pk=0",
+        "name TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "attached_at TEXT notnull=1 default='' pk=0",
+        "archived INTEGER notnull=1 default=0 pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachments_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachments_2": "(task_key, name) unique=1 origin=u partial=0",
+        "task_attachments_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "task_attachment_links": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "fragment TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_links_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_links_2": "(attachment_id, project, task_id, fragment) unique=1 origin=u partial=0",
+        "task_attachment_links_revision": "(revision) unique=0 origin=c partial=0",
+        "task_attachment_links_task": "(task_id, project) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachment_versions": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "review_status TEXT notnull=1 default='draft' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_versions_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_versions_2": "(attachment_id, version) unique=1 origin=u partial=0",
+        "task_attachment_versions_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachments": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "task_key TEXT notnull=1 default='' pk=0",
+        "kind TEXT notnull=1 default='' pk=0",
+        "name TEXT notnull=1 default='' pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "attached_at TEXT notnull=1 default='' pk=0",
+        "archived INTEGER notnull=1 default=0 pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachments_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachments_2": "(task_key, name) unique=1 origin=u partial=0",
+        "task_attachments_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    }
+  },
+  {
+    "task_attachment_links": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "fragment TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_links_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_links_2": "(attachment_id, project, task_id, fragment) unique=1 origin=u partial=0",
+        "task_attachment_links_revision": "(revision) unique=0 origin=c partial=0",
+        "task_attachment_links_task": "(task_id, project) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachment_versions": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "attachment_id TEXT notnull=1 default='' pk=0",
+        "version INTEGER notnull=1 default=1 pk=0",
+        "title TEXT notnull=1 default='' pk=0",
+        "body TEXT notnull=1 default='' pk=0",
+        "digest TEXT notnull=1 default='' pk=0",
+        "created_at TEXT notnull=1 default='' pk=0",
+        "review_status TEXT notnull=1 default='draft' pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachment_versions_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachment_versions_2": "(attachment_id, version) unique=1 origin=u partial=0",
+        "task_attachment_versions_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    },
+    "task_attachments": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "task_key TEXT notnull=1 default='' pk=0",
+        "kind TEXT notnull=1 default='' pk=0",
+        "name TEXT notnull=1 default='' pk=0",
+        "attached_at TEXT notnull=1 default='' pk=0",
+        "archived INTEGER notnull=1 default=0 pk=0"
+      ],
+      "indexes": {
+        "sqlite_autoindex_task_attachments_1": "(id) unique=1 origin=pk partial=0",
+        "sqlite_autoindex_task_attachments_2": "(task_key, name) unique=1 origin=u partial=0",
+        "task_attachments_revision": "(revision) unique=0 origin=c partial=0"
+      }
+    }
   }
 ]

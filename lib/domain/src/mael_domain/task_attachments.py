@@ -1,236 +1,248 @@
-"""Attached documents: the table, and ``attach``, which copies a document into it.
+"""The Task document store: each document, its versions, and the tasks that link it.
 
-See ``CONTEXT.md``, "Attached document", and ``docs/dev/orchestrator-server.md``,
-"An attached document".
+The table and the module keep the name they had when a row was one attached file.
+See ``CONTEXT.md``, "Task document", and ``docs/adr/0001-task-documents.md``. The
+rules that sit on top of the store are in :mod:`mael_domain.task_documents`.
 """
 
-import asyncio
 import hashlib
-import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import asdict, dataclass
 from typing import Any
 
-from .attachments import markdown_ref, save_media
-from .document_tags import (
-    MediaRef,
-    media_refs,
-    not_shown,
-    read_worktree_file,
-    replace_media,
-    stays_within,
-)
 from .state_db.db import StateDb
 
-log = logging.getLogger(__name__)
-
 TABLE = "task_attachments"
+VERSIONS = "task_attachment_versions"
+LINKS = "task_attachment_links"
 
 
 @dataclass(frozen=True)
 class TaskAttachment:
-    """One attached document. ``(task_key, path)`` is its identity."""
+    """One Task document. ``(task_key, name)`` is its identity."""
 
     id: str
     task_key: str
     kind: str
-    path: str
-    title: str
-    version: int
-    body: str
-    digest: str
+    name: str
+    archived: bool
     attached_at: str
 
 
+@dataclass(frozen=True)
+class Version:
+    """One version of a Task document. Versions are never changed or removed."""
+
+    id: str
+    attachment_id: str
+    version: int
+    title: str
+    body: str
+    digest: str
+    created_at: str
+    review_status: str
+
+
+@dataclass(frozen=True)
+class Link:
+    """One task's link to a Task document, or to one fragment of it."""
+
+    id: str
+    attachment_id: str
+    project: str
+    task_id: str
+    fragment: str
+
+
 def task_key(project: str, task_id: str) -> str:
-    """The key a task's attached documents are stored under."""
+    """The key a task's documents are stored under."""
     return f"{project}/{task_id}"
 
 
-def _id_of(key: str, path: str) -> str:
-    """A stable id for one ``(task_key, path)``, safe in a URL."""
-    return hashlib.sha256(f"{key}\0{path}".encode()).hexdigest()[:16]
+def attachment_id(key: str, name: str) -> str:
+    """A stable id for one ``(task_key, name)``, safe in a URL."""
+    return hashlib.sha256(f"{key}\0{name}".encode()).hexdigest()[:16]
+
+
+def version_id(attachment: str, version: int) -> str:
+    return f"{attachment}@v{version}"
+
+
+def link_id(attachment: str, project: str, task_id: str, fragment: str) -> str:
+    seed = "\0".join((attachment, project, task_id, fragment))
+    return hashlib.sha256(seed.encode()).hexdigest()[:16]
 
 
 class TaskAttachmentTable(ABC):
-    """Where attached documents are stored."""
+    """Where Task documents are stored."""
 
     @abstractmethod
-    async def upsert(
-        self,
-        *,
-        task_key: str,
-        kind: str,
-        path: str,
-        title: str,
-        body: str,
-        digest: str,
-        attached_at: str,
-    ) -> TaskAttachment:
-        """Store a document under its ``(task_key, path)`` and return the row.
+    async def get(self, attachment: str) -> TaskAttachment | None:
+        """The document with this id, or ``None``."""
 
-        A first upsert is version 1. Each later one for the same pair replaces
-        the row and adds one.
-        """
+    async def read(self, key: str, name: str) -> TaskAttachment | None:
+        """The document ``name`` owned by the task ``key``, or ``None``."""
+        return await self.get(attachment_id(key, name))
 
     @abstractmethod
-    async def read(self, key: str, path: str) -> TaskAttachment | None:
-        """The document attached for ``path`` under the task ``key``, or ``None``."""
+    async def all_documents(self) -> list[TaskAttachment]:
+        """Every document."""
 
     @abstractmethod
-    async def list(self) -> list[TaskAttachment]:
-        """Every attached document."""
+    async def owned(self, key: str) -> list[TaskAttachment]:
+        """The documents the task ``key`` owns, by name."""
 
-    async def _next(self, **fields: Any) -> TaskAttachment:
-        """The row an upsert of ``fields`` stores: its id and its next version."""
-        previous = await self.read(fields["task_key"], fields["path"])
-        return TaskAttachment(
-            id=_id_of(fields["task_key"], fields["path"]),
-            version=(previous.version if previous else 0) + 1,
-            **fields,
+    @abstractmethod
+    async def put(self, attachment: TaskAttachment) -> None:
+        """Store the document row, replacing the one with its id."""
+
+    @abstractmethod
+    async def versions(self, attachment: str) -> list[Version]:
+        """A document's versions, oldest first."""
+
+    @abstractmethod
+    async def add_version(self, version: Version) -> None:
+        """Store one new version."""
+
+    @abstractmethod
+    async def links(self, attachment: str) -> list[Link]:
+        """Every link to a document."""
+
+    @abstractmethod
+    async def task_links(self, project: str, task_id: str) -> list[Link]:
+        """Every link one task holds."""
+
+    @abstractmethod
+    async def add_link(self, link: Link) -> None:
+        """Store a link. Storing one that is there changes nothing."""
+
+    @abstractmethod
+    async def remove_link(self, link: str) -> None:
+        """Remove the link with this id, when it is there."""
+
+    async def linked(self, project: str, task_id: str) -> list[TaskAttachment]:
+        """The documents one task links, by id."""
+        ids = sorted(
+            {link.attachment_id for link in await self.task_links(project, task_id)}
         )
+        found = [await self.get(i) for i in ids]
+        return [a for a in found if a is not None]
 
 
 class InMemoryTaskAttachmentTable(TaskAttachmentTable):
-    """Attached documents for a test or a server with no state database."""
+    """Task documents for a test or a server with no state database."""
 
     def __init__(self) -> None:
         self._rows: dict[str, TaskAttachment] = {}
+        self._versions: dict[str, Version] = {}
+        self._links: dict[str, Link] = {}
 
-    async def upsert(self, **fields: Any) -> TaskAttachment:
-        stored = await self._next(**fields)
-        self._rows[stored.id] = stored
-        return stored
+    async def get(self, attachment: str) -> TaskAttachment | None:
+        return self._rows.get(attachment)
 
-    async def read(self, key: str, path: str) -> TaskAttachment | None:
-        return self._rows.get(_id_of(key, path))
+    async def all_documents(self) -> list[TaskAttachment]:
+        return sorted(self._rows.values(), key=lambda a: a.id)
 
-    async def list(self) -> list[TaskAttachment]:
-        return list(self._rows.values())
+    async def owned(self, key: str) -> list[TaskAttachment]:
+        return sorted(
+            (a for a in self._rows.values() if a.task_key == key), key=lambda a: a.name
+        )
+
+    async def put(self, attachment: TaskAttachment) -> None:
+        self._rows[attachment.id] = attachment
+
+    async def versions(self, attachment: str) -> list[Version]:
+        return sorted(
+            (v for v in self._versions.values() if v.attachment_id == attachment),
+            key=lambda v: v.version,
+        )
+
+    async def add_version(self, version: Version) -> None:
+        self._versions[version.id] = version
+
+    async def links(self, attachment: str) -> list[Link]:
+        return [v for v in self._links.values() if v.attachment_id == attachment]
+
+    async def task_links(self, project: str, task_id: str) -> list[Link]:
+        return [
+            v
+            for v in self._links.values()
+            if (v.project, v.task_id) == (project, task_id)
+        ]
+
+    async def add_link(self, link: Link) -> None:
+        self._links[link.id] = link
+
+    async def remove_link(self, link: str) -> None:
+        self._links.pop(link, None)
 
 
 class SqliteTaskAttachmentTable(TaskAttachmentTable):
-    """Attached documents in the state database."""
+    """Task documents in the state database."""
 
     def __init__(self, db: StateDb) -> None:
         self._db = db
 
-    async def upsert(self, **fields: Any) -> TaskAttachment:
-        stored = await self._next(**fields)
-        await self._db.upsert(TABLE, stored.id, version=stored.version, **fields)
-        return stored
+    async def get(self, attachment: str) -> TaskAttachment | None:
+        row = await self._db.read(TABLE, attachment)
+        return _attachment(row) if row is not None else None
 
-    async def read(self, key: str, path: str) -> TaskAttachment | None:
-        row = await self._db.read(TABLE, _id_of(key, path))
-        return _from_row(row) if row is not None else None
+    async def all_documents(self) -> list[TaskAttachment]:
+        return [_attachment(row) for row in await self._db.read_all(TABLE)]
 
-    async def list(self) -> list[TaskAttachment]:
-        return [_from_row(row) for row in await self._db.read_all(TABLE)]
+    async def owned(self, key: str) -> list[TaskAttachment]:
+        rows = await self._db.read_where(TABLE, "task_key", key)
+        return sorted((_attachment(row) for row in rows), key=lambda a: a.name)
+
+    async def put(self, attachment: TaskAttachment) -> None:
+        await self._db.upsert(
+            TABLE,
+            attachment.id,
+            task_key=attachment.task_key,
+            kind=attachment.kind,
+            name=attachment.name,
+            archived=int(attachment.archived),
+            attached_at=attachment.attached_at,
+        )
+
+    async def versions(self, attachment: str) -> list[Version]:
+        rows = await self._db.read_where(VERSIONS, "attachment_id", attachment)
+        return sorted(
+            (Version(**row) for row in _without_revision(rows)), key=lambda v: v.version
+        )
+
+    async def add_version(self, version: Version) -> None:
+        fields = asdict(version)
+        await self._db.upsert(VERSIONS, fields.pop("id"), **fields)
+
+    async def links(self, attachment: str) -> list[Link]:
+        rows = await self._db.read_where(LINKS, "attachment_id", attachment)
+        return [Link(**row) for row in _without_revision(rows)]
+
+    async def task_links(self, project: str, task_id: str) -> list[Link]:
+        rows = await self._db.read_where(LINKS, "task_id", task_id)
+        return [
+            Link(**row) for row in _without_revision(rows) if row["project"] == project
+        ]
+
+    async def add_link(self, link: Link) -> None:
+        fields = asdict(link)
+        await self._db.upsert(LINKS, fields.pop("id"), **fields)
+
+    async def remove_link(self, link: str) -> None:
+        await self._db.delete(LINKS, link)
 
 
-def _from_row(row: Any) -> TaskAttachment:
+def _without_revision(rows: list[Any]) -> list[dict[str, Any]]:
+    return [{k: row[k] for k in row.keys() if k != "revision"} for row in rows]
+
+
+def _attachment(row: Any) -> TaskAttachment:
     return TaskAttachment(
         id=row["id"],
         task_key=row["task_key"],
         kind=row["kind"],
-        path=row["path"],
-        title=row["title"],
-        version=row["version"],
-        body=row["body"],
-        digest=row["digest"],
+        name=row["name"],
+        archived=bool(row["archived"]),
         attached_at=row["attached_at"],
     )
-
-
-async def attach(
-    table: TaskAttachmentTable,
-    *,
-    project: str,
-    task_id: str,
-    cwd: str,
-    path: str,
-    kind: str,
-    title: str,
-    now: str,
-    body: str | None = None,
-) -> TaskAttachment | None:
-    """Attach the document at ``path`` for one task, and return its row.
-
-    ``None`` means the file cannot be read, and nothing is attached. A document
-    already attached as it stands returns the row it has, and writes nothing: an
-    attach replays the backlog, so the same document reaches here again.
-
-    "As it stands" covers the media too. The digest takes the bytes of every
-    file the body names, so a recording made again under the same name is a
-    new version.
-
-    ``body`` is the markdown when the caller already holds it. A plan's file is
-    outside the worktree, so its text comes from the document and ``path`` is
-    only its identity. Media refs resolve against ``cwd`` in both cases.
-    """
-    source = body if body is not None else read_worktree_file(cwd, path)
-    if source is None:
-        return None
-    # Off the loop: a video is tens of megabytes to hash and to copy.
-    digest = await asyncio.to_thread(_digest, source, cwd)
-    key = task_key(project, task_id)
-    previous = await table.read(key, path)
-    if previous is not None and (previous.digest, previous.kind, previous.title) == (
-        digest,
-        kind,
-        title,
-    ):
-        return previous
-    attached_body = await asyncio.to_thread(
-        _with_attached_media, source, project, task_id, cwd
-    )
-    return await table.upsert(
-        task_key=key,
-        kind=kind,
-        path=path,
-        title=title,
-        body=attached_body,
-        digest=digest,
-        attached_at=now,
-    )
-
-
-def _digest(markdown: str, cwd: str) -> str:
-    """A digest of ``markdown`` and of the bytes of each media file it names.
-
-    A file that cannot be read adds a marker in place of its bytes, so a file
-    that appears later changes the digest.
-    """
-    digest = hashlib.sha256(markdown.encode())
-    for ref in media_refs(markdown):
-        digest.update(b"\0")
-        try:
-            if not stays_within(cwd, ref.target):
-                raise OSError("outside the worktree")
-            with (Path(cwd) / ref.target).open("rb") as media:
-                digest.update(hashlib.file_digest(media, "sha256").digest())
-        except OSError:
-            digest.update(b"unreadable")
-    return digest.hexdigest()
-
-
-def _with_attached_media(markdown: str, project: str, bucket: str, cwd: str) -> str:
-    """``markdown`` with each media ref copied into the bucket and re-pointed.
-
-    A ref that cannot be attached becomes the prose a refused image leaves, so the
-    reader is told which file is missing. The log holds the reason.
-    """
-
-    def attached(ref: MediaRef) -> str:
-        if not stays_within(cwd, ref.target):
-            log.warning("media %s not attached: outside the worktree", ref.target)
-            return not_shown(ref.target)
-        try:
-            token = save_media(project, bucket, Path(cwd) / ref.target)
-        except (ValueError, OSError) as refused:
-            log.warning("media %s not attached: %s", ref.target, refused)
-            return not_shown(ref.target)
-        return markdown_ref(ref.alt, token)
-
-    return replace_media(markdown, attached)
