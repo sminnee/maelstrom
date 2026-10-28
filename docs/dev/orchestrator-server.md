@@ -585,7 +585,7 @@ some agent already chose to show, and no id can name a file nobody registered. D
 random and then rely on them being unguessable.
 
 The registry is not persisted. It dies with a server restart, and a re-normalised transcript
-registers its files again. An image URL from before a restart is a 404. An **Attached document** does
+registers its files again. An image URL from before a restart is a 404. A **Task document** does
 not depend on the registry: its media are served from the notebook.
 
 | Route | Serves |
@@ -620,18 +620,18 @@ a double-backtick span, and it does not match a target that holds a space or a `
 Video takes image syntax, so no new marker is needed. See `docs/dev/orchestrator-ui.md` for how
 the UI draws it.
 
-## An attached document
+## Storing a Task document
 
 A document lives in the server's memory, and the media it names live in a worktree. A
-**Attached document** outlives both: `task_attachments.attach` copies it into the notebook.
+**Task document** outlives both: `task_documents.attach` adds it to the store as a new version.
 
 ```
 agent                 normaliser              server                  notebook
   | <doc-file kind="verification">               |                        |
   |--------------------->| upsert document ----->| attach() ------------->| media into the bucket
-  |                      |                       |                        | row into task_attachments
-  |                      |                       |<-- stored row ---------|
-  |                      |                       | upsert: row version,   |
+  |                      |                       |                        | version into the store
+  |                      |                       |<-- stored version -----|
+  |                      |                       | upsert: its number,    |
   |                      |                       | media from the bucket  |
   |          (server restart, or the agent ends) |                        |
   |                      |                       |<-- every row, at start-|
@@ -639,10 +639,12 @@ agent                 normaliser              server                  notebook
 
 Two events attach a document, and both arrive as a document upsert from the normaliser:
 
-| Document | Attached when | Body | Path |
+| Document | Attached when | Body | Name |
 | --- | --- | --- | --- |
 | Verification | The agent's document tag shows it | Read from the worktree file | The file's worktree-relative path |
-| Plan | The user approves it | The document's markdown | `planFilePath` |
+| Plan | The user approves it | The document's markdown | `plan` |
+
+Each approved plan of a task is the next version of its one `plan` document.
 
 Only a document with a task is attached. The task's notebook id is the **Bucket** its media go
 to, and a free agent has no bucket that outlives it.
@@ -650,35 +652,43 @@ to, and a free agent has no bucket that outlives it.
 `attach` does three things:
 
 1. It takes a digest of the source body and of the bytes of each media file the body names. When
-   the stored row has the same digest, kind and title, `attach` returns that row and writes nothing.
+   the latest version has the same digest and title, `attach` returns that version and writes
+   nothing.
    A recording made again under the same name changes the digest, so it is a new version.
 2. It copies each media file into the bucket with `attachments.save_media`, which accepts an image
    or a video up to 50 MB. The bucket filename carries a digest of the bytes, so an unchanged file
    is stored once and two files of one name do not collide.
-3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token and upserts the row. A file that is refused
+3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token and adds the version. A file that is refused
    becomes "could not be shown" prose, and the log holds the reason.
 
 `attach` returns `None` only when the document's file cannot be read. The world's document then
 keeps the "could not be read" prose the normaliser gave it.
 
-The row's id is a digest of `(task_key, path)`. One row holds one document: a new version replaces
-the body and raises `version`. History is not stored, and no code removes a row.
+The document's id is a digest of `(task_key, name)`. Every version is kept, and no code removes a
+document. See `docs/adr/0001-task-documents.md`.
 
 ### A replay only repairs
 
 After a restart the server attaches to each agent again and the backlog replays, so the same tag
 reaches the server a second time.
 A verification is read from the worktree as it stands at that moment, which is not what the agent
-showed when the event first ran. So a replayed event attaches a document only when it has no
-row. A row that exists is replaced only by a live event.
+showed when the event first ran. So a replayed verification attaches only when the task has no
+document of that name. Only a live event adds a version to one that exists.
 
-### The row is the authority
+A replayed plan follows the same rule, though its body comes from the event. The backlog replays a
+task's plans oldest first. Before the migration, a re-plan to the same plan file replaced its row,
+so the store can lack an earlier plan that the backlog still holds. Adding it would make an old
+plan the current one.
 
-After it attaches a verification, the server upserts the world's verification again with two fields from the row:
+### The store is the authority
 
-- **`version`.** At start the server seeds each row into the world as a document. A replayed tag
-  then finds that document by path and counts one more version. The server writes the row's
-  version back.
+After it attaches a verification, the server upserts the world's verification again with two
+fields from the stored version:
+
+- **`version`.** At start the server seeds each markdown document's latest version into the world.
+  The document named `plan` becomes a plan, and any other a verification. A SARIF document is not
+  seeded. A replayed tag then finds the seeded document by path and counts one more version. The
+  server writes the stored version back.
 - **`markdown`.** The body reads its media from `/api/attachments/…`, not from `/api/files/…`. The
   document then stays readable when the worktree closes while the server runs.
 
@@ -1404,6 +1414,8 @@ without waiting for the poll.
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
+| `GET /api/tasks/{project}/{id}/documents` | `{owned, linked}`: the **Task documents** the task owns and links. Each is `{id, uri, taskId, name, kind, archived, title, version, updatedAt}`, from its latest version |
+| `GET /api/task-documents?ref=` | `{document, versions, version, links, findings}` for one full reference, `<project>:<task-id>:<name>[@v<n>]`. `versions` has no bodies. `version` is the selected one, with `body`. `links` maps each fragment to the linking task ids; `""` is the whole document. `findings` lists a SARIF document's findings, each with the `key` a link names. The ref is a query parameter because a name can hold `/` |
 | `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, category, project, taskIds, queued, updates}`. A queued item is `{taskId, step}`; an update is `{id, commId, createdAt, items, content, state, sentAt}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
 | `GET /api/comms/{id}` | The `Comm` |
 | `GET /api/agents` | `{agents: [Agent]}` |
@@ -1644,6 +1656,11 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
+| `POST /api/tasks/{project}/{id}/documents` | `{name, kind?, title?, body}` | `taskDocument.add` | `{uri, version}` |
+| `POST /api/task-documents/link` | `{ref, taskId}` | `taskDocument.link` | `{}` |
+| `POST /api/task-documents/unlink` | `{ref, taskId}` | `taskDocument.unlink` | `{}` |
+| `POST /api/task-documents/archive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
+| `POST /api/task-documents/unarchive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
 | `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |
