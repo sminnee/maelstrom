@@ -81,6 +81,11 @@ let viewportWidth: number = DEFAULT_VIEWPORT;
 export function setViewportWidth(width: number) {
   viewportWidth = width;
   Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+  // `resize` before `change`, as a browser runs its resize steps before it
+  // evaluates media queries.
+  act(() => {
+    window.dispatchEvent(new Event('resize'));
+  });
   // Each list in its own `act`, as a browser dispatches `change`: React renders
   // between two lists, so a tree that reads two sources of the mode tears here.
   for (const listener of [...mediaListeners]) act(() => listener());
