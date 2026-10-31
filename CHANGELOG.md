@@ -482,8 +482,9 @@ release while that section is empty, and retitles it to the version it is releas
   stayed at zero until its first turn ended.
 
 - **The orchestrator's side panel opens wider, and prose reads on a longer line.** The panel opens
-  at half the window rather than 460px, capped at 980px; the session header spends that width on
-  one row instead of two, folding back to two when the panel is dragged narrow. The reading
+  at half the window rather than 460px, and stays at half as the window resizes until a drag sets
+  its width; the session header spends that width on one row instead of two, folding back to two
+  when the panel is dragged narrow. The reading
   measure goes from 66ch to 72ch.
 
 - **A service restart appends to its log rather than truncating it.** A service that died left

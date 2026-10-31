@@ -65,10 +65,10 @@ export interface UiState {
    */
   editorEditing: boolean;
   /**
-   * The right slot's width in px while both slots are open. Set by a drag; not
-   * persisted across a reload.
+   * The right slot's width in px while both slots are open, once dragged; `null`
+   * is half the window. Not persisted across a reload.
    */
-  panelWidth: number;
+  panelWidth: number | null;
   /** The **Console**: whether it is open, and the operation it shows. Not kept across a reload. */
   console: ConsoleState;
   /** The **Gates chip**'s dialog: whether it is open, and the job it marks. */
@@ -89,17 +89,6 @@ export interface ConsoleState {
   height: number | null;
 }
 
-/**
- * How wide the panel opens, given the window.
- *
- * Half the window, because the canvas and the panel are both being read; and
- * never past 980px, because a transcript is prose and prose stops getting
- * easier to read once the line runs long. The shell clamps this again against its
- * own floor, so a window too narrow to halve still leaves the grip reachable.
- */
-const openingWidth = () =>
-  Math.min(980, (typeof window === 'undefined' ? 1440 : window.innerWidth) / 2);
-
 export function initialUiState(): UiState {
   return {
     anchors: { canvas: 'left', list: 'left', worktrees: 'left', comms: 'left', tabs: 'right' },
@@ -111,7 +100,7 @@ export function initialUiState(): UiState {
     splitTabs: {},
     newWorkSeed: null,
     editorEditing: false,
-    panelWidth: openingWidth(),
+    panelWidth: null,
     console: { open: false, selected: null, height: null },
     gates: { open: false, jobId: null },
   };

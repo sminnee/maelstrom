@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { tabStrip, paneItem, isShowing } from './test/appHelpers';
+import { tabStrip, paneItem, isShowing, touchDrag } from './test/appHelpers';
 import { clickNode, renderApp, resizeTo, VIEWPORTS } from './test/renderApp';
 
 const item = paneItem;
@@ -101,6 +101,17 @@ describe('the wide layout: two slots', () => {
     await renderApp();
     expect(rightWidth()).toBe(VIEWPORTS.wide / 2);
     expect(screen.getByTestId('grip')).toBeInTheDocument();
+  });
+
+  it('keeps the right slot at half a wider window, until a drag sets its width', async () => {
+    await renderApp();
+    resizeTo(2400);
+    expect(rightWidth()).toBe(1200);
+    const grip = screen.getByTestId('grip');
+    touchDrag(grip, { from: { x: 1200, y: 0 }, by: { x: 300 }, pointerType: 'mouse' });
+    expect(rightWidth()).toBe(900);
+    resizeTo(2000);
+    expect(rightWidth()).toBe(900);
   });
 
   it('leaves the panel alone when the left slot closes', async () => {
