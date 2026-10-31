@@ -1532,9 +1532,10 @@ narrow layout draws the location's view.
 
 `SlotShell` in `shell/AppShell.tsx` draws the wide and the medium layout. It places each item with
 the CSS `order` property, not by JSX position, so an item that changes side moves and does not
-remount. The left slot takes the remaining width. The right slot takes `ui.panelWidth` when both
-slots are open, and the full width when it is alone. The shell owns the drag grip and the width
-clamp, because the right slot can hold any item.
+remount. The left slot takes the remaining width. When both slots are open, the right slot takes
+half the window until a drag sets `ui.panelWidth`: the canvas and the panel are both being read.
+It takes the full width when it is alone. The shell owns the drag grip and the width clamp,
+because the right slot can hold any item.
 
 `layout/useLayoutMode.ts` makes the choice. The decision is read in TypeScript rather than only in a
 media query, because `orchestrator-ui/vite.config.ts` sets `css: false` — a media query is invisible

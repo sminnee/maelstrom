@@ -58,7 +58,7 @@ function SlotShell() {
   // The drawer stays in the page while it drops out, and the strip waits for it.
   const drawerRef = useRef<HTMLElement>(null);
   const drawer = usePresence(consoleOpen, drawerRef);
-  // The clamp also holds after a window resize, not only during a drag.
+  // Re-render on resize: the clamp and the half-window default both read `innerWidth`.
   const [, resized] = useState(0);
   useEffect(() => {
     const onResize = () => resized((n) => n + 1);
@@ -67,6 +67,7 @@ function SlotShell() {
   }, []);
 
   const split = showing.length === 2;
+  const width = clamp(panelWidth ?? window.innerWidth / 2);
   // The slot is set by `order`, not by JSX position: a pane that changes side
   // must move, not remount.
   const slot = (pane: Pane): { 'data-slot': Side; style: CSSProperties } => {
@@ -75,7 +76,7 @@ function SlotShell() {
       'data-slot': side,
       style:
         split && side === 'right'
-          ? { order: 2, flex: 'none', width: clamp(panelWidth) }
+          ? { order: 2, flex: 'none', width }
           : { order: side === 'left' ? 0 : 2 },
     };
   };
@@ -101,7 +102,7 @@ function SlotShell() {
               )}
             </section>
           ))}
-          {split && <Grip width={clamp(panelWidth)} />}
+          {split && <Grip width={width} />}
           {/* Hidden rather than unmounted: a session tab holds its scroll
               position, window floor and pending waits across a toggle. */}
           <Panel hidden={!showing.includes('tabs')} {...slot('tabs')} />
@@ -124,7 +125,7 @@ function Grip({ width }: { width: number }) {
       const startX = e.clientX;
       const startWidth = width;
       // Capturing the pointer keeps the drag alive when it leaves the window.
-      grip.setPointerCapture(e.pointerId);
+      grip.setPointerCapture?.(e.pointerId);
       const onMove = (ev: PointerEvent) => {
         setPanelWidth(clamp(startWidth - (ev.clientX - startX)));
       };
