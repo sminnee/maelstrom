@@ -76,7 +76,7 @@ function Node({ node }: { node: GraphNode }) {
     <TaskNode
       id={node.id}
       type="task"
-      data={{ node, focused: false, expanded: false }}
+      data={{ node, focused: false, expanded: false, selected: false }}
       dragging={false}
       selected={false}
       isConnectable={false}

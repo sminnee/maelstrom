@@ -786,6 +786,8 @@ no box, so a deck row names both.
   not a success.
 - **Exited:** Fault Rose border and ring.
 - **Focused:** 2px Signal Blue outline, 2px offset — the same ring as `:focus-visible`.
+- **Selected:** 2px dashed Signal Blue outline, 3px offset. Shift-click puts the node in the
+  Selection. The dash keeps it apart from Focused, which is solid.
 - **Expanded:** children fade to 0 over 120ms while the card grows in its place.
 - **Under operation:** an operation marks the node: a close, shelve, trash or delete on its
   worktree, or any operation that names its task or agent. The hatch lies over the node, the

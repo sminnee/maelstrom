@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   Background,
   ReactFlow,
@@ -29,6 +29,7 @@ import { WORKTREE_CARD_WIDTH, WorktreeCard } from './WorktreeCard';
 import { TaskNode, type TaskFlowNode } from './TaskNode';
 import { WorktreeBoxNode, type WorktreeBoxFlowNode } from './WorktreeBoxNode';
 import { ZonesNode, type ZonesFlowNode } from './ZonesNode';
+import { SelectionBar } from './SelectionBar';
 import { VIEW_MOVE_MS } from './viewport';
 import styles from './Canvas.module.css';
 
@@ -59,6 +60,8 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const NONE: ReadonlySet<string> = new Set();
+
 export function Canvas() {
   const { world, status, errors, retry } = useWorld();
   // A refused rewire has no wire to draw on, so the refusal says so over the
@@ -71,6 +74,14 @@ export function Canvas() {
   const { fitView, getZoom, setCenter } = useReactFlow();
   const updateTask = useUpdateTask();
   const panelShowing = useShowing().includes('tabs');
+  // The canvas **Selection**.
+  const [selection, setSelection] = useState<ReadonlySet<string>>(NONE);
+  // Why the last bulk run failed. It describes that run's nodes, so any selection change clears it.
+  const [bulkFailure, setBulkFailure] = useState<string | null>(null);
+  const clearSelection = useCallback(() => {
+    setBulkFailure(null);
+    setSelection(NONE);
+  }, []);
   // A panel off screen shows no tab, so no node is marked as its source.
   const focused = panelShowing ? focusedTaskId(world, tabs, activeTabKey) : null;
 
@@ -137,7 +148,12 @@ export function Canvas() {
         width: layout.nodeSize.width,
         height: layout.nodeSize.height,
         draggable: false,
-        data: { node, focused: node.id === focused, expanded: node.id === expandedNodeId },
+        data: {
+          node,
+          focused: node.id === focused,
+          expanded: node.id === expandedNodeId,
+          selected: false,
+        },
       };
     });
     // Drawn edges only. `layoutSwimlanes` above took the full set, so hiding a
@@ -164,6 +180,35 @@ export function Canvas() {
       boxes,
     };
   }, [world, filters, focused, expandedNodeId]);
+  // Apart from the layout: a Shift-click marks nodes, and moves none.
+  const flowNodes = useMemo(
+    () =>
+      selection.size === 0
+        ? nodes
+        : nodes.map((n) =>
+            selection.has(n.id) ? ({ ...n, data: { ...n.data, selected: true } } as Node) : n,
+          ),
+    [nodes, selection],
+  );
+
+  // A hidden node leaves the Selection, so it does not come back selected
+  // when the filter shows it again.
+  if (status === 'ready' && [...selection].some((id) => !byId[id])) {
+    setSelection(new Set([...selection].filter((id) => byId[id])));
+  }
+  const selected = [...selection].flatMap((id) => byId[id] ?? []);
+
+  useEffect(() => {
+    if (selection.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // The panel handles its own Esc. An open offer stops its Esc before here.
+      if ((e.target as Element | null)?.closest?.('[data-testid="panel"]')) return;
+      clearSelection();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selection, clearSelection]);
 
   const expanded: Expanded | null = expandedNodeId
     ? { kind: 'node', id: expandedNodeId }
@@ -219,12 +264,38 @@ export function Canvas() {
   }, [status, expandedNodeId, expandedWorktreeId, byId, boxes, collapse]);
 
   const onNodeClick = useCallback(
-    (_: unknown, node: Node) => {
-      // A click on a lane, a zone or a box is a click outside the card.
-      if (node.type === 'task') open(cardOf((node as TaskFlowNode).data.node));
-      else collapse();
+    (event: MouseEvent, node: Node) => {
+      // A click on a lane, a zone or a box is a click outside the card. A
+      // Shift-click there is a near miss of a node, so it keeps the Selection.
+      if (node.type !== 'task') {
+        if (event.shiftKey) return;
+        clearSelection();
+        collapse();
+        return;
+      }
+      const graphNode = (node as TaskFlowNode).data.node;
+      if (!event.shiftKey) {
+        clearSelection();
+        open(cardOf(graphNode));
+        return;
+      }
+      // An opening node is an operation's stand-in, with nothing a bulk action can act on.
+      if (graphNode.kind === 'opening') return;
+      // The open card's node is the one the user was looking at, so it joins first.
+      const card = expandedNodeId ? byId[expandedNodeId] : undefined;
+      const joins = card && card.kind !== 'opening' && card.id !== graphNode.id ? card.id : null;
+      // From the latest Selection: two clicks can land before a render.
+      setBulkFailure(null);
+      setSelection((prev) => {
+        const next = new Set(prev);
+        if (next.size === 0 && joins) next.add(joins);
+        if (!next.delete(graphNode.id)) next.add(graphNode.id);
+        return next;
+      });
+      // The card would cover the nodes the bar acts on.
+      if (expandedNodeId || expandedWorktreeId) collapse();
     },
-    [open, collapse],
+    [open, collapse, clearSelection, expandedNodeId, expandedWorktreeId, byId],
   );
 
   // Direction is followed -> follower, the way `deriveGraph` builds an edge,
@@ -284,8 +355,20 @@ export function Canvas() {
           </AppButton>
         </div>
       )}
+      {(selected.length >= 2 || (bulkFailure && selected.length > 0)) && (
+        <SelectionBar
+          nodes={selected}
+          failure={bulkFailure}
+          // A node selected during the run stays selected.
+          onDone={(done, failure) => {
+            setSelection((prev) => new Set([...prev].filter((id) => !done.includes(id))));
+            setBulkFailure(failure);
+          }}
+          onClear={clearSelection}
+        />
+      )}
       <ReactFlow
-        nodes={nodes}
+        nodes={flowNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
@@ -296,8 +379,15 @@ export function Canvas() {
         isValidConnection={canConnect}
         onNodeClick={onNodeClick}
         onEdgeClick={() => collapse()}
-        onPaneClick={() => collapse()}
+        onPaneClick={() => {
+          clearSelection();
+          collapse();
+        }}
         elementsSelectable
+        // Shift is the canvas **Selection**: the nodes are controlled, so
+        // React Flow's own box and Meta selection would select nothing.
+        selectionKeyCode={null}
+        multiSelectionKeyCode={null}
         // Its window listener cancels Space app-wide, so no pane scrolled with it.
         // Drag pans already.
         panActivationKeyCode={null}
