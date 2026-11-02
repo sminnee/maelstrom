@@ -47,6 +47,9 @@ and holds the result to a golden under `lib/domain/fixtures/normalised/`. That t
 `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py` re-records them, so a
 normaliser change is a deliberate re-record and never a silent drift.
 
+Codex app-server notifications use the same normaliser and transcript surfaces. See
+[codex-app-server-events.md](codex-app-server-events.md).
+
 The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py` are
 a hand port of `orchestrator-ui/src/session/toolCards.ts`, which renders in the browser and stays
 the reference. `orchestrator-ui/fixtures/tool-cards.json` records what it makes of each tool;

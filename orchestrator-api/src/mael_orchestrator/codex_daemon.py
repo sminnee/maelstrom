@@ -25,6 +25,8 @@ class CodexRpcClient(Protocol):
 
     def incoming(self) -> AsyncIterator[dict[str, Any]]: ...
 
+    async def respond(self, request_id: str | int, result: Any) -> None: ...
+
 
 @dataclass
 class CodexDaemonClient(AsyncDaemonClient):
@@ -42,6 +44,9 @@ class CodexDaemonClient(AsyncDaemonClient):
         default_factory=dict, init=False
     )
     _reader: asyncio.Task[None] | None = field(default=None, init=False)
+    _pending: dict[str, dict[str, dict[str, Any]]] = field(
+        default_factory=dict, init=False
+    )
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Apply one orchestrator command to a Codex thread."""
@@ -56,6 +61,8 @@ class CodexDaemonClient(AsyncDaemonClient):
             return await self._interrupt(payload)
         if command == "stop":
             return await self._stop(payload)
+        if command in {"approve", "deny"}:
+            return await self._decide(payload, command)
         return {"ok": False, "error": f"Codex does not support {command!r}."}
 
     def attach(
@@ -162,6 +169,7 @@ class CodexDaemonClient(AsyncDaemonClient):
             return {"ok": False, "error": f"no such agent: {thread_id}"}
         await self.bridge.request("thread/unsubscribe", {"threadId": thread_id})
         self._rows.pop(thread_id)
+        self._pending.pop(thread_id, None)
         for queue in self._queues.get(thread_id, []):
             queue.put_nowait(None)
         return {"ok": True}
@@ -175,10 +183,8 @@ class CodexDaemonClient(AsyncDaemonClient):
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._queues.setdefault(agent_id, []).append(queue)
         try:
-            yield {
-                "type": AGENT_DETAIL,
-                "agent": {"request_id": "", "waiting_tool": ""},
-            }
+            pending = next(iter(self._pending.get(agent_id, {}).values()), None)
+            yield {"type": AGENT_DETAIL, "agent": _detail_fields(pending)}
             yield {"type": BACKLOG_END, "epoch": f"codex-{agent_id}", "seq": 0}
             while event := await queue.get():
                 yield event
@@ -198,17 +204,74 @@ class CodexDaemonClient(AsyncDaemonClient):
             if thread_id not in self._rows:
                 continue
             method = str(message.get("method", ""))
-            if method == "turn/started":
+            request_id = message.get("id")
+            if request_id is not None and method.endswith("/requestApproval"):
+                request = _approval_request(request_id, method, params)
+                self._pending.setdefault(thread_id, {})[str(request_id)] = {
+                    "rpc_id": request_id,
+                    **request,
+                }
+                self._rows[thread_id]["turn_id"] = str(params.get("turnId") or "")
+                self._rows[thread_id]["state"] = "awaiting-permission"
+                self._rows[thread_id]["waiting_on"] = request["description"]
+                event = {
+                    "type": "control_request",
+                    "request_id": str(request_id),
+                    "request": {
+                        "subtype": "can_use_tool",
+                        "tool_use_id": request["tool_use_id"],
+                        "tool_name": request["tool_name"],
+                        "input": request["input"],
+                        "description": request["description"],
+                    },
+                }
+            elif method == "turn/started":
                 turn = params.get("turn")
                 if isinstance(turn, dict):
                     self._rows[thread_id]["turn_id"] = str(turn.get("id", ""))
                 self._rows[thread_id]["state"] = "processing"
+                event = {"type": "codex_raw", "method": method, "params": params}
             elif method == "turn/completed":
                 self._rows[thread_id]["state"] = "idle"
                 self._rows[thread_id]["turn_id"] = ""
-            event = {"type": "codex_raw", "method": method, "params": params}
+                event = {"type": "codex_raw", "method": method, "params": params}
+            else:
+                event = {"type": "codex_raw", "method": method, "params": params}
             for queue in self._queues.get(thread_id, []):
                 queue.put_nowait(event)
+
+    async def _decide(self, payload: dict[str, Any], command: str) -> dict[str, Any]:
+        thread_id = str(payload.get("id", ""))
+        request_id = str(payload.get("request", ""))
+        pending = self._pending.get(thread_id, {}).get(request_id)
+        if pending is None:
+            return {"ok": False, "error": f"no such request: {request_id}"}
+        allowed = command == "approve"
+        await self.bridge.respond(
+            pending["rpc_id"], {"decision": "accept" if allowed else "decline"}
+        )
+        self._pending[thread_id].pop(request_id)
+        row = self._rows[thread_id]
+        still_pending = next(iter(self._pending.get(thread_id, {}).values()), None)
+        if still_pending:
+            row["state"] = "awaiting-permission"
+        else:
+            row["state"] = "processing" if row.get("turn_id") else "idle"
+        row["waiting_on"] = still_pending["description"] if still_pending else ""
+        response: dict[str, Any] = {"behavior": "allow" if allowed else "deny"}
+        if not allowed:
+            response["message"] = str(payload.get("reason") or "Denied by user")
+        event = {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": response,
+            },
+        }
+        for queue in self._queues.get(thread_id, []):
+            queue.put_nowait(event)
+        return {"ok": True}
 
 
 def _codex_reference(value: str, mode: str) -> ModelReference:
@@ -251,3 +314,39 @@ def _thread_id(params: dict[str, Any]) -> str:
         return str(value)
     thread = params.get("thread")
     return str(thread.get("id", "")) if isinstance(thread, dict) else ""
+
+
+def _approval_request(
+    request_id: str | int, method: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    command = method == "item/commandExecution/requestApproval"
+    tool = "Bash" if command else "Edit"
+    if command:
+        tool_input = {
+            "command": str(params.get("command") or ""),
+            "cwd": str(params.get("cwd") or ""),
+        }
+    else:
+        tool_input = {
+            key: value
+            for key, value in params.items()
+            if key not in {"threadId", "turnId", "itemId", "reason"}
+        }
+    return {
+        "request_id": str(request_id),
+        "tool_use_id": str(params.get("itemId") or ""),
+        "tool_name": tool,
+        "input": tool_input,
+        "description": str(params.get("reason") or f"Codex {tool} request"),
+    }
+
+
+def _detail_fields(pending: dict[str, Any] | None) -> dict[str, Any]:
+    if pending is None:
+        return {"request_id": "", "waiting_tool": ""}
+    return {
+        "request_id": pending["request_id"],
+        "waiting_tool": pending["tool_name"],
+        "waiting_input": pending["input"],
+        "waiting_on": pending["description"],
+    }
