@@ -353,6 +353,7 @@ export type OperationKind =
   | 'delete'
   | 'sync'
   | 'merge'
+  // No command starts one; `state.db` keeps earlier ones, and the console lists them.
   | 'autoMerge'
   | 'env'
   | 'dismiss'

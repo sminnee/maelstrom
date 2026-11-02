@@ -71,11 +71,23 @@ export function useMergePullRequest() {
   );
 }
 
-/** Turn **Auto-merge** on or off for a worktree's pull request, as an operation. */
+/**
+ * Turn **Auto-merge** on or off for a worktree's pull request. Resolves once the
+ * refetched row is in the cache, so the switch spins until it reads the new state.
+ */
 export function useSetAutoMerge() {
-  return useStartOperation((api, vars: { worktreeId: WorktreeId; on: boolean }) =>
-    api.post<OperationStarted>(worktreeUrl(vars.worktreeId, 'auto-merge'), { on: vars.on }),
-  );
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { worktreeId: WorktreeId; on: boolean }) =>
+      api.post<{ on: boolean }>(
+        worktreeUrl(vars.worktreeId, 'auto-merge'),
+        { on: vars.on },
+        { timeoutMs: SLOW_CALL_TIMEOUT_MS },
+      ),
+    // Returned, not voided: the mutation settles after the refetch.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.worktrees() }),
+  });
 }
 
 /**
