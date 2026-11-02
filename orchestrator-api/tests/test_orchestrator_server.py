@@ -29,6 +29,7 @@ from mael_daemon.agent_model import (
     build_agent_row,
 )
 from mael_domain import comms as comms_model
+from mael_domain import operations as operations_model
 from mael_domain import task as model
 from mael_domain.comm_store import (
     CommItem,
@@ -56,7 +57,7 @@ from mael_domain.landing import (
     tracked_tasks,
 )
 from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
-from mael_domain.operation_store import InMemoryOperationStore
+from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
 from mael_domain.session_discovery import LiveSessionSet
@@ -8784,40 +8785,73 @@ def _give_alpha_a_waiting_pr(harness, **over) -> None:
     )
 
 
-def _record_auto_merge(harness) -> list[tuple[str, str, str, bool]]:
-    """Give the source an auto-merge that records what it was asked."""
+def _record_auto_merge(
+    harness, written: asyncio.Event | None = None
+) -> list[tuple[str, str, str, bool]]:
+    """Give the source an auto-merge that records what it was asked.
+
+    It writes the new state on the source's row, as GitHub holds it once the
+    call returns, so the next read carries it. ``written`` is set after.
+    """
     asked: list[tuple[str, str, str, bool]] = []
 
     async def auto_merge(project: str, branch: str, path: str, on: bool) -> None:
         asked.append((project, branch, path, on))
+        harness.worktrees.worktrees[0]["prAutoMerge"] = on
+        if written is not None:
+            written.set()
 
     harness.worktrees.auto_merge = auto_merge
     return asked
 
 
-@pytest.mark.parametrize(
-    ("on", "words"),
-    [
-        (True, "Turned on auto-merge for the pull request of alpha"),
-        (False, "Turned off auto-merge for the pull request of alpha"),
-    ],
-)
-def test_auto_merge_asks_the_source_and_refreshes_the_world(harness, on, words):
+@pytest.mark.parametrize("on", [True, False])
+def test_auto_merge_answers_once_the_world_holds_the_new_state(harness, on):
     asked = _record_auto_merge(harness)
     _give_alpha_a_waiting_pr(harness, prAutoMerge=not on)
 
     async def scenario():
         async with harness.client() as api:
-            settled = harness.worktrees.reads
-            op = await operated(
-                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": on}
+            reply = await api.post(
+                "/api/worktrees/northwind-alpha/auto-merge", {"on": on}
             )
-            return op, harness.worktrees.reads > settled
+            operations = await api.get_json("/api/operations")
+            return reply, _alpha(harness)["prAutoMerge"], operations
 
-    op, reread = run(scenario())
-    assert (op["state"], op["kind"], op["words"]) == ("done", "autoMerge", words)
+    reply, held, operations = run(scenario())
+    assert (reply.status, reply.body) == (200, {"on": on})
+    assert held is on
     assert asked == [(PROJECT, "feat/orders", WORKTREE_PATH, on)]
-    assert reread
+    # A plain command: nothing for the console to list.
+    assert operations["operations"] == []
+
+
+def test_auto_merge_waits_out_a_read_that_took_its_rows_before_the_write(harness):
+    """The poll read in flight saw the PR before the write. Answering when it
+    lands would leave the switch showing the old state until the next poll."""
+    written = asyncio.Event()
+    _record_auto_merge(harness, written)
+    _give_alpha_a_waiting_pr(harness, prAutoMerge=False)
+
+    async def scenario():
+        async with harness.client() as api:
+            taken = _use_stale_read(harness)
+            in_flight = asyncio.create_task(harness.orch.refresh_worktrees())
+            await taken.wait()
+            command = asyncio.create_task(
+                api.post("/api/worktrees/northwind-alpha/auto-merge", {"on": True})
+            )
+            await written.wait()
+            waited = not command.done()
+            harness.worktrees.blocked_on.set()
+            await in_flight
+            reply = await command
+            return reply, waited, _alpha(harness)["prAutoMerge"]
+
+    reply, waited, held = run(scenario())
+    assert waited
+    assert (reply.status, reply.body) == (200, {"on": True})
+    assert held is True
 
 
 @pytest.mark.parametrize(
@@ -8863,17 +8897,30 @@ def test_auto_merge_turns_off_in_any_open_state(harness, pr):
 
     async def scenario():
         async with harness.client() as api:
-            return await operated(
-                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": False}
+            return await api.post(
+                "/api/worktrees/northwind-alpha/auto-merge", {"on": False}
             )
 
-    assert run(scenario())["state"] == "done"
+    assert run(scenario()).status == 200
     assert [on for *_, on in asked] == [False]
 
 
-def test_a_refused_auto_merge_says_what_github_said_and_still_refreshes(harness):
+@pytest.mark.parametrize(
+    ("raised", "said"),
+    [
+        (
+            CloseBlocked("Auto merge is not allowed for this repository"),
+            "Auto merge is not allowed for this repository",
+        ),
+        (
+            RuntimeError("gh timed out"),
+            "Could not change auto-merge on the pull request: gh timed out",
+        ),
+    ],
+)
+def test_a_refused_auto_merge_says_why_and_still_refreshes(harness, raised, said):
     async def auto_merge(project: str, branch: str, path: str, on: bool) -> None:
-        raise CloseBlocked("Auto merge is not allowed for this repository")
+        raise raised
 
     harness.worktrees.auto_merge = auto_merge
     _give_alpha_a_waiting_pr(harness)
@@ -8881,15 +8928,45 @@ def test_a_refused_auto_merge_says_what_github_said_and_still_refreshes(harness)
     async def scenario():
         async with harness.client() as api:
             settled = harness.worktrees.reads
-            op = await operated(
-                api, "/api/worktrees/northwind-alpha/auto-merge", {"on": True}
+            reply = await api.post(
+                "/api/worktrees/northwind-alpha/auto-merge", {"on": True}
             )
-            return op, harness.worktrees.reads > settled
+            return reply, harness.worktrees.reads > settled
 
-    op, reread = run(scenario())
-    assert op["state"] == "refused"
-    assert "Auto merge is not allowed" in op["words"]
+    reply, reread = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["message"] == said
     assert reread
+
+
+def test_a_stored_auto_merge_operation_is_not_retried(store):
+    """Auto-merge ran as an operation once; `state.db` still holds those."""
+    operations = InMemoryOperationStore()
+    op = operations_model.finish(
+        operations_model.new_operation(
+            "op1", "autoMerge", "northwind-alpha", "Turning on auto-merge", NOW
+        ),
+        "refused",
+        "Auto merge is not allowed",
+        NOW,
+    )
+    command = {
+        "type": "worktree.autoMerge",
+        "worktreeId": "northwind-alpha",
+        "on": True,
+    }
+    run(operations.save(OperationRecord(op, {}, command)))
+    harness = Harness(store, operations=operations)
+    _record_auto_merge(harness)
+    _give_alpha_a_waiting_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/operations/op1/retry")
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "no longer runs as an operation" in reply.body["error"]["message"]
 
 
 def test_a_server_that_cannot_auto_merge_says_so(harness):

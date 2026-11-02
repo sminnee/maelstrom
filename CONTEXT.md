@@ -691,7 +691,7 @@ _Avoid_: Generation, run id, session
 
 **Operation**:
 One slow change to the world that the orchestrator server runs in the background. Its kinds are
-the worktree changes (close, shelve, trash, delete, sync, merge, auto-merge, environment), the agent changes
+the worktree changes (close, shelve, trash, delete, sync, merge, environment), the agent changes
 (**Dismiss**, terminate, resume), and the launch kinds (launch a task, start a free agent, create
 a task, plan a Linear issue). It is a list of **Steps**, each with a state and log lines. It ends
 `done`, **Refused** or `failed`. The state database keeps it, so a reload loses nothing.
