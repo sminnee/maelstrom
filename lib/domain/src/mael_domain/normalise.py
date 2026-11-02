@@ -425,16 +425,7 @@ def normalise_stream_event(
         if not is_child:
             _partial_chunk(out, _dict(raw.get("event")))
     elif kind == "codex_raw":
-        # Codex has a richer event vocabulary than the Claude stream-json
-        # protocol. Keep an unsupported record visible instead of discarding
-        # it while the two formats are brought into parity.
-        out.append(
-            {
-                "type": "raw_event",
-                "method": _str(raw.get("method")),
-                "params": _dict(raw.get("params")),
-            }
-        )
+        _codex_event(out, raw)
     elif kind == "system":
         if raw.get("subtype") == "init":
             session_id = _str(raw.get("session_id"))
@@ -764,6 +755,114 @@ def normalise_stream_event(
         )
 
     return out.done()
+
+
+def _codex_event(out: "_Emitter", raw: Dict) -> None:
+    method = _str(raw.get("method"))
+    params = _dict(raw.get("params"))
+    if method == "item/agentMessage/delta":
+        # Render only completed items; Codex has no shared streaming contract.
+        return
+    if method == "item/started":
+        # Wait for completion; starts would require Codex-only item state.
+        item_type = _str(_dict(params.get("item")).get("type"))
+        if item_type in {
+            "userMessage",
+            "agentMessage",
+            "reasoning",
+            "commandExecution",
+        }:
+            return
+    if method == "item/completed":
+        item = _dict(params.get("item"))
+        item_type = _str(item.get("type"))
+        if item_type == "userMessage":
+            if text := _codex_text(item.get("content")):
+                out.append({"type": "message", "role": "user", "markdown": text})
+            return
+        if item_type == "agentMessage":
+            if text := _str(item.get("text")):
+                out.append({"type": "message", "role": "assistant", "markdown": text})
+                out.ctx = replace(out.ctx, last_assistant_text=text)
+                out.agent(
+                    {
+                        "lastMessage": _one_line(
+                            _USER_ATTENTION_TAG.sub("", text).strip()
+                        ),
+                        "lastMessageAt": out.event_ts or out.now,
+                    }
+                )
+            return
+        if item_type == "reasoning":
+            text = _codex_text([item.get("summary"), item.get("content")])
+            if text:
+                out.append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "markdown": f"<user-attention low>\n{text}",
+                    }
+                )
+            return
+        if item_type == "commandExecution":
+            out.append(
+                {
+                    "type": "tool_call",
+                    "toolUseId": _str(item.get("id")),
+                    "tool": "Bash",
+                    "input": {
+                        "command": _str(item.get("command")),
+                        "cwd": _str(item.get("cwd")),
+                    },
+                    "status": _codex_command_status(item),
+                    "output": _str(item.get("aggregatedOutput")),
+                }
+            )
+            return
+
+    if method == "turn/started":
+        out.ctx = replace(out.ctx, turn_ended=False)
+        out.agent({"state": "processing"})
+    elif method == "turn/completed":
+        out.ctx = replace(out.ctx, turn_ended=True)
+        out.agent(
+            {
+                "state": (
+                    "awaiting-permission"
+                    if out.ctx.pending
+                    else _state_after_turn(out.ctx)
+                )
+            }
+        )
+
+    # Preserve unsupported notifications for Session diagnostics.
+    out.append({"type": "raw_event", "method": method, "params": params})
+
+
+def _codex_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        return _codex_text(value.get("text"))
+    if isinstance(value, list):
+        return "\n\n".join(part for entry in value if (part := _codex_text(entry)))
+    return ""
+
+
+def _codex_command_status(item: Dict) -> str:
+    status = _str(item.get("status"))
+    if status in {"inProgress", "running"}:
+        return "running"
+    if status in {"declined", "denied"}:
+        return "denied"
+    exit_code = item.get("exitCode")
+    if status in {"failed", "error"} or (
+        isinstance(exit_code, int)
+        and not isinstance(exit_code, bool)
+        and exit_code != 0
+    ):
+        return "error"
+    return "done"
 
 
 def _partial_chunk(out: "_Emitter", chunk: Dict) -> None:
