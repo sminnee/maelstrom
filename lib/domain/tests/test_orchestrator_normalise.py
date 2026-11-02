@@ -218,7 +218,124 @@ def types(replayed: Replayed) -> list[str]:
     return [item["type"] for item in replayed.items]
 
 
-def test_codex_event_is_a_raw_transcript_fallback() -> None:
+def test_codex_items_reach_the_session_transcript_boundary() -> None:
+    replayed = Replayed(seed([make_agent(id="ag1")]))
+    ctx = context_for_agent("ag1")
+    notifications = [
+        {
+            "type": "codex_raw",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "user-1",
+                    "type": "userMessage",
+                    "content": [{"type": "text", "text": "Inspect the worktree."}],
+                },
+            },
+        },
+        {
+            "type": "codex_raw",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "reasoning-1",
+                    "type": "reasoning",
+                    "summary": ["I need the current branch."],
+                    "content": [],
+                },
+            },
+        },
+        {
+            "type": "codex_raw",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "command-1",
+                    "type": "commandExecution",
+                    "command": "git status --short",
+                    "cwd": "/worktree",
+                    "status": "completed",
+                    "aggregatedOutput": " M app.py\n",
+                    "exitCode": 0,
+                    "durationMs": 0,
+                },
+            },
+        },
+        {
+            "type": "codex_raw",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "id": "agent-1",
+                    "type": "agentMessage",
+                    "text": "The worktree has one dirty file.",
+                    "phase": "final_answer",
+                },
+            },
+        },
+        {
+            "type": "codex_raw",
+            "method": "thread/tokenUsage/updated",
+            "params": {"threadId": "thread-1", "tokenUsage": {"total": 42}},
+        },
+    ]
+
+    for raw in notifications:
+        out = normalise_stream_event(replayed.state, ctx, raw, NOW)
+        ctx = out.ctx
+        replayed.take(out.events)
+
+    assert replayed.items == [
+        {
+            "type": "message",
+            "role": "user",
+            "markdown": "Inspect the worktree.",
+            "id": "ag1-1",
+            "ts": NOW,
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "markdown": "<user-attention low>\nI need the current branch.",
+            "id": "ag1-2",
+            "ts": NOW,
+        },
+        {
+            "type": "tool_call",
+            "toolUseId": "command-1",
+            "tool": "Bash",
+            "input": {"command": "git status --short", "cwd": "/worktree"},
+            "status": "done",
+            "output": " M app.py\n",
+            "id": "ag1-3",
+            "ts": NOW,
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "markdown": "The worktree has one dirty file.",
+            "id": "ag1-4",
+            "ts": NOW,
+        },
+        {
+            "type": "raw_event",
+            "method": "thread/tokenUsage/updated",
+            "params": {"threadId": "thread-1", "tokenUsage": {"total": 42}},
+            "id": "ag1-5",
+            "ts": NOW,
+        },
+    ]
+
+
+def test_codex_agent_message_deltas_do_not_make_a_streaming_message() -> None:
     state = seed([make_agent(id="ag1")])
 
     out = normalise_stream_event(
@@ -226,22 +343,74 @@ def test_codex_event_is_a_raw_transcript_fallback() -> None:
         context_for_agent("ag1"),
         {
             "type": "codex_raw",
-            "method": "item/started",
-            "params": {"threadId": "thread-1", "item": {"type": "agentMessage"}},
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "itemId": "agent-1",
+                "delta": "Still writing",
+            },
         },
         NOW,
     )
 
-    assert out.events[0]["item"] == {
-        "type": "raw_event",
-        "method": "item/started",
-        "params": {
-            "threadId": "thread-1",
-            "item": {"type": "agentMessage"},
+    assert out.events == []
+
+
+def test_codex_turn_lifecycle_updates_activity_and_keeps_raw_events() -> None:
+    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
+    ctx = context_for_agent("ag1")
+    states = []
+
+    for method in ("turn/started", "turn/completed"):
+        out = normalise_stream_event(
+            replayed.state,
+            ctx,
+            {
+                "type": "codex_raw",
+                "method": method,
+                "params": {"threadId": "thread-1", "turnId": "turn-1"},
+            },
+            NOW,
+        )
+        ctx = out.ctx
+        replayed.take(out.events)
+        states.append(replayed.state["world"]["agents"]["ag1"]["state"])
+
+    assert states == ["processing", "idle"]
+    assert [item["method"] for item in replayed.items] == [
+        "turn/started",
+        "turn/completed",
+    ]
+    assert replayed.state["world"]["agents"]["ag1"]["state"] == "idle"
+
+
+def test_a_failed_codex_command_is_an_error_tool_call() -> None:
+    replayed = Replayed(seed([make_agent(id="ag1")]))
+
+    out = normalise_stream_event(
+        replayed.state,
+        context_for_agent("ag1"),
+        {
+            "type": "codex_raw",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "item": {
+                    "id": "command-1",
+                    "type": "commandExecution",
+                    "command": "false",
+                    "status": "completed",
+                    "aggregatedOutput": "failed\n",
+                    "exitCode": 1,
+                },
+            },
         },
-        "id": "ag1-1",
-        "ts": NOW,
-    }
+        NOW,
+    )
+    replayed.take(out.events)
+
+    assert replayed.items[0]["status"] == "error"
 
 
 def agent_of(replayed: Replayed) -> dict:
