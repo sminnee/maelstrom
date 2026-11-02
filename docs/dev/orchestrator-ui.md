@@ -155,7 +155,9 @@ with the result, or rejects with an `ApiError` carrying the code. On success the
 invalidates the keys the command touched; the change notice invalidates them again a moment
 later, so the screen is right while the stream reconnects too. `useCreateWorktreeTerminal` is
 the exception: it writes its reply into the cached worktree, so its control turns into a link
-before the notice arrives. A command that starts an **Operation** answers `202` at once, and
+before the notice arrives. `useSetAutoMerge` waits for the new state: the server answers once its
+world holds it, and the hook awaits the worktrees refetch, so the switch spins until it reads the
+change. A command that starts an **Operation** answers `202` at once, and
 its hook resolves on the `202`. The worktree hooks, `useStop`, `useResume` and `useDismiss` share
 `useStartOperation` in `api/operations.ts`. The launch hooks post on their own. The board and
 the console carry the run.
@@ -781,7 +783,7 @@ card is this area under a header. Both draw the one component, so the two cannot
 
 Each option starts an **Operation**. The route answers at once with the operation's id, and the
 button is at rest again. The `CommandSet` holds the worktree's other controls while the operation
-runs. The row, the card and the strip show its words, and a refusal's words. Sync, Merge, Auto-merge and the
+runs. The row, the card and the strip show its words, and a refusal's words. Sync, Merge and the
 environment controls work the same way. The controls outside a `CommandSet` (the worktree bar,
 the environment tab, the Changes tab's Sync, the session tab's agent controls and the next-step
 chains) are not held while it runs. The fake server runs each step on a timer: a second in the

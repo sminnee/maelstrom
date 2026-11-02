@@ -276,6 +276,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Fixed
 
+- **The Auto-merge switch shows its new state when it stops spinning.** It could show the old
+  state for up to a minute after the click. A refused change shows "Failed" with GitHub's
+  message. Auto-merge changes no longer appear in the console.
 - **A fail-fast gate job that fails tells the agent `gate.failed`.** Tangier ends such a job
   `cancelled`, so the agent got `gate.cancelled` and did not learn which gate failed. Now a
   cancelled job with a failed gate is `gate.failed`. The failure and cancel bodies also name the

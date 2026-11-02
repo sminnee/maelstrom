@@ -1679,17 +1679,9 @@ function command(
         `The local branch differs from PR #${worktree.prNumber}. Sync it first.`,
       );
     }
-    const word = on ? 'on' : 'off';
-    return operate({
-      kind: 'autoMerge',
-      worktreeId: id,
-      keys: [`worktree:${id}`],
-      project: worktree.project,
-      doing: `Turning ${word} auto-merge for the pull request of ${worktree.nato}`,
-      done: `Turned ${word} auto-merge for the pull request of ${worktree.nato}`,
-      failing: 'Could not change auto-merge on the pull request',
-      steps: [{ name: 'auto_merge', run: () => moveWorktree(id, { prAutoMerge: on }) }],
-    });
+    // A plain command: the real server answers once its world holds the change.
+    moveWorktree(id, { prAutoMerge: on });
+    return ok({ on });
   }
 
   m = pathname.match(/^\/api\/operations\/([^/]+)\/seen$/);
