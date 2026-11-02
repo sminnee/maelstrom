@@ -15,10 +15,13 @@ import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { StepMeter } from '../ui/StepMeter';
 import styles from './TaskNode.module.css';
 
-export type TaskFlowNode = Node<{ node: GraphNode; focused: boolean; expanded: boolean }, 'task'>;
+export type TaskFlowNode = Node<
+  { node: GraphNode; focused: boolean; expanded: boolean; selected: boolean },
+  'task'
+>;
 
 export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
-  const { node, focused, expanded } = data;
+  const { node, focused, expanded, selected } = data;
   const { open } = useCard();
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   // One query, not the whole world: a node draws for every task on the desk.
@@ -36,6 +39,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       data-state={node.progress.state}
       data-focused={focused || undefined}
       data-expanded={expanded || undefined}
+      data-selected={selected || undefined}
       data-operation={op?.state}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />

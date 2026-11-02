@@ -1210,6 +1210,19 @@ node card's end-of-work control. The server runs it as one `dismiss` **Operation
 **Refused** on a branch whose PR is not merged yet, and the node stays on the desk.
 _Avoid_: Done, Finish, Remove
 
+**Selection**:
+The nodes of the Desk canvas the user has Shift-clicked, for one **Bulk bar** action. Task and
+free-agent nodes join it; an **Opening node** and a worktree box do not. A plain click, Esc, a
+click on the canvas or Clear empties it. It is view state, lost on a reload, and holds drawn nodes
+only: a node a filter hides leaves it.
+_Avoid_: Grid, multi-select
+
+**Bulk bar**:
+The bar that applies one action to many items: the ticked task list rows, or the canvas
+**Selection** of two or more nodes. Each action runs on the items it fits and skips the rest. A
+refused item stays picked.
+_Avoid_: Ribbon, batch bar
+
 **Opening node**:
 A node that stands for work an **Operation** is starting before its agent or task exists: a
 free agent's start, or a Linear plan. It draws in its project's lane, hatched, with the

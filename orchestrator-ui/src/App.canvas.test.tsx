@@ -761,3 +761,225 @@ describe('grouping and filters', () => {
     await waitFor(() => expect(boxes(true)).toEqual(['northwind-charlie']));
   });
 });
+
+describe('selection', () => {
+  const bar = () => screen.queryByRole('region', { name: 'Bulk actions' });
+  const shiftClick = (taskId: string) => fireEvent.click(nodeEl(taskId)!, { shiftKey: true });
+  const selected = () =>
+    [...document.querySelectorAll('[data-selected]')].map((n) => n.getAttribute('data-task-id'));
+
+  it('Shift-click toggles nodes in the selection, and a plain click clears it and expands', async () => {
+    await renderApp();
+    shiftClick('NORT-9.1');
+    expect(selected()).toEqual(['NORT-9.1']);
+    // One node is not a bulk action.
+    expect(bar()).not.toBeInTheDocument();
+    shiftClick('f2c6a9d4');
+    expect(within(bar()!).getByText('2 selected')).toBeInTheDocument();
+    shiftClick('NORT-9.1');
+    expect(selected()).toEqual(['f2c6a9d4']);
+
+    shiftClick('NORT-9.1');
+    clickNode('NORT-7');
+    expect(selected()).toEqual([]);
+    expect(bar()).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument();
+  });
+
+  it('counts two Shift-clicks that land before a render', async () => {
+    await renderApp();
+    act(() => {
+      shiftClick('NORT-9.1');
+      shiftClick('f2c6a9d4');
+    });
+    expect(selected()).toEqual(['NORT-9.1', 'f2c6a9d4']);
+  });
+
+  it('leaves an opening node out, and keeps the Selection on a Shift-click that misses', async () => {
+    const { server } = await renderApp();
+    server.change({ kind: 'operation', ids: ['op9'] }, (w) => {
+      w.operations['op9'] = {
+        id: 'op9',
+        kind: 'start',
+        project: 'northwind',
+        worktreeId: null,
+        taskId: null,
+        agentId: null,
+        words: 'Starting an agent',
+        state: 'running',
+        startedAt: '2026-10-12T10:00:00Z',
+        endedAt: null,
+        seen: false,
+        steps: [],
+      };
+    });
+    await waitFor(() => expect(nodeEl('op:op9')).toBeInTheDocument());
+    shiftClick('NORT-9.1');
+    fireEvent.click(nodeEl('op:op9')!, { shiftKey: true });
+    fireEvent.click(document.querySelector('[data-testid="worktree-box"]')!, { shiftKey: true });
+    expect(selected()).toEqual(['NORT-9.1']);
+  });
+
+  it("Shift-click on the open card's own node selects it once", async () => {
+    await renderApp();
+    clickNode('NORT-7');
+    shiftClick('NORT-7');
+    expect(selected()).toEqual(['NORT-7']);
+  });
+
+  it('Shift-click with a card open selects the expanded node too, and collapses the card', async () => {
+    await renderApp();
+    clickNode('NORT-7');
+    shiftClick('NORT-9.1');
+    expect(selected().sort()).toEqual(['NORT-7', 'NORT-9.1']);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Plan the order export' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('Esc, a pane click and Clear each clear the selection', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const selectTwo = () => {
+      shiftClick('NORT-9.1');
+      shiftClick('f2c6a9d4');
+      expect(selected()).toHaveLength(2);
+    };
+
+    selectTwo();
+    // Esc in the open Comm offer closes the offer alone.
+    await user.click(within(bar()!).getByRole('combobox', { name: 'Comm' }));
+    await user.keyboard('{Escape}');
+    expect(selected()).toHaveLength(2);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(selected()).toEqual([]);
+
+    selectTwo();
+    fireEvent.click(document.querySelector('.react-flow__pane')!);
+    expect(selected()).toEqual([]);
+
+    selectTwo();
+    await user.click(within(bar()!).getByRole('button', { name: 'Clear' }));
+    expect(selected()).toEqual([]);
+  });
+
+  /** The body of each PATCH the server was sent since `from`, by task. */
+  const patches = (server: FakeServer, from: number) =>
+    server.requests
+      .slice(from)
+      .filter((r) => r.method === 'PATCH')
+      .map((r) => [r.path, r.body]);
+
+  it('sets the status of the selected tasks, and skips a free agent', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    shiftClick('NORT-9.1');
+    shiftClick('f2c6a9d4');
+    const before = server.requests.length;
+
+    await user.selectOptions(
+      within(bar()!).getByRole('combobox', { name: 'Set status' }),
+      'blocked',
+    );
+
+    await waitFor(() => expect(selected()).toEqual([]));
+    expect(commandsSince(server, before)).toEqual(['POST /api/tasks/NORT-9.1/status']);
+  });
+
+  it('links a comm to the selected tasks not yet linked, then unlinks it from each', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'comms' });
+    // NORT-12 feeds c2 already.
+    shiftClick('NORT-12');
+    shiftClick('NORT-9.1');
+    let before = server.requests.length;
+
+    await user.type(within(bar()!).getByRole('combobox', { name: 'Comm' }), 'c2');
+    const link = within(bar()!).getByRole('button', { name: 'Link' });
+    await waitFor(() => expect(link).toBeEnabled());
+    await user.click(link);
+
+    await waitFor(() => expect(selected()).toEqual([]));
+    expect(patches(server, before)).toEqual([['/api/tasks/NORT-9.1', { comms: ['c2'] }]]);
+
+    shiftClick('NORT-12');
+    shiftClick('NORT-9.1');
+    await waitFor(() =>
+      expect(
+        within(bar()!).getByRole('option', { name: 'Refunds retry on their own' }),
+      ).toBeInTheDocument(),
+    );
+    before = server.requests.length;
+    await user.selectOptions(within(bar()!).getByRole('combobox', { name: 'Unlink comm' }), 'c2');
+    await user.click(within(bar()!).getByRole('button', { name: 'Unlink' }));
+
+    await waitFor(() => expect(selected()).toEqual([]));
+    expect(patches(server, before)).toEqual([
+      ['/api/tasks/NORT-12', { comms: [] }],
+      ['/api/tasks/NORT-9.1', { comms: [] }],
+    ]);
+  });
+
+  it('asks before a Dismiss that ends a live agent, and closes a shared worktree once', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // NORT-7 runs in northwind-alpha; NORT-7.1 is on its branch, so in alpha too.
+    shiftClick('NORT-7');
+    shiftClick('NORT-7.1');
+    const before = server.requests.length;
+
+    await user.click(within(bar()!).getByRole('button', { name: 'Dismiss' }));
+    const ask = screen.getByRole('alertdialog', {
+      name: 'Dismiss 2? This terminates 1 running agent.',
+    });
+    expect(commandsSince(server, before)).toEqual([]);
+    await user.click(within(ask).getByRole('button', { name: 'Dismiss them' }));
+
+    await waitFor(() =>
+      expect(commandsSince(server, before)).toEqual([
+        'POST /api/desk/task:NORT-7/dismiss',
+        'POST /api/desk/task:NORT-7.1/dismiss',
+      ]),
+    );
+    expect(dismissBodies(server, before)).toEqual([
+      { chain: 'terminate' },
+      { chain: 'close', worktreeId: 'northwind-alpha' },
+    ]);
+  });
+
+  it('keeps a refused node selected and says why', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/NORT-9\/status/, {
+      status: 400,
+      code: 'invalid',
+      message: 'NORT-9 has a running agent',
+    });
+    shiftClick('NORT-9');
+    shiftClick('NORT-9.1');
+
+    await user.selectOptions(
+      within(bar()!).getByRole('combobox', { name: 'Set status' }),
+      'blocked',
+    );
+
+    // One node is left, but the bar stays to say why.
+    expect(await within(bar()!).findByRole('alert')).toHaveTextContent(
+      'NORT-9 has a running agent',
+    );
+    expect(selected()).toEqual(['NORT-9']);
+  });
+
+  it('drops a node a filter hides from the selection', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    shiftClick('NORT-7');
+    shiftClick('NORT-9.1');
+    await user.selectOptions(screen.getByLabelText('Branch'), 'northwind/feat/orders');
+    await user.selectOptions(screen.getByLabelText('Branch'), '');
+    await waitFor(() => expect(nodeEl('NORT-9.1')).toBeInTheDocument());
+    expect(selected()).toEqual(['NORT-7']);
+  });
+});

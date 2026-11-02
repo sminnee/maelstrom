@@ -168,8 +168,8 @@ on the button that asked, and no view keeps an error of its own. An **Operation*
 mid-run shows on the unit it marks and in the console instead — see "What an operation marks".
 The status picker
 (`ui/StatusPicker.tsx`) is the one row control that is not a button; it shows its own refusal.
-The task list's bulk bar also keeps its own error: a run over many rows can partly fail, and
-"Failed" on one button cannot say which rows or why. The
+Each **Bulk bar** also keeps its own error: a run over many items can partly fail, and
+"Failed" on one button cannot say which items or why. The
 comment and review controls call their mutations, get the server's 501, and read
 "Not implemented yet".
 
@@ -377,6 +377,21 @@ the failed count and the first reason, and keeps only the refused rows ticked. T
 local state in `TaskList`, and holds listed rows only: a row the filter hides is unticked, so the
 bar never acts on a row the user cannot see.
 
+`ui/useBulkRun.ts` holds that run loop, and the canvas **Bulk bar** uses it too. Shift-click puts
+a task or free-agent node in the canvas **Selection**. With two or more selected,
+`canvas/SelectionBar.tsx` floats over the board, top-centre, with four actions:
+
+| Action | Applies to | Skips |
+|---|---|---|
+| Set status | task nodes | free agents; tasks in that status already |
+| Link a comm | task nodes | free agents; tasks linked to it already |
+| Unlink a comm | task nodes linked to it | the rest |
+| Dismiss | task and free-agent nodes | a node with nothing live and no desk entry |
+
+`selectors/bulkTargets.ts` holds these rules. A bulk Dismiss closes each worktree at most once;
+`planDismiss` says which node closes it and why. When the plan terminates a live agent, the
+button asks first and names the count.
+
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
 lane from the worktree it runs in. A `mael add --daemon` session is exactly that: the
@@ -519,6 +534,11 @@ and `blocked` with no agent — the card drops them and the status stands alone.
 keeps them: it has no status control, so there the words are the only reading. A free agent has
 no task, so its card has no status control. Esc, the close button and a click on the canvas
 collapse it — but with the status picker open, Esc closes the picker only.
+
+Shift-click does not expand. It toggles the node in the **Selection**. When a card is open and
+the Selection is empty, the card's node joins first, then the card collapses: it would cover the
+nodes the bar acts on. A plain click empties the Selection, then expands as before. A Shift-click
+on a lane, a zone or a box keeps the Selection. React Flow's own box and Meta selection are off.
 
 The attention chip reads the drawn nodes, so the chip and the canvas show one reading. Its count
 is the number of nodes in state `needs-attention` under the current filters, and a click expands

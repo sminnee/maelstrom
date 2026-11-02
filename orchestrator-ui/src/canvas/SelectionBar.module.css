@@ -1,0 +1,35 @@
+/* Floats over the board, top-centre, where a refused rewire also says so. */
+.bar {
+  position: absolute;
+  z-index: var(--z-card);
+  top: var(--u);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--u);
+  width: max-content;
+  max-width: calc(100% - 2 * var(--u));
+  padding: var(--u-half) var(--u);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-card);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.bar select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+}
+.failure {
+  color: var(--danger);
+}

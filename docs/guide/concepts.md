@@ -158,6 +158,8 @@ A comm has a category and a project. A new comm takes the project its category's
 New task in a comm's editor writes a task linked to it. A task's editor links comms too. The Comm filter shows only the tasks
 linked to one comm, on Desk and Tasks.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
+On Desk, Shift-click several nodes to set their status, link or unlink a comm, or Dismiss them,
+in one action.
 The URL names the view, the open card, the active tab and the filters. Back and Forward move
 through the app, a refresh keeps the screen, and a copied link opens it in another window.
 The console shows the operations the server runs, such as a close, a sync or a merge. A strip at
