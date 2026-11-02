@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { usePutOnDesk, useTakeOffDesk } from '../api/desk';
 import { useSetStatus } from '../api/tasks';
 import { deskIdForTask } from '../protocol/deskId';
@@ -8,7 +7,7 @@ import type { ListRow } from '../selectors/taskList';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { OnDeskIcon } from '../shell/OnDeskIcon';
 import { AppButton } from '../ui/AppButton';
-import { messageOf } from '../ui/useClickLifecycle';
+import { useBulkRun } from '../ui/useBulkRun';
 import styles from './BulkActions.module.css';
 
 /** One change applied to every ticked row of the task list. */
@@ -28,27 +27,17 @@ export function BulkActions({
   const putOnDesk = usePutOnDesk();
   const takeOffDesk = useTakeOffDesk();
   const setStatus = useSetStatus();
-  const [busy, setBusy] = useState(false);
+  const bulk = useBulkRun();
+  const { busy } = bulk;
 
-  // One at a time: each status write re-reads the notebook, and parallel
-  // re-reads race. A refused row does not stop the others.
   const run = async (targets: ListRow[], send: (row: ListRow) => Promise<unknown>) => {
+    const { failed, failure } = await bulk.run(targets, send);
     // A row the run skips is already in the target state, so it is done too.
-    const done = new Set(rows.map((r) => r.task.id));
-    let failed = 0;
-    let why = '';
-    setBusy(true);
-    for (const row of targets) {
-      try {
-        await send(row);
-      } catch (err) {
-        done.delete(row.task.id);
-        failed += 1;
-        why ||= messageOf(err);
-      }
-    }
-    setBusy(false);
-    onDone([...done], failed ? `${failed} of ${targets.length} failed: ${why}` : null);
+    const refused = new Set(failed.map((r) => r.task.id));
+    onDone(
+      rows.map((r) => r.task.id).filter((id) => !refused.has(id)),
+      failure,
+    );
   };
 
   return (
