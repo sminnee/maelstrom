@@ -8629,6 +8629,34 @@ def test_a_server_that_cannot_sync_worktrees_says_so(harness):
     assert "cannot sync worktrees" in reply.body["error"]["message"]
 
 
+def _use_stale_read(harness) -> asyncio.Event:
+    """Make each read take its rows at once, then hold them on ``blocked_on``.
+
+    A read in flight when a write lands so carries the state from before the
+    write, as the real read does with a PR snapshot taken before it. Returns
+    an event set each time a read has taken its rows.
+    """
+    source = harness.worktrees
+    plain = source.read
+    source.blocked_on = asyncio.Event()
+    taken = asyncio.Event()
+
+    async def read(active_branches=None):
+        projects, rows = plain(active_branches)
+        rows = [dict(row) for row in rows]
+        taken.set()
+        assert source.blocked_on is not None
+        await source.blocked_on.wait()
+        return projects, rows
+
+    source.read = read
+    return taken
+
+
+def _alpha(harness) -> dict:
+    return harness.orch.world["worktrees"]["northwind-alpha"]
+
+
 def _give_alpha_a_pr(harness, **over) -> None:
     """Put a ready pull request on the alpha row. Override per case."""
     harness.worktrees.worktrees[0].update(
@@ -8707,6 +8735,34 @@ def test_a_refused_merge_says_what_github_said_and_still_refreshes(harness):
     assert op["state"] == "refused"
     assert "Head branch was modified" in op["words"]
     assert reread
+
+
+def test_a_merge_waits_out_a_read_that_took_its_rows_before_the_merge(harness):
+    merged = asyncio.Event()
+
+    async def merge(project: str, branch: str, path: str) -> None:
+        harness.worktrees.worktrees[0]["prState"] = "merged"
+        merged.set()
+
+    harness.worktrees.merge = merge
+    _give_alpha_a_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            taken = _use_stale_read(harness)
+            in_flight = asyncio.create_task(harness.orch.refresh_worktrees())
+            await taken.wait()
+            op = asyncio.create_task(
+                operated(api, "/api/worktrees/northwind-alpha/merge-pr")
+            )
+            await merged.wait()
+            harness.worktrees.blocked_on.set()
+            await in_flight
+            return await op, _alpha(harness)["prState"]
+
+    op, state = run(scenario())
+    assert op["state"] == "done"
+    assert state == "merged"
 
 
 def test_a_server_that_cannot_merge_pull_requests_says_so(harness):

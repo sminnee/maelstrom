@@ -3702,14 +3702,18 @@ class Orchestrator:
             await self._run(self.worktrees.refresh_prs, project, row["branch"])
             await self.refresh_worktrees(extra_branches={row["branch"]})
 
+        async def merge_refresh() -> None:
+            # A read in flight may hold the PR from before the merge, so this
+            # one waits it out. A refusal means the reading was stale.
+            await self.refresh_worktrees(extra_branches={row["branch"]})
+
         def work(*args: Any) -> Callable[[StepHook], Awaitable[None]]:
             return lambda hook: self._run_worktree_op(
                 fn, project, nato, path, *args, hook=hook
             )
 
         run = work()
-        # A merge or an environment change moves no agent, so it re-reads the
-        # worktrees alone; a merge refusal means the reading was stale.
+        # An environment change moves no agent, so it re-reads the worktrees alone.
         refresh: Callable[[], Awaitable[None]] = self.refresh_worktrees
         if kind in ("worktree.close", "worktree.trash", "worktree.remove"):
             refresh = teardown_refresh
@@ -3719,6 +3723,7 @@ class Orchestrator:
             run, refresh = work(command["mode"]), sync_refresh
         elif kind == "worktree.mergePr":
             subject = f"the pull request of {nato}"
+            refresh = merge_refresh
             run = lambda hook: _github_call_as_a_step(  # noqa: E731
                 "merge_pr", lambda: fn(project, row["branch"], path), hook
             )
