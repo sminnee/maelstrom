@@ -907,7 +907,6 @@ async def _auto_merge_worktree_pr(request: web.Request) -> web.StreamResponse:
             "worktreeId": worktree_id,
             "on": body.get("on"),
         },
-        status=202,
     )
 
 

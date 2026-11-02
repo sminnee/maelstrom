@@ -280,15 +280,6 @@ _OPERATION_COMMANDS: dict[str, tuple[str, str, str, str, str, str]] = {
         "Merged",
         "Could not merge the pull request",
     ),
-    # The words are the direction's: see _AUTO_MERGE_WORDS.
-    "worktree.autoMerge": (
-        "autoMerge",
-        "auto_merge",
-        "This server cannot auto-merge pull requests",
-        "",
-        "",
-        "Could not change auto-merge on the pull request",
-    ),
     # The words are the action's: see _ENV_WORDS.
     "worktree.env": (
         "env",
@@ -317,12 +308,6 @@ def _screenshot(worktree_path: str, name: Any) -> str | None:
         return None
     return str(path) if len(data) <= MAX_BYTES and is_image(data) else None
 
-
-#: What an auto-merge operation reads, by direction: while it runs, and once done.
-_AUTO_MERGE_WORDS = {
-    True: ("Turning on auto-merge for", "Turned on auto-merge for"),
-    False: ("Turning off auto-merge for", "Turned off auto-merge for"),
-}
 
 #: What an environment operation reads, by action: while it runs, and once done.
 _ENV_WORDS = {
@@ -433,7 +418,7 @@ async def _github_call_as_a_step(
 ) -> None:
     """Run one GitHub call on a pull request as an operation of one step.
 
-    A merge or an auto-merge change is one call, not a sequence. It is still a
+    A merge is one call, not a sequence. It is still a
     step, so the console reads it as it reads every other operation.
     """
 
@@ -2320,7 +2305,7 @@ class Orchestrator:
             "worktree.remove": self._operate,
             "worktree.sync": self._operate,
             "worktree.mergePr": self._operate,
-            "worktree.autoMerge": self._operate,
+            "worktree.autoMerge": self._set_auto_merge,
             "worktree.env": self._operate,
             "worktree.createTerminal": self._create_worktree_terminal,
             "worktree.comment": self._comment_on_changes,
@@ -3676,6 +3661,11 @@ class Orchestrator:
         Validation proved the worktree is in the world, so its row is here.
         """
         kind = command["type"]
+        if kind not in _OPERATION_COMMANDS:
+            # A retry of a stored operation whose command is now a plain one.
+            return _refused(
+                "invalid", "This no longer runs as an operation. Use its control again."
+            )
         op_kind, attr, cannot, doing, done, failing = _OPERATION_COMMANDS[kind]
         fn = getattr(self.worktrees, attr)
         if fn is None:
@@ -3726,13 +3716,6 @@ class Orchestrator:
             refresh = merge_refresh
             run = lambda hook: _github_call_as_a_step(  # noqa: E731
                 "merge_pr", lambda: fn(project, row["branch"], path), hook
-            )
-        elif kind == "worktree.autoMerge":
-            subject = f"the pull request of {nato}"
-            on = command["on"]
-            doing, done = _AUTO_MERGE_WORDS[on]
-            run = lambda hook: _github_call_as_a_step(  # noqa: E731
-                "auto_merge", lambda: fn(project, row["branch"], path, on), hook
             )
         elif kind == "worktree.env":
             service = command.get("service")
@@ -3801,6 +3784,42 @@ class Orchestrator:
         if isinstance(plan, dict):
             return plan
         return await self._begin(again, plan, record)
+
+    async def _set_auto_merge(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Turn **Auto-merge** on or off, and answer once the world holds the result.
+
+        A plain command, not an operation: see "Operations" in
+        docs/dev/orchestrator-server.md. The re-read names the branch, so it
+        waits out a read in flight. A refusal re-reads too: the reading was stale.
+        """
+        fn = self.worktrees.auto_merge
+        if fn is None:
+            return _refused("invalid", "This server cannot auto-merge pull requests")
+        worktree_id = command["worktreeId"]
+        # Validation proved the worktree is in the world, so the row is here.
+        row = self.world["worktrees"][worktree_id]
+        branch = row["branch"]
+        refused: dict[str, Any] | None = None
+        try:
+            await self._run_worktree(
+                fn, row["project"], branch, row["path"], command["on"]
+            )
+        except CloseBlocked as exc:
+            refused = _refused("invalid", str(exc))
+        except Exception as exc:  # noqa: BLE001 — the client hears why
+            log.exception("could not change auto-merge for %s", worktree_id)
+            refused = _refused(
+                "invalid", f"Could not change auto-merge on the pull request: {exc}"
+            )
+        try:
+            await self.refresh_worktrees(extra_branches={branch})
+        except Exception:
+            # The write's outcome stands; the reply reads what the world holds.
+            log.exception("the refresh after auto-merge for %s failed", worktree_id)
+        if refused is not None:
+            return refused
+        on = self.world["worktrees"].get(worktree_id, row).get("prAutoMerge")
+        return {"ok": True, "result": {"on": on}}
 
     async def _create_worktree_terminal(
         self, command: dict[str, Any]

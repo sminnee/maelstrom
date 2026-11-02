@@ -803,6 +803,7 @@ also what tells the agent. These paths follow the rule:
 | `mael sync`, `mael sync-all`, `mael tidy-branches` | `tell_pr_changed`, for each branch the command pushed |
 | The server's sync operation | `refresh_prs` after the sync. Every mode pushes |
 | The server's merge and trash | `ListAllWorktreeSource._merge` and `_trash_and_refresh` |
+| The server's auto-merge | `ListAllWorktreeSource._auto_merge` |
 
 A raw `git push` an agent runs is not covered; the poll picks it up.
 
@@ -1260,6 +1261,11 @@ sequence and takes no worktree scope, because it does not touch the checkout.
   that allows **Auto-merge**. To turn it on, the **PR state** must be one that waits, and the
   **PR match** must not be `differ`. Turning it off has no state rule. It runs
   `gh pr merge <n> --auto --rebase --match-head-commit <oid>`, or `--disable-auto`.
+- Auto-merge is a plain command, not an operation (see "Operations"). After the call, the
+  server re-reads the worktrees with the branch named, so the re-read waits out a read in flight
+  (see "A write reads straight away"). It then answers `{on}` from the new row. A refused call
+  re-reads too, and answers `400` with GitHub's words. A retry of an auto-merge operation stored
+  before this rule is refused.
 - The PR read asks `autoMergeRequest` on each PR and `autoMergeAllowed` on the repository. The
   wire carries them as `prAutoMerge` and `prAutoMergeAllowed`.
 - A sync re-reads with the synced branch added to the active branches, so GitHub is asked for
@@ -1271,7 +1277,8 @@ sequence and takes no worktree scope, because it does not touch the checkout.
 - A refused merge logs a WARNING with the `gh` message. A refused sync push blocks the sync. A
   refused push when the UI opens a worktree logs a WARNING, and the launch goes ahead.
 - The merge runs as an operation of one step, `merge_pr`, so the console reads it as it reads
-  the others. It re-reads the worktrees whichever way the merge ends.
+  the others. It re-reads the worktrees with the branch named, whichever way the merge ends, for
+  the same reason as auto-merge.
 
 `worktree.createTerminal` runs the `ensure_terminal` port. It makes the worktree's workspace
 when it is missing, and returns the `cmux://` link to its terminal. The server focuses nothing;
@@ -1286,11 +1293,15 @@ leaves a dead link until the next read; cmux ignores it.
 
 ## Operations
 
-Close, Shelve, Trash, Delete, Sync, Merge, Auto-merge and Environment run as **Operations**
+Close, Shelve, Trash, Delete, Sync, Merge and Environment run as **Operations**
 (`mael_orchestrator/operations.py`), and so do **Dismiss**, Terminate, Resume and the launch
 kinds — see "Launch" and "Creating work". The route validates the command, starts the work as an
 asyncio task, and answers `202` with `{operationId}` at once. Progress reaches the client as
 `operation` change notices. The UI never waits on the HTTP call.
+
+An operation is for work the user watches run. A toggle of state the user is looking at, such as
+**Auto-merge**, is a plain command: the reply waits until the world holds the new state, so the
+control shows the result when it stops spinning.
 
 ```mermaid
 sequenceDiagram
@@ -1658,7 +1669,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/sync` | `mode` | `worktree.sync` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `202 {operationId}` |
-| `POST /api/worktrees/{id}/auto-merge` | `on` | `worktree.autoMerge` | `202 {operationId}` |
+| `POST /api/worktrees/{id}/auto-merge` | `on` | `worktree.autoMerge` | `{on}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
