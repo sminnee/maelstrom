@@ -415,9 +415,10 @@ _Avoid_: job. Claude Code calls it a background task, a word that covers subagen
 UI label "Background tasks working" keeps it.
 
 **Usage window**:
-One rolling budget the Claude account spends against: the five-hour window and the seven-day
-window. Each carries a utilisation and the time it rolls over. The reading arrives on a driven
-agent's stream, so one account spans every agent on the machine and the freshest reading is the
+One rolling budget an agent account spends against: the five-hour window and the seven-day
+window. Each carries a utilisation and the time it rolls over. The Claude account and the Codex
+account each have their own two windows. The reading arrives on a driven agent's stream. So one
+account spans every agent of its harness on the machine, and the freshest reading is the
 machine's. It only arrives while an agent takes a turn, so a quiet desk holds an ageing one —
 a reader that shows it must say how old it is.
 _Avoid_: Rate limit, quota, allowance. **Rate limit** in this codebase means GitHub's, which

@@ -1380,7 +1380,9 @@ class Orchestrator:
             return
         self._host_failures = 0
         self._set_host_reachable(True)
-        self._set_host_usage(host_usage(reply.get("usage")))
+        self._set_host_usage(
+            host_usage(reply.get("usage")), host_usage(reply.get("codex_usage"))
+        )
         rows = {row["id"]: row for row in reply.get("agents", [])}
         agents = self.world["agents"]
         for agent_id, row in rows.items():
@@ -1420,7 +1422,9 @@ class Orchestrator:
         """
         self._set_host(reachable=reachable)
 
-    def _set_host_usage(self, usage: HostUsage | None) -> None:
+    def _set_host_usage(
+        self, usage: HostUsage | None, codex_usage: HostUsage | None
+    ) -> None:
         """Record the account's budget, publishing only a change.
 
         Separate from :meth:`_set_host_reachable` because the two change for
@@ -1428,21 +1432,22 @@ class Orchestrator:
         when the daemon goes. A poll runs every couple of seconds, so a reading
         that has not moved must publish nothing.
         """
-        if usage is None:
-            # A poll that carried no reading is not news that the budget is
-            # gone — only that this listing had nothing to add.
-            return
-        self._set_host(usage=usage)
+        # A poll that carried no reading is not news that the budget is gone —
+        # only that this listing had nothing to add.
+        if usage is not None or codex_usage is not None:
+            self._set_host(usage=usage, codex_usage=codex_usage)
 
     def _set_host(
         self,
         *,
         reachable: bool | None = None,
         usage: HostUsage | None = None,
+        codex_usage: HostUsage | None = None,
     ) -> None:
         """Publish the host entity when a fact on it has changed.
 
-        One writer for both facts, so neither overwrites the other's field.
+        One writer for every fact, so none overwrites another's field. A
+        ``None`` reading keeps the last one.
         ``since`` tracks ``reachable`` alone: it is how long the host has been
         down, and a budget reading arriving must not reset that clock.
         """
@@ -1453,10 +1458,16 @@ class Orchestrator:
         next_usage = (
             (current.get("usage") if current else None) if usage is None else usage
         )
+        next_codex_usage = (
+            (current.get("codexUsage") if current else None)
+            if codex_usage is None
+            else codex_usage
+        )
         if (
             current is not None
             and current["reachable"] == next_reachable
             and current.get("usage") == next_usage
+            and current.get("codexUsage") == next_codex_usage
         ):
             return
         entity: Host = {
@@ -1467,6 +1478,7 @@ class Orchestrator:
             else self.clock(),
             "socket": str(getattr(self.daemon, "socket_path", "")),
             "usage": next_usage,
+            "codexUsage": next_codex_usage,
         }
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 

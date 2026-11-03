@@ -2278,6 +2278,40 @@ def test_an_unchanged_reading_publishes_nothing(harness):
     assert run(scenario()) == 0
 
 
+def test_the_host_carries_the_codex_usage_apart(harness):
+    """A poll without a Codex reading keeps the last one."""
+    harness.daemon.rows["ag1"] = agent_row()
+    reading = {
+        "five_hour": {"utilization": 0.21, "resets_at": 1793698131},
+        "seven_day": {"utilization": 0.31, "resets_at": 1794176534},
+        "at": NOW,
+    }
+    harness.daemon.replies["list"] = [
+        {"agents": [agent_row()], "usage": None, "codex_usage": reading}
+    ]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                first = await api.get_json("/api/host")
+                await harness.orch.refresh_agents()
+                return first, await api.get_json("/api/host")
+
+    first, second = run(scenario())
+    expected = {
+        "fiveHour": {"utilization": 0.21, "resetsAt": 1793698131},
+        "sevenDay": {"utilization": 0.31, "resetsAt": 1794176534},
+        "at": NOW,
+    }
+    assert (
+        first["host"]["usage"],
+        first["host"]["codexUsage"],
+        second["host"]["codexUsage"],
+    ) == (None, expected, expected)
+
+
 def test_a_host_with_no_reading_offers_no_usage(harness):
     """Nothing to report is reported as nothing, so the bar draws no chip
     rather than a confident zero."""
@@ -2290,7 +2324,8 @@ def test_a_host_with_no_reading_offers_no_usage(harness):
                 await harness.orch.refresh_agents()
                 return await api.get_json("/api/host")
 
-    assert run(scenario())["host"]["usage"] is None
+    host = run(scenario())["host"]
+    assert (host["usage"], host["codexUsage"]) == (None, None)
 
 
 def test_one_failed_poll_raises_no_host_notice(harness):

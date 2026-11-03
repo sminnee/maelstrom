@@ -5,6 +5,8 @@ import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import pytest
+
 from mael_agent.agent_wire import AGENT_EXITED, BACKLOG_END, SEQ_KEY, TRUNCATED
 from mael_orchestrator.codex_daemon import CodexDaemonClient
 
@@ -647,3 +649,114 @@ def test_a_thread_that_did_not_resubscribe_is_tried_again():
         return calls_of(bridge, "thread/resume")
 
     assert len(asyncio.run(scenario())) == 2
+
+
+def rate_limits(**snapshot) -> dict:
+    """A Codex ``account/rateLimits/updated``, which names no thread."""
+    return {
+        "method": "account/rateLimits/updated",
+        "params": {"rateLimits": {"limitId": "codex", **snapshot}},
+    }
+
+
+def window(used: int, minutes: int | None, resets: int | None) -> dict:
+    return {"usedPercent": used, "windowDurationMins": minutes, "resetsAt": resets}
+
+
+def usage_after(*messages: dict) -> dict | None:
+    """The ``list`` reply's usage once the adapter has read ``messages``."""
+
+    async def scenario():
+        bridge = ScriptedBridge()
+        daemon = await started(bridge)
+        stream, _ = await attached(daemon)
+        for message in messages:
+            await bridge.incoming_messages.put(message)
+        # A thread event after them shows that the reader has passed them.
+        await bridge.incoming_messages.put(notify("turn/started", turn={"id": "t"}))
+        await anext(stream)
+        await stream.aclose()
+        return (await daemon.request({"cmd": "list"}))["usage"]
+
+    return asyncio.run(scenario())
+
+
+#: Values from a codex-cli 0.154 turn: a 5-hour and a weekly window.
+READING = rate_limits(
+    primary=window(21, 300, 1793698131), secondary=window(31, 10080, 1794176534)
+)
+FIVE_HOUR = {"utilization": 0.21, "resets_at": 1793698131}
+SEVEN_DAY = {"utilization": 0.31, "resets_at": 1794176534}
+
+
+@pytest.mark.parametrize(
+    "messages, expected",
+    [
+        ([], None),
+        ([READING], {"five_hour": FIVE_HOUR, "seven_day": SEVEN_DAY, "at": NOW}),
+        (
+            # Sparse: the window it leaves out keeps its last value.
+            [READING, rate_limits(primary=window(40, 300, 1793699000))],
+            {
+                "five_hour": {"utilization": 0.4, "resets_at": 1793699000},
+                "seven_day": SEVEN_DAY,
+                "at": NOW,
+            },
+        ),
+        (
+            # A window goes by its length, not its slot.
+            [rate_limits(secondary=window(40, 300, 1793699000))],
+            {"five_hour": {"utilization": 0.4, "resets_at": 1793699000}, "at": NOW},
+        ),
+        (
+            # Without a length, by its slot.
+            [
+                rate_limits(
+                    primary=window(5, None, 10), secondary=window(50, None, None)
+                )
+            ],
+            {
+                "five_hour": {"utilization": 0.05, "resets_at": 10},
+                "seven_day": {"utilization": 0.5, "resets_at": None},
+                "at": NOW,
+            },
+        ),
+        (
+            [rate_limits(limitId=None, primary=window(5, 300, 10))],
+            {
+                "five_hour": {"utilization": 0.05, "resets_at": 10},
+                "at": NOW,
+            },
+        ),
+        # Another bucket is not the Codex budget.
+        ([rate_limits(limitId="gpt-image", primary=window(99, 300, 1))], None),
+        # A length no chip measures pace against.
+        ([rate_limits(primary=window(99, 1440, 1))], None),
+    ],
+)
+def test_a_list_reports_the_codex_usage_it_heard(messages, expected):
+    assert usage_after(*messages) == expected
+
+
+def test_an_update_with_no_window_keeps_the_reading_stamp():
+    stamps = iter(["2026-11-03T00:00:00Z", "2026-11-03T05:00:00Z"])
+
+    async def scenario():
+        bridge = ScriptedBridge()
+        daemon = CodexDaemonClient(bridge, clock=lambda: next(stamps, NOW))
+        await daemon.request({"cmd": "start", "cwd": "/worktree", "model": "sol"})
+        stream, _ = await attached(daemon)
+        for message in (
+            READING,
+            rate_limits(primary=None, secondary=None),
+            notify("turn/started", turn={"id": "t"}),
+        ):
+            await bridge.incoming_messages.put(message)
+        await anext(stream)
+        await stream.aclose()
+        return (await daemon.request({"cmd": "list"}))["usage"]
+
+    usage = asyncio.run(scenario())
+
+    assert usage is not None
+    assert usage["at"] == "2026-11-03T00:00:00Z"

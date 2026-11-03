@@ -123,7 +123,11 @@ class DaemonRouter:
             # would be restored live for ever and report `exited` on every poll.
             for agent_id in retiring:
                 await self._end(agent_id, revivable=True)
-            return {"agents": rows, "usage": claude.get("usage")}
+            return {
+                "agents": rows,
+                "usage": claude.get("usage"),
+                "codex_usage": codex.get("usage"),
+            }
         await self._restore()
         try:
             client, harness = self._client_for(

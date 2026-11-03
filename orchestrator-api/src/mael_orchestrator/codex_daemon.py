@@ -107,6 +107,9 @@ class CodexDaemonClient(AsyncDaemonClient):
     _stale: bool = field(default=False, init=False)
     #: One epoch per adapter life: a cursor from another life replays all.
     _epoch: str = field(default_factory=lambda: uuid.uuid4().hex[:8], init=False)
+    #: The account's newest usage reading, in the Claude daemon's
+    #: ``usage`` shape. ``None`` until a turn reports one.
+    _usage: dict[str, Any] | None = field(default=None, init=False)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Apply one orchestrator command to a Codex thread.
@@ -120,7 +123,7 @@ class CodexDaemonClient(AsyncDaemonClient):
             pid = getattr(self.bridge, "pid", None)
             return {
                 "agents": [{**t.row, "pid": pid} for t in self._threads.values()],
-                "usage": None,
+                "usage": self._usage,
             }
         if command in _NO_EQUIVALENT:
             return _error(_NO_EQUIVALENT[command])
@@ -489,6 +492,12 @@ class CodexDaemonClient(AsyncDaemonClient):
         params = message.get("params")
         params = params if isinstance(params, dict) else {}
         request_id = message.get("id")
+        if method == "account/rateLimits/updated":
+            # The account's budget, so it names no thread.
+            self._usage = _merge_usage_windows(
+                self._usage, params.get("rateLimits"), self.clock
+            )
+            return
         thread_id = _thread_id(params)
         thread = self._threads.get(thread_id)
         if request_id is not None and (thread is None or method not in APPROVAL_TOOLS):
@@ -632,6 +641,42 @@ def _follow_row(
             text = str(item.get("text") or "").strip()
             row["last_message"] = text.splitlines()[0][:60] if text else ""
             row["last_message_at"] = clock()
+
+
+#: A Codex usage window's length in minutes, as the Claude window it is.
+_WINDOWS = {300: "five_hour", 10080: "seven_day"}
+
+
+def _merge_usage_windows(
+    usage: dict[str, Any] | None, snapshot: Any, clock: Callable[[], str]
+) -> dict[str, Any] | None:
+    """A Codex ``RateLimitSnapshot``, merged into the last ``usage`` reading.
+
+    See docs/dev/codex-app-server-events.md, "Agent state and usage".
+    """
+    if not isinstance(snapshot, dict) or snapshot.get("limitId") not in (
+        None,
+        "codex",
+    ):
+        return usage
+    windows: dict[str, Any] = {}
+    for slot, fallback in (("primary", "five_hour"), ("secondary", "seven_day")):
+        window = snapshot.get(slot)
+        if not isinstance(window, dict):
+            continue
+        used = window.get("usedPercent")
+        if not isinstance(used, (int, float)) or isinstance(used, bool):
+            continue
+        minutes = window.get("windowDurationMins")
+        key = _WINDOWS.get(minutes) if isinstance(minutes, int) else fallback
+        if key is None:
+            # A length no chip measures pace against.
+            continue
+        windows[key] = {"utilization": used / 100, "resets_at": window.get("resetsAt")}
+    if not windows:
+        # An update with nothing to read must not make the last reading fresh.
+        return usage
+    return {**(usage or {}), **windows, "at": clock()}
 
 
 def _thread_settings(payload: dict[str, Any]) -> dict[str, Any]:

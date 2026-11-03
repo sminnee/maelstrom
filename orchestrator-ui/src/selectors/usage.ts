@@ -9,7 +9,7 @@
  * five-hour window, the working week for the seven-day one — which is why `now`
  * reaches further in than the staleness check.
  */
-import type { Agent, Host, HostUsage } from '../protocol/entities';
+import type { Agent, HostUsage } from '../protocol/entities';
 import { isWorking } from '../protocol/progress';
 import type { ChipTone } from '../protocol/chipTone';
 import type { WorkCalendar } from '../protocol/workCalendar';
@@ -176,9 +176,16 @@ export function isNotable(chip: UsageChip): boolean {
  *
  * `null` rather than a zero: a bar with no chip is honest about knowing
  * nothing, where `0%` would claim a budget nobody has reported.
+ *
+ * `account` names whose budget it is in the title, such as `Codex`. Empty is
+ * the Claude account.
  */
-export function usageChip(host: Host | undefined, key: UsageKey, now: number): UsageChip | null {
-  const usage: HostUsage | null | undefined = host?.usage;
+export function usageChip(
+  usage: HostUsage | null | undefined,
+  key: UsageKey,
+  now: number,
+  account = '',
+): UsageChip | null {
   const window = usage?.[key];
   if (!usage || !window) return null;
   const stale = isStale(usage.at, now);
@@ -191,7 +198,15 @@ export function usageChip(host: Host | undefined, key: UsageKey, now: number): U
     // draw it loud while `stale` holds, so this stays the honest figure.
     tone,
     stale,
-    title: titleFor(NAMES[key], percent, window.resetsAt, usage.at, now, stale, timeLeft),
+    title: titleFor(
+      account ? `${account} ${NAMES[key]}` : NAMES[key],
+      percent,
+      window.resetsAt,
+      usage.at,
+      now,
+      stale,
+      timeLeft,
+    ),
   };
 }
 

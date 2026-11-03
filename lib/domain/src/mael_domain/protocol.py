@@ -700,6 +700,8 @@ class Host(TypedDict):
     socket: str
     #: The account's budget, or ``None`` until a reading arrives.
     usage: HostUsage | None
+    #: The Codex account's budget, or ``None`` until a Codex turn reports one.
+    codexUsage: HostUsage | None
 
 
 class GateState(TypedDict):
