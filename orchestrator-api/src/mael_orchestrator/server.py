@@ -3195,6 +3195,11 @@ class Orchestrator:
         """
 
         async def open_worktree() -> StepOutcome:
+            if holder := self._session_holder(launching.task_id):
+                return StepOutcome(
+                    blocked=f"Task {launching.task_id} already has a live agent, "
+                    f"{holder}. Stop it before relaunching."
+                )
             try:
                 prepared = await self._run(
                     self.tasks.prepare_launch, launching.task_id, model_name
@@ -3239,6 +3244,24 @@ class Orchestrator:
             Step(name="write_env", run=write_env),
             Step(name="start_agent", run=start_agent),
         ]
+
+    def _session_holder(self, task_id: str) -> str:
+        """The live agent that holds ``task_id``'s session, else ``""``.
+
+        The live-session sweep reads the process table, which holds no Codex
+        thread. The host's own rows hold both harnesses.
+        """
+        session = session_id_for(*split_task_key(task_id))
+        return next(
+            (
+                agent["id"]
+                for agent in self.world["agents"].values()
+                if agent["session"] == session
+                and not agent["parent"]
+                and agent["state"] != "exited"
+            ),
+            "",
+        )
 
     async def _run_launch(
         self, steps: list[Step], hook: StepHook, launching: "_Launching"

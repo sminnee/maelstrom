@@ -1561,6 +1561,42 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert [e["id"] for e in desk] == ["task:northwind/NORT-7"]
 
 
+def test_a_launch_of_a_task_whose_session_an_agent_holds_is_refused(harness):
+    """A Codex thread runs in no process the live-session sweep can see, so
+    the agent the host lists for the session is the evidence."""
+    harness.add_task("NORT-7")
+    harness.daemon.rows["thread-1"] = agent_row(
+        "thread-1", session=model.session_id_for(PROJECT, "NORT-7")
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch")
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert "thread-1" in op["words"]
+    assert not any(c["cmd"] == "start" for c in harness.daemon.calls)
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "todo"
+
+
+def test_an_exited_agent_or_a_subagent_on_the_session_does_not_block_a_launch(
+    harness,
+):
+    harness.add_task("NORT-7")
+    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.daemon.rows["thread-1"] = agent_row(
+        "thread-1", session=session, state="exited(0)"
+    )
+    harness.daemon.rows["ag2.1"] = agent_row("ag2.1", session=session, parent="ag2")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch")
+
+    assert run(scenario())["state"] == "done"
+
+
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     harness.add_task("NORT-7")
     harness.daemon.replies["start"] = [

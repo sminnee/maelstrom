@@ -78,8 +78,13 @@ only safe way to change it — see [troubleshooting](troubleshooting.md#renaming
 
 Maelstrom launches the selected agent harness in the right worktree. The default daemon and the
 `claude` harness use a deterministic Claude session id, a task permission mode, and the task
-model. Codex and OpenCode start fresh pane-owned sessions and use their own configured model and
+model. In a pane, Codex and OpenCode start fresh sessions and use their own configured model and
 permissions.
+
+The orchestrator also runs a `codex:*` model as a Codex app-server thread. That thread gets the
+same instructions and markers as a Claude agent, and its relaunch resumes the same thread. Codex
+has no plan review tool, so a Codex plan-mode session shows its plan as a reviewed document. The
+approval ends plan mode.
 
 A task's `mode` decides how a Claude session behaves:
 

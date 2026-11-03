@@ -304,11 +304,13 @@ _Avoid_: Batch, plan bundle
 ## Sessions
 
 **Session**:
-One Claude Code conversation. A session maelstrom launches is tied to exactly one task.
+One Claude Code conversation, or one Codex thread. A session maelstrom launches is tied to exactly
+one task.
 
 **Live session**:
 A session whose `claude` process is currently running, established from the running processes
-themselves rather than from any file. Only a live session stops a task from being re-run.
+themselves rather than from any file. Only a live session, or a live agent the orchestrator holds
+on the task session id, stops a task from being re-run. A Codex thread runs in no such process.
 
 **Stopped session**:
 A session the daemon started whose `claude` process has ended, and which `mael agent resume` or

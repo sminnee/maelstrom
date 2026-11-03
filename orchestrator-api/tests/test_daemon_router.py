@@ -252,6 +252,7 @@ def test_a_stored_agent_reads_as_exited_only_once_it_is_retired() -> None:
             "cwd": "/worktree",
             "model": "claude:opus",
             "mode": "normal",
+            "harness": "claude",
             "started_at": LONG_AGO,
         }
     ]
@@ -650,20 +651,88 @@ def test_a_stopped_codex_agents_resume_goes_to_the_codex_daemon() -> None:
     async def scenario():
         claude = ScriptedAsyncDaemonClient()
         codex = ScriptedAsyncDaemonClient(next_start_id="thread-1")
-        # What the real Codex adapter answers: it cannot resume.
-        codex.replies["resume"] = [
-            {"ok": False, "error": "Codex does not support 'resume'."}
-        ]
         router = DaemonRouter(claude, codex, Agents(), clock=lambda: STAMP)
         await router.request({"cmd": "start", "cwd": "/worktree", "model": "codex:sol"})
         await router.request({"cmd": "stop", "id": "thread-1"})
         reply = await router.request({"cmd": "resume", "id": "thread-1"})
-        return reply, claude.calls
+        return reply, claude.calls, codex.calls
 
-    reply, claude_calls = asyncio.run(scenario())
+    reply, claude_calls, codex_calls = asyncio.run(scenario())
 
-    assert reply == {"ok": False, "error": "Codex does not support 'resume'."}
+    assert reply["ok"] is True
     assert claude_calls == []
+    assert [c["id"] for c in codex_calls if c["cmd"] == "resume"] == ["thread-1"]
+
+
+def test_a_codex_task_relaunch_resumes_the_thread_its_session_ran_on() -> None:
+    """A Codex thread is the task's session: a relaunch goes back to it."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        codex = ScriptedAsyncDaemonClient(next_start_id="thread-2")
+        # What the adapter answers once `thread/resume` has the thread back.
+        codex.replies["resume"] = [{"ok": True, "id": "thread-1"}]
+        agents = Agents()
+        for thread_id, started in (("thread-1", LONG_AGO), ("thread-0", "2026-09-01")):
+            await agents.save(
+                stored_agent(
+                    started,
+                    id=thread_id,
+                    harness="codex",
+                    task_session_id="s1",
+                    status="ended",
+                    swept=False,
+                )
+            )
+        router = DaemonRouter(claude, codex, agents, clock=lambda: STAMP)
+        launch = {
+            "cmd": "start",
+            "cwd": "/worktree",
+            "model": "codex:sol",
+            "session": "s1",
+            "resume": True,
+            "prompt": "Carry on.",
+        }
+        resumed = await router.request(launch)
+        fresh = await router.request({**launch, "session": "s2"})
+        return resumed, fresh, codex.calls, agents.rows
+
+    resumed, fresh, calls, rows = asyncio.run(scenario())
+
+    assert resumed == {"ok": True, "id": "thread-1"}
+    assert {k: calls[0][k] for k in ("cmd", "id", "text", "session")} == {
+        "cmd": "resume",
+        "id": "thread-1",
+        "text": "Carry on.",
+        "session": "s1",
+    }
+    assert rows["thread-1"]["status"] == "running"
+    # The record keeps the thread's first start.
+    assert rows["thread-1"]["started_at"] == LONG_AGO
+    assert fresh["id"] == "thread-2"
+
+
+def test_a_codex_relaunch_whose_thread_is_gone_starts_a_fresh_one() -> None:
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        codex = ScriptedAsyncDaemonClient(next_start_id="thread-2")
+        codex.replies["resume"] = [{"ok": False, "error": "thread not found"}]
+        agents = Agents()
+        await agents.save(
+            stored_agent(id="thread-1", harness="codex", status="ended", swept=False)
+        )
+        router = DaemonRouter(claude, codex, agents, clock=lambda: STAMP)
+        return await router.request(
+            {
+                "cmd": "start",
+                "cwd": "/worktree",
+                "model": "codex:sol",
+                "session": "s1",
+                "resume": True,
+            }
+        )
+
+    assert asyncio.run(scenario())["id"] == "thread-2"
 
 
 def test_a_started_record_opens_at_running_with_a_start_time() -> None:
