@@ -94,6 +94,18 @@ class CodexBridge:
         await self._connect()
         await self._write({"id": request_id, "result": result})
 
+    async def reject(self, request_id: str | int, code: int, message: str) -> None:
+        """Refuse one server request with a JSON-RPC error."""
+        await self._connect()
+        await self._write(
+            {"id": request_id, "error": {"code": code, "message": message}}
+        )
+
+    @property
+    def pid(self) -> int | None:
+        """The proxy process's pid while it is connected."""
+        return self._process.pid if self._process is not None else None
+
     async def close(self) -> None:
         """Close this proxy connection without changing the daemon."""
         if self._closed:
@@ -160,9 +172,10 @@ class CodexBridge:
             await asyncio.wait_for(
                 self._upgrade_websocket(), timeout=self.handshake_timeout
             )
+            initialize_id = self._next_id
             await self._write(
                 {
-                    "id": self._next_id,
+                    "id": initialize_id,
                     "method": "initialize",
                     "params": {
                         "clientInfo": {
@@ -178,7 +191,7 @@ class CodexBridge:
             response = await asyncio.wait_for(
                 self._read_message(), timeout=self.handshake_timeout
             )
-            if response.get("id") != 1 or "result" not in response:
+            if response.get("id") != initialize_id or "result" not in response:
                 raise CodexIncompatible(
                     f"Codex app-server refused initialization: {response!r}"
                 )
@@ -413,10 +426,13 @@ class CodexBridge:
             while True:
                 message = await self._read_message()
                 request_id = message.get("id")
+                if "method" in message:
+                    # Codex numbers its own requests, so an id alone can match
+                    # one of ours.
+                    self._incoming.put_nowait(message)
+                    continue
                 if request_id not in self._pending:
-                    if "method" in message:
-                        self._incoming.put_nowait(message)
-                    elif request_id is not None:
+                    if request_id is not None:
                         # The request timed out, but Codex still did the work:
                         # a thread or a turn may exist that nothing tracks.
                         log.warning(
@@ -440,6 +456,10 @@ class CodexBridge:
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(error)
+            # The next request starts a new proxy. A proxy that sent a bad
+            # frame is still running, so it is stopped first.
+            self._reader = None
+            await self._stop_proxy()
             self._incoming.put_nowait(error)
 
     async def _read_stderr(self, process: asyncio.subprocess.Process) -> None:

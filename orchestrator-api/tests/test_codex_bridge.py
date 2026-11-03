@@ -138,12 +138,18 @@ while True:
             print(INITIAL_ERROR, file=sys.stderr, flush=True)
         if EXIT_BEFORE_INITIALIZE:
             sys.exit(23)
+        reply = INITIAL_LINE
+        if reply.startswith("{") and '"id": 1' in reply:
+            # Answer under the request's own id, as a reconnect sends a later one.
+            reply = reply.replace('"id": 1', '"id": ' + json.dumps(message["id"]), 1)
         if FRAGMENT_INITIAL:
-            write_fragmented_text(INITIAL_LINE)
+            write_fragmented_text(reply)
         else:
-            write_text(INITIAL_LINE)
+            write_text(reply)
     elif method == "model/list":
         write_text(json.dumps({"id": message["id"], "result": {"models": []}}))
+    elif method == "die":
+        sys.exit(0)
     elif method == "slow":
         slow_id = message["id"]
     elif method == "fast":
@@ -320,6 +326,19 @@ async def test_incoming_messages_can_be_read_and_answered(tmp_path):
         "id": "approval-1",
         "result": {"decision": "accept"},
     }
+
+
+async def test_a_request_after_the_proxy_died_starts_a_new_proxy(tmp_path):
+    executable, calls, _traffic = _proxy_codex(tmp_path)
+    bridge = CodexBridge(executable=str(executable))
+
+    with pytest.raises(CodexUnavailable, match="closed"):
+        await bridge.request("die", {})
+    reply = await bridge.request("model/list", {})
+    await bridge.close()
+
+    assert reply == {"models": []}
+    assert calls.read_text().count("app-server proxy") == 2
 
 
 async def test_an_initialize_error_is_reported_as_incompatible(tmp_path):
