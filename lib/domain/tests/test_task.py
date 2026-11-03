@@ -104,17 +104,23 @@ class TestRoundTrip:
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
         assert model.FRONTMATTER_KEYS[-5:] == (
-            "pr",
             "pr-url",
             "trigger",
             "comms",
             "pr-withdrawn",
+            "references",
         )
 
     def test_comms_round_trip(self):
         # The comms a task feeds, an inline list like ``follows``.
         t = Task(id="x", title="t", project="p", comms=["c3", "c7"])
         assert Task.from_markdown(t.to_markdown()).comms == ["c3", "c7"]
+
+    def test_references_round_trip(self):
+        # The findings a task names, as ``<report path>#<finding key>``.
+        ref = "reports/2026-10-27-zap/zap.sarif#ab12"
+        t = Task(id="x", title="t", project="p", references=[ref])
+        assert Task.from_markdown(t.to_markdown()).references == [ref]
 
     def test_execute_model_round_trips(self):
         # The model the session switches to when its plan is approved. Free-form
@@ -1363,6 +1369,37 @@ class TestCommInheritance:
         parent = await self._parent(store)
         await model.update(store, "p", parent.id, comms=["c4"], now=NOW2)
         assert (await model.load(store, "p", parent.id)).comms == ["c4"]
+
+
+class TestReferences:
+    # A reference names what this one task does, so a child does not inherit it.
+    REF = "reports/2026-10-27-zap/zap.sarif#ab12"
+
+    async def test_create_then_update_round_trips(self):
+        store = InMemoryTaskTable()
+        t = await model.create(
+            store, project="p", title="t", id="t", references=[self.REF], now=NOW
+        )
+        assert (await model.load(store, "p", t.id)).references == [self.REF]
+        await model.update(store, "p", t.id, references=[], now=NOW2)
+        assert (await model.load(store, "p", t.id)).references == []
+
+    async def test_a_child_does_not_inherit_the_parent_references(self):
+        store = InMemoryTaskTable()
+        await model.create(
+            store, project="p", title="par", id="par", references=[self.REF], now=NOW
+        )
+        child = await model.create(store, project="p", title="c", parent="par", now=NOW)
+        assert child.references == []
+
+    async def test_a_duplicate_does_not_copy_the_source_references(self):
+        # A scheduled run duplicates its template with no parent.
+        store = InMemoryTaskTable()
+        await model.create(
+            store, project="p", title="T", id="tmpl", references=[self.REF], now=NOW
+        )
+        run = await model.duplicate(store, "p", "tmpl", parent="", now=NOW)
+        assert run.references == []
 
 
 # --- build_prompt ---

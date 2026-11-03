@@ -28,7 +28,7 @@ from mael_common.claude_paths import has_claude_transcript
 from mael_common.cli_async import AsyncGroup
 from mael_common.shell import exec_cmd
 from mael_common.util import read_content_file
-from mael_domain import session_discovery, task_actions
+from mael_domain import reports, session_discovery, task_actions
 from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 
 # Second binding of the same module, for the few functions that take a `model`
@@ -51,6 +51,7 @@ from mael_domain.task_launch import (
     check_synced,
     plan_launch,
 )
+from mael_domain.task_store import GitFileStore
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree import (
     get_current_branch,
@@ -207,6 +208,19 @@ async def _checked_comms(comms: tuple[str, ...]) -> list[str]:
         if await store.read(id) is None:
             raise click.ClickException(f"Comm not found: {id}")
     return list(dict.fromkeys(ids))
+
+
+def _resolved_refs(project: str, refs: tuple[str, ...]) -> list[str]:
+    """The ``--ref`` values in stored form, each checked to name a finding.
+
+    See CONTEXT.md, "Reference". ``''`` gives ``[]``.
+    """
+    store = GitFileStore()
+    try:
+        resolved = [reports.resolve_reference(store, project, r) for r in refs if r]
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+    return list(dict.fromkeys(resolved))
 
 
 #: Whether this invocation has already checked the schema. One check per
@@ -784,6 +798,12 @@ def task() -> None:
     help="Comm this task feeds (repeatable; default: the parent task's comms).",
 )
 @click.option(
+    "--ref",
+    "refs",
+    multiple=True,
+    help="Finding this task names, as REPORT#F3 (repeatable). See `mael report`.",
+)
+@click.option(
     "-e",
     "--edit",
     "edit",
@@ -821,12 +841,14 @@ async def task_add(
     schedule: str | None,
     trigger: str | None,
     comms: tuple[str, ...],
+    refs: tuple[str, ...],
     edit: bool,
     run: bool,
     here: bool,
 ) -> None:
     """Add a new task and print its id."""
     content = _read_content_file(content_file) if content_file is not None else None
+    references = _resolved_refs(resolve_project(project), refs) if refs else None
     await add_task(
         title=title,
         project=project,
@@ -849,6 +871,7 @@ async def task_add(
         trigger=trigger,
         # `--comm ''` opts out of the parent task's comms.
         comms=list(dict.fromkeys(c for c in comms if c)) if comms else None,
+        references=references,
         edit=edit,
         run=run,
         here=here,
@@ -877,6 +900,7 @@ async def add_task(
     schedule: str | None = None,
     trigger: str | None = None,
     comms: list[str] | None = None,
+    references: list[str] | None = None,
     edit: bool = False,
     run: bool = False,
     here: bool = False,
@@ -916,6 +940,8 @@ async def add_task(
         body["content"] = content
     if comms is not None:
         body["comms"] = comms
+    if references:
+        body["references"] = references
     if follows:
         body["follows"] = [f"{proj}/{f}" for f in follows]
     if follow_ends:
@@ -1810,6 +1836,13 @@ async def task_log(id: str, msg: str, project: str | None) -> None:
     help="Set the comms this task feeds (repeatable; --comm '' clears).",
 )
 @click.option(
+    "--ref",
+    "refs",
+    multiple=True,
+    help="Set the findings this task names, as REPORT#F3 "
+    "(repeatable; --ref '' clears).",
+)
+@click.option(
     "--content-file",
     default=None,
     help="File whose contents replace the Content section ('-' reads stdin).",
@@ -1833,9 +1866,10 @@ async def task_update(
     schedule: str | None,
     trigger: str | None,
     comms: tuple[str, ...],
+    refs: tuple[str, ...],
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, comms, content).
+    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, comms, references, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1844,6 +1878,7 @@ async def task_update(
     table = await _table()
     content = _read_content_file(content_file) if content_file is not None else None
     comm_ids = await _checked_comms(comms) if comms else None
+    references = _resolved_refs(proj, refs) if refs else None
 
     target = id
     renamed = False
@@ -1898,6 +1933,7 @@ async def task_update(
             schedule=schedule,
             trigger=trigger,
             comms=comm_ids,
+            references=references,
         )
     except KeyError:
         raise click.ClickException(f"Task not found: {target}")

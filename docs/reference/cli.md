@@ -462,6 +462,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks, e.g. `'0 9 * * 1-5'`. |
 | `--trigger TEXT` | Fire on a finished GitHub Actions run: `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. A value that does not parse is refused. See [Fire on a finished build](../guide/scheduled-work.md#fire-on-a-finished-build). |
 | `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the parent task's comms. An id that names no comm is refused. |
+| `--ref TEXT` | A **Finding** this task names, as `REPORT#F3` or `REPORT#<finding key>`. Repeatable. Stores the finding key, not the label. A finding that is not in the report is refused. See [Reports](#reports). |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task immediately: the server starts it on the agent daemon. Prints the operation id. |
 | `--here` | With `--run`, launch in the current shell. No worktree, no new workspace, no server launch. |
@@ -539,10 +540,11 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
 | `--trigger TEXT` | Build trigger, `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. |
 | `--comm TEXT` | Replace the comms this task feeds. Repeatable. An id that names no comm is refused. |
+| `--ref TEXT` | Replace the findings this task names, as `REPORT#F3` or `REPORT#<finding key>`. Repeatable. A finding that is not in the report is refused. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
 Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base`,
-`--schedule`, `--trigger` or `--comm` to clear the field.
+`--schedule`, `--trigger`, `--comm` or `--ref` to clear the field.
 
 **`mael task list`**
 
@@ -687,6 +689,38 @@ The content replaces the whole page — there is no partial edit. To change one 
 page first, then write the full body back.
 
 Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` prints it.
+
+---
+
+## Reports
+
+A **Report** keeps the output of one scan in the task notebook, under
+`~/.maelstrom/tasks/<project>/reports/`. Each import is one notebook commit. Only SARIF reports
+are read now. See `CONTEXT.md`, "Report".
+
+| Command | Description |
+|---|---|
+| `mael report import PATH` | Copy a SARIF file, or the files of a directory that holds one, into a new report. Prints the report path. |
+| `mael report list` | Print every report of the project, oldest first. |
+| `mael report show REPORT [FINDING]` | Print the report's findings, each with the tasks that reference it. With `FINDING`, print that one finding in full. |
+
+Each command takes `-p`, `--project TEXT`. The default is the project of the current directory.
+
+```bash
+mael report import CLAUDE-SECURITY-20261027-024004   # → reports/2026-10-27-claude-security
+mael report show 2026-10-27-claude-security          # every finding, with its tasks
+mael report show 2026-10-27-claude-security F1       # one finding in full
+mael task add "Allowlist search columns" --ref 2026-10-27-claude-security#F1
+```
+
+The report name is `<YYYY-MM-DD>-<tool>`. The date is the scan's own: the SARIF invocation start
+time, or the Claude Security `generated_at`. A SARIF file with neither takes the import date. A
+second report of one tool on one day gets `-2`. A directory with no `*.sarif` or `*.sarif.json`
+file is refused. So is a file that is not UTF-8 text: the notebook store holds text only. A
+dotfile is not copied: a scan's own `.gitignore` would hide the report from the commit.
+
+`REPORT` is a report name or its `reports/<name>` path. `FINDING` is a label, such as `F3`, or a
+**Finding key**.
 
 ---
 

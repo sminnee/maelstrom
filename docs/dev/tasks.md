@@ -49,6 +49,7 @@ same way. Two paths differ:
 |---|---|---|
 | `branch` | Wins | An existing sibling's branch, then the parent task's, then a generated name |
 | `comms` | Wins; `[]` opts out | The parent task's `comms`, or `[]` when the parent is virtual |
+| `references` | Wins | `[]`. Never inherited, and `duplicate` does not copy it |
 
 ## `parent` vs `base` — near-identical names, near-opposite meanings
 

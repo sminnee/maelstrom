@@ -37,6 +37,7 @@ EDITABLE = (
     "base",
     "follows",
     "comms",
+    "references",
 )
 
 #: The keys ``task.create`` writes: :data:`EDITABLE`, and the fields only a
@@ -862,6 +863,8 @@ def validate_command(
             error = _check_comm_ids(world, world["tasks"][task_id]["comms"], comms)
             if error:
                 return error
+        if not _is_str_list(fields.get("references", [])):
+            return _err("invalid", "references is a list of strings")
         follows = fields.get("follows")
         if follows is not None:
             return _check_follows(world, task_id, follows)
@@ -952,6 +955,8 @@ def validate_command(
                 f"{trigger!r} is not 'gh-action/<workflow>[@<branch>] "
                 "[<conclusion>,...]'",
             )
+        if not _is_str_list(cmd.get("references", [])):
+            return _err("invalid", "references is a list of strings")
         comms = cmd.get("comms")
         if comms is not None:
             return _check_comm_ids(world, [], comms)
