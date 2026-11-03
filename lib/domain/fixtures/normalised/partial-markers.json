@@ -29,7 +29,8 @@
         "exitCode": null,
         "pendingRequestIds": [],
         "pid": null,
-        "backgroundShells": []
+        "backgroundShells": [],
+        "harness": "claude"
       }
     },
     "documents": {

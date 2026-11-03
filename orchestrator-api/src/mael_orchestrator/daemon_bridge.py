@@ -401,6 +401,7 @@ def _stored_agent_row(
         "cwd": agent["cwd"],
         "model": agent["model"],
         "mode": agent["mode"],
+        "harness": agent.get("harness") or HARNESS_CLAUDE,
         # Set once, when the record is written. The daemon's own start moves
         # on a resume.
         "started_at": agent.get("started_at") or "",

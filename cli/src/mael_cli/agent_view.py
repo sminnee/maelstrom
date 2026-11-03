@@ -41,6 +41,7 @@ from mael_agent.agent_wire import (
     TokenUsage,
     usage_of,
 )
+from mael_agent.harness_model import HARNESS_CLAUDE
 from mael_common.table import format_table
 from mael_domain.normalise import NormaliseContext, normalise_stream_event
 from mael_domain.normalise import mark_exited as normalise_exited
@@ -115,6 +116,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "pendingRequestIds": [],
         "pid": None,
         "backgroundShells": [],
+        "harness": HARNESS_CLAUDE,
     }
 
 
