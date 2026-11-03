@@ -799,7 +799,6 @@ _CODEX_SILENT = frozenset(
         "hook/started",
         "hook/completed",
         "item/autoApprovalReview/started",
-        "item/autoApprovalReview/completed",
         "deprecationNotice",
         # Codex 0.154 also reports a compaction as a ``contextCompaction`` item,
         # which is the one that draws.
@@ -809,6 +808,19 @@ _CODEX_SILENT = frozenset(
 
 #: Codex notifications a reader must see, drawn as an error item.
 _CODEX_WARNINGS = frozenset({"warning", "configWarning", "guardianWarning"})
+
+#: A finished Codex auto-review status that refused the action, as its verb.
+_CODEX_REVIEW_REFUSED = {"denied": "denied", "timedOut": "timed out"}
+
+#: The field that names what a Codex auto-review action does, by action type.
+_CODEX_REVIEW_SUBJECT = {
+    "command": "command",
+    "execve": "program",
+    "writeStdin": "processId",
+    "networkAccess": "target",
+    "mcpToolCall": "toolName",
+    "requestPermissions": "reason",
+}
 
 #: A Codex turn status, as the ``turn_result`` subtype a Claude turn uses.
 _CODEX_TURN_RESULT = {"completed": "success", "failed": "error"}
@@ -891,6 +903,8 @@ def _codex_event(
             out.agent(patch)
     elif method in _CODEX_WARNINGS:
         out.append({"type": "error", "message": _str(params.get("message"))})
+    elif method == "item/autoApprovalReview/completed":
+        _codex_review(out, params)
     elif method == "error":
         # A final error also fails the turn, and ``turn/completed`` reports it.
         if params.get("willRetry"):
@@ -898,6 +912,35 @@ def _codex_event(
             out.append({"type": "error", "message": f"{message} Retrying."})
     elif method not in _CODEX_SILENT:
         out.append({"type": "raw_event", "method": method, "params": params})
+
+
+def _codex_review(out: "_Emitter", params: Dict) -> None:
+    """A refused auto-review, as an error item; an approved one draws nothing.
+
+    Codex marks the payload ``[UNSTABLE]``, so each field is read defensively.
+    """
+    review = _dict(params.get("review"))
+    verb = _CODEX_REVIEW_REFUSED.get(_str(review.get("status")))
+    if not verb:
+        return
+    action = _dict(params.get("action"))
+    kind = _str(action.get("type"))
+    if kind == "applyPatch":
+        files = action.get("files")
+        subject = ", ".join(_str(f) for f in (files if isinstance(files, list) else []))
+    else:
+        field = _CODEX_REVIEW_SUBJECT.get(kind)
+        subject = _str(action.get(field)) if field else ""
+    risk = _str(review.get("riskLevel"))
+    head = " ".join(
+        part for part in (kind, subject, f"({risk})" if risk else "") if part
+    )
+    message = ": ".join(
+        part
+        for part in (f"Auto-review {verb}", head, _str(review.get("rationale")))
+        if part
+    )
+    out.append({"type": "error", "message": message})
 
 
 def _codex_delta(out: "_Emitter", item_id: str, text: str) -> None:

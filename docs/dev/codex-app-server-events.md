@@ -129,6 +129,8 @@ it. The request still draws as a raw event. This covers `item/tool/requestUserIn
 | `serverRequest/resolved` | The end of the wait on a request no reply answered. |
 | `thread/tokenUsage/updated` | `totalTokens` from `total`, `contextTokens` from `last`. |
 | `warning`, `configWarning`, `guardianWarning` | An `error` item with the message. |
+| `item/autoApprovalReview/completed`, `denied` or `timedOut` | An `error` item: the action, its risk level, and the rationale. |
+| `item/autoApprovalReview/completed`, any other status | Nothing: an approved review only adds noise. |
 | `error` with `willRetry` | An `error` item that says Codex retries. |
 | `error` without `willRetry` | Nothing: `turn/completed` reports the failure. |
 | lifecycle and diagnostics | Nothing. See the list below. |
@@ -137,8 +139,7 @@ it. The request still draws as a raw event. This covers `item/tool/requestUserIn
 These draw nothing: `thread/started`, `thread/status/changed`, `thread/name/updated`,
 `thread/goal/updated`, `thread/goal/cleared`, `mcpServer/startupStatus/updated`,
 `turn/diff/updated`, `hook/started`, `hook/completed`, `item/autoApprovalReview/started`,
-`item/autoApprovalReview/completed`, `deprecationNotice`, `thread/compacted`, and every delta
-other than the agent-message delta. Codex 0.154 reports a compaction as a `contextCompaction` item,
+`deprecationNotice`, `thread/compacted`, and every delta other than the agent-message delta. Codex 0.154 reports a compaction as a `contextCompaction` item,
 and the item is what draws.
 
 A failed turn adds an `error` item with `turn.error.message`. The `turn_result` subtype is

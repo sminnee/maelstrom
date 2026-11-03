@@ -485,10 +485,65 @@ def test_a_codex_plan_update_is_a_todo_list():
     }
 
 
-def test_codex_warnings_and_a_failed_turn_are_error_items():
+def auto_review(status: str, action: dict, **review) -> dict:
+    """An ``item/autoApprovalReview/completed``, as the Codex 0.154 schema has it."""
+    return codex(
+        "item/autoApprovalReview/completed",
+        threadId="thread-1",
+        turnId="turn-1",
+        reviewId="review-1",
+        targetItemId=None,
+        startedAtMs=1,
+        completedAtMs=2,
+        decisionSource="agent",
+        review={"status": status, **review},
+        action=action,
+    )
+
+
+def test_codex_warnings_a_denied_review_and_a_failed_turn_are_error_items():
     replayed = replay(
         [
             codex("warning", threadId="thread-1", message="Skills were shortened."),
+            auto_review(
+                "approved",
+                {
+                    "type": "command",
+                    "command": "git push",
+                    "cwd": "/w",
+                    "source": "shell",
+                },
+                riskLevel="low",
+                rationale="Pushes the task branch.",
+            ),
+            auto_review(
+                "denied",
+                {
+                    "type": "command",
+                    "command": "rm -rf ~/x",
+                    "cwd": "/w",
+                    "source": "shell",
+                },
+                riskLevel="high",
+                rationale="Deletes files outside the worktree.",
+            ),
+            auto_review(
+                "timedOut",
+                {
+                    "type": "networkAccess",
+                    "host": "example.com",
+                    "port": 443,
+                    "protocol": "https",
+                    "target": "https://example.com",
+                },
+            ),
+            auto_review(
+                "denied",
+                {"type": "applyPatch", "cwd": "/w", "files": ["/etc/hosts", "a.py"]},
+                riskLevel="critical",
+            ),
+            auto_review("denied", {"type": "somethingNew"}),
+            auto_review("denied", {}, rationale="No action given."),
             codex(
                 "turn/completed",
                 threadId="thread-1",
@@ -506,6 +561,15 @@ def test_codex_warnings_and_a_failed_turn_are_error_items():
         (i["type"], i.get("message") or i.get("subtype")) for i in replayed.items
     ] == [
         ("error", "Skills were shortened."),
+        (
+            "error",
+            "Auto-review denied: command rm -rf ~/x (high): "
+            "Deletes files outside the worktree.",
+        ),
+        ("error", "Auto-review timed out: networkAccess https://example.com"),
+        ("error", "Auto-review denied: applyPatch /etc/hosts, a.py (critical)"),
+        ("error", "Auto-review denied: somethingNew"),
+        ("error", "Auto-review denied: No action given."),
         ("error", "Rate limited."),
         ("turn_result", "error"),
     ]
