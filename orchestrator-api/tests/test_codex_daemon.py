@@ -394,6 +394,40 @@ def test_a_deny_cancels_when_codex_offers_no_decline():
     )
 
 
+def test_a_remembered_approve_sends_the_rule_and_errors_without_one():
+    rule = {
+        "acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["git", "status"]}
+    }
+
+    async def scenario():
+        bridge = ScriptedBridge()
+        daemon = await started(bridge)
+        stream, _ = await attached(daemon)
+        await bridge.incoming_messages.put(
+            approval(5, availableDecisions=["accept", rule, "cancel"])
+        )
+        await bridge.incoming_messages.put(
+            approval(6, availableDecisions=["accept", "cancel"])
+        )
+        await anext(stream)
+        await anext(stream)
+        remembered = await daemon.request(
+            {"cmd": "approve", "id": "thread-1", "request": "5", "remember": True}
+        )
+        refused = await daemon.request(
+            {"cmd": "approve", "id": "thread-1", "request": "6", "remember": True}
+        )
+        await stream.aclose()
+        return remembered, refused, bridge.responses
+
+    remembered, refused, responses = asyncio.run(scenario())
+
+    assert remembered == {"ok": True}
+    assert responses == [(5, {"decision": rule})]
+    assert refused["ok"] is False
+    assert "offers no remember" in refused["error"]
+
+
 def test_interrupt_declines_open_approvals_first_and_needs_a_turn():
     async def scenario():
         bridge = ScriptedBridge()
