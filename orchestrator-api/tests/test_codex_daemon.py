@@ -128,6 +128,7 @@ def test_start_gives_the_thread_its_instructions_env_and_opening_turn(tmp_path):
                 "cwd": "/worktree",
                 "model": "gpt-5.6-sol",
                 "sandbox": "read-only",
+                "approvalsReviewer": "user",
                 "developerInstructions": "Use <note> to report progress.\n",
                 "config": {
                     "shell_environment_policy": {
@@ -201,17 +202,23 @@ def test_a_mode_change_reaches_the_next_turn():
     assert turn["sandboxPolicy"] == {"type": "readOnly"}
 
 
-def test_normal_mode_asks_before_each_untrusted_command():
-    """As a Claude normal session asks, and unlike auto."""
+def test_normal_mode_asks_the_user_and_auto_asks_the_auto_reviewer():
+    """As a Claude normal session asks, and a Claude auto session classifies."""
 
     async def scenario():
         bridge = ScriptedBridge()
         daemon = await started(bridge, prompt="Go.", mode="normal")
         await daemon.request({"cmd": "set-mode", "id": "thread-1", "mode": "auto"})
         await daemon.request({"cmd": "say", "id": "thread-1", "text": "Go on."})
-        return [turn["approvalPolicy"] for turn in calls_of(bridge, "turn/start")]
+        return [
+            (turn["approvalPolicy"], turn["approvalsReviewer"])
+            for turn in calls_of(bridge, "turn/start")
+        ]
 
-    assert asyncio.run(scenario()) == ["untrusted", "on-request"]
+    assert asyncio.run(scenario()) == [
+        ("untrusted", "user"),
+        ("on-request", "auto_review"),
+    ]
 
 
 def test_a_shell_command_runs_on_the_thread():

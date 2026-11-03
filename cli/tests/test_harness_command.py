@@ -18,6 +18,8 @@ def test_cli_command_uses_the_model_prefix_and_omits_a_mismatched_alias():
         "codex",
         "--sandbox",
         "read-only",
+        "-c",
+        "approvals_reviewer=user",
         "--model",
         "gpt-5.6-terra",
         "-c",
