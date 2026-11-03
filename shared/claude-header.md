@@ -26,6 +26,8 @@ git operations, commits, branches, PRs, Linear tasks, and development workflows.
 
 **Plan mode is required** for `/plan-task` and `/plan-next-step`.
 
+In plan mode, load `planning` before you write the plan.
+
 ## Stay on the current branch and worktree
 
 Before your session starts, maelstrom will have assigned you a worktree and a branch, chosen by
@@ -56,10 +58,9 @@ follow-up in an open session. Red → green, one vertical slice at a time.
 Tests go at **agreed seams** only — the public boundary you observe behaviour through, never
 internals. Where you get them depends on how the work arrived:
 
-- **Planned work** — the plan settles them. Work to the **Seams under test** section in the
-  plan you wrote in plan mode, or in your task content when it carries one. The build runs
-  unattended after plan approval, so if that section is missing, name the seam you used and why
-  in the commit message and carry it into the PR — do not stop and wait.
+- **Planned work** — the **Seams under test** section in your plan or task content settles them.
+  When it is missing, name the seam you used and why in the commit message and the PR. Do not
+  stop and wait.
 - **Unplanned or resumed work** — no plan agreed them, and the user is here. Agree the seams with
   them before you write the first test, as the skill describes.
 
