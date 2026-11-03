@@ -698,6 +698,7 @@ class NotebookTaskSource:
 
     def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
         plan, setup = prepared.plan, prepared.setup
+        codex = plan.harness == HARNESS_CODEX
         return build_start_payload(
             setup.path,
             prompt=plan.prompt,
@@ -706,8 +707,9 @@ class NotebookTaskSource:
             execute_model=plan.execute_model,
             session_id=plan.session_id,
             env=plan.env,
-            # A task that has run before already owns its session id.
-            resume=self.has_transcript(setup.path, plan.session_id),
+            # A task that has run before already owns its session id. A Codex
+            # session is a thread the router finds by session id, if one ran.
+            resume=codex or self.has_transcript(setup.path, plan.session_id),
             system_prompt_file=agent_prompt_file(),
         )
 

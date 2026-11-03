@@ -1084,7 +1084,8 @@ still finds it.
 `agent.launch` runs as a `launch` **Operation** of three steps. It reuses the model steps `mael
 task run` takes, from `task_launch.py`: the same session id, environment, permission mode, branch
 and prompt, and the same two refusals — a live session already holds the task, or the worktree's
-rebase failed.
+rebase failed. The server adds a third: a live top-level agent in the world holds the task session
+id. The process table holds no Codex thread, so the live-session sweep alone cannot see one.
 
 | Step | What it does |
 |---|---|
@@ -1105,6 +1106,10 @@ project could pick the same name.
 A task that has already run owns its session id, and claiming that id again is refused. So the
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
 `resume` on the `start` when it does. That is the same switch `mael task run` makes for a pane.
+
+A Codex launch always sets `resume`. The router resumes the newest Codex thread on the task
+session id, keeping its record's start time. It starts a fresh thread when none ran, or when Codex
+cannot resume the thread.
 
 A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
 does not. The canvas draws running work whether or not the desk names it, so the entry is not

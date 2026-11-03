@@ -618,6 +618,14 @@ async def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(table):
     assert source.finish_launch(prepared)["resume"] is False
 
 
+async def test_a_codex_launch_asks_to_resume_whatever_the_claude_transcript(table):
+    """The Codex thread is the record, and the router finds it by session."""
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    source = a_launching_source(table, has_transcript=lambda path, sid: False)
+    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", "codex:sol")
+    assert source.finish_launch(prepared)["resume"] is True
+
+
 async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
     """The transcript lives under the worktree path, so the check needs it."""
     await model.create(table, project=PROJECT, title="x", id="NORT-7")
