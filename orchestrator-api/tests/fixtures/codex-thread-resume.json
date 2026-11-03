@@ -1,0 +1,110 @@
+{
+ "thread": {
+  "id": "01a19fc2-78ca-7f32-b2ca-93ace82a130c",
+  "cwd": "/worktree",
+  "model": "gpt-5.6-luna",
+  "status": {
+   "type": "idle"
+  },
+  "turns": [
+   {
+    "id": "01a19fc2-79f7-78f3-8573-76ecb879bf14",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a19fc2-819b-7c60-a94e-da2eeb4d078a",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "Run the shell command `echo $MAEL_TASK_ID` and tell me its output in one short sentence.",
+        "text_elements": []
+       }
+      ]
+     },
+     {
+      "type": "reasoning",
+      "id": "rs_017b294af467c96b016ae9691826248191815194274200d53c",
+      "summary": [],
+      "content": []
+     },
+     {
+      "type": "agentMessage",
+      "id": "msg_017b294af467c96b016ae96918398c8191bb8f142475a0f3e3",
+      "text": "I’ll run that command and report the result.",
+      "phase": "commentary",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     },
+     {
+      "type": "commandExecution",
+      "id": "exec-2bd28570-6823-4a60-b304-2688253f7f37",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'echo $MAEL_TASK_ID'",
+      "cwd": "/worktree",
+      "processId": "44961",
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "commandActions": [
+       {
+        "type": "unknown",
+        "command": "echo $MAEL_TASK_ID"
+       }
+      ],
+      "aggregatedOutput": "rec-123\n",
+      "exitCode": 0,
+      "durationMs": 0
+     },
+     {
+      "type": "agentMessage",
+      "id": "msg_017b294af467c96b016ae96919a2948191824a20ce32b83654",
+      "text": "The output is `rec-123`. <note>RECORDED</note>",
+      "phase": "final_answer",
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null
+     }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1793681685,
+    "completedAt": 1793681689,
+    "durationMs": 4725
+   },
+   {
+    "id": "01a19fc2-8c9a-79b2-a437-1a63a9f398dc",
+    "items": [
+     {
+      "type": "commandExecution",
+      "id": "032edfff-8ef6-4f93-9640-368996878522",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'echo shell-ok'",
+      "cwd": "/worktree",
+      "processId": null,
+      "source": "userShell",
+      "status": "completed",
+      "commandActions": [
+       {
+        "type": "unknown",
+        "command": "echo shell-ok"
+       }
+      ],
+      "aggregatedOutput": "shell-ok\n",
+      "exitCode": 0,
+      "durationMs": 71
+     }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1793681689,
+    "completedAt": 1793681689,
+    "durationMs": 118
+   }
+  ]
+ }
+}
