@@ -54,8 +54,12 @@ function useAgentMutation<V extends { agentId: AgentId }>(
 }
 
 export function useApprove() {
-  return useAgentMutation((api, vars: { agentId: AgentId; requestId: RequestId }) =>
-    api.post(`/api/agents/${vars.agentId}/approve`, { requestId: vars.requestId }),
+  return useAgentMutation(
+    (api, vars: { agentId: AgentId; requestId: RequestId; remember?: boolean }) =>
+      api.post(`/api/agents/${vars.agentId}/approve`, {
+        requestId: vars.requestId,
+        ...(vars.remember ? { remember: true } : {}),
+      }),
   );
 }
 

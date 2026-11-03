@@ -31,6 +31,16 @@ describe('DecideRow', () => {
     expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
   });
 
+  it('sends remember from its labelled button, and hides it while denying', async () => {
+    const onDecide = vi.fn();
+    render(<DecideRow onDecide={onDecide} remember="Always allow `npm test`" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Always allow `npm test`' }));
+    expect(onDecide).toHaveBeenCalledWith('remember', '');
+
+    await userEvent.type(field(), 'too risky');
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Deny']);
+  });
+
   it('counts whitespace as no comment', async () => {
     const onDecide = vi.fn();
     render(<DecideRow onDecide={onDecide} />);

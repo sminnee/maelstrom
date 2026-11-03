@@ -525,6 +525,39 @@ describe('the expanded node', () => {
     await waitFor(() => expect(nodeState('MAEL-52')).not.toBe('needs-attention'));
   });
 
+  it('remembers a permission from its remember button, and posts remember', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.append('b7d2e4a0', {
+      id: 'b7d2e4a0-p',
+      ts: '',
+      type: 'permission_request',
+      requestId: 'req-mael52-p',
+      tool: 'Bash',
+      input: { command: 'pnpm test' },
+      description: 'Run the web suite',
+      remember: 'Always allow Bash(pnpm test:*)',
+    });
+    server.change({ kind: 'agent', ids: ['b7d2e4a0'] }, (w) => {
+      w.agents['b7d2e4a0'] = {
+        ...w.agents['b7d2e4a0']!,
+        state: 'awaiting-permission',
+        pendingRequestIds: ['req-mael52-p'],
+      };
+    });
+    clickNode('MAEL-52');
+
+    await user.click(
+      await within(expanded()).findByRole('button', { name: 'Always allow Bash(pnpm test:*)' }),
+    );
+    await waitFor(() =>
+      expect(server.requests.find((r) => r.path.endsWith('/approve'))?.body).toEqual({
+        requestId: 'req-mael52-p',
+        remember: true,
+      }),
+    );
+  });
+
   it("shows the task's notebook status", async () => {
     await renderApp();
     clickNode('NORT-9.1');

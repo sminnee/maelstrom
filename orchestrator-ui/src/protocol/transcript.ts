@@ -75,6 +75,10 @@ export interface PermissionRequestItem extends Base {
   reason?: string;
   /** The wait ended with nobody answering — see `CONTEXT.md`, "Stale prompt". */
   stale?: true;
+  /** What a remembered approval remembers, when the agent offers one — see `CONTEXT.md`, "Remembered approval". */
+  remember?: string;
+  /** The allow told the agent not to ask again. */
+  remembered?: true;
 }
 
 export interface PlanReviewItem extends Base {

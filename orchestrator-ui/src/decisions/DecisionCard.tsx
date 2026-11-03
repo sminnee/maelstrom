@@ -6,7 +6,7 @@ import type { Agent } from '../protocol/entities';
 import type { MessageItem, PlanReviewItem, TranscriptItem } from '../protocol/transcript';
 import { documentTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
-import { DecideRow } from '../session/cards/DecideRow';
+import { DecideRow, type Decision } from '../session/cards/DecideRow';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { DECLINE_REASON, QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { RecentMessages } from '../session/RecentMessages';
@@ -75,10 +75,10 @@ function OneDecision({
   const interrupt = useInterrupt();
   const requestId = wait.requestId;
   const before = recentMessages(items, { before: requestId });
-  const decide = (decision: 'approve' | 'deny', reason: string) =>
-    decision === 'approve'
-      ? approve.mutateAsync({ agentId: agent.id, requestId })
-      : deny.mutateAsync({ agentId: agent.id, requestId, reason });
+  const decide = (decision: Decision, reason: string) =>
+    decision === 'deny'
+      ? deny.mutateAsync({ agentId: agent.id, requestId, reason })
+      : approve.mutateAsync({ agentId: agent.id, requestId, remember: decision === 'remember' });
 
   return (
     <section
@@ -218,7 +218,7 @@ function PlanReview({
   inDocumentId,
 }: {
   item: PlanReviewItem;
-  onDecide: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
+  onDecide: (decision: Decision, reason: string) => void | Promise<unknown>;
   inDocumentId?: string;
 }) {
   // In the plan's own tab the link leads nowhere, and on a phone it pushed a

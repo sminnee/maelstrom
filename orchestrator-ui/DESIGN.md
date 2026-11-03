@@ -1180,6 +1180,12 @@ idiom the node card uses for a long brief. The heading is also a fold, so a rail
 has already read can be put away entirely. It opens by default and the state does not persist,
 because the panel keeps no view state across renders.
 
+**A remembered approval** adds a plain button before Approve, when the agent offers one. Its
+label says what it remembers, such as "Always allow WebFetch(domain:example.com)". The label is
+never cut to an icon. Approve stays the primary act, because remembering is the larger
+commitment. A comment in the field turns both into Deny, as it turns Approve alone. The answer
+reads "allowed · remembered".
+
 ### Question
 
 A question the agent asked reads four ways, depending on what has happened to it.

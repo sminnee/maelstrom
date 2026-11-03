@@ -1378,6 +1378,12 @@ The block an expanded node or a document shows when an agent waits on the user: 
 messages before the wait, then the prompt (question, permission or plan review).
 _Avoid_: Checkpoint UI, prompt card
 
+**Remembered approval**:
+An approve that also tells the agent not to ask again. The agent offers it with the ask, and the
+**Decision** shows it as a button beside Approve, labelled with what it remembers. The agent
+keeps the rule; Maelstrom keeps none.
+_Avoid_: Always allow (as a term), auto-approve, trust
+
 **Review dock**:
 The band under a document holding whatever waits on the user there: an agent's own wait, or the
 document's own review route. One dock, so a reader answers in one place whoever is asking. See

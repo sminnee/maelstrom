@@ -7,6 +7,7 @@ import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
 import { BashCard } from './cards/BashCard';
+import type { Decision } from './cards/DecideRow';
 import { PermissionPrompt } from './cards/PermissionPrompt';
 import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
@@ -22,11 +23,7 @@ export interface TranscriptHandlers {
   onAnswer?: (requestId: string, answers: Record<string, string>) => void | Promise<unknown>;
   onDecline?: (requestId: string) => Promise<unknown>;
   onDeclineAndStop?: () => Promise<unknown>;
-  onDecide?: (
-    requestId: string,
-    decision: 'approve' | 'deny',
-    reason: string,
-  ) => void | Promise<unknown>;
+  onDecide?: (requestId: string, decision: Decision, reason: string) => void | Promise<unknown>;
 }
 
 /**
