@@ -242,6 +242,10 @@ mael task next --run
 Each task in the chain opens in plan mode. Its session reads the bullets and the design doc,
 writes the detailed plan, and builds it once you approve.
 
+A plan-mode task with no command opens with `/planning`. That skill makes the plan lead with what
+will change, then give the decisions, then the detail. The plan stands alone: it copies what it
+needs from the task and explains project terms, because the build session sees only the plan.
+
 When this reaches a `plan-next-step` tail, the `plan-next-step` skill runs. It:
 
 1. Reconciles what the tail says remains against what the repository shows.
