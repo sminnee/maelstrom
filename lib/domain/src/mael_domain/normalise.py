@@ -23,6 +23,7 @@ from mael_agent.agent_wire import (
     TS_KEY,
     context_of,
     from_wire_mode,
+    remember_label,
     tokens_of,
 )
 from mael_agent.codex_wire import REASON_KEY, allowed, approval_of, command_of
@@ -582,6 +583,7 @@ def normalise_stream_event(
                 _str(request.get("tool_name")),
                 _dict(request.get("input")),
                 _str(request.get("description")),
+                remember=remember_label(request.get("permission_suggestions")),
             )
 
     elif kind == "control_cancel_request":
@@ -593,7 +595,10 @@ def normalise_stream_event(
         response = _dict(raw.get("response"))
         request_id = _str(response.get("request_id"))
         if request_id in out.ctx.pending:
-            out.response(request_id, _dict(response.get("response")))
+            reply = _dict(response.get("response"))
+            out.response(
+                request_id, reply, remembered=bool(reply.get("updatedPermissions"))
+            )
 
     elif kind == "result":
         # A turn that ended with no whole message: an interrupt the child did
@@ -1141,7 +1146,8 @@ def _codex_request(out: "_Emitter", raw: Dict, method: str, params: Dict) -> Non
             response: Dict = {"behavior": "allow" if allowed(decision) else "deny"}
             if not allowed(decision):
                 response["message"] = _str(raw.get(REASON_KEY)) or "Denied by user"
-            out.response(request_id, response)
+            remembered = allowed(decision) and decision != "accept"
+            out.response(request_id, response, remembered=remembered)
         return
     approval = approval_of(method, params)
     if approval is None:
@@ -1153,6 +1159,7 @@ def _codex_request(out: "_Emitter", raw: Dict, method: str, params: Dict) -> Non
             approval.tool,
             approval.input,
             approval.description,
+            remember=approval.remember_label,
         )
 
 
@@ -1635,7 +1642,14 @@ class _Emitter:
         )
 
     def request(
-        self, request_id: str, tool_use_id: str, tool: str, inp: Dict, description: str
+        self,
+        request_id: str,
+        tool_use_id: str,
+        tool: str,
+        inp: Dict,
+        description: str,
+        *,
+        remember: str = "",
     ) -> None:
         document_id: str | None = None
         if tool == QUESTION_TOOL:
@@ -1680,15 +1694,16 @@ class _Emitter:
             summary = "Plan awaiting review"
             wait_state = "awaiting-plan-review"
         else:
-            item_id = self.append(
-                {
-                    "type": "permission_request",
-                    "requestId": request_id,
-                    "tool": tool,
-                    "input": inp,
-                    "description": description,
-                }
-            )
+            ask: Dict = {
+                "type": "permission_request",
+                "requestId": request_id,
+                "tool": tool,
+                "input": inp,
+                "description": description,
+            }
+            if remember:
+                ask["remember"] = remember
+            item_id = self.append(ask)
             kind = "permission"
             summary = description or tool
             wait_state = "awaiting-permission"
@@ -1715,7 +1730,9 @@ class _Emitter:
             }
         )
 
-    def response(self, request_id: str, payload: Dict) -> None:
+    def response(
+        self, request_id: str, payload: Dict, *, remembered: bool = False
+    ) -> None:
         pending = self.ctx.pending.get(request_id)
         if pending is None:
             return
@@ -1755,6 +1772,8 @@ class _Emitter:
             patch = {"decision": "allow" if allow else "deny"}
             if not allow:
                 patch["reason"] = _str(payload.get("message"))
+            elif remembered:
+                patch["remembered"] = True
             self.update(pending.item_id, patch)
         self.end_wait(request_id, answered=True)
 

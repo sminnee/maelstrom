@@ -101,6 +101,7 @@
             "cwd": "/worktree"
           },
           "description": "Codex Bash request",
+          "remember": "Always allow `echo $MAEL_TASK_ID`",
           "id": "ag1-4",
           "ts": "2026-09-02T00:00:00Z",
           "decision": "allow"

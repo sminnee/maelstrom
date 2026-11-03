@@ -23,6 +23,7 @@ from agent_fixtures import (
     read_stamped_fixture,
 )
 
+from mael_agent.agent_wire import PendingRequest, reply_for_approval
 from mael_domain import task as task_model
 from mael_domain.attachments import attachment_urls
 from mael_domain.document_tags import CompactRequest, ParamSet, read_worktree_file
@@ -588,6 +589,25 @@ def test_a_denied_codex_approval_settles_with_the_reason():
     assert (ask["requestId"], ask["input"]["command"]) == ("3", "rm -rf build")
     assert (ask["decision"], ask["reason"]) == ("deny", "Not the build dir")
     assert agent_of(replayed)["pendingRequestIds"] == []
+
+
+def test_a_codex_allow_other_than_accept_settles_remembered():
+    rule = {"acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["rm", "-rf"]}}
+    request = codex_approval(4)
+    answered = replay(
+        [
+            request,
+            {
+                "type": "codex_raw",
+                "method": request["method"],
+                "id": 4,
+                "result": {"decision": rule},
+            },
+        ]
+    )
+
+    [settled] = items_of(answered, "permission_request")
+    assert (settled["decision"], settled["remembered"]) == ("allow", True)
 
 
 def test_a_codex_settings_update_moves_the_agents_mode():
@@ -1179,6 +1199,28 @@ def test_a_permission_request_awaits_permission_and_its_allow_is_recorded():
     assert request["tool"] == "WebFetch"
     assert request["decision"] == "allow"
     assert agent_of(done)["state"] == "idle"
+
+
+def test_an_allow_that_replays_the_suggestions_settles_remembered():
+    waiting = replay("permission-request.jsonl", stop_before_control_response=True)
+    [ask] = items_of(waiting, "permission_request")
+    [asked] = [
+        e
+        for e in read_fixture("permission-request.jsonl")
+        if e["type"] == "control_request"
+    ]
+    pending = PendingRequest(
+        request_id=ask["requestId"],
+        tool_name="WebFetch",
+        input=ask["input"],
+        suggestions=asked["request"]["permission_suggestions"],
+    )
+    reply = reply_for_approval(pending, remember=True)
+    out = normalise_stream_event(waiting.state, waiting.ctx, reply, NOW)
+    waiting.take(out.events)
+
+    [settled] = items_of(waiting, "permission_request")
+    assert (settled["decision"], settled["remembered"]) == ("allow", True)
 
 
 RESULT = {

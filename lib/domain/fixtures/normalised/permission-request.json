@@ -115,6 +115,7 @@
             "prompt": "What is the title of this page? Also summarize its content briefly."
           },
           "description": "https://example.com",
+          "remember": "Always allow WebFetch(domain:example.com)",
           "id": "ag1-4",
           "ts": "2026-09-02T00:00:00Z",
           "decision": "allow"

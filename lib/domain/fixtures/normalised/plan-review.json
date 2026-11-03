@@ -204,6 +204,7 @@
             "content": "hi\n"
           },
           "description": "hello.txt",
+          "remember": "Allow edits this session",
           "id": "ag1-7",
           "ts": "2026-09-02T00:00:00Z",
           "decision": "allow"
