@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mael_agent.harness_model import HARNESS_CLAUDE, HARNESS_CODEX
 from mael_common.shell import run_cmd
 from mael_common.util import now_iso
 
@@ -1708,8 +1709,21 @@ def _expand_task_dir(task: Task) -> str:
     return task.content.replace(MAEL_TASK_DIR_TOKEN, task_dir)
 
 
-def build_prompt(task: Task) -> str:
-    """Build the initial Claude prompt for a task.
+#: The file a Codex plan-mode session writes its plan to. Its approval ends
+#: planning. See ``docs/dev/codex-app-server-events.md``, "Plan mode".
+CODEX_PLAN_FILE = ".drafts/plan.md"
+
+#: The Codex plan-mode instructions.
+CODEX_PLAN_HANDOFF = (
+    f"Codex has no ExitPlanMode tool. Write the plan to `{CODEX_PLAN_FILE}`, then "
+    f'show it with `<doc-file kind="other" filename="{CODEX_PLAN_FILE}" '
+    'title="Plan" review="true">` and end your turn. Approval takes you out of '
+    "plan mode and tells you to build."
+)
+
+
+def build_prompt(task: Task, harness: str = HARNESS_CLAUDE) -> str:
+    """Build the initial prompt for a task.
 
     The shape is ``/<command> <title>`` followed by a blank line and the task's
     content. ``command`` names a Claude skill/slash-command, so it is prefixed
@@ -1719,13 +1733,21 @@ def build_prompt(task: Task) -> str:
     The trailing ``\\n\\n<content>`` is omitted when the task has no content.
     Any ``{{MAEL_TASK_DIR}}`` token in the content is expanded to the task's
     absolute repo dir.
+
+    Codex reads a slash command as text, so a ``codex`` harness names the
+    skill in words, and a plan-mode task gets :data:`CODEX_PLAN_HANDOFF`.
     """
     command = task.command or ("planning" if task.mode == "plan" else "")
     head = f"/{command} {task.title}" if command else task.title
-    content = _expand_task_dir(task).strip()
-    if content:
-        return f"{head}\n\n{content}"
-    return head
+    blocks = [_expand_task_dir(task).strip()]
+    if harness == HARNESS_CODEX:
+        if command:
+            name, _, args = command.partition(" ")
+            with_args = f" with the arguments `{args}`" if args else ""
+            head = f"Load the `{name}` skill{with_args}, then: {task.title}"
+        if task.mode == "plan":
+            blocks.insert(0, CODEX_PLAN_HANDOFF)
+    return "\n\n".join([head, *(block for block in blocks if block)])
 
 
 def mode_for_command(command: str) -> str:

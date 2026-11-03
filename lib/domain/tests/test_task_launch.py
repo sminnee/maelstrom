@@ -76,6 +76,16 @@ def test_a_task_naming_no_execute_model_plans_an_empty_one():
     assert plan_launch("northwind", task).execute_model == ""
 
 
+def test_a_launch_on_a_codex_model_writes_a_codex_prompt():
+    """The launch's model, which may override the task's, picks the harness."""
+    task = model.Task(
+        id="NORT-9", title="x", project="northwind", command="plan-task", mode="auto"
+    )
+    plan = plan_launch("northwind", task, model_name="codex:sol")
+    assert plan.model == "codex:sol"
+    assert plan.prompt == "Load the `plan-task` skill, then: x"
+
+
 def test_check_not_live_refuses_a_task_with_a_live_session():
     session = LiveSession(pid=42, cwd=Path("/x"), session_id="s-1")
     live = LiveSessionSet([session])

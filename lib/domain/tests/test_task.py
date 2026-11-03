@@ -1405,6 +1405,32 @@ class TestBuildPrompt:
         t = Task(id="x", title="Just a title", project="p", mode="auto")
         assert model.build_prompt(t) == "Just a title"
 
+    def test_a_codex_prompt_names_the_skill_in_words(self):
+        """Codex reads a leading ``/plan-task`` as literal text."""
+        t = Task(
+            id="x",
+            title="Redo the settings page",
+            project="p",
+            mode="auto",
+            command="impeccable shape",
+            content="Details.",
+        )
+        assert model.build_prompt(t, harness="codex") == (
+            "Load the `impeccable` skill with the arguments `shape`, then: "
+            "Redo the settings page\n\nDetails."
+        )
+
+    def test_a_codex_plan_mode_prompt_asks_for_a_plan_document(self):
+        """Codex has no ExitPlanMode: the plan reaches review as a document."""
+        t = Task(id="x", title="Do thing", project="p", mode="plan", content="Why.")
+        assert model.build_prompt(t, harness="codex") == (
+            "Load the `planning` skill, then: Do thing\n\n"
+            "Codex has no ExitPlanMode tool. Write the plan to `.drafts/plan.md`, "
+            'then show it with `<doc-file kind="other" filename=".drafts/plan.md" '
+            'title="Plan" review="true">` and end your turn. Approval takes you out '
+            "of plan mode and tells you to build.\n\nWhy."
+        )
+
     def test_expands_task_dir_token(self, tmp_path, monkeypatch):
         monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
         t = Task(

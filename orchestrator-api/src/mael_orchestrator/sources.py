@@ -21,7 +21,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from mael_agent.agent_wire import build_start_payload
-from mael_agent.harness_model import resolve_execute_model
+from mael_agent.harness_model import (
+    HARNESS_CODEX,
+    resolve_execute_model,
+)
 from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
 from mael_domain import task_actions
@@ -219,7 +222,6 @@ class PreparedLaunch:
     previous_status: str
     setup: WorktreeSetup
     plan: LaunchPlan
-    model_name: str | None
 
 
 @dataclass(frozen=True)
@@ -667,7 +669,7 @@ class NotebookTaskSource:
             raise LaunchBlocked("This server cannot open worktrees")
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
-        plan = plan_launch(task.project, task)
+        plan = plan_launch(task.project, task, model_name)
         if plan.execute_model:
             # The board's launch reaches the daemon without passing `validate`,
             # which guards the free-agent path only. Refused here for the same
@@ -681,9 +683,7 @@ class NotebookTaskSource:
         setup = await self._open(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        return PreparedLaunch(
-            task.project, task.id, task.status, setup, plan, model_name
-        )
+        return PreparedLaunch(task.project, task.id, task.status, setup, plan)
 
     async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
         """Rebuild the ``.env`` of a worktree that was reused or recycled.
@@ -702,7 +702,7 @@ class NotebookTaskSource:
             setup.path,
             prompt=plan.prompt,
             permission_mode=plan.permission_mode,
-            model=prepared.model_name or plan.model,
+            model=plan.model,
             execute_model=plan.execute_model,
             session_id=plan.session_id,
             env=plan.env,
