@@ -31,6 +31,7 @@ from mael_agent.agent_wire import (
     SEQ_KEY,
     TRUNCATED,
     TS_KEY,
+    reply_for_approval,
     user_message,
 )
 from mael_common.process_table import ProcessInfo, ProcessTableUnavailable
@@ -1919,6 +1920,55 @@ def test_a_reply_the_daemon_writes_reaches_every_watcher():
 
     asyncio.run(attach_then_approve())
     assert json.loads(writer.lines[-1])["type"] == "control_response"
+
+
+def test_a_remembered_approve_replays_the_suggestions_as_updated_permissions():
+    daemon = AgentDaemon()
+    agent, sent = _sending_agent()
+    agent.state = replay("permission-request.jsonl", stop_before_control=True)
+    [pending] = agent.state.own_pending.values()
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "approve", "id": "a1", "remember": True})
+    )
+
+    assert reply == {"ok": True}
+    assert sent == [reply_for_approval(pending, remember=True)]
+
+
+def test_a_remembered_approve_errors_when_the_ask_offers_nothing():
+    daemon = AgentDaemon()
+    agent, sent = _sending_agent()
+    state = replay("permission-request.jsonl", stop_before_control=True)
+    agent.state = replace(
+        state,
+        own_pending={
+            key: replace(ask, suggestions=[]) for key, ask in state.own_pending.items()
+        },
+    )
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "approve", "id": "a1", "remember": True})
+    )
+
+    assert "offers no remember" in reply["error"]
+    assert sent == []
+
+
+def test_a_remembered_approve_of_a_plan_is_refused_not_approved():
+    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
+    agent, sent = _answering_agent()
+    agent.state = replay("plan-review-with-plan.jsonl", stop_before_control=True)
+    daemon.agents["a1"] = agent
+
+    reply = asyncio.run(
+        _handle(daemon, {"cmd": "approve", "id": "a1", "remember": True})
+    )
+
+    assert "offers no remember" in reply["error"]
+    assert sent == []
 
 
 def test_approving_a_plan_puts_the_agent_into_auto():

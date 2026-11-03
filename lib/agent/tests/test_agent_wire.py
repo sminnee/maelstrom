@@ -9,6 +9,8 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
+
 from mael_agent.agent_wire import (
     AWAITING_PLAN_REVIEW,
     PendingRequest,
@@ -16,6 +18,7 @@ from mael_agent.agent_wire import (
     build_start_payload,
     interrupt_request,
     pending_fields,
+    remember_label,
     reply_for_answer,
     reply_for_answers,
     reply_for_approval,
@@ -41,6 +44,7 @@ def recorded_ask(name: str) -> PendingRequest:
                 tool_name=request["tool_name"],
                 input=request.get("input") or {},
                 description=request.get("description") or "",
+                suggestions=request.get("permission_suggestions") or [],
             )
     raise AssertionError(f"{name} records no ask")
 
@@ -63,6 +67,75 @@ def test_reply_for_approval_allows_with_the_input_unchanged():
     payload = reply["response"]["response"]
     assert payload["behavior"] == "allow"
     assert payload["updatedInput"] == state.input
+
+
+def test_a_remembered_approval_replays_the_suggestions():
+    state = recorded_ask("permission-request.jsonl")
+    payload = reply_for_approval(state, remember=True)["response"]["response"]
+    assert payload["behavior"] == "allow"
+    assert payload["updatedPermissions"] == [
+        {
+            "type": "addRules",
+            "destination": "localSettings",
+            "rules": [{"toolName": "WebFetch", "ruleContent": "domain:example.com"}],
+            "behavior": "allow",
+        }
+    ]
+    assert "updatedPermissions" not in reply_for_approval(state)["response"]["response"]
+
+
+def rules(*tools, behavior="allow", destination="localSettings"):
+    return {
+        "type": "addRules",
+        "behavior": behavior,
+        "destination": destination,
+        "rules": [dict(zip(("toolName", "ruleContent"), tool)) for tool in tools],
+    }
+
+
+EDITS = {"type": "setMode", "mode": "acceptEdits", "destination": "session"}
+DIRECTORY = {"type": "addDirectories", "directories": ["/w"], "destination": "session"}
+
+
+@pytest.mark.parametrize(
+    ("suggestions", "label"),
+    [
+        ([rules(("Bash", "npm test:*"))], "Always allow Bash(npm test:*)"),
+        (
+            [rules(("Bash", "npm test:*"), destination="session")],
+            "Allow Bash(npm test:*) this session",
+        ),
+        ([rules(("WebSearch",))], "Always allow WebSearch"),
+        ([EDITS], "Allow edits this session"),
+        ([rules(("Read",)), EDITS], "Always allow Read; Allow edits this session"),
+        ([rules(("Bash", "rm:*"), behavior="deny")], ""),
+        ([DIRECTORY], ""),
+        ([{"type": "addRules", "behavior": "allow", "rules": [{}]}], ""),
+        ([], ""),
+    ],
+    ids=[
+        "rule",
+        "session-rule",
+        "bare-tool",
+        "edits",
+        "joined",
+        "deny",
+        "unknown",
+        "no-tool",
+        "none",
+    ],
+)
+def test_remember_label_names_what_the_suggestions_remember(suggestions, label):
+    assert remember_label(suggestions) == label
+
+
+def test_a_remembered_approval_replays_only_what_the_label_names():
+    named = rules(("WebFetch", "domain:example.com"))
+    ask = PendingRequest(
+        request_id="r1", tool_name="WebFetch", input={}, suggestions=[named, DIRECTORY]
+    )
+    payload = reply_for_approval(ask, remember=True)["response"]["response"]
+    assert payload["updatedPermissions"] == [named]
 
 
 def test_reply_for_denial_carries_the_reason():

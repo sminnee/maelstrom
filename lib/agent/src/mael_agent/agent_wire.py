@@ -11,7 +11,7 @@ Pure: no I/O, no clock, no subprocess.
 
 import base64
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -141,6 +141,9 @@ class PendingRequest:
     #: blocks on one request at a time, whoever raised it — but a user deciding
     #: wants to know which stream to read.
     subagent: str = ""
+    #: The ``permission_suggestions`` the agent sent: the lasting allows it
+    #: offers, as ``PermissionUpdate``s. A remembered approval replays them.
+    suggestions: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def questions(self) -> list[str]:
@@ -494,15 +497,55 @@ def set_mode_request(request_id: str, mode: str) -> dict[str, Any]:
     }
 
 
-def reply_for_approval(pending: PendingRequest) -> dict[str, Any]:
+def reply_for_approval(
+    pending: PendingRequest, *, remember: bool = False
+) -> dict[str, Any]:
     """Allow the pending call, with its input unchanged.
 
     ``updatedInput`` is not optional: the CLI runs the tool with whatever it
     carries, so echoing the original input is what "approve as proposed" means.
+
+    ``remember`` replays the suggestions :func:`remember_label` names as
+    ``updatedPermissions`` — see ``docs/dev/agent-daemon.md``, "The replies".
     """
-    return _control_response(
-        pending.request_id, {"behavior": "allow", "updatedInput": pending.input}
-    )
+    payload: dict[str, Any] = {"behavior": "allow", "updatedInput": pending.input}
+    if remember:
+        payload["updatedPermissions"] = [
+            update for update in pending.suggestions if _label_of(update)
+        ]
+    return _control_response(pending.request_id, payload)
+
+
+def remember_label(suggestions: Any) -> str:
+    """What replaying ``suggestions`` remembers, or ``""`` when they offer nothing.
+
+    An update this cannot name is never replayed, so the button promises all
+    that the reply grants.
+    """
+    if not isinstance(suggestions, list):
+        return ""
+    return "; ".join(label for update in suggestions if (label := _label_of(update)))
+
+
+def _label_of(update: Any) -> str:
+    if not isinstance(update, dict):
+        return ""
+    session = update.get("destination") == "session"
+    if update.get("type") == "addRules" and update.get("behavior") == "allow":
+        rules = [
+            f"{rule['toolName']}({rule['ruleContent']})"
+            if rule.get("ruleContent")
+            else str(rule["toolName"])
+            for rule in update.get("rules") or []
+            if isinstance(rule, dict) and rule.get("toolName")
+        ]
+        if not rules:
+            return ""
+        named = ", ".join(rules)
+        return f"Allow {named} this session" if session else f"Always allow {named}"
+    if update.get("type") == "setMode" and update.get("mode") == "acceptEdits":
+        return "Allow edits this session"
+    return ""
 
 
 def reply_for_denial(pending: PendingRequest, reason: str = "") -> dict[str, Any]:
