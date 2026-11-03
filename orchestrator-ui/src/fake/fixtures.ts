@@ -102,6 +102,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     pendingRequestIds: [],
     pid: null,
     backgroundShells: [],
+    harness: 'claude',
     ...over,
   };
 }

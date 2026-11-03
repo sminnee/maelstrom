@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
+from mael_agent.harness_model import HARNESS_CLAUDE
 from mael_domain import comms as comms_model
 from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
@@ -312,6 +313,8 @@ def agent_entity(
         "pendingRequestIds": list(pending_request_ids or []),
         "pid": _pid(row.get("pid")),
         "backgroundShells": background_shells_of_row(row.get("background")),
+        # A row from the Claude daemon, read without the router, names none.
+        "harness": row.get("harness") or HARNESS_CLAUDE,
     }
 
 

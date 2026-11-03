@@ -475,7 +475,12 @@ export interface Agent {
   pid: number | null;
   /** The background shells running now, oldest first. Empty for a subagent. */
   backgroundShells: BackgroundShell[];
+  /** The harness that runs the agent. */
+  harness: Harness;
 }
+
+/** What runs an agent. */
+export type Harness = 'claude' | 'codex';
 
 /** One background shell an agent runs: the task id and its `Bash` description. */
 export interface BackgroundShell {

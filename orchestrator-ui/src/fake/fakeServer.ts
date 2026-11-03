@@ -2125,5 +2125,6 @@ function makeNewAgent(
     pendingRequestIds: [],
     pid: null,
     backgroundShells: [],
+    harness: 'claude',
   };
 }

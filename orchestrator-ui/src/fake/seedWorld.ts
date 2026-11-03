@@ -215,6 +215,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     pendingRequestIds: [],
     pid: null,
     backgroundShells: [],
+    harness: 'claude',
     ...over,
   };
 }
@@ -252,6 +253,7 @@ function freeAgent(
     pendingRequestIds: [],
     pid: null,
     backgroundShells: [],
+    harness: 'claude',
     ...over,
   };
 }

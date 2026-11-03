@@ -536,6 +536,8 @@ class Agent(TypedDict):
     pid: int | None
     #: The background shells running now, oldest first. Empty for a subagent.
     backgroundShells: list[BackgroundShell]
+    #: The harness that runs the agent: ``claude`` or ``codex``.
+    harness: str
 
 
 class Attention(TypedDict):

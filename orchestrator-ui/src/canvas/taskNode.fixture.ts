@@ -79,6 +79,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     pendingRequestIds: [],
     pid: 4711,
     backgroundShells: [],
+    harness: 'claude',
     ...over,
   };
 }

@@ -31,7 +31,8 @@
           "9d42d8f9-b098-4adf-9aa8-70517016431a"
         ],
         "pid": null,
-        "backgroundShells": []
+        "backgroundShells": [],
+        "harness": "claude"
       }
     },
     "documents": {},
