@@ -160,7 +160,11 @@ Codex agent. See [orchestrator-server.md](orchestrator-server.md#the-normaliser-
 | `mcpToolCall` | A running `mcp__<server>__<tool>` call | The call settles in place. |
 | `webSearch` | A running `WebSearch` call | The call settles in place. |
 | `contextCompaction` | nothing | A `compact` item, and the compaction result the server waits on. |
-| anything else | nothing | A `raw_event` item. |
+| `collabAgentToolCall` | A running `Agent` call | The call settles in place. |
+| `dynamicToolCall` | A running `<namespace>__<tool>` call | The call settles in place. |
+| `imageView` | A running `Read` call | The call settles in place. |
+| `subAgentActivity`, `hookPrompt`, `sleep`, `functionCallOutput`, `imageGeneration`, `enteredReviewMode`, `exitedReviewMode` | nothing | nothing |
+| a type Codex 0.154 does not define | nothing | A `raw_event` item. |
 
 A user message goes through the same classifier as a Claude user turn. So an External event, a
 jig turn, or a skill body draws as it does for Claude.
@@ -177,6 +181,12 @@ A file change carries a unified diff. The Edit card diffs two strings, so the no
 the diff into its old and new sides. An added file becomes a `Write` with the new text.
 
 ### Agent-message deltas
+A sub-agent call is an `Agent` call. Its `description` is the collab tool, such as `spawnAgent` or
+`wait`, and its output is the message of each target agent. A dynamic tool call without a
+namespace keeps the bare tool name. Its output is the text of its content items, and
+`success: false` makes it an error. An image generation draws nothing, because no card can show its
+base64 result.
+
 
 `item/agentMessage/delta` carries `itemId` and `delta`. The deltas grow the same partial message
 that Claude chunks grow, keyed by `itemId`. A tag that is still open is held back, as for Claude.

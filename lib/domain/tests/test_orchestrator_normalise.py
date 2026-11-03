@@ -452,12 +452,137 @@ def test_a_running_codex_command_is_settled_in_place():
                 ("Write", {"file_path": "/w/b.md", "content": "New\n"}, "denied"),
             ],
         ),
+        (
+            {
+                "type": "collabAgentToolCall",
+                "tool": "spawnAgent",
+                "status": "completed",
+                "prompt": "Read the docs.",
+                "model": "gpt-5.5",
+                "agentsStates": {},
+            },
+            [
+                (
+                    "Agent",
+                    {
+                        "description": "spawnAgent",
+                        "prompt": "Read the docs.",
+                        "model": "gpt-5.5",
+                    },
+                    "done",
+                )
+            ],
+        ),
+        (
+            {
+                "type": "collabAgentToolCall",
+                "tool": "wait",
+                "status": "completed",
+                "prompt": None,
+                "model": None,
+                "agentsStates": {},
+            },
+            [("Agent", {"description": "wait", "prompt": ""}, "done")],
+        ),
+        (
+            {
+                "type": "dynamicToolCall",
+                "namespace": "browser",
+                "tool": "open",
+                "arguments": {"url": "https://x.test"},
+                "status": "completed",
+                "success": False,
+            },
+            [("browser__open", {"url": "https://x.test"}, "error")],
+        ),
+        (
+            {"type": "imageView", "path": "/w/shot.png"},
+            [("Read", {"file_path": "/w/shot.png"}, "done")],
+        ),
     ],
 )
 def test_a_codex_tool_item_is_the_claude_tool_call(item, expected):
     replayed = replay([codex_item("item/completed", id="it-1", **item)])
 
     assert [(i["tool"], i["input"], i["status"]) for i in replayed.items] == expected
+
+
+@pytest.mark.parametrize(
+    "item, output",
+    [
+        (
+            {
+                "type": "collabAgentToolCall",
+                "tool": "wait",
+                "status": "completed",
+                "prompt": None,
+                "model": None,
+                "agentsStates": {
+                    "t-2": {"status": "completed", "message": "Found it."},
+                    "t-3": {"status": "running", "message": None},
+                },
+            },
+            "Found it.",
+        ),
+        (
+            {
+                "type": "dynamicToolCall",
+                "namespace": None,
+                "tool": "lookup",
+                "arguments": {},
+                "status": "completed",
+                "success": True,
+                "contentItems": [
+                    {"type": "inputText", "text": "First."},
+                    {"type": "inputImage", "imageUrl": "data:x"},
+                    {"type": "inputText", "text": "Second."},
+                ],
+            },
+            "First.\n\nSecond.",
+        ),
+    ],
+)
+def test_a_codex_tool_item_output_is_the_tool_result(item, output):
+    [call] = replay([codex_item("item/completed", id="it-1", **item)]).items
+
+    assert call["output"] == output
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        # The reported case: the agent talked to a sub-agent.
+        {
+            "type": "subAgentActivity",
+            "kind": "interacted",
+            "agentThreadId": "019a-sub",
+            "agentPath": "/root/researcher",
+        },
+        {"type": "hookPrompt", "fragments": []},
+        {"type": "sleep", "durationMs": 1000},
+        {"type": "functionCallOutput", "callId": "c-1", "output": "ok"},
+        {"type": "imageGeneration", "status": "completed", "result": "iVBORw0"},
+        {"type": "enteredReviewMode", "review": "main"},
+        {"type": "exitedReviewMode", "review": "main"},
+    ],
+)
+def test_a_codex_bookkeeping_item_draws_nothing(item):
+    replayed = replay(
+        [
+            codex_item("item/started", id="it-1", **item),
+            codex_item("item/completed", id="it-1", **item),
+        ]
+    )
+
+    assert replayed.items == []
+
+
+def test_an_unknown_codex_item_stays_a_raw_event():
+    replayed = replay([codex_item("item/completed", id="it-1", type="futureThing")])
+
+    assert [(i["type"], i["method"]) for i in replayed.items] == [
+        ("raw_event", "item/completed")
+    ]
 
 
 def test_a_codex_plan_update_is_a_todo_list():

@@ -807,6 +807,20 @@ _CODEX_SILENT = frozenset(
     }
 )
 
+#: Codex thread items that are bookkeeping, or that no card can show, so they
+#: draw nothing. An ``imageGeneration`` result is base64 image data.
+_CODEX_SILENT_ITEMS = frozenset(
+    {
+        "subAgentActivity",
+        "hookPrompt",
+        "sleep",
+        "functionCallOutput",
+        "imageGeneration",
+        "enteredReviewMode",
+        "exitedReviewMode",
+    }
+)
+
 #: Codex notifications a reader must see, drawn as an error item.
 _CODEX_WARNINGS = frozenset({"warning", "configWarning", "guardianWarning"})
 
@@ -943,6 +957,8 @@ def _codex_item(
     """
     kind = _str(item.get("type"))
     item_id = _str(item.get("id"))
+    if kind in _CODEX_SILENT_ITEMS:
+        return
     if kind == "userMessage":
         if completed and (text := _codex_text(item.get("content"))):
             _user_text(out, text, show_refs)
@@ -981,7 +997,8 @@ def _codex_item(
         return
     calls = _codex_tool_calls(kind, item)
     if calls is None:
-        # Every start draws nothing. A completed item no mapping knows is kept.
+        # Every start draws nothing. A completed item of a type Codex 0.154
+        # does not define is kept, so a new type shows until it is mapped.
         if completed:
             out.append(
                 {"type": "raw_event", "method": "item/completed", "params": item}
@@ -1010,7 +1027,11 @@ def _codex_item(
                     },
                 )
             continue
-        settled = {"input": tool_input, "status": status, "output": _codex_output(item)}
+        settled = {
+            "input": tool_input,
+            "status": status,
+            "output": _codex_output(kind, item),
+        }
         if opened is None:
             out.append(
                 {
@@ -1086,6 +1107,21 @@ def _codex_tool_calls(kind: str, item: Dict) -> list[tuple[str, str, Dict]] | No
         return [(item_id, tool, _dict(item.get("arguments")))]
     if kind == "webSearch":
         return [(item_id, "WebSearch", {"query": _str(item.get("query"))})]
+    if kind == "collabAgentToolCall":
+        agent_input = {
+            "description": _str(item.get("tool")),
+            "prompt": _str(item.get("prompt")),
+        }
+        if model := _str(item.get("model")):
+            agent_input["model"] = model
+        return [(item_id, "Agent", agent_input)]
+    if kind == "dynamicToolCall":
+        tool = _str(item.get("tool"))
+        if namespace := _str(item.get("namespace")):
+            tool = f"{namespace}__{tool}"
+        return [(item_id, tool, _dict(item.get("arguments")))]
+    if kind == "imageView":
+        return [(item_id, "Read", {"file_path": _str(item.get("path"))})]
     return None
 
 
@@ -1156,7 +1192,12 @@ def _codex_request(out: "_Emitter", raw: Dict, method: str, params: Dict) -> Non
         )
 
 
-def _codex_output(item: Dict) -> str:
+def _codex_output(kind: str, item: Dict) -> str:
+    if kind == "dynamicToolCall":
+        return _codex_text(item.get("contentItems"))
+    if kind == "collabAgentToolCall":
+        states = _dict(item.get("agentsStates")).values()
+        return _codex_text([_dict(state).get("message") for state in states])
     if "aggregatedOutput" in item:
         return _str(item.get("aggregatedOutput"))
     if error := _str(_dict(item.get("error")).get("message")):
@@ -1185,6 +1226,7 @@ def _codex_status(item: Dict) -> str:
     if (
         status in {"failed", "error"}
         or item.get("error")
+        or item.get("success") is False
         or (
             isinstance(exit_code, int)
             and not isinstance(exit_code, bool)
