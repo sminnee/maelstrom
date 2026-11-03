@@ -330,18 +330,33 @@ class CodexDaemonClient(AsyncDaemonClient):
             request_id = next(iter(thread.pending), "")
         if request_id not in thread.pending:
             return _error(f"agent {thread_id} is not waiting on request {request_id}")
+        remember = allowed and payload.get("remember") is True
+        if remember and thread.pending[request_id]["approval"].remember is None:
+            return _error(f"request {request_id} offers no remember")
         reason = str(payload.get("reason") or "Denied by user")
-        await self._decide(thread_id, request_id, allowed, reason)
+        await self._decide(thread_id, request_id, allowed, reason, remember=remember)
         return {"ok": True}
 
     async def _decide(
-        self, thread_id: str, request_id: str, allowed: bool, reason: str
+        self,
+        thread_id: str,
+        request_id: str,
+        allowed: bool,
+        reason: str,
+        *,
+        remember: bool = False,
     ) -> None:
         """Answer one approval, and record the reply beside the request."""
         thread = self._threads[thread_id]
         pending = thread.pending[request_id]
         approval: Approval = pending["approval"]
-        result = {"decision": "accept" if allowed else approval.decline}
+        if not allowed:
+            decision: Any = approval.decline
+        elif remember:
+            decision = approval.remember
+        else:
+            decision = "accept"
+        result = {"decision": decision}
         await self.bridge.respond(pending["rpc_id"], result)
         thread.pending.pop(request_id)
         row = thread.row

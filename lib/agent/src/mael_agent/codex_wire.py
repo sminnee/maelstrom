@@ -28,6 +28,12 @@ class Approval:
     #: The refusal Codex offers: ``decline``, else ``cancel``, which also
     #: interrupts the turn.
     decline: str
+    #: The decision that allows the request and stops Codex asking again, or
+    #: ``None`` when Codex offers none. A command-prefix rule comes first, else
+    #: the session.
+    remember: str | dict[str, Any] | None = None
+    #: What :attr:`remember` remembers, for the button that sends it.
+    remember_label: str = ""
 
 
 def approval_of(method: str, params: dict[str, Any]) -> Approval | None:
@@ -48,13 +54,47 @@ def approval_of(method: str, params: dict[str, Any]) -> Approval | None:
         }
     available = params.get("availableDecisions")
     declines = not isinstance(available, list) or "decline" in available
+    remember, remember_label = _remember_of(available)
     return Approval(
         tool_use_id=str(params.get("itemId") or ""),
         tool=tool,
         input=tool_input,
         description=str(params.get("reason") or f"Codex {tool} request"),
         decline="decline" if declines else "cancel",
+        remember=remember,
+        remember_label=remember_label,
     )
+
+
+def _remember_of(available: Any) -> tuple[str | dict[str, Any] | None, str]:
+    """The remember decision ``availableDecisions`` offers, and its label."""
+    if not isinstance(available, list):
+        return None, ""
+    for decision in available:
+        if isinstance(decision, dict) and "acceptWithExecpolicyAmendment" in decision:
+            amendment = decision["acceptWithExecpolicyAmendment"]
+            prefix = (
+                amendment.get("execpolicy_amendment")
+                if isinstance(amendment, dict)
+                else None
+            )
+            if isinstance(prefix, list) and prefix:
+                return decision, f"Always allow `{_shown_prefix(prefix)}`"
+    if "acceptForSession" in available:
+        return "acceptForSession", "Allow for this session"
+    return None, ""
+
+
+#: The shell wrapper Codex runs a command in: ``<shell> -lc <command>``.
+_SHELL_FLAGS = {"-c", "-lc"}
+
+
+def _shown_prefix(prefix: list[Any]) -> str:
+    """The rule's prefix as the ask shows its command: without the shell wrapper."""
+    words = [str(word) for word in prefix]
+    if len(words) == 3 and words[1] in _SHELL_FLAGS:
+        return words[2]
+    return " ".join(words)
 
 
 def command_of(params: dict[str, Any]) -> str:

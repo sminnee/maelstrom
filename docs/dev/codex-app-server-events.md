@@ -104,6 +104,19 @@ its `availableDecisions` without `decline`. Then `deny` answers `cancel`, which 
 the turn. Codex takes no reason with a refusal. The recorded reply carries it under
 `mael_reason`, so the transcript still shows it.
 
+`approve` with `remember: true` sends a lasting allow instead of `accept`. The adapter picks the
+first match from `availableDecisions`:
+
+| Offered | Sent | Label |
+|---|---|---|
+| `{"acceptWithExecpolicyAmendment": {...}}` with a prefix | That decision. Codex writes a rule for the command prefix. | ``Always allow `<prefix>` ``, without the `<shell> -lc` wrapper |
+| `acceptForSession` | `acceptForSession` | `Allow for this session` |
+| Neither | Nothing: `approve` fails with "offers no remember". | None, so no button |
+
+The rule comes first because it outlasts the session. `codex_wire.approval_of` builds both the
+decision and the label, so the button and the reply cannot disagree. The normaliser marks the
+answer `remembered` when the decision is any allow except `accept`.
+
 `approve` and `deny` with no `request` answer the single open request, as the Claude daemon does.
 With more than one open, the command must name one.
 
