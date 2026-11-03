@@ -2677,7 +2677,7 @@ def test_approving_a_codex_plan_takes_the_agent_out_of_plan_mode(
     told = [c for c in harness.daemon.calls if c["cmd"] in ("set-mode", "say")]
     [said] = [parse_external_event(c["text"]) for c in told if c["cmd"] == "say"]
     if leaves_plan_mode:
-        assert told[0] == {"cmd": "set-mode", "id": "ag1", "mode": "normal"}
+        assert told[0] == {"cmd": "set-mode", "id": "ag1", "mode": "auto"}
         assert said.body.endswith("Plan mode is off. Build the plan.")
     else:
         assert [c["cmd"] for c in told] == ["say"]

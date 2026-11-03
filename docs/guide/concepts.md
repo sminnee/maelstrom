@@ -84,7 +84,8 @@ permissions.
 The orchestrator also runs a `codex:*` model as a Codex app-server thread. That thread gets the
 same instructions and markers as a Claude agent, and its relaunch resumes the same thread. Codex
 has no plan review tool, so a Codex plan-mode session shows its plan as a reviewed document. The
-approval ends plan mode.
+approval moves the session to `auto`. In `auto`, Codex's auto-reviewer answers each approval ask,
+and the transcript shows each ask it denies or lets time out.
 
 A task's `mode` decides how a Claude session behaves:
 
