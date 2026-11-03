@@ -698,7 +698,14 @@ body rather than the query builder.
   ];
 
   const world: FakeWorld = {
-    host: { id: 'agent-host', reachable: true, since: T(9), socket: '', usage: null },
+    host: {
+      id: 'agent-host',
+      reachable: true,
+      since: T(9),
+      socket: '',
+      usage: null,
+      codexUsage: null,
+    },
     // Every worktree reads as clean; a test that needs changes seeds them.
     changes: {},
     // No operation has run yet; the `operations` scenario seeds a history.

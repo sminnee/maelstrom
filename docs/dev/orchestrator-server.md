@@ -977,6 +977,12 @@ daemon restart costs exactly one dropped connection. So a restart shows in the U
 a few seconds and then the same agent ids, revived, with every client's cursors intact — never as
 a canvas full of exits. `GET /api/host` serves the entity; a `host` change notice names it.
 
+The entity also carries two usage readings. `usage` comes from the Claude daemon's `list` reply.
+`codexUsage` comes from the Codex adapter's, which the router passes on as `codex_usage`. The
+two accounts bill apart, so neither reading stands in for the other. A poll without a reading
+keeps the last one, because a reading arrives only while an agent takes a turn. See
+[codex-app-server-events.md](codex-app-server-events.md#agent-state-and-usage).
+
 **The server never starts the daemon.** It polls, and reports what it finds. A server that
 started one served its own worktree's code to every session on the machine: it noticed the
 everyday daemon was gone before anything else did, and `mael-agent-daemon serve` under `uv run`

@@ -161,6 +161,18 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
     }
 
 
+def test_list_carries_each_harness_usage_apart() -> None:
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(usage={"at": "claude"})
+        codex = ScriptedAsyncDaemonClient(usage={"at": "codex"})
+        router = DaemonRouter(claude, codex, Agents(), clock=lambda: STAMP)
+        return await router.request({"cmd": "list"})
+
+    reply = asyncio.run(scenario())
+
+    assert (reply["usage"], reply["codex_usage"]) == ({"at": "claude"}, {"at": "codex"})
+
+
 def test_a_listed_row_carries_the_records_start_time() -> None:
     """The record's start, not the daemon's: a resume resets the daemon's."""
 

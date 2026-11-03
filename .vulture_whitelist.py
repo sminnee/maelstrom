@@ -97,6 +97,7 @@ actionLines  # unused variable (lib/domain/src/mael_domain/protocol.py StatusMov
 cpuPercent  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 rssBytes  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 shebang  # unused variable (lib/domain/src/mael_domain/protocol.py FileDiff)
+codexUsage  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or
 # that a constructor fills and only a caller reads back.

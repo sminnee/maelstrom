@@ -125,6 +125,7 @@ it. The request still draws as a raw event. This covers `item/tool/requestUserIn
 | `thread/settings/updated` | The agent's `permissionMode`. |
 | `serverRequest/resolved` | The end of the wait on a request no reply answered. |
 | `thread/tokenUsage/updated` | `totalTokens` from `total`, `contextTokens` from `last`. |
+| `account/rateLimits/updated` | Nothing in the transcript. The adapter keeps it; see "Agent state and usage". |
 | `warning`, `configWarning`, `guardianWarning` | An `error` item with the message. |
 | `error` with `willRetry` | An `error` item that says Codex retries. |
 | `error` without `willRetry` | Nothing: `turn/completed` reports the failure. |
@@ -159,10 +160,10 @@ Codex agent. See [orchestrator-server.md](orchestrator-server.md#the-normaliser-
 | `fileChange` | A running `Edit` or `Write` per file | Each call settles in place. |
 | `mcpToolCall` | A running `mcp__<server>__<tool>` call | The call settles in place. |
 | `webSearch` | A running `WebSearch` call | The call settles in place. |
-| `contextCompaction` | nothing | A `compact` item, and the compaction result the server waits on. |
 | `collabAgentToolCall` | A running `Agent` call | The call settles in place. |
 | `dynamicToolCall` | A running `<namespace>__<tool>` call | The call settles in place. |
 | `imageView` | A running `Read` call | The call settles in place. |
+| `contextCompaction` | nothing | A `compact` item, and the compaction result the server waits on. |
 | `subAgentActivity`, `hookPrompt`, `sleep`, `functionCallOutput`, `imageGeneration`, `enteredReviewMode`, `exitedReviewMode` | nothing | nothing |
 | a type Codex 0.154 does not define | nothing | A `raw_event` item. |
 
@@ -180,13 +181,13 @@ status, makes the call an error. A `declined` status makes it `denied`.
 A file change carries a unified diff. The Edit card diffs two strings, so the normaliser splits
 the diff into its old and new sides. An added file becomes a `Write` with the new text.
 
-### Agent-message deltas
 A sub-agent call is an `Agent` call. Its `description` is the collab tool, such as `spawnAgent` or
 `wait`, and its output is the message of each target agent. A dynamic tool call without a
 namespace keeps the bare tool name. Its output is the text of its content items, and
 `success: false` makes it an error. An image generation draws nothing, because no card can show its
 base64 result.
 
+### Agent-message deltas
 
 `item/agentMessage/delta` carries `itemId` and `delta`. The deltas grow the same partial message
 that Claude chunks grow, keyed by `itemId`. A tag that is still open is held back, as for Claude.
@@ -203,6 +204,25 @@ The adapter's `list` row follows the stream:
 - `pid`: the proxy's pid. Every thread runs behind that one process.
 
 `description` is empty, as for a top-level Claude agent. `cost` stays empty.
+
+The `list` reply's `usage` is the Codex account's usage windows, in the Claude daemon's shape:
+`five_hour` and `seven_day`, each `{utilization, resets_at}`, and `at`. Codex sends
+`account/rateLimits/updated` after each turn. The notification names no thread, so the adapter
+handles it before the thread lookup and keeps the newest reading in memory.
+
+| Codex field | Usage field |
+|---|---|
+| a window with `windowDurationMins` 300 | `five_hour` |
+| a window with `windowDurationMins` 10080 | `seven_day` |
+| `primary` or `secondary` with no duration | `five_hour` or `seven_day` |
+| `usedPercent` (0–100) | `utilization` (0–1) |
+| `resetsAt` (unix seconds) | `resets_at` |
+
+Only the `codex` bucket counts: `limitId` is `"codex"` or null. A window of another length is
+ignored. The update is sparse, so a window it leaves out keeps its last value, and an update with
+no window keeps the last reading's `at`. `usage` is null until the first Codex turn, and after an
+orchestrator restart. The adapter does not call `account/rateLimits/read` at start, because that
+call starts a proxy only to show a chip.
 
 ## Restore and reconnect
 

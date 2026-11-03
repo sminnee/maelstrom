@@ -61,6 +61,7 @@ describe('the agent host', () => {
           since: '2026-06-11T09:05:00Z',
           socket: '/x/agent-daemon.sock',
           usage: null,
+          codexUsage: null,
         };
       });
     });

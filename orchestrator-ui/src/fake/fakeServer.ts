@@ -129,6 +129,7 @@ export function emptyFakeWorld(): FakeWorld {
       since: '2026-06-11T09:00:00Z',
       socket: '',
       usage: null,
+      codexUsage: null,
     },
   };
 }

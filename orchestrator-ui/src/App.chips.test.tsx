@@ -37,6 +37,38 @@ describe('the usage and agent chips', () => {
     expect(screen.getByLabelText(/7-day limit: 24% consumed/)).toBeInTheDocument();
   });
 
+  it.each([
+    // Behind pace, so the 5h chip hides.
+    { spent: 0.07, hoursLeft: 1, shown: false },
+    // Far ahead of pace.
+    { spent: 0.9, hoursLeft: 4, shown: true },
+  ])(
+    'shows week gpt, and 5h gpt only ahead of pace ($spent)',
+    async ({ spent, hoursLeft, shown }) => {
+      const { server } = await renderApp();
+      await act(async () => {
+        server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+          world.host = {
+            ...world.host!,
+            codexUsage: {
+              fiveHour: {
+                utilization: spent,
+                resetsAt: Math.floor(Date.now() / 1000) + hoursLeft * 3600,
+              },
+              sevenDay: { utilization: 0.31, resetsAt: Math.floor(Date.now() / 1000) + 86_400 },
+              at: new Date().toISOString(),
+            },
+          };
+        });
+      });
+      const week = await screen.findByLabelText(/^Codex 7-day limit: 31% consumed/);
+      expect(week).toHaveTextContent('week gpt');
+      expect(screen.queryByLabelText(/^Codex 5-hour limit/) !== null).toBe(shown);
+      // The Claude chips read their own account, which has reported nothing.
+      expect(screen.queryByLabelText(/^7-day limit/)).toBeNull();
+    },
+  );
+
   it('counts the agents that are working over those that are open', async () => {
     await renderApp();
     // The seed is deterministic: six top-level agents, four of them mid-turn.

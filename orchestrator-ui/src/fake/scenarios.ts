@@ -701,7 +701,8 @@ function empty(): Seed {
 
 /**
  * The seed with both usage windows read: the 5-hour ahead of pace, so it is
- * amber and the narrow bar shows it, and the week on pace and neutral.
+ * amber and the narrow bar shows it, and the week on pace and neutral. The
+ * Codex account is on pace, so only its week chip draws.
  *
  * Dated from the page load rather than {@link T}: the app reads the real
  * clock, and a reading stamped at the seed's time would draw as stale.
@@ -715,6 +716,11 @@ function usage(): Seed {
     usage: {
       fiveHour: { utilization: 0.55, resetsAt: resetsIn(3) },
       sevenDay: { utilization: 0.05, resetsAt: resetsIn(6 * 24) },
+      at: new Date(now).toISOString(),
+    },
+    codexUsage: {
+      fiveHour: { utilization: 0.21, resetsAt: resetsIn(4) },
+      sevenDay: { utilization: 0.31, resetsAt: resetsIn(5 * 24) },
       at: new Date(now).toISOString(),
     },
   };
@@ -1258,7 +1264,10 @@ export const SCENARIOS = {
     build: transcript,
     screen: at({ panel: sessionTab('c3e8f1b5') }),
   },
-  usage: { about: 'The seed with both usage windows read, one ahead of pace.', build: usage },
+  usage: {
+    about: 'The seed with both usage windows read, one ahead of pace, and a Codex reading.',
+    build: usage,
+  },
   devenv: {
     about: "The seed, with delta's session and its dev env tab side by side.",
     build: seedWorld,

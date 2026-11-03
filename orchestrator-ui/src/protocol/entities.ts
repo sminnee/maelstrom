@@ -532,6 +532,8 @@ export interface Host {
   socket: string;
   /** The account's budget, or `null` until a reading arrives. */
   usage: HostUsage | null;
+  /** The Codex account's budget, or `null` until a Codex turn reports one. */
+  codexUsage: HostUsage | null;
 }
 
 /** One gate inside a gate job, as tangier reports it. */
