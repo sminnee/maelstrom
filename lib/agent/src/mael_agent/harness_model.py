@@ -116,16 +116,24 @@ def _mode_args(harness: str, mode: str) -> tuple[str, ...]:
     args = ("--sandbox", str(options["sandbox"]))
     if approval_policy := options.get("approvalPolicy"):
         args += ("--ask-for-approval", str(approval_policy))
-    return args
+    return args + ("-c", f"approvals_reviewer={options['approvalsReviewer']}")
 
 
 def codex_thread_start_options(mode: str) -> dict[str, str]:
-    """Map Maelstrom's Agent mode onto Codex thread-start settings."""
+    """Map Maelstrom's Agent mode onto Codex thread-start settings.
+
+    Every mode names its reviewer, so a user's Codex config cannot move it.
+    """
+    reviewer = {"approvalsReviewer": _CODEX_REVIEWER.get(mode, "user")}
     if mode == "plan":
-        return {"sandbox": "read-only"}
+        return {"sandbox": "read-only", **reviewer}
     if mode == "auto":
-        return {"sandbox": "workspace-write", "approvalPolicy": "on-request"}
-    return {"sandbox": "workspace-write"}
+        return {
+            "sandbox": "workspace-write",
+            "approvalPolicy": "on-request",
+            **reviewer,
+        }
+    return {"sandbox": "workspace-write", **reviewer}
 
 
 #: The approval policy a Codex turn runs under, by mode. ``normal`` asks before
@@ -135,6 +143,9 @@ _CODEX_TURN_APPROVAL = {
     "normal": "untrusted",
     "auto": "on-request",
 }
+
+#: Who answers a Codex approval ask, by mode; ``user`` for a mode not named.
+_CODEX_REVIEWER = {"auto": "auto_review"}
 
 #: A Codex thread-start sandbox mode, as the turn-start sandbox policy.
 _CODEX_SANDBOX_POLICY = {
@@ -152,7 +163,7 @@ def codex_turn_policy(mode: str) -> dict[str, Any]:
     return {
         "sandboxPolicy": _CODEX_SANDBOX_POLICY[options["sandbox"]],
         "approvalPolicy": _CODEX_TURN_APPROVAL.get(mode, "on-request"),
-        "approvalsReviewer": "user",
+        "approvalsReviewer": options["approvalsReviewer"],
     }
 
 

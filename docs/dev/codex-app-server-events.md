@@ -62,14 +62,16 @@ a Claude daemon refusal.
 
 Each `turn/start` carries `sandboxPolicy`, `approvalPolicy` and `approvalsReviewer` from
 `codex_turn_policy`. Codex keeps a turn's policy for the turns after it, so every mode names its
-approval policy. `approvalsReviewer` is always `user`: a Codex config can route approvals to its
-own auto-reviewer, and then no approval reaches Maelstrom.
+approval policy and its reviewer. These values override the user's Codex config.
 
-| Mode | Sandbox policy | Approval policy |
-|---|---|---|
-| `plan` | `readOnly` | `on-request` |
-| `normal` | `workspaceWrite` | `untrusted` |
-| `auto` | `workspaceWrite` | `on-request` |
+| Mode | Sandbox policy | Approval policy | Reviewer |
+|---|---|---|---|
+| `plan` | `readOnly` | `on-request` | `user` |
+| `normal` | `workspaceWrite` | `untrusted` | `user` |
+| `auto` | `workspaceWrite` | `on-request` | `auto_review` |
+
+In `auto`, Codex's auto-reviewer answers each escalation, and no approval ask reaches Maelstrom.
+Thread start and a `--cli` launch (`-c approvals_reviewer=...`) set the same reviewer.
 
 A `set-mode` also records a `thread/settings/updated` frame with the new policy. The normaliser
 reads the mode back from the policy with `codex_mode_of`: no two modes share one.

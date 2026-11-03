@@ -100,6 +100,8 @@ class TestAddLauncher:
                     "codex",
                     "--sandbox",
                     "workspace-write",
+                    "-c",
+                    "approvals_reviewer=user",
                     "--model",
                     "gpt-5.6-terra",
                     "-c",
@@ -259,8 +261,8 @@ class TestAddLauncher:
                 model="codex:terra",
             )
         assert fake_cmux.sent[-1][1] == (
-            "codex --sandbox workspace-write --model gpt-5.6-terra -c "
-            "model_reasoning_effort=medium\n"
+            "codex --sandbox workspace-write -c approvals_reviewer=user "
+            "--model gpt-5.6-terra -c model_reasoning_effort=medium\n"
         )
 
     @pytest.mark.asyncio

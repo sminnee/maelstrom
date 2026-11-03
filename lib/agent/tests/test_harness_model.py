@@ -63,25 +63,38 @@ def test_codex_mode_settings_never_request_an_interactive_plan_mode():
     assert resolve_model_reference("codex:terra", "plan").mode_args == (
         "--sandbox",
         "read-only",
+        "-c",
+        "approvals_reviewer=user",
     )
     assert resolve_model_reference("codex:terra", "normal").mode_args == (
         "--sandbox",
         "workspace-write",
+        "-c",
+        "approvals_reviewer=user",
     )
     assert resolve_model_reference("codex:terra", "auto").mode_args == (
         "--sandbox",
         "workspace-write",
         "--ask-for-approval",
         "on-request",
+        "-c",
+        "approvals_reviewer=auto_review",
     )
 
 
 def test_codex_thread_start_options_matches_the_cli_mode_args():
-    assert codex_thread_start_options("plan") == {"sandbox": "read-only"}
-    assert codex_thread_start_options("normal") == {"sandbox": "workspace-write"}
+    assert codex_thread_start_options("plan") == {
+        "sandbox": "read-only",
+        "approvalsReviewer": "user",
+    }
+    assert codex_thread_start_options("normal") == {
+        "sandbox": "workspace-write",
+        "approvalsReviewer": "user",
+    }
     assert codex_thread_start_options("auto") == {
         "sandbox": "workspace-write",
         "approvalPolicy": "on-request",
+        "approvalsReviewer": "auto_review",
     }
 
 
