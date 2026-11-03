@@ -494,6 +494,7 @@ function asks(): Seed {
       input: { command: 'pg_dump northwind > before.sql' },
       description: 'Dump the database',
       decision: 'allow',
+      remembered: true,
     },
     {
       id: 'ask-perm-denied',
@@ -521,6 +522,7 @@ function asks(): Seed {
       tool: 'Bash',
       input: { command: 'psql -f migrations/016_collation.sql' },
       description: 'Run the collation migration',
+      remember: 'Always allow Bash(psql -f:*)',
     },
     {
       id: 'ask-q-open',

@@ -218,6 +218,17 @@ export const AwaitingReview: Story = () => <Harness />;
 export const AwaitingPermission: Story = () => <Harness wait={permissionItem} />;
 
 /**
+ * A permission the agent can remember. A second button, labelled with what it
+ * remembers, sits beside Approve.
+ *
+ * What to look at: the remember button keeps its whole label and reads as the
+ * secondary act. Type a comment and both give way to Deny.
+ */
+export const AwaitingRememberablePermission: Story = () => (
+  <Harness wait={() => ({ ...permissionItem(), remember: 'Always allow Write(migrations/**)' })} />
+);
+
+/**
  * The same document with no wait on it, so the document's own review route
  * takes the dock instead.
  *

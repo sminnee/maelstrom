@@ -1129,13 +1129,21 @@ function command(
         `Request ${requestId} is ${waitName(wait.type)}, not ${want}`,
       );
     }
+    // The host's refusal: nothing is remembered that the agent did not offer.
+    if (
+      action === 'approve' &&
+      b.remember === true &&
+      !(wait && 'remember' in wait && wait.remember)
+    ) {
+      return error(409, 'invalid', `Request ${requestId} offers no remember`);
+    }
     if (wait) {
       const patch: Partial<TranscriptItem> =
         action === 'answer'
           ? { answers: (b.answers ?? {}) as Record<string, string> }
           : action === 'approve'
             ? wait.type === 'permission_request'
-              ? { decision: 'allow' }
+              ? { decision: 'allow', ...(b.remember === true ? { remembered: true } : {}) }
               : { decision: 'approve' }
             : wait.type === 'question'
               ? { declined: true, reason: str('reason') }

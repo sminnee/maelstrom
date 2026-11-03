@@ -1,5 +1,5 @@
 import type { PermissionRequestItem } from '../../protocol/transcript';
-import { DecideRow } from './DecideRow';
+import { DecideRow, type Decision } from './DecideRow';
 import { ToolInput } from './ToolCallCard';
 import styles from './cards.module.css';
 
@@ -8,7 +8,7 @@ export function PermissionPrompt({
   onDecide,
 }: {
   item: PermissionRequestItem;
-  onDecide?: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
+  onDecide?: (decision: Decision, reason: string) => void | Promise<unknown>;
 }) {
   return (
     <div
@@ -26,12 +26,13 @@ export function PermissionPrompt({
       {item.decision ? (
         <div className={styles.answer}>
           {item.decision === 'allow' ? 'allowed' : 'denied'}
+          {item.remembered ? ' · remembered' : ''}
           {item.reason ? ` · ${item.reason}` : ''}
         </div>
       ) : item.stale ? (
         <div className={styles.answer}>no longer pending</div>
       ) : (
-        <DecideRow onDecide={onDecide} />
+        <DecideRow onDecide={onDecide} remember={item.remember} />
       )}
     </div>
   );

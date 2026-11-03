@@ -153,9 +153,9 @@ export function SessionTab({
             onDecline: (requestId) => denyAsync({ agentId, requestId, reason: DECLINE_REASON }),
             onDeclineAndStop: () => interruptAsync({ agentId }),
             onDecide: (requestId, decision, reason) =>
-              decision === 'approve'
-                ? approveAsync({ agentId, requestId })
-                : denyAsync({ agentId, requestId, reason }),
+              decision === 'deny'
+                ? denyAsync({ agentId, requestId, reason })
+                : approveAsync({ agentId, requestId, remember: decision === 'remember' }),
           },
     [isChild, agentId, answerAsync, denyAsync, approveAsync, interruptAsync],
   );

@@ -4,19 +4,26 @@ import { AppButton } from '../../ui/AppButton';
 import { TextArea } from '../../ui/TextArea';
 import styles from './cards.module.css';
 
+/** `remember` — see `CONTEXT.md`, "Remembered approval". */
+export type Decision = 'approve' | 'remember' | 'deny';
+
 /**
- * The two acts a binary decision offers: approve it, or deny it with a reason.
+ * The acts a decision offers: approve it, or deny it with a reason.
  * A permission request and a plan review ask the same thing of the user, so
- * they ask it in the same shape.
+ * they ask it in the same shape. A permission the agent can remember adds a
+ * third: approve and remember, labelled with what it remembers.
  *
- * A comment in the field turns Approve into Deny, so the comment is never lost —
+ * A comment in the field turns Approve and remember into Deny, so the comment is never lost —
  * see `orchestrator-ui/DESIGN.md`, "Review Dock".
  */
 export function DecideRow({
   onDecide,
+  remember,
 }: {
   /** A deny carries the reason the agent gets as its tool result. */
-  onDecide?: (decision: 'approve' | 'deny', reason: string) => void | Promise<unknown>;
+  onDecide?: (decision: Decision, reason: string) => void | Promise<unknown>;
+  /** The label of the remember button; no button without one. */
+  remember?: string;
 }) {
   const [reason, setReason] = useState('');
   const denying = reason.trim() !== '';
@@ -43,15 +50,27 @@ export function DecideRow({
             Deny
           </AppButton>
         ) : (
-          <AppButton
-            key="approve"
-            icon={actionIcon('approve')}
-            variant="primary"
-            disabled={!onDecide}
-            onClick={() => onDecide?.('approve', '')}
-          >
-            Approve
-          </AppButton>
+          <>
+            {remember && (
+              <AppButton
+                key="remember"
+                icon={actionIcon('approve')}
+                disabled={!onDecide}
+                onClick={() => onDecide?.('remember', '')}
+              >
+                {remember}
+              </AppButton>
+            )}
+            <AppButton
+              key="approve"
+              icon={actionIcon('approve')}
+              variant="primary"
+              disabled={!onDecide}
+              onClick={() => onDecide?.('approve', '')}
+            >
+              Approve
+            </AppButton>
+          </>
         )}
       </div>
     </div>
