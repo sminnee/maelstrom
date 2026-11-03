@@ -2574,6 +2574,55 @@ def test_approve_moves_the_document_to_approved_and_tells_the_agent(doc_harness)
     }
 
 
+PLAN_TAG = (
+    "Here is the plan.\n\n"
+    '<doc-file kind="other" filename=".drafts/plan.md" title="Plan" review="true">'
+)
+
+
+@pytest.mark.parametrize(
+    ("harness_name", "tag", "leaves_plan_mode"),
+    [
+        ("codex", PLAN_TAG, True),
+        # Any other document a planning agent shows is not its plan.
+        ("codex", REVIEW_TAG, False),
+        # Claude leaves plan mode through ExitPlanMode, never a document.
+        ("claude", PLAN_TAG, False),
+    ],
+)
+def test_approving_a_codex_plan_takes_the_agent_out_of_plan_mode(
+    doc_harness, tmp_path, harness_name, tag, leaves_plan_mode
+):
+    """Codex has no ExitPlanMode: its reviewed plan document ends planning."""
+    harness = doc_harness
+    (tmp_path / "northwind-alpha" / ".drafts").mkdir()
+    (tmp_path / "northwind-alpha" / ".drafts" / "plan.md").write_text("- Build.\n")
+    harness.daemon.rows["ag1"] = {
+        **harness.daemon.rows["ag1"],
+        "harness": harness_name,
+        "mode": "plan",
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                row = await tagged_document(stream, api, harness, tag)
+                await api.post(
+                    f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+                )
+
+    run(scenario())
+    told = [c for c in harness.daemon.calls if c["cmd"] in ("set-mode", "say")]
+    [said] = [parse_external_event(c["text"]) for c in told if c["cmd"] == "say"]
+    if leaves_plan_mode:
+        assert told[0] == {"cmd": "set-mode", "id": "ag1", "mode": "normal"}
+        assert said.body.endswith("Plan mode is off. Build the plan.")
+    else:
+        assert [c["cmd"] for c in told] == ["say"]
+        assert said.body.endswith("Continue with the work.")
+
+
 def test_an_approval_the_host_refuses_still_stands(doc_harness):
     harness = doc_harness
     harness.daemon.replies["say"] = [{"error": "agent ag1 has exited"}]

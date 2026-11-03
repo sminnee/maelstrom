@@ -30,6 +30,7 @@ from mael_agent.agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
+from mael_agent.harness_model import HARNESS_CODEX
 from mael_common.image import MAX_BYTES, is_image
 from mael_common.util import now_iso
 from mael_domain import comms as comms_model
@@ -111,7 +112,13 @@ from mael_domain.protocol import (
     group_members,
 )
 from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
-from mael_domain.task import STATUS_DONE, default_branch, mode_for_command
+from mael_domain.task import (
+    CODEX_PLAN_FILE,
+    STATUS_DONE,
+    default_branch,
+    mode_for_command,
+    session_id_for,
+)
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
@@ -2642,6 +2649,8 @@ class Orchestrator:
                 f"The user approved {title}, which promoted the drafts. The "
                 f"tasks now exist: {', '.join(created)}. Do not promote them again."
             )
+        elif await self._end_codex_planning(document):
+            body = f"The user approved {title}. Plan mode is off. Build the plan."
         else:
             body = f"The user approved {title}. Continue with the work."
         event = ExternalEvent(
@@ -2654,6 +2663,30 @@ class Orchestrator:
                 agent_id,
                 refused["error"]["message"],
             )
+
+    async def _end_codex_planning(self, document: Document) -> bool:
+        """Take a Codex agent out of plan mode if ``document`` is its plan.
+
+        Whether it did. See ``docs/dev/codex-app-server-events.md``, "Plan mode".
+        """
+        agent_id = document["agentId"]
+        agent = self.world["agents"].get(agent_id)
+        if not agent or agent["harness"] != HARNESS_CODEX:
+            return False
+        if agent["permissionMode"] != "plan":
+            return False
+        if document["source"].get("filename") != CODEX_PLAN_FILE:
+            return False
+        refused = await self._ask_host(
+            {"cmd": "set-mode", "id": agent_id, "mode": "normal"}
+        )
+        if refused:
+            log.warning(
+                "agent %s: plan mode not ended: %s",
+                agent_id,
+                refused["error"]["message"],
+            )
+        return not refused
 
     def _group_members(self, document: Document) -> list[Document]:
         """The current members of ``document``'s review group, in tag order."""

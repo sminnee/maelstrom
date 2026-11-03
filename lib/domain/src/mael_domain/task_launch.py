@@ -14,6 +14,8 @@ sweep. The status moves stay with the callers, at
 
 from dataclasses import dataclass
 
+from mael_agent.harness_model import resolve_model_reference
+
 from . import task as model
 from .session_discovery import LiveSessionSet
 from .worktree import WorktreeSetup
@@ -36,8 +38,10 @@ class LaunchPlan:
     #: Claude's ``--permission-mode`` value, or ``None`` for its default.
     permission_mode: str | None
     branch: str
-    #: The task's model, or :data:`~mael_domain.task.DEFAULT_MODEL` when it names none.
+    #: The launch's model, else the task's, else :data:`~mael_domain.task.DEFAULT_MODEL`.
     model: str
+    #: The harness that model runs on.
+    harness: str
     #: The model the session switches to when its plan is approved, raw from the
     #: task. No default is substituted: empty means no switch, and a fallback to
     #: ``DEFAULT_MODEL`` here would switch every planning session.
@@ -45,9 +49,16 @@ class LaunchPlan:
     prompt: str
 
 
-def plan_launch(project: str, task: model.Task) -> LaunchPlan:
-    """The launch plan for ``task``. Pure."""
+def plan_launch(
+    project: str, task: model.Task, model_name: str | None = None
+) -> LaunchPlan:
+    """The launch plan for ``task``. Pure.
+
+    ``model_name`` overrides the task's model, and its harness shapes the prompt.
+    """
     session_id = model.session_id_for(project, task.id)
+    launch_model = model_name or task.model or model.DEFAULT_MODEL
+    harness = resolve_model_reference(launch_model).harness
     return LaunchPlan(
         project=project,
         task_id=task.id,
@@ -61,9 +72,10 @@ def plan_launch(project: str, task: model.Task) -> LaunchPlan:
         },
         permission_mode=model.permission_mode_for(task.mode),
         branch=task.branch or model.default_branch(task.id, task.parent),
-        model=task.model or model.DEFAULT_MODEL,
+        model=launch_model,
+        harness=harness,
         execute_model=task.execute_model,
-        prompt=model.build_prompt(task),
+        prompt=model.build_prompt(task, harness),
     )
 
 
