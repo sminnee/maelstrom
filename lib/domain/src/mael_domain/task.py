@@ -1715,11 +1715,13 @@ def build_prompt(task: Task) -> str:
     content. ``command`` names a Claude skill/slash-command, so it is prefixed
     with ``/`` to invoke it, and may carry arguments (``impeccable shape``). The
     leading ``/<command> `` is omitted when ``command`` is empty (a plain
-    execute), and the trailing ``\\n\\n<content>`` is omitted when the task has
-    no content. Any ``{{MAEL_TASK_DIR}}`` token in the content is expanded to
-    the task's absolute repo dir.
+    execute), except in plan mode, where the head is ``/planning <title>``.
+    The trailing ``\\n\\n<content>`` is omitted when the task has no content.
+    Any ``{{MAEL_TASK_DIR}}`` token in the content is expanded to the task's
+    absolute repo dir.
     """
-    head = f"/{task.command} {task.title}" if task.command else task.title
+    command = task.command or ("planning" if task.mode == "plan" else "")
+    head = f"/{command} {task.title}" if command else task.title
     content = _expand_task_dir(task).strip()
     if content:
         return f"{head}\n\n{content}"

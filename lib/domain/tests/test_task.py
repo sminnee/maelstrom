@@ -1384,20 +1384,25 @@ class TestBuildPrompt:
             id="x",
             title="Redo the settings page",
             project="p",
+            mode="plan",
             command="impeccable shape",
         )
         assert model.build_prompt(t) == "/impeccable shape Redo the settings page"
 
     def test_no_command_omits_leading_space(self):
-        t = Task(id="x", title="Do thing", project="p", content="Details.")
+        t = Task(id="x", title="Do thing", project="p", mode="auto", content="Details.")
         assert model.build_prompt(t) == "Do thing\n\nDetails."
+
+    def test_a_plan_mode_task_opens_with_planning(self):
+        t = Task(id="x", title="Do thing", project="p", mode="plan", content="Details.")
+        assert model.build_prompt(t) == "/planning Do thing\n\nDetails."
 
     def test_no_content_omits_trailing_block(self):
         t = Task(id="x", title="Do thing", project="p", command="plan-task")
         assert model.build_prompt(t) == "/plan-task Do thing"
 
     def test_title_only(self):
-        t = Task(id="x", title="Just a title", project="p")
+        t = Task(id="x", title="Just a title", project="p", mode="auto")
         assert model.build_prompt(t) == "Just a title"
 
     def test_expands_task_dir_token(self, tmp_path, monkeypatch):
@@ -1406,6 +1411,7 @@ class TestBuildPrompt:
             id="x",
             title="Do thing",
             project="proj",
+            mode="auto",
             content="See ![img]({{MAEL_TASK_DIR}}/images/NORT-1/a.png)",
         )
         expected_dir = tmp_path / "tasks" / "proj"
@@ -1415,7 +1421,13 @@ class TestBuildPrompt:
 
     def test_content_without_token_unchanged(self, tmp_path, monkeypatch):
         monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
-        t = Task(id="x", title="Do thing", project="proj", content="No token here.")
+        t = Task(
+            id="x",
+            title="Do thing",
+            project="proj",
+            mode="auto",
+            content="No token here.",
+        )
         assert model.build_prompt(t) == "Do thing\n\nNo token here."
 
 

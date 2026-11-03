@@ -12,6 +12,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **A plan-mode task opens with `/planning`.** The plan leads with what will change, then the
+  decisions, then the detail. It stands alone, so a reviewer who did not write the task can read
+  it.
 - **`/security-test` tests a running app for security.** It agrees the project's security
   requirements with you, then scans the worktree's own dev environment with OWASP ZAP in Docker,
   and triages the alerts. It refuses any other target. It works with the `security-guidance` and
