@@ -24,6 +24,7 @@ from typing import Any
 from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
+    AUTO,
     BACKLOG_END,
     SEQ_KEY,
     TRUNCATED,
@@ -2665,9 +2666,9 @@ class Orchestrator:
             )
 
     async def _end_codex_planning(self, document: Document) -> bool:
-        """Take a Codex agent out of plan mode if ``document`` is its plan.
+        """Put a Codex agent in ``auto`` if ``document`` is its plan; return whether it did.
 
-        Whether it did. See ``docs/dev/codex-app-server-events.md``, "Plan mode".
+        See ``docs/dev/codex-app-server-events.md``, "Plan mode".
         """
         agent_id = document["agentId"]
         agent = self.world["agents"].get(agent_id)
@@ -2678,7 +2679,7 @@ class Orchestrator:
         if document["source"].get("filename") != CODEX_PLAN_FILE:
             return False
         refused = await self._ask_host(
-            {"cmd": "set-mode", "id": agent_id, "mode": "normal"}
+            {"cmd": "set-mode", "id": agent_id, "mode": AUTO}
         )
         if refused:
             log.warning(

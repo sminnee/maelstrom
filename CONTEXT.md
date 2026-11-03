@@ -529,8 +529,9 @@ one mode, and a running agent can be moved between them — by `mael agent set-m
 in teleport, by the mode chip in the orchestrator UI, or by the daemon when a plan review is
 approved. An approved plan moves the agent to `auto` and clears its context: the plan is settled,
 so carrying it out does not need approving edit by edit, and the handover is the whole brief.
-A Codex agent has no plan review: the approval of its plan document moves it to `normal` and keeps
-its context.
+A Codex agent has no plan review: the approval of its plan document moves it to `auto` and keeps
+its context. On both harnesses, `auto` hands each ask to a classifier (Claude's auto mode or
+Codex's auto-reviewer), and the user is not asked.
 The three words are the same ones a task carries, so one word means one thing.
 Claude spells `normal` as `default` on the pipe; nothing outside `agent_wire.py` uses that word.
 The mode is read off the agent's own event stream, never from what was asked for, so no surface

@@ -80,7 +80,8 @@ reads the mode back from the policy with `codex_mode_of`: no two modes share one
 
 Codex has no `ExitPlanMode` tool. A Codex plan-mode task prompt tells the agent to write
 `.drafts/plan.md` and show it with `<doc-file kind="other" review="true">`. When the user
-approves that document, the server sets the thread to `normal` mode and tells the agent to build.
+approves that document, the server sets the thread to `auto` mode, as an approved Claude plan does,
+and tells the agent to build.
 Only the approval of `.drafts/plan.md` does this: another document approved during planning leaves
 the mode alone.
 
