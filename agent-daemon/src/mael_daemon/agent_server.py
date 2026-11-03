@@ -37,6 +37,7 @@ from mael_agent.agent_wire import (
     AGENT_DETAIL,
     AGENT_EXITED,
     AUTO,
+    AWAITING_PERMISSION,
     AWAITING_PLAN_REVIEW,
     AWAITING_QUESTION,
     BACKLOG_END,
@@ -57,6 +58,7 @@ from mael_agent.agent_wire import (
     StoppedRow,
     interrupt_request,
     plan_from_pending,
+    remember_label,
     reply_for_answer,
     reply_for_answers,
     reply_for_approval,
@@ -1429,9 +1431,15 @@ class AgentDaemon:
                 else:
                     return {"error": "no answer given"}
             elif command == "approve":
+                remember = payload.get("remember") is True
+                if remember and (
+                    pending.wait_kind != AWAITING_PERMISSION
+                    or not remember_label(pending.suggestions)
+                ):
+                    return {"error": f"request {pending.request_id} offers no remember"}
                 if pending.wait_kind == AWAITING_PLAN_REVIEW:
                     return await self._approve_plan(agent, pending)
-                reply = reply_for_approval(pending)
+                reply = reply_for_approval(pending, remember=remember)
             else:
                 reply = reply_for_denial(pending, payload.get("reason", ""))
             if not await agent.send(reply):

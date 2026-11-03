@@ -68,6 +68,19 @@
           },
           "request_id": "9d42d8f9-b098-4adf-9aa8-70517016431a",
           "subagent": "a1.1",
+          "suggestions": [
+            {
+              "behavior": "allow",
+              "destination": "localSettings",
+              "rules": [
+                {
+                  "ruleContent": "domain:example.com",
+                  "toolName": "WebFetch"
+                }
+              ],
+              "type": "addRules"
+            }
+          ],
           "tool_name": "WebFetch"
         }
       },

@@ -855,6 +855,7 @@ def apply_event(
             input=request.get("input") or {},
             description=request.get("description", "") or "",
             subagent=_asker(state, str(request.get("agent_id") or "")),
+            suggestions=list(request.get("permission_suggestions") or []),
         )
         if pending.subagent:
             return _with_subagent_pending(state, pending)

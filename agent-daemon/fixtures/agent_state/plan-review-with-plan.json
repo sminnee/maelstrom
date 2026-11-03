@@ -18,6 +18,7 @@
       },
       "request_id": "9df2f603-da86-44cf-ac99-4e102c7f7add",
       "subagent": "",
+      "suggestions": [],
       "tool_name": "ExitPlanMode"
     }
   },

@@ -35,6 +35,7 @@ from .agent_wire import (
     AgentDetail,
     PendingRequest,
     detail_frame,
+    remember_label,
     reply_for_answers,
     reply_for_approval,
     reply_for_denial,
@@ -478,6 +479,14 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
             if hook is not None:
                 await hook()
             return reply
+        pending = self.pending.get(str(payload.get("id", "")))
+        if (
+            command == "approve"
+            and payload.get("remember") is True
+            and not (pending and remember_label(pending.suggestions))
+        ):
+            # The host's refusal, so a caller cannot remember what was never offered.
+            return {"error": f"request {payload.get('request', '')} offers no remember"}
         echo = self._echo_for(payload, command)
         if echo is not None:
             self.push(str(payload.get("id", "")), echo)
@@ -603,7 +612,7 @@ class ScriptedAsyncDaemonClient(AsyncDaemonClient):
         if pending is None:
             return None
         if command == "approve":
-            return reply_for_approval(pending)
+            return reply_for_approval(pending, remember=payload.get("remember") is True)
         if command == "deny":
             return reply_for_denial(pending, str(payload.get("reason", "")))
         if command == "answer":

@@ -211,8 +211,12 @@ Every wait — a permission ask, a question, a plan review — arrives as one ev
  "request": {"subtype": "can_use_tool", "tool_name": "WebFetch",
              "input": {"url": "https://example.com"},
              "description": "https://example.com",
+             "permission_suggestions": [{"type": "addRules", …}],
              "tool_use_id": "toolu_01X1…"}}
 ```
+
+A permission ask can also carry `permission_suggestions`: the lasting allows the agent offers.
+See "The replies".
 
 The agent blocks until a `control_response` echoing that `request_id` arrives. The tool name says
 which kind of wait it is:
@@ -239,7 +243,7 @@ list, so probe these shapes from a plain shell.
 
 ### The replies
 
-Three replies share one envelope. The `request_id` must match the request, and `updatedInput` is
+Every reply shares one envelope. The `request_id` must match the request, and `updatedInput` is
 not optional — the CLI runs the tool with whatever it carries.
 
 Approve a call as proposed by echoing its input back:
@@ -250,6 +254,26 @@ Approve a call as proposed by echoing its input back:
               "response": {"behavior": "allow",
                            "updatedInput": {"url": "https://example.com"}}}}
 ```
+
+Approve it and tell the agent not to ask again by adding `updatedPermissions`. The daemon sends
+back the `permission_suggestions` that `agent_wire.remember_label` can name, and drops the rest,
+so the button never grants more than its label says. This is the update the TUI's "Yes, and
+don't ask again" applies, such as an `addRules` to `localSettings`:
+
+```json
+{"response": {"response": {"behavior": "allow",
+   "updatedInput": {"url": "https://example.com"},
+   "updatedPermissions": [{"type": "addRules", "destination": "localSettings",
+                           "behavior": "allow",
+                           "rules": [{"toolName": "WebFetch",
+                                      "ruleContent": "domain:example.com"}]}]}}}
+```
+
+`approve` with `remember: true` sends this reply. It fails with "offers no remember" when the
+wait is not a permission ask, or when the suggestions name nothing.
+
+A `setMode` suggestion for `acceptEdits` reads "Allow edits this session". Replaying it moves
+the agent to `acceptEdits`, which is not one of the three permission modes.
 
 Deny it with a reason, which reaches the agent verbatim as the tool result:
 
@@ -821,7 +845,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
 | `run` | `id`, `command` | `{"ok": true}` |
-| `approve` | `id`; optional `request` | `{"ok": true}`. For a plan review, plus `"cleared": true` with either `"mode": "auto"` or `"warning": "<why not>"` |
+| `approve` | `id`; optional `request`, `remember` | `{"ok": true}`. For a plan review, plus `"cleared": true` with either `"mode": "auto"` or `"warning": "<why not>"` |
 | `deny` | `id`; optional `request`, `reason` | `{"ok": true}` |
 | `answer` | `id`; optional `request`; `answers` (a map keyed by question text) or `choice` | `{"ok": true}` |
 | `interrupt` | `id` | `{"ok": true}` |
@@ -1017,6 +1041,7 @@ session id survives, which is what keeps the task link intact.
 | `agent <id> did not answer` | `set-mode` when the child stays quiet for 10 seconds |
 | `agent <id> is not waiting` | `approve`, `deny` or `answer` with no pending request |
 | `agent <id> is not waiting on a question — use approve or deny` | `answer` against a permission or plan review |
+| `request <id> offers no remember` | `approve` with `remember: true` on a plan review or question, or on a permission whose suggestions name nothing |
 | `no answers given` | `answer` with an empty `answers` map |
 | `no command given` | `run` with an empty command |
 | `could not reach agent <id>` | The child's stdin would not take the message: it is dying |
