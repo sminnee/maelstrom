@@ -1039,6 +1039,7 @@ def pending_from(events: list[dict]) -> PendingRequest:
         tool_name=request.get("tool_name", ""),
         input=request.get("input") or {},
         description=request.get("description", "") or "",
+        suggestions=request.get("permission_suggestions") or [],
     )
 
 
@@ -1094,6 +1095,30 @@ def test_approve_reaches_the_host_and_resolves_the_wait(harness):
     assert agent["pendingRequestIds"] == []
     assert agent["pendingRequests"] == []
     assert [a["clearedAt"] is not None for a in attention] == [True]
+
+
+def test_a_remembered_approve_relays_remember(harness):
+    waiting_on(harness, "permission-request.jsonl")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                request_id = await pending_id(api)
+                reply = await api.post(
+                    "/api/agents/ag1/approve",
+                    {"requestId": request_id, "remember": True},
+                )
+                return reply, request_id
+
+    reply, request_id = run(scenario())
+    assert reply.status == 200
+    assert {
+        "cmd": "approve",
+        "id": "ag1",
+        "request": request_id,
+        "remember": True,
+    } in harness.daemon.calls
 
 
 def test_deny_sends_the_reason_and_records_it(harness):

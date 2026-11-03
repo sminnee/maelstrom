@@ -2370,6 +2370,7 @@ class Orchestrator:
                 "cmd": "approve",
                 "id": command["agentId"],
                 "request": command.get("requestId", ""),
+                **({"remember": True} if command.get("remember") is True else {}),
             }
         )
 

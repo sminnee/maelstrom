@@ -1649,7 +1649,7 @@ check being missing, both answer 400 `invalid`.
 
 | Route | Body | Command | Returns |
 |---|---|---|---|
-| `POST /api/agents/{id}/approve` | `{requestId}` | `agent.approve` | `{}` |
+| `POST /api/agents/{id}/approve` | `{requestId, remember?}` | `agent.approve` | `{}` |
 | `POST /api/agents/{id}/deny` | `{requestId, reason}` | `agent.deny` | `{}` |
 | `POST /api/agents/{id}/answer` | `{requestId, answers}` | `agent.answer` | `{}` |
 | `POST /api/agents/{id}/say` | `{text, attachments?}` | `agent.say` | `{}` |
