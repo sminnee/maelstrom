@@ -354,9 +354,17 @@ async def cmd_answer(agent_id: str, choice: str, request_id: str) -> None:
     default="",
     help="Which wait to answer. Needed only when several are open.",
 )
-async def cmd_approve(agent_id: str, request_id: str) -> None:
+@click.option(
+    "--remember",
+    is_flag=True,
+    help="Also tell the agent not to ask again. Fails when the agent offers no lasting allow.",
+)
+async def cmd_approve(agent_id: str, request_id: str, remember: bool) -> None:
     """Approve an agent's pending plan or tool call."""
-    await _send({"cmd": "approve", "id": agent_id, "request": request_id})
+    payload: dict = {"cmd": "approve", "id": agent_id, "request": request_id}
+    if remember:
+        payload["remember"] = True
+    await _send(payload)
 
 
 @agent.command("deny")

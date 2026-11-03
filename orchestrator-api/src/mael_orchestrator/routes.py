@@ -616,6 +616,7 @@ _AGENT_ACTIONS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
         "type": "agent.approve",
         "agentId": agent_id,
         "requestId": body.get("requestId"),
+        **({"remember": True} if body.get("remember") is True else {}),
     },
     "deny": lambda agent_id, body: {
         "type": "agent.deny",

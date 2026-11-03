@@ -241,6 +241,12 @@ def test_approve_names_no_request_by_default():
     """Omitted means "the only one", which is what a single wait needs."""
     _, client = run_cli(["approve", "a1"])
     assert client.calls[0].get("request", "") == ""
+    assert "remember" not in client.calls[0]
+
+
+def test_approve_remember_asks_the_agent_not_to_ask_again():
+    _, client = run_cli(["approve", "a1", "--remember"])
+    assert client.calls[0]["remember"] is True
 
 
 def test_deny_sends_the_reason():
