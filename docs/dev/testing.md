@@ -62,6 +62,10 @@ Record real replies under `fixtures/`. Do not hand-type command output. These su
 recordings now:
 
 - `agent-daemon/fixtures/agent_events/`: daemon streams, replayed by the reducer tests.
+- `lib/domain/fixtures/codex_events/`: Codex adapter streams, recorded from a live Codex turn.
+  The normaliser replays them with the daemon streams, against the same goldens.
+- `orchestrator-api/tests/fixtures/codex-thread-resume.json`: a live `thread/resume` reply, which
+  the Codex adapter's restore tests rebuild a ring from.
 - `lib/domain/fixtures/normalised/`: the normaliser goldens. Re-record them with
   `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py`.
 - `agent-daemon/fixtures/agent_state/`: the reducer goldens, one final `AgentState` for each

@@ -456,8 +456,7 @@ The daemon drives Claude Code agents only. The Codex harness is orchestrator cod
 `CodexDaemonClient` as a second `AsyncDaemonClient`, beside the one for this daemon.
 
 `CodexDaemonClient` fans the connection-wide app-server stream out by thread id.
-For control requests, see
-[codex-app-server-events.md](codex-app-server-events.md#control-requests).
+[codex-app-server-events.md](codex-app-server-events.md) is the contract.
 
 Import-linter contracts hold the split; see
 [architecture-patterns.md](architecture-patterns.md#the-packages). The `mael` CLI meets the

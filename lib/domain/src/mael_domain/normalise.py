@@ -25,6 +25,8 @@ from mael_agent.agent_wire import (
     from_wire_mode,
     tokens_of,
 )
+from mael_agent.codex_wire import REASON_KEY, allowed, approval_of, command_of
+from mael_agent.harness_model import codex_mode_of
 
 from .attachments import markdown_ref
 from .document_tags import (
@@ -183,8 +185,9 @@ class NormaliseContext:
     #: Whether a background shell runs. See :func:`_state_after_turn`, which
     #: mirrors ``agent_model._status_without_asks``.
     shells_running: bool = False
-    #: Whether the last turn ended with a ``result``. A subagent's ask can
-    #: arrive after it, and its answer must not reopen the turn.
+    #: Whether the last turn ended: a Claude ``result`` or a Codex
+    #: ``turn/completed``. A subagent's ask can arrive after it, and its answer
+    #: must not reopen the turn.
     turn_ended: bool = False
     #: Whether a plan was approved and its handover has not arrived. See
     #: docs/dev/agent-daemon.md, "The control socket protocol".
@@ -233,6 +236,9 @@ class Normalised:
     compact_refused: str | None = None
     #: Whether the agent asked to end its session.
     end_session: bool = False
+    #: Whether the event ended a turn: a Claude ``result`` or a Codex
+    #: ``turn/completed``. A parked milestone, end or compact waits for it.
+    turn_end: bool = False
 
 
 def context_for_agent(agent_id: str, seed: int = 0) -> NormaliseContext:
@@ -425,7 +431,7 @@ def normalise_stream_event(
         if not is_child:
             _partial_chunk(out, _dict(raw.get("event")))
     elif kind == "codex_raw":
-        _codex_event(out, raw)
+        _codex_event(out, raw, read_file, show_refs)
     elif kind == "system":
         if raw.get("subtype") == "init":
             session_id = _str(raw.get("session_id"))
@@ -503,82 +509,7 @@ def normalise_stream_event(
     elif kind == "user":
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
-                text = _str(block["text"])
-                command = _shell_input(text)
-                output = _shell_output(text)
-                skill = _skill_loaded(text)
-                if command is not None:
-                    # The shell turns carry no request, so the agent's state
-                    # does not move here. An assistant event that follows
-                    # moves it on its own.
-                    item_id = out.append(
-                        {
-                            "type": "shell",
-                            "command": command,
-                            "output": "",
-                            "status": "running",
-                        }
-                    )
-                    out.ctx = replace(out.ctx, open_shell=item_id)
-                    continue
-                if output is not None:
-                    patch = {"output": output, "status": "done"}
-                    if out.ctx.open_shell is not None:
-                        out.update(out.ctx.open_shell, patch)
-                        out.ctx = replace(out.ctx, open_shell=None)
-                    else:
-                        # The ring truncated the command away. Showing the
-                        # output alone beats dropping it.
-                        out.append({"type": "shell", "command": "", **patch})
-                    continue
-                # Any other turn ends the wait for an output turn. A pair
-                # broken by a daemon restart would otherwise leave the binding
-                # set, and the next command's output would land on this item.
-                out.ctx = replace(out.ctx, open_shell=None)
-                if _local_command_echo(text):
-                    # Says nothing the transcript does not already say, and
-                    # draws as though the operator typed a raw tag.
-                    continue
-                if not _interrupt_marker(text):
-                    # The approval's own interrupt writes the marker; any
-                    # other turn is the handover, or follows it.
-                    out.ctx = replace(out.ctx, handing_over=False)
-                notification = _task_notification(text)
-                if (event := parse_external_event(text)) is not None:
-                    # The server wrote it, so it is not drawn as the user's
-                    # words. The agent acts on it, so the turn started.
-                    out.append(
-                        {
-                            "type": "external_event",
-                            "source": event.source,
-                            "eventType": event.type,
-                            "attrs": event.attrs,
-                            "markdown": event.body,
-                        }
-                    )
-                elif notification is not None:
-                    # Unlike the echo above, this is a background command's
-                    # only trace, so it folds rather than dropping. No
-                    # `continue`: the agent acts on it, so the turn started.
-                    out.append({"type": "task_notification", **notification})
-                elif skill is not None:
-                    out.append({"type": "skill", "skill": skill, "markdown": text})
-                elif _compact_summary(text):
-                    # Thousands of characters the harness wrote, landing right
-                    # under the rule that reports the compact. Folded, it stays
-                    # readable without burying the boundary it belongs to.
-                    out.append({"type": "compact_summary", "markdown": text})
-                else:
-                    markdown = show_refs(text, out.agent_entity["project"])
-                    out.append(
-                        {"type": "message", "role": "user", "markdown": markdown}
-                    )
-                # A message to the agent is the start of a turn. Without this
-                # the UI shows "idle" until the agent's first event lands,
-                # which reads as though nothing was sent.
-                out.ctx = replace(out.ctx, turn_ended=False)
-                if not out.ctx.pending:
-                    out.agent({"state": "processing"})
+                _user_text(out, _str(block["text"]), show_refs)
             elif block.get("type") == "tool_result":
                 out.tool_result(block)
             elif block.get("type") == "image":
@@ -605,76 +536,12 @@ def normalise_stream_event(
             out.agent({"contextTokens": context})
         for block in _blocks(raw):
             if block.get("type") == "text" and _str(block.get("text")):
-                # A subagent writes no document and shows no picture, so its
-                # tags stay as text.
-                tagged = (
-                    read_tags(_str(block["text"]), out.show_image)
-                    if not is_child
-                    else None
+                _assistant_text(
+                    out,
+                    _str(block["text"]),
+                    _str(_dict(raw.get("message")).get("id")),
+                    read_file,
                 )
-                text = tagged.text if tagged else _str(block["text"])
-                partial = out.ctx.partial
-                message_id = _str(_dict(raw.get("message")).get("id"))
-                if partial and partial.item_id and partial.message_id == message_id:
-                    # The partial message on screen is this one. It becomes the
-                    # whole message in place, and takes the time the whole
-                    # message has, as an item appended now would.
-                    out.update(
-                        partial.item_id,
-                        {
-                            "markdown": text,
-                            "partial": False,
-                            "ts": out.event_ts or out.now,
-                        },
-                    )
-                    out.ctx = replace(
-                        out.ctx, partial=PartialMessage(message_id=message_id)
-                    )
-                else:
-                    out.close_partial()
-                    out.append(
-                        {"type": "message", "role": "assistant", "markdown": text}
-                    )
-                if tagged:
-                    for tag in tagged.tags:
-                        out.tagged_document(tag, read_file)
-                out.ctx = replace(out.ctx, last_assistant_text=text)
-                out.agent(
-                    {
-                        "lastMessage": _one_line(
-                            _USER_ATTENTION_TAG.sub("", text).strip()
-                        ),
-                        "lastMessageAt": out.event_ts or out.now,
-                    }
-                )
-                # A note replaces, so only a message that carried one moves it.
-                # A subagent writes none, for the reason it mints no document:
-                # `read_tags` did not run for it.
-                if tagged and tagged.note:
-                    out.agent(
-                        {
-                            "lastNote": tagged.note,
-                            "lastNoteAt": out.event_ts or out.now,
-                        }
-                    )
-                # A milestone marks a stage rather than moving the world, so
-                # it leaves the agent alone and rides out on `Normalised`.
-                if tagged and tagged.milestone:
-                    out.milestone = Milestone(
-                        agent_id=out.ctx.agent_id,
-                        name=tagged.milestone,
-                        at=out.event_ts or out.now,
-                        recognised=tagged.milestone in MILESTONES,
-                    )
-                if tagged and tagged.pr_link:
-                    out.pr_link = tagged.pr_link
-                    out.pr_withdrawn = tagged.pr_withdrawn
-                if tagged and tagged.feedback_params:
-                    out.feedback_params += tagged.feedback_params
-                if tagged and tagged.compact:
-                    out.compact_request = tagged.compact
-                if tagged and tagged.end_session:
-                    out.end_session = True
             elif block.get("type") == "tool_use":
                 tool_use_id = _str(block.get("id"))
                 out.append(
@@ -742,6 +609,7 @@ def normalise_stream_event(
         )
         out.end_every_wait()
         out.ctx = replace(out.ctx, turn_ended=True)
+        out.turn_end = True
         out.agent(
             {
                 "state": (
@@ -757,86 +625,544 @@ def normalise_stream_event(
     return out.done()
 
 
-def _codex_event(out: "_Emitter", raw: Dict) -> None:
+def _user_text(out: "_Emitter", text: str, show_refs: ShowRefs) -> None:
+    """One user text block, as Claude and Codex both deliver it.
+
+    Classified the same way for both harnesses, so an External event, a skill
+    body or a shell turn draws the same whichever harness the agent runs on.
+    """
+    command = _shell_input(text)
+    output = _shell_output(text)
+    skill = _skill_loaded(text)
+    if command is not None:
+        # The shell turns carry no request, so the agent's state
+        # does not move here. An assistant event that follows
+        # moves it on its own.
+        item_id = out.append(
+            {
+                "type": "shell",
+                "command": command,
+                "output": "",
+                "status": "running",
+            }
+        )
+        out.ctx = replace(out.ctx, open_shell=item_id)
+        return
+    if output is not None:
+        patch = {"output": output, "status": "done"}
+        if out.ctx.open_shell is not None:
+            out.update(out.ctx.open_shell, patch)
+            out.ctx = replace(out.ctx, open_shell=None)
+        else:
+            # The ring truncated the command away. Showing the
+            # output alone beats dropping it.
+            out.append({"type": "shell", "command": "", **patch})
+        return
+    # Any other turn ends the wait for an output turn. A pair
+    # broken by a daemon restart would otherwise leave the binding
+    # set, and the next command's output would land on this item.
+    out.ctx = replace(out.ctx, open_shell=None)
+    if _local_command_echo(text):
+        # Says nothing the transcript does not already say, and
+        # draws as though the operator typed a raw tag.
+        return
+    if not _interrupt_marker(text):
+        # The approval's own interrupt writes the marker; any
+        # other turn is the handover, or follows it.
+        out.ctx = replace(out.ctx, handing_over=False)
+    notification = _task_notification(text)
+    if (event := parse_external_event(text)) is not None:
+        # The server wrote it, so it is not drawn as the user's
+        # words. The agent acts on it, so the turn started.
+        out.append(
+            {
+                "type": "external_event",
+                "source": event.source,
+                "eventType": event.type,
+                "attrs": event.attrs,
+                "markdown": event.body,
+            }
+        )
+    elif notification is not None:
+        # Unlike the echo above, this is a background command's
+        # only trace, so it folds rather than dropping. No
+        # `return`: the agent acts on it, so the turn started.
+        out.append({"type": "task_notification", **notification})
+    elif skill is not None:
+        out.append({"type": "skill", "skill": skill, "markdown": text})
+    elif _compact_summary(text):
+        # Thousands of characters the harness wrote, landing right
+        # under the rule that reports the compact. Folded, it stays
+        # readable without burying the boundary it belongs to.
+        out.append({"type": "compact_summary", "markdown": text})
+    else:
+        markdown = show_refs(text, out.agent_entity["project"])
+        out.append({"type": "message", "role": "user", "markdown": markdown})
+    # A message to the agent is the start of a turn. Without this
+    # the UI shows "idle" until the agent's first event lands,
+    # which reads as though nothing was sent.
+    out.ctx = replace(out.ctx, turn_ended=False)
+    if not out.ctx.pending:
+        out.agent({"state": "processing"})
+
+
+def _assistant_text(
+    out: "_Emitter", raw_text: str, message_id: str, read_file: ReadFile
+) -> None:
+    """One assistant text block, as Claude and Codex both deliver it.
+
+    One marker contract for both harnesses: the tags, the documents, the note,
+    the milestone, the PR link, live feedback, compaction and the end. A
+    partial message with ``message_id`` on screen becomes this one in place.
+    """
+    # A subagent writes no document and shows no picture, so its
+    # tags stay as text.
+    tagged = read_tags(raw_text, out.show_image) if not out.message_only else None
+    text = tagged.text if tagged else raw_text
+    partial = out.ctx.partial
+    if partial and partial.item_id and partial.message_id == message_id:
+        # The partial message on screen is this one. It becomes the
+        # whole message in place, and takes the time the whole
+        # message has, as an item appended now would.
+        out.update(
+            partial.item_id,
+            {
+                "markdown": text,
+                "partial": False,
+                "ts": out.event_ts or out.now,
+            },
+        )
+        out.ctx = replace(out.ctx, partial=PartialMessage(message_id=message_id))
+    else:
+        out.close_partial()
+        out.append({"type": "message", "role": "assistant", "markdown": text})
+    if tagged:
+        for tag in tagged.tags:
+            out.tagged_document(tag, read_file)
+    out.ctx = replace(out.ctx, last_assistant_text=text)
+    out.agent(
+        {
+            "lastMessage": _one_line(_USER_ATTENTION_TAG.sub("", text).strip()),
+            "lastMessageAt": out.event_ts or out.now,
+        }
+    )
+    # A note replaces, so only a message that carried one moves it.
+    # A subagent writes none, for the reason it mints no document:
+    # `read_tags` did not run for it.
+    if tagged and tagged.note:
+        out.agent(
+            {
+                "lastNote": tagged.note,
+                "lastNoteAt": out.event_ts or out.now,
+            }
+        )
+    # A milestone marks a stage rather than moving the world, so
+    # it leaves the agent alone and rides out on `Normalised`.
+    if tagged and tagged.milestone:
+        out.milestone = Milestone(
+            agent_id=out.ctx.agent_id,
+            name=tagged.milestone,
+            at=out.event_ts or out.now,
+            recognised=tagged.milestone in MILESTONES,
+        )
+    if tagged and tagged.pr_link:
+        out.pr_link = tagged.pr_link
+        out.pr_withdrawn = tagged.pr_withdrawn
+    if tagged and tagged.feedback_params:
+        out.feedback_params += tagged.feedback_params
+    if tagged and tagged.compact:
+        out.compact_request = tagged.compact
+    if tagged and tagged.end_session:
+        out.end_session = True
+
+
+#: Codex notifications that move the agent's state or usage, or say nothing a
+#: reader needs, so they draw nothing. See ``docs/dev/codex-app-server-events.md``.
+_CODEX_SILENT = frozenset(
+    {
+        "thread/started",
+        "thread/status/changed",
+        "thread/name/updated",
+        "thread/goal/updated",
+        "thread/goal/cleared",
+        "mcpServer/startupStatus/updated",
+        "turn/diff/updated",
+        "item/plan/delta",
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
+        "item/reasoning/textDelta",
+        "item/commandExecution/outputDelta",
+        "item/commandExecution/terminalInteraction",
+        "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated",
+        "item/mcpToolCall/progress",
+        "hook/started",
+        "hook/completed",
+        "item/autoApprovalReview/started",
+        "item/autoApprovalReview/completed",
+        "deprecationNotice",
+        # Codex 0.154 also reports a compaction as a ``contextCompaction`` item,
+        # which is the one that draws.
+        "thread/compacted",
+    }
+)
+
+#: Codex notifications a reader must see, drawn as an error item.
+_CODEX_WARNINGS = frozenset({"warning", "configWarning", "guardianWarning"})
+
+#: A Codex turn status, as the ``turn_result`` subtype a Claude turn uses.
+_CODEX_TURN_RESULT = {"completed": "success", "failed": "error"}
+
+#: A Codex plan step status, as a ``TodoWrite`` todo status.
+_CODEX_TODO_STATUS = {"inProgress": "in_progress"}
+
+
+def _codex_event(
+    out: "_Emitter", raw: Dict, read_file: ReadFile, show_refs: ShowRefs
+) -> None:
+    """One Codex app-server notification, as the items a Claude event makes.
+
+    The method table is ``docs/dev/codex-app-server-events.md``.
+    """
     method = _str(raw.get("method"))
     params = _dict(raw.get("params"))
-    if method == "item/agentMessage/delta":
-        # Render only completed items; Codex has no shared streaming contract.
+    if "id" in raw:
+        _codex_request(out, raw, method, params)
+    elif method == "serverRequest/resolved":
+        # Codex settled a request no reply answered. One the user answered has
+        # left the pending set already.
+        request_id = str(params.get("requestId"))
+        if request_id in out.ctx.pending:
+            out.end_wait(request_id)
+    elif method == "thread/settings/updated":
+        if mode := codex_mode_of(_dict(params.get("threadSettings"))):
+            out.agent({"permissionMode": mode})
+    elif method == "item/agentMessage/delta":
+        if not out.message_only:
+            _codex_delta(out, _str(params.get("itemId")), _str(params.get("delta")))
+    elif method in ("item/started", "item/completed"):
+        _codex_item(
+            out,
+            _dict(params.get("item")),
+            method == "item/completed",
+            read_file,
+            show_refs,
+        )
+    elif method == "turn/started":
+        out.ctx = replace(out.ctx, turn_ended=False)
+        if not out.ctx.pending:
+            out.agent({"state": "processing"})
+    elif method == "turn/completed":
+        _codex_turn_completed(out, _dict(params.get("turn")))
+    elif method == "turn/plan/updated":
+        steps = params.get("plan")
+        todos = [
+            {
+                "content": _str(step.get("step")),
+                "status": _CODEX_TODO_STATUS.get(
+                    _str(step.get("status")), _str(step.get("status"))
+                ),
+                "activeForm": _str(step.get("step")),
+            }
+            for step in (steps if isinstance(steps, list) else [])
+            if isinstance(step, dict)
+        ]
+        out.append(
+            {
+                "type": "tool_call",
+                "toolUseId": "",
+                "tool": "TodoWrite",
+                "input": {"todos": todos},
+                "status": "done",
+            }
+        )
+    elif method == "thread/tokenUsage/updated":
+        usage = _dict(params.get("tokenUsage"))
+        # ``total`` is the thread's running sum, so a replay replaces it rather
+        # than adding to it. ``last`` is the newest request: the occupancy.
+        total = _count(_dict(usage.get("total")).get("totalTokens"))
+        last = _count(_dict(usage.get("last")).get("totalTokens"))
+        patch: Dict = {}
+        if total is not None:
+            patch["totalTokens"] = total
+        if last is not None:
+            patch["contextTokens"] = last
+        if patch:
+            out.agent(patch)
+    elif method in _CODEX_WARNINGS:
+        out.append({"type": "error", "message": _str(params.get("message"))})
+    elif method == "error":
+        # A final error also fails the turn, and ``turn/completed`` reports it.
+        if params.get("willRetry"):
+            message = _str(_dict(params.get("error")).get("message"))
+            out.append({"type": "error", "message": f"{message} Retrying."})
+    elif method not in _CODEX_SILENT:
+        out.append({"type": "raw_event", "method": method, "params": params})
+
+
+def _codex_delta(out: "_Emitter", item_id: str, text: str) -> None:
+    """One chunk of a Codex agent message, into the partial message."""
+    partial = out.ctx.partial
+    if partial is None or partial.message_id != item_id:
+        out.close_partial()
+        partial = PartialMessage(message_id=item_id, index=0)
+    _grow_partial(out, partial, text)
+
+
+def _codex_turn_completed(out: "_Emitter", turn: Dict) -> None:
+    status = _str(turn.get("status"))
+    out.close_partial()
+    if error := _str(_dict(turn.get("error")).get("message")):
+        out.append({"type": "error", "message": error})
+    out.append(
+        {
+            "type": "turn_result",
+            "subtype": _CODEX_TURN_RESULT.get(status, status or "success"),
+            # Codex reports no price.
+            "costUsd": 0,
+            "durationMs": _num(turn.get("durationMs")),
+        }
+    )
+    out.end_every_wait()
+    out.ctx = replace(out.ctx, turn_ended=True)
+    out.turn_end = True
+    out.agent({"state": _state_after_turn(out.ctx)})
+
+
+def _codex_item(
+    out: "_Emitter",
+    item: Dict,
+    completed: bool,
+    read_file: ReadFile,
+    show_refs: ShowRefs,
+) -> None:
+    """One Codex thread item, started or completed.
+
+    A message draws when it completes; its deltas drew it so far. A tool call
+    draws running when it starts, and settles in place when it completes.
+    """
+    kind = _str(item.get("type"))
+    item_id = _str(item.get("id"))
+    if kind == "userMessage":
+        if completed and (text := _codex_text(item.get("content"))):
+            _user_text(out, text, show_refs)
         return
-    if method == "item/started":
-        # Wait for completion; starts would require Codex-only item state.
-        item_type = _str(_dict(params.get("item")).get("type"))
-        if item_type in {
-            "userMessage",
-            "agentMessage",
-            "reasoning",
-            "commandExecution",
-        }:
-            return
-    if method == "item/completed":
-        item = _dict(params.get("item"))
-        item_type = _str(item.get("type"))
-        if item_type == "userMessage":
-            if text := _codex_text(item.get("content")):
-                out.append({"type": "message", "role": "user", "markdown": text})
-            return
-        if item_type == "agentMessage":
-            if text := _str(item.get("text")):
-                out.append({"type": "message", "role": "assistant", "markdown": text})
-                out.ctx = replace(out.ctx, last_assistant_text=text)
-                out.agent(
-                    {
-                        "lastMessage": _one_line(
-                            _USER_ATTENTION_TAG.sub("", text).strip()
-                        ),
-                        "lastMessageAt": out.event_ts or out.now,
-                    }
-                )
-            return
-        if item_type == "reasoning":
-            text = _codex_text([item.get("summary"), item.get("content")])
-            if text:
+    if kind in ("agentMessage", "plan"):
+        if completed and (text := _str(item.get("text"))):
+            _assistant_text(out, text, item_id, read_file)
+        return
+    if kind == "reasoning":
+        text = _codex_text([item.get("summary"), item.get("content")])
+        if completed and text:
+            out.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "markdown": f"<user-attention low>\n{text}",
+                }
+            )
+        return
+    if kind == "contextCompaction":
+        if completed:
+            # The usage update before it already holds the compacted size.
+            post = out.agent_entity["contextTokens"]
+            out.append(
+                {
+                    "type": "compact",
+                    "trigger": "manual",
+                    "preTokens": 0,
+                    "postTokens": post,
+                }
+            )
+            out.compacted = (None, post)
+        return
+    if kind == "commandExecution" and item.get("source") == "userShell":
+        _codex_shell(out, item, completed)
+        return
+    calls = _codex_tool_calls(kind, item)
+    if calls is None:
+        # Every start draws nothing. A completed item no mapping knows is kept.
+        if completed:
+            out.append(
+                {"type": "raw_event", "method": "item/completed", "params": item}
+            )
+        return
+    status = _codex_status(item)
+    for tool_use_id, tool, tool_input in calls:
+        opened = out.ctx.open_tool_calls.get(tool_use_id)
+        if not completed:
+            if opened is None:
                 out.append(
                     {
-                        "type": "message",
-                        "role": "assistant",
-                        "markdown": f"<user-attention low>\n{text}",
-                    }
+                        "type": "tool_call",
+                        "toolUseId": tool_use_id,
+                        "tool": tool,
+                        "input": tool_input,
+                        "status": "running",
+                    },
+                    tool_use_id,
                 )
-            return
-        if item_type == "commandExecution":
+                out.ctx = replace(
+                    out.ctx,
+                    open_tool_calls={
+                        **out.ctx.open_tool_calls,
+                        tool_use_id: tool_use_id,
+                    },
+                )
+            continue
+        settled = {"input": tool_input, "status": status, "output": _codex_output(item)}
+        if opened is None:
             out.append(
                 {
                     "type": "tool_call",
-                    "toolUseId": _str(item.get("id")),
-                    "tool": "Bash",
-                    "input": {
-                        "command": _str(item.get("command")),
-                        "cwd": _str(item.get("cwd")),
-                    },
-                    "status": _codex_command_status(item),
-                    "output": _str(item.get("aggregatedOutput")),
+                    "toolUseId": tool_use_id,
+                    "tool": tool,
+                    **settled,
+                },
+                tool_use_id,
+            )
+        else:
+            out.update(opened, settled)
+            open_calls = dict(out.ctx.open_tool_calls)
+            open_calls.pop(tool_use_id, None)
+            out.ctx = replace(out.ctx, open_tool_calls=open_calls)
+
+
+def _codex_shell(out: "_Emitter", item: Dict, completed: bool) -> None:
+    """A ``thread/shellCommand`` command, as the shell item a ``!`` line makes."""
+    key = f"shell:{_str(item.get('id'))}"
+    opened = out.ctx.open_tool_calls.get(key)
+    if not completed:
+        if opened is None:
+            item_id = out.append(
+                {
+                    "type": "shell",
+                    "command": command_of(item),
+                    "output": "",
+                    "status": "running",
                 }
             )
-            return
+            out.ctx = replace(
+                out.ctx, open_tool_calls={**out.ctx.open_tool_calls, key: item_id}
+            )
+        return
+    patch = {
+        "output": _str(item.get("aggregatedOutput")),
+        "status": _codex_status(item),
+    }
+    if opened is None:
+        out.append({"type": "shell", "command": command_of(item), **patch})
+        return
+    out.update(opened, patch)
+    open_calls = dict(out.ctx.open_tool_calls)
+    open_calls.pop(key, None)
+    out.ctx = replace(out.ctx, open_tool_calls=open_calls)
 
-    if method == "turn/started":
-        out.ctx = replace(out.ctx, turn_ended=False)
-        out.agent({"state": "processing"})
-    elif method == "turn/completed":
-        out.ctx = replace(out.ctx, turn_ended=True)
-        out.agent(
-            {
-                "state": (
-                    "awaiting-permission"
-                    if out.ctx.pending
-                    else _state_after_turn(out.ctx)
-                )
-            }
+
+def _codex_tool_calls(kind: str, item: Dict) -> list[tuple[str, str, Dict]] | None:
+    """The Claude tool calls a Codex item is, as (tool use id, tool, input).
+
+    ``None`` for an item that is no tool call.
+    """
+    item_id = _str(item.get("id"))
+    if kind == "commandExecution":
+        return [
+            (
+                item_id,
+                "Bash",
+                {"command": command_of(item), "cwd": _str(item.get("cwd"))},
+            )
+        ]
+    if kind == "fileChange":
+        changes = item.get("changes")
+        return [
+            # The first change keeps the item id, which an approval names.
+            (item_id if n == 0 else f"{item_id}:{n}", *_codex_file_change(change))
+            for n, change in enumerate(changes if isinstance(changes, list) else [])
+            if isinstance(change, dict)
+        ]
+    if kind == "mcpToolCall":
+        tool = f"mcp__{_str(item.get('server'))}__{_str(item.get('tool'))}"
+        return [(item_id, tool, _dict(item.get("arguments")))]
+    if kind == "webSearch":
+        return [(item_id, "WebSearch", {"query": _str(item.get("query"))})]
+    return None
+
+
+def _codex_file_change(change: Dict) -> tuple[str, Dict]:
+    """One changed file, as the ``Edit`` or ``Write`` the Edit card draws.
+
+    The card diffs two strings, so the unified diff is split into its sides.
+    """
+    path = _str(change.get("path"))
+    diff = _str(change.get("diff"))
+    kind = _str(_dict(change.get("kind")).get("type"))
+    old, new = _diff_sides(diff)
+    if kind == "add":
+        return "Write", {"file_path": path, "content": new if "@@" in diff else diff}
+    if kind == "delete":
+        return "Edit", {
+            "file_path": path,
+            "old_string": old if "@@" in diff else diff,
+            "new_string": "",
+        }
+    return "Edit", {"file_path": path, "old_string": old, "new_string": new}
+
+
+def _diff_sides(diff: str) -> tuple[str, str]:
+    """The old and new text a unified diff's hunks show."""
+    old: list[str] = []
+    new: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        if line.startswith(("@@", "---", "+++", "\\")):
+            continue
+        if line.startswith("-"):
+            old.append(line[1:])
+        elif line.startswith("+"):
+            new.append(line[1:])
+        else:
+            text = line[1:] if line.startswith(" ") else line
+            old.append(text)
+            new.append(text)
+    return "".join(old), "".join(new)
+
+
+def _codex_request(out: "_Emitter", raw: Dict, method: str, params: Dict) -> None:
+    """A Codex server request, or the adapter's reply to one.
+
+    An approval is a permission ask, and its reply the answer. Any other
+    request draws raw: the adapter refused it.
+    """
+    # Codex numbers its requests; the Claude wire's request ids are strings.
+    request_id = str(raw.get("id"))
+    if "result" in raw or "error" in raw:
+        if request_id in out.ctx.pending:
+            decision = _dict(raw.get("result")).get("decision")
+            response: Dict = {"behavior": "allow" if allowed(decision) else "deny"}
+            if not allowed(decision):
+                response["message"] = _str(raw.get(REASON_KEY)) or "Denied by user"
+            out.response(request_id, response)
+        return
+    approval = approval_of(method, params)
+    if approval is None:
+        out.append({"type": "raw_event", "method": method, "params": params})
+    elif not out.message_only:
+        out.request(
+            request_id,
+            approval.tool_use_id,
+            approval.tool,
+            approval.input,
+            approval.description,
         )
 
-    # Preserve unsupported notifications for Session diagnostics.
-    out.append({"type": "raw_event", "method": method, "params": params})
+
+def _codex_output(item: Dict) -> str:
+    if "aggregatedOutput" in item:
+        return _str(item.get("aggregatedOutput"))
+    if error := _str(_dict(item.get("error")).get("message")):
+        return error
+    content = _dict(item.get("result")).get("content")
+    return _codex_text(content)
 
 
 def _codex_text(value: Any) -> str:
@@ -849,17 +1175,21 @@ def _codex_text(value: Any) -> str:
     return ""
 
 
-def _codex_command_status(item: Dict) -> str:
+def _codex_status(item: Dict) -> str:
     status = _str(item.get("status"))
     if status in {"inProgress", "running"}:
         return "running"
     if status in {"declined", "denied"}:
         return "denied"
     exit_code = item.get("exitCode")
-    if status in {"failed", "error"} or (
-        isinstance(exit_code, int)
-        and not isinstance(exit_code, bool)
-        and exit_code != 0
+    if (
+        status in {"failed", "error"}
+        or item.get("error")
+        or (
+            isinstance(exit_code, int)
+            and not isinstance(exit_code, bool)
+            and exit_code != 0
+        )
     ):
         return "error"
     return "done"
@@ -896,7 +1226,12 @@ def _partial_chunk(out: "_Emitter", chunk: Dict) -> None:
         return
     if index != partial.index:
         return
-    partial = replace(partial, text=partial.text + _str(delta.get("text")))
+    _grow_partial(out, partial, _str(delta.get("text")))
+
+
+def _grow_partial(out: "_Emitter", partial: PartialMessage, text: str) -> None:
+    """Add ``text`` to the partial message, and show what may be shown of it."""
+    partial = replace(partial, text=partial.text + text)
     shown = partial_text(partial.text)
     if not partial.item_id:
         if shown:
@@ -1061,6 +1396,8 @@ class _Emitter:
         self.compact_refused: str | None = None
         #: Whether the agent asked to end its session.
         self.end_session = False
+        #: Whether the event ended a turn.
+        self.turn_end = False
 
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
@@ -1536,6 +1873,7 @@ class _Emitter:
             self.compacted,
             self.compact_refused,
             self.end_session,
+            self.turn_end,
         )
 
 

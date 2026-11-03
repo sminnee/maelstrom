@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from agent_fixtures import (
+    CODEX_FIXTURES,
     FIXTURES,
     RECEIVED,
     make_agent,
@@ -28,6 +29,7 @@ from mael_domain.document_tags import CompactRequest, ParamSet, read_worktree_fi
 from mael_domain.file_registry import FileRegistry
 from mael_domain.normalise import (
     NormaliseContext,
+    Normalised,
     _skill_loaded,
     apply_agent_detail,
     close_partial_message,
@@ -66,6 +68,9 @@ class Replayed:
     def __init__(self, state: ClientState) -> None:
         self.state = state
         self.transcripts: dict[str, dict] = {}
+        #: What the normaliser returned for each raw event, in order.
+        self.outs: list[Normalised] = []
+        self.ctx: NormaliseContext = context_for_agent("ag1")
         #: ``ag1``'s state after each raw event, as :func:`replay` fed them.
         self.states: list[str] = []
 
@@ -163,7 +168,7 @@ def file_id_names(doc) -> str:
 
 
 def replay(
-    name: str,
+    name: str | list[dict],
     *,
     stop_before_control_response: bool = False,
     parent_tool_use_id: str | None = None,
@@ -172,7 +177,8 @@ def replay(
     files: FileRegistry | None = None,
     stop_after=None,
 ) -> Replayed:
-    """Replay ``name`` into ``agent`` (a seed idle agent by default).
+    """Replay ``name``, a fixture or the raw events themselves, into ``agent``
+    (a seed idle agent by default).
 
     ``parent_tool_use_id`` keeps only the lines a subagent produced under that
     call — the stream the host serves for an ``attach`` to its dotted id.
@@ -185,7 +191,7 @@ def replay(
     files = files if files is not None else fake_registry()
     out_state = Replayed(seed([agent or make_agent(id="ag1", state="idle")]))
     ctx = context_for_agent("ag1")
-    for raw in read_fixture(name):
+    for raw in read_fixture(name) if isinstance(name, str) else name:
         if (
             parent_tool_use_id is not None
             and raw.get("parent_tool_use_id") != parent_tool_use_id
@@ -207,6 +213,7 @@ def replay(
         )
         ctx = out.ctx
         out_state.take(out.events)
+        out_state.outs.append(out)
         out_state.states.append(out_state.state["world"]["agents"]["ag1"]["state"])
         if stop_after is not None and stop_after(raw):
             break
@@ -218,199 +225,400 @@ def types(replayed: Replayed) -> list[str]:
     return [item["type"] for item in replayed.items]
 
 
-def test_codex_items_reach_the_session_transcript_boundary() -> None:
-    replayed = Replayed(seed([make_agent(id="ag1")]))
-    ctx = context_for_agent("ag1")
-    notifications = [
-        {
-            "type": "codex_raw",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "item": {
-                    "id": "user-1",
-                    "type": "userMessage",
-                    "content": [{"type": "text", "text": "Inspect the worktree."}],
-                },
-            },
-        },
-        {
-            "type": "codex_raw",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "item": {
-                    "id": "reasoning-1",
-                    "type": "reasoning",
-                    "summary": ["I need the current branch."],
-                    "content": [],
-                },
-            },
-        },
-        {
-            "type": "codex_raw",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "item": {
-                    "id": "command-1",
-                    "type": "commandExecution",
-                    "command": "git status --short",
-                    "cwd": "/worktree",
-                    "status": "completed",
-                    "aggregatedOutput": " M app.py\n",
-                    "exitCode": 0,
-                    "durationMs": 0,
-                },
-            },
-        },
-        {
-            "type": "codex_raw",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "item": {
-                    "id": "agent-1",
-                    "type": "agentMessage",
-                    "text": "The worktree has one dirty file.",
-                    "phase": "final_answer",
-                },
-            },
-        },
-        {
-            "type": "codex_raw",
-            "method": "thread/tokenUsage/updated",
-            "params": {"threadId": "thread-1", "tokenUsage": {"total": 42}},
-        },
-    ]
+def codex(method: str, **params) -> dict:
+    """One Codex app-server notification, as the Codex adapter frames it."""
+    return {"type": "codex_raw", "method": method, "params": params}
 
-    for raw in notifications:
-        out = normalise_stream_event(replayed.state, ctx, raw, NOW)
-        ctx = out.ctx
-        replayed.take(out.events)
 
-    assert replayed.items == [
-        {
-            "type": "message",
-            "role": "user",
-            "markdown": "Inspect the worktree.",
-            "id": "ag1-1",
-            "ts": NOW,
-        },
-        {
-            "type": "message",
-            "role": "assistant",
-            "markdown": "<user-attention low>\nI need the current branch.",
-            "id": "ag1-2",
-            "ts": NOW,
-        },
-        {
-            "type": "tool_call",
-            "toolUseId": "command-1",
-            "tool": "Bash",
-            "input": {"command": "git status --short", "cwd": "/worktree"},
-            "status": "done",
-            "output": " M app.py\n",
-            "id": "ag1-3",
-            "ts": NOW,
-        },
-        {
-            "type": "message",
-            "role": "assistant",
-            "markdown": "The worktree has one dirty file.",
-            "id": "ag1-4",
-            "ts": NOW,
-        },
-        {
-            "type": "raw_event",
-            "method": "thread/tokenUsage/updated",
-            "params": {"threadId": "thread-1", "tokenUsage": {"total": 42}},
-            "id": "ag1-5",
-            "ts": NOW,
-        },
+def codex_item(method: str, **item) -> dict:
+    return codex(method, threadId="thread-1", turnId="turn-1", item=item)
+
+
+def codex_turn() -> list[dict]:
+    """A real Codex 0.154 turn: a message, an approved command, a final
+    message with a note, then a ``thread/shellCommand`` turn."""
+    return read_fixture("codex-turn.jsonl")
+
+
+def test_codex_lifecycle_and_diagnostic_events_draw_nothing():
+    replayed = replay(codex_turn())
+
+    assert [
+        (i["type"], i.get("role") or i.get("tool", "")) for i in replayed.items
+    ] == [
+        # The one warning the turn carried, shown; see the warnings test.
+        ("error", ""),
+        ("message", "user"),
+        ("message", "assistant"),
+        ("tool_call", "Bash"),
+        ("permission_request", "Bash"),
+        ("message", "assistant"),
+        ("turn_result", ""),
+        ("shell", ""),
+        ("turn_result", ""),
     ]
 
 
-def test_codex_agent_message_deltas_do_not_make_a_streaming_message() -> None:
-    state = seed([make_agent(id="ag1")])
+def test_codex_deltas_grow_one_partial_message_that_the_completed_item_replaces():
+    events = codex_turn()
+    first_delta = next(
+        n for n, e in enumerate(events) if e.get("params", {}).get("delta") == " run"
+    )
+    writing = replay(events[: first_delta + 1])
+    done = replay(events)
 
-    out = normalise_stream_event(
-        state,
-        context_for_agent("ag1"),
-        {
-            "type": "codex_raw",
-            "method": "item/agentMessage/delta",
-            "params": {
-                "threadId": "thread-1",
-                "turnId": "turn-1",
-                "itemId": "agent-1",
-                "delta": "Still writing",
-            },
-        },
-        NOW,
+    [partial] = items_of(writing, "message")[1:]
+    assert partial["partial"] is True
+    assert partial["markdown"] == "I’ll run"
+    whole = items_of(done, "message")[1]
+    assert whole["id"] == partial["id"]
+    assert whole["partial"] is False
+    assert whole["markdown"] == "I’ll run that command and report the result."
+
+
+def test_a_codex_message_holds_a_tag_back_while_it_is_written():
+    events = codex_turn()
+    in_tag = next(
+        n for n, e in enumerate(events) if e.get("params", {}).get("delta") == "REC"
+    )
+    writing = replay(events[: in_tag + 1])
+
+    assert items_of(writing, "message")[-1]["markdown"] == "The output is `rec-123`."
+
+
+MARKED = (
+    "Done.\n\n<note>Built the slice</note>\n<milestone>built</milestone>\n"
+    '<doc-file kind="other" filename="draft-iter1.md" title="Draft">\n'
+    '<link rel="gh-pr">118</link>\n<live-feedback jig="on">\n'
+    '<compact-session min-tokens="200k">Keep it</compact-session>\n<end-session>'
+)
+
+
+def test_a_codex_message_carries_the_same_markers_as_a_claude_message():
+    claude = replay([tag_message(MARKED)])
+    codex_run = replay(
+        [codex_item("item/completed", id="msg-1", type="agentMessage", text=MARKED)]
     )
 
-    assert out.events == []
+    def markers(replayed: Replayed) -> dict:
+        out = replayed.outs[-1]
+        agent = agent_of(replayed)
+        return {
+            "note": agent["lastNote"],
+            "milestone": out.milestone and out.milestone.name,
+            "pr": (out.pr_link, out.pr_withdrawn),
+            "params": out.feedback_params,
+            "compact": out.compact_request,
+            "end": out.end_session,
+            "documents": [d["title"] for d in documents_of(replayed)],
+            "message": items_of(replayed, "message")[-1]["markdown"],
+        }
+
+    assert markers(codex_run) == markers(claude)
+    assert markers(codex_run)["end"] is True
+    assert markers(codex_run)["documents"] == ["Draft"]
 
 
-def test_codex_turn_lifecycle_updates_activity_and_keeps_raw_events() -> None:
-    replayed = Replayed(seed([make_agent(id="ag1", state="idle")]))
-    ctx = context_for_agent("ag1")
-    states = []
+def test_a_turn_end_is_one_signal_for_both_harnesses():
+    claude = replay([{"type": "result", "subtype": "success"}])
+    codex_run = replay(codex_turn())
 
-    for method in ("turn/started", "turn/completed"):
-        out = normalise_stream_event(
-            replayed.state,
-            ctx,
+    assert claude.outs[-1].turn_end is True
+    assert [n for n, out in enumerate(codex_run.outs) if out.turn_end] == [
+        n for n, e in enumerate(codex_turn()) if e.get("method") == "turn/completed"
+    ]
+
+
+def test_codex_token_usage_fills_the_agents_totals():
+    replayed = replay(codex_turn())
+
+    agent = agent_of(replayed)
+    assert agent["totalTokens"] == 34730
+    assert agent["contextTokens"] == 17389
+
+
+def test_a_codex_user_message_is_classified_as_a_claude_one():
+    event = (
+        '<external-event source="github" type="pr.checks_failed" pr="118">\n'
+        "CI failed.\n</external-event>"
+    )
+    replayed = replay(
+        [
+            codex_item(
+                "item/completed",
+                id="u-1",
+                type="userMessage",
+                content=[{"type": "text", "text": event}],
+            )
+        ]
+    )
+
+    [item] = replayed.items
+    assert item["type"] == "external_event"
+    assert item["eventType"] == "pr.checks_failed"
+    assert agent_of(replayed)["state"] == "processing"
+
+
+def test_a_running_codex_command_is_settled_in_place():
+    started = dict(
+        id="cmd-1", type="commandExecution", command="ls", cwd="/w", status="inProgress"
+    )
+    replayed = replay(
+        [
+            codex_item("item/started", **started),
+            codex_item(
+                "item/completed",
+                **{
+                    **started,
+                    "status": "failed",
+                    "exitCode": 2,
+                    "aggregatedOutput": "no\n",
+                },
+            ),
+        ]
+    )
+
+    [call] = replayed.items
+    assert (call["tool"], call["status"], call["output"]) == ("Bash", "error", "no\n")
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [
+        (
+            {
+                "type": "fileChange",
+                "status": "completed",
+                "changes": [
+                    {
+                        "path": "/w/app.py",
+                        "kind": {"type": "update"},
+                        "diff": "@@ -1,2 +1,2 @@\n keep\n-old\n+new\n",
+                    }
+                ],
+            },
+            [
+                (
+                    "Edit",
+                    {
+                        "file_path": "/w/app.py",
+                        "old_string": "keep\nold\n",
+                        "new_string": "keep\nnew\n",
+                    },
+                    "done",
+                )
+            ],
+        ),
+        (
+            {
+                "type": "fileChange",
+                "status": "completed",
+                "changes": [
+                    {"path": "/w/new.md", "kind": {"type": "add"}, "diff": "Hello\n"}
+                ],
+            },
+            [("Write", {"file_path": "/w/new.md", "content": "Hello\n"}, "done")],
+        ),
+        (
+            {
+                "type": "mcpToolCall",
+                "server": "linear",
+                "tool": "get_issue",
+                "arguments": {"id": "NORT-7"},
+                "status": "failed",
+                "error": {"message": "not found"},
+            },
+            [("mcp__linear__get_issue", {"id": "NORT-7"}, "error")],
+        ),
+        (
+            {"type": "webSearch", "query": "codex app-server"},
+            [("WebSearch", {"query": "codex app-server"}, "done")],
+        ),
+        (
+            {
+                "type": "fileChange",
+                "status": "declined",
+                "changes": [
+                    {"path": "/w/a.md", "kind": {"type": "delete"}, "diff": "Gone\n"},
+                    {"path": "/w/b.md", "kind": {"type": "add"}, "diff": "New\n"},
+                ],
+            },
+            [
+                (
+                    "Edit",
+                    {"file_path": "/w/a.md", "old_string": "Gone\n", "new_string": ""},
+                    "denied",
+                ),
+                ("Write", {"file_path": "/w/b.md", "content": "New\n"}, "denied"),
+            ],
+        ),
+    ],
+)
+def test_a_codex_tool_item_is_the_claude_tool_call(item, expected):
+    replayed = replay([codex_item("item/completed", id="it-1", **item)])
+
+    assert [(i["tool"], i["input"], i["status"]) for i in replayed.items] == expected
+
+
+def test_a_codex_plan_update_is_a_todo_list():
+    replayed = replay(
+        [
+            codex(
+                "turn/plan/updated",
+                threadId="thread-1",
+                turnId="turn-1",
+                plan=[
+                    {"step": "Read", "status": "completed"},
+                    {"step": "Build", "status": "inProgress"},
+                ],
+            )
+        ]
+    )
+
+    [call] = replayed.items
+    assert call["tool"] == "TodoWrite"
+    assert call["input"] == {
+        "todos": [
+            {"content": "Read", "status": "completed", "activeForm": "Read"},
+            {"content": "Build", "status": "in_progress", "activeForm": "Build"},
+        ]
+    }
+
+
+def test_codex_warnings_and_a_failed_turn_are_error_items():
+    replayed = replay(
+        [
+            codex("warning", threadId="thread-1", message="Skills were shortened."),
+            codex(
+                "turn/completed",
+                threadId="thread-1",
+                turn={
+                    "id": "turn-1",
+                    "status": "failed",
+                    "error": {"message": "Rate limited."},
+                    "durationMs": 40,
+                },
+            ),
+        ]
+    )
+
+    assert [
+        (i["type"], i.get("message") or i.get("subtype")) for i in replayed.items
+    ] == [
+        ("error", "Skills were shortened."),
+        ("error", "Rate limited."),
+        ("turn_result", "error"),
+    ]
+
+
+def test_a_codex_compaction_is_the_compact_boundary():
+    """Recorded from Codex 0.154: the usage update lands before the item ends."""
+    item = dict(id="cc-1", type="contextCompaction")
+    replayed = replay(
+        [
+            codex_item("item/started", **item),
+            codex(
+                "thread/tokenUsage/updated",
+                threadId="thread-1",
+                tokenUsage={
+                    "total": {"totalTokens": 9000},
+                    "last": {"totalTokens": 5792},
+                },
+            ),
+            codex_item("item/completed", **item),
+        ]
+    )
+
+    [compact] = replayed.items
+    assert (compact["type"], compact["postTokens"]) == ("compact", 5792)
+    assert replayed.outs[-1].compacted == (None, 5792)
+
+
+def test_an_interrupted_codex_turn_ends_the_wait_it_held():
+    replayed = replay(
+        [
+            codex("turn/started", threadId="thread-1", turn={"id": "turn-1"}),
+            codex_approval(0),
+            codex(
+                "turn/completed",
+                threadId="thread-1",
+                turn={"id": "turn-1", "status": "interrupted"},
+            ),
+        ]
+    )
+
+    assert agent_of(replayed)["pendingRequestIds"] == []
+    assert agent_of(replayed)["state"] == "idle"
+    assert open_attention(replayed) == []
+    assert items_of(replayed, "turn_result")[0]["subtype"] == "interrupted"
+
+
+def codex_approval(request_id: int) -> dict:
+    """An approval request, as the adapter records it: id and all."""
+    return {
+        **codex(
+            "item/commandExecution/requestApproval",
+            threadId="thread-1",
+            turnId="turn-1",
+            itemId="cmd-1",
+            command="/bin/zsh -lc 'rm -rf build'",
+            commandActions=[{"type": "unknown", "command": "rm -rf build"}],
+            reason="Clean the build",
+        ),
+        "id": request_id,
+    }
+
+
+def test_a_denied_codex_approval_settles_with_the_reason():
+    request = codex_approval(3)
+    replayed = replay(
+        [
+            request,
             {
                 "type": "codex_raw",
-                "method": method,
-                "params": {"threadId": "thread-1", "turnId": "turn-1"},
+                "method": request["method"],
+                "id": 3,
+                "result": {"decision": "decline"},
+                "mael_reason": "Not the build dir",
             },
-            NOW,
-        )
-        ctx = out.ctx
-        replayed.take(out.events)
-        states.append(replayed.state["world"]["agents"]["ag1"]["state"])
-
-    assert states == ["processing", "idle"]
-    assert [item["method"] for item in replayed.items] == [
-        "turn/started",
-        "turn/completed",
-    ]
-    assert replayed.state["world"]["agents"]["ag1"]["state"] == "idle"
-
-
-def test_a_failed_codex_command_is_an_error_tool_call() -> None:
-    replayed = Replayed(seed([make_agent(id="ag1")]))
-
-    out = normalise_stream_event(
-        replayed.state,
-        context_for_agent("ag1"),
-        {
-            "type": "codex_raw",
-            "method": "item/completed",
-            "params": {
-                "threadId": "thread-1",
-                "item": {
-                    "id": "command-1",
-                    "type": "commandExecution",
-                    "command": "false",
-                    "status": "completed",
-                    "aggregatedOutput": "failed\n",
-                    "exitCode": 1,
-                },
-            },
-        },
-        NOW,
+        ]
     )
-    replayed.take(out.events)
 
-    assert replayed.items[0]["status"] == "error"
+    [ask] = items_of(replayed, "permission_request")
+    assert (ask["requestId"], ask["input"]["command"]) == ("3", "rm -rf build")
+    assert (ask["decision"], ask["reason"]) == ("deny", "Not the build dir")
+    assert agent_of(replayed)["pendingRequestIds"] == []
+
+
+def test_a_codex_settings_update_moves_the_agents_mode():
+    settings = {"sandboxPolicy": {"type": "readOnly"}, "approvalPolicy": "on-request"}
+    replayed = replay(
+        [codex("thread/settings/updated", threadId="thread-1", threadSettings=settings)]
+    )
+
+    assert agent_of(replayed)["permissionMode"] == "plan"
+    assert replayed.items == []
+
+
+def test_a_codex_error_draws_only_when_codex_retries():
+    replayed = replay(
+        [
+            codex(
+                "error", threadId="thread-1", willRetry=True, error={"message": "Busy."}
+            ),
+            codex(
+                "error", threadId="thread-1", willRetry=False, error={"message": "No."}
+            ),
+        ]
+    )
+
+    assert [i["message"] for i in replayed.items] == ["Busy. Retrying."]
+
+
+def test_an_unknown_codex_method_stays_a_raw_event():
+    replayed = replay([codex("thread/realtime/started", threadId="thread-1")])
+
+    assert [i["type"] for i in replayed.items] == ["raw_event"]
 
 
 def agent_of(replayed: Replayed) -> dict:
@@ -426,7 +634,11 @@ def items_of(replayed: Replayed, kind: str) -> list[dict]:
     return [i for i in replayed.items if i["type"] == kind]
 
 
-FIXTURE_NAMES = sorted(p.name for p in FIXTURES.glob("*.jsonl"))
+FIXTURE_NAMES = sorted(
+    p.name
+    for directory in (FIXTURES, CODEX_FIXTURES)
+    for p in directory.glob("*.jsonl")
+)
 # An empty glob would turn every golden test into a skip, not a failure.
 assert FIXTURE_NAMES, f"no recordings under {FIXTURES}"
 

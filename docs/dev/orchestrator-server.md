@@ -47,7 +47,9 @@ and holds the result to a golden under `lib/domain/fixtures/normalised/`. That t
 `UPDATE_GOLDEN=1 uv run pytest lib/domain/tests/test_orchestrator_normalise.py` re-records them, so a
 normaliser change is a deliberate re-record and never a silent drift.
 
-Codex app-server notifications use the same normaliser and transcript surfaces. See
+Codex app-server notifications use the same normaliser paths and transcript surfaces. A milestone,
+an end-session request and a compaction request wait for `Normalised.turn_end`, which a Claude
+`result` and a Codex `turn/completed` both set, so every marker works for both. See
 [codex-app-server-events.md](codex-app-server-events.md).
 
 The tool cards run the other way. `classify_tool_call` and `tool_call_title` in `agent_view.py` are
@@ -1592,7 +1594,9 @@ So does an agent that exits, and so does an attach stream that stops with no exi
 context that does not know the item. A chunk with no `message_start` before it is ignored: an attach that
 began in the middle of a message cannot say which message the text belongs to.
 
-A subagent's stream and a Codex agent carry no partial message.
+A subagent's stream carries no partial message. A Codex agent's partial message grows from
+`item/agentMessage/delta`, keyed by item id. See
+[codex-app-server-events.md](codex-app-server-events.md#agent-message-deltas).
 
 ## The live feedback socket
 

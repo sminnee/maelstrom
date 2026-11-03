@@ -621,8 +621,9 @@ reasoning the agent did not choose to say, and a `tool_use` block is an action. 
 only the last message, so `mael agent list` and `mael agent show` answer without reading a file.
 
 **Partial message**:
-The text of an Agent message so far, while the agent writes it. The daemon sends it as chunks,
-one `stream_event` line each. Only the session tab draws one, and no tag in it has an effect
+The text of an Agent message so far, while the agent writes it. The Claude daemon sends it as
+chunks, one `stream_event` line each. A Codex thread sends `item/agentMessage/delta`
+notifications. Only the session tab draws one, and no tag in it has an effect
 until the message is complete.
 _Avoid_: Delta, streamed message, draft
 
