@@ -21,9 +21,18 @@ FIXTURES = Path(__file__).parents[3] / "agent-daemon" / "fixtures" / "agent_even
 RECEIVED = "2026-09-02T00:00:00Z"
 
 
+#: The Codex adapter's recordings. Apart from the Claude daemon's: its own
+#: reducer replays every file under :data:`FIXTURES`.
+CODEX_FIXTURES = Path(__file__).parents[1] / "fixtures" / "codex_events"
+
+
 def read_stamped_fixture(name: str) -> list[dict]:
-    """``name``'s events, each stamped the way :meth:`AgentRun.record` does."""
-    lines = (FIXTURES / name).read_text().splitlines()
+    """``name``'s events, each stamped the way :meth:`AgentRun.record` does.
+
+    A name under :data:`CODEX_FIXTURES` is read from there.
+    """
+    directory = CODEX_FIXTURES if (CODEX_FIXTURES / name).exists() else FIXTURES
+    lines = (directory / name).read_text().splitlines()
     events = [json.loads(line) for line in lines if line.strip()]
     # A chunk of a partial message is the one event the daemon does not stamp.
     return [
@@ -60,6 +69,7 @@ def make_agent(**over) -> dict:
         "pendingRequestIds": [],
         "pid": None,
         "backgroundShells": [],
+        "harness": "claude",
     }
     agent.update(over)
     return agent

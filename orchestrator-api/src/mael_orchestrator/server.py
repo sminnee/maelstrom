@@ -1822,8 +1822,8 @@ class Orchestrator:
         if out.end_session:
             # Parked even in replay, as a compaction request is.
             watch.pending_end = True
-        await self._follow_compact(watch, raw, out)
-        if raw.get("type") == "result" and watch.pending_milestone is not None:
+        await self._follow_compact(watch, out)
+        if out.turn_end and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
             # ledger keys on an ordinal, so recording it again would append a
@@ -1832,14 +1832,14 @@ class Orchestrator:
             if watch.caught_up.is_set():
                 await self._record_milestone(watch, milestone)
         # Last: the stop cancels this watch, so the turn's milestone goes first.
-        await self._follow_end(watch, raw)
+        await self._follow_end(watch, out)
 
-    async def _follow_end(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
+    async def _follow_end(self, watch: AgentWatch, out: Normalised) -> None:
         """Terminate the agent when the turn that asked to end does.
 
         See ``docs/dev/orchestrator-server.md``, "An end-session request".
         """
-        if raw.get("type") != "result" or not watch.pending_end:
+        if not out.turn_end or not watch.pending_end:
             return
         watch.pending_end = False
         if not watch.caught_up.is_set():
@@ -1855,9 +1855,7 @@ class Orchestrator:
                 reply["error"]["message"],
             )
 
-    async def _follow_compact(
-        self, watch: AgentWatch, raw: dict[str, Any], out: Normalised
-    ) -> None:
+    async def _follow_compact(self, watch: AgentWatch, out: Normalised) -> None:
         """Act on a compaction request, and tell the agent how it went.
 
         See ``docs/dev/orchestrator-server.md``, "A compaction request".
@@ -1868,7 +1866,7 @@ class Orchestrator:
             watch.pending_compact = out.compact_request
         if not watch.caught_up.is_set():
             # A replayed turn end was answered by the run that read it live.
-            if raw.get("type") == "result":
+            if out.turn_end:
                 watch.pending_compact = None
             return
         if watch.compacting and out.compacted is not None:
@@ -1898,7 +1896,7 @@ class Orchestrator:
                     f"Compaction did not occur: {out.compact_refused} Continue.",
                 ),
             )
-        elif raw.get("type") == "result" and watch.pending_compact is not None:
+        elif out.turn_end and watch.pending_compact is not None:
             request, watch.pending_compact = watch.pending_compact, None
             # The end wins: no `/compact` goes to an agent that is stopping.
             if not watch.pending_end:

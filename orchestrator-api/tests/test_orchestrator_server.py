@@ -8322,6 +8322,50 @@ def test_a_replayed_end_session_request_does_nothing(harness):
     assert run(scenario()) is False
 
 
+def codex_event(method: str, **params) -> dict:
+    """One Codex notification, as the Codex adapter frames it."""
+    return {"type": "codex_raw", "method": method, "params": params}
+
+
+def test_a_codex_turn_end_acts_on_the_markers_its_turn_wrote(harness):
+    """The turn end is one signal for both harnesses, not a Claude ``result``."""
+    harness.daemon.rows["ag1"] = agent_row(tokens=10_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push(
+                    "ag1",
+                    codex_event(
+                        "item/completed",
+                        threadId="ag1",
+                        item={
+                            "id": "msg-1",
+                            "type": "agentMessage",
+                            "text": "Done.\n<milestone>built</milestone>\n<end-session>",
+                        },
+                    ),
+                )
+                await after_message(harness, "Still in the turn.")
+                before = stopped(harness)
+                harness.daemon.push(
+                    "ag1",
+                    codex_event(
+                        "turn/completed",
+                        threadId="ag1",
+                        turn={"id": "turn-1", "status": "completed"},
+                    ),
+                )
+                [row] = await recorded(harness, 1)
+                await wait_until(lambda: stopped(harness))
+                return before, row
+
+    before, row = run(scenario())
+    assert before is False
+    assert row["name"] == "built"
+
+
 def test_an_end_session_request_wins_over_a_compaction_request(harness):
     """No ``/compact`` goes to an agent that is stopping."""
     harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)

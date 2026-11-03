@@ -3,6 +3,7 @@
 import os
 import re
 from dataclasses import dataclass
+from typing import Any
 
 HARNESS_CLAUDE = "claude"
 HARNESS_CODEX = "codex"
@@ -125,6 +126,51 @@ def codex_thread_start_options(mode: str) -> dict[str, str]:
     if mode == "auto":
         return {"sandbox": "workspace-write", "approvalPolicy": "on-request"}
     return {"sandbox": "workspace-write"}
+
+
+#: The approval policy a Codex turn runs under, by mode. ``normal`` asks before
+#: each untrusted command, as a Claude ``normal`` session asks.
+_CODEX_TURN_APPROVAL = {
+    "plan": "on-request",
+    "normal": "untrusted",
+    "auto": "on-request",
+}
+
+#: A Codex thread-start sandbox mode, as the turn-start sandbox policy.
+_CODEX_SANDBOX_POLICY = {
+    "read-only": {"type": "readOnly"},
+    "workspace-write": {"type": "workspaceWrite"},
+}
+
+
+def codex_turn_policy(mode: str) -> dict[str, Any]:
+    """Map Maelstrom's Agent mode onto Codex turn-start settings.
+
+    Sent on every turn. See ``docs/dev/codex-app-server-events.md``, "Modes".
+    """
+    options = codex_thread_start_options(mode)
+    return {
+        "sandboxPolicy": _CODEX_SANDBOX_POLICY[options["sandbox"]],
+        "approvalPolicy": _CODEX_TURN_APPROVAL.get(mode, "on-request"),
+        "approvalsReviewer": "user",
+    }
+
+
+def codex_mode_of(settings: dict[str, Any]) -> str:
+    """The Agent mode a Codex turn policy runs, else ``""``.
+
+    The inverse of :func:`codex_turn_policy`: no two modes share a policy.
+    """
+    sandbox = settings.get("sandboxPolicy")
+    sandbox_type = sandbox.get("type") if isinstance(sandbox, dict) else None
+    for mode in _CODEX_TURN_APPROVAL:
+        policy = codex_turn_policy(mode)
+        if (
+            sandbox_type == policy["sandboxPolicy"]["type"]
+            and settings.get("approvalPolicy") == policy["approvalPolicy"]
+        ):
+            return mode
+    return ""
 
 
 def is_driven_agent() -> bool:
