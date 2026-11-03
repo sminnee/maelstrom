@@ -1,8 +1,30 @@
 ---
 name: planning
-description: Draft task files for planning sessions. Use when a session builds a task chain with the user.
+description: Write a plan in plan mode, or draft and promote a task chain. Use when in plan mode, or when a session drafts tasks.
 ---
 
 # Planning
+
+A plan has two readers: a reviewer who did not write the task, and the build session. Approving the plan clears that session's context, so the build session sees only the plan. These rules override plan mode's built-in template.
+
+In a planning session (`/plan-task`, `/plan-next-step`), skip the plan rules below and read [task-chains.md](task-chains.md).
+
+When the arguments carry a task, that task is what you plan.
+
+Write the plan as an inverted pyramid. A reader who stops after any paragraph has the most important part:
+
+1. **The change.** The title and first paragraph say what will be different when the work is done, as a user or a new developer sees it. Put no heading before it.
+2. **Why, and the decisions.** Each decision gets its reason, in one line if you can.
+3. **Detail.** Files, code to reuse, **Seams under test**, verification.
+4. **Out of scope and open points.**
+
+Make the plan self-contained:
+
+- Copy each requirement, constraint, and pointer from the task content into the plan. Do not write "see the task".
+- Explain a project term the first time you use it, or link its `CONTEXT.md` entry. Write out the task's shorthand: ids, codenames, abbreviations.
+
+Keep it terse. Leave out the alternatives you rejected, unless a reviewer would ask about them. Follow `writing-for-humans` for sentence length and vocabulary.
+
+When the work is more than one session can do, name the extra tasks in the plan. [task-chains.md](task-chains.md) says how to splice them in after approval.
 
 When you draft, promote, or launch tasks, read [task-chains.md](task-chains.md).
