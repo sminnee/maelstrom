@@ -183,12 +183,17 @@ describe('the Changes tab', () => {
       expect.stringContaining('auth/tokens.py'),
       expect.stringContaining('auth/rotate.py'),
     ]);
-    // Old and new line numbers sit beside each row.
+    // Old and new line numbers sit beside each row: 4 and 4, then a removed
+    // old 5, then an added new 5.
     const rows = within(
       within(panel).getByRole('region', { name: 'auth/tokens.py' }),
     ).getAllByTestId('diff-row');
     expect(rows[1]).toHaveAttribute('data-kind', 'remove');
-    expect(rows[1]).toHaveTextContent('5-old tokens');
+    expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
+      '44 import os',
+      '5-old tokens',
+      '5+new tokens',
+    ]);
   });
 
   it('lists each commit, then the whole branch and the uncommitted changes, and opens on the first commit', async () => {
@@ -532,10 +537,14 @@ describe('the Changes tab', () => {
     expect(screen.queryByRole('navigation', { name: 'Changes to show' })).toBeNull();
   });
 
-  /** Push delta's Changes screen in the narrow layout, on its first commit. */
-  async function pushChanges(user: ReturnType<typeof userEvent.setup>) {
+  /** Push delta's Changes screen in the narrow layout, on its first commit. `tweak` edits the seeded changes first. */
+  async function pushChanges(
+    user: ReturnType<typeof userEvent.setup>,
+    tweak?: (changes: Changes) => void,
+  ) {
     const { server } = await renderApp({ viewport: 'narrow' });
     seedChanges(server);
+    tweak?.(server.world.changes[DELTA]!);
     await user.click(screen.getByRole('link', { name: /Rotate auth tokens/ }));
     await user.click(screen.getByRole('link', { name: 'Changes' }));
     expect(await screen.findByText('new expiry')).toBeInTheDocument();
@@ -559,6 +568,26 @@ describe('the Changes tab', () => {
     expect(bar.getByRole('button', { name: 'Next commit' })).toBeDisabled();
     await user.click(bar.getByRole('button', { name: 'Previous commit' }));
     expect(bar.getByTestId('screen-title')).toHaveTextContent('feat: rotate on expiry');
+  });
+
+  it('draws one line number in the narrow layout: the new one, or the old one on a removed line', async () => {
+    const user = userEvent.setup();
+    // Lines added above the hunk move the new numbers past the old ones.
+    await pushChanges(user, (c) => {
+      c.diffs[SHA]![0]!.hunks[0]!.lines[0] = {
+        kind: 'context',
+        text: 'import os',
+        oldLine: 4,
+        newLine: 7,
+      };
+    });
+    const file = screen.getByRole('region', { name: 'auth/expiry.py' });
+    const rows = within(file)
+      .getAllByTestId('diff-row')
+      .map((row) => row.textContent);
+    expect(rows).toEqual(['7 import os', '5-old expiry', '5+new expiry']);
+    // The sign is part of the button that selects the line, so a finger has more to hit.
+    expect(within(file).getByRole('button', { name: 'Old line 5' })).toHaveTextContent('5-');
   });
 
   it('holds the header, the revs and the tree in the side sheet, and a rev pick closes it', async () => {

@@ -135,8 +135,8 @@
   --radius-lg: 10px;
   --radius-pill: 999px;
 
-  /* Seven sizes, each with one job: see DESIGN.md § Hierarchy. The narrow layout
-     re-points all seven below. */
+  /* Seven sizes, each with one job, and the code sizes: see DESIGN.md
+     § Hierarchy. The narrow layout re-points all of them below. */
   --text-sm: 12px;
   --text-ui: 13px;
   --text-control: 14px;
@@ -145,6 +145,10 @@
   --text-xl: 21px;
   /* The caption under a narrow button's icon. */
   --text-caption: 11px;
+  /* Code, such as a diff, and its line numbers. The same as `--text-sm` here;
+     the narrow layout makes them an exception to the Phone Type Rule. */
+  --text-code: var(--text-sm);
+  --text-code-gutter: var(--text-sm);
 
   /* Leading by job: a dense control, an interface line, a paragraph read. */
   --leading-tight: 1.3;
@@ -262,6 +266,9 @@
     --text-lg: 24px;
     --text-xl: 28px;
     --text-caption: 8px;
+    /* An exception to the Phone Type Rule: see DESIGN.md § The narrow layout. */
+    --text-code: 13px;
+    --text-code-gutter: 10px;
     --icon: var(--u-3);
 
     --prose-row: 30px;

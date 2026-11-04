@@ -1022,7 +1022,8 @@ of the three, and `scroll-margin-top` lands a jump at the same offset. With no t
 sticks at zero.
 
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
-new line numbers.
+new line numbers. On the narrow layout, `HighlightedRows` draws one number column: the new
+number, or the old one on a removed row. The sign tells the two apart.
 
 #### Cards and pins
 

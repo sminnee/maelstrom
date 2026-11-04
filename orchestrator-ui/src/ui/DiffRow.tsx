@@ -1,4 +1,5 @@
-import { Fragment, memo, type ReactNode } from 'react';
+import { type CSSProperties, Fragment, memo, type ReactNode } from 'react';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import styles from './DiffRow.module.css';
 import { type DiffRowKind, SIGN } from './diffSign';
 import type { Token } from './highlight';
@@ -28,7 +29,9 @@ export interface RowHandlers {
  * ground. An Edit card draws it bare; the Changes tab passes the old and new
  * line numbers, which draw as a gutter. With `tokens`, the text draws in
  * syntax colour and only the sign keeps the add or remove hue. With `handlers`,
- * the numbers are a button and the row can draw as selected.
+ * the numbers are a button and the row can draw as selected. With `oneColumn`,
+ * the gutter is one number: the new one, or the old one on a removed row. The
+ * sign tells the two apart, and the narrow layout gives the room to the code.
  *
  * A `memo`: see orchestrator-ui.md, "The Changes tab".
  */
@@ -40,19 +43,26 @@ const DiffRow = memo(function DiffRow({
   index,
   selected,
   handlers,
+  oneColumn = false,
 }: DiffRowData & {
   tokens?: Token[];
   /** The row's place in its file, which `handlers` gets. */
   index: number;
   selected: boolean;
   handlers?: RowHandlers;
+  oneColumn?: boolean;
 }) {
-  const numbers = lineNumbers && (
-    <>
-      <span className={styles.number}>{lineNumbers.old ?? ''}</span>
-      <span className={styles.number}>{lineNumbers.new ?? ''}</span>
-    </>
-  );
+  const numbers =
+    lineNumbers &&
+    (oneColumn ? (
+      <span className={styles.number}>{lineNumbers.new ?? lineNumbers.old ?? ''}</span>
+    ) : (
+      <>
+        <span className={styles.number}>{lineNumbers.old ?? ''}</span>
+        <span className={styles.number}>{lineNumbers.new ?? ''}</span>
+      </>
+    ));
+  const sign = <span className={styles.sign}>{SIGN[kind]}</span>;
   return (
     <div
       className={styles.row}
@@ -63,6 +73,7 @@ const DiffRow = memo(function DiffRow({
       onPointerOver={handlers && (() => handlers.onPointerOver(index))}
     >
       {handlers && lineNumbers ? (
+        // The sign is in the button too, so a finger has more to hit.
         <button
           type="button"
           className={styles.gutter}
@@ -75,11 +86,14 @@ const DiffRow = memo(function DiffRow({
           onKeyDown={(e) => handlers.onKeyDown(index, e)}
         >
           {numbers}
+          {sign}
         </button>
       ) : (
-        numbers
+        <>
+          {numbers}
+          {sign}
+        </>
       )}
-      <span className={styles.sign}>{SIGN[kind]}</span>
       <span>
         {tokens
           ? tokens.map((t, i) => (
@@ -98,7 +112,8 @@ const DiffRow = memo(function DiffRow({
  * `rows` can be one hunk of the file: `first` is where it begins in the file's
  * rows, and `selected`, `handlers` and `after` count in the file's rows.
  * `handlers` makes each row's numbers a button, and `after` draws a node below
- * a row. An Edit card passes none of them.
+ * a row. An Edit card passes none of them. The narrow layout draws one
+ * line-number column.
  */
 export function HighlightedRows({
   rows,
@@ -122,6 +137,7 @@ export function HighlightedRows({
   after?: (index: number) => ReactNode;
 }) {
   const tokens = useRowTokens(rows, path, highlight, shebang);
+  const oneColumn = useLayoutMode() === 'narrow';
   return rows.map((row, i) => {
     const index = first + i;
     return (
@@ -134,6 +150,7 @@ export function HighlightedRows({
           index={index}
           selected={selected !== null && index >= selected[0] && index <= selected[1]}
           handlers={handlers}
+          oneColumn={oneColumn}
         />
         {after?.(index)}
       </Fragment>
@@ -141,7 +158,31 @@ export function HighlightedRows({
   });
 }
 
-/** The mono block diff rows sit in. It scrolls sideways, so a long line keeps its shape. */
-export function DiffBlock({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={[styles.block, className].filter(Boolean).join(' ')}>{children}</div>;
+/**
+ * The mono block diff rows sit in. It scrolls sideways, so a long line keeps
+ * its shape. With `rows`, the gutter is as wide as their widest line number.
+ */
+export function DiffBlock({
+  children,
+  className,
+  rows,
+}: {
+  children: ReactNode;
+  className?: string;
+  rows?: DiffRowData[];
+}) {
+  const style = rows && ({ '--gutter-digits': gutterDigits(rows) } as CSSProperties);
+  return (
+    <div className={[styles.block, className].filter(Boolean).join(' ')} style={style}>
+      {children}
+    </div>
+  );
+}
+
+/** The digits in the widest line number of `rows`. */
+function gutterDigits(rows: DiffRowData[]): number {
+  let max = 0;
+  for (const { lineNumbers } of rows)
+    max = Math.max(max, lineNumbers?.old ?? 0, lineNumbers?.new ?? 0);
+  return String(max).length;
 }

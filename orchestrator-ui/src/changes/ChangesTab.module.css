@@ -502,3 +502,28 @@
 :global([data-sheet]) .header {
   padding: 0 0 var(--u);
 }
+
+/* On the narrow layout a file runs edge to edge: a card's margin, side borders
+   and corners cost a phone columns of code. A rule between files keeps them
+   apart, and the file list's inset follows the head's smaller padding. */
+@media (--narrow) {
+  .scroll {
+    --head-inset: var(--u);
+  }
+  .file {
+    margin: 0;
+    border-inline: 0;
+    border-block-start: 0;
+    border-radius: 0;
+  }
+  .file + .file {
+    border-block-start: 1px solid var(--border);
+  }
+  .fileHead {
+    border-radius: 0;
+    padding-inline: var(--u);
+  }
+  .hunk {
+    padding-inline: var(--u-half);
+  }
+}

@@ -1,10 +1,12 @@
 .block {
   font-family: var(--mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-code);
   overflow-x: auto;
 }
 .row {
   display: flex;
+  /* The numbers can be smaller than the code; they share its baseline. */
+  align-items: baseline;
   gap: var(--u);
   padding: 0 var(--u);
   white-space: pre;
@@ -33,25 +35,30 @@
 .row[data-kind='remove'] .sign {
   color: var(--danger);
 }
-/* Wide enough for a five-digit line, so a gutter keeps its width down a file. */
+/* As wide as the block's widest number (DiffBlock sets the count), so a
+   gutter keeps its width down a file. `ch` of the gutter's own size, which the
+   narrow layout makes smaller. Five digits when the block does not say. */
 .number {
-  width: 5ch;
+  width: calc(var(--gutter-digits, 5) * 1ch);
+  font-size: var(--text-code-gutter);
   flex-shrink: 0;
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
   color: var(--fg-faint);
   user-select: none;
 }
-/* The numbers as one button: it selects the row, for a change comment. */
+/* The numbers and the sign as one button: it selects the row, for a change comment. */
 .gutter {
   /* Not a control: it takes no control height. */
   min-height: 0;
   display: flex;
+  align-items: baseline;
   gap: var(--u);
   flex-shrink: 0;
   padding: 0;
   border: 0;
   background: none;
+  color: inherit;
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
@@ -69,4 +76,15 @@
 }
 .row[data-selected] .number {
   color: var(--accent);
+}
+
+/* On the narrow layout the code gets the row: half the gaps and the padding. */
+@media (--narrow) {
+  .row {
+    gap: var(--u-half);
+    padding: 0 var(--u-half);
+  }
+  .gutter {
+    gap: var(--u-half);
+  }
 }
