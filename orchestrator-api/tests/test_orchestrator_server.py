@@ -9287,17 +9287,76 @@ def test_the_file_route_serves_both_sides_of_a_rev(harness, tmp_path):
     ]
 
 
+def test_the_tree_route_lists_the_files_of_each_rev(harness, tmp_path):
+    _point_alpha_at_a_repo(harness, tmp_path)
+    (tmp_path / "new.txt").write_text("fresh\n")
+
+    async def scenario():
+        async with harness.client() as api:
+            base = "/api/worktrees/northwind-alpha/tree?rev="
+            lists = [
+                await api.get_json(base + rev) for rev in ("uncommitted", "branch")
+            ]
+            return lists, await api.get(base + "nope")
+
+    # The rev rules are the domain suite's; this pins the query and the shape.
+    lists, unknown_rev = run(scenario())
+    assert lists == [
+        {"rev": "uncommitted", "paths": ["new.txt", "orders.py", "readme.md"]},
+        {"rev": "branch", "paths": ["orders.py", "readme.md"]},
+    ]
+    assert (unknown_rev.status, unknown_rev.body["error"]["code"]) == (
+        404,
+        "unknown_id",
+    )
+
+
+def test_the_excerpt_route_serves_lines_of_the_new_side(harness, tmp_path):
+    _point_alpha_at_a_repo(harness, tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            base = "/api/worktrees/northwind-alpha/excerpt?rev="
+            return [
+                await api.get_json(base + "uncommitted&path=readme.md&start=1&end=1"),
+                await api.get(base + "branch&path=missing.py"),
+                await api.get(base + "nope&path=readme.md"),
+                await api.get(base + "branch&path=orders.py&start=x"),
+            ]
+
+    excerpt, missing, unknown_rev, bad_start = run(scenario())
+    assert excerpt == {
+        "rev": "uncommitted",
+        "path": "readme.md",
+        "total": 1,
+        "truncated": False,
+        "span": {
+            "range": {"start": 1, "end": 1},
+            "lines": [{"kind": "context", "text": "two", "oldLine": 1, "newLine": 1}],
+        },
+    }
+    assert [
+        (r.status, r.body["error"]["code"]) for r in (missing, unknown_rev, bad_start)
+    ] == [(404, "unknown_id"), (404, "unknown_id"), (400, "invalid")]
+
+
 @pytest.mark.parametrize(
-    "query", ["path=readme.md", "rev=branch", "rev=branch&path=../escape"]
+    "query",
+    [
+        f"{route}?{query}"
+        for route in ("file", "excerpt")
+        for query in ("path=readme.md", "rev=branch", "rev=branch&path=../escape")
+    ]
+    + ["tree"],
 )
-def test_the_file_route_refuses_a_query_without_a_rev_or_a_safe_path(
+def test_the_file_routes_refuse_a_query_without_a_rev_or_a_safe_path(
     harness, tmp_path, query
 ):
     _point_alpha_at_a_repo(harness, tmp_path)
 
     async def scenario():
         async with harness.client() as api:
-            return await api.get(f"/api/worktrees/northwind-alpha/file?{query}")
+            return await api.get(f"/api/worktrees/northwind-alpha/{query}")
 
     reply = run(scenario())
     assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
@@ -9389,13 +9448,15 @@ def test_the_changes_routes_refuse_an_unknown_or_closed_worktree(harness, tmp_pa
                     "diff?rev=branch",
                     "file?rev=branch&path=a",
                     "raw?rev=branch&path=a&side=new",
+                    "tree?rev=branch",
+                    "excerpt?rev=branch&path=a",
                 )
             ]
 
     replies = run(scenario())
     assert [(r.status, r.body["error"]["code"]) for r in replies] == [
         (404, "unknown_id")
-    ] * 8
+    ] * 12
 
 
 def test_the_diff_route_refuses_a_request_that_names_no_rev(harness, tmp_path):
