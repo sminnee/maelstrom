@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { setViewport } from '../test/setup';
 import { ComboBox, type ComboOption } from './ComboBox';
 
 const BRANCHES: ComboOption[] = [
@@ -103,13 +104,7 @@ function afterFrame(fire: () => void) {
 }
 
 /** A touch screen: one whose focus brings up a soft keyboard. */
-const touchScreen = () =>
-  vi
-    .spyOn(window, 'matchMedia')
-    .mockImplementation(
-      (query: string) =>
-        ({ matches: query === '(pointer: coarse)', media: query }) as unknown as MediaQueryList,
-    );
+const touchScreen = () => setViewport({ width: 1024, height: 768, pointer: 'coarse' });
 
 /** The open listbox's rows, in the order they are offered. */
 function rows() {

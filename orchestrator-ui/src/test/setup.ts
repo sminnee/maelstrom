@@ -64,23 +64,34 @@ if (!('getBBox' in SVGElement.prototype)) {
   });
 }
 
-// jsdom has no matchMedia. The app reads the two layout queries through it,
-// and `prefers-reduced-motion` in the node card. The stub answers all three
-// from one settable width.
-const DEFAULT_VIEWPORT = 1920;
-let viewportWidth: number = DEFAULT_VIEWPORT;
+// jsdom has no matchMedia. The app reads the layout queries through it, and
+// `prefers-reduced-motion` in the node card. The stub answers them all from
+// one settable viewport: a width, a height and a pointer kind.
+type Viewport = { width: number; height: number; pointer: 'fine' | 'coarse' | 'none' };
+const DEFAULT_VIEWPORT: Viewport = { width: 1920, height: 1080, pointer: 'fine' };
+let viewport: Viewport = DEFAULT_VIEWPORT;
 
 /**
- * Point the test viewport at a width. `renderApp` calls this.
+ * Point the test viewport at a width, with the default height and pointer.
+ * `renderApp` calls this.
+ */
+export function setViewportWidth(width: number) {
+  setViewport({ ...DEFAULT_VIEWPORT, width });
+}
+
+/**
+ * Point the test viewport at a size and a pointer kind, as a phone turned to
+ * landscape or a tablet is.
  *
  * Moves `innerWidth` as well as the stubbed queries, because the app reads
  * both: the layout mode comes through `matchMedia`, and the panel's opening
  * width off `window.innerWidth`. One seam for both, or a test asking for a
  * narrow viewport would get a panel sized for a wide one.
  */
-export function setViewportWidth(width: number) {
-  viewportWidth = width;
-  Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+export function setViewport(to: Viewport) {
+  viewport = to;
+  Object.defineProperty(window, 'innerWidth', { value: to.width, configurable: true });
+  Object.defineProperty(window, 'innerHeight', { value: to.height, configurable: true });
   // `resize` before `change`, as a browser runs its resize steps before it
   // evaluates media queries.
   act(() => {
@@ -91,20 +102,72 @@ export function setViewportWidth(width: number) {
   for (const listener of [...mediaListeners]) act(() => listener());
 }
 
+/**
+ * Whether the viewport matches one media feature, such as `max-width: 839px`
+ * or `pointer: coarse`. A feature the stub does not know, such as
+ * `prefers-reduced-motion`, reads as unset.
+ */
+function matchesFeature(feature: string): boolean {
+  const range = /^(max|min)-(width|height):\s*(\d+)px$/.exec(feature);
+  if (range) {
+    const [, bound, axis, px] = range;
+    const size = axis === 'width' ? viewport.width : viewport.height;
+    return bound === 'max' ? size <= Number(px) : size >= Number(px);
+  }
+  const pointer = /^pointer:\s*(\w+)$/.exec(feature);
+  if (pointer) return viewport.pointer === pointer[1];
+  return false;
+}
+
+/**
+ * Whether the viewport matches a media query list: any of its comma-separated
+ * queries. Each query is a condition of `(feature)`s, nested parentheses and
+ * `not`, `and` and `or`, as Media Queries Level 4 writes it.
+ */
+function matchesQuery(list: string): boolean {
+  return list.split(',').some((query) => {
+    // Each `(feature: value)` becomes one token, so only the grammar's own
+    // parentheses are left to parse.
+    const features: string[] = [];
+    const text = query.replace(/\(([a-z-]+:[^()]*)\)/g, (_, feature: string) => {
+      features.push(feature.trim());
+      return ` f${features.length - 1} `;
+    });
+    const tokens = text.match(/\(|\)|f\d+|\bnot\b|\band\b|\bor\b/g) ?? [];
+    let at = 0;
+    // condition = not primary | primary ((and | or) primary)*
+    function condition(): boolean {
+      if (tokens[at] === 'not') {
+        at++;
+        return !primary();
+      }
+      let value = primary();
+      while (tokens[at] === 'and' || tokens[at] === 'or') {
+        const op = tokens[at++];
+        const right = primary();
+        value = op === 'and' ? value && right : value || right;
+      }
+      return value;
+    }
+    // primary = feature | ( condition )
+    function primary(): boolean {
+      const token = tokens[at++];
+      if (token !== '(') return matchesFeature(features[Number(token?.slice(1))] ?? '');
+      const value = condition();
+      at++; // )
+      return value;
+    }
+    return condition();
+  });
+}
+
 const mediaListeners = new Set<() => void>();
 
 Object.defineProperty(globalThis, 'matchMedia', {
   writable: true,
   value: (query: string) => {
     const listeners = new Set<(e: MediaQueryListEvent) => void>();
-    const matches = () => {
-      const max = /\(max-width:\s*(\d+)px\)/.exec(query);
-      if (max) return viewportWidth <= Number(max[1]);
-      const min = /\(min-width:\s*(\d+)px\)/.exec(query);
-      if (min) return viewportWidth >= Number(min[1]);
-      // Everything else, `prefers-reduced-motion` included, reads as unset.
-      return false;
-    };
+    const matches = () => matchesQuery(query);
     const media = {
       get matches() {
         return matches();
@@ -269,7 +332,7 @@ afterEach(() => {
   // state between tests, so a test that left either moved would reach the
   // next one. `renderApp` resets the store and builds a new QueryClient, so
   // the app's own state needs nothing here.
-  viewportWidth = DEFAULT_VIEWPORT;
+  viewport = DEFAULT_VIEWPORT;
   mediaListeners.clear();
   // Storage is a singleton, so held text one test left would reach the next one
   // and open a field already filled in, and tabs it kept would open in the

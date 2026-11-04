@@ -1295,7 +1295,7 @@ _Avoid_: Worktree popover, box card, worktree panel
 The narrow layout's main view: the desk as one row per node, tabbed by zone and opening on
 running. It draws what the canvas draws — a node per task and per free agent — laid out down the
 screen instead of across it, because a phone has no room for a board. The deck list replaces the
-canvas below 840px, and never appears at or above that width.
+canvas on the narrow layout, and never appears on the medium or wide layout.
 _Avoid_: Mobile canvas, card list, feed
 
 **Swipe action**:
@@ -1416,7 +1416,8 @@ side. The top bar draws each item in the group of its anchor.
 _Avoid_: Dock, pin
 
 **Medium layout**:
-The layout from 840px to 1599px. A main view and the panel do not both fit, so the body has one
+The layout from 840px to 1599px, except a short touch screen, such as a phone in landscape,
+which is narrow. A main view and the panel do not both fit, so the body has one
 slot and the top bar has one menu of four items. A click shows the item in place of the one in
 front. Above it is the wide layout, with two slots; below it is the narrow layout.
 _Avoid_: Tablet layout, laptop layout
