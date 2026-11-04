@@ -656,9 +656,10 @@ quiet row at that cost.
 The chrome is two rows on the deck. The first row holds the brand, the readings, the attention
 chip, Filters and New. Filters opens the side sheet with the filters of the view on screen, one
 control a row. Its caption counts the filters in force, as "Filters · 2", so a filtered view
-never looks like the whole: the Nothing Hidden Rule. The sheet stays open while a filter changes. The second row holds Desk, Tasks and Worktrees at equal thirds. That row is
-navigation, not chrome, so the deck keeps it. A pushed screen replaces both rows with the screen
-strip (The One Strip Rule).
+never looks like the whole: the Nothing Hidden Rule. The sheet stays open while a filter changes. The second row holds Desk, Tasks, Worktrees and Comms at equal widths. That row
+is navigation, not chrome, so the deck keeps it. Where the menu fits beside the first row, as on a
+phone in landscape, the two rows are one: a short screen saves its height for the deck. A pushed
+screen replaces the rows with the screen strip (The One Strip Rule).
 
 The detail screen draws the node card's body as a screen. Each link and each document is a
 full-width row, `--control` high, with a hairline under it. The commands are a bar pinned to the
