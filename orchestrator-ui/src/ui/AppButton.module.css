@@ -59,7 +59,7 @@
 
 /* On the narrow layout the icon sits over a caption: see DESIGN.md
    § The narrow caption. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .button[data-icon] {
     flex-direction: column;
     gap: 0;

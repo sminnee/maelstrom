@@ -287,8 +287,8 @@ the main checkout, but it still syncs.
 `comms/CommList.tsx` draws one row per open **Comm**: its title, its recipients, its linked task
 count, and the highest **Landing** status among its tasks. The rank is none, `done`, `merged`, then
 each deploy step; `selectors/comms.ts` holds it and the strip text. "Show closed" adds the closed
-comms. It is the view's own state, not a filter in the URL, because no other view reads it. Below
-840px the rows stack, as the task list's do.
+comms. It is the view's own state, not a filter in the URL, because no other view reads it. On the
+narrow layout the rows stack, as the task list's do.
 
 `comms/CommEditor.tsx` opens over the list as a dialog. It edits the title, the content, the
 **Comm category**, the project and the recipients, which are chips: Enter adds one, and Save
@@ -1413,8 +1413,8 @@ no `closedBy`. A click whose target is the dialog itself, at a point outside its
 browser with `closedby` gets no fallback, so it does not close twice. jsdom has no
 `closedBy`, so the suite runs the fallback.
 
-A caller that fills the viewport has no outside, so it needs a close control of its own: below
-839px the box is the full screen. `ui/ImageLightbox.tsx` is the one such caller and carries a
+A caller that fills the viewport has no outside, so it needs a close control of its own: on the
+narrow layout the box is the full screen. `ui/ImageLightbox.tsx` is the one such caller and carries a
 Close button for it.
 
 The combobox offer is a `popover`, anchored to its field by CSS. The pattern has two halves,
@@ -1556,15 +1556,23 @@ their own site.
 
 ## The three layouts
 
-The app draws one of three layouts, chosen by viewport width.
+The app draws one of three layouts, chosen by the viewport.
 
-| Layout | Width | Body |
+| Layout | Viewport | Body |
 | --- | --- | --- |
 | Wide | 1600px and wider | Two slots, left and right |
 | Medium | 840px to 1599px | One slot |
-| Narrow | below 840px | The deck list, one screen at a time |
+| Narrow | below 840px, or a touch screen below 960px wide and 540px high | The deck list, one screen at a time |
 
-`orchestrator-ui/DESIGN.md` says why each break sits there.
+A phone in landscape is the short touch screen: it stays narrow. `orchestrator-ui/DESIGN.md` says
+why each break sits there. The CSS names a layout by custom media: `@media (--narrow)`,
+`(--not-narrow)` for a rule the narrow layout must not get, and `(--medium-not-narrow)`.
+`styles/media.css` defines them, and `vite.config.ts` gives every CSS file those definitions
+through `@csstools/postcss-global-data` and `postcss-custom-media`. `layout/useLayoutMode.ts`
+holds the same strings for the hook. `styles/mediaQueries.test.ts` holds the two copies equal. It
+fails on a CSS file that writes a layout breakpoint or names undefined custom media, and checks
+that each query names the same layout as the hook. In the suite, `setViewport` in `test/setup.ts` sets the width, the height and the pointer
+kind that the `matchMedia` stub answers from.
 
 **Slots and anchors.** The top bar has five items: Desk, Tasks, Worktrees, Comms and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
@@ -1651,7 +1659,7 @@ The detail screen renders `canvas/NodeCardBody.tsx`, which the canvas card also 
 shell around it was ever canvas-bound — the viewport portal, the absolute transform, the 440px
 width and the grow animation.
 
-Three things differ below the 840px break beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and
+Three things differ on the narrow layout beyond layout. The document tab draws no comment margin. Dialogs are full-bleed and
 fixed to the visible area, as `#root` is; see DESIGN.md, "The Still Screen Rule". And Enter makes a newline in the message input, since
 a soft keyboard sends no other key; the Send button sends.
 

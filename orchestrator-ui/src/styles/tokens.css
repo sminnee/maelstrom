@@ -248,8 +248,8 @@
   );
 }
 
-/* The narrow layout. 839px is the breakpoint `layout/useLayoutMode.ts` reads. */
-@media (max-width: 839px) {
+/* The narrow layout: `--narrow` in `styles/media.css`. */
+@media (--narrow) {
   :root {
     --control: calc(var(--u) * 6);
     --chip: var(--u-3);

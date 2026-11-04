@@ -171,7 +171,7 @@
 
 /* A phone: the filters take two rows, and a row of the list puts the target
    and the time under the line, so the line keeps the width. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .filters {
     flex-wrap: wrap;
   }

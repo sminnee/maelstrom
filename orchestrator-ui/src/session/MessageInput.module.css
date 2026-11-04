@@ -38,7 +38,7 @@
    above the keyboard, less what stays in view around it. Four controls: the
    screen strip, Attach below, the form's padding, and one line of transcript
    so the reader still sees what they answer. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .input {
     max-height: calc(var(--vvh, 100dvh) - var(--control) * 4);
   }

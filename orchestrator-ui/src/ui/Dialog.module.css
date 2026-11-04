@@ -148,7 +148,7 @@
  * field out of sight. Full-bleed over the visible area instead, as `#root` is,
  * so the keyboard shrinks the box rather than covering it.
  */
-@media (max-width: 839px) {
+@media (--narrow) {
   .dialog {
     width: 100%;
     max-width: none;

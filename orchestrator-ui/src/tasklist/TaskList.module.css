@@ -70,7 +70,7 @@
  * and the status lead; the id, the project and the branch follow in the quiet
  * register; the commands end the row. The header row has nothing to head.
  */
-@media (max-width: 839px) {
+@media (--narrow) {
   .table,
   .table tbody {
     display: block;

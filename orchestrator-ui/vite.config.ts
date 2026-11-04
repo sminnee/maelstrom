@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import postcssGlobalData from '@csstools/postcss-global-data';
+import postcssCustomMedia from 'postcss-custom-media';
 import type { Plugin } from 'vite';
 import { maelJig } from '../vite-plugin-mael-jig/src/plugin';
 
@@ -57,6 +60,18 @@ export default defineConfig(({ command }) => {
       // The jig (CONTEXT.md), on the dev server and Ladle.
       maelJig(),
     ],
+    css: {
+      postcss: {
+        // The layout queries as custom media, defined once for every CSS file.
+        // See src/styles/media.css.
+        plugins: [
+          postcssGlobalData({
+            files: [fileURLToPath(new URL('./src/styles/media.css', import.meta.url))],
+          }),
+          postcssCustomMedia(),
+        ],
+      },
+    },
     server: {
       // Every interface, so the tailnet reaches the dev server and localhost
       // still works. Vite takes one address and Node cannot listen on two, so

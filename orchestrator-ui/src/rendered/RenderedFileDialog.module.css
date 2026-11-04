@@ -1,6 +1,6 @@
 /* `Dialog` sizes its box for 100 columns. A whole file wants the screen.
-   Only on a wide screen: below 839px `Dialog` is the whole screen already. */
-@media (min-width: 840px) {
+   Not on the narrow layout: there `Dialog` is the whole screen already. */
+@media (--not-narrow) {
   .box {
     width: min(1200px, 100%);
     height: calc(100% - 40px);

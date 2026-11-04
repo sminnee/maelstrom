@@ -1,0 +1,10 @@
+/*
+ * The layout queries, as custom media. `vite.config.ts` gives every CSS file
+ * these definitions, so a file writes `@media (--narrow)` and imports nothing.
+ * `layout/useLayoutMode.ts` holds the same strings for the hook, and
+ * `styles/mediaQueries.test.ts` holds the two copies equal.
+ */
+@custom-media --narrow (max-width: 839px),
+  (pointer: coarse) and (max-width: 959px) and (max-height: 539px);
+@custom-media --not-narrow not ((max-width: 839px) or ((pointer: coarse) and (max-width: 959px) and (max-height: 539px)));
+@custom-media --medium-not-narrow (max-width: 1599px) and (not ((max-width: 839px) or ((pointer: coarse) and (max-width: 959px) and (max-height: 539px))));
