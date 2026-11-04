@@ -254,7 +254,7 @@ installed, but no metric depends on them.
 
 ### Hierarchy
 
-Seven sizes, each with one job. Sizes are the `--text-*` tokens; no component names its own, and
+Seven sizes, each with one job, and two code sizes. Sizes are the `--text-*` tokens; no component names its own, and
 `styles/fontSize.test.ts` fails on a literal. Steps 1px apart do not read as ranks, so rank
 inside a size comes from weight, case and tone.
 
@@ -270,6 +270,17 @@ dense; prose is read and must not.
 | `--text-lg`      | 18px | 24px   | markdown's `h2`                                          |
 | `--text-xl`      | 21px | 28px   | markdown's `h1`                                          |
 | `--text-caption` | 11px | 8px    | the caption under a narrow button's icon                 |
+
+Code has its own two sizes, so the narrow layout can set it apart from the chrome:
+
+| Token                | Wide | Narrow | Job                              |
+| -------------------- | ---- | ------ | -------------------------------- |
+| `--text-code`        | 12px | 13px   | code text: a diff's rows         |
+| `--text-code-gutter` | 12px | 10px   | the line numbers beside the code |
+
+On the wide layout both point at `--text-sm`, so code is the mono step there. Today only diff rows
+(`ui/DiffRow.tsx`) draw the code sizes: the Changes tab, the Edit card and a rendered file's text
+view. Other mono text, such as a tool card or the console, keeps `--text-sm`.
 
 Nothing on the wide layout draws `--text-caption`. A wide button keeps `--text-control`.
 
@@ -356,8 +367,9 @@ spacing scale. A reading surface takes `--prose-gap*`; a gap narrower than the l
 separates is the failure this prevents.
 
 **The Legibility Floor Rule.** `--text-sm` is the smallest type in the system: 12px on the wide
-layout, 16px on the narrow. The one exception is `--text-caption`, 8px under a narrow button's
-icon: the icon carries the meaning, and the text stays the accessible name. Density is bought with tighter space and shorter lines, never by shrinking type below
+layout, 16px on the narrow. The narrow layout has two exceptions. `--text-caption` is 8px under a
+narrow button's icon: the icon carries the meaning, and the text stays the accessible name. The
+code sizes are smaller too (§ The Phone Type Rule). Density is bought with tighter space and shorter lines, never by shrinking type below
 the floor. Every step clears WCAG AA against its own ground in both schemes; the micro-label in
 `--fg-faint` is the tightest, and it is measured, not assumed.
 
@@ -567,8 +579,11 @@ back with space, never by going under the floor. The text of each field is at le
 `base.css` sets both.
 
 **The Phone Type Rule.** A phone is held further from the eye than its pixels suggest, so the
-narrow layout re-points all seven `--text-*` tokens (§ Hierarchy): prose is 20px, and every size
-but `--text-caption` (8px) is at least 16px. The chip height `--chip` goes from two units to three with them. At this scale the top bar
+narrow layout re-points every `--text-*` token (§ Hierarchy): prose is 20px, and every size but
+`--text-caption` (8px) and the code sizes is at least 16px. The chip height `--chip` goes from two
+units to three with them. Code is scanned, not read, so on a phone its width is worth more than its
+size. At 13px, a 390px diff row holds at least 42 columns of code, as GitHub's mobile view does.
+At this scale the top bar
 does not hold the brand, so the brand is hidden visually and kept for a screen reader.
 
 **The Still Screen Rule.** The app is the visible area and does not move.

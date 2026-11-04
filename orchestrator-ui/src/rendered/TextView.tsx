@@ -14,7 +14,7 @@ export function TextView({ old, new: next, mode, path }: RenderedProps) {
   if (runs.length === 0)
     return <p className={styles.note}>{mode === 'final' ? 'Deleted file.' : 'No changes.'}</p>;
   return (
-    <DiffBlock className={styles.text}>
+    <DiffBlock className={styles.text} rows={runs.flat()}>
       {runs.map((rows, i) => (
         <Fragment key={i}>
           {i > 0 && <div className={styles.gap} aria-hidden="true" />}

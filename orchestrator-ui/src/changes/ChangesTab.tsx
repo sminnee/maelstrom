@@ -1095,7 +1095,7 @@ const FileBlock = memo(function FileBlock({
                 : 'No lines to show.'}
           </p>
         ) : (
-          <DiffBlock className={styles.diff}>
+          <DiffBlock className={styles.diff} rows={rows}>
             <div className={styles.rows}>
               <ChunkedRows
                 rows={rows}
