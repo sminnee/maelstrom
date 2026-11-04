@@ -45,30 +45,37 @@
   composes: segment from '../ui/SegmentedControl.module.css';
 }
 
-/* The narrow layout: two rows on the deck, the screen strip on a pushed screen.
+/* The narrow layout: two rows on the deck, or one where they fit, and the
+   screen strip on a pushed screen.
    See DESIGN.md, "The narrow layout". */
 @media (--narrow) {
+  /* The menu joins the readings' row where it fits, as on a phone in
+     landscape, and wraps to a row of its own where it does not. Each line takes
+     the line's spare width: the menu on a shared line, the row alone. */
   .bar {
-    flex-direction: column;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: 0;
     padding: 0;
     padding-top: env(safe-area-inset-top);
   }
   .row {
+    flex: 1 1 auto;
     display: flex;
     align-items: center;
     gap: var(--u);
     min-width: 0;
     padding: var(--bar-pad);
   }
+  /* A rule on the top and the left: whichever edge meets the row shows, and
+     the other falls outside the bar. */
   .views {
-    border-top: 1px solid var(--border);
-  }
-  .views {
+    flex: 1000 0 auto;
     border-radius: 0;
     background: transparent;
+    box-shadow:
+      0 -1px 0 var(--border),
+      -1px 0 0 var(--border);
   }
   .view + .view {
     border-left-color: var(--border);
