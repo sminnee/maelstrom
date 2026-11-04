@@ -1,9 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type UseQueryResult,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useCallback } from 'react';
 import type {
   ChangeComment,
   FileDiff,
+  FileExcerpt,
   FileGroup,
+  FileList,
   FileVersions,
+  LineRange,
   WorktreeChanges,
 } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
@@ -63,6 +73,67 @@ export function useWorktreeFile(
     queryKey: keys.worktreeChanges.file(worktreeId, rev, path, oldPath),
     queryFn: ({ signal }) => api.get<FileVersions>(`${base(worktreeId)}/file?${query}`, { signal }),
     enabled,
+  });
+}
+
+/** Every file path on the new side of `rev`, for the file list's All view. */
+export function useWorktreeTree(
+  worktreeId: WorktreeId,
+  rev: string | null,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.worktreeChanges.tree(worktreeId, rev ?? ''),
+    queryFn: ({ signal }) =>
+      api.get<FileList>(`${base(worktreeId)}/tree?rev=${encodeURIComponent(rev ?? '')}`, {
+        signal,
+      }),
+    enabled: enabled && rev !== null,
+  });
+}
+
+/** A range of one file to read: a pin's target. A `null` range is the whole file. */
+export interface ExcerptTarget {
+  id: string;
+  path: string;
+  range: LineRange | null;
+}
+
+/**
+ * Each target's lines on the new side of `rev`, by target id, and the ids
+ * whose read failed. A target not read yet is in neither. The answer keeps its
+ * identity while `targets` and the reads do, so pass a memoised list.
+ */
+export function useWorktreeExcerpts(worktreeId: WorktreeId, rev: string, targets: ExcerptTarget[]) {
+  const api = useApi();
+  const combine = useCallback(
+    (results: UseQueryResult<FileExcerpt>[]) => {
+      const read = new Map<string, FileExcerpt>();
+      const failed = new Set<string>();
+      results.forEach((r, i) => {
+        const id = targets[i]!.id;
+        if (r.data) read.set(id, r.data);
+        else if (r.isError) failed.add(id);
+      });
+      return { read, failed };
+    },
+    [targets],
+  );
+  return useQueries({
+    queries: targets.map((t) => {
+      const query = new URLSearchParams({ rev, path: t.path });
+      if (t.range) {
+        query.set('start', String(t.range.start));
+        query.set('end', String(t.range.end));
+      }
+      return {
+        queryKey: keys.worktreeChanges.excerpt(worktreeId, rev, t.path, t.range),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          api.get<FileExcerpt>(`${base(worktreeId)}/excerpt?${query}`, { signal }),
+      };
+    }),
+    combine,
   });
 }
 

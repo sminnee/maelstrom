@@ -17,10 +17,12 @@ import { useSyncWorktree } from '../api/worktrees';
 import { keys } from '../api/keys';
 import { useWorld } from '../api/useWorld';
 import {
+  type DiffBody,
   type PostedComments,
   usePostChangeComments,
   useWorktreeChanges,
   useWorktreeDiff,
+  useWorktreeExcerpts,
 } from '../api/worktreeChanges';
 import { Markdown } from '../markdown/Markdown';
 import { rendererFor } from '../rendered/plugins';
@@ -29,7 +31,9 @@ import type {
   BranchCommit,
   ChangeComment,
   FileDiff,
+  FileExcerpt,
   FileGroup,
+  LineRange,
   Worktree,
   WorktreeChanges,
 } from '../protocol/entities';
@@ -38,8 +42,8 @@ import { clockTime } from '../protocol/time';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
-import { DiffBlock, type DiffRowData, HighlightedRows, type RowHandlers } from '../ui/DiffRow';
-import { useInView } from '../ui/useInView';
+import { ChunkedRows, type RowBreak } from '../ui/ChunkedRows';
+import { DiffBlock } from '../ui/DiffRow';
 import { retainedKey } from '../ui/retained';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
@@ -58,26 +62,34 @@ import {
   without,
 } from './comments/held';
 import {
-  fileRows,
   type HeldComments,
   type OpenComment,
   placeOf,
   spanLabel,
   spanOf,
 } from './comments/selection';
+import { clientId } from './clientId';
 import { useLineSelection } from './comments/useLineSelection';
 import commentStyles from './comments/comments.module.css';
 import { STATUS_LETTER } from './fileStatus';
 import { FileTree } from './FileTree';
+import { type Card, type CardRows, cardRows, flow, type Mark, type Pin } from './flow';
 import styles from './ChangesTab.module.css';
 
-const NO_ROWS: DiffRowData[] = [];
 const UNCOMMITTED = 'uncommitted';
 const BRANCH = 'branch';
 
-/** The fold keys: a group's and a file's. One map holds both. */
+/** The fold keys: a group's, Pinned's and a file's. One map holds them all. */
 const groupKey = (name: string) => `group:${name}`;
+const PINNED_KEY = 'pinned';
 const fileKey = (path: string) => `file:${path}`;
+
+/** The pins of one rev, held in an object: `useRetained` merges a held object over its initial one. */
+interface HeldPins {
+  pins: Pin[];
+}
+const NO_PINS: HeldPins = { pins: [] };
+const NO_PIN_PATHS: ReadonlySet<string> = new Set();
 
 /** Whether a fold is open: the user's choice when there is one, else `fallback`. */
 const isOpen = (folds: Map<string, boolean>, key: string, fallback: boolean) =>
@@ -133,27 +145,75 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
     (key: string, open: boolean) => setFolds((f) => new Map(f).set(key, open)),
     [],
   );
+  const [heldPins, setPins] = useRetained(
+    rev === null ? null : retainedKey.pins(worktreeId, rev),
+    NO_PINS,
+  );
+  const pins = heldPins.pins;
+  const targets = useMemo(
+    () => pins.map((p) => ({ id: p.id, path: p.target.path, range: p.target.range })),
+    [pins],
+  );
+  const excerpts = useWorktreeExcerpts(worktreeId, rev ?? '', targets);
+  const pinnedPaths = useMemo(
+    () => (pins.length ? new Set(pins.map((p) => p.target.path)) : NO_PIN_PATHS),
+    [pins],
+  );
+  const pin = useCallback(
+    (path: string, range: LineRange | null) =>
+      setPins((h) => ({
+        pins: [...h.pins, { id: clientId('p'), target: { path, range }, from: null }],
+      })),
+    [setPins],
+  );
+  const unpin = useCallback(
+    (ids: string[]) => setPins((h) => ({ pins: h.pins.filter((p) => !ids.includes(p.id)) })),
+    [setPins],
+  );
   const blocks = useRef(new Map<string, HTMLElement>());
+  // A file picked with no card yet: it is pinned, and the scroll waits for its card. It
+  // scrolls as the card is drawn, and again once its lines are read: the empty card at the
+  // end of the flow cannot yet reach the top.
+  const scrollWhenDrawn = useRef<string | null>(null);
   const holdFile = useCallback((path: string, el: HTMLElement | null) => {
-    if (el) blocks.current.set(path, el);
-    else blocks.current.delete(path);
+    if (!el) {
+      blocks.current.delete(path);
+      return;
+    }
+    blocks.current.set(path, el);
+    if (scrollWhenDrawn.current === path) el.scrollIntoView({ block: 'start' });
   }, []);
+  useEffect(() => {
+    const path = scrollWhenDrawn.current;
+    if (!path || !pins.some((p) => p.target.path === path && excerpts.read.has(p.id))) return;
+    scrollWhenDrawn.current = null;
+    blocks.current.get(path)?.scrollIntoView({ block: 'start' });
+  }, [pins, excerpts.read]);
   // Read at pick time, so `scrollToFile` keeps its identity across revs.
   const groups = useRef<FileGroup[]>([]);
   useEffect(() => {
     groups.current = diff.data?.groups ?? [];
   });
-  const scrollToFile = useCallback((path: string) => {
-    // A folded file has no rows to land on, so open it and its group first.
-    const group = groups.current.find((g) => g.paths.includes(path));
-    flushSync(() =>
-      setFolds((f) => {
-        const next = new Map(f).set(fileKey(path), true);
-        return group ? next.set(groupKey(group.name), true) : next;
-      }),
-    );
-    blocks.current.get(path)?.scrollIntoView({ block: 'start' });
-  }, []); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
+  const scrollToFile = useCallback(
+    (path: string) => {
+      // A folded file has no rows to land on, so open it and its group first.
+      const group = groups.current.find((g) => g.paths.includes(path));
+      flushSync(() =>
+        setFolds((f) => {
+          const next = new Map(f).set(fileKey(path), true);
+          return group ? next.set(groupKey(group.name), true) : next.set(PINNED_KEY, true);
+        }),
+      );
+      const block = blocks.current.get(path);
+      if (block) {
+        block.scrollIntoView({ block: 'start' });
+        return;
+      }
+      scrollWhenDrawn.current = path;
+      pin(path, null);
+    },
+    [pin],
+  ); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
   const closeSheet = chrome?.closeSheet;
   const pickRevInSheet = useCallback(
     (picked: string) => {
@@ -249,9 +309,11 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             {header}
             {/* A pick in the side sheet closes it, so the diff it picked is in view. */}
             <RevNav
+              worktreeId={worktreeId}
               changes={changes.data}
               rev={rev}
               files={diff.data?.files}
+              pinned={pinnedPaths}
               onPickRev={pickRevInSheet}
               onPickFile={pickFileInSheet}
             />
@@ -263,9 +325,11 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
       <div className={styles.body}>
         {!chrome && (
           <RevNav
+            worktreeId={worktreeId}
             changes={changes.data}
             rev={rev}
             files={diff.data?.files}
+            pinned={pinnedPaths}
             onPickRev={setPicked}
             onPickFile={scrollToFile}
           />
@@ -279,8 +343,12 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             rev={diff.data.rev}
             held={held}
             setHeld={setHeld}
-            files={diff.data.files}
-            groups={diff.data.groups}
+            diff={diff.data}
+            pins={pins}
+            excerpts={excerpts.read}
+            failed={excerpts.failed}
+            onPin={pin}
+            onUnpin={unpin}
             folds={folds}
             onFold={setFold}
             empty={emptyText(rev, base)}
@@ -354,15 +422,19 @@ function PrMatch({ worktree }: { worktree: Worktree }) {
 
 /** The revs to show, and the file tree of the one in view. */
 function RevNav({
+  worktreeId,
   changes,
   rev,
   files,
+  pinned,
   onPickRev,
   onPickFile,
 }: {
+  worktreeId: WorktreeId;
   changes: WorktreeChanges;
   rev: string | null;
   files: FileDiff[] | undefined;
+  pinned: ReadonlySet<string>;
   onPickRev: (rev: string) => void;
   onPickFile: (path: string) => void;
 }) {
@@ -394,7 +466,16 @@ function RevNav({
           </RevEntry>
         )}
       </ul>
-      {files && files.length > 0 && <FileTree key={rev} files={files} onPick={onPickFile} />}
+      {files && rev && (
+        <FileTree
+          key={rev}
+          worktreeId={worktreeId}
+          rev={rev}
+          files={files}
+          pinned={pinned}
+          onPick={onPickFile}
+        />
+      )}
     </nav>
   );
 }
@@ -525,8 +606,12 @@ const Files = memo(function Files({
   rev,
   held,
   setHeld,
-  files,
-  groups,
+  diff,
+  pins,
+  excerpts,
+  failed,
+  onPin,
+  onUnpin,
   folds,
   onFold,
   empty,
@@ -546,8 +631,13 @@ const Files = memo(function Files({
   rev: string;
   held: HeldComments;
   setHeld: Dispatch<SetStateAction<HeldComments>>;
-  files: FileDiff[];
-  groups: FileGroup[];
+  diff: DiffBody;
+  pins: Pin[];
+  /** The pins' lines, by pin id, and the pins whose read failed. */
+  excerpts: Map<string, FileExcerpt>;
+  failed: ReadonlySet<string>;
+  onPin: (path: string, range: LineRange) => void;
+  onUnpin: (ids: string[]) => void;
   folds: Map<string, boolean>;
   onFold: (key: string, open: boolean) => void;
   empty: string;
@@ -565,12 +655,17 @@ const Files = memo(function Files({
 }) {
   const messageId = useId();
   const listId = useId();
+  const { files } = diff;
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
-  const rows = useMemo(() => new Map(files.map((f) => [f.path, fileRows(f)])), [files]);
+  const { sections } = useMemo(() => flow(diff, pins, excerpts), [diff, pins, excerpts]);
+  const rows = useMemo(
+    () => new Map(sections.flatMap((s) => s.cards).map((c) => [c.path, cardRows(c)])),
+    [sections],
+  );
   const select = useCallback(
     (path: string, from: number, to: number) => {
-      const span = spanOf(rows.get(path) ?? [], from, to);
+      const span = spanOf(rows.get(path)?.rows ?? [], from, to);
       if (!span) return;
       setHeld((h) => openOn(h, rev, path, span));
     },
@@ -597,17 +692,22 @@ const Files = memo(function Files({
   // One dialog for the tab. `setViewing` keeps its identity, so opening a view
   // changes no prop of a `FileBlock` and draws no row again.
   const [viewing, setViewing] = useState<FileDiff | null>(null);
-  const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
-  const sections = useMemo(
+  // Only Other, open, and nothing pinned: the flow has no classes to tell apart, so no heads draw.
+  const headed = sections.length > 1 || sections.some((s) => s.group?.collapsed);
+  const listed = useMemo(
     () =>
-      groups.map((g) => ({
-        ...g,
-        files: g.paths.flatMap((p) => byPath.get(p) ?? []),
-      })),
-    [groups, byPath],
+      sections.flatMap((s) =>
+        s.group
+          ? [
+              {
+                name: s.group.name,
+                files: s.cards.flatMap((c) => (c.reason.kind === 'diff' ? [c.reason.file] : [])),
+              },
+            ]
+          : [],
+      ),
+    [sections],
   );
-  // Only Other, open: the diff has no classes to tell apart, so no heads draw.
-  const headed = sections.length > 1 || sections.some((g) => g.collapsed);
   const entry = (f: FileDiff) => (
     <li key={f.path} className={styles.entryRow}>
       <button type="button" className={styles.entry} onClick={() => scrollToFile(f.path)}>
@@ -622,24 +722,27 @@ const Files = memo(function Files({
       <ViewButton file={f} onView={setViewing} />
     </li>
   );
-  const fileBlock = (f: FileDiff) => {
-    const here = comments.get(f.path);
+  const fileBlock = (card: Card) => {
+    const here = comments.get(card.path);
     return (
       <FileBlock
-        key={f.path}
-        file={f}
-        expanded={isOpen(folds, fileKey(f.path), true)}
+        key={card.path}
+        card={card}
+        reading={card.total === null && card.pins.some((p) => !failed.has(p.id))}
+        expanded={isOpen(folds, fileKey(card.path), true)}
         onFold={onFold}
         onView={setViewing}
-        rows={rows.get(f.path) ?? NO_ROWS}
+        rows={rows.get(card.path)!}
         comments={here ?? NO_COMMENTS_HERE}
-        open={open?.path === f.path ? open : null}
+        open={open?.path === card.path ? open : null}
         // Only a file with comments draws Edit, so only it follows the lock.
         editLocked={here !== undefined && editLocked}
         setHeld={setHeld}
-        dragged={selection.dragged(f.path)}
+        dragged={selection.dragged(card.path)}
         handlersFor={selection.handlersFor}
         holdFile={holdFile}
+        onPin={onPin}
+        onUnpin={onUnpin}
       />
     );
   };
@@ -684,8 +787,8 @@ const Files = memo(function Files({
             </Fold>
           </div>
           <ul id={listId} className={styles.list} aria-label="Files" hidden={!listOpen}>
-            {headed
-              ? sections.map((g) => (
+            {listed.length > 1 || sections.some((s) => s.group?.collapsed)
+              ? listed.map((g) => (
                   <li key={g.name}>
                     <span className={styles.listGroup}>{g.name}</span>
                     <ul className={styles.listGroupFiles} aria-label={g.name}>
@@ -698,17 +801,22 @@ const Files = memo(function Files({
         </>
       )}
       {headed
-        ? sections.map((g) => (
-            <FileGroupSection
-              key={g.name}
-              group={g}
-              open={isOpen(folds, groupKey(g.name), !g.collapsed)}
-              onFold={onFold}
-            >
-              {g.files.map(fileBlock)}
-            </FileGroupSection>
-          ))
-        : files.map(fileBlock)}
+        ? sections.map((s) => {
+            const name = s.group?.name ?? 'Pinned';
+            const key = s.group ? groupKey(name) : PINNED_KEY;
+            return (
+              <FileGroupSection
+                key={key}
+                name={name}
+                cards={s.cards}
+                open={isOpen(folds, key, !s.group?.collapsed)}
+                onOpen={(o) => onFold(key, o)}
+              >
+                {s.cards.map(fileBlock)}
+              </FileGroupSection>
+            );
+          })
+        : sections.flatMap((s) => s.cards).map(fileBlock)}
       {viewing && (
         <RenderedFileDialog
           worktreeId={worktreeId}
@@ -727,26 +835,29 @@ const Files = memo(function Files({
  * parent.
  */
 function FileGroupSection({
-  group,
+  name,
+  cards,
   open,
-  onFold,
+  onOpen,
   children,
 }: {
-  group: FileGroup & { files: FileDiff[] };
+  name: string;
+  cards: Card[];
   open: boolean;
-  onFold: (key: string, open: boolean) => void;
+  onOpen: (open: boolean) => void;
   children: ReactNode;
 }) {
   const id = useId();
-  const { name, files } = group;
+  const files = cards.flatMap((c) => (c.reason.kind === 'diff' ? [c.reason.file] : []));
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   return (
     <div role="group" aria-label={name} className={styles.group}>
       <div className={styles.groupHead}>
-        <Fold open={open} onOpen={(o) => onFold(groupKey(name), o)} controls={id}>
-          <span className={styles.groupName}>{name}</span> {files.length}{' '}
-          {files.length === 1 ? 'file' : 'files'} <Counts add={additions} remove={deletions} />
+        <Fold open={open} onOpen={onOpen} controls={id}>
+          <span className={styles.groupName}>{name}</span> {cards.length}{' '}
+          {cards.length === 1 ? 'file' : 'files'}{' '}
+          {files.length > 0 && <Counts add={additions} remove={deletions} />}
         </Fold>
       </div>
       <div id={id} hidden={!open}>
@@ -781,58 +892,64 @@ function Counts({ add, remove }: { add: number; remove: number }) {
   );
 }
 
-/** One hunk's rows, and where they begin in the file's rows. */
-interface DiffHunk {
-  header: string;
-  first: number;
-  rows: DiffRowData[];
+/** `lines 4–9`, or nothing for a whole file: a pin's lines as its × names them. */
+function pinLabel(p: Pin): string {
+  const { path, range } = p.target;
+  if (!range) return path;
+  return range.end === Number.MAX_SAFE_INTEGER
+    ? `${path} lines ${range.start} to the end`
+    : `${path} lines ${range.start}–${range.end}`;
 }
 
-/**
- * One hunk. It highlights only near the screen: tokenising every hunk of a
- * large diff at once holds the main thread.
- */
-function Hunk({
-  hunk,
-  path,
-  shebang,
-  selected,
-  handlers,
-  after,
-}: {
-  hunk: DiffHunk;
-  path: string;
-  shebang: string | null;
-  selected: [number, number] | null;
-  handlers: RowHandlers;
-  after: (index: number) => ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref);
+/** A mark drawn between a card's rows: a hunk's header, a gap that pins its lines, or a pin's ×. */
+function markNode(
+  path: string,
+  mark: Mark,
+  onPin: (path: string, range: LineRange) => void,
+  onUnpin: (ids: string[]) => void,
+) {
+  if (mark.kind === 'hunk') return <div className={styles.hunk}>{mark.header}</div>;
+  if (mark.kind === 'gap') {
+    const end = mark.count === null ? null : mark.start + mark.count - 1;
+    return (
+      <button
+        type="button"
+        className={styles.gap}
+        aria-label={
+          end === null ? `Show lines ${mark.start} to the end` : `Show lines ${mark.start}–${end}`
+        }
+        // No count: the lines run to an end not known yet, and the server clips the range to it.
+        onClick={() => onPin(path, { start: mark.start, end: end ?? Number.MAX_SAFE_INTEGER })}
+      >
+        {mark.count === null
+          ? '⋯ to end of file'
+          : `⋯ ${mark.count} ${mark.count === 1 ? 'line' : 'lines'}`}
+      </button>
+    );
+  }
   return (
-    <div ref={ref}>
-      <div className={styles.hunk}>{hunk.header}</div>
-      <HighlightedRows
-        path={path}
-        shebang={shebang}
-        rows={hunk.rows}
-        first={hunk.first}
-        selected={selected}
-        handlers={handlers}
-        after={after}
-        highlight={inView}
-      />
+    <div className={styles.pinMark}>
+      <button
+        type="button"
+        className={styles.unpin}
+        aria-label={`Unpin ${pinLabel(mark.pin)}`}
+        title="Unpin"
+        onClick={() => onUnpin([mark.pin.id])}
+      >
+        ×
+      </button>
     </div>
   );
 }
 
 /** One file: its head and its rows, with its comments below their lines. */
 const FileBlock = memo(function FileBlock({
-  file,
+  card,
+  reading,
   expanded,
   onFold,
   onView,
-  rows,
+  rows: { rows, marks },
   comments,
   open,
   editLocked,
@@ -840,14 +957,18 @@ const FileBlock = memo(function FileBlock({
   dragged,
   handlersFor,
   holdFile,
+  onPin,
+  onUnpin,
 }: {
-  file: FileDiff;
+  card: Card;
+  /** A pinned card whose lines are not read yet. */
+  reading: boolean;
   /** Whether the rows show. A folded file keeps its head. */
   expanded: boolean;
   onFold: (key: string, open: boolean) => void;
   onView: (file: FileDiff) => void;
-  /** Every row of the file, across its hunks. A selection counts rows in this list. */
-  rows: DiffRowData[];
+  /** Every row of the card, across its spans. A selection counts rows in this list. */
+  rows: CardRows;
   /** The added comments on this file in the rev in view, less the one in the open box. */
   comments: ChangeComment[];
   /** The open box, when it is on this file in the rev in view. */
@@ -859,22 +980,25 @@ const FileBlock = memo(function FileBlock({
   dragged: [number, number] | null;
   handlersFor: ReturnType<typeof useLineSelection>['handlersFor'];
   holdFile: (path: string, el: HTMLElement | null) => void;
+  onPin: (path: string, range: LineRange) => void;
+  onUnpin: (ids: string[]) => void;
 }) {
-  const { path } = file;
+  const { path } = card;
+  const file = card.reason.kind === 'diff' ? card.reason.file : null;
   const handlers = useMemo(() => handlersFor(path), [handlersFor, path]);
   const section = useCallback((el: HTMLElement | null) => holdFile(path, el), [holdFile, path]);
   const bodyId = useId();
-  // Each hunk's rows, and where they begin in `rows`.
-  const hunks = useMemo(() => {
-    const out: DiffHunk[] = [];
-    let first = 0;
-    for (const hunk of file.hunks) {
-      const end = first + hunk.lines.length;
-      out.push({ header: hunk.header, first, rows: rows.slice(first, end) });
-      first = end;
-    }
-    return out;
-  }, [file, rows]);
+  const breaks = useMemo<RowBreak[]>(
+    () =>
+      marks.map((m, i) => ({
+        key: `${m.kind}:${i}`,
+        before: m.before,
+        // A pin's × sits over its first row's gutter, so it takes no height.
+        height: m.kind === 'pin' ? 0 : 1,
+        node: markNode(path, m, onPin, onUnpin),
+      })),
+    [marks, path, onPin, onUnpin],
+  );
   // A comment draws below its last row. One whose lines are not in this diff
   // has no place, and stays in the dock's count only. A place depends on the
   // lines and not on the text, so a key in the open box does not search again.
@@ -893,6 +1017,11 @@ const FileBlock = memo(function FileBlock({
         return at ? [{ comment: c, last: at[1] }] : [];
       }),
     [comments, rows],
+  );
+  // The rows whose chunks stay mounted out of view: a comment's, the open box's, the drag's.
+  const hold = useMemo(
+    () => [...added.map((a) => a.last), ...(openAt ?? []), ...(dragged ?? [])],
+    [added, openAt, dragged],
   );
   const after = (i: number) => (
     <>
@@ -919,42 +1048,69 @@ const FileBlock = memo(function FileBlock({
       )}
     </>
   );
+  const title = file?.oldPath ? `${file.oldPath} → ${path}` : path;
   return (
     <section aria-label={path} className={styles.file} ref={section}>
       <h3 className={styles.fileHead}>
         <Fold open={expanded} onOpen={(o) => onFold(fileKey(path), o)} controls={bodyId}>
-          <span className={styles.status} data-status={file.status}>
-            {STATUS_LETTER[file.status]}
-          </span>
-          <span className="truncate" title={file.oldPath ? `${file.oldPath} → ${path}` : path}>
-            {file.oldPath ? `${file.oldPath} → ${path}` : path}
+          {file && (
+            <span className={styles.status} data-status={file.status}>
+              {STATUS_LETTER[file.status]}
+            </span>
+          )}
+          <span className="truncate" title={title}>
+            {title}
           </span>{' '}
-          <Counts add={file.additions} remove={file.deletions} />
+          {file ? (
+            <Counts add={file.additions} remove={file.deletions} />
+          ) : (
+            <span className={styles.notInDiff}>Not in this diff</span>
+          )}
         </Fold>
-        <ViewButton file={file} onView={onView} />
+        {file ? (
+          <ViewButton file={file} onView={onView} />
+        ) : (
+          <button
+            type="button"
+            className={styles.unpinCard}
+            aria-label={`Unpin ${path}`}
+            title="Unpin"
+            onClick={() => onUnpin(card.pins.map((p) => p.id))}
+          >
+            ×
+          </button>
+        )}
       </h3>
       {/* `hidden`, not unmounted: the rows keep their place, so a selection's indices hold. */}
       <div id={bodyId} hidden={!expanded}>
-        {file.binary ? (
+        {file?.binary ? (
           <p className={styles.note}>Binary file, not shown.</p>
+        ) : rows.length === 0 && !file ? (
+          <p className={styles.note}>
+            {reading
+              ? 'Reading the lines…'
+              : // A read sets the total, so a card with none failed to read.
+                card.total === null
+                ? 'Not in this rev.'
+                : 'No lines to show.'}
+          </p>
         ) : (
           <DiffBlock className={styles.diff}>
             <div className={styles.rows}>
-              {hunks.map((hunk, h) => (
-                <Hunk
-                  key={h}
-                  hunk={hunk}
-                  path={path}
-                  shebang={file.shebang}
-                  selected={dragged ?? openAt}
-                  handlers={handlers}
-                  after={after}
-                />
-              ))}
+              <ChunkedRows
+                rows={rows}
+                breaks={breaks}
+                path={path}
+                shebang={file?.shebang ?? null}
+                selected={dragged ?? openAt}
+                handlers={handlers}
+                after={after}
+                hold={hold}
+              />
             </div>
           </DiffBlock>
         )}
-        {file.truncated && (
+        {(file?.truncated || card.truncated) && (
           <p className={styles.note}>This file is too long to show whole. The rest is cut.</p>
         )}
       </div>

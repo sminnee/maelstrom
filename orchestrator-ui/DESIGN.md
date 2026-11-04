@@ -1276,6 +1276,22 @@ does nothing.
 A comment box sits in the diff, below the last line of its range. A selected row takes an accent
 wash over its add or remove ground, so the row keeps its kind.
 
+### Changes file list and pins
+
+The strip's file list opens with a `SegmentedControl`, **Changed | All**, at the strip's full
+width. A search field sits `--u` under it, and the tree `--u-2` under the field. In All, a
+changed file keeps its status letter, a pinned file shows the `pin` icon in accent at the row's
+end, and other files show nothing in the letter slot. Below 40rem the control and the search hide
+with the tree, and on a phone they move to the side sheet with it.
+
+A pinned card is the same card as a diff card. Its head drops the status letter and the counts
+for a muted "Not in this diff", and ends in a bare × where the View button sits. Pinned rows draw
+on the context ground.
+
+A gap row is one muted mono row on the sunken ground, full width: "⋯ 14 lines". Hover lifts it to
+the hover ground. A pin's × is bare and faint, over the old-number column of its first row, so it
+takes no row of its own. Each × names its lines: "Unpin auth/tokens.py lines 1–3".
+
 ### Console strip
 
 The strip is the console's one control on screen. The top bar has none: while work runs the

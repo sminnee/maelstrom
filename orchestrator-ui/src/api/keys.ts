@@ -1,3 +1,4 @@
+import type { LineRange } from '../protocol/entities';
 /**
  * Every query key, in one place. A list key is a prefix of no detail key, so
  * invalidating `tasks.all()` reaches both and invalidating `tasks.list()`
@@ -35,6 +36,10 @@ export const keys = {
       ['worktreeChanges', worktreeId, 'diff', rev] as const,
     file: (worktreeId: string, rev: string, path: string, oldPath: string | null) =>
       ['worktreeChanges', worktreeId, 'file', rev, path, oldPath] as const,
+    tree: (worktreeId: string, rev: string) =>
+      ['worktreeChanges', worktreeId, 'tree', rev] as const,
+    excerpt: (worktreeId: string, rev: string, path: string, range: LineRange | null) =>
+      ['worktreeChanges', worktreeId, 'excerpt', rev, path, range?.start, range?.end] as const,
   },
   documents: {
     all: () => ['documents'] as const,

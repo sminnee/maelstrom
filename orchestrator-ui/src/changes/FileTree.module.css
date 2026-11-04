@@ -1,4 +1,24 @@
-/* The changed files as a tree, in the Changes tab's strip. */
+/* A rev's files as a tree, in the Changes tab's strip: Changed | All, the
+   search, then the tree. */
+.files {
+  border-top: 1px solid var(--border-strong);
+}
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  padding: var(--u-2) var(--u-2) 0;
+}
+.controls > [role='group'] {
+  align-self: stretch;
+}
+.controls > [role='group'] > button {
+  flex: 1;
+}
+.search {
+  width: 100%;
+  min-width: 0;
+}
 .tree,
 .tree ul {
   list-style: none;
@@ -7,12 +27,17 @@
 }
 .tree {
   padding: var(--u-2) 0 var(--u-half);
-  border-top: 1px solid var(--border-strong);
+}
+.cap {
+  margin: 0;
+  padding: 0 var(--u-2) var(--u-half);
+  color: var(--fg-faint);
+  font-size: var(--text-sm);
 }
 /* The Changes tab is the container. Its narrow strip is short, and the file
    list in the scroll already jumps to a file. */
 @container (max-width: 40rem) {
-  .tree {
+  .files {
     display: none;
   }
 }
@@ -50,4 +75,13 @@
 .folder {
   align-self: center;
   height: 12px;
+}
+/* The mark of a file with a pin, at the row's end. */
+.pin {
+  flex-shrink: 0;
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  color: var(--accent);
 }

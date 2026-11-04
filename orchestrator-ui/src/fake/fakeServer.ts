@@ -19,6 +19,7 @@ import type {
   CommUpdate,
   DeskEntry,
   FileDiff,
+  FileExcerpt,
   FileGroup,
   GateJob,
   Host,
@@ -79,7 +80,9 @@ export interface FakeWorld {
    * git on each request rather than from the world it polls. An open worktree
    * with no entry reads as clean, with no commits ahead of `main`. `files`
    * holds the Rendered view's versions, by rev and then by path; a file with
-   * none reads as binary.
+   * none reads as binary. `tree` holds the text of each rev's other files, by
+   * path. The All view lists them with the diff's paths; an excerpt reads
+   * them, else the new side in `files`.
    */
   changes: Record<
     string,
@@ -92,6 +95,7 @@ export interface FakeWorld {
         string,
         Record<string, { old: string | null; new: string | null; truncated?: boolean }>
       >;
+      tree?: Record<string, Record<string, string>>;
     }
   >;
   /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
@@ -555,7 +559,7 @@ function read(path: string, server: FakeServer): Reply {
       steps: op.steps.map((s) => ({ name: s.name, lines: lines[s.name] ?? [] })),
     });
   }
-  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff|file)$/);
+  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff|file|tree|excerpt)$/);
   if (wt) {
     const id = decodeURIComponent(wt[1]!);
     if (!world.worktrees[id] || world.worktrees[id]!.isClosed) {
@@ -576,6 +580,19 @@ function read(path: string, server: FakeServer): Reply {
       return ok({ rev, path, truncated: false, ...versions });
     }
     const files = entry.diffs[rev] ?? [];
+    const tree = entry.tree?.[rev] ?? {};
+    if (wt[2] === 'tree') {
+      const changed = files.filter((f) => f.status !== 'deleted').map((f) => f.path);
+      return ok({ rev, paths: [...new Set([...Object.keys(tree), ...changed])].sort() });
+    }
+    if (wt[2] === 'excerpt') {
+      const path = params.get('path') ?? '';
+      const versions = entry.files?.[rev]?.[path];
+      // A changed file with no new text is binary: it exists, but has no lines.
+      const text = tree[path] ?? versions?.new ?? (versions ? '' : null);
+      if (text === null) return notFound(`file ${path} at ${rev}`);
+      return ok(excerptOf(rev, path, text, params.get('start'), params.get('end')));
+    }
     const other = files.length
       ? [{ name: 'Other', collapsed: false, paths: files.map((f) => f.path) }]
       : [];
@@ -2137,3 +2154,36 @@ function makeNewAgent(
     harness: 'claude',
   };
 }
+
+/** The server's excerpt: lines `start`..`end` of `text`, clipped to the file and the line cap. */
+function excerptOf(
+  rev: string,
+  path: string,
+  text: string,
+  start: string | null,
+  end: string | null,
+): FileExcerpt {
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const first = Math.max(Number(start ?? 1) || 1, 1);
+  const wanted = Math.min(end ? Number(end) : lines.length, lines.length);
+  const last = Math.min(wanted, first + EXCERPT_LINE_CAP - 1);
+  return {
+    rev,
+    path,
+    total: lines.length,
+    truncated: last < wanted,
+    span: {
+      range: { start: first, end: Math.max(last, first - 1) },
+      lines: lines.slice(first - 1, last).map((t, i) => ({
+        kind: 'context',
+        text: t,
+        oldLine: first + i,
+        newLine: first + i,
+      })),
+    },
+  };
+}
+
+/** The server's `MAX_LINES_PER_FILE`. */
+const EXCERPT_LINE_CAP = 5000;

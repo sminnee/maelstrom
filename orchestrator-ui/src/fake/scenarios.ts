@@ -349,6 +349,7 @@ const diff = (path: string, over: Partial<FileDiff> = {}): FileDiff => ({
   hunks: [
     {
       header: '@@ -4,3 +4,4 @@ def rotate(token):',
+      range: { start: 4, end: 7 },
       lines: [
         { kind: 'context', text: '    now = clock()', oldLine: 4, newLine: 4 },
         { kind: 'remove', text: '    if token.expiry < now:', oldLine: 5, newLine: null },
@@ -384,6 +385,32 @@ const NEW_TOKENS = OLD_TOKENS.replace(
   '    if token.expiry <= now:\n        log.info("rotating %s", token.id)\n',
 );
 
+/** `auth/session.py` on its new side: 60 lines, two of them changed far apart. */
+const SESSION = Array.from({ length: 60 }, (_, i) =>
+  i === 4 ? '    ttl = 900' : i === 44 ? '    return Session(ttl=ttl)' : `    step_${i + 1}()`,
+).join('\n');
+
+/** Two hunks of `auth/session.py`, with 32 hidden lines between them. */
+const SESSION_HUNKS = [5, 45].map((n) => ({
+  header: `@@ -${n - 1},3 +${n - 1},3 @@`,
+  range: { start: n - 1, end: n + 1 },
+  lines: [
+    { kind: 'context' as const, text: `    step_${n - 1}()`, oldLine: n - 1, newLine: n - 1 },
+    { kind: 'remove' as const, text: '    pass', oldLine: n, newLine: null },
+    { kind: 'add' as const, text: SESSION.split('\n')[n - 1]!, oldLine: null, newLine: n },
+    { kind: 'context' as const, text: `    step_${n + 1}()`, oldLine: n + 1, newLine: n + 1 },
+  ],
+}));
+
+/** Files the branch leaves alone: the file list's All view lists them, and a pick pins one. */
+const UNCHANGED = {
+  'README.md': '# Northwind\n\nToken rotation for the Northwind API.\n',
+  'auth/__init__.py': '',
+  'auth/clock.py': 'import time\n\n\ndef clock():\n    return time.time()\n',
+  'docs/index.md': '# Docs\n\n- rotation.md\n',
+  'pyproject.toml': '[project]\nname = "northwind"\nversion = "0.4.0"\n',
+};
+
 /** NORT-12's worktree with dirty files and two commits, covering every diff status. */
 function changes(): Seed {
   const seed = seedWorld();
@@ -404,6 +431,7 @@ function changes(): Seed {
     diff('auth/fixtures/tokens.json', { truncated: true, additions: 4200 }),
     diff('specs/rotation.feature', { additions: 12, deletions: 6 }),
     diff('specs/reminders.feature', { status: 'added', additions: 33, deletions: 0 }),
+    diff('auth/session.py', { additions: 2, deletions: 2, hunks: SESSION_HUNKS }),
   ];
   seed.world.worktrees['northwind-delta']!.dirtyFiles = 2;
   seed.world.changes['northwind-delta'] = {
@@ -450,6 +478,13 @@ function changes(): Seed {
           'auth/tokens.py': { old: OLD_TOKENS, new: NEW_TOKENS },
           'docs/rotation.md': { old: OLD_MARKDOWN, new: NEW_MARKDOWN },
         },
+      ]),
+    ),
+    // Each rev's new side, for the file list's All view and the pins.
+    tree: Object.fromEntries(
+      ['uncommitted', 'branch', CHANGES_SHA, CHANGES_LATER_SHA].map((rev) => [
+        rev,
+        { ...UNCHANGED, 'auth/tokens.py': NEW_TOKENS, 'auth/session.py': SESSION },
       ]),
     ),
   };
