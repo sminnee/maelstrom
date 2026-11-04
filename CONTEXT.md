@@ -1452,6 +1452,34 @@ first group that matches it, else to the last group, Other. The tab draws each g
 that folds it. A group can start folded.
 _Avoid_: Category, file class, section
 
+**Card**:
+One file in the **Changes tab**'s flow, from one source: the new side of the rev in view. A card
+draws an ordered list of **Spans**. A diff card holds the file's hunks, and any **Pin** on its
+path merges into it. A pinned card holds pinned lines of a file the rev does not change. A path
+has one card at most.
+_Avoid_: File block, panel, pane
+
+**Span**:
+Consecutive lines of one file in a **Card**. A hunk is one kind of span; pinned lines are the
+other.
+_Avoid_: Chunk, block, region
+
+**Pin**:
+Extra context that the reviewer brings into the **Changes tab**: a whole file, or a range of
+lines. A file picked from the file list is pinned whole. A pin lives per rev, in **Held text**.
+Unpinning removes it; the diff stays.
+_Avoid_: Addition, added file, bookmark, attachment
+
+**Fragment**:
+A **Pin** of the lines of one function or class, reached by following a symbol. Fragments are
+planned work.
+_Avoid_: Snippet, excerpt (the wire read), slice
+
+**Symbol card**:
+The card that a plain click on a name opens in the **Changes tab**: the symbol's type, its
+definition and its references, from the worktree's language server. Planned work.
+_Avoid_: Tooltip, hover card, popover
+
 **Rendered view**:
 A dialog over the **Changes tab** that draws one whole file of the rev in view, by its **Renderer
 plugin**. The **View** button on a file's head or its row in the file list opens it; a binary file has none, unless it is an image. It has three
