@@ -13,7 +13,7 @@ When the arguments carry a task, that task is what you plan.
 
 Write the plan as an inverted pyramid. A reader who stops after any paragraph has the most important part:
 
-1. **The change.** The title and first paragraph say what will be different when the work is done, as a user or a new developer sees it. Put no heading before it.
+1. **The change.** The title and the first one or two paragraphs say how it works now, how it will work when the work is done, and the approach in one sentence. Write them as prose for a user or a new developer, with no heading before or inside them.
 2. **Why, and the decisions.** Each decision gets its reason, in one line if you can.
 3. **Detail.** Files, code to reuse, **Seams under test**, verification.
 4. **Out of scope and open points.**
