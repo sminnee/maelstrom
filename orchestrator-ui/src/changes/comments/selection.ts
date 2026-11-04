@@ -1,4 +1,4 @@
-import type { ChangeComment, FileDiff } from '../../protocol/entities';
+import type { ChangeComment } from '../../protocol/entities';
 import type { DiffRowData } from '../../ui/DiffRow';
 import { SIGN } from '../../ui/diffSign';
 
@@ -12,17 +12,6 @@ export type OpenComment = Omit<ChangeComment, 'id'> & { id?: string };
 export interface HeldComments {
   comments: ChangeComment[];
   open: OpenComment | null;
-}
-
-/** Every row of a file in one list, so a selection can cross a hunk. */
-export function fileRows(file: FileDiff): DiffRowData[] {
-  return file.hunks.flatMap((hunk) =>
-    hunk.lines.map((line) => ({
-      kind: line.kind,
-      text: line.text,
-      lineNumbers: { old: line.oldLine, new: line.newLine },
-    })),
-  );
 }
 
 /** The first and last row between an anchor and a focus, whichever way the drag went. */

@@ -44,6 +44,7 @@ const file = (path: string, text: string, over: Partial<FileDiff> = {}): FileDif
   hunks: [
     {
       header: '@@ -4,2 +4,2 @@',
+      range: { start: 4, end: 5 },
       lines: [
         { kind: 'context', text: 'import os', oldLine: 4, newLine: 4 },
         { kind: 'remove', text: `old ${text}`, oldLine: 5, newLine: null },
@@ -91,6 +92,15 @@ function seedChanges(server: FakeServer) {
       branch: [file('auth/expiry.py', 'expiry'), file('auth/grace.py', 'grace')],
       [SHA]: [file('auth/expiry.py', 'expiry')],
       [LATER_SHA]: [file('auth/grace.py', 'grace')],
+    },
+    // Each rev's new side: the file list's All view and the pins read it.
+    tree: {
+      uncommitted: {
+        'auth/tokens.py': 'line 1\nline 2\nline 3\nimport os\nnew tokens\nline 6\nline 7\n',
+        'README.md': 'hello\nworld\n',
+        'docs/guide.md': 'guide\n',
+      },
+      [SHA]: { 'auth/expiry.py': 'import os\nnew expiry\n', 'README.md': 'hello\n' },
     },
   };
 }
@@ -140,9 +150,11 @@ async function highlighted(panel: HTMLElement, path: string) {
 
 /** The strip of revs beside the diff. */
 const strip = () => screen.getByRole('navigation', { name: 'Changes to show' });
+/** The revs the strip lists: its buttons, less the file list's controls. */
 const entries = () =>
   within(strip())
     .getAllByRole('button')
+    .filter((b) => !b.closest('[role="group"]'))
     .map((b) => b.textContent);
 const current = () => within(strip()).getByRole('button', { current: true }).textContent;
 const pick = (name: RegExp) => userEvent.click(within(strip()).getByRole('button', { name }));
@@ -482,6 +494,7 @@ describe('the Changes tab', () => {
           hunks: [
             {
               header: '@@ -1,3 +1,3 @@',
+              range: { start: 1, end: 3 },
               lines: [
                 { kind: 'context', text: 'a();', oldLine: 1, newLine: 1 },
                 { kind: 'remove', text: '/* old', oldLine: 2, newLine: null },
@@ -707,6 +720,241 @@ describe('the Changes tab', () => {
         'false',
       );
     });
+  });
+});
+
+describe('pins', () => {
+  /** Each call answers how many rows the scrolled element held, so a test can see when it ran. */
+  const scrolled = vi.fn(function (this: Element) {
+    return this.querySelectorAll('[data-testid="diff-row"]').length;
+  });
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrolled;
+  });
+  afterEach(() => {
+    scrolled.mockReset();
+  });
+
+  const tree = () => within(strip()).getByRole('tree');
+  const items = () =>
+    within(tree())
+      .getAllByRole('treeitem')
+      .map((item) => item.textContent);
+  const showAll = () =>
+    userEvent.click(
+      within(within(strip()).getByRole('group', { name: 'Files to list' })).getByRole('button', {
+        name: 'All',
+      }),
+    );
+  const pinnedGroup = (panel: HTMLElement) => within(panel).getByRole('group', { name: 'Pinned' });
+
+  it('lists every file of the rev in All, with the changed ones marked', async () => {
+    await openChanges();
+    expect(within(strip()).getByRole('tree', { name: 'Changed files' })).toBeInTheDocument();
+    await showAll();
+    await waitFor(() => expect(items()).toEqual(['auth', 'docs', 'README.md']));
+    await userEvent.click(within(tree()).getByRole('treeitem', { name: 'auth' }));
+    expect(items()).toEqual(['auth', 'Arotate.py', 'Mtokens.py', 'docs', 'README.md']);
+  });
+
+  it('narrows the list to the paths a search matches, and caps it', async () => {
+    await openChanges((c) => {
+      c.tree!.uncommitted = Object.fromEntries(
+        Array.from({ length: 250 }, (_, i) => [`gen/file${i}.py`, 'x\n']),
+      );
+    });
+    await showAll();
+    const search = within(strip()).getByRole('searchbox', { name: 'Search files' });
+    await userEvent.type(search, 'tokens');
+    expect(items()).toEqual(['Mauth/tokens.py']);
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'gen/');
+    await waitFor(() => expect(items()).toHaveLength(200));
+    expect(within(strip()).getByText('200 of 250')).toBeInTheDocument();
+  });
+
+  it('pins an unchanged file picked from the tree under Pinned, scrolls to it, and × unpins it', async () => {
+    const { panel } = await openChanges();
+    await showAll();
+    await userEvent.click(await within(tree()).findByRole('treeitem', { name: 'README.md' }));
+
+    const card = await within(pinnedGroup(panel)).findByRole('region', { name: 'README.md' });
+    await waitFor(() => expect(rowTexts(panel, 'README.md')).toEqual(['11 hello', '22 world']));
+    expect(card).toHaveTextContent('Not in this diff');
+    // The last scroll comes once the lines are drawn: an empty card at the end cannot reach the top.
+    await waitFor(() => expect(scrolled.mock.contexts.at(-1)).toBe(card));
+    expect(scrolled.mock.results.at(-1)?.value).toBe(2);
+    // The tree marks the pinned file.
+    expect(within(tree()).getByRole('treeitem', { name: /README\.md/ })).toHaveAttribute(
+      'data-pinned',
+    );
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Unpin README.md' }));
+    expect(within(panel).queryByRole('region', { name: 'README.md' })).toBeNull();
+    expect(within(panel).queryByRole('group', { name: 'Pinned' })).toBeNull();
+  });
+
+  it('pins the hidden lines of a gap inside the diff card, and × unpins them', async () => {
+    const { panel } = await openChanges();
+    const card = within(panel).getByRole('region', { name: 'auth/tokens.py' });
+    await userEvent.click(within(card).getByRole('button', { name: 'Show lines 1–3' }));
+
+    await waitFor(() =>
+      expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
+        '11 line 1',
+        '22 line 2',
+        '33 line 3',
+        '44 import os',
+        '5-old tokens',
+        '5+new tokens',
+      ]),
+    );
+    expect(within(panel).queryByRole('group', { name: 'Pinned' })).toBeNull();
+    // The excerpt told the file's length, so the gap below counts its lines.
+    expect(within(card).getByRole('button', { name: 'Show lines 6–7' })).toHaveTextContent(
+      '⋯ 2 lines',
+    );
+
+    await userEvent.click(
+      within(card).getByRole('button', { name: 'Unpin auth/tokens.py lines 1–3' }),
+    );
+    expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
+      '44 import os',
+      '5-old tokens',
+      '5+new tokens',
+    ]);
+  });
+
+  it('says why a pinned card draws no lines: an empty file, or a file gone from the rev', async () => {
+    const { server, panel } = await openChanges((c) => {
+      c.tree!.uncommitted = { ...c.tree!.uncommitted, 'empty.txt': '', 'gone.txt': 'x\n' };
+    });
+    await showAll();
+    await userEvent.click(await within(tree()).findByRole('treeitem', { name: 'empty.txt' }));
+    const empty = await within(pinnedGroup(panel)).findByRole('region', { name: 'empty.txt' });
+    await waitFor(() => expect(empty).toHaveTextContent('No lines to show.'));
+
+    // The file goes from the working tree after the list was read.
+    delete server.world.changes[DELTA]!.tree!.uncommitted!['gone.txt'];
+    await userEvent.click(within(tree()).getByRole('treeitem', { name: 'gone.txt' }));
+    const gone = await within(pinnedGroup(panel)).findByRole('region', { name: 'gone.txt' });
+    await waitFor(() => expect(gone).toHaveTextContent('Not in this rev.'));
+  });
+
+  it('keeps each rev its own pins', async () => {
+    const { panel } = await openChanges();
+    await showAll();
+    await userEvent.click(await within(tree()).findByRole('treeitem', { name: 'README.md' }));
+    await within(panel).findByRole('region', { name: 'README.md' });
+
+    await pick(/rotate on expiry/);
+    await waitFor(() =>
+      expect(rowTexts(panel, 'auth/expiry.py')).toEqual([
+        '44 import os',
+        '5-old expiry',
+        '5+new expiry',
+      ]),
+    );
+    expect(within(panel).queryByRole('region', { name: 'README.md' })).toBeNull();
+
+    await pick(/^Uncommitted/);
+    expect(await within(panel).findByRole('region', { name: 'README.md' })).toBeInTheDocument();
+  });
+
+  it('posts a change comment on a pinned row with its path and lines', async () => {
+    const { server, panel } = await openChanges();
+    await showAll();
+    await userEvent.click(await within(tree()).findByRole('treeitem', { name: 'README.md' }));
+    const card = await within(panel).findByRole('region', { name: 'README.md' });
+    await userEvent.click(await within(card).findByRole('button', { name: 'Line 2' }));
+    await userEvent.type(within(panel).getByRole('textbox'), 'why world?');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Post comments' }));
+
+    await waitFor(() =>
+      expect(
+        server.requests.find((r) => r.path === `/api/worktrees/${DELTA}/comments`)?.body,
+      ).toEqual({
+        comments: [
+          {
+            id: expect.any(String),
+            rev: 'uncommitted',
+            path: 'README.md',
+            side: 'new',
+            startLine: 2,
+            endLine: 2,
+            lines: [' world'],
+            body: 'why world?',
+          },
+        ],
+      }),
+    );
+  });
+});
+
+describe('long cards', () => {
+  /** Each observed element's callback, as the browser would call it. */
+  const watched = new Map<Element, (entries: { isIntersecting: boolean }[]) => void>();
+  class ObserverStub {
+    private callback: (entries: { isIntersecting: boolean }[]) => void;
+    constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+      this.callback = callback;
+    }
+    observe(el: Element) {
+      watched.set(el, this.callback);
+    }
+    disconnect() {}
+  }
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal('IntersectionObserver', ObserverStub);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    watched.clear();
+  });
+
+  /** Report each element in `seen` near the screen, and every other one away from it. */
+  const view = (card: HTMLElement, seen: (chunk: Element, i: number) => boolean) =>
+    act(() => {
+      const chunks = [...card.querySelectorAll('[data-chunk]')];
+      chunks.forEach((chunk, i) => watched.get(chunk)?.([{ isIntersecting: seen(chunk, i) }]));
+    });
+
+  it('mounts only the chunks of a long pinned file that are near the screen, and keeps one that holds a comment box or a comment', async () => {
+    const text = Array.from({ length: 3000 }, (_, i) => `row ${i + 1}`).join('\n');
+    const { panel } = await openChanges((c) => {
+      c.tree!.uncommitted!['long.py'] = text;
+    });
+    await userEvent.click(
+      within(within(strip()).getByRole('group', { name: 'Files to list' })).getByRole('button', {
+        name: 'All',
+      }),
+    );
+    await userEvent.click(await within(strip()).findByRole('treeitem', { name: 'long.py' }));
+    const card = await within(panel).findByRole('region', { name: 'long.py' });
+    const mounted = () => within(card).queryAllByTestId('diff-row').length;
+    // The first chunk draws before the observer reports; the rest wait for it.
+    await waitFor(() => expect(mounted()).toBe(200));
+    expect(card.querySelectorAll('[data-chunk]')).toHaveLength(15);
+
+    view(card, (_, i) => i === 3);
+    expect(mounted()).toBe(200);
+    await userEvent.click(within(card).getByRole('button', { name: 'Line 650' }));
+    expect(within(panel).getByRole('textbox', { name: 'Comment on line 650' })).toBeInTheDocument();
+
+    // Scrolled away: the chunk with the box stays, and the box keeps its place.
+    view(card, (_, i) => i === 10);
+    expect(mounted()).toBe(400);
+    const box = within(panel).getByRole('textbox', { name: 'Comment on line 650' });
+    await userEvent.type(box, 'why?');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
+
+    // The added comment holds its chunk as the box did.
+    view(card, (_, i) => i === 12);
+    expect(mounted()).toBe(400);
+    expect(within(card).getByText('why?')).toBeInTheDocument();
   });
 });
 
@@ -1274,7 +1522,13 @@ describe('change comments', () => {
     await userEvent.type(within(panel).getByRole('textbox'), 'why both?');
     await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));
     await pick(/rotate on expiry/);
-    await waitFor(() => expect(rowTexts(panel, 'auth/expiry.py')).toHaveLength(3));
+    await waitFor(() =>
+      expect(rowTexts(panel, 'auth/expiry.py')).toEqual([
+        '44 import os',
+        '5-old expiry',
+        '5+new expiry',
+      ]),
+    );
     await userEvent.click(line(panel, 'Old line 5', 'auth/expiry.py'));
     await userEvent.type(within(panel).getByRole('textbox'), 'keep this');
     await userEvent.click(within(panel).getByRole('button', { name: 'Add comment' }));

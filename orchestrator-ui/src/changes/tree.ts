@@ -2,20 +2,24 @@ import type { FileDiff } from '../protocol/entities';
 
 export type TreeNode =
   | { kind: 'dir'; name: string; path: string; children: TreeNode[] }
-  | { kind: 'file'; name: string; path: string; file: FileDiff };
+  /** `status` is `null` for a file the diff does not change. */
+  | { kind: 'file'; name: string; path: string; status: FileDiff['status'] | null };
 
 type Dir = Extract<TreeNode, { kind: 'dir' }>;
 
 /**
- * A diff's files as a directory tree. Directories sort before files, and each
+ * Paths as a directory tree, each file with its status in `status`. Directories sort before files, and each
  * level sorts by name. A chain of directories that each hold one directory and
  * nothing else joins into one node, `docs/specs/agent`, as GitHub draws it.
  */
-export function fileTree(files: FileDiff[]): TreeNode[] {
+export function fileTree(
+  paths: string[],
+  status: ReadonlyMap<string, FileDiff['status']>,
+): TreeNode[] {
   const root: Dir = { kind: 'dir', name: '', path: '', children: [] };
-  for (const file of files) {
-    const parts = file.path.split('/');
-    const name = parts.pop() ?? file.path;
+  for (const file of paths) {
+    const parts = file.split('/');
+    const name = parts.pop() ?? file;
     let dir = root;
     for (const part of parts) {
       const path = dir.path ? `${dir.path}/${part}` : part;
@@ -26,7 +30,7 @@ export function fileTree(files: FileDiff[]): TreeNode[] {
       }
       dir = next;
     }
-    dir.children.push({ kind: 'file', name, path: file.path, file });
+    dir.children.push({ kind: 'file', name, path: file, status: status.get(file) ?? null });
   }
   return settle(root.children);
 }

@@ -1,4 +1,5 @@
 import type { ChangeComment } from '../../protocol/entities';
+import { clientId } from '../clientId';
 import type { HeldComments, Span } from './selection';
 
 /**
@@ -9,8 +10,7 @@ import type { HeldComments, Span } from './selection';
 /** An object, because `useRetained` merges a held object over its initial value. */
 export const NO_COMMENTS: HeldComments = { comments: [], open: null };
 
-/** An id for a comment the client made. It keys the list; the server does not read it. */
-const newCommentId = () => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+const newCommentId = () => clientId('c');
 
 /** The open box on `span`. A box already open moves there with its text. */
 export function openOn(held: HeldComments, rev: string, path: string, span: Span): HeldComments {

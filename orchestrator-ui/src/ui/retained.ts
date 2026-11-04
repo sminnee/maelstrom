@@ -31,6 +31,8 @@ export const retainedKey = {
   reply: (agentId: string) => `${PREFIX}.reply.${agentId}`,
   /** One set of change comments per worktree: one post carries every rev's comments. */
   changeComments: (worktreeId: string) => `${PREFIX}.change-comments.${worktreeId}`,
+  /** The pins of one rev of one worktree: see docs/dev/code-navigation.md, "Client state". */
+  pins: (worktreeId: string, rev: string) => `${PREFIX}.pins.${worktreeId}.${rev}`,
   /**
    * One held answer per request, not per agent: one agent can wait on several
    * questions, and `DecisionCard` draws one prompt for each.
