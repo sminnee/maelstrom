@@ -539,6 +539,12 @@ The lower breakpoint is 840px. Below it the board does not fit: the canvas needs
 and a card beside it, and under 840px it is a sliver rather than a board. So the narrow layout
 does not shrink the wide one — it replaces it.
 
+A short touch screen is narrow too. A phone in landscape is wider than 839px, but 390–440px high
+with a coarse pointer, and it is still held in the hand. So the narrow query is
+`(max-width: 839px), (pointer: coarse) and (max-width: 959px) and (max-height: 539px)`. A short
+desktop window has a fine pointer, so it stays out. A tablet stays out by its width: on Android,
+a soft keyboard can make a landscape tablet's viewport less than 540px high, but never narrower.
+
 The deck list takes the canvas's place. The three zones run left to right on a board as vertical
 stripes; on a phone the same three run as tabs, opening on running. The model does not change
 between the surfaces, only the axis. A row keeps the task node's three registers — the title, the

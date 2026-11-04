@@ -1,77 +1,83 @@
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { setViewport, setViewportWidth } from '../test/setup';
 import { useLayoutMode } from './useLayoutMode';
-
-/** Point `window.matchMedia` at a fake, or remove it entirely with `undefined`. */
-function setMatchMedia(factory: ((query: string) => unknown) | undefined) {
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: factory,
-  });
-}
-
-afterEach(() => setMatchMedia(undefined));
 
 describe('useLayoutMode', () => {
   it('reads the mode from matchMedia, and follows a change across each breakpoint', () => {
-    // Listeners are held per query, as a browser holds them: a query tells
-    // only its own listeners, and only when its answer changes.
-    const listeners = new Map<string, Set<() => void>>();
-    const maxOf = (query: string) => Number(/max-width: (\d+)px/.exec(query)![1]);
-    let width = 390;
-    setMatchMedia((query) => {
-      const own = listeners.get(query) ?? new Set<() => void>();
-      listeners.set(query, own);
-      return {
-        get matches() {
-          return width <= maxOf(query);
-        },
-        addEventListener: (_: string, fn: () => void) => own.add(fn),
-        removeEventListener: (_: string, fn: () => void) => own.delete(fn),
-      };
-    });
+    setViewportWidth(390);
     const { result } = renderHook(() => useLayoutMode());
     expect(result.current).toBe('narrow');
 
-    const resize = (to: number) =>
-      act(() => {
-        const from = width;
-        width = to;
-        for (const [query, own] of listeners) {
-          if (from <= maxOf(query) !== to <= maxOf(query)) for (const fn of own) fn();
-        }
-      });
-    resize(839);
+    setViewportWidth(839);
     expect(result.current).toBe('narrow');
-    resize(840);
+    setViewportWidth(840);
     expect(result.current).toBe('medium');
-    resize(1599);
+    setViewportWidth(1599);
     expect(result.current).toBe('medium');
-    resize(1600);
+    setViewportWidth(1600);
     expect(result.current).toBe('wide');
   });
 
+  it('reads a phone in landscape as narrow, and a short desktop window or a tablet as medium', () => {
+    setViewport({ width: 932, height: 430, pointer: 'coarse' });
+    const { result } = renderHook(() => useLayoutMode());
+    expect(result.current).toBe('narrow');
+
+    setViewport({ width: 932, height: 430, pointer: 'fine' });
+    expect(result.current).toBe('medium');
+    setViewport({ width: 1024, height: 768, pointer: 'coarse' });
+    expect(result.current).toBe('medium');
+  });
+
+  it('draws the short touch screen edge at 539px high and 959px wide', () => {
+    setViewport({ width: 932, height: 539, pointer: 'coarse' });
+    const { result } = renderHook(() => useLayoutMode());
+    expect(result.current).toBe('narrow');
+    setViewport({ width: 932, height: 540, pointer: 'coarse' });
+    expect(result.current).toBe('medium');
+    setViewport({ width: 959, height: 430, pointer: 'coarse' });
+    expect(result.current).toBe('narrow');
+    setViewport({ width: 960, height: 430, pointer: 'coarse' });
+    expect(result.current).toBe('medium');
+  });
+
+  it('keeps a tablet medium while a soft keyboard shortens its viewport', () => {
+    // Android resizes the layout viewport for the keyboard (`interactive-widget`
+    // in index.html), so a 1280x800 tablet in landscape is briefly 1280x450.
+    setViewport({ width: 1280, height: 800, pointer: 'coarse' });
+    const { result } = renderHook(() => useLayoutMode());
+    expect(result.current).toBe('medium');
+    setViewport({ width: 1280, height: 450, pointer: 'coarse' });
+    expect(result.current).toBe('medium');
+  });
+
+  it('keeps a phone narrow when it turns', () => {
+    setViewport({ width: 390, height: 844, pointer: 'coarse' });
+    const { result } = renderHook(() => useLayoutMode());
+    expect(result.current).toBe('narrow');
+    setViewport({ width: 844, height: 390, pointer: 'coarse' });
+    expect(result.current).toBe('narrow');
+  });
+
   it('reads the viewport afresh once the last reader has gone', () => {
-    // No listeners are told: only a new subscription can see the move.
-    let width = 390;
-    setMatchMedia((query) => ({
-      get matches() {
-        return width <= Number(/max-width: (\d+)px/.exec(query)![1]);
-      },
-      addEventListener() {},
-      removeEventListener() {},
-    }));
+    setViewportWidth(390);
     const first = renderHook(() => useLayoutMode());
     expect(first.result.current).toBe('narrow');
     first.unmount();
-    width = 1920;
+    setViewportWidth(1920);
     expect(renderHook(() => useLayoutMode()).result.current).toBe('wide');
   });
 
   it('reads wide where there is no matchMedia at all', () => {
-    setMatchMedia(undefined);
-    const { result } = renderHook(() => useLayoutMode());
-    expect(result.current).toBe('wide');
+    const { matchMedia } = window;
+    (window as { matchMedia?: unknown }).matchMedia = undefined;
+    try {
+      setViewportWidth(390);
+      const { result } = renderHook(() => useLayoutMode());
+      expect(result.current).toBe('wide');
+    } finally {
+      window.matchMedia = matchMedia;
+    }
   });
 });

@@ -8,18 +8,23 @@ import { useSyncExternalStore } from 'react';
 export type LayoutMode = 'narrow' | 'medium' | 'wide';
 
 /**
- * The widest viewport that still reads as narrow. The canvas needs room for a
- * 220px node and a 440px card beside it; below 840px the board is a sliver
- * rather than a board.
+ * The narrow layout: up to 839px wide, or a short touch screen such as a phone
+ * in landscape. `orchestrator-ui/DESIGN.md` says why. The CSS reads the same
+ * strings as custom media from `styles/media.css`, and
+ * `styles/mediaQueries.test.ts` holds the two copies equal.
  */
-const NARROW_MAX = 839;
+export const NARROW_QUERY =
+  '(max-width: 839px), (pointer: coarse) and (max-width: 959px) and (max-height: 539px)';
+
+/** Every viewport the narrow query does not match: `--not-narrow` in CSS. */
+export const NOT_NARROW_QUERY =
+  'not ((max-width: 839px) or ((pointer: coarse) and (max-width: 959px) and (max-height: 539px)))';
 
 /** The widest viewport that still reads as medium. `orchestrator-ui/DESIGN.md` says why. */
-const MEDIUM_MAX = 1599;
+export const MEDIUM_QUERY = '(max-width: 1599px)';
 
-/** The queries the hook watches, and the one place each breakpoint is applied. */
-const NARROW_QUERY = `(max-width: ${NARROW_MAX}px)`;
-const MEDIUM_QUERY = `(max-width: ${MEDIUM_MAX}px)`;
+/** The medium layout: `--medium-not-narrow` in CSS. */
+export const MEDIUM_NOT_NARROW_QUERY = `${MEDIUM_QUERY} and (${NOT_NARROW_QUERY})`;
 
 /** No matchMedia (jsdom, an old browser) reads as wide: the desktop layout is the default. */
 const NO_MEDIA = { matches: false, addEventListener() {}, removeEventListener() {} };
