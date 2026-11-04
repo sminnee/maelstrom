@@ -960,11 +960,17 @@ them. "All commits" draws when the branch has commits, and "Uncommitted" draws w
 Uncommitted when the branch has no commits. A picked entry that is no longer drawn gives way to
 that default.
 
-Under the revs, the strip draws the files of the diff in view as a tree. `fileTree` in
-`changes/tree.ts` builds the tree, and `changes/FileTree.tsx` draws it. A directory shows a folder
-icon, `folder` or `folderOpen` from `ui/actionIcons.ts`. A click on a directory opens or shuts it, and
-a click on a file scrolls the diff to that file. The open directories last for one rev: the tree
-is keyed on the rev, so each rev opens with every directory shut.
+Under the revs, the strip draws the files of the rev in view as a tree. `changes/FileTree.tsx`
+draws it under a `SegmentedControl`, Changed | All, and a search field. Changed lists the diff's
+files. All lists every file on the rev's new side, from `GET /tree`, which it reads only while All
+is pressed. `fileTree` in `changes/tree.ts` builds the tree from the paths and a status map. A
+changed file keeps its status letter, and a file with a **Pin** shows the `pin` icon. A search
+replaces the tree with a flat list of the matching paths, at most 200, with a "200 of n" line.
+
+A directory shows a folder icon, `folder` or `folderOpen` from `ui/actionIcons.ts`. A click on a
+directory opens or shuts it. A click on a file with a **Card** scrolls the flow to it. A click on
+any other file pins it whole: the card scrolls into view as `holdFile` registers it. The open
+directories, the mode and the search last for one rev: the tree is keyed on the rev.
 
 In a panel narrower than 40rem, the strip stacks above the diff and hides the tree. The strip is
 short there, and the file list in the scroll already jumps to a file. A container query sets
@@ -981,7 +987,7 @@ The scroll holds five parts, in this order:
 | Commit message | The body and the author. The body is drawn as Markdown, which joins git's hard wraps | No |
 | Stats line | The file count and the line totals | Yes, under the title line |
 | File list | One entry per file, which jumps to that file | No |
-| Files | Each file as a card, with a head, by **Diff group** | The group head, under both lines; the file head, under the group head |
+| Cards | Each **Card**, with a head, by **Diff group**, then the Pinned group | The group head, under both lines; the file head, under the group head |
 
 Uncommitted and All commits name no single commit, so they draw no title line and no commit
 message.
@@ -1017,6 +1023,26 @@ sticks at zero.
 
 The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab adds the old and
 new line numbers.
+
+#### Cards and pins
+
+`changes/flow.ts` turns the diff and the rev's pins into the flow, and each card into rows and
+marks. `docs/dev/code-navigation.md` holds the model: one card per path, spans, gaps and the pin
+merge. `ChangesTab` holds the pins in `useRetained`, keyed by worktree and rev, and reads each
+pin's lines with `useWorktreeExcerpts`. A pinned card waits with "Reading the lines…" until its
+first excerpt arrives. A read sets the card's `total`. So a card with no rows and no `total` reads
+"Not in this rev.", and one with a `total` reads "No lines to show.": the file is empty, binary or
+past the size cap.
+
+A card draws its marks between the rows. A hunk's header is a muted row. A gap is a full-width
+"⋯ n lines" button, which pins its lines in place. A pin's × sits over the old-number column of
+its first row. A pinned card's head reads "Not in this diff" and ends in a bare ×, which unpins
+every pin of the card. Its rows carry a × only when the card has more than one pin. A selection
+counts in the rows alone, so `spanOf` and `placeOf` work on pinned rows unchanged.
+
+`ui/ChunkedRows.tsx` windows a card's rows: `docs/dev/code-navigation.md`, "Windowing", holds
+the rules. Each chunk watches itself with `useInView(ref, {latch: false})`, and the first chunk
+counts as in view before the observer reports.
 
 A diff can hold more than 1000 rows, so a state change must not draw them all. `DiffRow`,
 `FileBlock`, `Files` and `FileTree` are each a `memo`, and the props they get keep their identity.
@@ -1171,10 +1197,11 @@ The theme is Shiki's CSS-variable theme, so each token colour is a `var(--syntax
 values are in `styles/tokens.css`, which also sets the light scheme's `--syntax-shade` for
 contrast. A highlighted row keeps its add or remove ground, and only its sign keeps the add or
 remove hue. The rows draw plain first and the colour replaces them when it is ready. In the
-Changes tab, a hunk is highlighted only when it comes within 200 px of the screen
-(`ui/useInView.ts`). Once highlighted, it stays highlighted. Tokens go into a cache of 500 hunks,
-keyed by language and text. A hunk already in the cache draws in colour at once, with no plain
-first draw. A hunk over
+Changes tab, a run of rows is highlighted only while its chunk is within 200 px of the screen
+(`ui/useInView.ts`). A run ends at a mark or at a chunk's edge, so it holds 200 rows at most,
+and a comment or string that crosses an edge draws wrong. A chunk scrolled away unmounts, and
+its tokens come back from the cache. Tokens go into a cache of 500 runs, keyed by language and
+text. A run already in the cache draws in colour at once, with no plain first draw. A run over
 2,000 rows, or with a line over 1,000 characters, stays plain. A failed load leaves the rows
 plain and logs a warning, and the next diff tries again.
 

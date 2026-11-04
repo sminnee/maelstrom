@@ -52,6 +52,8 @@ See `docs/dev/` for architecture and design docs:
   the world, hears changes and follows transcripts, and how to run it.
 - `docs/dev/orchestrator-server.md` — the server behind that app: its layers, how it keeps the
   world fresh, launch, and the routes it serves the UI.
+- `docs/dev/code-navigation.md` — the Changes tab as a review trail: one card model for diffs
+  and pins, the rev's new side as the one source, windowed rows, and the language-server chain.
 - `docs/dev/live-feedback.md` — how a project writes a Live feedback client: the URL that names
   it, the `exposeParams` and `setParams` frames, and the needs-an-agent rule.
 - `docs/dev/cli-over-api.md` — moving `mael` commands onto the orchestrator API: the

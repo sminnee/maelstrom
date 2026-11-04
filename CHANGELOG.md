@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The Changes tab pins code from outside the diff.** The file list has Changed | All and a
+  search. A file picked from All pins whole, under Pinned. A "⋯ n lines" row between hunks pins
+  the hidden lines into the diff card. A × unpins. Pins last per rev. See
+  [Code navigation in the Changes tab](docs/dev/code-navigation.md).
 - **A plan-mode task opens with `/planning`.** The plan leads with what will change, then the
   decisions, then the detail. It stands alone, so a reviewer who did not write the task can read
   it.
