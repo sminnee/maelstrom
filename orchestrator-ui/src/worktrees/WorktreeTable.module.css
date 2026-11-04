@@ -98,7 +98,7 @@
  * The narrow layout: a row is a stack. The name and the PR lead, the branch
  * follows, each count says what it counts, and the commands end the row.
  */
-@media (max-width: 839px) {
+@media (--narrow) {
   .table,
   .table tbody {
     display: block;

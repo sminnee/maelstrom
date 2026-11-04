@@ -112,7 +112,7 @@
 }
 
 /* A phone: one entry, which takes the row, and the count after it. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .entry {
     flex: 1;
     max-width: none;

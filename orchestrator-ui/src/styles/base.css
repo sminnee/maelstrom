@@ -27,7 +27,7 @@ html {
 /* On a phone the page never moves. See DESIGN.md, "The Still Screen Rule".
    Not on the wide layout, where `none` would also stop a trackpad's back
    swipe. */
-@media (max-width: 839px) {
+@media (--narrow) {
   html,
   body {
     height: var(--vvh, 100%);
@@ -130,7 +130,7 @@ button:disabled {
 }
 /* Under 16px iOS zooms the page on focus and does not zoom back. Important,
    because it is a floor: each module's own field rule would win over it. */
-@media (max-width: 839px) {
+@media (--narrow) {
   input,
   select,
   textarea {

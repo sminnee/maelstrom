@@ -47,7 +47,7 @@
 
 /* The narrow layout: two rows on the deck, the screen strip on a pushed screen.
    See DESIGN.md, "The narrow layout". */
-@media (max-width: 839px) {
+@media (--narrow) {
   .bar {
     flex-direction: column;
     flex-wrap: nowrap;

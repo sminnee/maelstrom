@@ -400,7 +400,7 @@
  * the screen, so each one is under a thumb and none is off the screen. See
  * DESIGN.md, "The narrow layout".
  */
-@media (max-width: 839px) {
+@media (--narrow) {
   /* The footer's three parts become children of the screen, so the command
      bar can stick to the screen's bottom edge and not to the footer's. */
   .footer {

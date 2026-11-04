@@ -77,7 +77,7 @@
 }
 
 /* On the narrow layout the chevron is a thumb target of its own. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .chevron {
     min-width: var(--control);
   }

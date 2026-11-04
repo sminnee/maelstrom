@@ -80,7 +80,7 @@
  * The narrow layout: a row is a stack, as the task list's is. The title and
  * the landing lead; the recipients and the count follow in the quiet register.
  */
-@media (max-width: 839px) {
+@media (--narrow) {
   .toolbar {
     padding: var(--u) var(--u-2);
   }

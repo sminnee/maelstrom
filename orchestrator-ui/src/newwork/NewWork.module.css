@@ -33,7 +33,7 @@
 
 /* On a phone the draft grows from a shorter floor. Focus mode: see
    `Dialog.module.css`. Later than `.draft`, so it wins over the 12em floor. */
-@media (max-width: 839px) {
+@media (--narrow) {
   .draft {
     min-height: 6em;
   }
