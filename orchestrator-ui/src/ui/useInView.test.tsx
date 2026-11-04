@@ -14,9 +14,9 @@ class ObserverStub {
   disconnect() {}
 }
 
-function Probe() {
+function Probe({ latch }: { latch?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  return <div ref={ref}>{useInView(ref) ? 'seen' : 'unseen'}</div>;
+  return <div ref={ref}>{useInView(ref, { latch }) ? 'seen' : 'unseen'}</div>;
 }
 
 describe('useInView', () => {
@@ -35,6 +35,16 @@ describe('useInView', () => {
 
     act(() => report?.([{ isIntersecting: false }]));
     expect(screen.getByText('seen')).toBeInTheDocument();
+  });
+
+  it('follows the element out of view again when it does not latch', () => {
+    vi.stubGlobal('IntersectionObserver', ObserverStub);
+    render(<Probe latch={false} />);
+    act(() => report!([{ isIntersecting: true }]));
+    expect(screen.getByText('seen')).toBeInTheDocument();
+
+    act(() => report!([{ isIntersecting: false }]));
+    expect(screen.getByText('unseen')).toBeInTheDocument();
   });
 
   it('is true from the start where the browser has no observer', () => {

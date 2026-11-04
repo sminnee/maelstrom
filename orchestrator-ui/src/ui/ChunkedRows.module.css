@@ -1,0 +1,5 @@
+/* A chunk out of view: its rows' height and nothing in it. A row is one line,
+   since rows never wrap. */
+.unmounted {
+  height: calc(var(--rows) * 1lh);
+}
