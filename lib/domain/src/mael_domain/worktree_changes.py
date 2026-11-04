@@ -20,6 +20,8 @@ from .protocol import (
     DiffHunk,
     DiffLine,
     FileDiff,
+    FileExcerpt,
+    FileList,
     FileVersions,
     WorktreeChanges,
 )
@@ -64,7 +66,7 @@ _UNTRACKED_DIFFS_AT_ONCE = 4
 #: Scripts whose first line is read at once, for the same reason.
 _SHEBANG_READS_AT_ONCE = 4
 
-_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 _FILES_CHANGED = re.compile(r"(\d+) files? changed")
 _FIELD = "\x1f"
 _RECORD = "\x1e"
@@ -80,6 +82,10 @@ class BadPath(ValueError):
 
 class FileTooLarge(ValueError):
     """A side past :data:`MAX_RAW_BYTES`."""
+
+
+class NoSuchFile(LookupError):
+    """A path the rev's new side does not hold."""
 
 
 def base_refs_for_diff(cwd: Path) -> list[str]:
@@ -181,6 +187,83 @@ async def read_file_versions(
     }
 
 
+async def list_files(path: Path, rev: str) -> FileList:
+    """Every file path on the new side of ``rev``, sorted. Raises :class:`UnknownRev`."""
+    refs = await _refs(path, rev)
+    if refs.new is None:
+        names = await _names(
+            path, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+        )
+        # The index still lists a file deleted from the working tree but not staged.
+        names -= await _names(path, "ls-files", "-z", "--deleted")
+    else:
+        names = await _names(path, "ls-tree", "-r", "--name-only", "-z", refs.new)
+    return {"rev": rev, "paths": sorted(names)}
+
+
+async def _names(path: Path, *args: str) -> set[str]:
+    result = await run_git_async([*_GIT_OPTIONS, *args], cwd=path, quiet=True)
+    # A set: ls-files lists a path once per stage while a merge conflicts.
+    return {name for name in result.stdout.split("\0") if name}
+
+
+async def read_excerpt(
+    path: Path, rev: str, file: str, start: int | None = None, end: int | None = None
+) -> FileExcerpt:
+    """Lines ``start`` to ``end`` of ``file`` on the new side of ``rev``; the whole file by default.
+
+    The range is clipped to the file and to :data:`MAX_LINES_PER_FILE`. A
+    binary file, or one past :data:`MAX_FILE_BYTES`, has no lines. Raises
+    :class:`UnknownRev`, :class:`BadPath` and :class:`NoSuchFile`.
+    """
+    _check_paths(file)
+    refs = await _refs(path, rev)
+    if refs.new is None:
+        side = await asyncio.to_thread(_worktree_file, path, file)
+    else:
+        side = await _blob(path, f"{refs.new}:{file}")
+    if side.text is None and not side.too_large and not await _exists(path, refs, file):
+        raise NoSuchFile(file)
+    texts = (side.text or "").splitlines()
+    first = max(start or 1, 1)
+    last = min(end or len(texts), len(texts), first + MAX_LINES_PER_FILE - 1)
+    return {
+        "rev": rev,
+        "path": file,
+        "total": len(texts),
+        "truncated": side.too_large or last < min(end or len(texts), len(texts)),
+        "span": {
+            "range": {"start": first, "end": max(last, first - 1)},
+            "lines": [
+                {"kind": "context", "text": text, "oldLine": n, "newLine": n}
+                for n, text in enumerate(texts[first - 1 : last], start=first)
+            ],
+        },
+    }
+
+
+async def _exists(path: Path, refs: "_Refs", file: str) -> bool:
+    """Whether the new side holds ``file``: a binary file reads as no text, but exists."""
+    if refs.new is None:
+        target = path / file
+        return await asyncio.to_thread(
+            lambda: (
+                target.is_symlink()
+                or (
+                    target.is_file() and target.resolve().is_relative_to(path.resolve())
+                )
+            )
+        )
+    result = await run_git_async(
+        [*_GIT_OPTIONS, "cat-file", "-t", f"{refs.new}:{file}"],
+        cwd=path,
+        quiet=True,
+        check=False,
+    )
+    # A folder names a tree, which is no file.
+    return result.stdout.strip() == "blob"
+
+
 async def read_file_bytes(
     path: Path,
     rev: str,
@@ -280,9 +363,10 @@ async def _blob(path: Path, spec: str) -> _Side:
     if int(size.stdout) > MAX_FILE_BYTES:
         return _Side(too_large=True)
     result = await run_git_async(
-        [*_GIT_OPTIONS, "cat-file", "blob", spec], cwd=path, quiet=True
+        [*_GIT_OPTIONS, "cat-file", "blob", spec], cwd=path, quiet=True, check=False
     )
-    return _text(result.stdout)
+    # A tree has a size too, but no blob.
+    return _text(result.stdout) if result.returncode == 0 else _Side()
 
 
 def _worktree_file(root: Path, file: str) -> _Side:
@@ -430,7 +514,14 @@ def parse_diff(text: str) -> list[FileDiff]:
             if found is None:
                 continue
             old_line, new_line = int(found.group(1)), int(found.group(2))
-            hunk = {"header": raw, "lines": []}
+            count = int(found.group(3) or "1")
+            # git writes the line before an empty new side: `+5,0` is after line 5.
+            start = new_line if count else new_line + 1
+            hunk = {
+                "header": raw,
+                "range": {"start": start, "end": start + count - 1},
+                "lines": [],
+            }
             if kept < MAX_LINES_PER_FILE:
                 current["hunks"].append(hunk)
             else:

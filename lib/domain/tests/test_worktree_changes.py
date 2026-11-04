@@ -13,10 +13,13 @@ from mael_domain.worktree_changes import (
     MAX_LINES_PER_FILE,
     BadPath,
     FileTooLarge,
+    NoSuchFile,
     UnknownRev,
     format_change_comments,
     list_changes,
+    list_files,
     read_diff,
+    read_excerpt,
     read_file_bytes,
     read_file_versions,
 )
@@ -69,6 +72,8 @@ async def test_staged_unstaged_and_untracked_files_are_dirty_but_env_is_not(repo
         1,
     )
     assert readme["hunks"][0]["header"].startswith("@@ -1,3 +1,3 @@")
+    assert readme["hunks"][0]["range"] == {"start": 1, "end": 3}
+    assert files["new.txt"]["hunks"][0]["range"] == {"start": 1, "end": 1}
     assert readme["hunks"][0]["lines"] == [
         {"kind": "context", "text": "one", "oldLine": 1, "newLine": 1},
         {"kind": "remove", "text": "two", "oldLine": 2, "newLine": None},
@@ -141,6 +146,8 @@ async def test_a_deleted_file_shows_its_lines_removed(repo):
         hunks=[
             {
                 "header": "@@ -1,3 +0,0 @@",
+                # No new lines: an empty range, which ends before it starts.
+                "range": {"start": 1, "end": 0},
                 "lines": [
                     {"kind": "remove", "text": t, "oldLine": n, "newLine": None}
                     for n, t in [(1, "one"), (2, "two"), (3, "three")]
@@ -334,6 +341,134 @@ async def test_a_sha_outside_the_branch_is_refused(repo):
 
     with pytest.raises(UnknownRev):
         await read_diff(repo, on_main)
+
+
+# -- file list ----------------------------------------------------------------
+
+
+async def test_the_uncommitted_list_is_the_working_tree_less_ignored_files(repo):
+    create_commit(repo, "gone.txt", "g\n", "feat: gone")
+    (repo / "gone.txt").unlink()
+    (repo / ".gitignore").write_text("*.log\n")
+    (repo / "new.txt").write_text("fresh\n")
+    (repo / "debug.log").write_text("noise\n")
+
+    assert await list_files(repo, "uncommitted") == {
+        "rev": "uncommitted",
+        "paths": [".gitignore", "new.txt", "readme.md"],
+    }
+
+
+async def test_the_branch_lists_heads_tree_and_a_commit_lists_its_own(repo):
+    (repo / "src").mkdir()
+    first = create_commit(repo, "src/a.py", "a\n", "feat: a")
+    create_commit(repo, "src/b.py", "b\n", "feat: b")
+    (repo / "dirty.txt").write_text("not committed\n")
+
+    assert (await list_files(repo, "branch"))["paths"] == [
+        "readme.md",
+        "src/a.py",
+        "src/b.py",
+    ]
+    assert (await list_files(repo, first))["paths"] == ["readme.md", "src/a.py"]
+
+
+async def test_a_sha_outside_the_branch_has_no_file_list(repo):
+    on_main = run_git(repo, "rev-parse", "main").stdout.strip()
+
+    with pytest.raises(UnknownRev):
+        await list_files(repo, on_main)
+
+
+# -- excerpts -----------------------------------------------------------------
+
+
+def context(numbers, texts):
+    return [
+        {"kind": "context", "text": t, "oldLine": n, "newLine": n}
+        for n, t in zip(numbers, texts, strict=True)
+    ]
+
+
+async def test_an_excerpt_reads_a_range_of_the_new_side(repo):
+    create_commit(repo, "a.py", "".join(f"l{n}\n" for n in range(1, 11)), "feat: a")
+    (repo / "a.py").write_text("dirty\n")
+
+    excerpt = await read_excerpt(repo, "branch", "a.py", 3, 5)
+
+    assert excerpt == {
+        "rev": "branch",
+        "path": "a.py",
+        "total": 10,
+        "truncated": False,
+        "span": {
+            "range": {"start": 3, "end": 5},
+            "lines": context([3, 4, 5], ["l3", "l4", "l5"]),
+        },
+    }
+
+
+async def test_an_excerpt_with_no_range_is_the_whole_working_file(repo):
+    (repo / "readme.md").write_text("one\nTWO\n")
+
+    excerpt = await read_excerpt(repo, "uncommitted", "readme.md")
+
+    assert (excerpt["total"], excerpt["span"]) == (
+        2,
+        {"range": {"start": 1, "end": 2}, "lines": context([1, 2], ["one", "TWO"])},
+    )
+
+
+async def test_an_excerpt_range_is_clipped_to_the_file(repo):
+    excerpt = await read_excerpt(repo, "uncommitted", "readme.md", 2, 99)
+
+    assert excerpt["span"]["range"] == {"start": 2, "end": 3}
+
+
+async def test_an_excerpt_past_the_line_cap_keeps_its_first_lines(repo):
+    lines = MAX_LINES_PER_FILE + 10
+    (repo / "big.txt").write_text("".join(f"{n}\n" for n in range(1, lines + 1)))
+
+    excerpt = await read_excerpt(repo, "uncommitted", "big.txt")
+
+    assert (excerpt["total"], excerpt["truncated"]) == (lines, True)
+    assert excerpt["span"]["range"] == {"start": 1, "end": MAX_LINES_PER_FILE}
+    assert len(excerpt["span"]["lines"]) == MAX_LINES_PER_FILE
+
+
+async def test_a_binary_or_oversized_file_has_an_excerpt_with_no_lines(repo):
+    create_commit(repo, "image.bin", "\x89PNG\x00\x01", "feat: image")
+    (repo / "big.txt").write_text("x" * (MAX_FILE_BYTES + 1))
+
+    binary = await read_excerpt(repo, "branch", "image.bin")
+    big = await read_excerpt(repo, "uncommitted", "big.txt")
+
+    assert (binary["total"], binary["truncated"], binary["span"]["lines"]) == (
+        0,
+        False,
+        [],
+    )
+    assert (big["total"], big["truncated"], big["span"]["lines"]) == (0, True, [])
+
+
+async def test_a_path_missing_at_the_rev_has_no_excerpt(repo, tmp_path_factory):
+    (repo / "docs").mkdir()
+    first = create_commit(repo, "docs/a.py", "a\n", "feat: a")
+    create_commit(repo, "b.py", "b\n", "feat: b")
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "secret").write_text("secret\n")
+    (repo / "dir").symlink_to(outside)
+
+    for rev, file in [
+        (first, "b.py"),
+        ("branch", "docs"),
+        ("uncommitted", "c.py"),
+        ("uncommitted", "dir/secret"),
+    ]:
+        with pytest.raises(NoSuchFile):
+            await read_excerpt(repo, rev, file)
+    with pytest.raises(BadPath):
+        await read_excerpt(repo, "branch", "../outside.py")
 
 
 # -- file versions ------------------------------------------------------------

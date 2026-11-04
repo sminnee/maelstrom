@@ -176,10 +176,30 @@ export interface DiffLine {
   newLine: number | null;
 }
 
-export interface DiffHunk {
+/**
+ * New-side lines `start` to `end`, 1-based and inclusive. A range that holds
+ * no lines ends one before it starts: the hunk of a deleted file is `{1, 0}`.
+ */
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+/** A range in one file of a rev. */
+export interface FileRange {
+  path: string;
+  range: LineRange;
+}
+
+/** Consecutive lines of one file. Every line is context when it is not from a diff. */
+export interface LineSpan {
+  range: LineRange;
+  lines: DiffLine[];
+}
+
+export interface DiffHunk extends LineSpan {
   /** The `@@ -a,b +c,d @@` line as git wrote it. */
   header: string;
-  lines: DiffLine[];
 }
 
 /** One file of `GET /api/worktrees/{id}/diff`. */
@@ -203,6 +223,24 @@ export interface FileGroup {
   name: string;
   collapsed: boolean;
   /** The group's file paths, in diff order. */
+  paths: string[];
+}
+
+/** `GET /api/worktrees/{id}/excerpt`: lines of one file on the new side of a rev. */
+export interface FileExcerpt {
+  rev: string;
+  path: string;
+  /** The file's line count: 0 for a binary file, or one past the size cap. */
+  total: number;
+  /** The range passed the line cap, so `span` holds its first lines only. */
+  truncated: boolean;
+  /** Every line `context`, with `oldLine` equal to `newLine`. */
+  span: LineSpan;
+}
+
+/** `GET /api/worktrees/{id}/tree`: every file path on the new side of a rev. */
+export interface FileList {
+  rev: string;
   paths: string[];
 }
 

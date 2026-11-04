@@ -190,10 +190,27 @@ class DiffLine(TypedDict):
     newLine: int | None
 
 
-class DiffHunk(TypedDict):
+class LineRange(TypedDict):
+    """New-side lines ``start`` to ``end``, 1-based and inclusive.
+
+    A range that holds no lines ends one before it starts: the hunk of a
+    deleted file is ``{start: 1, end: 0}``.
+    """
+
+    start: int
+    end: int
+
+
+class LineSpan(TypedDict):
+    """Consecutive lines of one file. Every line is context when it is not from a diff."""
+
+    range: LineRange
+    lines: list[DiffLine]
+
+
+class DiffHunk(LineSpan):
     #: The ``@@ -a,b +c,d @@`` line as git wrote it.
     header: str
-    lines: list[DiffLine]
 
 
 class FileDiff(TypedDict):
@@ -219,6 +236,26 @@ class FileGroup(TypedDict):
     name: str
     collapsed: bool
     #: The group's file paths, in diff order.
+    paths: list[str]
+
+
+class FileExcerpt(TypedDict):
+    """``GET /api/worktrees/{id}/excerpt``: lines of one file on the new side of a rev."""
+
+    rev: str
+    path: str
+    #: The file's line count.
+    total: int
+    #: The range passed the line cap, so ``span`` holds its first lines only.
+    truncated: bool
+    #: Every line ``context``, with ``oldLine`` equal to ``newLine``.
+    span: LineSpan
+
+
+class FileList(TypedDict):
+    """``GET /api/worktrees/{id}/tree``: every file path on the new side of a rev."""
+
+    rev: str
     paths: list[str]
 
 

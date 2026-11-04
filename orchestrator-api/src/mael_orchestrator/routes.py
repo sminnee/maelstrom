@@ -28,9 +28,12 @@ from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
 from mael_domain.worktree_changes import (
     BadPath,
     FileTooLarge,
+    NoSuchFile,
     UnknownRev,
     list_changes,
+    list_files,
     read_diff,
+    read_excerpt,
     read_file_bytes,
     read_file_versions,
 )
@@ -110,6 +113,8 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
     app.router.add_get("/api/worktrees/{id}/diff", _worktree_diff)
     app.router.add_get("/api/worktrees/{id}/file", _worktree_file)
+    app.router.add_get("/api/worktrees/{id}/tree", _worktree_tree)
+    app.router.add_get("/api/worktrees/{id}/excerpt", _worktree_excerpt)
     app.router.add_get("/api/worktrees/{id}/raw", _worktree_raw)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
@@ -344,6 +349,60 @@ async def _worktree_file(request: web.Request) -> web.Response:
     except (OSError, subprocess.CalledProcessError) as exc:
         return _git_failed(exc)
     response = web.json_response(versions)
+    response.enable_compression()
+    return response
+
+
+async def _worktree_tree(request: web.Request) -> web.Response:
+    """Every file path on the new side of a rev, for the file list's All view."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    if not rev:
+        return error_response("invalid", "Name a rev: uncommitted, branch or a sha")
+    try:
+        files = await list_files(path, rev)
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    response = web.json_response(files)
+    response.enable_compression()
+    return response
+
+
+async def _worktree_excerpt(request: web.Request) -> web.Response:
+    """Lines of one file on the new side of a rev: a pin's lines."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    file = request.query.get("path", "")
+    if not rev or not file:
+        return error_response("invalid", "Name a rev and a path")
+    try:
+        start, end = (
+            int(request.query[k]) if request.query.get(k) else None
+            for k in ("start", "end")
+        )
+    except ValueError:
+        return error_response("invalid", "start and end are line numbers")
+    try:
+        excerpt = await read_excerpt(path, rev, file, start, end)
+    except BadPath as exc:
+        return error_response("invalid", f"Path {exc} is outside the worktree")
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except NoSuchFile:
+        return error_response("unknown_id", f"No file {file} at {rev}")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    response = web.json_response(excerpt)
     response.enable_compression()
     return response
 
