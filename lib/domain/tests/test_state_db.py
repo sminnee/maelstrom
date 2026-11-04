@@ -27,6 +27,7 @@ from mael_domain.state_db.types import (
     Write,
     WrongThreadError,
 )
+from mael_domain.task_attachments import SqliteTaskAttachmentTable
 from mael_domain.task_table import SqliteTaskTable
 
 
@@ -191,6 +192,86 @@ class TestTheShippedLadders:
             assert (without.content, without.log) == ("c", "- l")
         finally:
             db.close()
+
+    async def test_attached_rows_become_task_document_versions(self, tmp_path):
+        """Two approved plans on one task fold into ``plan`` v1 and v2."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["task_attachments"]
+            db.ladders["task_attachments"] = full[:1]
+            await db.migrate()
+
+            def row(path: str, kind: str, title: str, at: str) -> dict:
+                return {
+                    "task_key": "p/t.1",
+                    "kind": kind,
+                    "path": path,
+                    "title": title,
+                    "version": 3,
+                    "body": f"{title} body",
+                    "digest": f"{title} digest",
+                    "attached_at": at,
+                }
+
+            await db.write_all(
+                [
+                    Write(
+                        "task_attachments",
+                        "a",
+                        row("/plans/b.md", "plan", "Second", "T2"),
+                    ),
+                    Write(
+                        "task_attachments",
+                        "b",
+                        row("/plans/a.md", "plan", "First", "T1"),
+                    ),
+                    Write(
+                        "task_attachments",
+                        "c",
+                        row(".drafts/verification.md", "verification", "Shown", "T3"),
+                    ),
+                ]
+            )
+
+            db.ladders["task_attachments"] = full
+            await db.migrate()
+
+            # Read through the store: its ids must find what the rung wrote.
+            table = SqliteTaskAttachmentTable(db)
+            plan = await table.read("p/t.1", "plan")
+            assert plan is not None
+            assert [v.title for v in await table.versions(plan.id)] == [
+                "First",
+                "Second",
+            ]
+            documents = {
+                r["name"]: dict(r) for r in await db.read_all("task_attachments")
+            }
+            versions = sorted(
+                (
+                    r["version"],
+                    r["title"],
+                    r["body"],
+                    r["digest"],
+                    r["created_at"],
+                    r["review_status"],
+                )
+                for r in await db.read_all("task_attachment_versions")
+            )
+        finally:
+            db.close()
+        assert {
+            n: (d["kind"], d["archived"], d["attached_at"])
+            for n, d in documents.items()
+        } == {
+            "plan": ("markdown", 0, "T1"),
+            ".drafts/verification.md": ("markdown", 0, "T3"),
+        }
+        assert versions == [
+            (1, "First", "First body", "First digest", "T1", "approved"),
+            (1, "Shown", "Shown body", "Shown digest", "T3", "draft"),
+            (2, "Second", "Second body", "Second digest", "T2", "approved"),
+        ]
 
 
 class TestFailedMigration:

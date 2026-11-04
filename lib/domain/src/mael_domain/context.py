@@ -270,13 +270,19 @@ def validate_project_name(name: str) -> None:
         name: The project name to validate.
 
     Raises:
-        ValueError: If name is empty, contains dots, or is a reserved name.
+        ValueError: If name is empty, contains a dot, `:`, `@` or `#`, or is reserved.
     """
     if not name:
         raise ValueError("Project name cannot be empty")
     if "." in name:
         raise ValueError(
             f"Invalid project name '{name}': project names cannot contain dots"
+        )
+    # These delimit a Task document reference: see CONTEXT.md, "Task document".
+    delimiter = next((c for c in ":@#" if c in name), None)
+    if delimiter:
+        raise ValueError(
+            f"Invalid project name '{name}': project names cannot contain '{delimiter}'"
         )
     if name in RESERVED_PROJECT_NAMES:
         raise ValueError(

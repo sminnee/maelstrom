@@ -1,22 +1,27 @@
-"""Attached documents: the table's contract, and what ``attach`` copies where.
+"""The Task document store's contract, and what ``attach`` copies where.
 
 The table contract runs against both backends. ``attach`` runs against a real
 temp worktree and a temp task repo, because what it does is copy files.
 """
 
 import asyncio
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
-from mael_domain import attachments
+from mael_domain import attachments, sarif
+from mael_domain import task_documents as docs
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
+    Link,
     SqliteTaskAttachmentTable,
     TaskAttachment,
-    attach,
-    task_key,
+    Version,
+    attachment_id,
 )
+from mael_domain.task_documents import DocumentRef, attach
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 WEBM = b"\x1a\x45\xdf\xa3\x00\x00fakewebmdata, longer than the picture"
@@ -28,6 +33,7 @@ SHOT = "shot-ae4a7e43881f.png"
 FLOW = "flow-e2c867114833.webm"
 NOW = "2026-10-01T10:00:00Z"
 LATER = "2026-10-01T11:00:00Z"
+KEY = "northwind/2026-09-22.1"
 
 
 @pytest.fixture(params=["memory", "sqlite"])
@@ -41,107 +47,402 @@ def table(request, tmp_path):
     db.close()
 
 
-def document(**over) -> dict:
-    """The fields of one upsert, as ``attach`` passes them."""
-    fields = {
-        "task_key": "northwind/2026-09-22.1",
-        "kind": "verification",
-        "path": ".drafts/verification.md",
-        "title": "Login flow",
-        "body": "It works.\n",
-        "digest": "d1",
-        "attached_at": NOW,
-    }
-    fields.update(over)
-    return fields
+def doc(name: str = ".drafts/verification.md", key: str = KEY) -> TaskAttachment:
+    return TaskAttachment(
+        id=attachment_id(key, name),
+        task_key=key,
+        kind="markdown",
+        name=name,
+        archived=False,
+        attached_at=NOW,
+    )
 
 
-def summary(doc: TaskAttachment) -> tuple:
-    return (doc.task_key, doc.path, doc.version, doc.body)
+def version(document: TaskAttachment, n: int, body: str = "It works.\n") -> Version:
+    return Version(
+        id=f"{document.id}@v{n}",
+        attachment_id=document.id,
+        version=n,
+        title="Login flow",
+        body=body,
+        digest=f"d{n}",
+        created_at=NOW,
+        review_status="draft",
+    )
+
+
+def a_link(document: TaskAttachment, task_id: str, fragment: str = "") -> Link:
+    return Link(
+        id=f"{document.id}-{task_id}-{fragment}",
+        attachment_id=document.id,
+        project="northwind",
+        task_id=task_id,
+        fragment=fragment,
+    )
 
 
 class TestTable:
-    def test_a_first_upsert_is_version_one(self, table):
-        stored = asyncio.run(table.upsert(**document()))
-
-        assert stored.version == 1
-        assert stored.id
-
-    def test_the_same_path_again_replaces_the_body_and_raises_the_version(self, table):
-        async def scenario():
-            await table.upsert(**document())
-            await table.upsert(**document(body="It still works.\n", digest="d2"))
-            return await table.list()
-
-        [stored] = asyncio.run(scenario())
-
-        assert summary(stored) == (
-            "northwind/2026-09-22.1",
-            ".drafts/verification.md",
-            2,
-            "It still works.\n",
-        )
-
-    def test_a_revision_keeps_its_id(self, table):
-        async def scenario():
-            first = await table.upsert(**document())
-            second = await table.upsert(**document(digest="d2"))
-            return first.id, second.id
-
-        first, second = asyncio.run(scenario())
-
-        assert first == second
-
-    def test_another_path_and_another_task_are_other_documents(self, table):
-        async def scenario():
-            await table.upsert(**document())
-            await table.upsert(**document(path="/plans/a.md", kind="plan"))
-            await table.upsert(**document(task_key="northwind/2026-09-22.2"))
-            return await table.list()
-
-        stored = asyncio.run(scenario())
-
-        assert sorted((d.task_key, d.path, d.version) for d in stored) == [
-            ("northwind/2026-09-22.1", ".drafts/verification.md", 1),
-            ("northwind/2026-09-22.1", "/plans/a.md", 1),
-            ("northwind/2026-09-22.2", ".drafts/verification.md", 1),
-        ]
-
     def test_read_answers_one_document_or_none(self, table):
         async def scenario():
-            await table.upsert(**document())
-            key = "northwind/2026-09-22.1"
+            await table.put(doc())
             return (
-                await table.read(key, ".drafts/verification.md"),
-                await table.read(key, "missing.md"),
+                await table.read(KEY, ".drafts/verification.md"),
+                await table.read(KEY, "missing.md"),
             )
 
         found, missing = asyncio.run(scenario())
 
-        assert found is not None and found.title == "Login flow"
+        assert found == doc()
         assert missing is None
+
+    def test_put_replaces_the_row_with_its_id(self, table):
+        async def scenario():
+            await table.put(doc())
+            await table.put(replace(doc(), archived=True))
+            return await table.all_documents()
+
+        assert asyncio.run(scenario()) == [replace(doc(), archived=True)]
+
+    def test_owned_lists_one_task_s_documents_by_name(self, table):
+        async def scenario():
+            for name in ("zap.sarif", "notes/a.md"):
+                await table.put(doc(name))
+            await table.put(doc("other.md", key="northwind/2026-09-22.2"))
+            return await table.owned(KEY)
+
+        assert [d.name for d in asyncio.run(scenario())] == ["notes/a.md", "zap.sarif"]
+
+    def test_versions_come_oldest_first(self, table):
+        async def scenario():
+            await table.put(doc())
+            for n in (2, 1, 3):
+                await table.add_version(version(doc(), n))
+            return await table.versions(doc().id)
+
+        assert [v.version for v in asyncio.run(scenario())] == [1, 2, 3]
+
+    def test_links_are_read_by_document_and_by_task(self, table):
+        first, second = doc("a.md"), doc("b.md")
+
+        async def scenario():
+            for d in (first, second):
+                await table.put(d)
+            await table.add_link(a_link(first, "2026-09-22.5", "intro"))
+            await table.add_link(a_link(first, "2026-09-22.5", "intro"))
+            await table.add_link(a_link(first, "2026-09-22.6"))
+            await table.add_link(a_link(second, "2026-09-22.5"))
+            return (
+                await table.links(first.id),
+                await table.linked("northwind", "2026-09-22.5"),
+                await table.linked("elsewhere", "2026-09-22.5"),
+            )
+
+        links, linked, elsewhere = asyncio.run(scenario())
+
+        assert sorted((x.task_id, x.fragment) for x in links) == [
+            ("2026-09-22.5", "intro"),
+            ("2026-09-22.6", ""),
+        ]
+        assert sorted(d.name for d in linked) == ["a.md", "b.md"]
+        assert elsewhere == []
+
+    def test_remove_link_takes_one_away(self, table):
+        kept, gone = a_link(doc(), "2026-09-22.5"), a_link(doc(), "2026-09-22.6")
+
+        async def scenario():
+            await table.put(doc())
+            await table.add_link(kept)
+            await table.add_link(gone)
+            await table.remove_link(gone.id)
+            await table.remove_link(gone.id)
+            return await table.links(doc().id)
+
+        assert asyncio.run(scenario()) == [kept]
 
 
 def test_sqlite_rows_survive_a_reopen(tmp_path):
     async def scenario():
         first = open_state_db(tmp_path / "state.db")
         await first.migrate()
-        await SqliteTaskAttachmentTable(first).upsert(**document())
+        table = SqliteTaskAttachmentTable(first)
+        await table.put(doc())
+        await table.add_version(version(doc(), 1))
+        await table.add_link(a_link(doc(), "2026-09-22.5"))
         first.close()
         second = open_state_db(tmp_path / "state.db")
         await second.check()
-        stored = await SqliteTaskAttachmentTable(second).list()
+        table = SqliteTaskAttachmentTable(second)
+        stored = (
+            await table.all_documents(),
+            await table.versions(doc().id),
+            await table.links(doc().id),
+        )
         second.close()
         return stored
 
-    [stored] = asyncio.run(scenario())
-
-    assert summary(stored) == (
-        "northwind/2026-09-22.1",
-        ".drafts/verification.md",
-        1,
-        "It works.\n",
+    assert asyncio.run(scenario()) == (
+        [doc()],
+        [version(doc(), 1)],
+        [a_link(doc(), "2026-09-22.5")],
     )
+
+
+ZAP = (Path(__file__).parents[1] / "fixtures" / "sarif" / "zap.sarif.json").read_text()
+
+
+ADD = {
+    "project": "northwind",
+    "task_id": "2026-09-22.1",
+    "name": "notes.md",
+    "kind": "markdown",
+    "title": "Notes",
+    "now": NOW,
+}
+
+
+def add(table, name="notes.md", body="# Notes\n", **over):
+    args = {
+        "project": "northwind",
+        "task_id": "2026-09-22.1",
+        "name": name,
+        "kind": "markdown",
+        "title": "Notes",
+        "body": body,
+        "now": NOW,
+    }
+    args.update(over)
+    return asyncio.run(docs.add(table, **args))
+
+
+def ref(text: str) -> DocumentRef:
+    return docs.parse_ref(text, project="northwind", task_id="2026-09-22.1")
+
+
+class TestRefs:
+    @pytest.mark.parametrize(
+        ("text", "parsed"),
+        [
+            ("notes.md", ("northwind", "2026-09-22.1", "notes.md", None, None)),
+            ("t.2:a/b.md", ("northwind", "t.2", "a/b.md", None, None)),
+            ("p:t.2:a.md@v3", ("p", "t.2", "a.md", 3, None)),
+            # A finding key holds a `:`, so the fragment splits off first.
+            ("p:t.2:zap@v1#v3:abc", ("p", "t.2", "zap", 1, "v3:abc")),
+            ("a.md#setup", ("northwind", "2026-09-22.1", "a.md", None, "setup")),
+        ],
+    )
+    def test_a_ref_fills_what_it_leaves_out(self, text, parsed):
+        found = ref(text)
+        assert (
+            found.project,
+            found.task_id,
+            found.name,
+            found.version,
+            found.fragment,
+        ) == parsed
+
+    def test_a_ref_prints_its_canonical_uri(self):
+        assert str(ref("a.md@v2#setup")) == "northwind:2026-09-22.1:a.md@v2#setup"
+
+    @pytest.mark.parametrize("text", ["", "p:t:u:a.md", "a.md#", " a.md", "a\x07.md"])
+    def test_a_ref_the_grammar_refuses(self, text):
+        with pytest.raises(docs.InvalidName):
+            ref(text)
+
+    def test_a_ref_with_no_task_is_refused(self):
+        with pytest.raises(docs.InvalidName, match="task"):
+            docs.parse_ref("a.md", project="p", task_id=None)
+
+
+class TestAdd:
+    def test_each_new_body_is_the_next_version(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+
+        document, second = add(table, body="# Notes\n\nMore.\n", now=LATER)
+
+        assert (document.name, document.kind, document.attached_at) == (
+            "notes.md",
+            "markdown",
+            NOW,
+        )
+        assert (second.version, second.created_at) == (2, LATER)
+
+    def test_the_latest_body_again_adds_nothing(self):
+        table = InMemoryTaskAttachmentTable()
+        _, first = add(table)
+
+        _, again = add(table, now=LATER)
+
+        assert again == first
+
+    def test_another_kind_under_the_same_name_is_refused(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table, name="scan")
+
+        with pytest.raises(docs.KindMismatch):
+            add(table, name="scan", kind="sarif", body=ZAP)
+
+    @pytest.mark.parametrize(("kind", "body"), [("sarif", "# not sarif"), ("pdf", "x")])
+    def test_a_body_its_kind_cannot_read_is_refused(self, kind, body):
+        with pytest.raises(docs.InvalidDocument):
+            add(InMemoryTaskAttachmentTable(), kind=kind, body=body)
+
+    def test_two_adds_at_once_take_two_versions(self):
+        """The next number is read and written as one step."""
+
+        class Slow(InMemoryTaskAttachmentTable):
+            async def versions(self, attachment):
+                read = await super().versions(attachment)
+                await asyncio.sleep(0)  # yield between the read and the write
+                return read
+
+        table = Slow()
+
+        async def both():
+            await docs.add(table, **ADD, body="zero")
+            await asyncio.gather(
+                docs.add(table, **ADD, body="one"), docs.add(table, **ADD, body="two")
+            )
+            return await table.versions(attachment_id(KEY, "notes.md"))
+
+        assert [v.version for v in asyncio.run(both())] == [1, 2, 3]
+
+    def test_an_archived_document_still_takes_versions(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+        asyncio.run(docs.archive(table, ref("notes.md"), True))
+
+        document, version = add(table, body="v2")
+
+        assert (document.archived, version.version) == (True, 2)
+
+
+class TestResolve:
+    def test_a_ref_resolves_to_the_latest_or_the_version_it_names(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table, body="one")
+        add(table, body="two")
+
+        _, latest = asyncio.run(docs.resolve(table, ref("notes.md")))
+        _, first = asyncio.run(docs.resolve(table, ref("notes.md@v1")))
+
+        assert (latest.body, first.body) == ("two", "one")
+
+    @pytest.mark.parametrize("text", ["missing.md", "notes.md@v9"])
+    def test_what_is_not_there_is_not_found(self, text):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+
+        with pytest.raises(docs.DocumentNotFound):
+            asyncio.run(docs.resolve(table, ref(text)))
+
+
+class TestFragments:
+    def test_markdown_fragments_are_github_heading_slugs(self):
+        body = (
+            "# Set up\n\nText.\n\n## What's new?\n\n"
+            "```\n# not a heading\n~~~\n# still code\n```\n\n"
+            "~~~\n# tilde code\n~~~\n\n## Set up\n### Set up ###\n"
+        )
+
+        assert docs.fragments("markdown", body) == [
+            "set-up",
+            "whats-new",
+            "set-up-1",
+            "set-up-2",
+        ]
+
+    def test_sarif_fragments_are_finding_keys(self):
+        keys = docs.fragments("sarif", ZAP)
+
+        assert keys == [f.key for f in sarif.parse(ZAP).findings]
+        assert keys != ["F1", "F2"]
+
+
+class TestLinks:
+    def test_a_link_to_a_fragment_is_kept_once(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table, body="# Setup\n")
+
+        for _ in range(2):
+            asyncio.run(
+                docs.link(
+                    table, ref("notes.md#setup"), project="northwind", task_id="t.5"
+                )
+            )
+
+        [made] = asyncio.run(table.links(attachment_id(KEY, "notes.md")))
+        assert (made.task_id, made.fragment) == ("t.5", "setup")
+
+    def test_a_fragment_the_latest_version_lacks_is_refused(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table, body="# Setup\n")
+        add(table, body="# Install\n")
+
+        with pytest.raises(docs.UnknownFragment):
+            asyncio.run(
+                docs.link(
+                    table, ref("notes.md#setup"), project="northwind", task_id="t.5"
+                )
+            )
+
+    def test_a_link_to_one_version_is_refused(self):
+        """A link is to the document; its fragment is checked on the latest version."""
+        table = InMemoryTaskAttachmentTable()
+        add(table, body="# Setup\n")
+
+        with pytest.raises(docs.InvalidName, match="@v1"):
+            asyncio.run(
+                docs.link(
+                    table, ref("notes.md@v1#setup"), project="northwind", task_id="t.5"
+                )
+            )
+
+    def test_the_owner_cannot_link_its_own_document(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+
+        with pytest.raises(docs.TaskDocumentError, match="owns"):
+            asyncio.run(
+                docs.link(
+                    table, ref("notes.md"), project="northwind", task_id="2026-09-22.1"
+                )
+            )
+
+    def test_unlink_removes_only_the_fragment_it_names(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table, body="# Setup\n")
+        for text in ("notes.md", "notes.md#setup"):
+            asyncio.run(docs.link(table, ref(text), project="northwind", task_id="t.5"))
+
+        asyncio.run(
+            docs.unlink(
+                table, ref("notes.md#setup"), project="northwind", task_id="t.5"
+            )
+        )
+
+        [kept] = asyncio.run(table.links(attachment_id(KEY, "notes.md")))
+        assert kept.fragment == ""
+
+
+class TestArchive:
+    def test_the_owner_archives_and_unarchives(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+
+        asyncio.run(docs.archive(table, ref("notes.md"), True, by=KEY))
+        archived = asyncio.run(table.read(KEY, "notes.md"))
+        asyncio.run(docs.archive(table, ref("notes.md"), False, by=KEY))
+
+        assert archived is not None and archived.archived
+        assert not asyncio.run(table.read(KEY, "notes.md")).archived
+
+    def test_another_task_cannot_archive_it(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+
+        with pytest.raises(docs.NotOwner):
+            asyncio.run(docs.archive(table, ref("notes.md"), True, by="northwind/t.5"))
 
 
 @pytest.fixture
@@ -171,12 +472,12 @@ def attach_verification(table, worktree, now=NOW, **over):
         "task_id": "2026-09-22.1",
         "cwd": str(worktree),
         "path": ".drafts/verification.md",
-        "kind": "verification",
         "title": "Login flow",
         "now": now,
     }
     args.update(over)
-    return asyncio.run(attach(table, **args))
+    attached = asyncio.run(attach(table, **args))
+    return attached[1] if attached else None
 
 
 def bucket_names(tasks) -> list[str]:
@@ -195,7 +496,7 @@ class TestAttach:
         attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
 
         assert attached is not None
-        assert attached.task_key == task_key("northwind", "2026-09-22.1")
+        assert attached.attachment_id == attachment_id(KEY, ".drafts/verification.md")
         assert attached.body == (
             "# Login flow\n\n"
             f"![The dashboard]({{{{MAEL_TASK_DIR}}}}/images/2026-09-22.1/{SHOT})\n\n"
@@ -213,7 +514,7 @@ class TestAttach:
         again = attach_verification(table, worktree, now=LATER)
 
         assert again == first
-        assert (again.version, again.attached_at) == (1, NOW)
+        assert (again.version, again.created_at) == (1, NOW)
 
     def test_a_changed_body_is_the_next_version(self, tasks, worktree):
         table = InMemoryTaskAttachmentTable()
@@ -227,6 +528,16 @@ class TestAttach:
         assert attached is not None and attached.version == 2
         # The picture did not change, so the bucket holds it once.
         assert bucket_names(tasks) == [FLOW, SHOT]
+
+    def test_an_earlier_body_again_is_the_next_version(self, tasks, worktree):
+        table = InMemoryTaskAttachmentTable()
+        first = attach_verification(table, worktree)
+        attach_verification(table, worktree, body="Reworked.\n")
+
+        again = attach_verification(table, worktree)
+
+        assert again is not None and again.version == 3
+        assert again.body == first.body
 
     def test_a_changed_title_is_the_next_version(self, tasks, worktree):
         table = InMemoryTaskAttachmentTable()
@@ -329,7 +640,7 @@ class TestAttach:
         attached = attach_verification(table, worktree, path=".drafts/missing.md")
 
         assert attached is None
-        assert asyncio.run(table.list()) == []
+        assert asyncio.run(table.all_documents()) == []
 
     def test_a_given_body_is_attached_without_reading_the_path(self, tasks, worktree):
         """A plan's file is outside the worktree; the document holds its text."""
@@ -337,10 +648,10 @@ class TestAttach:
             InMemoryTaskAttachmentTable(),
             worktree,
             path="/Users/dev/.claude/plans/a.md",
-            kind="plan",
+            name="plan",
             title="Plan",
             body="# Plan\n\nDo the thing.\n",
         )
 
         assert attached is not None
-        assert (attached.kind, attached.body) == ("plan", "# Plan\n\nDo the thing.\n")
+        assert attached.body == "# Plan\n\nDo the thing.\n"

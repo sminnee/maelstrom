@@ -56,6 +56,8 @@ See `docs/dev/` for architecture and design docs:
   it, the `exposeParams` and `setParams` frames, and the needs-an-agent rule.
 - `docs/dev/cli-over-api.md` — moving `mael` commands onto the orchestrator API: the
   Orchestrator client, the command classes, the API gaps, and the migration order.
+- `docs/adr/` — architecture decision records: each choice, the options rejected, and why.
+  `0001-task-documents.md` covers Task documents.
 
 ## User Documentation
 
