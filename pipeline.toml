@@ -114,10 +114,12 @@ paths = ["vite-plugin-mael-jig/**"]
 paths = ["pipeline.toml", ".github/workflows/test.yml"]
 
 # --------------------------------------------------------------------------
-# Service buckets. Each `depends` list follows the `dependencies` of the
-# member's pyproject.toml; the CLI's follows its `dev-mode-dirs`, because its
-# wheel bundles the libraries rather than depending on them. Tests and READMEs
-# never restart a service.
+# Service and component buckets. Each `depends` list follows the
+# `dependencies` of the member's pyproject.toml. Tests and READMEs never
+# restart a service.
+#
+# Each release bundle component (CONTEXT.md) is a SHA bucket of its name; see
+# COMPONENTS in lib/domain/src/mael_domain/release_bundle/install.py.
 # --------------------------------------------------------------------------
 
 [web]
@@ -153,25 +155,39 @@ exclude = ["**/tests/**", "**/README.md"]
 depends = ["common", "agent", "python-deps"]
 sha = true
 
-# Not a service: `mael self-update` reinstalls the CLI when this moves.
+# Not a service: a component of the release bundle.
 [cli]
-paths = ["cli/**", "shared/**"]
+paths = "cli/**"
 exclude = ["**/tests/**", "**/README.md"]
 depends = ["common", "agent", "domain", "python-deps"]
 sha = true
 
-# Shared libraries. A library's tests sit outside `src/`, so they move nothing.
+# Shared libraries, each its own wheel. A library's tests sit outside `src/`,
+# so they move nothing.
 
 [common]
-paths = "lib/common/src/**"
+paths = ["lib/common/src/**", "lib/common/pyproject.toml"]
+sha = true
 
 [agent]
-paths = "lib/agent/src/**"
+paths = ["lib/agent/src/**", "lib/agent/pyproject.toml"]
 depends = "common"
+sha = true
 
+# The domain wheel carries `shared/`, which both the CLI and the orchestrator
+# read, so a skill edit moves both.
 [domain]
-paths = "lib/domain/src/**"
+paths = [
+  "lib/domain/src/**",
+  "lib/domain/pyproject.toml",
+  "lib/domain/hatch_build.py",
+  "shared/**",
+]
+exclude = ["shared/tests/**"]
 depends = ["common", "agent"]
+sha = true
 
+# The pinned third-party requirements, exported from uv.lock.
 [python-deps]
 paths = ["uv.lock", "pyproject.toml"]
+sha = true

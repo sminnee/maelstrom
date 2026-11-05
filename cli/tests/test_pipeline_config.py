@@ -8,8 +8,8 @@ the names.
 import tomllib
 from pathlib import Path
 
-from mael_cli.admin_cli import CLI_BUCKET
 from mael_domain.config import load_config
+from mael_domain.release_bundle.install import COMPONENTS
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -25,6 +25,6 @@ def test_every_core_service_has_a_bucket():
     assert services <= _buckets()
 
 
-def test_the_cli_has_a_bucket():
-    """Otherwise every `mael self-update` reinstalls the CLI."""
-    assert CLI_BUCKET in _buckets()
+def test_every_component_is_a_sha_bucket():
+    """Otherwise a release bundle has no version for it, and the build refuses."""
+    assert set(COMPONENTS) <= _buckets()

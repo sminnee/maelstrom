@@ -95,7 +95,7 @@ the whitelist carries the fields instead. One of those functions, `state_with`, 
 production list today.
 
 `bin/lint` runs `bin/vulture-check`, so a commit and a release both pass through it —
-`bin/publish` runs `bin/lint` before it uploads.
+`bin/publish` runs `bin/lint` before it tags.
 
 ## TypeScript
 
@@ -117,8 +117,8 @@ Knip finds the vite, vitest and eslint entry points by itself. The config names 
 `bin/knip-check` covers `orchestrator-ui/`. `vite-plugin-mael-jig/` runs knip once, in its `pnpm lint`, which is the `web.jig-lint` gate. `tools/mael-session-channel` has no tsconfig and
 no CI job, so covering it means building a gate for it first.
 
-`bin/publish` does not run knip. It ships the Python wheel, and the web app is not in it, so the
-release path covers vulture only.
+`bin/publish` does not run knip, so the release path covers vulture only. The web app is in the
+release bundle, so knip's CI gate is what covers it.
 
 ## What CI runs
 

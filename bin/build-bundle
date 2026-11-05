@@ -1,0 +1,8 @@
+#!/bin/sh
+# Build a release bundle of this checkout's HEAD: dist/maelstrom.tar.gz.
+# Usage: bin/build-bundle [--tag TAG] [--out PATH] [--allow-dirty]
+# See docs/adr/0001-maelstrom-installs-as-a-release-bundle.md.
+set -eu
+root="$(cd "$(dirname "$0")/.." && pwd)"
+exec uv run --frozen --project "$root" python -m mael_domain.release_bundle.build \
+  --repo "$root" "$@"
