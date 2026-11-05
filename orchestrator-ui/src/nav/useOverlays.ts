@@ -1,6 +1,6 @@
 import { useAppStore } from '../store/store';
 import type { NewWorkSeed } from '../store/uiSlice';
-import type { TaskId } from '../protocol/ids';
+import type { ProjectId, TaskId } from '../protocol/ids';
 import { currentLoc, useRouter } from './router';
 import { useGo, useLoc } from './useNav';
 
@@ -53,5 +53,16 @@ export function useNewWork() {
       setSeed(null);
       go({ newWork: false }, { close: true });
     },
+  };
+}
+
+/** The project detail dialog, which the location's `detail` opens. A close goes back. */
+export function useProjectDetail() {
+  const { projectDetail } = useLoc();
+  const go = useGo();
+  return {
+    projectId: projectDetail,
+    open: (projectId: ProjectId) => go({ projectDetail: projectId }),
+    close: () => go({ projectDetail: null }, { close: true }),
   };
 }
