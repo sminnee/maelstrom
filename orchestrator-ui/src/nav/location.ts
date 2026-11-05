@@ -1,5 +1,5 @@
 import { generatePath, matchRoutes, type Params } from 'react-router';
-import type { TaskId } from '../protocol/ids';
+import type { ProjectId, TaskId } from '../protocol/ids';
 import type { Zone } from '../protocol/progress';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import { AGENT_STATUS_LABELS, noFilters, type Filters } from '../selectors/filters';
@@ -31,6 +31,8 @@ export interface Loc {
   zone: Zone;
   /** The task the editor is open on. */
   edit: TaskId | null;
+  /** The project the detail dialog is open on. */
+  projectDetail: ProjectId | null;
   /** Whether the new-work form is open. */
   newWork: boolean;
 }
@@ -80,6 +82,7 @@ export function defaultLoc(): Loc {
     worktreeFilters: noWorktreeFilters(),
     zone: DEFAULT_ZONE,
     edit: null,
+    projectDetail: null,
     newWork: false,
   };
 }
@@ -188,6 +191,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
     worktreeFilters: { showClosed: q.get('closed') === '1' },
     zone: zone && ZONES.includes(zone) ? zone : DEFAULT_ZONE,
     edit: q.get('edit') || null,
+    projectDetail: q.get('detail') || null,
     newWork: q.get('new') === '1',
   };
 }
@@ -221,6 +225,7 @@ export function toHref(loc: Loc): string {
     ['closed', loc.worktreeFilters.showClosed ? '1' : null],
     ['zone', loc.zone !== DEFAULT_ZONE ? loc.zone : null],
     ['edit', loc.edit],
+    ['detail', loc.projectDetail],
     ['new', loc.newWork ? '1' : null],
   ];
   const search = params

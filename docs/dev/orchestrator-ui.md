@@ -1694,18 +1694,19 @@ So Back and Forward move through the app, a copied link opens the same screen, a
 it. The app runs on React Router; `nav/` holds the code.
 
 **The scheme.** The path holds the main view and the open card. The search holds the panel tab,
-the filters and the two dialogs. One URL works on every layout: the narrow layout draws the card
+the filters and the three dialogs. One URL works on every layout: the narrow layout draws the card
 as its detail screen and the panel tab as a screen over it.
 
 | URL | What it opens |
 | --- | --- |
-| `/desk`, `/tasks`, `/worktrees`, `/comms` | The main view. `/` and any unknown path redirect to `/desk` |
+| `/desk`, `/tasks`, `/worktrees`, `/comms`, `/projects` | The main view. `/` and any unknown path redirect to `/desk` |
 | `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
 | `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
 | `?project= &branch= &agents= &status= &q= &comm= &closed=1` | The filters. `status=all` is every status |
 | `?zone=done` | The narrow deck's zone |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
+| `?detail=<project id>` | The project detail dialog. `project` is the project filter |
 
 `SCREENS` in `nav/location.ts` holds the path patterns, one route each. `nav/routes.tsx` declares
 them under one layout route that draws the shell, so a move between screens keeps the shell
@@ -1717,7 +1718,7 @@ leaves every default out. `nav/location.test.ts` round-trips each row above.
 
 | Held by | What |
 | --- | --- |
-| The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form |
+| The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form, the project detail |
 | The store, in `sessionStorage` | The open tabs, their recency and the split tabs |
 | The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed, the task editor's mode |
 

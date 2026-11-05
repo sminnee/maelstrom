@@ -41,6 +41,7 @@ describe('the URL of a location', () => {
     ['/worktrees?closed=1', { view: 'worktrees', worktreeFilters: { showClosed: true } }],
     ['/desk?zone=done', { zone: 'done' }],
     ['/tasks?edit=maelstrom/2026-09-22.1', { view: 'list', edit: 'maelstrom/2026-09-22.1' }],
+    ['/projects?detail=northwind', { view: 'projects', projectDetail: 'northwind' }],
     ['/desk?new=1', { newWork: true }],
   ])('%s', (href, patch) => {
     const loc = withLoc(defaultLoc(), patch);
