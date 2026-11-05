@@ -1467,8 +1467,9 @@ _Avoid_: Chunk, block, region
 
 **Pin**:
 Extra context that the reviewer brings into the **Changes tab**: a whole file, or a range of
-lines. A file picked from the file list is pinned whole. A pin lives per rev, in **Held text**.
-Unpinning removes it; the diff stays.
+lines. A file picked from the file list is pinned whole. Following a name to a definition the
+flow does not draw also makes a pin. A pin lives per rev, in **Held text**. Unpinning removes it;
+the diff stays.
 _Avoid_: Addition, added file, bookmark, attachment
 
 **Fragment**:
@@ -1477,9 +1478,19 @@ planned work.
 _Avoid_: Snippet, excerpt (the wire read), slice
 
 **Symbol card**:
-The card that a plain click on a name opens in the **Changes tab**: the symbol's type, its
-definition and its references, from the worktree's language server. Planned work.
+A card for a name in the **Changes tab**: the symbol's type, its definition and its references,
+from the worktree's **Language server**. Planned work.
 _Avoid_: Tooltip, hover card, popover
+
+**Language server**:
+A process that answers questions about the code of one worktree, such as where a name is
+defined. Maelstrom hardcodes the list.
+_Avoid_: LSP, language service, analyser
+
+**Rev overlay**:
+The files a **Language server** holds open at the rev's text, because they differ from the
+working tree. Without it, a definition would come back at its line on disk, not in the rev.
+_Avoid_: Shadow tree, virtual files
 
 **Rendered view**:
 A dialog over the **Changes tab** that draws one whole file of the rev in view, by its **Renderer

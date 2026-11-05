@@ -105,28 +105,71 @@ as an empty box of its rows' height. Rows never wrap, so the height is exact. Th
 A chunk stays mounted out of view while it holds an added comment, the open comment box or the
 drag. Tokens are made per run of rows between two marks or chunk edges, while the chunk is in view.
 
-## The language server (planned: task 2)
+## The language server
 
-Nothing in this section runs yet. The project will name its servers in `language_servers:` in
-`.maelstrom.yaml`: a name, a command and globs. Maelstrom hardcodes none. Pyright comes first.
+A click on a name in a Python card goes to its definition. The flow is: the click, the
+`/definition` route, the worktree's **Language server**, then a scroll or a **Pin**.
 
-The server runs on the working tree, but it must see the rev's tree. Each file whose content
-differs between the rev's new side and the working tree is opened in the server at its rev
-content, through `didOpen`. For `uncommitted` that list is empty. A rev switch closes and reopens
-the set. A target in a file that the rev lacks draws muted, "not in this rev", and pins nothing.
+### The list
 
-The orchestrator starts a server lazily, per worktree and per server. It stops one after 10
-minutes idle, and when the worktree row closes.
+Maelstrom hardcodes its servers in `mael_domain.language_servers.LANGUAGE_SERVERS`. Each entry is
+a name, a command and globs. The one entry is `pyright`, with the glob `**/*.py`. A project does
+not configure them.
 
-A plain click on a name, with no text selected, opens the symbol card. Line selection for change
-comments starts only from the gutter button, so the two do not collide.
+`server_for(worktree_path, file)` picks the first entry whose globs match the file. It resolves the
+command in the worktree's `.venv/bin` first, then on `PATH`. With neither, the file is not
+navigable. The `.venv` binary runs the project's own interpreter; `uv run` would sync on each
+start.
+
+The server decides what a card can navigate. `FileDiff` and `FileExcerpt` carry `navigable`, set
+from `server_for`. The client needs no glob matcher and no language names.
+
+### The rev overlay
+
+The server runs on the working tree, but the reviewer reads the rev's new side. The **Rev
+overlay** closes that gap. Before each request, `LanguageServers` reads `git diff --name-only <commit>`
+and keeps the files the server's globs match. It opens each one at its rev text, through
+`didOpen`, and it always opens the file of the click.
+
+| Case                                  | What `LanguageServers` does                         |
+| ------------------------------------- | --------------------------------------------------- |
+| A file no longer differs              | `didClose`; the server reads the disk again         |
+| A file starts to differ               | `didOpen` at the rev text                           |
+| The resolved commit changes           | Closes every open file, then opens the new set      |
+| `uncommitted`                         | Opens only the file of the click, at its disk text, on each request |
+
+A target outside the worktree, such as typeshed, or in a file the rev does not track, such as one
+in `.venv`, comes back with `inRev: false`. The tab says "Definition not in this rev" and pins
+nothing.
+
+### Life
+
+The orchestrator runs one server per worktree and server name, over `LspClient`, its own stdio
+client. A server starts on its first request. It stops after 10 minutes idle, when its worktree
+row closes or goes, and when the orchestrator stops. A server that crashed starts again on the
+next request.
+
+### The click
+
+The click handler is on the row text, never on the gutter. Line selection for change comments
+starts only from the gutter button, so the two do not collide. A click while text is selected
+sends nothing. A token in a keyword, comment or string colour is not a name.
+
+The client sends the 1-based new-side line and the UTF-16 offset of the token. It follows the
+first target the rev holds:
+
+1. A target line drawn in the flow: the tab scrolls to it and flashes it.
+2. A target in a changed file: the tab pins 5 lines above it to 25 lines below it in the diff
+   card, then scrolls.
+3. A target in another file: the tab pins the whole file after the card of the click, then
+   scrolls.
+
+A click opens no popup. The **Symbol card** waits for later work.
 
 ## The chain
 
 1. The card model, the windowed flow, the full file list and pins of whole files and gaps.
-2. The language-server bridge and the symbol card, for Python. A target in a changed file scrolls
-   to its line, or pins the lines around it in the diff card. Elsewhere it pins the whole file
-   after its origin.
+2. The language-server bridge, for Python, and a click that goes to a definition.
 3. Fragments: the enclosing function or class of a target, from `documentSymbol`, in place of
    the whole file.
 4. The TypeScript server for `orchestrator-ui`.
