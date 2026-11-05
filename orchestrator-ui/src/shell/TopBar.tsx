@@ -20,6 +20,7 @@ const PANES: { pane: Pane; label: string }[] = [
   { pane: 'list', label: 'Tasks' },
   { pane: 'worktrees', label: 'Worktrees' },
   { pane: 'comms', label: 'Comms' },
+  { pane: 'projects', label: 'Projects' },
   { pane: 'tabs', label: 'Tabs' },
 ];
 

@@ -421,7 +421,8 @@ export type OperationKind =
   | 'launch'
   | 'start'
   | 'create'
-  | 'plan';
+  | 'plan'
+  | 'addProject';
 
 /** One **Step** of an operation. Its log lines are a separate read: `useOperationLog`. */
 export interface OperationStep {

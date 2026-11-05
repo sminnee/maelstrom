@@ -19,6 +19,7 @@ export const KIND_NAMES: Record<OperationKind, string> = {
   start: 'Start',
   create: 'Create',
   plan: 'Plan',
+  addProject: 'Add project',
 };
 
 /** An operation that ended **Refused** or failed. */
@@ -138,6 +139,7 @@ export const KIND_DOING: Record<OperationKind, string> = {
   start: 'starting',
   create: 'creating',
   plan: 'planning',
+  addProject: 'adding',
 };
 
 /**

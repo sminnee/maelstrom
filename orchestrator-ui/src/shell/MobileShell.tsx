@@ -3,6 +3,7 @@ import { useWorld } from '../api/useWorld';
 import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
 import { CommList } from '../comms/CommList';
+import { ProjectList } from '../projects/ProjectList';
 import { DocumentTab } from '../documents/DocumentTab';
 import { NodeCardBody } from '../canvas/NodeCardBody';
 import { showsProject } from '../selectors/filters';
@@ -103,6 +104,8 @@ export function MobileShell() {
             <WorktreeTable />
           ) : view === 'comms' ? (
             <CommList />
+          ) : view === 'projects' ? (
+            <ProjectList />
           ) : (
             <TaskList />
           )}

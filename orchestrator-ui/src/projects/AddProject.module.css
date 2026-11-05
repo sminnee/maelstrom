@@ -1,0 +1,11 @@
+.error {
+  composes: error from '../newwork/NewWork.module.css';
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--u-half);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}

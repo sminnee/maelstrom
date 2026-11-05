@@ -196,17 +196,17 @@ running, so a task launched from the UI joins the desk as well.
 The canvas is where the user decides. The panel is where the user reads. The task list is where
 the user chooses what the canvas draws. The worktree table is where the user manages the
 worktrees themselves. The Comms view is where the user keeps track of what to tell people outside
-the team.
+the team. The Projects view is where the user adds a project.
 
 The canvas draws a node when it is on the desk, or it has a live agent. The liveness half is
 what makes running work always visible: an agent shows the moment it starts, before the server's
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar shows Desk, Tasks, Worktrees, Comms and Tabs; see "The three layouts". There is one
+the desk. The top bar shows Desk, Tasks, Worktrees, Comms, Projects and Tabs; see "The three layouts". There is one
 filter bar, and it draws the controls of each main view on screen. Project applies to Desk, Tasks
-and Worktrees. The Comms view does not filter by project, so the bar hides Project when Comms is
-the only view on screen.
+and Worktrees. The Comms and Projects views do not filter by project, so the bar hides Project
+when they are the only views on screen.
 Branch applies to Desk and Tasks only: a worktree on a branch no work names would silently vanish
 from a table meant to show every one of them. The Project and Branch options are what the views on
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
@@ -281,6 +281,18 @@ because the PR column draws its own chip, which the narrow layout puts by the na
 the last column: Merge, Auto-merge, sync, the environment control and the close control. Delete is in the
 close control — see "The worktree area". `_main` is offered no close control, because it holds
 the main checkout, but it still syncs.
+
+### The Projects view
+
+`projects/ProjectList.tsx` draws one row per **Project** in the world: its name, its open
+worktree count, its stack tip and whether it has Linear. The count includes `_main`, and comes
+from `world.worktrees`.
+
+**Add project** opens `projects/AddProject.tsx`, which posts `{gitUrl}` to `/api/projects`. The
+reply is `202 {operationId}` at once, because a clone can take minutes. The dialog follows that
+operation in `world.operations`. It closes when the operation is done, and shows the operation's
+words when it is refused or failed. A refusal of the post itself, such as a name the world holds,
+shows the same way.
 
 ### The Comms view
 
@@ -1586,13 +1598,13 @@ fails on a CSS file that writes a layout breakpoint or names undefined custom me
 that each query names the same layout as the hook. In the suite, `setViewport` in `test/setup.ts` sets the width, the height and the pointer
 kind that the `matchMedia` stub answers from.
 
-**Slots and anchors.** The top bar has five items: Desk, Tasks, Worktrees, Comms and Tabs. Each item has
+**Slots and anchors.** The top bar has six items: Desk, Tasks, Worktrees, Comms, Projects and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
 `ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-Desk, Tasks, Worktrees and Comms are links to their view's path; Tabs is a button, because the panel is
+Desk, Tasks, Worktrees, Comms and Projects are links to their view's path; Tabs is a button, because the panel is
 not a location. A click on a view that is not showing moves to its path, and the shell calls
 `showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
 location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,

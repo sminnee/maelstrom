@@ -97,8 +97,12 @@ Use the HTTPS URL. Agents push with a token over HTTPS, so an SSH remote breaks 
 unattended session. `mael project add` clones the URL you give it and does not rewrite
 the protocol.
 
-This clones the repository into a bare-like layout, checks main out into `_main`, and
-creates the first worktree, **alpha**:
+The orchestrator UI does the same from its **Projects** tab. Press **Add project** and give
+the git URL. The clone runs as an operation, and the new row shows when it ends. A failed
+clone shows git's reason in the dialog.
+
+Both paths clone the repository into a bare-like layout, check main out into `_main`, and
+create the first worktree, **alpha**:
 
 ```
 ~/Projects/repo/

@@ -169,7 +169,13 @@ function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
       spec.replay?.includes(s.name) ||
       server.world.operations[id]!.steps.find((o) => o.name === s.name)?.state !== 'done',
   );
-  const fault = [spec.worktreeId, spec.taskId, spec.agentId]
+  // A project add acts on no worktree, task or agent: its fault is planted under the project.
+  const fault = [
+    spec.worktreeId,
+    spec.taskId,
+    spec.agentId,
+    spec.kind === 'addProject' && spec.project,
+  ]
     .filter((unit): unit is string => !!unit)
     .map((unit) => server.world.operationFaults[faultKey(spec.kind, unit)])
     .find((f) => f !== undefined);

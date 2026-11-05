@@ -1,0 +1,76 @@
+/* The comm list's chassis: one table on the page ground, hairline rows. */
+.view {
+  composes: view from '../comms/CommList.module.css';
+}
+/* The one action, at the end, as the top bar ends with New. */
+.toolbar {
+  composes: toolbar from '../comms/CommList.module.css';
+  justify-content: flex-end;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--u);
+  border-top: 1px solid var(--border);
+}
+.table th {
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+/* Mono Means Literal: a project and a branch are names on disk. */
+.name {
+  font-family: var(--mono);
+  max-width: 24rem;
+}
+.tip {
+  font-family: var(--mono);
+  color: var(--fg-muted);
+  max-width: 24rem;
+}
+.count {
+  font-variant-numeric: tabular-nums;
+}
+.faint {
+  color: var(--fg-faint);
+}
+
+/* The narrow layout: a row is a stack. The name leads; the rest follows in the quiet register. */
+@media (--narrow) {
+  .table,
+  .table tbody {
+    display: block;
+  }
+  .table thead {
+    display: none;
+  }
+  .table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--u);
+    padding: var(--u) var(--u-2);
+    border-top: 1px solid var(--border);
+  }
+  .table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    color: var(--fg-muted);
+  }
+  .table td:nth-child(1) {
+    flex: 1 1 100%;
+    font-size: var(--text-ui);
+    font-weight: var(--weight-medium);
+    color: var(--fg);
+  }
+  /* "none" says nothing on its own line: the stack drops it. */
+  .table td[data-linear='false'] {
+    display: none;
+  }
+}

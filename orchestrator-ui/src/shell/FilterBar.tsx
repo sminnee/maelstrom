@@ -47,8 +47,10 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
     if (stale) go({ filters: { branch: null } }, { replace: true });
   }, [stale, go]);
 
-  // The Comms view does not filter by project, so it alone has no use for this control.
-  const projectApplies = !(views.length > 0 && views.every((v) => v === 'comms'));
+  // The Comms and Projects views do not filter by project, so they have no use for this control.
+  const projectApplies = !(
+    views.length > 0 && views.every((v) => v === 'comms' || v === 'projects')
+  );
 
   return (
     <div className={layout === 'stack' ? styles.stack : styles.bar}>

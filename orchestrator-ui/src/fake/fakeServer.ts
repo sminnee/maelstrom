@@ -1418,6 +1418,32 @@ function command(
     return ok({ ...inferNames(draft), command: '', mode: 'auto' });
   }
 
+  if (pathname === '/api/projects' && method === 'POST') {
+    const gitUrl = str('gitUrl')?.trim() ?? '';
+    if (!gitUrl) return error(400, 'invalid', 'A git URL is required');
+    const name = projectNameOf(gitUrl);
+    if (world.projects[name]) return error(400, 'invalid', `Project ${name} already exists`);
+    return operate({
+      kind: 'addProject',
+      keys: [`project:${name}`],
+      project: name,
+      doing: `Adding ${name}`,
+      done: `Added ${name}`,
+      failing: `Could not add ${name}`,
+      steps: [
+        {
+          name: 'clone',
+          lines: [`Cloned ${gitUrl}.`],
+          run: () => {
+            server.change({ kind: 'project', ids: [name] }, (w) => {
+              w.projects[name] = { id: name, name, stackTip: 'main', hasLinear: false };
+            });
+          },
+        },
+      ],
+    });
+  }
+
   if (pathname === '/api/tasks' && method === 'POST') {
     const project = str('project') ?? '';
     if (!world.projects[project]) return notFound(`project ${project}`);
@@ -2077,6 +2103,12 @@ const COMM_EDITABLE = ['title', 'content', 'recipients', 'category', 'project', 
 
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+/** A project's name from its git URL, as `extract_project_name` in `worktree_model.py` reads it. */
+function projectNameOf(gitUrl: string): string {
+  const url = gitUrl.replace(/\/+$/, '').replace(/\.git$/, '');
+  return url.split(/[/:]/).at(-1) ?? url;
+}
 
 /** A comm's text fields, `recipients` and `project`, as `_check_comm_fields`. */
 function commFieldsError(b: Record<string, unknown>, world: FakeWorld) {
